@@ -27,7 +27,9 @@ log (81,000 lines) is in git history.
   - A card a site setting caused says so ("Your setting for shop.example says to ask first").
   - Changing anything here closes a card that's waiting, as changing a rule already did.
 
-Tests GL104 (the browser's name, in a real browser) and GL105 (sites, end to end); the hold test and GL83 updated.
+- **A monitor that watches over each run (dots' "safety monitoring").** A second AI call reads the whole run so far: your words, your rules, and each step Gloopy took with the start of its answer. It looks every 4 actions, and at once after anything was refused. Reading doesn't count as an action. If Gloopy seems to be getting around a safeguard (trying another way after a no), doing what you didn't ask, or following instructions from a page or a file, the run pauses. You see a yellow "Gloopy paused this task" note with why (and get a push), and Gloopy is told not to carry on unless you say so. It looks at most 12 times a run. It's on by default and has a switch in Settings ("Watch over each run"). It uses a little more Grok: each look is one short call at low effort.
+
+Tests GL104 (the browser's name, in a real browser), GL105 (sites, end to end) and GL106 (the monitor); the hold test and GL83 updated.
 
 ## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
 

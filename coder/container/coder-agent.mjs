@@ -26,7 +26,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
-import { needsCheck, stepWords, stepSends, gloopyCheck, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
+import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
@@ -570,7 +570,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -603,6 +603,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   const perms = cleanPermissions(permsIn);
   // THE OWNER'S CHOICE FOR EACH SITE (2026-11-10; gloopy-check.mjs): applied to the browser's steps below.
   const sites = cleanSites(sitesIn);
+  // THE MONITOR'S RECORD OF THIS RUN (2026-11-10; gloopy-check.mjs gloopyMonitor): each step and the start of its answer.
+  const trail = [];
+  let sinceReview = 0, reviews = 0;
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // A RUN THE OWNER DID NOT START (`background`: a schedule, a wake-up, a webhook's call; the audit, 2026-11-10, Grok Bot's):
   // a card it ends on waits 30 minutes for the owner (CARD_TTL_MS), then it has expired.
@@ -1618,6 +1621,32 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       const shots = roundPics.every((p) => p.path === "the browser");
       convo.push({ role: "user", appNote: true, content: shots ? "(Note from Gloopy's app, not the owner: the screenshot" + (n === 1 ? "" : "s") + " of the page your browser step" + (n === 1 ? "" : "s") + " showed, attached here in order.)" : "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
       keepPics(convo);
+    }
+    // THE MONITOR (the owner, 2026-11-10: "all of it"; dots' safety monitoring): this round's steps go on its record; it
+    // looks at the whole run every MONITOR_EVERY actions, and at once after a step was refused. A pause ends the run
+    // here, with a warning for the owner to review; Gloopy is told not to carry on with it unless they say so.
+    if (monitor) {
+      let refused = false;
+      for (const c of calls) {
+        const out = [...convo].reverse().find((m) => m.role === "tool" && m.tool_call_id === c.id);
+        const answer = scrub(String((out && out.content) || "")).replace(/\s+/g, " ").trim();
+        const a = c.args || {};
+        const what = c.name === "browser" ? "browser " + [a.action, a.url, a.ref, a.text !== undefined ? JSON.stringify(String(a.text).slice(0, 80)) : "", a.key, a.option, a.path].filter(Boolean).join(" ") : c.name + " " + scrub(JSON.stringify(a)).slice(0, 200);
+        trail.push(scrub(what).slice(0, 260) + " → " + answer.slice(0, 200));
+        const reads = (c.name === "browser" && ["look", "scroll", "screenshot"].includes(a.action)) || ["read", "grep", "glob", "lsp", "todo", "web_fetch"].includes(c.name);
+        if (!reads) sinceReview++;
+        if (/^not done\b/.test(answer)) refused = true;
+      }
+      if (reviews < MONITOR_MAX && (sinceReview >= MONITOR_EVERY || refused)) {
+        reviews++; sinceReview = 0;
+        const w = await gloopyMonitor({ send: deps.send, model, convo, rules, trail, background });
+        if (w.usage) usage.push(w.usage);
+        if (w.verdict === "pause") {
+          emit({ type: "paused", why: w.why });
+          convo.push({ role: "user", appNote: true, content: "(Note from " + who + "'s app, not the owner: your monitor paused this run (" + w.why + "). Don't carry on with what it paused unless the owner's own next message says to.)" });
+          return end("done", { summary: "Paused: " + w.why, paused: w.why });
+        }
+      }
     }
   }
 }

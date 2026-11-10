@@ -167,6 +167,9 @@ async function readRules(bucket, uid) {
 /** THE OWNER'S CHOICE FOR EACH SITE (2026-11-10; gloopy-check.mjs): Always allow, Ask first, Hand off to me or Never, kept here. */
 const gloopySitesKey = (uid) => ["coder", uid, "gloopy", "sites.json"].join("/");
 const readSites = async (bucket, uid) => cleanSites(await getJson(bucket, gloopySitesKey(uid), []));
+/** GLOOPY'S OWN OPTIONS (2026-11-10): whether its monitor watches over each run (on unless the owner turns it off). */
+const gloopyOptionsKey = (uid) => ["coder", uid, "gloopy", "options.json"].join("/");
+const readOptions = async (bucket, uid) => { const o = await getJson(bucket, gloopyOptionsKey(uid), {}); return { monitor: !(o && o.monitor === false) }; };
 export function newGloopy(now = Date.now()) {
   return { id: GLOOPY_ID, kind: "gloopy", name: "Gloopy", repo: "", title: "Gloopy", base: "", branch: "", turn: 0, saved: 0, status: "idle", pr: null, at: now };
 }
@@ -663,6 +666,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "permissions") return gloopyPermissions(g);
     if (action === "rules") return gloopyRules(g);
     if (action === "sites") return gloopySites(g);
+    if (action === "options") return gloopyOptions(g);
     if (action === "pages") return gloopyPages(g);
     if (action === "logins") return gloopyLogins(g);
     if (action === "cards") return gloopyCards(g);
@@ -1516,7 +1520,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1631,7 +1635,9 @@ async function gloopyState(g) {
     const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
     // HOW THE RUN WENT (the docs, 2026-11-10): Succeeded; Failed, and why; or waiting for the owner on a card or a question.
     const st = s.result.status, waits = st === "done" && !!(want || asked);
-    if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, st === "done" ? (waits ? "waiting" : "succeeded") : "failed", st === "done" ? (waits ? "It is waiting for your answer." : "") : RUN_FAILED[st] || String(s.result.summary || "Something went wrong.").slice(0, 200));
+    // A run its monitor paused (2026-11-10) did not finish: said so, with why.
+    const paused = st === "done" && typeof s.result.paused === "string" && s.result.paused ? "Paused by its monitor: " + s.result.paused.slice(0, 200) : "";
+    if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, paused ? "failed" : st === "done" ? (waits ? "waiting" : "succeeded") : "failed", paused || (st === "done" ? (waits ? "It is waiting for your answer." : "") : RUN_FAILED[st] || String(s.result.summary || "Something went wrong.").slice(0, 200)));
     const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, run: waits ? meta.run || null : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
     await saveMeta(bucket, uid, ended);
     await unwatch();
@@ -2068,6 +2074,22 @@ async function gloopySites(g) {
   const before = await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta);
   const meta = await closeForSettings(bucket, uid, g.id, before);
   return json({ ...(await out(list).json()), ...(meta !== before ? { closed: true, project: meta } : {}) });
+}
+
+/**
+ * GLOOPY'S OWN OPTIONS, FOR THE SETTINGS SCREEN (2026-11-10): GET; POST { set: { monitor: true | false } }. The monitor
+ * (dots' safety monitoring) watches over each run from Gloopy's next message.
+ */
+async function gloopyOptions(g) {
+  const { request, bucket, uid } = g;
+  if (request.method === "GET") return json({ ok: true, options: await readOptions(bucket, uid) });
+  if (request.method !== "POST") return json({ error: "Gloopy has no options " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  const set = body.set && typeof body.set === "object" ? body.set : {};
+  if (typeof set.monitor !== "boolean") return json({ error: "Give set: { monitor: true or false }." }, 400);
+  const next = { ...(await readOptions(bucket, uid)), monitor: set.monitor };
+  await putJson(bucket, gloopyOptionsKey(uid), next);
+  return json({ ok: true, options: next });
 }
 
 /**

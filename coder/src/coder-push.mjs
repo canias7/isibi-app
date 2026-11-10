@@ -158,6 +158,8 @@ export function pushesFor(events, meta, now = Date.now()) {
     else if (e.type === "signin") out.push({ kind: "actions", title: who + " asks you to sign in" + tail, body: "To " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "pay") out.push({ kind: "actions", title: who + " needs your card" + tail, body: "To pay " + String(e.total || "") + " on " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "handoff") out.push({ kind: "actions", title: who + " needs you in its browser" + tail, body: String(e.task || "A step only you can do") + (e.site ? " on " + e.site : "") });
+    // ITS MONITOR PAUSED A RUN (2026-11-10): the owner reviews it and says how to carry on.
+    else if (e.type === "paused") out.push({ kind: "actions", title: who + " paused a task" + tail, body: String(e.why || "Something in it looked wrong.") });
     else if (e.type === "secret") out.push({ kind: "actions", title: who + " needs a key" + tail, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });

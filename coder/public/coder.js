@@ -319,12 +319,13 @@
   async function showGloopySettings() {
     if (!S.project) return;
     const base = '/projects/' + encodeURIComponent(S.project.id);
-    const [pr, rr, sr] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites')]);
-    if (pr.status !== 200 || rr.status !== 200 || sr.status !== 200) { note(((pr.data || rr.data || sr.data || {}).error) || 'Gloopy’s settings could not be opened.'); return; }
+    const [pr, rr, sr, or] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites'), call(base + '/options')]);
+    if (pr.status !== 200 || rr.status !== 200 || sr.status !== 200 || or.status !== 200) { note(((pr.data || rr.data || sr.data || or.data || {}).error) || 'Gloopy’s settings could not be opened.'); return; }
     const st = {
       perms: pr.data.permissions || {}, permList: pr.data.list || [], permModes: pr.data.modes || ['ask', 'allow', 'deny'],
       rules: rr.data.rules || [], ruleModes: rr.data.modes || [], ruleWords: rr.data.words || {}, ruleMax: rr.data.max || 20,
       sites: sr.data.sites || [], siteModes: sr.data.modes || [], siteWords: sr.data.words || {}, siteMax: sr.data.max || 50,
+      options: or.data.options || { monitor: true },
       edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', note: '', busy: false,
     };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-gset-wrap';
@@ -354,6 +355,8 @@
         '<section><h3>Sites</h3><p class="cd-gset-hint">What Gloopy’s browser may do on a site and its subdomains. Never: it doesn’t open the site or do anything there. Ask first: it asks before opening it, and before each step there that would change something. Hand off to me: those steps are yours. Always allow: they go ahead unless the check finds another reason to stop.</p>' +
         '<form class="cd-gset-add cd-gset-siteadd" data-gs="add-site"><input id="gsSiteHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="shop.example" value="' + esc(st.siteHost) + '" aria-label="Site"><select id="gsSiteMode" class="cd-gset-sel" aria-label="Choice for this site">' + opts(st.siteModes, st.siteWords, st.siteMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add site</button></form>' +
         (st.sites.length ? '<ul class="cd-gset-list">' + st.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text cd-gset-host">' + esc(x.host) + '</span><select class="cd-gset-sel" data-site="' + esc(x.host) + '" aria-label="Choice for ' + esc(x.host) + '">' + opts(st.siteModes, st.siteWords, x.mode) + '</select><span class="cd-gset-btns"><button type="button" data-gs-unsite="' + esc(x.host) + '" aria-label="Remove ' + esc(x.host) + '">Remove</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No sites yet.</p>') + '</section>' +
+        // The monitor (dots' safety monitoring).
+        '<section><h3>Watch over each run</h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"' + (st.options.monitor ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>A second AI looks over what Gloopy does as it works, every few steps and right after anything is refused, and pauses the run if Gloopy seems to get around a safeguard or do what you didn’t ask. It uses a little more Grok.</span></label></section>' +
         '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '');
       const b = box.querySelector('.cd-gset-body'); if (b) b.scrollTop = top;
     };
@@ -374,6 +377,7 @@
     box.addEventListener('change', (e) => {
       const t = e.target;
       if (t.id === 'gsRuleMode') st.ruleMode = t.value; else if (t.id === 'gsEditMode') st.editMode = t.value; else if (t.id === 'gsSiteMode') st.siteMode = t.value;
+      else if (t.id === 'gsMonitor') save('/options', { set: { monitor: t.checked } }, (d) => { st.options = d.options; });
       else if (t.dataset.site) save('/sites', { set: { host: t.dataset.site, mode: t.value } }, (d) => { st.sites = d.sites; });
     });
     box.addEventListener('submit', async (e) => {
@@ -1242,6 +1246,8 @@
       else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
       else if (e.type === 'expired') return;
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
+      // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
+      else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');
     });
     flush();
     if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
