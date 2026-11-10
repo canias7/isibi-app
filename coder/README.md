@@ -683,6 +683,25 @@ command that ended (`untoldOf`), and the chat shows each event under an eye. Cod
 old `monitor` (a look at a background command's output) is gone, as Claude Code's
 TaskOutput is: Coder reads the output file. Tests: `test/monitor.test.mjs`, CD39.
 
+**Read(…) and Edit(…) rules** (Claude Code's file rules; owner, 2026-11-10: "yea do
+all 4"). The rules list takes `Read(path)` and `Edit(path)` besides Bash and
+WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`):
+`//path` from the machine's root, `~/path` from Coder's home, any other path from
+the project (Coder keeps rules per repository, as Claude Code's local settings);
+a bare name matches at any depth; `src/**` matches a `src` folder at any depth in a
+deny or ask rule but only the top one in an allow rule; `!name` carves out of the
+plain relative rules before it; a deny rule also matches where a link leads, an
+allow rule must match both. They apply to Coder's file tools (`fileToolDecision`:
+read, grep, glob and lsp by Read rules, write and edit by Edit rules and Read deny
+rules, in Claude Code's words; a search's results leave out what a deny rule
+covers), to @-mentions, and to the files commands name (`commandFiles`: cat, head,
+sed, `< file` by Read rules; `> file`, tee, rm, mv, cp, mkdir, touch by Edit rules),
+in every mode. An allow rule opens a path outside the project to commands (never a
+protected file, and never a write in Plan), and "Yes, and don't ask again" on a cd
+outside saves that folder's Read rule. Whole-tool `Write`, `Grep`, `Glob` and `LSP`
+rules apply to Coder's tools; a path in one of them is kept and never matches, with
+Claude Code's warning. Tests: `test/file-rules.test.mjs`.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

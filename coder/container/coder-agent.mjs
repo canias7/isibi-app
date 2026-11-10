@@ -28,7 +28,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
-import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
+import { MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -403,6 +403,25 @@ export function namesUserAgentWithAddress(text, mark) {
   return UA_WORDS.test(rest) || UA_FLAGS.some(([a, b]) => a.test(rest) && b.test(rest));
 }
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
+/** Coder's file tools the owner's Read and Edit rules (and whole-tool Write, Grep, Glob, LSP rules) apply to. */
+const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit"]);
+/**
+ * A search's lines without those whose file a Read deny rule covers: a glob's lines are paths; a grep's are a path, or
+ * "path:line:text" / "path:count". Coder's notes after a blank line (how many more, …) are kept.
+ */
+export function withoutDenied(text, denied, empty = "no matches") {
+  const lines = String(text).split("\n");
+  let cut = 0, left = 0;
+  const kept = lines.filter((l) => {
+    if (!l.trim() || /^\(|^\[|^no (matches|files match)/i.test(l)) return true;
+    const m = /^(.+?):(\d+)(?::|-|$)/.exec(l);
+    const p = m ? m[1] : l.trim();
+    if (denied(p)) { cut++; return false; }
+    left++;
+    return true;
+  });
+  return !cut ? String(text) : left ? kept.join("\n") : empty;
+}
 /** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
 export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
 /** Said of one moved to the background at its timeout (Claude Code's words in the cloud: 30 minutes from the move). */
@@ -590,10 +609,13 @@ const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outsi
 const stepId = (k) => k + Math.random().toString(36).slice(2, 9);
 
 /** The files the owner @-mentioned, as the note that goes with their message (or null), each shown as a step. */
-export async function mentionNote(deps, paths, { emit = () => {}, touch = () => {} } = {}) {
+export async function mentionNote(deps, paths, { emit = () => {}, touch = () => {}, denied = () => false } = {}) {
   const parts = [], urls = [], names = [], files = [];
   let left = MENTIONS_CHARS, bytes = 0;
   for (const p of paths) {
+    // A FILE A READ DENY RULE COVERS is left out, with no word of it (Claude Code: "A refused file leaves nothing in the
+    // conversation").
+    if (denied(p)) continue;
     const r = await appTool(deps, "read", { path: p });
     let shownOut = "", part = "", stepThumbs = [];
     if (r.code !== 0) {
@@ -601,7 +623,9 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
       if (/ is a folder, not a file/.test(r.output)) {
         const l = await appTool(deps, "listing", { path: p });
         if (l.code !== 0) continue;
-        shownOut = capOutput(l.output);
+        // (And a folder's listing leaves out the names a Read deny rule covers: Claude Code's "The listing Claude receives
+        // leaves out the file and directory names the rule matches".)
+        shownOut = capOutput(String(l.output).split("\n").filter((x) => !x.trim() || /^[[(]/.test(x) || !denied(p.replace(/\/+$/, "") + "/" + x.replace(/\/$/, ""))).join("\n"));
         part = "--- " + sayPath(deps, p.replace(/\/+$/, "")) + "/ (a folder: what is in it) ---\n" + shownOut;
       } else {
         shownOut = r.output.replace(/^error: /, "");
@@ -1188,7 +1212,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
-    const note = await mentionNote(deps, mentioned, { emit, touch });
+    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }) });
     if (note) { convo.push(note); keepPics(convo); }
   }
   // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
@@ -1711,15 +1735,26 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // directory"): with the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES on, a read, grep, glob or lsp
         // outside the project (its links followed) is refused; Coder's own folders stay readable ("Files Claude Code itself
         // needs stay readable").
-        if (readBlock && READ_TOOLS.has(c.name)) {
+        // (The file or folder a file tool works on, in full: a glob's own full path up to its first wildcard.)
+        const targetOf = () => {
           const pat = c.name === "glob" && typeof args.pattern === "string" && /^[/~]/.test(args.pattern) ? args.pattern.slice(0, Math.max(1, args.pattern.search(/[*?[{]/) < 0 ? args.pattern.length : args.pattern.search(/[*?[{]/))) : "";
           const p = pat || (typeof args.path === "string" && args.path ? args.path : ".");
-          const full = typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
+          return typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
+        };
+        if (readBlock && READ_TOOLS.has(c.name)) {
+          const full = targetOf();
           const own = [...workdirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : [])].filter((x) => typeof x === "string" && x);
           const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
           const to = within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
           if (!within(full) || !within(to)) { const msg = READ_BLOCKED(within(full) && to ? to : full, workdirs); emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
         }
+        // THE OWNER'S READ AND EDIT RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; fileToolDecision): a deny rule refuses
+        // the call in Claude Code's words ("Permission to read … has been denied.", "File is covered by a Read deny rule in your
+        // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
+        const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
+        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x) }) : null;
+        if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, output: fileDec.why }); reply(fileDec.why); continue; }
+        const ruleAsk = !!(fileDec && fileDec.verdict === "ask");
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
@@ -1741,12 +1776,14 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         }
         const fileAsk = (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || modeT === "plan");
         let approval = null;
-        if (fileAsk || (fetchDec && fetchDec.verdict === "ask") || fetchPaused) {
-          const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : "";
+        if (fileAsk || ruleAsk || (fetchDec && fetchDec.verdict === "ask") || fetchPaused) {
+          const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : fileTarget ? scrub(visibleChars(projectPath(deps, fileTarget))).slice(0, 300) : "";
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? shownPath + " is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built." : "Plan mode is on: files change only after you approve the plan." }
+            : ruleAsk
+            ? { tool: c.name, id: c.id, path: shownPath, ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec.why, byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchDec.why, ...(!fetchPaused && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
-          if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+          if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? "the owner's rule " + fileDec.rule + " asks them first, and no one can answer here" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
           approval = await askOwner(card);
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -1781,6 +1818,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
         // tools' output is, to MAX_OUTPUT_CHARS.
+        // A SEARCH'S RESULTS LEAVE OUT WHAT A READ DENY RULE COVERS (Claude Code: "a best-effort attempt to apply Read(path) deny
+        // rules to all built-in tools that read files like Grep and Glob").
+        if ((c.name === "grep" || c.name === "glob") && code === 0 && !github && ownRules.deny.some((r) => /^Read\(/.test(r))) raw = withoutDenied(raw, (x) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(x) : x, "deny", { root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }), c.name === "glob" ? "no files match " + String(args.pattern || "") : "no matches");
         let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });

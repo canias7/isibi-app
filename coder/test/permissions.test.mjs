@@ -47,7 +47,10 @@ test("CD307 Accept edits: file edits and mkdir, touch, rm, rmdir, mv, cp, sed in
   // A rule for each part that needs asking (Claude Code: "approving git status && npm test saves a rule for npm test").
   assert.deepEqual(ask("git status && npm test && npm run lint").suggest, ["Bash(npm test *)", "Bash(npm run lint *)"]);
   // Only a one-time Yes when no rule could cover it: code given inline, an unknown setting in front, a cd out, git after a cd.
-  for (const c of ["python3 -c 'print(1)'", "FOO=1 npm test", "cd /tmp && ls", "cd src && git status", "echo hi > /tmp/notes.md", "cat < /etc/passwd"]) assert.equal(ask(c).suggest, null, c);
+  for (const c of ["python3 -c 'print(1)'", "FOO=1 npm test", "cd src && git status", "echo hi > /tmp/notes.md", "cat < /etc/passwd"]) assert.equal(ask(c).suggest, null, c);
+  // A cd out of the project gets its own Read rule for that folder (Claude Code: "Subcommands like cd into a directory outside
+  // your working directories generate their own Read rule for that path").
+  assert.deepEqual(ask("cd /tmp && ls").suggest, ["Read(//tmp/**)"]);
   // Outside the project, or a protected file: asked, never approved by a rule.
   assert.equal(ask("rm /tmp/x").verdict, "ask");
   assert.equal(ask("mv a.txt ../b.txt").verdict, "ask");
@@ -78,7 +81,8 @@ test("CD309 rules: deny, then ask, then allow; * is any text, a trailing ' *' al
   assert.deepEqual(parseRule("Bash"), { tool: "Bash", spec: null });
   assert.deepEqual(parseRule("Bash(*)"), { tool: "Bash", spec: null });
   assert.deepEqual(parseRule("WebFetch(domain:example.com)"), { tool: "WebFetch", spec: "domain:example.com" });
-  assert.equal(parseRule("Read(./.env)"), null);
+  assert.deepEqual(parseRule("Read(./.env)"), { tool: "Read", spec: "./.env" }, "a file rule (file-rules.test.mjs)");
+  assert.equal(parseRule("WebSearch"), null);
   assert.equal(parseRule("WebFetch(https://x)"), null);
   // Its table of what each rule matches.
   assert.ok(bashSpecMatches("npm run build", "npm run build") && !bashSpecMatches("npm run build", "npm run build --watch"));
@@ -417,7 +421,7 @@ test("CD325 the Worker keeps the rules per repository (Claude Code's /permission
   const w = await worker();
   assert.equal((await w.go("permissions?repo=bad")).status, 400);
   assert.deepEqual((await w.go("permissions?repo=ana/shop")).data.rules, { allow: [], ask: [], deny: [] });
-  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Read(./.env)" }) })).status, 400);
+  assert.equal((await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "WebSearch" }) })).status, 400);
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "allow", add: "Bash(npm test *)" }) });
   await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "ask", add: "Bash(git push *)" }) });
   const moved = await w.go("permissions", { method: "POST", body: JSON.stringify({ repo: "ana/shop", kind: "deny", add: "Bash(npm test *)" }) });

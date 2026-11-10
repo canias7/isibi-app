@@ -690,7 +690,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // (A rule Claude Code would skip as malformed is refused in its words; one it keeps but that never matches, a rule on
     // the command itself, Bash(command:…), or one naming no known tool, is saved with its warning, as Claude Code does.)
     if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
-    if (!ruleSaved(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com) or WebFetch" }, 400);
+    if (!ruleSaved(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com), WebFetch, Read(./.env), Edit(src/**), Read, Edit, Write, Grep or Glob" }, 400);
     const rules = await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined });
     // A RULE CLAUDE CODE KEEPS BUT WARNS ABOUT (Bash docs pass 5: its error reference, "Has a wildcard before the rest of the
     // command"; its rule check's :* warnings): saved, with the warning in its words.
