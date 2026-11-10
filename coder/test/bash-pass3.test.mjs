@@ -129,7 +129,11 @@ test("CD345 a stop ends what the command started outside its process group too (
   const job = spawn("bash", ["-c", "setsid sleep 301 & timeout 300 sleep 302 & sleep 303 & wait"], { detached: true, stdio: "ignore", env: { ...process.env, [F.TASK_MARK]: mark } });
   const bystander = spawn("bash", ["-c", "setsid sleep 304 & wait"], { detached: true, stdio: "ignore", env: { ...process.env, [F.TASK_MARK]: other } });
   try {
-    await wait(700);
+    // (Until each has really started: on a busy machine, a fixed wait counted bash's own copy before it became setsid's
+    // sleep, and the old stop then took that copy with it: deploy 81's run, "2 !== 3".)
+    const args = (pid) => { try { return readFileSync("/proc/" + pid + "/cmdline", "utf8").split("\0").filter(Boolean).join(" "); } catch { return ""; } };
+    const ready = () => { const a = marked(mark).map(args), b = marked(other).map(args); return a.length === 5 && ["sleep 301", "timeout 300 sleep 302", "sleep 302", "sleep 303"].every((x) => a.includes(x)) && b.includes("sleep 304"); };
+    for (let i = 0; i < 100 && !ready(); i++) await wait(100);
     assert.equal(marked(mark).length, 5);
     // The old stop, its process group only: what left it (setsid, timeout and its child) goes on.
     process.kill(-job.pid, "SIGKILL");
