@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs (your word: "double check it against the docs of dots and grok bot")
+
+- **How it was checked:** every part of Gloopy was compared, item by item, with Grok Bot's 33 doc pages and dots' pages (plus the ChatGPT pages dots relies on), quoting the docs.
+- **What matches both:** its own cloud computer that sleeps, a browser that stays signed in, watching live and taking over, private sign-in and card forms the AI never sees, sealed API keys, Allow once / Always allow / Deny cards, rules in your own words, schedules and wake-ups, helpers, pages, files as cards, Stop that undoes nothing, and "only your messages are instructions".
+- **Small mistakes, fixed now:**
+  - Custom rules can be up to 1,000 characters, as Grok Bot's are (the settings route allowed only 300).
+  - When "Always allow" removes your oldest rule to make room, it now says which one, as Grok Bot does.
+  - Your page now lists Gloopy's API keys (site and name, never the key), so your settings screen can show and remove them.
+  - Gloopy was told risky steps always wait for a card, which isn't true while everything is Always allow. It's now told the truth: its permissions decide.
+  - Gloopy must never ask for a one-time code in the chat; it uses handoff, as both docs say.
+- **Bigger differences, which need your decision (in the chat):**
+  - Both run their safety check all the time; Gloopy skips it while everything is Always allow.
+  - Gloopy's commands (and calls to APIs with a saved key) aren't checked at all.
+  - dots asks before using a saved login.
+  - Grok Bot never sends from background work without you; schedules and webhook runs can.
+  - Cards from background work don't expire (Grok Bot: 30 minutes).
+  - Not built yet: a sign-in card with a code box and "Take over to sign in"; pause and edit for schedules; a pause for Gloopy itself; sign-in review against fake sites; work files kept when the machine is replaced.
+  - The welcome screen says "I always ask before I send, buy or delete anything", which isn't true while testing.
+- Tests: GL63 is new. All 318 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-09: Gloopy's files, in and out (your word: "2, 4")
 
 - **Attach files, like Grok Bot.** In Gloopy's chat the clip now takes documents too: PDF, Word, Excel, PowerPoint, text, CSV and other data files, sound, video and zip files. Pictures work as before.

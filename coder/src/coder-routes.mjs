@@ -45,7 +45,7 @@ import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTu
 import { FILE_IN_MAX, FILE_OUT_MAX, ATTACH_MAX, readFiles, keepFile, removeFile, fileOf, filesForTurn, fileDownload } from "./gloopy-files.mjs";
 import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, writeWebhooks, hookAddress, hookKey, callHasKey, webhooksForTurn, callData, eventText } from "./gloopy-webhooks.mjs";
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, cleanPermissions } from "../container/gloopy-permissions.mjs";
-import { cleanRules, RULES_MAX } from "../container/gloopy-check.mjs";
+import { cleanRules, RULES_MAX, RULE_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, whenLocal, cleanWebhook, HOOK_ID } from "../container/gloopy-schedule.mjs";
@@ -582,7 +582,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (parts[0] === "gloopy" && parts.length === 1 && request.method === "GET") {
     let g = await getJson(bucket, keyOf(uid, GLOOPY_ID, "meta.json"), null);
     if (!isGloopy(g)) { g = newGloopy(); await saveMeta(bucket, uid, g); }
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -1548,7 +1548,7 @@ async function gloopyCard(g, action) {
   const kind = { approve: "approval", signin: "signin", handoff: "handoff", card: "card" }[action];
   if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser.", card: "Gloopy isn't waiting for a card." }[action] }, 409);
   const site = String(p.site || "the site");
-  let note = "", said = "", grant = "";
+  let note = "", said = "", grant = "", madeRoom = "";
   if (action === "approve" && p.webhook) {
     // A NEW WEBHOOK (2026-11-09): kept here when the owner allows it; its card (address, and the key on request) goes in
     // the chat; nothing to do on Gloopy's computer.
@@ -1584,12 +1584,13 @@ async function gloopyCard(g, action) {
       const allows = list.filter((r) => r.mode === "allow");
       const dropped = allows.length >= RULES_MAX ? allows[0] : null;
       await putJson(bucket, gloopyRulesKey(uid), [...list.filter((r) => r !== dropped), { id: newRuleId(), text, mode: "allow" }]);
+      if (dropped) madeRoom = " (to make room, your oldest Always allow rule was removed: “" + String(dropped.text).slice(0, 120) + "”)";
     }
     let r = null;
     try { r = await post("/gloopy/approve", { project: id, id: p.id, allow: decision !== "deny" }).then((x) => x.json()); } catch { r = null; }
     if (decision === "deny") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + " on " + site + ". It was not done. Don't try it another way: say what you would have done, and stop or go on without it.)"; said = "Denied: " + p.step; }
-    else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step; }
-    else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step; grant = String(p.step || ""); }
+    else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; }
+    else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; grant = String(p.step || ""); }
   } else if (action === "handoff") {
     // THE OWNER DID THE STEP IN GLOOPY'S BROWSER (or not): the browser is Gloopy's again, and Gloopy hears where it is.
     let r = null;
@@ -1708,14 +1709,14 @@ async function gloopyRules(g) {
   const full = (mode, l) => l.filter((r) => r.mode === mode).length >= RULES_MAX;
   if (body.add && typeof body.add === "object") {
     const text = words(body.add.text), mode = body.add.mode;
-    if (!text || text.length > 300 || !okMode(mode)) return json({ error: "Write the rule in a few words (at most 300 characters), and choose allow, ask or deny." }, 400);
+    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose allow, ask or deny." }, 400);
     if (full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
     list = [...list, { id: newRuleId(), text, mode }];
   } else if (body.change && typeof body.change === "object") {
     const it = list.find((r) => r.id === String(body.change.id || ""));
     if (!it) return json({ error: "No rule has that id." }, 404);
     const text = body.change.text === undefined ? it.text : words(body.change.text), mode = body.change.mode === undefined ? it.mode : body.change.mode;
-    if (!text || text.length > 300 || !okMode(mode)) return json({ error: "Write the rule in a few words (at most 300 characters), and choose allow, ask or deny." }, 400);
+    if (!text || text.length > RULE_MAX || !okMode(mode)) return json({ error: "Write the rule in your own words (at most " + RULE_MAX.toLocaleString("en-US") + " characters), and choose allow, ask or deny." }, 400);
     if (mode !== it.mode && full(mode, list)) return json({ error: "There are " + RULES_MAX + " rules of that kind already: remove one first." }, 400);
     list = list.map((r) => (r === it ? { id: it.id, text, mode } : r));
   } else if (typeof body.remove === "string") {

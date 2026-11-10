@@ -581,7 +581,8 @@ test("GL18 (2026-11-09) the Worker takes the answer to the card the last turn en
   waitOn({ ...ORDER, id: "ap5" });
   answer = { "/gloopy/approve": { done: true, did: "Clicked “Place order”", title: "Thank you", url: "https://shop.example/ordered" } };
   r = await (await card("approve", { id: "ap5", decision: "always" })).json();
-  assert.equal(r.said, "Always allow: " + STEP_ORDER);
+  // (Since 2026-11-10, as Grok Bot's card does: it says which old rule it removed to make room.)
+  assert.equal(r.said, "Always allow: " + STEP_ORDER + " (to make room, your oldest Always allow rule was removed: “rule 0”)");
   assert.match(r.project.note, /the owner allowed \(from now on, too\): Click the button “Place order” on shop\.example\. It was done/);
   const rules = JSON.parse(bucket.m.get(rulesKey));
   assert.equal(rules.length, 21);
@@ -1491,7 +1492,7 @@ test("GL38 (2026-11-09) custom rules in the owner's own words (Always allow, Ask
   let r = await (await rules()).json();
   assert.deepEqual([r.rules.length, /^r[a-z0-9]{10}$/.test(r.rules[0].id), r.modes, r.max], [1, true, ["allow", "ask", "deny"], 20]);
   assert.equal(JSON.parse(bucket.m.get("coder/u1/gloopy/rules.json"))[0].id, r.rules[0].id, "kept with its id");
-  for (const bad of [{}, { add: { text: "", mode: "deny" } }, { add: { text: "x".repeat(301), mode: "deny" } }, { add: { text: "Never email my boss", mode: "maybe" } }]) assert.equal((await rules(bad)).status, 400, JSON.stringify(bad));
+  for (const bad of [{}, { add: { text: "", mode: "deny" } }, { add: { text: "x".repeat(1001), mode: "deny" } }, { add: { text: "Never email my boss", mode: "maybe" } }]) assert.equal((await rules(bad)).status, 400, JSON.stringify(bad));
   r = await (await rules({ add: { text: "  Never email\n my boss ", mode: "deny" } })).json();
   const boss = r.rules.at(-1);
   assert.deepEqual([boss.text, boss.mode], ["Never email my boss", "deny"]);
@@ -2742,4 +2743,39 @@ test("GL62 (2026-11-09) on the page: in Gloopy's chat the clip attaches document
   assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/files\/' \+ encodeURIComponent\(id\), \{ file: name \}\);/);
   assert.match(ui, /const a = document\.createElement\('a'\); a\.href = href; a\.download = name;/);
   assert.match(ui, /Array\.isArray\(e\.files\) && e\.files\.length \? '<div class="cd-user-files">'/);
+});
+
+test("GL63 (2026-11-09) after checking Gloopy against Grok Bot's and dots' docs: rules up to 1,000 characters, as Grok Bot's and as the check reads them; Always allow says which old rule it removed to make room; Gloopy's API keys are listed for the page (never a value); Gloopy is told truly what is checked, and never to ask for one-time codes in the chat", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { RULE_MAX } = await import("../container/gloopy-check.mjs");
+  assert.equal(RULE_MAX, 1000);
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => ({ fetch: async (req) => (new URL(req.url).pathname === "/gloopy/approve" ? Response.json({ done: true, did: "Clicked “Place order”", title: "Thanks", url: "https://shop.example/thanks" }) : Response.json({ ok: true })) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  // Rules: up to 1,000 characters.
+  let r = await go("projects/" + GLOOPY_ID + "/rules", { method: "POST", body: JSON.stringify({ add: { text: "a".repeat(1000), mode: "ask" } }) });
+  assert.equal(r.status, 200, await r.clone().text());
+  r = await go("projects/" + GLOOPY_ID + "/rules", { method: "POST", body: JSON.stringify({ add: { text: "a".repeat(1001), mode: "ask" } }) });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /at most 1,000 characters/);
+  // Always allow when 20 allow rules are kept: the oldest goes, and the owner is told which.
+  for (let i = 0; i < 20; i++) await go("projects/" + GLOOPY_ID + "/rules", { method: "POST", body: JSON.stringify({ add: { text: "Allowed thing " + i, mode: "allow" } }) });
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  bucket.m.set(metaKey, JSON.stringify({ ...JSON.parse(bucket.m.get(metaKey)), status: "idle", waiting: "approval", pending: { kind: "approval", id: "ap1", step: "Click the button “Place order”", site: "shop.example" } }));
+  r = await (await go("projects/" + GLOOPY_ID + "/approve", { method: "POST", body: JSON.stringify({ id: "ap1", decision: "always" }) })).json();
+  assert.equal(r.said, "Always allow: Click the button “Place order” (to make room, your oldest Always allow rule was removed: “Allowed thing 0”)");
+  const rules = (await (await go("gloopy")).json()).rules;
+  assert.ok(!rules.some((x) => x.text === "Allowed thing 0") && rules.some((x) => x.text === "Click the button “Place order” on shop.example"));
+  // Gloopy's API keys, listed for the page: where each applies and its name, never the value.
+  const KEY = "sk_live_51HmY0aKeyForTheWeather";
+  await go("projects/" + GLOOPY_ID + "/secret", { method: "POST", body: JSON.stringify({ host: "api.weather.example", value: KEY, header: "Authorization", prefix: "Bearer", name: "Weather" }) });
+  const g = await (await go("gloopy")).json();
+  assert.deepEqual(g.keys.map((x) => [x.host, x.name]), [["api.weather.example", "Weather"]]);
+  assert.ok(!JSON.stringify(g).includes(KEY));
+  // What Gloopy is told.
+  assert.match(GLOOPY_SYSTEM, /Browser steps that could change something \(a click, a choice, a submit\) follow YOUR PERMISSIONS and the owner's rules: one they say to ask first about waits for the owner's OK on a card; one they allow goes ahead with no card, so be sure it is what the owner wants first\./);
+  assert.doesNotMatch(GLOOPY_SYSTEM, /one that could buy, send, book, post, sign up or delete waits for the owner's OK on a card/);
+  assert.match(GLOOPY_SYSTEM, /Never ask the owner to paste a password, a one-time code, a card number or a key into the chat \(nor into ask_user\)[^\n]*When a site asks for a code sent to the owner, use handoff: they type it in your browser themselves\./);
 });
