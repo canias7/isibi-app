@@ -1543,7 +1543,7 @@
       box.querySelector('[data-close]').onclick = close;
       box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
       const form = box.querySelector('.cd-rules-add');
-      form.onsubmit = async (e) => { e.preventDefault(); const v = form.querySelector('input').value.trim(); if (!v) return; const ok = await change({ kind: form.querySelector('select').value, add: v }); paint(); if (!ok) { const i = box.querySelector('.cd-rules-add input'); i.value = v; i.focus(); } };
+      form.onsubmit = async (e) => { e.preventDefault(); const v = form.querySelector('input').value.trim(); if (!v) return; const kind = form.querySelector('select').value; const ok = await change({ kind, add: v }); paint(); if (!ok) { const i = box.querySelector('.cd-rules-add input'); i.value = v; box.querySelector('.cd-rules-add select').value = kind; i.focus(); } };
     };
     paint();
     const first = box.querySelector('.cd-rules-add input'); if (first) first.focus();

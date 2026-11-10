@@ -147,6 +147,9 @@ test("CD358 the rules list says Claude Code's warnings: in full when such a rule
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /notices\[k \+ '\\n' \+ x\] \? '<span class="cd-rules-note">⚠ ' \+ esc\(notices\[k \+ '\\n' \+ x\]\) \+ '<\/span>'/);
   assert.match(page, /\(warn \? '<p class="cd-rules-warn">⚠ ' \+ esc\(warn\) \+ '<\/p>' : ''\)/);
+  // (Found taking its screenshot: after a refused rule, the kind went back to Allow, so fixing the text and pressing Add
+  // saved a rule meant as Deny as an Allow rule. The kind chosen is kept.)
+  assert.match(page, /const kind = form\.querySelector\('select'\)\.value; const ok = await change\(\{ kind, add: v \}\); paint\(\); if \(!ok\) \{ const i = box\.querySelector\('\.cd-rules-add input'\); i\.value = v; box\.querySelector\('\.cd-rules-add select'\)\.value = kind;/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   for (const c of [".cd-rules-note", ".cd-rules-warn", ".cd-rules-r"]) assert.ok(css.includes(c), c);
 });

@@ -18,7 +18,8 @@ log (81,000 lines) is in git history.
 - **3. Warnings for risky rules,** in Claude Code's words. Adding an allow rule like `Bash(git * main)` saves it and shows the full warning. The rules list shows a short "⚠ … allows any option at its * · use an exact value" under it. A rule that can't be used gets Claude Code's exact reason, like "Malformed Tool(content) rule". A rule ending in `:*` is now read the way Claude Code reads it, so `Bash(npm run *:*)` no longer approves `npm run build --watch`.
 - **4. Bash's extended patterns are off in every command,** even if a setup script turns them on.
 - **5. Two small ones:** every command has `AI_AGENT=gofarther-coder`, so `gh` can tell GitHub its traffic comes from an AI agent. And Claude Code's privacy check: a command that holds your account's email together with a User-Agent setting is refused, in Claude Code's words. Grok is also told to keep your details out of requests to other services. Coder's machine never gets your email: only its length and a one-way fingerprint (SHA-256) to compare against.
-- **Tests:** CD354 to CD360 (7 new; 371 in all, all pass).
+- **Found and fixed while taking the screenshot:** in the rules list, after a rule was refused, the kind box jumped back to "Allow". So fixing the text and pressing Add saved a rule meant as Deny as an Allow rule. It now keeps the kind you chose.
+- **Tests:** CD354 to CD360 (7 new; 371 in all, all pass). Screenshots of the rules list are in the chat.
 - **Next, with your word:** merge, deploy, and the recorded live test of everything with Grok.
 
 ## 2026-11-10: The docs checked again (your words: "go check again trhe docs")
