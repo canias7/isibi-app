@@ -34,6 +34,7 @@ log (81,000 lines) is in git history.
 - **The read-block setting, now exactly like Claude Code:** with it on, Coder checks every program's words that name a file that is really there, not just its list of about 60 file commands. So `less /etc/passwd` asks too. `xargs` asks, and so does a path worked out when the command runs. `bash -c '…'` asks as "runs inline code", as in Claude Code.
 - **Stop and `setsid`:** not changed. Claude Code's changelog says it fixed this in version 2.1.257, but its current version still leaves the program running after Stop. Coder stopping it is what Claude Code says it should do.
 - Tests: 386 pass (CD368–CD375 new). The new file is in the machine's image (the tests check that a file left out of the image is caught).
+- **Why deploy 86 took so long:** each time Coder's machine changes, its whole image is built from scratch on GitHub (about 12 minutes: three Ruby versions compiled, Go, Rust, Java tools, Chrome…) and then uploaded to Fly.io, several GB. Both tries built fine, but Fly.io's image store cut the upload off at the last piece ("connection reset by peer"), so nothing went live. The deploy now tries the upload up to five times; pieces already uploaded are not sent again.
 
 ## 2026-11-10: Bash says exactly what Claude Code says (your words: "ok do that")
 
