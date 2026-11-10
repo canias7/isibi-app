@@ -26,6 +26,7 @@ On test.gofarther.dev, signed in as the test account, with Grok. Recorded (the v
 **Found and fixed:**
 - **Gloopy's browser didn't start on its Fly.io computer.** Gloopy said "the browser isn't available". Chromium was there, but Playwright (which runs the browser) wasn't told where the image keeps it. It's only told in my own sandbox, so every test passed here. Gloopy's browser had never run on a real Fly.io computer before (it isn't on `main`). Its code now points Playwright there itself.
 - **The schedules card said "ran" after a run ended** until you typed `/schedules` again. It now asks again when a job ends and shows "Succeeded" by itself.
+- **In Gloopy's tab, a dropped connection said "Coder could not be reached".** It now names Gloopy.
 - **A change of time alone failed once** ("make it 8:00 AM instead"). Gloopy's first try gave only the new time, and the tool wanted the whole "when"; it fixed itself on the second try. Now a new time or new days alone keep the rest ("every weekday").
 
 Test GL84 is new.

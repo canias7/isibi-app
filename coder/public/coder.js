@@ -99,7 +99,7 @@
       // A FILE'S OWN BYTES (Gloopy's attachments, 2026-11-09): sent as they are, with the file's name.
       const raw = init && init.raw ? init.raw : null;
       r = await fetch(API + path, { ...(init || {}), ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
-    } catch (e) { return { status: 0, data: { error: 'Coder could not be reached. Check your connection.' } }; }
+    } catch (e) { return { status: 0, data: { error: (GLOOPY ? 'Gloopy' : 'Coder') + ' could not be reached. Check your connection.' } }; }
     // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
     if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
     const data = await r.json().catch(() => ({}));

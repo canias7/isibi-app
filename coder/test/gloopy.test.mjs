@@ -4013,6 +4013,8 @@ test("GL84 (2026-11-10) found by the live test on the test copy: Gloopy's browse
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /if \(GLOOPY && S\.running && !r\.data\.running\) S\.sched = null;\n\s+S\.running = !!r\.data\.running;/);
   assert.match(ui, /S\.project = r\.data\.project; S\.events = r\.data\.events \|\| \[\];\n\s+if \(GLOOPY\) S\.sched = null;/);
+  // In Gloopy's tab, a dropped connection names Gloopy (it said "Coder could not be reached").
+  assert.match(ui, /error: \(GLOOPY \? 'Gloopy' : 'Coder'\) \+ ' could not be reached\. Check your connection\.'/);
   // 3. The schedules Gloopy is told of carry the parts of when they repeat; a change of time alone keeps "every weekday".
   const S2 = await import("../src/gloopy-schedules.mjs");
   const sd = { items: [], day: "", runs: 0, log: [] };
