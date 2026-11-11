@@ -24,6 +24,12 @@ const b64url = (buf) => { const b = new Uint8Array(buf); let s = ""; for (let i 
 const hex = (buf) => [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("");
 const same = (a, b) => { a = String(a); b = String(b); if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; };
 const text = (s, status = 400) => new Response(s, { status, headers: { "content-type": "text/plain", "cache-control": "no-store" } });
+/**
+ * A REFUSAL `gh` CAN SHOW (live test round 3): gh reads GitHub's errors as JSON, `{"message": …}`, and shows that message; a
+ * plain-text refusal came out as "invalid character 'G' looking for beginning of value", hiding why. Claude Code's GitHub
+ * proxy answers in GitHub's JSON too.
+ */
+export const ghRefused = (s, status = 403) => new Response(JSON.stringify({ message: s, documentation_url: "https://docs.github.com/rest" }), { status, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" } });
 export const EGRESS_PATH = "/api/coder/egress";
 export const BODY_MAX = 10 * 1024 * 1024;
 
@@ -42,22 +48,22 @@ export const LOG_PATH = /^\/repos\/[^/]+\/[^/]+\/actions\/(runs\/\d+(\/attempts\
 export const LOG_HOSTS = /(^|\.)(blob\.core\.windows\.net|actions\.githubusercontent\.com|githubusercontent\.com)$/i;
 export async function githubApi(request, env, bucket, uid, meta, target, { fetchFn = fetch } = {}) {
   const path = target.pathname;
-  if (/^\/graphql(\/|$)/.test(path)) return text(GRAPHQL_REFUSED, 403);
+  if (/^\/graphql(\/|$)/.test(path)) return ghRefused(GRAPHQL_REFUSED, 403);
   const repos = [meta.repo, ...(Array.isArray(meta.repos) ? meta.repos.map((r) => r && r.repo) : [])].filter((r) => typeof r === "string" && r).map((r) => r.toLowerCase());
   const m = /^\/repos\/([^/]+)\/([^/]+)(\/|$)/.exec(path);
   let full = "";
   try { full = m ? (decodeURIComponent(m[1]) + "/" + decodeURIComponent(m[2])).toLowerCase() : ""; } catch { full = ""; }
-  if (!m || !plainPath(path + target.search) || !repos.includes(full)) return text("GitHub access to " + (full || path.slice(0, 100)) + " is not enabled for this session: only this chat's repositories (" + repos.join(", ") + "), as gh api repos/OWNER/REPO/...", 403);
+  if (!m || !plainPath(path + target.search) || !repos.includes(full)) return ghRefused("GitHub access to " + (full || path.slice(0, 100)) + " is not enabled for this session: only this chat's repositories (" + repos.join(", ") + "), as gh api repos/OWNER/REPO/...", 403);
   const h = request.headers;
   const method = String(h.get("x-coder-method") || "GET").toUpperCase();
-  if (!/^[A-Z]{1,20}$/.test(method)) return text("bad method");
-  if (meta.jobFromGithub === true && !["GET", "HEAD"].includes(method)) return text("a job started from GitHub may only read through gh", 403);
+  if (!/^[A-Z]{1,20}$/.test(method)) return ghRefused("bad method", 400);
+  if (meta.jobFromGithub === true && !["GET", "HEAD"].includes(method)) return ghRefused("a job started from GitHub may only read through gh", 403);
   // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): gh only reads it too (nothing is written as them there).
   const ro = full === String(meta.repo).toLowerCase() ? meta.readOnly === true : (Array.isArray(meta.repos) ? meta.repos : []).some((r) => r && typeof r.repo === "string" && r.repo.toLowerCase() === full && r.readOnly === true);
-  if (ro && !["GET", "HEAD"].includes(method)) return text("you can read " + full + " but not push to it, so gh may only read it", 403);
+  if (ro && !["GET", "HEAD"].includes(method)) return ghRefused("you can read " + full + " but not push to it, so gh may only read it", 403);
   const { userToken } = await import("./coder-github.mjs");
   const t = await userToken(env, bucket, uid, { fetchFn });
-  if (!t) return text("connect GitHub again on gofarther.dev: the connection has ended", 403);
+  if (!t) return ghRefused("connect GitHub again on gofarther.dev: the connection has ended", 403);
   let asked = {};
   try { asked = JSON.parse(dec.decode(Uint8Array.from(atob(String(h.get("x-coder-headers") || "e30").replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0)))); } catch { asked = {}; }
   const headers = {};
@@ -67,12 +73,12 @@ export async function githubApi(request, env, bucket, uid, meta, target, { fetch
   let body = null;
   if (!["GET", "HEAD"].includes(method)) {
     const buf = new Uint8Array(await request.arrayBuffer());
-    if (buf.length > BODY_MAX) return text("the request body is over 10 MB", 413);
+    if (buf.length > BODY_MAX) return ghRefused("the request body is over 10 MB", 413);
     body = buf;
   }
   let r;
   try { r = await fetchFn("https://api.github.com" + path + target.search, { method, headers, body, redirect: "manual" }); }
-  catch (e) { return text("Coder could not reach GitHub: " + String((e && e.message) || e).slice(0, 200), 502); }
+  catch (e) { return ghRefused("Coder could not reach GitHub: " + String((e && e.message) || e).slice(0, 200), 502); }
   // GITHUB ACTIONS LOGS (Claude Code 2.1.318, cloud sessions: "Fixed reading GitHub Actions logs in cloud sessions: `gh run
   // view --log` and `gh api` log requests now get the log in most environments, not an unreachable redirect"): GitHub answers
   // a log request with a redirect to its log storage, which the chat's network list may not allow; it is fetched here, with
@@ -83,7 +89,7 @@ export async function githubApi(request, env, bucket, uid, meta, target, { fetch
     if (loc && loc.protocol === "https:" && !loc.username && !loc.password && LOG_HOSTS.test(loc.hostname)) {
       let l;
       try { l = await fetchFn(loc.toString(), { method: "GET", redirect: "follow" }); }
-      catch (e) { return text("Coder could not fetch the log from GitHub's storage: " + String((e && e.message) || e).slice(0, 200), 502); }
+      catch (e) { return ghRefused("Coder could not fetch the log from GitHub's storage: " + String((e && e.message) || e).slice(0, 200), 502); }
       const lb = new Headers();
       for (const k of ["content-type", "content-disposition", "last-modified", "etag"]) { const v = l.headers.get(k); if (v) lb.set(k, v); }
       return new Response(l.body, { status: l.status, headers: lb });

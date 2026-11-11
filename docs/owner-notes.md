@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Round 3 of the live test, under way: two fixes so far (your words: "yea go ahead test all of it")
+
+Testing live on gofarther.dev with Grok everything in the bash tool not tried live before: safety cases, your variables, the network gate, several commands at once, a rule added mid-job, notes on cards, a repository's own settings, background commands, hooks, and PowerShell. The full results come in the next entry when the round is done.
+
+**Two fixes so far, on the branch (not live yet):**
+1. **A file in the home folder named with `~`:** the card for `echo … >> ~/.zshrc` named the file as the project's folder with a `~` in it. It still asked first; only the name was wrong. Now it names the file in the AI's home folder, as Claude Code does. Test CD508.
+2. **`gh` showing why it was refused:** when Coder refuses a `gh` call (for example to a repository the chat doesn't have), `gh` printed "invalid character 'G' looking for beginning of value" instead of the reason, because Coder's answer was plain text. Now it is in GitHub's own format, so `gh` shows Coder's reason. Test CD509.
+
 ## 2026-11-11: Deploy 125: the two round 2 fixes live, and tested live with Grok (recordings 36 and 36b) (your words: "merge and deploy")
 
 Merged into main and deployed (deploy 125, live at 11:05 UTC). All 541 tests passed first.

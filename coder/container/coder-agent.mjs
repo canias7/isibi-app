@@ -315,10 +315,17 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   const names = [], says = [];
   let viaLink = false;
   const add = (name, say) => { if (!names.includes(name)) { names.push(name); says.push(say); } };
+  // A leading ~ is the AI's home, as the shell reads it (live test round 3: `echo … >> ~/.zshrc` was named on the card as
+  // "<project>/~/.zshrc"; Claude Code names the file in its home folder).
+  const home0 = deps && typeof deps.home === "string" && deps.home.startsWith("/") ? deps.home.replace(/\/+$/, "") : "";
+  const tilde = (p) => (home0 && (p === "~" || String(p).startsWith("~/")) ? home0 + String(p).slice(1) : p);
   for (const x of writeTargets(command).targets) {
-    // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
-    const name = x.afterCd || x.unsure ? x.path : projectPath(deps, x.path);
-    if (name && protectedFile(name)) add(name, sensitiveWhy(x.afterCd || x.unsure || !deps || typeof deps.where !== "function" ? x.path : deps.where(x.path)));
+    // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known);
+    // a full path, or one from ~, doesn't depend on a cd before it.
+    const p = x.unsure ? x.path : tilde(x.path);
+    const asWritten = x.unsure || ((x.afterCd || x.path === "~" || String(x.path).startsWith("~/")) && !String(p).startsWith("/"));
+    const name = asWritten ? x.path : projectPath(deps, p);
+    if (name && protectedFile(name)) add(name, sensitiveWhy(asWritten || !deps || typeof deps.where !== "function" ? x.path : deps.where(p)));
   }
   // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
   // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").

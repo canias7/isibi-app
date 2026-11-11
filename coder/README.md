@@ -1407,6 +1407,16 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   (`readMonitors`, `MONITOR_BATCH_MS`, on the real machine), Claude Code's
   batching, so a busy command meets its limits as there (test CD507).
 
+**Round 3 of the live test** (owner, 2026-11-11: "yea go ahead test all of it"):
+everything in Bash not tried live before. Tests: `test/round3.test.mjs`.
+- *A sensitive file named by ~*: a command writing `~/.zshrc` was named on the
+  card as the project's folder with `~` in it; now the AI's home (`commandAsk`'s
+  `tilde`), as Claude Code names it in its own; written as typed when the home
+  isn't known (test CD508).
+- *gh's refusals are GitHub's JSON* (`ghRefused`, `{"message": …}`): gh shows
+  why (a plain-text refusal came out as "invalid character 'G' looking for
+  beginning of value"), as with Claude Code's GitHub proxy (test CD509).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
