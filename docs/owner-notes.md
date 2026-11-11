@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Deploy 126: round 3's fixes and Claude Code's own ways live, and tested live with Grok (recordings 38 and 38b) (your words: "merge and deploy")
+
+Merged into main and deployed (deploy 126, live at 12:50 UTC). All 546 tests passed first. Tested live on gofarther.dev with Grok and filmed, in new chats on canias7/testingforclaude. All passed:
+- **The hook note:** a hook answering without its event name now shows the reason in the chat: "…]: Hook returned incorrect event name: expected 'PreToolUse' but got 'undefined'. Full stdout: …". The long hook command is shortened in front of it.
+- **`~/.zshrc` on the card:** "Coder requested permissions to edit /data/home/.zshrc which is a sensitive file."
+- **`gh` refused, in Claude Code's words, and `gh` shows them:** `gh api user` gave "gh: This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...). (HTTP 403)". A repository the chat doesn't have gave "gh: GitHub access to this repository is not enabled for this session. To request access, ask the owner to add it to this chat (+ Repository). (HTTP 403)".
+- **A repository's archive** the chat doesn't have: the same sentence, as Claude Code's cloud gives it.
+- **A private address** (localhost through the gate, with the network on Full): "Destination IP is in a private/reserved range", a 403 with `x-deny-reason: private_dest_ip`, 45 characters, text/plain, and no extra note. That's exactly what Claude Code's cloud answered in this session.
+- **Not tried live:** Claude Code's retries for a failed Grok call. xAI can't be made to fail on purpose; the tests cover it (CD511). The next time xAI fails, the chat will show "API error · Retrying in 1s · attempt 1/10".
+- In recording 38 Grok refused, on its own, to touch the cloud's 169.254.169.254 ("used to pull instance credentials"), so 38b used localhost for the same check.
+- Your test settings are as they were: no hooks, no rules, the same two variables, network Limited with package managers, nothing running.
+
+Grok cost: 3 messages at Low effort; my estimate is under 50 cents.
+
 ## 2026-11-11: Claude Code's own ways for round 3's three differences (your words: "merge and deploy and use the same claude code wording")
 
 Read from Claude Code's cloud and its own program in this session, then copied:
@@ -18,7 +32,7 @@ Read from Claude Code's cloud and its own program in this session, then copied:
 2. **A repository the chat doesn't have** (downloading its archive, or `gh` on it): Claude Code's sentence, "GitHub access to this repository is not enabled for this session." Claude Code goes on "Use add_repo to request access"; Coder's AI has no add_repo, because you add repositories, so Coder says "To request access, ask the owner to add it to this chat (+ Repository)." A `gh` call to a path that is no repository's (like `gh api user`) gets Claude Code's "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)." I could only see that sentence up to "(repos/{owner}/…", so the end is my best match.
 3. **When Grok's server fails:** Coder now tries again the way Claude Code does. That's up to 10 more times (Claude Code's default; `CODER_MAX_RETRIES` changes it, at most 15), for "busy", "timed out" and server errors and a lost connection. It waits what the server asks, else half a second doubling to 32 seconds. While it waits, the chat shows Claude Code's line, "API error · Retrying in 1s · attempt 1/10". Before, Coder tried once more after 3 seconds. A failed call usually costs nothing.
 
-Tests: CD511, CD512, and four older tests that checked the old words. All on the branch with round 3's three fixes; going live with this "merge and deploy".
+Tests: CD511, CD512, and four older tests that checked the old words. Live since deploy 126 (see the entry above).
 
 ## 2026-11-11: Round 3 of the live test: the rest of the bash tool, live with Grok, and the same in Claude Code (your words: "yea go ahead test all of it")
 
