@@ -350,6 +350,13 @@ test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents ge
   // Sign-in only (owner, 2026-11-11): no connector in Discover takes a key; Render (key only) waits; the page asks for no key.
   assert.ok(CATALOG.every((k) => !k.key));
   assert.ok(!CATALOG.some((k) => k.name === "MongoDB" || k.name === "Vercel"));
+  // The owner's second list (2026-11-11): the three whose sign-in took Go Farther.
+  for (const n of ["Notion", "Vanta", "Robinhood"]) assert.ok(CATALOG.find((k) => k.name === n), n);
+  // Robinhood (real money): its tools that are not read-only ask every time, even in Auto; read-only ones do not.
+  const rh = toolsFor([{ id: "crh", name: "Robinhood", url: "https://agent.robinhood.com/mcp/trading", status: "ok", tools: [{ name: "get_positions", readOnly: true }, { name: "place_order", readOnly: false }] }]).tools;
+  assert.deepEqual(rh.map((t) => [t.name, !!t.always]), [["mcp__robinhood__get_positions", false], ["mcp__robinhood__place_order", true]]);
+  // Groups stay together in Discover (the page puts a heading where the group changes).
+  const order = CATALOG.map((k) => k.group); assert.equal(new Set(order).size, order.filter((g, i) => g !== order[i - 1]).length);
   assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Render", "Postmark", "Aikido", "Redis"]);
   assert.ok(!readFileSync(new URL("../public/coder.js", import.meta.url), "utf8").includes('placeholder="API key (only if'));
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /addConnector\(env, bucket, uid, \{ name: body\.name, url: body\.url, key: "", id: cid/);

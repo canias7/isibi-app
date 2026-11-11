@@ -85,6 +85,9 @@ export const CATALOG = Object.freeze([
   { group: "Email", name: "Resend", url: "https://mcp.resend.com/mcp", about: "Send email and manage domains, audiences and broadcasts in Resend." },
   { group: "Monitoring and debugging", name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
   { group: "Project management", name: "Linear", url: "https://mcp.linear.app/mcp", about: "Find, create and update issues, projects and comments in Linear." },
+  { group: "Project management", name: "Notion", url: "https://mcp.notion.com/mcp", about: "Search, read and edit pages and databases in your Notion workspace." },
+  { group: "Security", name: "Vanta", url: "https://mcp.vanta.com/mcp", about: "Vanta's compliance tests, controls, vendors and documents." },
+  { group: "Finance", name: "Robinhood", url: "https://agent.robinhood.com/mcp/trading", askWrites: true, about: "Your Robinhood agentic account: positions, quotes and trades (trades ask you first)." },
   { group: "Payments", name: "Stripe", url: "https://mcp.stripe.com", about: "Work with customers, payments, products and invoices in Stripe." },
   { group: "Authentication", name: "Clerk", url: "https://mcp.clerk.com/mcp", about: "Clerk users, organizations and sign-in settings." },
   { group: "Docs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", about: "Search Cloudflare's documentation (no sign-in)." },
@@ -147,7 +150,9 @@ export function toolsFor(list, off = []) {
       used.add(name);
       map[name] = { id: c.id, tool: t.name };
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}),
+      // Real money (Robinhood: CATALOG askWrites): every tool that is not read-only asks the owner each time, even in Auto.
+      const always = t.always || (!t.readOnly && CATALOG.some((k) => k.askWrites && k.url === c.url));
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(always ? { always: true } : {}),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, 1000), parameters: params });
     }
   }

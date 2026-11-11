@@ -4,6 +4,32 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Your second list of apps, each sign-in tried
+
+I found each app's official MCP address and registered Go Farther with it the way Connect does (jessica's return address, before any login).
+
+- **Added to Discover (they accepted us):**
+  - **Notion** (Project management).
+  - **Vanta** (Security).
+  - **Robinhood** (Finance). It's real money, so every Robinhood tool that isn't read-only asks you every time, even in Auto mode.
+  - Linear and Stripe were already there.
+- **Refused: the app only lets approved apps sign in.**
+  - **Intercom** said "not in the allowlist, reach out to Intercom Customer Support".
+  - **Slack, Asana, Zoom and Postiz** have no automatic registration. Zoom's docs say "manual client registration".
+- **Google** (Gmail, Calendar, Drive, Docs, Sheets, Slides, BigQuery, Ads):
+  - Google's MCP servers answer, but they need a Google login made with an app registered in Google Cloud.
+  - Google doesn't let apps register themselves.
+- **Microsoft** (Outlook, OneDrive, SharePoint, Teams, Power BI):
+  - These need an app registered in Microsoft Entra.
+  - Many companies also need an admin's approval.
+- **No official hosted server found, or only a local one:**
+  - X, X Money, WhatsApp Business, Stripe Link, Shop Pay, Workday, 1Password, Tailscale.
+  - Zoho (CRM, Desk, Books): Zoho gives each user their own address with a key built in.
+  - QuickBooks (only a local server, and a directory listing that doesn't work).
+  - Databricks Genie (a different address for each company's workspace).
+  - I couldn't tell which "Origin" and "Adapter" you mean.
+- **Tests:** all 402 pass, 4 skipped as before.
+
 ## 2026-11-11: MongoDB and Vercel taken off (your word: "delete mongo db and vercel")
 
 - Both are gone from Discover and from "coming later".
