@@ -2346,7 +2346,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return send(200, { control: false, had, ...where });
         }
         if (working) return send(409, { error: "Gloopy is working in its browser. Stop it first, then take over." });
-        try { await browserRoute(body.route === true); const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false, ...routeNow() }); }
+        try { await browserZone(body); await browserRoute(body.route === true); const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false, ...routeNow() }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: false }); }
       }
       // A PART OF THE PAGE THE OWNER MARKED (dots' annotations), while they watch or have control: what is in it. A closed

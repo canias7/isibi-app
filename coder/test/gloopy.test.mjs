@@ -6102,6 +6102,18 @@ test("GL119 (2026-11-11) hardware security keys, from Gloopy's step to the card 
   assert.equal(r.ok, true);
   await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ key: { skip: true } }) });
   assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, control: true, skip: true });
+  // A TAKE-OVER CARRIES THE OWNER'S TIME ZONE (live test, 2026-11-11: one that woke Gloopy's computer started its browser
+  // on the machine's clock, so Gloopy's next turn restarted it and the form the owner had filled in was lost).
+  answer = {};
+  await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ take: true, tz: "America/New_York" }) });
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true, route: false, ownerZone: "America/New_York" } });
+  setMeta({ tz: "Europe/Paris" });
+  await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ take: true }) });
+  assert.equal(machine.at(-1).body.ownerZone, "Europe/Paris", "else the one the owner's last message gave");
+  await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ take: true, tz: "Not/AZone" }) });
+  assert.equal(machine.at(-1).body.ownerZone, "Europe/Paris", "never a made-up one");
+  assert.match(server, /try \{ await browserZone\(body\); await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/, "on Gloopy's computer, before its browser starts");
+  assert.match(await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), /body: JSON\.stringify\(\{ take: true, tz: deviceZone\(\) \}\)/, "the page sends its device's");
   const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /s\.result\.keyRequest \? \{ kind: "key", id: String\(s\.result\.keyRequest\.id \|\| ""\), site: String\(s\.result\.keyRequest\.site \|\| ""\)\.slice\(0, 200\) \} : null;/);
   // THE PAGE: the card, the live view's bar, and only the Go Farther app reaches the key.

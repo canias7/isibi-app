@@ -1633,7 +1633,8 @@
     w.msg = 'Taking over…'; webPaint(b);
     desktopRouteKick();
     webQuiet(true);
-    const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true }) });
+    // (With your device's time zone: the browser a take-over starts is on your clock, so Gloopy's next turn needn't restart it.)
+    const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true, tz: deviceZone() }) });
     webQuiet(false);
     if (S.web !== w) return;
     w.msg = r.status === 200 && !(r.data && r.data.error) ? '' : (r.data && r.data.error) || 'Gloopy’s browser could not be taken over.';

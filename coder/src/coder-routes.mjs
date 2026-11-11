@@ -2436,6 +2436,13 @@ async function gloopyScreen(g) {
  * 2026-11-10). Not while Gloopy is
  * working; nothing the owner types is kept here. Taking over is remembered, so Gloopy hears of it with the next message.
  */
+/**
+ * THE OWNER'S TIME ZONE FOR A TAKE-OVER (found in the live test, 2026-11-11): a take-over that woke Gloopy's computer
+ * started its browser on the machine's clock, so Gloopy's next turn restarted it for the owner's zone and what the owner
+ * had filled in was lost. The zone goes with the take-over: their device's (`tz`), or the one their last message gave.
+ */
+const takeZone = (body, meta) => { const z = typeof body.tz === "string" && okZone(body.tz) ? body.tz : meta && typeof meta.tz === "string" && okZone(meta.tz) ? meta.tz : ""; return z ? { ownerZone: z } : {}; };
+
 async function gloopyTakeOver(g) {
   const { request, bucket, uid, id, meta, post } = g;
   let body = {}; try { body = await request.json(); } catch { body = {}; }
@@ -2467,7 +2474,7 @@ async function gloopyTakeOver(g) {
   if ((body.take === true || input) && meta.status === "running") return json({ error: "Gloopy is working in its browser. Stop it first, then take over." }, 409);
   // Only what each kind needs (a number left out stays out, so the machine refuses a click with no point).
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}), ...(typeof input.url === "string" ? { url: input.url.slice(0, 4000) } : {}), ...(input.kind === "file" && typeof input.name === "string" && typeof input.data === "string" ? { name: input.name.slice(0, 120), data: input.data.slice(0, 7_100_000) } : {}) } : { project: id, take: body.take === true, ...(body.take === true ? { route: (await readOptions(bucket, uid)).route } : {}) };
+  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}), ...(typeof input.url === "string" ? { url: input.url.slice(0, 4000) } : {}), ...(input.kind === "file" && typeof input.name === "string" && typeof input.data === "string" ? { name: input.name.slice(0, 120), data: input.data.slice(0, 7_100_000) } : {}) } : { project: id, take: body.take === true, ...(body.take === true ? { route: (await readOptions(bucket, uid)).route, ...takeZone(body, meta) } : {}) };
   let r = null;
   try { r = await post(input ? "/gloopy/input" : "/gloopy/control", ask); } catch { r = null; }
   const out = r ? await r.json().catch(() => null) : null;
