@@ -1370,7 +1370,7 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   machine; Coder keeps the conversation on its server).
 
 **Bash docs pass 9, part F** (the same "Yes pls"): the page. Tests:
-`test/pass9-f.test.mjs` (CD498 to CD505).
+`test/pass9-f.test.mjs` (CD498 to CD507).
 - *A step that never ran*: refused by a rule, auto mode's checker, a hook,
   Coder's own checks or the owner's answer, its result is marked `ran: false`.
   The page takes it out of its group and out of the group's count, so "Ran 2
@@ -1400,6 +1400,12 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   notice). Coder's stop now names it (`stoppedJob` on the result) and the page
   shows "stopped" (`bgEndsOf`; older chats by Claude Code's "Successfully
   stopped task: …"). Test CD505.
+- *Found in round 2 of the live test (and the same tests in Claude Code)*:
+  every hook's script first makes the chat's scratch folder
+  (`HOOK_SCRATCH_MAKE`; the first hook of a new chat had run before any
+  command made it, test CD506); a running monitor is read every 200 ms
+  (`readMonitors`, `MONITOR_BATCH_MS`, on the real machine), Claude Code's
+  batching, so a busy command meets its limits as there (test CD507).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
