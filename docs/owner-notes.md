@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 6 built: the page (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 538 automated tests pass (7 of them new). Screenshots are in the chat; you direct the design.
+
+- **A step that never ran no longer counts as one that ran.** Before, a command your rule refused showed inside "Ran 4 commands" with "a command failed" and "✕ exit -1". Now it stands on its own row with "✕ not run", and the lines over the groups count only what ran ("Ran 1 command, read 1 file", then "Ran 2 commands"). This uses Claude Code's own way of giving a step its own row outside a group (it does that for a command that changed files); I didn't find the exact rule it uses for a refused step, so this part is my choice for you to judge from the screenshots. This covers every kind of refusal: your rules, Auto mode's checker, your hooks, Coder's own checks and your "No".
+- **Saved keys that are never sent are marked "Not sent", with why and what to do** (Claude Code does this too). Three cases: a key for GitHub (Coder already uses your GitHub sign-in), a key for a public package registry or the Anthropic API (these never get a key), and a second key for the same site as an earlier one (only the first is sent).
+- **Network access now uses Claude Code's three names: None, Limited and Full.** Under Limited there is an "Allow package managers" box and your "Allowed domains". Your old "Trusted" opens as Limited with the box checked; "Custom" opens as Limited with your list. Nothing your environments can reach has changed.
+- **Variables Coder never gives to commands are now named** on the variables page (for example PATH and HOME, which you chose to keep dropped), and the row says how many.
+
+**Next:** your "merge and deploy" for passes 8 and 9, then the recorded live test with Grok.
+
 ## 2026-11-11: Bash docs pass 9, part 5 built: the hooks details (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 531 automated tests pass (13 of them new).

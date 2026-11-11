@@ -463,7 +463,7 @@ test("CD394 an environment's blocked sites (Claude Code's sandbox.network.denied
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /if \(denied\.length > 100\) return json\(\{ error: "at most 100 blocked sites" \}, 400\);/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /network: \{ mode: f\.mode, hosts: f\.hosts, defaults: f\.defaults, denied: f\.denied \|\| \[\] \}/);
+  assert.match(page, /network: \{ mode: netSaved\(f\), hosts: f\.hosts, defaults: f\.defaults, denied: f\.denied \|\| \[\] \}/);
   assert.match(page, /<label class="cd-em-l">Blocked sites<\/label>/);
 });
 

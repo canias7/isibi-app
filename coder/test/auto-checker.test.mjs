@@ -237,11 +237,12 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   // Only the checker's blocks: a command's own failure, a refusal, an output that merely says it, or no result at all are not.
   for (const other of [{ code: 1, output: blockedShown("X", "y") }, { code: -1, output: "Not run: you said no." }, { code: -1, output: "error: Blocked by auto mode · [X] y" }, { code: 0, output: "Blocked by auto mode · [X] y" }, null]) assert.equal(stepAutoBlock(other), "", JSON.stringify(other));
   // The step: "✕ blocked" on its right (for web_fetch too), and the reason under it, shown without opening the step.
-  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : hookBlockOf\(r\) \? 'blocked by hook' : r\.denied === true \? 'refused' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
+  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : hookBlockOf\(r\) \? 'blocked by hook' : r\.denied === true \? 'refused' : r\.ran === false \? 'not run' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
   assert.match(src, /stepAutoBlock\(r\) \+\n[\s\S]{0,500}?\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-autoblock-head \{ color: #b3261e; font-weight: 600; \}/, "in the red the page uses for a failed step");
   // All of the checker's blocks (bash, web_fetch and a WebSocket watch, CD385c) send it in this shape.
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 3);
+  // (Marked as never run since Bash docs pass 9, part F: `ran: false`.)
+  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 3);
 });

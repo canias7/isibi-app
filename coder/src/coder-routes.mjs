@@ -120,7 +120,7 @@ import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
-import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
@@ -185,9 +185,10 @@ export const REVIEWS = {
 // owner's own variables, per repository, sealed like the GitHub token.
 /** What the page may see of the saved secrets: never the values. */
 const KIND_LABEL = { headers: "", body: "body parameter", oauth: "OAuth 2.0 client credentials", gcp: "Google Cloud service account", aws: "AWS SigV4" };
-export const secretList = (secrets) => (secrets || []).map(normSecret).filter(Boolean).map((s) => ({ id: s.id, name: s.name, kind: s.kind, hosts: s.hosts, host: s.hosts[0], paths: s.paths,
+// (A key that is never sent says so, and why: notSentWhy, Bash docs pass 9, part F.)
+export const secretList = (secrets) => { const list = (secrets || []).map(normSecret).filter(Boolean); return list.map((s, i) => ({ id: s.id, name: s.name, kind: s.kind, hosts: s.hosts, host: s.hosts[0], paths: s.paths,
   headers: s.kind === "headers" ? s.headers.map((h) => ({ name: h.name, prefix: h.prefix })) : [{ name: KIND_LABEL[s.kind] + (s.kind === "body" ? " " + s.config.param : s.kind === "aws" ? " " + s.config.service + " " + s.config.region : ""), prefix: "" }],
-  header: s.kind === "headers" ? s.headers[0].name : KIND_LABEL[s.kind], at: s.at }));
+  header: s.kind === "headers" ? s.headers[0].name : KIND_LABEL[s.kind], at: s.at, ...(notSentWhy(list, i) ? { notSent: notSentWhy(list, i) } : {}) })); };
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
@@ -1585,7 +1586,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const list = await listEnvs(bucket, uid);
     const id = await theEnvId();
     const me = list.find((x) => x.id === id) || { id, name: "Default" };
-    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network };
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
   };
   const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
   // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within

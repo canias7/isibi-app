@@ -42,7 +42,7 @@ import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./
 import { globMatch } from "./coder-globs.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
-import { normNetwork, okPattern, netWalled } from "./coder-secrets.mjs";
+import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
@@ -2672,7 +2672,8 @@ export function safeVars(vars) {
   if (!vars || typeof vars !== "object") return out;
   for (const [k, v] of Object.entries(vars).slice(0, 50)) {
     // (PATH, HOME, SHELL and USER by their whole names, so USER_POOL_ID or HOMEBREW_PREFIX stay: Bash docs pass 9.)
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH$|HOME$|SHELL$|USER$|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CDPATH$|CODER_)/i.test(k)) continue;
+    // (The dropped names are one list with the page's note, VAR_DROPPED_RE; CODER_… are Coder's settings, read elsewhere.)
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || VAR_DROPPED_RE.test(k) || /^CODER_/i.test(k)) continue;
     out[k] = String(v ?? "").slice(0, 4000);
   }
   return out;
@@ -3652,7 +3653,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
           }
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
-        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
+        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });
       }
       if (url.pathname === "/state") {

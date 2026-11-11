@@ -1369,6 +1369,33 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
 - *Not copied*: `transcript_path` (Claude Code's conversation file on its
   machine; Coder keeps the conversation on its server).
 
+**Bash docs pass 9, part F** (the same "Yes pls"): the page. Tests:
+`test/pass9-f.test.mjs` (CD498 to CD504).
+- *A step that never ran*: refused by a rule, auto mode's checker, a hook,
+  Coder's own checks or the owner's answer, its result is marked `ran: false`.
+  The page takes it out of its group and out of the group's count, so "Ran 2
+  commands" counts only commands that ran, as Claude Code takes a step that
+  needs its own row out of its group; the step's own row says "✕ not run"
+  where it said "✕ exit -1" (`neverRan`; older chats by their marks).
+- *A saved key that is never sent*: Claude Code's "If the list marks a secret
+  Not sent instead, the note under it says why and what to do". Every site
+  the key names never gets a key (GitHub, the Anthropic API, the public
+  package registries), or a key saved before it names the same site (the
+  first key for a site is the one sent): "Not sent", and why, under the key
+  (`notSentWhy`, sent by the Worker's `secretList`). Keys whose sites overlap
+  without matching exactly get no mark, as in Claude Code.
+- *The network levels*: None, Limited and Full, as Claude Code now names them,
+  with **Allow package managers** and **Allowed domains** under Limited. A
+  setting saved as Trusted opens as Limited with the box checked; one saved as
+  Custom opens as Limited with its domains and its box. The server keeps the
+  old names (`netSaved`: the box and no domains is "trusted", anything else
+  "custom"), so no environment reaches anything new. Coder proposes a new
+  environment's level as none, limited or full.
+- *Variables commands never get*: PATH, HOME, SHELL, USER, LD_…,
+  NODE_OPTIONS, BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH and OTEL_… (one
+  list, `VAR_DROPPED_RE`, for the machine's `safeVars` and the page) are named
+  on the variables page and its row ("2 not given to commands").
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

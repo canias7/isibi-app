@@ -927,7 +927,7 @@ export const CODER_TOOLS = Object.freeze([
   fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. Or, for a server that already pushes events, a WebSocket (ws) instead of a command: each text message is one event, a binary one comes as a placeholder line, a message over 1 MiB ends the watch, and when the socket closes the watch ends and you are told its close code. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). A command is checked like a bash command (the same rules and questions); a WebSocket is asked about first, or judged by auto mode's checker. To read a background command's output, read its output file.", { command: { type: "string", description: "Shell command or script. Each stdout line is an event; exit ends the watch. Not with ws." }, ws: { type: "object", description: "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.", properties: { url: { type: "string", description: "A ws:// or wss:// URL, ASCII only, with no user name or password" }, protocols: { type: "array", items: { type: "string" }, description: "WebSocket subprotocols to offer (RFC 6455 tokens, each once)" } }, required: ["url"] }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["description"]),
   fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
   fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
-  fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "trusted", "full"], description: "new_environment: network level (default trusted)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
+  fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "limited", "full"], description: "new_environment: network level: none, limited (package registries, GitHub and cloud tools) or full (default limited)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
   // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
@@ -1232,6 +1232,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
   const ranAt = new Map(), doneAt = new Map();
+  // (A STEP THAT NEVER RAN — refused by a rule, the checker, a hook, Coder's own checks or the owner's answer — has its
+  // result marked `ran: false`. The page takes such a step out of its group and out of the group's count, so "Ran 2
+  // commands" counts only commands that ran, as Claude Code takes a step that needs its own row out of its group. Bash
+  // docs pass 9, part F.)
   const emit = (e) => { if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
@@ -1687,7 +1691,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const url = typeof ws.url === "string" ? ws.url : "";
     const shownUrl = scrub(visibleChars(url)).slice(0, 500);
     emit({ type: "bash", id: c.id, command: "WebSocket " + shownUrl, ...(desc ? { desc } : {}), monitor: true, ws: true });
-    const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
+    const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); };
     const bad = wsProblem(c.args);
     if (bad) { refuse("error: " + bad); return null; }
     if (Array.isArray(c.args.allowed_domains) && c.args.allowed_domains.length) { refuse("error: " + HOSTS_ONLY_COMMAND); return null; }
@@ -1715,7 +1719,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (v.usage) usage.push(v.usage);
           if (v.error) { if (await noVerdict(c, v, "this WebSocket watch", wsKey, reply)) return { end: stopNoVerdict(i) }; return null; }
           noVerdictRow = 0;
-          if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
+          if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
           countAllowed(checkSt);
           dec = { verdict: "allow" };
         }
@@ -1726,10 +1730,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // (Claude Code's card has no "don't ask again" for a host.)
       const a = await askOwner({ tool: "monitor", id: c.id, url: shownUrl, ...(desc ? { desc } : {}), why: dec.why || "Coder wants to open a WebSocket to " + (host || "this address") + " and watch its messages.", ...(dec.byRule ? { byRule: true } : {}) });
       const o = answerOutcome(a);
-      if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
-      if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
-      if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(a), ...(a && a.denied ? { denied: true } : {}) }); reply(saidReply(a)); return null; }
-      if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
+      if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
+      if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
+      if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...(a && a.denied ? { denied: true } : {}) }); reply(saidReply(a)); return null; }
+      if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
       if (dec.paused) resume(dec.paused);
     }
     if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
@@ -1794,7 +1798,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (kind === "hard") declined.add(key);
     else if (noVerdictAt !== rounds) { noVerdictRow++; noVerdictAt = rounds; }
     const told = kind === "unavailable" ? checkUnavailable(model || "The classifier", what, typeof v.why === "string" ? v.why : "") : noVerdictTold(model || "The classifier", kind, v.error);
-    emit({ type: "result", id: c.id, code: -1, output: told, notRun: NOT_RUN_ROW });
+    emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
     reply(told + await deniedHooks(c, kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" }));
     return kind !== "hard" && noVerdictRow >= NO_VERDICT_STOP;
   };
@@ -1808,7 +1812,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const declinedAgain = (c, key, what, reply) => {
     if (!declined.has(key)) return false;
     const told = noVerdictTold(model || "The classifier", "hard", "it declined to judge this action");
-    emit({ type: "result", id: c.id, code: -1, output: told, notRun: NOT_RUN_ROW });
+    emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
     reply(told);
     return true;
   };
@@ -2298,7 +2302,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const cmd0 = typeof c.args.command === "string" ? c.args.command : "";
         const bg0 = c.name === "monitor" || (noBg !== true && (c.args.run_in_background === true || c.args.run_in_background === "true"));
         const bad0 = commandProblem(cmd0, { powershell: c.name === "powershell" }) || (bg0 ? "" : sleepBlockFor(cmd0, c.name === "powershell"));
-        if (bad0) { emit({ type: "bash", id: c.id, command: scrub(cmd0).slice(0, 2000), ...(c.name === "powershell" ? { shell: "powershell" } : {}), ...(c.name === "monitor" ? { monitor: true } : {}) }); emit({ type: "result", id: c.id, code: -1, output: bad0 }); reply(bad0); continue; }
+        if (bad0) { emit({ type: "bash", id: c.id, command: scrub(cmd0).slice(0, 2000), ...(c.name === "powershell" ? { shell: "powershell" } : {}), ...(c.name === "monitor" ? { monitor: true } : {}) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: bad0 }); reply(bad0); continue; }
       }
       if (hookList.length && !c.rerun && c.args && typeof c.args === "object") {
         const tool = ccTool(c.name, c.name === "monitor");
@@ -2307,7 +2311,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (pre && pre.stop) { reply("not run: a hook stopped this job"); return stopByHook(pre); }
         if (pre && pre.decision === "deny") {
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
-          emit({ type: "result", id: c.id, code: -1, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
+          emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
           // (Its additionalContext too, as Claude Code gives it with a hook's deny: Bash docs pass 9.)
           reply(scrub(pre.reason) + (Array.isArray(pre.context) && pre.context.length ? "\n\n" + scrub(hookNote("PreToolUse", pre.context)) : ""));
           if (pre.endTurn) { for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(pre.endTurn); }
@@ -2329,8 +2333,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // A rule denying every Bash command refuses a monitor (Claude Code: "If you add the rule during a session, Claude's next
       // Monitor call is refused").
       // (A deadline past an hour is refused, not cut: Claude Code 2.1.322's "timeout_ms must be ≤ 3600000"; Bash docs pass 9.)
-      if (c.name === "monitor" && c.args && typeof c.args === "object" && Number(c.args.timeout_ms) > MONITOR_REFUSE_MS) { emit({ type: "bash", id: c.id, command: scrub(String(c.args.command || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, output: MONITOR_TOO_LONG }); reply(MONITOR_TOO_LONG); continue; }
-      if (c.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")) { emit({ type: "bash", id: c.id, command: scrub(String((c.args && c.args.command) || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, output: MONITOR_BASH_DENIED }); reply(MONITOR_BASH_DENIED); continue; }
+      if (c.name === "monitor" && c.args && typeof c.args === "object" && Number(c.args.timeout_ms) > MONITOR_REFUSE_MS) { emit({ type: "bash", id: c.id, command: scrub(String(c.args.command || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, ran: false, output: MONITOR_TOO_LONG }); reply(MONITOR_TOO_LONG); continue; }
+      if (c.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")) { emit({ type: "bash", id: c.id, command: scrub(String((c.args && c.args.command) || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, ran: false, output: MONITOR_BASH_DENIED }); reply(MONITOR_BASH_DENIED); continue; }
       // (A PowerShell call goes the bash way, marked: its own checks and rules there, and pwsh to run it.)
       if (c.name === "powershell" && c.args && typeof c.args === "object") { c.ps = true; c.name = "bash"; }
       if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.monitorArgs = c.args; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms), ...(c.args.allowed_domains !== undefined ? { allowed_domains: c.args.allowed_domains } : {}) }; }
@@ -2376,7 +2380,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const inBg = c.monitor === true || (noBg !== true && (c.args.run_in_background === true || c.args.run_in_background === "true"));
         // (Its timeout goes with it: the page shows it beside the time it has run, as Claude Code 2.1.23 does.)
         emit({ type: "bash", id: c.id, command: scrub(command).slice(0, 2000), ...(c.ps ? { shell: "powershell" } : {}), ...(desc ? { desc } : {}), ...(inBg ? {} : { timeoutS: commandTimeoutS(c.args, timeouts) }), ...(noBg === true ? { noBg: true } : {}), ...(c.monitor ? { monitor: true } : {}) });
-        const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); };
+        const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); };
         const why = commandProblem(command, { powershell: !!c.ps });
         if (why) { refuse(why); continue; }
         // A FOREGROUND sleep OF 25 SECONDS OR MORE (Claude Code 2.1.319, tried: "Blocked: standalone sleep 30. …").
@@ -2508,7 +2512,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               continue;
             } else {
               noVerdictRow = 0;
-              if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
               countAllowed(checkSt);
               if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
             }
@@ -2524,10 +2528,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
           approval = await askOwner(card, { hooks: !c.rerun });
           const o = answerOutcome(approval);
-          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
-          if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
-          if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto && autoOff !== true) setMode("auto", "card");
           // (The owner's Yes while auto mode was paused resumes it: Claude Code, "Approving the prompted action resumes auto mode".)
@@ -2748,7 +2752,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const tried = triedCommands(convo);
           const untried = newSetupLines(parts.script, had.script).filter((l) => !tried.some((c) => c.includes(l)));
           if (untried.length) { reply("error: like Claude Code, only add setup lines you ran yourself in this chat and saw work (exit code 0). Not run yet: " + untried.slice(0, 5).map((l) => "`" + l.slice(0, 120) + "`").join(", ") + ". Run them with bash first (the whole new script in one command is fine), then propose the script again."); continue; }
-          change = kind === "new_environment" ? { kind, name: envName, network: ["none", "trusted", "full"].includes(c.args.network) ? c.args.network : "trusted", script } : { kind, script };
+          // (Limited, Claude Code's name for it now, is saved as "trusted": package managers allowed, no domains of its own.)
+          change = kind === "new_environment" ? { kind, name: envName, network: { none: "none", full: "full" }[c.args.network] || "trusted", script } : { kind, script };
         } else if (kind === "allow_host") {
           const host = okHost(c.args.host);
           if (!host) { reply("error: give one exact public host name like api.example.com (no https://, path, IP address or wildcard)"); continue; }
@@ -2781,7 +2786,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const got = hookAnswers(c.args);
           if (got.problem) {
             emit({ type: "bash", id: c.id, tool: c.name, verb: "Blocked", command: scrub(qs.map((q) => q.text).join(" ")).slice(0, 300) });
-            emit({ type: "result", id: c.id, code: -1, output: scrub(got.problem).slice(0, 2000), hookBlocked: true });
+            emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(got.problem).slice(0, 2000), hookBlocked: true });
             reply(scrub(got.problem));
             continue;
           }
@@ -2833,7 +2838,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
           if (github) {
             const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
-            emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue;
+            emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: shownPath }); emit({ type: "result", id: c.id, code: 1, ran: false, output: m }); reply(m); continue;
           }
           // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
           reply((c.name === "edit" ? "not edited yet: " : "not written yet: ") + shownPath + " is a protected file (it can make code run on the owner's computer when the branch is pulled, or change how the project is built), so the owner is asked first, as Claude Code asks for such files. Their answer is the next message; when they allow it, " + (c.name === "edit" ? "make the edit" : "write it") + " again.");
@@ -2867,7 +2872,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const own = [...blockDirs, ...(Array.isArray(deps.ownDirs) ? deps.ownDirs : [])].filter((x) => typeof x === "string" && x);
           const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
           const to = within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
-          if (!within(full) || !within(to)) { const msg = READ_BLOCKED(within(full) && to ? to : full, blockDirs); emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
+          if (!within(full) || !within(to)) { const msg = READ_BLOCKED(within(full) && to ? to : full, blockDirs); emit({ type: "result", id: c.id, code: 1, ran: false, output: msg }); reply(msg); continue; }
         }
         // THE WRITE BLOCK FOR THE FILE TOOLS (Bash docs pass 6, outside Bash; Claude Code's
         // permissions.blockWritesOutsideWorkingDirectories: "Make the Write, Edit, and NotebookEdit tools refuse paths outside
@@ -2889,18 +2894,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           let msg = "";
           if (settingsFile(full) || settingsFile(to)) msg = SETTINGS_WRITE_BLOCKED(full);
           else if (full !== mem && (!within(full) || !within(to))) msg = WRITE_BLOCKED(within(full) && to ? to : full, dirs);
-          if (msg) { emit({ type: "result", id: c.id, code: 1, output: msg }); reply(msg); continue; }
+          if (msg) { emit({ type: "result", id: c.id, code: 1, ran: false, output: msg }); reply(msg); continue; }
         }
         // THE OWNER'S READ AND EDIT RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; fileToolDecision): a deny rule refuses
         // the call in Claude Code's words ("Permission to read … has been denied.", "File is covered by a Read deny rule in your
         // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
         const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
         const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x) }) : null;
-        if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, output: fileDec.why }); reply(fileDec.why); continue; }
+        if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, ran: false, output: fileDec.why }); reply(fileDec.why); continue; }
         const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
-        if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
+        if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, ran: false, output: fetchDec.why }); reply(fetchDec.why); continue; }
         // THE AUTO MODE CHECKER FOR A PAGE FETCH (coder-checker.mjs): in Auto, or a job from GitHub, a fetch that no allow rule
         // and none of the pre-approved documentation sites cover is judged before it runs (an address can carry data out).
         let fetchPaused = false, fetchSwitched = false;
@@ -2908,7 +2913,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (!c.rerun && checker && c.name === "web_fetch" && (modeT === "auto" || github) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask") && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
           if (checkStF.paused) {
             if (canAsk()) fetchPaused = true;
-            else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
+            else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
             const fetchKey = "web_fetch\n" + String(args.url || "");
             if (declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
@@ -2917,14 +2922,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (v.usage) usage.push(v.usage);
             const modeAfterF = modeNow();
             if (modeAfterF !== modeT && !modeChecks(modeAfterF)) {
-              if (!canAsk()) { const m = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"; emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+              if (!canAsk()) { const m = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
               fetchSwitched = true;
             } else if (v.error) {
               if (await noVerdict(c, v, "this page fetch", fetchKey, reply)) return stopNoVerdict(i);
               continue;
             } else {
             noVerdictRow = 0;
-            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkStF);
             }
           }
@@ -2940,13 +2945,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : c.hook.reason || "A PreToolUse hook asks first.", byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchSwitched ? MODE_SWITCHED : fetchDec.why, ...(!fetchPaused && !fetchSwitched && fetchDec && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
-          if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+          if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
           approval = await askOwner(card, { hooks: !c.rerun });
           const o = answerOutcome(approval);
-          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
-          if (o === "time") { emit({ type: "result", id: c.id, code: -1, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
-          if (o === "no") { emit({ type: "result", id: c.id, code: -1, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchPaused) resume(checkStF);
           // (A PermissionRequest hook's changed input: the call goes through again with it, Bash docs pass 8.)

@@ -647,7 +647,7 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   // The page shows a step once, with its last command.
   const page = (await import("node:fs")).readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /S\.events\.forEach\(\(e, i\) => \{ if \(e\.type === 'bash' && e\.id\) lastStep\[e\.id\] = i; \}\);/);
-  assert.match(page, /if \(e\.type === 'bash'\) \{ if \(!e\.id \|\| lastStep\[e\.id\] === i\) group\.push\(\[e, i\]\); return; \}/);
+  assert.match(page, /if \(e\.type === 'bash'\) \{\n\s+if \(e\.id && lastStep\[e\.id\] !== i\) return;/);
 });
 
 test("CD418 hook input as Claude Code's common fields give it: prompt_id, one per message of the owner's (\"Absent until the first user input\"), and duration_ms on PostToolUseFailure too", async () => {
