@@ -4,6 +4,26 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Connectors made more like Claude Code's (items 1, 2, 3, 4 and 6 of `docs/connectors-vs-claude-code.md`; your word: "start building the mcp stuff with claude code docs")
+
+- **1. Signing in again:** a server answering 403 (Forbidden) now counts as "needs sign-in", like 401. Claude Code does the same.
+- **2. An expired login renews itself:**
+  - on a tool call, as before;
+  - now also on "Check again": Coder renews the login and tries once more before asking you to sign in again.
+- **3. Long answers:**
+  - an answer over 50,000 characters is saved to a file on Coder's machine, in the scratch folder that is never saved to the branch;
+  - Coder sees the first 2,000 characters and where the file is, then reads or searches it;
+  - before, answers were cut at 30,000 characters.
+- **4. Time limits:** 60 seconds for each request to a connector, 5 minutes for a tool call. Before, there was no limit. Moving a slow call to the background, as Claude Code does after 2 minutes, isn't done yet.
+- **6. "Ask every time" from the server:**
+  - a server can mark a tool as needing your approval every time;
+  - Coder now asks you each time, even in Auto mode and even if you set that tool to Always allow;
+  - where nobody can be asked, it doesn't run.
+- **Tests:** MC9 is new. All 398 pass, 4 skipped as before.
+  - Once, MC4 (the sign-in test) failed in a run made right after I added MC9.
+  - It passed in 8 runs after that, and I couldn't find why. I'm keeping an eye on it.
+- **Not deployed yet.**
+
 ## 2026-11-11: Your apps in Discover (your list: databases, hosting, email, security, monitoring, project management, payments, sign-in)
 
 I tried each app's official MCP address live to see whether it works with our sign-in (it has to let apps register on the fly).

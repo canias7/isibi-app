@@ -18,7 +18,14 @@ export const CONNECTORS_MAX = 20;
 export const TOOLS_PER_CONNECTOR = 40;
 /** The most tools of all connectors told to Grok in one job (a long tool list costs every call and confuses the model). */
 export const TOOLS_MAX = 80;
-export const RESULT_MAX = 30_000;
+/**
+ * LONG ANSWERS, LIKE CLAUDE CODE'S: its MCP output limit is 25,000 tokens (MAX_MCP_OUTPUT_TOKENS) and text over 50,000
+ * characters is saved to a file Claude reads. The Worker passes up to RESULT_MAX characters; Coder's machine saves what is
+ * over INLINE_MAX to a file (container/coder-agent.mjs).
+ */
+export const RESULT_MAX = 500_000;
+export const REQUEST_TIMEOUT_MS = 60_000;
+export const CALL_TIMEOUT_MS = 5 * 60_000;
 export const CALLBACK_PATH = "/api/coder/connectors/callback";
 export const MCP_PATH = "/api/coder/mcp";
 export const STATE_COOKIE = "gf_mcs";
@@ -99,7 +106,7 @@ const aboutOf = (url) => { const k = CATALOG.find((x) => x.url === url); return 
 
 /** What the page is shown of a connector: never its sign-in. */
 export function connectorOut(c) {
-  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.status || "ok", error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t) })), at: c.at || 0 };
+  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.status || "ok", error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), at: c.at || 0 };
 }
 
 /** A connector's address: https only (http only for localhost tests), no user name or password in it. */
@@ -141,7 +148,7 @@ export function toolsFor(list, off = []) {
       used.add(name);
       map[name] = { id: c.id, tool: t.name };
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t),
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, 1000), parameters: params });
     }
   }
@@ -185,9 +192,12 @@ export async function mcpSession(url, token, steps, { fetchFn = fetch } = {}) {
     if (token) headers.authorization = "Bearer " + token;
     if (session) headers["mcp-session-id"] = session;
     let res;
-    try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg) }); } catch { throw new Error("the MCP server could not be reached"); }
-    if (res.status === 401) throw new NeedsSignIn(res.headers.get("www-authenticate"));
-    if (res.status === 403) throw new Error("the MCP server refused (403)");
+    // TIMEOUTS, LIKE CLAUDE CODE'S: a request gets at least 60 seconds; a tool call up to the 5-minute idle limit.
+    const ms = method === "tools/call" ? CALL_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+    try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: AbortSignal.timeout(ms) }); }
+    catch (e) { throw new Error(e && (e.name === "TimeoutError" || e.name === "AbortError") ? "the MCP server did not answer within " + Math.round(ms / 1000) + " seconds" : "the MCP server could not be reached"); }
+    // (Claude Code: a server "needs auth" on 401 Unauthorized or 403 Forbidden.)
+    if (res.status === 401 || res.status === 403) throw new NeedsSignIn(res.headers.get("www-authenticate"));
     if (!res.ok && !(notify && res.status === 202)) throw new Error("the MCP server answered " + res.status);
     const s = res.headers.get("mcp-session-id");
     if (s) session = s;
@@ -209,7 +219,7 @@ export async function listTools(url, token, opts) {
     const [r] = await mcpSession(url, token, [["tools/list", cursor ? { cursor } : {}]], opts);
     for (const t of (r && Array.isArray(r.tools) ? r.tools : [])) {
       if (!t || typeof t.name !== "string") continue;
-      tools.push({ name: t.name.slice(0, 100), title: String(t.title || (t.annotations && t.annotations.title) || "").slice(0, 100), description: String(t.description || "").slice(0, 2000), inputSchema: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} }, readOnly: !!(t.annotations && t.annotations.readOnlyHint === true) });
+      tools.push({ name: t.name.slice(0, 100), title: String(t.title || (t.annotations && t.annotations.title) || "").slice(0, 100), description: String(t.description || "").slice(0, 2000), inputSchema: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} }, readOnly: !!(t.annotations && t.annotations.readOnlyHint === true), ...(t._meta && t._meta["anthropic/requiresUserInteraction"] === true ? { always: true } : {}) });
     }
     cursor = r && r.nextCursor;
     if (!cursor) break;
@@ -369,7 +379,18 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    c.tools = await listTools(c.url, token, { fetchFn });
+    try { c.tools = await listTools(c.url, token, { fetchFn }); }
+    catch (e) {
+      // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
+      if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
+      let fresh = "";
+      try { fresh = await tokenOf(env, bucket, uid, c, { fetchFn, now, force: true }); } catch { fresh = ""; }
+      if (!fresh) throw e;
+      const again = await readConnectors(bucket, uid);
+      const mine = again.find((x) => x.id === c.id);
+      if (mine) c.box = mine.box;
+      c.tools = await listTools(c.url, fresh, { fetchFn });
+    }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
     return { connector: c };

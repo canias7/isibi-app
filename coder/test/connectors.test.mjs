@@ -206,3 +206,54 @@ test("MC8 (2026-11-11, the look of Claude's connectors page) tool permissions: r
     assert.equal(ran, 1, mode);
   }
 });
+
+test("MC9 (2026-11-11, from Claude Code's MCP docs) 403 means sign in too; Check again refreshes an OAuth login and tries once more; each request has a time limit; a server's 'requiresUserInteraction' tool asks every time, even in Auto; a long answer is saved to a file", async () => {
+  const { mcpSession, NeedsSignIn, CALL_TIMEOUT_MS, REQUEST_TIMEOUT_MS } = await import("../src/coder-mcp.mjs");
+  // 403 is a sign-in.
+  await assert.rejects(mcpSession("https://x.example/mcp", "", [], { fetchFn: async () => new Response("no", { status: 403 }) }), (e) => e instanceof NeedsSignIn);
+  // Every request carries a time limit: 60 seconds, 5 minutes for a tool call.
+  assert.equal(REQUEST_TIMEOUT_MS, 60_000);
+  assert.equal(CALL_TIMEOUT_MS, 300_000);
+  const signals = [];
+  const s0 = fakeServer();
+  await mcpSession("https://mcp.example.com/mcp", "", [["tools/call", { name: "a", arguments: {} }]], { fetchFn: (u, i) => { signals.push(i.signal); return s0.fetchFn(u, i); } });
+  assert.ok(signals.every((x) => x instanceof AbortSignal));
+  // Check again on an OAuth connector whose token was refused: refreshed, tried once more, connected.
+  const b = memBucket(), s = fakeServer({ auth: true });
+  const r = await addConnector(env, b, "u1", { name: "Linear", url: "https://mcp.example.com/mcp", nonce: "n-1234567890abcdef", fetchFn: s.fetchFn });
+  const state = new URL(r.signIn).searchParams.get("state");
+  await finishSignIn(env, b, { state, code: "the-code", nonce: "n-1234567890abcdef", fetchFn: s.fetchFn });
+  let refreshed = 0;
+  const stale = async (u, i) => {
+    if (String(u) === "https://auth.example.com/token" && new URLSearchParams(i.body).get("grant_type") === "refresh_token") { refreshed++; return new Response(JSON.stringify({ access_token: "good", expires_in: 3600 }), { headers: { "content-type": "application/json" } }); }
+    if (String(u) === "https://mcp.example.com/mcp" && i.headers.authorization === "Bearer good" && refreshed === 0) return new Response("expired", { status: 401 });
+    return s.fetchFn(u, i);
+  };
+  const again = await addConnector(env, b, "u1", { id: r.connector.id, fetchFn: stale });
+  assert.equal(refreshed, 1);
+  assert.equal(again.connector.status, "ok");
+  // The server's "always ask": kept on the list, and asked every time, even in Auto.
+  const s2 = fakeServer();
+  const always = { ...TOOLS[0], _meta: { "anthropic/requiresUserInteraction": true } };
+  const r2 = await addConnector(env, memBucket(), "u2", { url: "https://mcp.example.com/mcp", fetchFn: async (u, i) => { const res = await s2.fetchFn(u, i); if (i.body && JSON.parse(i.body).method === "tools/list") return new Response(JSON.stringify({ jsonrpc: "2.0", id: JSON.parse(i.body).id, result: { tools: [always] } }), { headers: { "content-type": "application/json" } }); return res; } });
+  assert.equal(r2.connector.tools[0].always, true);
+  const tools = connectorTools([{ name: "mcp__x__list_issues", label: "X: list", perm: "allow", always: true, parameters: { type: "object", properties: {} } }]);
+  const big = "z".repeat(60_000);
+  for (const [mode, canAsk, asks, ran] of [["auto", true, 1, 1], ["auto", false, 0, 0]]) {
+    let i = 0, asked = 0, n = 0;
+    const writes = [];
+    const replies = [{ message: { role: "assistant", content: "", tool_calls: [{ id: "k1", type: "function", function: { name: "mcp__x__list_issues", arguments: "{}" } }] }, usage: { in: 1, out: 1 } }, { message: { role: "assistant", content: "ok" }, usage: { in: 1, out: 1 } }];
+    const seen = [];
+    await runCoder({ send: async (q) => { seen.push(q); return replies[Math.min(i++, 1)]; }, exec: async (x) => { if (x.payload) writes.push(JSON.parse(x.payload)); return { code: 0, output: "" }; }, ...(canAsk ? { ask: async () => { asked++; return { choice: "yes" }; } } : {}), mcp: async () => { n++; return { text: big, isError: false }; } }, { text: "x", mode, connectors: tools });
+    assert.equal(asked, asks); assert.equal(n, ran);
+    if (ran) {
+      // The long answer: saved in the scratch folder, Grok told its start and where it is.
+      assert.equal(writes[0].tool, "write");
+      assert.match(writes[0].args.path, /^\/tmp\/coder-scratch\/connector-k1\.txt$/);
+      assert.equal(writes[0].args.content.length, 60_000);
+      const told = seen[1].messages.find((m) => m.role === "tool").content;
+      assert.ok(told.length < 3_000);
+      assert.match(told, /60,000 characters, is saved in \/tmp\/coder-scratch\/connector-k1\.txt/);
+    }
+  }
+});
