@@ -69,9 +69,14 @@ jobs:
           echo "All secrets present."
       # READ'S PICTURES AND PDFs (owner item 1, 2026-11-08) are tested with the programs Coder's machine
       # has for them; without them those tests are skipped, so a failed install never stops a deploy.
+      # (2026-11-11: this step hung for over 20 minutes in two deploys in a row on GitHub's machines, so apt never asks
+      # anything now, waits at most a minute for its lock and 5 minutes in all, and the step gives up after 12.)
       - name: The picture, PDF and search programs Coder's machine has (for its tests)
+        timeout-minutes: 12
+        continue-on-error: true
         run: |
-          sudo apt-get install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1 || (sudo apt-get update -qq >/dev/null 2>&1 && sudo apt-get install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1) || echo "Not installed: those tests are skipped."
+          APT="sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a timeout 300 apt-get -o DPkg::Lock::Timeout=60"
+          $APT install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1 || ($APT update -qq >/dev/null 2>&1 && $APT install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1) || echo "Not installed: those tests are skipped."
           command -v convert pdftotext rg || true
       - name: Run Coder's tests
         run: node --test test/*.test.mjs
