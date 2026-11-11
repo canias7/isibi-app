@@ -17,6 +17,8 @@ log (81,000 lines) is in git history.
 
 **One part didn't finish:** the backup machine on Cloudflare. It's only used if chats are switched from Fly.io back to Cloudflare. Building it needs Ubuntu's package servers, and GitHub's machine couldn't find them ("Could not resolve 'archive.ubuntu.com'"). They failed from my side too. So GitHub shows deploy 130 as failed, even though everything chats use went out. I'll run the deploy again once Ubuntu's servers answer. That changes nothing else.
 
+**Finished at 17:48 UTC (deploy 131):** Ubuntu's servers answered again by 17:44, so I ran the same deploy again. Every step passed in under 4 minutes, the backup Cloudflare machine included. The step that installs the test programs took 10 seconds; it had hung for 12 minutes before. Coder answers, and the page is unchanged from deploy 130.
+
 **Live test with Grok (recording 39).** Each result matches Claude Code's own answers from this morning.
 1. Hooks and rules:
    - A hook's "no": "PreToolUse:Bash hook error: r39 hook says no", with its note "PreToolUse:Bash hook additional context: The hook word is PINEAPPLE".
