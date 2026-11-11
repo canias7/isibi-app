@@ -213,7 +213,7 @@ test("CD179 gh on a read-only repository only reads (nothing is written there as
   for (const u of ["https://api.github.com/repos/oss/lib/issues", "https://api.github.com/repos/OSS/Other/issues/1/comments"]) {
     const r = await call(u, "POST");
     assert.equal(r.status, 403, u);
-    assert.match(await r.text(), /but not push to it, so gh may only read it$/);
+    assert.match((await r.json()).message, /but not push to it, so gh may only read it$/);
   }
   assert.equal((await call("https://api.github.com/repos/ana/app/issues", "POST")).status, 200, "a repository they may push to");
   assert.deepEqual(sent.map(([u, m]) => m + " " + u), ["GET https://api.github.com/repos/oss/lib/issues", "POST https://api.github.com/repos/ana/app/issues"]);

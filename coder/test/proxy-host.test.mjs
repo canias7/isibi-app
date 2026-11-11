@@ -255,9 +255,9 @@ test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the netw
     // (Bash docs pass 8, the owner, 2026-11-11: "Yes pls": Full no longer reaches the machine's own local addresses through
     // the gate, by name or by number, in Claude Code's words; its sandbox proxy refuses "the connection when the name
     // resolves only to local addresses". A command still reaches its own localhost directly: NO_PROXY.)
-    assert.match(tunnel, /^HTTP\/1\.1 403 Forbidden[\s\S]*Connection to 127\.0\.0\.1 blocked: resolved to a loopback address$/, "Full: a tunnel to the machine's own address");
-    assert.match(await get(px, "http://127.0.0.1:" + webPort + "/x"), /^HTTP\/1\.1 403 [\s\S]*resolved to a loopback address$/, "Full: plain http:// to it");
-    assert.match(await connect(px, "localhost:" + echoPort), /^HTTP\/1\.1 403 [\s\S]*Connection to localhost blocked: resolved to a loopback address$/, "Full: a name for it");
+    assert.match(tunnel, /^HTTP\/1\.1 403 Forbidden[\s\S]*Destination IP is in a private\/reserved range$/, "Full: a tunnel to the machine's own address (Claude Code's cloud words since round 3)");
+    assert.match(await get(px, "http://127.0.0.1:" + webPort + "/x"), /^HTTP\/1\.1 403 [\s\S]*Destination IP is in a private\/reserved range$/, "Full: plain http:// to it");
+    assert.match(await connect(px, "localhost:" + echoPort), /^HTTP\/1\.1 403 [\s\S]*Destination IP is in a private\/reserved range$/, "Full: a name for it");
     assert.match(await connect(px, "[::1]:" + echoPort), /^HTTP\/1\.1 403 /, "Full: CONNECT to [::1]");
     // Plain http:// hands Node the address without its brackets (the audit, 2026-11-06):
     // with them, Node looked "[::1]" up as a name, so it never worked. Checked where the

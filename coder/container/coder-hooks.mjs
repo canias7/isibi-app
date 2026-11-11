@@ -401,6 +401,20 @@ export function answeredText(questions, answers, annotations) {
  * [${CLAUDE_PROJECT_DIR}/.claude/hooks/no-rm.sh]: …"); its address for an HTTP hook, "prompt" or "agent" for the others.
  */
 export const hookName = (h) => "[" + (h.type === "http" ? String(h.url) : h.type === "prompt" || h.type === "agent" ? h.type : String(h.command) + (h.args && h.args.length ? " " + h.args.join(" ") : "")) + "]";
+/**
+ * A HOOK'S NOTICE AS THE CHAT SHOWS IT ("<Event>:<Tool> hook error: [<command>]: <why>"): whole up to `max` characters; past
+ * that its command is cut short ("…"), never the reason after it (live test round 3: a 1,000-character hook command filled
+ * the chat's 600 characters, so "Hook returned incorrect event name …" never showed; Claude Code shows the whole line).
+ */
+export function hookNoteText(n, max = 600) {
+  const s = String(n ?? "");
+  if (s.length <= max) return s;
+  const m = /^(.{0,80}? hook (?:blocking )?error(?: from command)?: \[)([\s\S]*?)(\]: )((?:Hook returned|Hook output|Failed with|Timed out|Request failed|The response|PreToolUse hook|PostToolUse hook)[\s\S]*|[\s\S]*)$/.exec(s);
+  if (!m) return s.slice(0, max);
+  const why = m[4].length > 1400 ? m[4].slice(0, 1400) + "…" : m[4];
+  const room = Math.max(120, max - m[1].length - m[3].length - Math.min(why.length, max - 200));
+  return m[1] + (m[2].length > room ? m[2].slice(0, room) + "…" : m[2]) + m[3] + why;
+}
 const cap = (s) => { const t = String(s ?? ""); return t.length > HOOK_TEXT_MAX ? t.slice(0, 2000) + "\n… (" + (t.length - 2000).toLocaleString("en-US") + " more characters left out)" : t; };
 const BLOCK_FAIL = 'blocking because onFailure is "block"';
 

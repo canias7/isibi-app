@@ -11,6 +11,84 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Claude Code's own ways for round 3's three differences (your words: "merge and deploy and use the same claude code wording")
+
+Read from Claude Code's cloud and its own program in this session, then copied:
+1. **A private address** (the cloud's `169.254.169.254`, localhost, the machine's own network): refused with Claude Code's cloud answer, "Destination IP is in a private/reserved range" (a 403 with `x-deny-reason: private_dest_ip`). There is no extra note in the command's result, as in Claude Code. Before, Coder used the words of Claude Code's local version.
+2. **A repository the chat doesn't have** (downloading its archive, or `gh` on it): Claude Code's sentence, "GitHub access to this repository is not enabled for this session." Claude Code goes on "Use add_repo to request access"; Coder's AI has no add_repo, because you add repositories, so Coder says "To request access, ask the owner to add it to this chat (+ Repository)." A `gh` call to a path that is no repository's (like `gh api user`) gets Claude Code's "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)." I could only see that sentence up to "(repos/{owner}/…", so the end is my best match.
+3. **When Grok's server fails:** Coder now tries again the way Claude Code does. That's up to 10 more times (Claude Code's default; `CODER_MAX_RETRIES` changes it, at most 15), for "busy", "timed out" and server errors and a lost connection. It waits what the server asks, else half a second doubling to 32 seconds. While it waits, the chat shows Claude Code's line, "API error · Retrying in 1s · attempt 1/10". Before, Coder tried once more after 3 seconds. A failed call usually costs nothing.
+
+Tests: CD511, CD512, and four older tests that checked the old words. All on the branch with round 3's three fixes; going live with this "merge and deploy".
+
+## 2026-11-11: Round 3 of the live test: the rest of the bash tool, live with Grok, and the same in Claude Code (your words: "yea go ahead test all of it")
+
+Tested live on gofarther.dev with Grok and filmed (recordings 37s, 37s-S2S3S4, 37s5, 37o, 37h, 37hx and 37p), in new chats on canias7/testingforclaude ("Live test 10 Nov" environment, Accept edits). Every setting a step changed was put back after it. At the end: no hooks, no rules, the same two variables, network Limited with package managers, nothing running.
+
+**Passed:**
+- **Deny rules, 13 of 13 refused:** `git push` behind `time -p`, a full path, `flock` and `setsid`; `rm` behind `A[0]=1`, `$"rm"`, a variable, and inside `$(( ))`; `.env` read through a variable, by `git diff --no-index`, and copied onto; `grep` with a wildcard; a rule for a whole command with `>` in it.
+- **Allow rules that must not reach too far:** with allow rules for `echo`, `touch`, `cat` and `eval`, these still asked: `echo x > /etc/passwd`, `touch /etc/…`, `nohup cat /etc/hostname`, `cd r37dir && touch …`, and `eval`. `cd ./r37dir && touch …` ran.
+- **Odd commands ask:** a no-break space, zsh's `=ls` and `<1-3>`, `DEBUG=1 ls`, a `cd` in brackets before `git`. `GOOS=linux ls` ran.
+- **A `!` rule:** with deny `Read(*.env)` and `Read(!sample.env)`, sample.env was read and prod.env refused.
+- **Your variables:** `CDPATH` and `OTEL_…` are not given to commands. With the read block on, `cat /etc/hostname` and `env -C /etc cat hostname` asked.
+- **The network gate:** a site not on the list was blocked with Coder's note. With the network on Full, localhost and the cloud address `169.254.169.254` were refused, and a host that doesn't exist got Claude Code's "[agent-proxy] … connect_unreachable" note, word for word.
+- **Several read-only commands in one reply** started at the same moment, as in Claude Code.
+- **A rule you add while Coder works** counts from its next step. A note sent with Yes reaches Grok; with "don't ask again" it doesn't.
+- **A repository's own `.claude/settings.json`:** its deny rule worked from the next step; its variables from the next message (`BASH_MAX_OUTPUT_LENGTH` worked; `CDPATH` and `GITHUB_ACTIONS` refused; an ordinary one given).
+- **A background `gh` command after the answer** reached the chat's repository.
+- **zsh with `KSH_OPTION_PRINT`** in `~/.zshrc`: commands still print.
+- **97 MB of output:** "Output exceeded the 64MB persist limit; only the first 64MB were saved to: …", word for word as Claude Code.
+- **The low-disk warning** (set to 20 GB): "Disk space is low: 9.2 GB free …".
+- **Hooks:**
+  - A hook's "no" stops a command, and its extra note reaches Grok. A "defer" is ignored.
+  - A PermissionRequest hook answered the card for you and changed the command; the rule it added lasted the whole chat.
+  - Long hook text (12,000 characters) was saved to a file with a preview.
+  - A background command's hook got its job ID, and every hook got the message's ID.
+  - The folder-change hook ran on your own `!cd`, and the file-watch hook on a watched file.
+  - In Plan mode a hook's "ask" stayed your question, and a dangerous delete was refused in Claude Code's words.
+  - The hook for a waiting card ran after 6 seconds ("Coder needs your permission to use Bash").
+  - SessionStart said "resume" after the machine had slept 11 minutes.
+- **PowerShell:**
+  - A search with no results is not an error.
+  - A rule naming `dotnet.exe` let it run. An allow rule didn't reach outside the project.
+  - `rm` was refused by a Remove-Item rule, and a background command by its rule.
+  - An invisible U+FEFF was refused.
+  - A folder change, quotes in a path, and a chain each asked. Its cards have no "switch to auto mode".
+  - A pwsh hook exiting with code 2 blocked.
+
+**Found and fixed on the branch (not live yet):**
+1. The card for `echo … >> ~/.zshrc` named the file as the project folder with `~` in it. It still asked; now it names the file in the AI's home, as Claude Code does. Test CD508.
+2. `gh` showed "invalid character 'G' looking for beginning of value" instead of Coder's reason when a call was refused. Now `gh` shows the reason. Test CD509.
+3. A hook's error note in the chat was cut at 600 characters, so with a long hook command the reason never showed ("Hook returned incorrect event name …"). Now a long command is shortened instead, and the reason always shows. Test CD510.
+
+**Claude Code, the same things (this session, free):**
+- **The same:** several read-only commands at once, the machine's settings, the "[agent-proxy]" note, the 64 MB note, the `sleep` refusal and the dangerous-delete refusal (word for word). PowerShell's error text comes back as "#< CLIXML …" in both; Claude Code's own program has a label for it.
+- **Different, your call:**
+  - **The cloud address 169.254.169.254:** Claude Code says "Destination IP is in a private/reserved range"; Coder says "Connection to 169.254.169.254 blocked: resolved to a link-local address" (copied from Claude Code's local version, not its cloud).
+  - **A repository the chat doesn't have:** Claude Code says "GitHub access to this repository is not enabled for this session. Use add_repo to request access…"; Coder names the repository and adds its own note.
+  - **When Grok's server fails** (outside the bash tool): Coder tries once more; Claude Code tries up to 10 times, waiting longer each time. It happened once in this round: xAI said "Internal error during token generation" twice in a row, and that message's summary was lost (its commands had run).
+
+**Not tried live:**
+- **The low-memory warning:** the machine had 15 GB free, and the highest setting is 8 GB.
+- **A chat with several repositories:** it needs a second test repository with settings in it.
+- **As before:** the network gate failing (it can't be made to fail from a chat), real dangerous deletes, the out-of-memory stop, the email check.
+- **Hooks and rules on Claude Code's side:** this session can't change its own. Claude Code's command-line version could, with Haiku (paid, waiting for your word).
+
+**My test script's own mistakes, redone:**
+- A plain No on a card ends Coder's turn, as in Claude Code, so three steps stopped at their first card. I reran them answering No with a note.
+- My first background `gh` check used `gh api user`, which Coder refuses (it isn't the chat's repository), as Claude Code's cloud does. I redid it with the repository.
+
+Grok cost: about 22 messages and a few wake-ups, at Low effort; my estimate is $2 to $3.
+
+## 2026-11-11: Deploy 125: the two round 2 fixes live, and tested live with Grok (recordings 36 and 36b) (your words: "merge and deploy")
+
+Merged into main and deployed (deploy 125, live at 11:05 UTC). All 541 tests passed first.
+- **Hooks in a brand-new chat** (recording 36; the same two test hooks and the same message as recording 35): the first hook wrote into the scratch folder, and all four commands ran. The hooks saw `shell=sh` and the mode as "default", and the after-command hook got Claude Code's output fields (stdout, stderr, interrupted, isImage). In recording 35, "Directory nonexistent" blocked every command.
+- **A busy monitor** (10 lines a second; the same message as recording 35): after the first events, Coder skipped some and said so in Claude Code's words: "[9 events suppressed — output rate too high. Consider using stop_job to restart this monitor with a more selective filter.]". Grok then stopped the monitor itself, after about 20 seconds, as that notice suggests. In recording 35 no such notice came.
+- **The same monitor, Grok told to leave it alone** (recording 36b, one more message in the same chat): Coder stopped it at 30 seconds with "[Monitor stopped — too much output (1 events suppressed over 30s). Restart with a more selective source.]", and its step says "too many lines". Grok quoted the notice word for word.
+- **Claude Code, the same command** (run in this Claude Code session in round 2): the same notices and the same stop at 30 seconds ("…(3 events suppressed over 30s)…"). The only differences: Claude Code names its own stop tool (TaskStop) where Coder names stop_job; and the number in the stop notice counts only the events skipped since the last one let through, so it changes from run to run. Claude Code's scratch folder is there from the session's start, so its first hook can always write there; now Coder's can too.
+- Your test settings are as they were: no hooks, no rules, the same two variables, nothing running.
+- Grok cost: 3 messages and a few monitor wake-ups, at Low effort; my estimate is under 50 cents.
+
 ## 2026-11-11: Round 2 of the live test (recording 35), the same tests in Claude Code, and two fixes (your words: "ok", and "remember to run everything in claude code too, to see the differences")
 
 **Coder, live on gofarther.dev with Grok** (a new chat on canias7/testingforclaude, Accept edits; each test setting put back right after its step):

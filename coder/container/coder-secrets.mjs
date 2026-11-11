@@ -6,6 +6,17 @@ export const HOST_RE = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-
 // Claude Code. Never a header a website copies back (Origin, Host, Referer…).
 export const HEADER_RE = /^(authorization|([a-z0-9]{1,16}-){0,4}(key|apikey|token|auth|secret|credential|credentials))$/i;
 /** A key the owner may save: printable characters only (no spaces inside, nothing a header cannot carry). */
+/**
+ * A REPOSITORY THE CHAT DOESN'T HAVE, IN CLAUDE CODE'S CLOUD WORDS (its GitHub proxy's 403, seen 2026-11-11 in a Claude Code
+ * cloud session: {"message": "GitHub access to this repository is not enabled for this session. Use add_repo to request
+ * access. …", "documentation_url": …}; the owner: "use the same claude code wording"). Coder's AI has no add_repo: the
+ * owner adds a repository to the chat, so that sentence names that instead. Shared by the machine's gate (source archives)
+ * and the Worker (gh's API).
+ */
+export const REPO_NOT_ENABLED = "GitHub access to this repository is not enabled for this session. To request access, ask the owner to add it to this chat (+ Repository).";
+/** A GitHub API path that is no repository's (Claude Code's cloud words, as far as they were seen: "… (repos/{owner}/…"). */
+export const API_PATH_NOT_AVAILABLE = "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...).";
+export const REPO_DOCS = "https://gofarther.dev/docs";
 export const KEY_RE = /^[\x21-\x7e]{1,4000}$/;
 export const PREFIXES = ["", "Bearer", "Token", "Key", "Basic"];
 

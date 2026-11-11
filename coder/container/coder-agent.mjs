@@ -21,13 +21,14 @@
 import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
+import { retryLine } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists } from "./coder-bashcheck.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
@@ -315,10 +316,17 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   const names = [], says = [];
   let viaLink = false;
   const add = (name, say) => { if (!names.includes(name)) { names.push(name); says.push(say); } };
+  // A leading ~ is the AI's home, as the shell reads it (live test round 3: `echo … >> ~/.zshrc` was named on the card as
+  // "<project>/~/.zshrc"; Claude Code names the file in its home folder).
+  const home0 = deps && typeof deps.home === "string" && deps.home.startsWith("/") ? deps.home.replace(/\/+$/, "") : "";
+  const tilde = (p) => (home0 && (p === "~" || String(p).startsWith("~/")) ? home0 + String(p).slice(1) : p);
   for (const x of writeTargets(command).targets) {
-    // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
-    const name = x.afterCd || x.unsure ? x.path : projectPath(deps, x.path);
-    if (name && protectedFile(name)) add(name, sensitiveWhy(x.afterCd || x.unsure || !deps || typeof deps.where !== "function" ? x.path : deps.where(x.path)));
+    // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known);
+    // a full path, or one from ~, doesn't depend on a cd before it.
+    const p = x.unsure ? x.path : tilde(x.path);
+    const asWritten = x.unsure || ((x.afterCd || x.path === "~" || String(x.path).startsWith("~/")) && !String(p).startsWith("/"));
+    const name = asWritten ? x.path : projectPath(deps, p);
+    if (name && protectedFile(name)) add(name, sensitiveWhy(asWritten || !deps || typeof deps.where !== "function" ? x.path : deps.where(p)));
   }
   // THE FILE COMMANDS TOO (mkdir, touch, rm, rmdir, mv, cp, sed -i; the permission modes, 2026-11-09): a protected file or
   // folder one changes is asked about in every mode (Claude Code: writes to protected paths "are never auto-approved").
@@ -1583,7 +1591,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const slot = async (h) => { if (h.type !== "prompt" && h.type !== "agent") return () => {}; if (slots.free > 0) slots.free--; else await new Promise((ok) => slots.wait.push(ok)); return () => { const next = slots.wait.shift(); if (next) next(); else slots.free++; }; };
     const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } const r = hookResult(event, persistHookText(event, ran, saveText), h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
     const o = hooksOutcome(event, runs, { tool: value });
-    for (const n of o.notices) emit({ type: "note", text: scrub(n).slice(0, 600), hook: event });
+    for (const n of o.notices) emit({ type: "note", text: hookNoteText(scrub(n)), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
     if (o.watchPaths) { watchDyn = o.watchPaths.slice(0, 200); keepWatch(); }
     // (A SessionStart hook's title applies "when `source` is "startup", "resume", or "fork"", not after a summary.)
@@ -2180,7 +2188,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),

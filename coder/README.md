@@ -606,8 +606,10 @@ the proxy-injected placeholder go out with your real credentials substituted").
 In a chat on a GitHub repository, the machine's gate sends `api.github.com` to
 the Worker with the job's pass (whatever the network setting), and the Worker
 puts the owner's login in (`githubApi` in `src/coder-egress.mjs`): only for the
-chat's own repositories, as `/repos/OWNER/REPO/...` (anything else: "GitHub
-access to ... is not enabled for this session"); GitHub's GraphQL, which
+chat's own repositories, as `/repos/OWNER/REPO/...` (another repository:
+"GitHub access to this repository is not enabled for this session. …"; a path
+that is no repository's: "This GitHub API path is not available: …", both
+Claude Code's cloud words, as GitHub's JSON so `gh` shows them); GitHub's GraphQL, which
 `gh pr` and `gh issue` use, is refused with Claude Code's message naming
 `gh api repos/{owner}/{repo}/...`; a job started from GitHub may only read. The
 commands see `GH_TOKEN` and `GITHUB_TOKEN` as `proxy-injected`, as on Claude
@@ -1167,8 +1169,9 @@ Claude Code's docs and its program, 2.1.322. Tests: `test/pass9-a.test.mjs`
   (`env -C`, `sudo -D`, `unshare -w`, a new root) is followed by the read
   block and the rules (`wrapperDirs`).
 - *Source archives* (CD449; `coder-proxy.mjs`'s `archiveRefused`, `setRepos`):
-  an archive of a repository the chat doesn't have gets Claude Code's 403,
-  "GitHub access to … is not enabled for this session". Every archive lands on
+  an archive of a repository the chat doesn't have gets Claude Code's cloud
+  403, as JSON: "GitHub access to this repository is not enabled for this
+  session. …" (since round 3; before, it named the repository). Every archive lands on
   `codeload.github.com`, which the gate opens and checks; github.com stays a
   plain tunnel.
 - *The gate fails closed* (CD450): with a limited network, if the gate can't
@@ -1406,6 +1409,32 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   command made it, test CD506); a running monitor is read every 200 ms
   (`readMonitors`, `MONITOR_BATCH_MS`, on the real machine), Claude Code's
   batching, so a busy command meets its limits as there (test CD507).
+
+**Round 3 of the live test** (owner, 2026-11-11: "yea go ahead test all of it"):
+everything in Bash not tried live before. Tests: `test/round3.test.mjs`.
+- *A sensitive file named by ~*: a command writing `~/.zshrc` was named on the
+  card as the project's folder with `~` in it; now the AI's home (`commandAsk`'s
+  `tilde`), as Claude Code names it in its own; written as typed when the home
+  isn't known (test CD508).
+- *gh's refusals are GitHub's JSON* (`ghRefused`, `{"message": …}`): gh shows
+  why (a plain-text refusal came out as "invalid character 'G' looking for
+  beginning of value"), as with Claude Code's GitHub proxy (test CD509).
+- *A hook's notice keeps its reason* (`hookNoteText`): past 600 characters
+  its command is cut short, never the reason after it (a 1,000-character hook
+  command had hidden "Hook returned incorrect event name"; test CD510).
+- *Claude Code's own ways for the three differences found* (the owner: "use
+  the same claude code wording"):
+  - a failed Grok call is tried again as Claude Code does (`coderSend`;
+    `MAX_RETRIES` 10, `CODER_MAX_RETRIES` up to 15; 408, 409, 429, 5xx and a
+    lost connection; retry-after, else 500 ms doubling to 32 s plus up to a
+    quarter; the chat's line "API error · Retrying in 1s · attempt 1/10",
+    `retryLine`), test CD511;
+  - a private address is refused with Claude Code's cloud proxy's 403
+    ("Destination IP is in a private/reserved range", `x-deny-reason:
+    private_dest_ip`) and no note; a repository the chat doesn't have, in its
+    GitHub proxy's sentence (`REPO_NOT_ENABLED`, `API_PATH_NOT_AVAILABLE` in
+    `coder-secrets.mjs`; Coder's AI has no add_repo, so the owner's
+    "+ Repository" is named), test CD512.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
