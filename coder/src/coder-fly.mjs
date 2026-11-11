@@ -462,6 +462,36 @@ export function flyBox(env, name, deps0 = {}) {
   };
 }
 
+/**
+ * THE LINK FROM THE OWNER'S DESKTOP APP TO GLOOPY'S MACHINE (2026-11-11: routing Gloopy's browser through the owner's
+ * computer): a WebSocket to the machine while it is awake (never waking it: a link is no reason to), with its key,
+ * joined here to a new one answered to the app (Cloudflare's WebSocketPair); null when the machine isn't up or won't
+ * take it. Messages go both ways as they come.
+ */
+export async function flyRouteLink(env, name, deps0 = {}) {
+  if (!flyOn(env)) return null;
+  const fetchFn = deps0.fetchFn || fetch;
+  const names = await flyNames(name);
+  const rec = await readRec(env.CODER_BUCKET, names.key);
+  if (!rec || rec.stopped) return null;
+  const key = await machineLock(env, names.machine, rec);
+  let up = null;
+  try { up = await fetchFn("https://" + flySettings(env).app + ".fly.dev/gloopy/route", { headers: { Upgrade: "websocket", "fly-force-instance-id": rec.id, ...(key ? { "x-coder-key": key } : {}) } }); } catch { up = null; }
+  const machine = up && up.webSocket;
+  if (!machine) return null;
+  const Pair = deps0.WebSocketPair || globalThis.WebSocketPair;
+  const [app, here] = Object.values(new Pair());
+  here.accept();
+  machine.accept();
+  let closed = false;
+  const close = () => { if (closed) return; closed = true; try { here.close(1000, "closed"); } catch { /* gone */ } try { machine.close(1000, "closed"); } catch { /* gone */ } };
+  here.addEventListener("message", (e) => { try { machine.send(e.data); } catch { close(); } });
+  machine.addEventListener("message", (e) => { try { here.send(e.data); } catch { close(); } });
+  for (const w of [here, machine]) { w.addEventListener("close", close); w.addEventListener("error", close); }
+  const R = deps0.Response || Response;
+  return new R(null, { status: 101, webSocket: app });
+}
+
 /** Remove a machine and its kept disk (the disk once the machine is gone). */
 async function removeMachine(env, id, volume, deps) {
   const s = flySettings(env);

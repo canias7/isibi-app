@@ -20,6 +20,25 @@ log (81,000 lines) is in git history.
 
 Tests GL111 and GL112; GL105 updated.
 
+Tried live on the test copy with Grok, recorded:
+- **Signing in:** Gloopy signed in to the-internet.herokuapp.com's practice login with the private card, using the site's own public demo login. Settings → Browser then listed "the-internet.herokuapp.com · You signed in on the card · Tue 10 Nov, 19:31". Sign out there said "Signed Gloopy out of the-internet.herokuapp.com (4 cookies gone)", and the list was empty again.
+- **The screenshot time:** "I took the screenshot at 7:31:38 PM EST on Tuesday, 10 November 2026 (2026-11-11 00:31:38 UTC)."
+- **Noticed on the way** (the test browser's, not Gloopy's): Chrome on my side warned "Change your password: the password you just used was found in a data breach" after I typed that demo password in Gloopy's sign-in card. Your own browser's password manager sees what you type in the card, as on any page. Whether Gloopy's card should ask browsers not to save or check those passwords belongs to the sign-in tool.
+
+**Gloopy's browser through your own computer** (Grok Bot's "Route traffic through this computer"):
+- **Where:** Settings → Browser → "Through your own computer", in the Go Farther app for Mac or Windows. On the website and the phone, Settings says it's on and lets you turn it off.
+- **What it does:** while it's on and the app is open, Gloopy's browser sends its new connections out through your computer. Sites see your own internet connection and address, as when you browse yourself, which helps with a site that turns cloud computers away. Connections already open keep their way until they close, as Grok Bot's do.
+- **What stays closed:** your computer's private and VPN addresses (your router, printer, office network). Settings shows how many were blocked this session, as Grok Bot's does.
+- **When the app is closed:** Gloopy's browser goes out its own way, as before. Settings says whether your computer is linked, and the live view shows "Through your computer" while it is.
+- **How it's built:**
+  - The app keeps one link to Gloopy's computer through Go Farther's servers, with a ticket that lasts 12 hours. The page renews it while it's open, and turning the switch off makes every ticket worthless.
+  - The link reaches Gloopy's computer only while it's awake, so it never wakes it or keeps it awake. When Gloopy starts work or you take over, the app links within seconds.
+  - On Gloopy's computer, a small proxy takes connections only from its browser's own user, so Gloopy's commands can't send anything through your computer.
+  - When the switch changes, the browser restarts at the next step, staying signed in, as for a time-zone change.
+- **Using it:** the Mac and Windows apps need rebuilding to have it.
+
+Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch), GL115 (the page), D7 to D9 (the desktop app: private addresses, the link, what the page may ask); CD119, CD129, CD146, GL25 and GL106 updated.
+
 ## 2026-11-10: The new browser pieces tried live, and four fixes
 
 Tried on test.gofarther.dev with Grok, recorded. What worked:

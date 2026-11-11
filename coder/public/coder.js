@@ -153,8 +153,27 @@
     S.webOK = g.data.browser === true;
     S.cards = Array.isArray(g.data.cards) ? g.data.cards : [];
     S.logins = Array.isArray(g.data.logins) ? g.data.logins : [];
-    return openProject(g.data.gloopy.id);
+    const opened = openProject(g.data.gloopy.id);
+    opened.then(() => desktopRouteSync()).catch(() => {});
+    return opened;
   }
+  // GLOOPY'S BROWSER, THROUGH THIS COMPUTER (the owner, 2026-11-11: "Yes do that"; Grok Bot's "Route traffic through
+  // this computer"): only in the Go Farther app (its preload gives the page these four controls). While the switch is
+  // on, the app keeps a link to Gloopy's computer, with a ticket the page gets for it: at load, and every 50 minutes
+  // while the page is open (a ticket lasts 12 hours). Sending a message or taking over nudges it (Gloopy's computer has
+  // just woken).
+  const DESKTOP_ROUTE = typeof window !== 'undefined' && window.gofartherDesktop && window.gofartherDesktop.route ? window.gofartherDesktop.route : null;
+  async function desktopRouteSync() {
+    if (!DESKTOP_ROUTE || !S.project || !GLOOPY) return;
+    if (S.routeTimer) clearTimeout(S.routeTimer);
+    S.routeTimer = setTimeout(desktopRouteSync, 50 * 60 * 1000);
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/route', { method: 'POST', body: JSON.stringify({ ticket: true }) });
+    try {
+      if (r.status === 200 && r.data && r.data.ticket) await DESKTOP_ROUTE.start({ url: r.data.url, ticket: r.data.ticket });
+      else if (r.status === 409) await DESKTOP_ROUTE.stop();
+    } catch (e) { /* the app said no */ }
+  }
+  const desktopRouteKick = () => { if (DESKTOP_ROUTE) DESKTOP_ROUTE.kick().catch(() => {}); };
 
   async function showPicker(mode) {
     stopPoll(); S.pickMode = mode || 'new'; S.phase = 'pick'; S.repos = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
@@ -368,7 +387,13 @@
         (!st.signins ? '<p class="cd-gset-none">Gloopy’s sign-ins couldn’t be loaded. Close this and try again.</p>'
           : (st.signins.sites.length ? '<ul class="cd-gset-list">' + st.signins.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(x.site) + '</b><small>' + esc(GSET_SIGNED_HOW[x.how] || 'Signed in') + (x.at ? ' · ' + esc(gsetWhen(x.at)) : '') + '</small></span><span class="cd-gset-btns"><button type="button" data-gs-signout="' + esc(x.site) + '"' + (st.busy ? ' disabled' : '') + '>Sign out</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet.</p>') +
           '<form class="cd-gset-add cd-gset-siteadd" data-gs="signout-site"><input id="gsOutHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Another site, like shop.example" value="' + esc(st.outHost) + '" aria-label="Sign out of another site"><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Sign out</button></form>' +
-          (st.signins.saved.length ? '<h4 class="cd-gset-sub">Saved logins</h4><ul class="cd-gset-list">' + st.signins.saved.map((l) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(l.site) + '</b>' + (l.username ? '<small>' + esc(l.username) + '</small>' : '') + '</span><span class="cd-gset-btns"><button type="button" data-gs-forget="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>Forget</button></span></li>').join('') + '</ul>' : '')) + '</section>' +
+          (st.signins.saved.length ? '<h4 class="cd-gset-sub">Saved logins</h4><ul class="cd-gset-list">' + st.signins.saved.map((l) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(l.site) + '</b>' + (l.username ? '<small>' + esc(l.username) + '</small>' : '') + '</span><span class="cd-gset-btns"><button type="button" data-gs-forget="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>Forget</button></span></li>').join('') + '</ul>' : '')) +
+        // THROUGH THIS COMPUTER (2026-11-11): the switch is in the Go Farther app (it carries the connections).
+        '<h4 class="cd-gset-sub">Through your own computer</h4>' + (DESKTOP_ROUTE
+          ? '<label class="cd-gset-switch"><input type="checkbox" id="gsRoute"' + (st.options.route ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>Send Gloopy’s browser’s traffic through this computer. Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away. It works while this app is open. This computer’s private and VPN addresses stay closed to Gloopy.</span></label>' +
+            (st.options.route ? '<p class="cd-gset-route" role="status">' + esc(gsetRouteWords(st.route)) + '</p>' : '')
+          : st.options.route ? '<p class="cd-gset-hint">On: Gloopy’s browser goes through your computer while the Go Farther app is open on it.</p><button type="button" class="cd-gset-go" data-gs-route-off="1"' + (st.busy ? ' disabled' : '') + '>Turn it off</button>'
+          : '<p class="cd-gset-hint">In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection.</p>') + '</section>' +
         // The monitor (dots' safety monitoring).
         '<section><h3>Watch over each run</h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"' + (st.options.monitor ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>A second AI looks over what Gloopy does as it works, every few steps and right after anything is refused, and pauses the run if Gloopy seems to get around a safeguard or do what you didn’t ask. It uses a little more Grok.</span></label></section>' +
         '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '');
@@ -392,6 +417,7 @@
       const t = e.target;
       if (t.id === 'gsRuleMode') st.ruleMode = t.value; else if (t.id === 'gsEditMode') st.editMode = t.value; else if (t.id === 'gsSiteMode') st.siteMode = t.value;
       else if (t.id === 'gsMonitor') save('/options', { set: { monitor: t.checked } }, (d) => { st.options = d.options; });
+      else if (t.id === 'gsRoute') routeSwitch(t.checked);
       else if (t.dataset.site) save('/sites', { set: { host: t.dataset.site, mode: t.value } }, (d) => { st.sites = d.sites; });
     });
     box.addEventListener('submit', async (e) => {
@@ -413,8 +439,22 @@
       else if (d.gsDel) save('/rules', { remove: d.gsDel }, (x) => { st.rules = x.rules; });
       else if (d.gsUnsite) save('/sites', { remove: d.gsUnsite }, (x) => { st.sites = x.sites; });
       else if (d.gsSignout) signOut(d.gsSignout);
+      else if (d.gsRouteOff) routeSwitch(false);
       else if (d.gsForget) save('/logins', { remove: d.gsForget }, () => {}).then((ok) => (ok ? signinsAgain() : null));
     });
+    // The switch: on gives the app its link's ticket; off stops the link (and every ticket given before stops working).
+    const routeSwitch = async (on) => {
+      if (!(await save('/route', { on }, (x) => { st.options = x.options || st.options; if (DESKTOP_ROUTE) { if (on && x.ticket) DESKTOP_ROUTE.start({ url: x.url, ticket: x.ticket }).catch(() => {}); else if (!on) DESKTOP_ROUTE.stop().catch(() => {}); } }))) return;
+      if (on) st.note = 'On. Gloopy’s browser goes through this computer from its next run or take-over.';
+      routeLook();
+    };
+    // While Settings is open, how the link is doing, every 2 seconds.
+    const routeLook = async () => {
+      if (!DESKTOP_ROUTE || !wrap.isConnected) return;
+      try { st.route = await DESKTOP_ROUTE.status(); } catch (e) { st.route = null; }
+      if (st.options.route) { const r = box.querySelector('.cd-gset-route'); if (r) r.textContent = gsetRouteWords(st.route); else paint(); }
+      clearTimeout(st.routeTimer); st.routeTimer = setTimeout(routeLook, 2000);
+    };
     // Signing out (it can take a moment: Gloopy's computer is woken for it): its words, and the list as it is now.
     const signinsAgain = async () => { const l = await call(base + '/signins'); if (l.status === 200 && l.data) st.signins = { sites: l.data.sites || [], saved: l.data.saved || [] }; paint(); };
     const signOut = async (site) => {
@@ -428,7 +468,16 @@
       return true;
     };
     paint();
+    routeLook();
     const first = box.querySelector('.cd-gset-seg button'); if (first) first.focus();
+  }
+  // How the link from this computer is doing, in words.
+  function gsetRouteWords(r) {
+    if (!r) return 'Starting…';
+    const blocked = r.blocked ? ' ' + r.blocked + (r.blocked === 1 ? ' site was' : ' sites were') + ' blocked this session (a private or VPN address' + (r.lastBlocked ? ', like ' + r.lastBlocked : '') + ').' : '';
+    if (r.connected) return 'Linked: Gloopy’s browser goes through this computer. ' + r.opened + (r.opened === 1 ? ' connection' : ' connections') + ' so far.' + blocked;
+    if (!r.on) return 'Not linked yet.';
+    return 'Waiting for Gloopy’s computer (it may be asleep: the link comes back when Gloopy starts work or you take over).' + blocked;
   }
 
   // THE DESKTOP APP'S NOTIFICATIONS (owner item 8): its window has no web push, so while the app is open (a
@@ -758,6 +807,7 @@
     const att = (S.attach || []).filter((f) => f.id);
     if ((S.attach || []).some((f) => f.up)) return note('Wait for the file to finish attaching.');
     if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.running || S.sending) return;
+    if (GLOOPY) desktopRouteKick();
     S.comments = []; S.pics = []; S.attach = []; S.mention = null;
     // Your message hands Gloopy's browser back to it (its machine does so as the turn starts).
     if (S.web && S.web.control) S.web.control = false;
@@ -1357,6 +1407,8 @@
       '<div class="cd-web-bar"><span class="cd-web-st ' + st[0] + '"><i></i>' + st[1] + '</span>' +
         // ITS HELPERS' OWN TABS (2026-11-10: several browsers at once), while they browse: Gloopy's page, or a helper's.
         (w.lanes && w.lanes.length && !w.control ? '<span class="cd-web-lanes" role="group" aria-label="Whose tab">' + [{ id: 0, title: '' }, ...w.lanes].map((x) => '<button type="button" class="cd-web-lane" data-web-lane="' + x.id + '" aria-pressed="' + ((w.lane || 0) === x.id ? 'true' : 'false') + '"' + (x.title ? ' title="' + esc(x.title) + '"' : '') + '>' + (x.id ? 'Helper ' + x.id : 'Gloopy') + '</button>').join('') + '</span>' : '') +
+        // THROUGH YOUR COMPUTER (2026-11-11): while its new connections go through the owner's computer.
+        (w.route === 'desktop' && !w.lane ? '<span class="cd-web-route" title="Sites see your computer’s internet connection">Through your computer</span>' : '') +
         '<span class="cd-web-addr" id="cdWebAddr" title="' + esc(w.url || '') + '">' + esc(w.title || '') + (host ? ' · ' + esc(host) : '') + '</span>' +
         (w.paused ? '<button type="button" class="cd-web-mini" id="cdWebResume">Refresh</button>' : '') +
         // MARK A PART OF THE PAGE (dots' annotations): drag over it, then say what about it.
@@ -1428,6 +1480,8 @@
     // Gloopy's last step (its words, and where on the page), and a page asking you for a file.
     w.last = d.last && typeof d.last.did === 'string' ? { did: d.last.did.slice(0, 200), box: d.last.box && Number.isFinite(d.last.box.x) ? d.last.box : null } : null;
     w.chooser = !!d.chooser;
+    // Through the owner's computer (2026-11-11): "desktop" while its new connections go through it.
+    w.route = d.route === 'desktop' || d.route === 'cloud' ? d.route : '';
     // Its helpers' tabs: a helper's that closed returns the view to Gloopy's page.
     w.lanes = Array.isArray(d.lanes) ? d.lanes.filter((x) => x && Number.isInteger(x.id) && x.id > 0).slice(0, 4).map((x) => ({ id: x.id, title: String(x.title || '').slice(0, 120) })) : [];
     if (w.lane && !w.lanes.some((x) => x.id === w.lane)) { w.lane = 0; w.hash = ''; }
@@ -1453,7 +1507,7 @@
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(',')].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(','), w.route || ''].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
   // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
   // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
@@ -1554,6 +1608,7 @@
     }
     const b = webShape();
     w.msg = 'Taking over…'; webPaint(b);
+    desktopRouteKick();
     webQuiet(true);
     const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ take: true }) });
     webQuiet(false);

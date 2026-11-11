@@ -28,6 +28,7 @@ import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS } from "./coder-agent.mjs";
 import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContext } from "./gloopy-agent.mjs";
 import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
+import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -1652,6 +1653,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // hands it back (Grok Bot: "tell the Bot to continue").
   let ownerControl = null;
   const notWhileOwner = () => { if (ownerControl) throw new Error("the owner has taken over your browser: wait for their next message before you use it"); };
+  // THROUGH THE OWNER'S OWN COMPUTER (the owner, 2026-11-11: "Yes do that"; Grok Bot's "Route traffic through this
+  // computer"): the link from their Go Farther desktop app (a WebSocket that comes through Coder's Worker, with this
+  // machine's key), and the proxy Gloopy's browser is started with while routing is on (only the browser's own user may
+  // use it). The owner's switch comes with each turn and take-over (`route`); the browser restarts when it changes.
+  const tunnel = makeTunnel();
+  let routeProxy = null, routeWanted = false;
+  const browserRoute = async (on) => {
+    if (env.CODER_IMAGE !== "full" || ownerControl) return;
+    routeWanted = on === true;
+    try {
+      if (routeWanted && !routeProxy) { const p = makeRouteProxy({ tunnel, uid: webUid }); await p.listen(); routeProxy = p; }
+      await browserHub().setRoute(routeWanted && routeProxy ? routeProxy.info : null);
+    } catch { /* the browser goes its own way */ }
+  };
+  // Which way the browser's new connections go now, for the live view: through the owner's computer, or Gloopy's own.
+  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud" } : {});
   // THE LIVE VIEW AS A STREAM (live test, 2026-11-10: each look paid the Worker's sign-in check, about half a second, so
   // the owner saw about two pictures a second): one request, answered with the page's pictures as Chromium sends them
   // (an event each, carrying a look's answer), and with its state when that changes or every SCREEN_BEAT_MS, for up to
@@ -1671,7 +1688,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       catch (e) { r = { error: String((e && e.message) || e).slice(0, 300) }; }
       if (gone) break;
       const t = turns.get(project);
-      const out = { ...r, control: !!ownerControl, working: !!(t && t.running) };
+      const out = { ...r, control: !!ownerControl, working: !!(t && t.running), ...routeNow() };
       if (typeof out.hash === "string" && out.hash) since = out.hash;
       // Its state without the picture (and without how long ago Gloopy's last step was).
       const key = JSON.stringify({ ...out, shot: undefined, hash: undefined, same: undefined, last: out.last ? { did: out.last.did, box: out.last.box } : undefined });
@@ -2177,13 +2194,29 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     }
     if (gloopy) await restoreGloopy().catch(() => {});
     if (gloopy) await browserZone(body);
+    if (gloopy) await browserRoute(body.route === true);
     begin();
     return [200, { ok: true }];
   }
   // WHEN THE WORKER LAST ASKED THIS MACHINE FOR SOMETHING (not counting /busy
   // or /health): on Fly.io a machine quiet for 10 minutes is stopped (src/coder-fly.mjs).
   let lastAsked = Date.now();
-  return async function handle(req, res) {
+  // THE LINK FROM THE OWNER'S COMPUTER (2026-11-11): a WebSocket upgrade of /gloopy/route, only with this machine's key
+  // (it comes through Coder's Worker), only on a machine with the browser; the newest link wins.
+  const upgrade = (req, socket, head) => {
+    const u = new URL(req.url, "http://coder");
+    const want = env && env.CODER_CONTROL_KEY;
+    const deny = (code) => { try { socket.end("HTTP/1.1 " + code + "\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); } catch { /* gone */ } };
+    if (u.pathname !== "/gloopy/route") return deny("404 Not Found");
+    if (!want && env && (env.FLY_MACHINE_ID || env.CODER_DATA)) return deny("503 Service Unavailable");
+    if (want && req.headers["x-coder-key"] !== want) return deny("403 Forbidden");
+    if (env.CODER_IMAGE !== "full") return deny("404 Not Found");
+    lastAsked = Date.now();
+    const ws = wsAccept(req, socket, head);
+    if (ws) tunnel.attach(ws);
+  };
+  return Object.assign(handle, { upgrade, tunnel });
+  async function handle(req, res) {
     const url = new URL(req.url, "http://coder");
     // A "STILL WORKING" SIGNAL (Fly.io, 2026-11-07): Fly's front door cuts a
     // request that sends nothing for 60 seconds, and a job's start (the clone,
@@ -2290,7 +2323,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (url.pathname === "/gloopy/screen" && req.method === "GET" && url.searchParams.get("stream") === "1" && !keep) return screenStream(res, url, project);
       if (url.pathname === "/gloopy/screen" && req.method === "GET") {
         // Asked with wait (2026-11-10), it answers once the page changes (near-video), or after a few seconds.
-        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "", wait: Number(url.searchParams.get("wait")) || 0, lane: Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0))) })), control: !!ownerControl, working: !!(t && t.running) }); }
+        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "", wait: Number(url.searchParams.get("wait")) || 0, lane: Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0))) })), control: !!ownerControl, working: !!(t && t.running), ...routeNow() }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: !!ownerControl, working }); }
       }
       if (url.pathname === "/gloopy/control" && req.method === "POST") {
@@ -2302,7 +2335,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return send(200, { control: false, had, ...where });
         }
         if (working) return send(409, { error: "Gloopy is working in its browser. Stop it first, then take over." });
-        try { const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false }); }
+        try { await browserRoute(body.route === true); const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false, ...routeNow() }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: false }); }
       }
       // A PART OF THE PAGE THE OWNER MARKED (dots' annotations), while they watch or have control: what is in it. A closed
@@ -2431,5 +2464,9 @@ if (import.meta.url === "file://" + process.argv[1]) {
   // The machine's own disk grows to the size Fly.io gave it (growOwnDisk), never holding up the start.
   console.log("coder: the machine's own disk: " + growOwnDisk());
   // Its commands run as admin in a sandbox of their own (coder-sandbox.mjs), where the machine allows one.
-  http.createServer(createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) })).listen(8080, () => console.log("coder: listening on 8080"));
+  const app = createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA) });
+  // The link from the owner's computer (a WebSocket) comes as an upgrade.
+  const srv = http.createServer(app);
+  srv.on("upgrade", app.upgrade);
+  srv.listen(8080, () => console.log("coder: listening on 8080"));
 }

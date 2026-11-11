@@ -13,10 +13,13 @@ its "Download for Mac / Windows" buttons inside the app.
 | `main.js` | The app: window, menu, link rules, permissions (only notifications and copying) |
 | `links.js` | Which addresses stay in the app; which may open in the browser |
 | `offline.html` | The page shown when there is no internet |
+| `route.js` | Gloopy's browser through this computer (2026-11-11): the link to Gloopy's computer, each connection opened from here, never to a private or VPN address |
+| `preload.js` | What the page may ask of the app: only the link's start, stop, nudge and status (for gofarther.dev's own pages) |
 | `build/icon.png` | The GF icon (the Mac and Windows icons are made from it) |
 | `test/` | `npm test` |
 
-Run it here: `npm install`, then `npm start`.
+Run it here: `npm install`, then `npm start`. To try it against the test copy:
+`GOFARTHER_HOME=https://test.gofarther.dev/ npm start` (only a gofarther.dev address is taken).
 
 Build it: the **build desktop apps** button in GitHub Actions makes
 `GoFarther-mac.dmg` and `GoFarther-windows.exe` on GitHub's Mac and Windows

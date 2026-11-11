@@ -284,7 +284,11 @@ export async function serve(dir) {
   await mkdir(dlDir, { recursive: true, mode: 0o700 });
   // Its name: ordinary Chrome's (see chromeName), for every page from its first request (new tabs too).
   const name = (() => { try { return chromeName(spawnSync(chromium.executablePath(), ["--version"], { timeout: 10_000 }).stdout); } catch { return null; } })();
-  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}), ...(name ? { userAgent: name.userAgent, extraHTTPHeaders: { "sec-ch-ua": name.secChUa } } : {}) });
+  // THROUGH THE OWNER'S OWN COMPUTER (the owner, 2026-11-11: "Yes do that"; Grok Bot's "Route traffic through this
+  // computer"): while it is on, Coder's service starts the browser with its own proxy (GLOOPY_PROXY: { server }, on
+  // 127.0.0.1), which sends each new connection through the owner's desktop app while it is linked (gloopy-route.mjs).
+  const proxy = routeProxyOf(process.env.GLOOPY_PROXY);
+  const ctx = await chromium.launchPersistentContext(join(dir, "profile"), { headless: true, viewport: VIEW, acceptDownloads: true, downloadsPath: dlDir, ...(zone ? { timezoneId: zone } : {}), ...(proxy ? { proxy } : {}), ...(name ? { userAgent: name.userAgent, extraHTTPHeaders: { "sec-ch-ua": name.secChUa } } : {}) });
   // A new tab's first page runs before its brands can be set (see watch): there, and only while they still say
   // "HeadlessChrome", the page reads Chrome's own list too.
   if (name) await ctx.addInitScript(([brands, full]) => {
@@ -1002,7 +1006,7 @@ export async function serve(dir) {
         let out, ask = null;
         try {
           const x = req.url === "/ping" ? null : JSON.parse(body || "{}");
-          if (!x) out = { ok: true, zone };
+          if (!x) out = { ok: true, zone, route: proxy ? proxy.server : "" };
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
@@ -1111,6 +1115,13 @@ export function thumbOf(b64) {
   return u.length <= 60_000 ? u : "";
 }
 
+/** The proxy the browser is started with (2026-11-11): only Coder's own, on this machine ({ server: "http://127.0.0.1:port" }); null for none. */
+export function routeProxyOf(raw) {
+  let p = null;
+  try { p = JSON.parse(String(raw || "null")); } catch { p = null; }
+  return p && /^http:\/\/127\.0\.0\.1:\d{1,5}$/.test(String(p.server || "")) ? { server: String(p.server) } : null;
+}
+
 /** The browser's own environment: nothing of the service's (no keys), only what Chromium and Playwright need. */
 export function browserEnv(dir, env = process.env) {
   return {
@@ -1129,13 +1140,15 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
   const sock = join(dir, "ctl.sock");
   // The owner's time zone the browser is started with (fix 7).
   let want = okZone(zone) ? zone : "";
+  // The proxy it is started with while its traffic goes through the owner's computer (2026-11-11), or null.
+  let wantRoute = null;
   const start = async () => {
     if (!hasBrowser()) throw new Error(NO_BROWSER);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
     if (uid !== null) chownSync(dir, uid, gid ?? uid);
     chmodSync(dir, 0o700);
     const log = openSync(join(dir, "browser.log"), "a", 0o600);
-    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: { ...browserEnv(dir, env), ...(want ? { GLOOPY_TZ: want } : {}) }, ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
+    const child = spawn(process.execPath, [fileURLToPath(import.meta.url), "serve", dir], { detached: true, stdio: ["ignore", log, log], env: { ...browserEnv(dir, env), ...(want ? { GLOOPY_TZ: want } : {}), ...(wantRoute ? { GLOOPY_PROXY: JSON.stringify(wantRoute) } : {}) }, ...(uid !== null ? { uid, gid: gid ?? uid } : {}) });
     child.unref();
     closeSync(log);
     const until = Date.now() + startMs;
@@ -1173,6 +1186,17 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       await ask(sock, "/quit", {}, 20_000);
       for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
       return { zone: want, restarted: true };
+    },
+    // THROUGH THE OWNER'S OWN COMPUTER (2026-11-11): the proxy for the next start ({ server } on 127.0.0.1, or null for
+    // none); a browser running with another one is stopped, as for the time zone (it starts again at the next step,
+    // signed in). New connections only, as Grok Bot's: what is open keeps its way until it closes.
+    setRoute: async (r) => {
+      wantRoute = routeProxyOf(r ? JSON.stringify(r) : "");
+      const p = await ask(sock, "/ping", {}, 2000);
+      if (!p || !p.ok || String(p.route || "") === (wantRoute ? wantRoute.server : "")) return { route: !!wantRoute };
+      await ask(sock, "/quit", {}, 20_000);
+      for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
+      return { route: !!wantRoute, restarted: true };
     },
     describe: (ref, lane = 0) => call({ action: "describe", ...(ref ? { ref } : {}), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) }),
     fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),

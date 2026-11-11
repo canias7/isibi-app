@@ -349,10 +349,10 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
 
 test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute Fly step, a removed chat's machine, and the deploy button's Fly.io steps (the token only from GitHub's secrets, never shown)", async () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's");
+  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\), routeLink: \(name\) => flyRouteLink\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's; the desktop app's link to Gloopy's machine (2026-11-11) too");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
   assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
-  assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable, copyState: m\.copyState \}\);/);
+  assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable, copyState: m\.copyState, routeLink: m\.routeLink \}\);/);
   const { controlKeySync } = await import("../src/coder-control.mjs");
   assert.match(controlKeySync("k".repeat(44)), /^[0-9a-f]{32}$/);
   const wr = readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8");

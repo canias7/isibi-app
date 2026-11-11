@@ -195,6 +195,30 @@ export async function makeTicket(env, email, type, now = Date.now()) {
   const payload = b64url(enc.encode(JSON.stringify({ e: String(email), t: String(type), x: now + TICKET_MS })));
   return payload + "." + (await mac(key, "ticket:" + payload));
 }
+/** How long a ticket for the desktop app's link lasts (the page gives the app a new one while it is open). */
+export const ROUTE_TICKET_MS = 12 * 60 * 60 * 1000;
+/**
+ * A TICKET FOR THE DESKTOP APP'S LINK TO GLOOPY'S COMPUTER (2026-11-11: routing Gloopy's browser through the owner's
+ * computer): whose Gloopy, which time the switch was turned on (`ver`: turning it off makes every earlier ticket
+ * worthless), until when. Signed with the proof key, like the sign-in's ticket.
+ */
+export async function makeRouteTicket(env, uid, ver, now = Date.now()) {
+  const key = await proofKey(env);
+  if (!key || typeof uid !== "string" || !uid) return "";
+  const payload = b64url(enc.encode(JSON.stringify({ u: uid, v: Number.isInteger(ver) ? ver : 0, x: now + ROUTE_TICKET_MS })));
+  return payload + "." + (await mac(key, "route:" + payload));
+}
+/** `{ uid, ver, expires }` for a genuine link ticket that has not run out; null otherwise. */
+export async function readRouteTicket(env, ticket, now = Date.now()) {
+  const m = /^([A-Za-z0-9_-]{1,2000})\.([A-Za-z0-9_-]{43})$/.exec(typeof ticket === "string" ? ticket : "");
+  const key = m ? await proofKey(env) : null;
+  if (!key || !sameText(await mac(key, "route:" + m[1]), m[2])) return null;
+  let p;
+  try { p = JSON.parse(dec.decode(unb64url(m[1]))); } catch { return null; }
+  if (!p || typeof p.u !== "string" || !p.u || !Number.isInteger(p.v) || !Number.isFinite(p.x) || !(now < p.x)) return null;
+  return { uid: p.u, ver: p.v, expires: p.x };
+}
+
 /** `{ email, type, expires }` for a genuine ticket that has not run out; null when it is forged, changed, old or malformed. */
 export async function readTicket(env, ticket, now = Date.now()) {
   const m = /^([A-Za-z0-9_-]{1,2000})\.([A-Za-z0-9_-]{43})$/.exec(typeof ticket === "string" ? ticket : "");

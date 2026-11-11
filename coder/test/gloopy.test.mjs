@@ -7,6 +7,7 @@ import http from "node:http";
 import { mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { createRequire } from "node:module";
 import { runCoder, CODER_SYSTEM, CODER_TOOLS } from "../container/coder-agent.mjs";
 import { GLOOPY_SYSTEM, GLOOPY_TOOLS, GLOOPY_TOOL_NAMES, gloopyContext } from "../container/gloopy-agent.mjs";
 
@@ -921,7 +922,7 @@ test("GL25 (2026-11-09) the Worker: the live view never wakes a sleeping compute
   answer = { "/gloopy/control": { control: true, working: false, url: "https://shop.example/", title: "Shop", shot: "AAAA", hash: "h1" } };
   r = await (await act({ take: true })).json();
   assert.deepEqual([r.ok, r.control], [true, true]);
-  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true } });
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true, route: false } }, "with the routing switch (2026-11-11: GL114)");
   assert.equal(meta().used, true);
   // The owner's input: only its own fields go to the machine.
   answer = { "/gloopy/input": { control: true, url: "https://shop.example/", title: "Shop", shot: "BBBB", hash: "h2" } };
@@ -5186,11 +5187,12 @@ test("GL106 (2026-11-10) the owner: \"all of it\": the monitor (dots' safety mon
     container: () => ({ fetch: async (req) => { machine.push({ path: new URL(req.url).pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true }); } }) };
   const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
   await go("gloopy");
-  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/options")).json()).options, { monitor: true });
+  // (Since 2026-11-11 the options also say whether Gloopy's browser goes through the owner's computer: GL114.)
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/options")).json()).options, { monitor: true, route: false, routeVer: 0 });
   assert.equal((await go("projects/" + GLOOPY_ID + "/options", { method: "POST", body: JSON.stringify({ set: { monitor: "no" } }) })).status, 400);
   await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "hi" }) });
   assert.equal(machine.filter((x) => x.path === "/turn").at(-1).body.monitor, true);
-  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/options", { method: "POST", body: JSON.stringify({ set: { monitor: false } }) })).json()).options, { monitor: false });
+  assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/options", { method: "POST", body: JSON.stringify({ set: { monitor: false } }) })).json()).options, { monitor: false, route: false, routeVer: 0 });
   bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ ...JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json")), status: "idle" }));
   await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "hi again" }) });
   assert.equal(machine.filter((x) => x.path === "/turn").at(-1).body.monitor, false);
@@ -5529,4 +5531,237 @@ test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section
   assert.match(routes, /if \(action === "signout" && request\.method === "POST"\)/);
   const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-gset-text small\{display:block;margin-top:2px;font-size:12px;color:#8a857d\}/);
+});
+
+test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on its machine: the link (a WebSocket) carries many connections at once with flow control; the browser's proxy takes only the browser's own user, sends new connections through the link while there is one and straight out while there isn't, never another way when the owner's computer refused one (a private address); for real, the browser starts with the proxy while routing is on and restarts without it", async (t) => {
+  const { makeTunnel, makeRouteProxy, wsAccept, peerUid, routeFrame, routeRead, ROUTE, ROUTE_WINDOW } = await import("../container/gloopy-route.mjs");
+  const { makeRoute } = createRequire(import.meta.url)("../desktop/route.js");
+  const net = await import("node:net");
+  assert.equal(ROUTE_WINDOW, 1024 * 1024);
+  assert.deepEqual(routeRead(routeFrame(ROUTE.DATA, 7, Buffer.from("hi"))), { type: ROUTE.DATA, id: 7, payload: Buffer.from("hi") });
+  // Which user a connection came from: the caller's own line in /proc/net/tcp.
+  const fakeProc = "  sl  local_address rem_address   st tx_queue rx_queue tr tm->when retrnsmt   uid  timeout inode\n   0: 0100007F:1F90 0100007F:D431 01 00000000:00000000 00:00000000 00000000     0        0 1\n   1: 0100007F:D431 0100007F:1F90 01 00000000:00000000 00:00000000 00000000  1001        0 2\n";
+  assert.equal(peerUid({ remotePort: 0xd431, localPort: 0x1f90 }, (f) => (f === "/proc/net/tcp" ? fakeProc : "")), 1001);
+  assert.equal(peerUid({ remotePort: 1, localPort: 2 }, () => fakeProc), -1);
+  // A stand-in site, the machine's end of the link, the browser's proxy, and the owner's computer (its "site.test" is a
+  // public address that is really the stand-in; "intranet.test" a private one).
+  const big = Buffer.alloc(3 * 1024 * 1024, 9);
+  const site = http.createServer((q, r) => { if (q.url === "/big") { r.writeHead(200, { "content-length": big.length }); return r.end(big); } r.end("<title>Site</title>hello " + q.url); });
+  const SITE = Number(new URL(await listen(site)).port);
+  const tunnel = makeTunnel();
+  const machine = http.createServer((q, r) => r.end());
+  machine.on("upgrade", (req, socket, head) => { const ws = wsAccept(req, socket, head); if (ws) tunnel.attach(ws); });
+  const M = Number(new URL(await listen(machine)).port);
+  const straight = [];
+  const proxy = makeRouteProxy({ tunnel, direct: async (host, port) => { straight.push(host + ":" + port); return net.connect({ host: "127.0.0.1", port: host === "site.test" ? SITE : 1 }); } });
+  const info = await proxy.listen();
+  assert.match(info.server, /^http:\/\/127\.0\.0\.1:\d+$/);
+  const P = Number(new URL(info.server).port);
+  const route = makeRoute({ anyUrl: true, proxy: "", device: "test-mac", lookup: async (h) => (h === "site.test" ? [{ address: "93.184.216.34" }] : h === "intranet.test" ? [{ address: "10.0.0.5" }] : Promise.reject(Object.assign(new Error("nx"), { code: "ENOTFOUND" }))), connect: (o) => net.connect({ host: "127.0.0.1", port: o.host === "93.184.216.34" ? SITE : 1 }) });
+  const get = (path) => new Promise((ok) => { http.get({ host: "127.0.0.1", port: P, path, headers: { host: new URL(path).host } }, (r) => { const b = []; r.on("data", (d) => b.push(d)); r.on("end", () => ok([r.statusCode, Buffer.concat(b)])); }).on("error", (e) => ok([0, Buffer.from(e.message)])); });
+  const viaConnect = (hostPort) => new Promise((ok) => { const c = net.connect(P, "127.0.0.1", () => c.write("CONNECT " + hostPort + " HTTP/1.1\r\nHost: " + hostPort + "\r\n\r\n")); let got = ""; c.on("data", (d) => { got += d; if (/^HTTP\/1\.1 200/.test(got) && got.endsWith("\r\n\r\n")) c.write("GET /c HTTP/1.1\r\nHost: x\r\nConnection: close\r\n\r\n"); }); c.on("end", () => ok(got)); c.on("error", () => ok(got)); });
+  try {
+    // No link yet: straight out, as before.
+    let [st, body] = await get("http://site.test/a");
+    assert.deepEqual([st, body.toString()], [200, "<title>Site</title>hello /a"]);
+    assert.deepEqual(straight, ["site.test:80"]);
+    // The owner's computer links: new connections go through it.
+    route.start({ url: "ws://127.0.0.1:" + M + "/api/coder/gloopy-route", ticket: "t" });
+    for (let i = 0; i < 60 && !tunnel.connected; i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.deepEqual([tunnel.status().connected, tunnel.status().device], [true, "test-mac"]);
+    [st, body] = await get("http://site.test/b");
+    assert.deepEqual([st, body.toString()], [200, "<title>Site</title>hello /b"]);
+    [st, body] = await get("http://site.test/big");
+    assert.ok(st === 200 && body.equals(big), "3 MB, byte for byte, with flow control");
+    assert.match(await viaConnect("site.test:80"), /^HTTP\/1\.1 200 Connection Established\r\n\r\n[\s\S]*hello \/c$/, "https's way (CONNECT) too");
+    // A private address on the owner's network: refused there, and never sent another way.
+    [st, body] = await get("http://intranet.test/");
+    assert.deepEqual([st, body.toString()], [502, "Gloopy's browser could not reach intranet.test: blocked: intranet.test is a private or VPN address on this computer's network"]);
+    assert.match(await viaConnect("intranet.test:443"), /^HTTP\/1\.1 502 Bad Gateway\r\n[\s\S]*blocked: intranet\.test is a private or VPN address/);
+    assert.deepEqual(straight, ["site.test:80"], "nothing else went straight out");
+    const rs = route.status();
+    assert.deepEqual([rs.connected, rs.opened, rs.blocked, rs.lastBlocked], [true, 3, 2, "intranet.test"]);
+    assert.deepEqual(proxy.counts(), { desktop: 3, cloud: 1, failed: 2, refused: 0 });
+    // The app stops: the link closes, and new connections go straight out again.
+    route.stop();
+    for (let i = 0; i < 60 && tunnel.connected; i++) await new Promise((ok) => setTimeout(ok, 50));
+    assert.equal(tunnel.connected, false);
+    [st] = await get("http://site.test/d");
+    assert.equal(st, 200);
+    assert.deepEqual(straight, ["site.test:80", "site.test:80"]);
+  } finally { route.stop(); await proxy.close(); machine.close(); site.close(); }
+  // Only the browser's own user: anyone else's connection is closed before it says anything.
+  const other = makeRouteProxy({ tunnel, uid: 4242, uidOf: () => 1001 });
+  const O = Number(new URL((await other.listen()).server).port);
+  const said = await new Promise((ok) => { const c = net.connect(O, "127.0.0.1", () => c.write("CONNECT site.test:443 HTTP/1.1\r\n\r\n")); let got = ""; c.on("data", (d) => (got += d)); c.on("close", () => ok(got)); c.on("error", () => ok(got)); });
+  assert.equal(said, "");
+  assert.equal(other.counts().refused, 1);
+  await other.close();
+  // Its machine: the link's way in (only with the machine's key), the proxy started for the browser while routing is
+  // on, the switch from each turn and take-over, and which way the browser goes in the live view.
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /if \(u\.pathname !== "\/gloopy\/route"\) return deny\("404 Not Found"\);/);
+  assert.match(server, /if \(want && req\.headers\["x-coder-key"\] !== want\) return deny\("403 Forbidden"\);/);
+  assert.match(server, /if \(ws\) tunnel\.attach\(ws\);/);
+  assert.match(server, /if \(routeWanted && !routeProxy\) \{ const p = makeRouteProxy\(\{ tunnel, uid: webUid \}\); await p\.listen\(\); routeProxy = p; \}/);
+  assert.match(server, /if \(gloopy\) await browserRoute\(body\.route === true\);/);
+  assert.match(server, /try \{ await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/);
+  assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud" \} : \{\}\);/);
+  assert.match(server, /srv\.on\("upgrade", app\.upgrade\);/);
+  const { createApp } = await import("../container/server.mjs");
+  const app = createApp({ env: { CODER_CONTROL_KEY: "k".repeat(40), CODER_IMAGE: "full" } });
+  const answer = (path, key) => new Promise((ok) => { let out = ""; const sock = { end: (s) => { out += s; ok(out); }, write: () => true, on() {}, setNoDelay() {}, setTimeout() {}, destroy() {} }; app.upgrade({ url: path, headers: { upgrade: "websocket", "sec-websocket-key": "dGhlIHNhbXBsZSBub25jZQ==", ...(key ? { "x-coder-key": key } : {}) } }, sock, Buffer.alloc(0)); setTimeout(() => ok(out || "(accepted)"), 50); });
+  assert.match(await answer("/gloopy/route", "wrong"), /^HTTP\/1\.1 403 Forbidden/);
+  assert.match(await answer("/other", "k".repeat(40)), /^HTTP\/1\.1 404 Not Found/);
+  assert.equal(await answer("/gloopy/route", "k".repeat(40)), "(accepted)");
+  // FOR REAL (where Chromium is installed): the browser starts with the proxy while routing is on.
+  const { makeBrowserHub, hasBrowser, routeProxyOf } = await import("../container/gloopy-browser.mjs");
+  assert.deepEqual(routeProxyOf('{"server":"http://127.0.0.1:4567"}'), { server: "http://127.0.0.1:4567" });
+  for (const bad of ['{"server":"http://evil.example:1"}', '{"server":"http://127.0.0.1:1/x"}', "nope", ""]) assert.equal(routeProxyOf(bad), null, bad);
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site2 = http.createServer((q, r) => r.end("<title>Through " + (q.headers["x-via"] || "?") + "</title>"));
+  const S2 = Number(new URL(await listen(site2)).port);
+  const seen = [];
+  const p2 = makeRouteProxy({ tunnel: makeTunnel(), direct: async (host, port) => { seen.push(host + ":" + port); return net.connect({ host: "127.0.0.1", port: S2 }); } });
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-route-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    await hub.act({ action: "open", url: "http://127.0.0.1:" + S2 + "/" });
+    const on = await hub.setRoute(await p2.listen());
+    assert.deepEqual(on, { route: true, restarted: true }, "it restarts with the proxy");
+    const r = await hub.act({ action: "open", url: "http://shop.test/" });
+    assert.match(r.text, /^Did: Opened http:\/\/shop\.test\/\nPage: Through \?/m, "the page came through the proxy");
+    assert.deepEqual(seen, ["shop.test:80"]);
+    assert.deepEqual(await hub.setRoute(p2.info), { route: true }, "the same proxy: no restart");
+    assert.deepEqual(await hub.setRoute(null), { route: false, restarted: true }, "and without it again");
+  } finally {
+    (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    await p2.close(); site2.close();
+  }
+});
+
+test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in the Worker: the switch answers the desktop app a ticket for its link (and the link's address); turning it off makes every ticket worthless; the link reaches Gloopy's computer only while it is awake (never waking it), with the ticket; each turn and take-over carries the switch; the link to Fly is joined both ways", async () => {
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } = await import("../src/coder-auth.mjs");
+  const { flyRouteLink } = await import("../src/coder-fly.mjs");
+  assert.equal(ROUTE_TICKET_MS, 12 * 60 * 60 * 1000);
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  // Tickets: genuine, for whom and which time it was turned on, until when.
+  const tk = await makeRouteTicket(env, "u1", 3, 1000);
+  assert.deepEqual(await readRouteTicket(env, tk, 2000), { uid: "u1", ver: 3, expires: 1000 + ROUTE_TICKET_MS });
+  assert.equal(await readRouteTicket(env, tk, 1000 + ROUTE_TICKET_MS), null, "ran out");
+  assert.equal(await readRouteTicket(env, tk.replace(/^./, (c) => (c === "e" ? "f" : "e")), 2000), null, "changed");
+  assert.equal(await readRouteTicket({ ...env, CODER_TOKEN_KEY: Buffer.alloc(32, 8).toString("base64") }, tk, 2000), null, "another key");
+  const machine = [];
+  let awake = false;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async () => awake,
+    routeLink: async (name) => { machine.push({ linked: name }); return new Response("linked", { status: 200 }); },
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ path: u.pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json({ ok: true, control: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://test.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json", ...(init.headers || {}) } }), env, {}, deps);
+  const route = (body) => go("projects/" + GLOOPY_ID + "/route", { method: "POST", body: JSON.stringify(body) }).then((r) => r.json().then((d) => [r.status, d]));
+  const link = (t, upgrade = true) => handleCoder(new Request("https://test.gofarther.dev/api/coder/gloopy-route?t=" + encodeURIComponent(t), { headers: upgrade ? { upgrade: "websocket" } : {} }), env, {}, deps);
+  await go("gloopy");
+  // Off at first: no ticket.
+  let [st, d] = await route({ ticket: true });
+  assert.deepEqual([st, d.error], [409, "Sending Gloopy's browser through your computer is off."]);
+  // On: a ticket, and the link's address on the same site.
+  [st, d] = await route({ on: true });
+  assert.equal(st, 200);
+  assert.deepEqual([d.options.route, d.options.routeVer, d.url], [true, 0, "wss://test.gofarther.dev/api/coder/gloopy-route"]);
+  const t1 = d.ticket;
+  assert.deepEqual((await readRouteTicket(env, t1)).uid, "u1");
+  // The link: a WebSocket only; asleep, refused (never woken); awake, joined to Gloopy's computer.
+  assert.equal((await link(t1, false)).status, 426);
+  assert.equal((await link("forged.x")).status, 401);
+  let r = await link(t1);
+  assert.deepEqual([r.status, await r.json()], [409, { asleep: true }]);
+  assert.deepEqual(machine, [], "not woken");
+  awake = true;
+  r = await link(t1);
+  assert.deepEqual([r.status, await r.text()], [200, "linked"]);
+  assert.deepEqual(machine, [{ linked: "u1-" + GLOOPY_ID }]);
+  // A fresh ticket while it is on.
+  [st, d] = await route({ ticket: true });
+  assert.equal(st, 200);
+  assert.notEqual(d.ticket, "");
+  // Gloopy's turn and take-over carry the switch.
+  machine.length = 0;
+  await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ take: true }) });
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true, route: true } });
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /monitor: \(await readOptions\(bucket, uid\)\)\.monitor, route: \(await readOptions\(bucket, uid\)\)\.route, grant:/);
+  // Off: every ticket given before stops working.
+  [st, d] = await route({ on: false });
+  assert.deepEqual([st, d.options.route, d.options.routeVer], [200, false, 1]);
+  r = await link(t1);
+  assert.deepEqual([r.status, (await r.json()).error], [403, "Sending Gloopy's browser through your computer was turned off."]);
+  // On again: a new ticket works, an old one doesn't.
+  [st, d] = await route({ on: true });
+  assert.equal((await link(d.ticket)).status, 200);
+  assert.equal((await link(t1)).status, 403);
+  // Monitor's switch keeps the route's.
+  await go("projects/" + GLOOPY_ID + "/options", { method: "POST", body: JSON.stringify({ set: { monitor: false } }) });
+  [st, d] = await route({ ticket: true });
+  assert.equal(st, 200);
+  // FLY: the link to the awake machine (with its key, never waking it), joined both ways.
+  const flyEnv = { ...env, CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1" };
+  const { flyNames } = await import("../src/coder-fly.mjs").then((m) => ({ flyNames: m.flyNames })).catch(() => ({}));
+  const names = flyNames ? await flyNames("u1-" + GLOOPY_ID) : null;
+  if (names) {
+    assert.equal(await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID), null, "no machine: no link");
+    await bucket.put(names.key, JSON.stringify({ id: "m123", stopped: true }));
+    assert.equal(await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID), null, "asleep: no link, and not woken");
+    await bucket.put(names.key, JSON.stringify({ id: "m123", stopped: false }));
+    const sock = () => { const l = {}, sent = []; return { sent, l, accept() { this.accepted = true; }, send(x) { sent.push(x); }, close() { this.closed = true; }, addEventListener(k, f) { (l[k] ||= []).push(f); }, fire(k, e) { for (const f of l[k] || []) f(e); } }; };
+    const up = sock(), app = sock(), here = sock();
+    const asked = [];
+    class Pair { constructor() { return { 0: app, 1: here }; } }
+    class R { constructor(body, init) { this.status = init.status; this.webSocket = init.webSocket; } }
+    const res = await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID, { fetchFn: async (u, init) => { asked.push([u, init.headers]); return { webSocket: up }; }, WebSocketPair: Pair, Response: R });
+    assert.deepEqual([res.status, res.webSocket === app], [101, true]);
+    assert.equal(asked[0][0], "https://gofarther-coder.fly.dev/gloopy/route");
+    assert.deepEqual([asked[0][1].Upgrade, asked[0][1]["fly-force-instance-id"], typeof asked[0][1]["x-coder-key"]], ["websocket", "m123", "string"]);
+    assert.ok(here.accepted && up.accepted);
+    here.fire("message", { data: "to-machine" });
+    up.fire("message", { data: "to-app" });
+    assert.deepEqual([up.sent, here.sent], [["to-machine"], ["to-app"]]);
+    up.fire("close", {});
+    assert.ok(here.closed && up.closed, "one end closing closes both");
+  }
+  // The Worker answers the link's 101 as it is (a copy would lose its socket).
+  const worker = await readFile(new URL("../worker.js", import.meta.url), "utf8");
+  assert.match(worker, /routeLink: m\.routeLink \}\);\n\s+\/\/ A WEBSOCKET'S ANSWER[^\n]*\n\s+if \(res && res\.status === 101\) return res;/);
+  assert.match(worker, /routeLink: \(name\) => flyRouteLink\(env, name\) \};/);
+});
+
+test("GL115 (2026-11-11) Gloopy's browser through the owner's own computer, on the page: the switch is in Settings → Browser in the Go Farther app (elsewhere, what it does and how to turn it off); turning it on gives the app its link's ticket, off stops the link; a fresh ticket at load and every 50 minutes; sending a message or taking over nudges the link; how the link is doing, in words; the live view says when the browser goes through your computer", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /const DESKTOP_ROUTE = typeof window !== 'undefined' && window\.gofartherDesktop && window\.gofartherDesktop\.route \? window\.gofartherDesktop\.route : null;/);
+  assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/route', \{ method: 'POST', body: JSON\.stringify\(\{ ticket: true \}\) \}\);/);
+  assert.match(ui, /if \(r\.status === 200 && r\.data && r\.data\.ticket\) await DESKTOP_ROUTE\.start\(\{ url: r\.data\.url, ticket: r\.data\.ticket \}\);\n\s+else if \(r\.status === 409\) await DESKTOP_ROUTE\.stop\(\);/);
+  assert.match(ui, /S\.routeTimer = setTimeout\(desktopRouteSync, 50 \* 60 \* 1000\);/);
+  assert.match(ui, /opened\.then\(\(\) => desktopRouteSync\(\)\)\.catch\(\(\) => \{\}\);/);
+  assert.match(ui, /if \(GLOOPY\) desktopRouteKick\(\);/, "a message nudges it");
+  assert.match(ui, /w\.msg = 'Taking over…'; webPaint\(b\);\n\s+desktopRouteKick\(\);/, "taking over too");
+  // Settings: the switch in the app; elsewhere, what it does and how to turn it off.
+  assert.match(ui, /'<h4 class="cd-gset-sub">Through your own computer<\/h4>' \+ \(DESKTOP_ROUTE/);
+  assert.match(ui, /<input type="checkbox" id="gsRoute"' \+ \(st\.options\.route \? ' checked' : ''\)/);
+  assert.match(ui, /Send Gloopy’s browser’s traffic through this computer\. Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away\. It works while this app is open\. This computer’s private and VPN addresses stay closed to Gloopy\./);
+  assert.match(ui, /On: Gloopy’s browser goes through your computer while the Go Farther app is open on it\.<\/p><button type="button" class="cd-gset-go" data-gs-route-off="1"/);
+  assert.match(ui, /In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection\./);
+  assert.match(ui, /else if \(t\.id === 'gsRoute'\) routeSwitch\(t\.checked\);/);
+  assert.match(ui, /if \(DESKTOP_ROUTE\) \{ if \(on && x\.ticket\) DESKTOP_ROUTE\.start\(\{ url: x\.url, ticket: x\.ticket \}\)\.catch\(\(\) => \{\}\); else if \(!on\) DESKTOP_ROUTE\.stop\(\)\.catch\(\(\) => \{\}\); \}/);
+  assert.match(ui, /clearTimeout\(st\.routeTimer\); st\.routeTimer = setTimeout\(routeLook, 2000\);/);
+  // How it is doing, in words.
+  const words = new Function(ui.match(/  function gsetRouteWords\(r\) \{[\s\S]*?\n  \}\n/)[0] + "; return gsetRouteWords;")();
+  assert.equal(words(null), "Starting…");
+  assert.equal(words({ on: true, connected: true, opened: 12, blocked: 1, lastBlocked: "intranet.example" }), "Linked: Gloopy’s browser goes through this computer. 12 connections so far. 1 site was blocked this session (a private or VPN address, like intranet.example).");
+  assert.equal(words({ on: true, connected: false, opened: 0, blocked: 0 }), "Waiting for Gloopy’s computer (it may be asleep: the link comes back when Gloopy starts work or you take over).");
+  // The live view.
+  assert.match(ui, /w\.route = d\.route === 'desktop' \|\| d\.route === 'cloud' \? d\.route : '';/);
+  assert.match(ui, /\(w\.route === 'desktop' && !w\.lane \? '<span class="cd-web-route" title="Sites see your computer’s internet connection">Through your computer<\/span>' : ''\)/);
+  assert.match(ui, /\(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| ''\]\.join\('\|'\)/);
+  const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /\.cd-web-route\{/);
 });
