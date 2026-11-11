@@ -230,6 +230,15 @@
 /* Slash commands: the menu above the box. */
 .cd-composewrap { position: relative; }
 .cd-localnote { color: #6b7280; font-size: 13px; background: #f3f1ed; border-radius: 10px; padding: 8px 12px; white-space: pre-wrap; }
+/* A hook that ended the turn (Claude Code: "the reason appears in the chat as a warning line"), and a hook's statusMessage. */
+.cd-localnote.cd-note-warn { color: #92400e; background: #fef3c7; }
+.cd-localnote.cd-note-status { background: transparent; padding: 2px 12px; font-style: italic; }
+.cd-localnote.cd-note-status::before { content: "⋯ "; font-style: normal; }
+/* A monitor's event (Claude Code's Monitor, 2026-11-10): its watch's name, then the lines it printed. */
+.cd-monev { border: 1px solid #ebe7e0; border-radius: 10px; background: #fbfaf8; padding: 8px 12px; font-size: 13px; color: #4b5563; }
+.cd-monev-head { display: flex; align-items: center; gap: 6px; overflow-wrap: anywhere; }
+.cd-monev-head b { color: #1f1e1d; font-weight: 600; }
+.cd-monev-lines { margin: 6px 0 0; max-height: 220px; overflow: auto; font: 12px/1.5 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #1f1e1d; white-space: pre-wrap; overflow-wrap: anywhere; }
 
 /* Coder's own "are you sure?" */
 .cd-sure{position:fixed;inset:0;z-index:100;background:rgba(20,20,19,.35);display:flex;align-items:center;justify-content:center;padding:16px}
@@ -474,6 +483,12 @@
 .cd-review-note code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; }
 /* NOTIFICATIONS (owner item 8): the panel from the account menu. */
 .cd-notify { max-width: 440px; }
+/* Settings (the gear's menu, 2026-11-10): a heading per part, and a row with its words and its picker. */
+.cd-settings { max-width: 480px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.cd-set-head { margin: 16px 0 2px; font-size: 12px; font-weight: 600; letter-spacing: .02em; text-transform: uppercase; color: #8a8782; }
+.cd-set-row { display: flex; gap: 12px; align-items: center; justify-content: space-between; margin-top: 10px; font-size: 13px; color: #6b6a68; line-height: 1.4; }
+.cd-set-row b { color: #1f1e1d; font-weight: 600; }
+.cd-set-row select { flex: none; font: inherit; font-size: 13px; border: 1px solid #e0dbd2; border-radius: 8px; padding: 6px 8px; background: #fff; color: #1f1e1d; }
 .cd-notify-device { margin: 14px 0 6px; display: flex; align-items: center; gap: 10px; flex-wrap: wrap; font-size: 13px; color: #4b5563; }
 .cd-notify-device button { font: inherit; font-size: 14px; border-radius: 10px; padding: 8px 14px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
 .cd-notify-device .cd-notify-go { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
@@ -584,6 +599,9 @@
 .cd-rules-k { margin-top: 14px; }
 .cd-rules-h { font-size: 13.5px; color: #1f1e1d; }
 .cd-rules-h span { color: #6b6a66; font-size: 12.5px; }
+.cd-rules-trust { display: flex; gap: 10px; align-items: flex-start; margin: 14px 0 4px; font-size: 12.5px; color: #6b6a66; line-height: 1.45; cursor: pointer; }
+.cd-rules-trust input { margin: 2px 0 0; flex: none; }
+.cd-rules-trust b { display: block; font-size: 13.5px; color: #1f1e1d; font-weight: 600; margin-bottom: 2px; }
 .cd-rules-k ul { list-style: none; margin: 6px 0 0; padding: 0; }
 .cd-rules-k li { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 5px 8px; border: 1px solid #ece9e2; border-radius: 8px; margin-bottom: 4px; font-size: 13px; overflow-wrap: anywhere; }
 .cd-rules-k li button { border: 0; background: transparent; color: #6b6a66; font-size: 16px; line-height: 1; cursor: pointer; border-radius: 6px; padding: 2px 6px; }
@@ -599,3 +617,9 @@
 .cd-rules-add button { font: inherit; font-size: 13.5px; font-weight: 600; border: 1px solid #1f1e1d; background: #1f1e1d; color: #fff; border-radius: 8px; padding: 7px 14px; cursor: pointer; }
 .cd-rules .cd-sure-row .cd-sure-yes { background: #1f1e1d; border-color: #1f1e1d; }
 .cd-sure-text code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
+
+/* Settings: the owner's hooks (JSON, as in Claude Code's settings). */
+.cd-set-hint { font-size: 12.5px; line-height: 1.45; color: #6b6a68; margin: 4px 0 8px; }
+.cd-set-hint code { font-size: 12px; }
+.cd-set-hooks { width: 100%; box-sizing: border-box; min-height: 130px; resize: vertical; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; border: 1px solid #e0dbd2; border-radius: 8px; background: #fff; color: #1f1e1d; }
+.cd-set-hooks-row { margin-top: 6px; justify-content: flex-start; }

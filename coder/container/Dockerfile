@@ -80,7 +80,8 @@ ENV CODER_IMAGE=full
 
 # Ubuntu's own packages, the versions Claude Code's machine has: C and C++
 # (clang 18, cmake, ninja), PHP 8.3, Java 21, PostgreSQL 16, Redis 7, rbenv, the
-# libraries native extensions build against, Chrome's libraries, everyday tools,
+# libraries native extensions build against, Chrome's libraries, everyday tools
+# (zsh too, for the owner's CODER_SHELL, Claude Code's CLAUDE_CODE_SHELL),
 # and what Docker needs to run without admin rights (uidmap, slirp4netns).
 RUN apt-get update && apt-get install -y --no-install-recommends \
     clang cmake ninja-build pkg-config gdb python3-dev \
@@ -89,7 +90,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     php-cli php-curl php-mbstring php-xml php-zip php-intl php-sqlite3 php-pgsql php-mysql php-bcmath php-gd \
     openjdk-21-jdk-headless \
     postgresql postgresql-contrib redis-server \
-    rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo \
+    rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo zsh \
     uidmap slirp4netns fuse-overlayfs iproute2 e2fsprogs \
     fonts-liberation libasound2t64 libatk-bridge2.0-0t64 libatk1.0-0t64 libcairo2 libcups2t64 libdbus-1-3 \
     libdrm2 libgbm1 libglib2.0-0t64 libgtk-3-0t64 libnspr4 libnss3 libpango-1.0-0 libvulkan1 \
@@ -106,6 +107,16 @@ RUN set -eu; install -m 0755 -d /etc/apt/keyrings; \
     apt-get update; \
     apt-get install -y --no-install-recommends docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin docker-ce-rootless-extras gh; \
     rm -f /etc/apt/sources.list.d/docker.list /etc/apt/sources.list.d/github-cli.list; apt-get update
+
+# POWERSHELL 7 (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's PowerShell tool, opt-in on
+# Linux with CLAUDE_CODE_USE_POWERSHELL_TOOL: "install pwsh and ensure it is on your PATH"; here CODER_USE_POWERSHELL_TOOL),
+# from Microsoft's own package list, taken out again afterwards like the others.
+RUN set -eu; install -m 0755 -d /etc/apt/keyrings; \
+    curl -fsSL --retry 5 --retry-delay 3 https://packages.microsoft.com/keys/microsoft.asc -o /etc/apt/keyrings/microsoft.asc; \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/microsoft.asc] https://packages.microsoft.com/ubuntu/24.04/prod noble main" > /etc/apt/sources.list.d/microsoft-prod.list; \
+    apt-get update; apt-get install -y --no-install-recommends powershell; \
+    rm -f /etc/apt/sources.list.d/microsoft-prod.list; apt-get update; \
+    pwsh -NoProfile -NonInteractive -Command '$PSVersionTable.PSVersion.ToString()'
 
 # Node 24 beside 22 (Claude Code's machine has both), nvm for any other version
 # (`. /opt/nvm/nvm.sh && nvm install 20`), and the JavaScript tools.
@@ -217,7 +228,7 @@ FROM ${CODER_IMAGE} AS app
 WORKDIR /app
 
 # OUR OWN CODE LAST: small and changes often.
-COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs coder-shell.mjs coder-bashcheck.mjs coder-perms.mjs coder-freeze.mjs coder-checker.mjs ./
+COPY package.json server.mjs coder-agent.mjs coder-model.mjs coder-checks.mjs coder-tools.mjs coder-lsp.mjs coder-proxy.mjs coder-secrets.mjs coder-scrub.mjs coder-ps.mjs coder-psparse.mjs coder-auth.mjs coder-room.mjs coder-room-forward.mjs coder-sandbox.mjs coder-sandbox-init.sh coder-globs.mjs coder-security.mjs coder-compact.mjs coder-shell.mjs coder-bashcheck.mjs coder-perms.mjs coder-filerules.mjs coder-hooks.mjs coder-freeze.mjs coder-checker.mjs ./
 ENV NODE_ENV=production
 EXPOSE 8080
 CMD ["node", "server.mjs"]

@@ -20,6 +20,8 @@
     if (r.status === 200 && r.data) {
       if (Array.isArray(r.data.models) && r.data.models.length) MODELS = r.data.models;
       if (r.data.pick) S.pick = r.data.pick;
+      // (Auto mode turned off in Settings, Claude Code's disableAutoMode: Auto is not offered.)
+      S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
     }
   }
   // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
@@ -208,6 +210,77 @@
   async function deviceSub() {
     if (!canPush()) return null;
     try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
+  }
+  /**
+   * SETTINGS (owner, 2026-11-10: "do the 2 u left out optional, the setting put it in settings"), from the gear's menu: Coder's
+   * own, for all the owner's chats, each saved as soon as it changes (as Notifications' switches are). What each does, and
+   * Claude Code's own way of it, is said under it.
+   */
+  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+  async function showSettings() {
+    const r = await call('/settings');
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
+    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 2, ...((r.data && r.data.prefs) || {}) };
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-settings'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Settings');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    let note = '', err = '';
+    // (The hooks box keeps what is typed in it until it is saved, while the rest of the dialog is drawn again.)
+    let hooksDraft = typeof prefs.hooks === 'string' ? prefs.hooks : '';
+    // (And the auto mode rules box; what saving it warned about: a list without "$defaults".)
+    let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
+    const save = async (field, value) => {
+      const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
+      else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
+      paint();
+    };
+    const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    const paint = () => {
+      box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
+        '<div class="cd-sure-text">For all your chats. Each one is saved as soon as you change it.</div>' +
+        '<div class="cd-set-head">Background commands</div>' +
+        '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
+          '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
+        '<div class="cd-set-head">Disk</div>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
+          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+        // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
+        '<div class="cd-set-head">Hooks</div>' +
+        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
+        '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
+        '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
+        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
+        '<div class="cd-set-head">Permissions</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>A step that would wait for your answer is refused at once, and Coder goes on with the rest; after 20 in a row, it stops. Claude Code’s permissions.denyInsteadOfPrompting.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits instead, and Auto is not offered. Claude Code’s disableAutoMode.</span></label>' +
+        // AUTO MODE'S CHECKER (Claude Code's autoMode block, from your own settings only).
+        '<div class="cd-set-head">Auto mode rules</div>' +
+        '<div class="cd-set-hint">What the checker in Auto mode goes by, as in Claude Code’s <code>autoMode</code>: <code>environment</code> (your trusted repos, domains and services), <code>allow</code> (exceptions to blocks), <code>soft_deny</code> (blocked unless you ask for it) and <code>hard_deny</code> (always blocked), each a list of plain sentences. Put <code>"$defaults"</code> in a list to keep the built-in entries; a list without it replaces them. <code>"classifyAllShell": true</code> sends every command to the checker, whatever your allow rules.</div>' +
+        '<textarea id="cdSetAuto" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Auto mode rules (JSON)" placeholder="' + esc('{ "environment": [ "$defaults", "Trusted internal domains: *.corp.example.com" ], "soft_deny": [ "$defaults", "Never change the billing tables" ] }') + '">' + esc(autoDraft) + '</textarea>' +
+        '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetAutoSave">Save auto mode rules</button></div>' +
+        (warns.length ? warns.map((w) => '<p class="cd-rules-warn">⚠ ' + esc(w) + '</p>').join('') : '') +
+        (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
+        '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
+      const $ = (id) => box.querySelector('#' + id);
+      $('cdSetDone').onclick = close;
+      $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
+      $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
+      $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
+      $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
+      $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
+      $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
+      $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
+      $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
+      $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
+    };
+    paint();
+    box.querySelector('#cdSetBg').focus();
   }
   async function showNotifications() {
     const r = await call('/push');
@@ -478,7 +551,7 @@
     else if (page === 'main') {
       const n = e.network || { mode: 'trusted', hosts: [], defaults: true };
       const rows = [
-        ['network', 'Network access', (NET[n.mode] || NET.trusted)[0] + (n.mode === 'custom' ? ' · ' + n.hosts.length + ' site' + (n.hosts.length === 1 ? '' : 's') + (n.defaults ? ' + default list' : '') : '')],
+        ['network', 'Network access', (NET[n.mode] || NET.trusted)[0] + (n.mode === 'custom' ? ' · ' + n.hosts.length + ' site' + (n.hosts.length === 1 ? '' : 's') + (n.defaults ? ' + default list' : '') : '') + ((n.denied || []).length ? ' · ' + n.denied.length + ' blocked' : '')],
         ['secrets', 'Network secrets', (e.secrets || []).length ? e.secrets.length + ' secret' + (e.secrets.length > 1 ? 's' : '') : 'None'],
         ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
         ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') : 'None for this repo'],
@@ -496,6 +569,9 @@
         (f.mode === 'trusted' ? '<p class="cd-em-help">The default list is Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</p>' : '') +
         (f.mode === 'custom' ? '<label class="cd-envnet"><input type="checkbox" id="envDefaults"' + (f.defaults ? ' checked' : '') + '> Also include the default list of common package managers</label><label class="cd-em-l">Allowed sites</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No sites yet. Coder asks before adding one.</p>') + '</div>' +
           '<div class="cd-em-addrow"><input id="envHostIn" placeholder="api.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envHostAdd">Add</button></div>' : '') +
+        // BLOCKED SITES (Claude Code's sandbox.network.deniedDomains): in every setting.
+        '<label class="cd-em-l">Blocked sites</label><p class="cd-em-help">Never reached, whatever the setting above allows, and even with a saved secret (Claude Code’s deniedDomains).</p><div class="cd-em-list">' + ((f.denied || []).length ? f.denied.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-netdenydel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">None.</p>') + '</div>' +
+        '<div class="cd-em-addrow"><input id="envDenyIn" placeholder="tracker.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envDenyAdd">Block</button></div>' +
         foot('Save changes');
     } else if (page === 'secrets') {
       body = head('Network secrets', 'main') + '<div class="cd-em-list">' + ((e.secrets || []).length ? e.secrets.map((x) => '<div class="cd-em-li"><span><b>' + esc(x.name || x.hosts.join(', ')) + '</b><small>' + esc(x.hosts.join(', ') + (x.paths && x.paths.length ? ' · ' + x.paths.join(', ') : '') + ' · ' + x.headers.map((h) => h.name).join(', ')) + '</small></span><button type="button" data-secid="' + esc(x.id) + '" data-secname="' + esc(x.name || x.hosts.join(', ')) + '" aria-label="Remove">×</button></div>').join('') : '<p class="cd-muted">No secrets yet.</p>') + '</div>' +
@@ -533,14 +609,14 @@
   }
   function envGo(page) {
     const e = S.env || {}; S.envMsg = ''; S.envPage = page;
-    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false }
+    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false, denied: [...((e.network && e.network.denied) || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
       : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : null;
     draw();
   }
   async function envYes() {
     const page = S.envPage, f = S.envForm;
-    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults } });
+    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults, denied: f.denied || [] } });
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
@@ -812,8 +888,21 @@
     web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
+  /**
+   * A MONITOR'S EVENT IN THE CHAT (Claude Code's Monitor, 2026-11-10): what it watches, the lines its command printed (the
+   * newest 40), and how it ended, when it did. Only text, never markup.
+   */
+  // (A WebSocket watch's end: how its socket closed, CD385.)
+  const wsEnd = (w) => (w.error ? 'could not connect' : w.tooBig ? 'ended: a message over 1 MiB' : 'closed (code ' + esc(String(w.close)) + ')');
+  const MONITOR_END = { exit: (e) => (e.ws && typeof e.ws === 'object' ? wsEnd(e.ws) : 'ended (exit ' + esc(String(e.code)) + ')'), limit: () => 'reached its deadline', flood: () => 'stopped: too many lines', stopped: () => 'stopped', coder: () => 'stopped' };
+  function monitorHTML(m) {
+    const lines = Array.isArray(m.lines) ? m.lines.filter((l) => typeof l === 'string').slice(-40) : [];
+    const end = m.end && typeof m.end === 'object' ? (MONITOR_END[m.end.why] || MONITOR_END.exit)(m.end) : '';
+    return '<div class="cd-monev"><div class="cd-monev-head">' + stepIcon({ monitor: true }) + '<span><b>' + (lines.length ? 'Monitor event' : 'Monitor') + '</b> · ' + esc(String(m.desc || '')) + (end ? ' · ' + end : '') + '</span></div>' +
+      (lines.length ? '<pre class="cd-monev-lines">' + esc(lines.join('\n')) + (Number(m.dropped) > 0 ? '\n(' + esc(String(m.dropped)) + ' more left out)' : '') + '</pre>' : '') + '</div>';
+  }
   function stepIcon(e) {
-    const k = e.tool === 'monitor' ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
+    const k = e.tool === 'monitor' || e.monitor === true ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
     return '<span class="cd-sic" aria-hidden="true"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="' + STEP_ICON[k] + '"/></svg></span>';
   }
   /** How long a running command has run, and its timeout ("12s · timeout 2m"). */
@@ -829,8 +918,16 @@
     const m = r && r.code === -1 ? /^Blocked by auto mode · (\[[^\]\n]{1,80}\][\s\S]*)$/.exec(String(r.output || '')) : null;
     return m ? m[1].replace(/\s+/g, ' ').trim().slice(0, 600) : '';
   }
+  // A CALL ONE OF THE OWNER'S HOOKS BLOCKED (hooks, 2026-11-10; Claude Code shows the hook's error under the call): the hook's
+  // words, shown without opening the step.
+  function hookBlockOf(r) {
+    const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\[[\s\S]*)$/.exec(String(r.output || '')) : null;
+    return m ? { event: m[1], why: m[2].replace(/\s+/g, ' ').trim().slice(0, 600) } : null;
+  }
   function stepAutoBlock(r) {
     const why = autoBlockOf(r);
+    const hb = why ? null : hookBlockOf(r);
+    if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
     return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
   }
   function cmdHTML(e, r, state, key) {
@@ -838,7 +935,7 @@
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
@@ -964,7 +1061,7 @@
    * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -1004,7 +1101,7 @@
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
         // The line names each kind of step and what failed, as Claude Code's does (groupWords).
-        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool || '', failed: stateOf(e, i) === 'bad', file: stepFile(e) })));
+        const words = groupWords(group.map(([e, i]) => ({ tool: !e.tool && e.monitor === true ? 'monitor_start' : e.tool || '', failed: stateOf(e, i) === 'bad', file: stepFile(e) })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
           '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
@@ -1109,7 +1206,8 @@
       }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
-      else if (e.type === 'note') out.push('<div class="cd-localnote">' + esc(e.text) + '</div>');
+      // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
+      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(e.text) + '</div>');
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
@@ -1428,19 +1526,21 @@
     { id: 'acceptEdits', name: 'Accept edits', info: 'Automatically accept all file edits', icon: 'edits' },
     { id: 'plan', name: 'Plan', info: 'Create a plan before making changes', icon: 'plan' },
   ];
+  /** The modes offered: all three, or without Auto when Settings turn it off (Claude Code's disableAutoMode). */
+  const modeList = () => MODE_LIST.filter((x) => !(S.autoOff && x.id === 'auto'));
   /** The chat's mode as it is now: a card's switch in the running job (Auto, an approved plan) counts until the job saves it. */
   function chatMode() {
     const p = S.project || {};
     let m = MODE_LIST.some((x) => x.id === p.mode) ? p.mode : 'auto';
-    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan')).at(-1) : null;
+    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff')).at(-1) : null;
     if (sw && MODE_LIST.some((x) => x.id === sw.mode) && Number(sw.at || 0) > Number(p.modeAt || 0)) m = sw.mode;
-    return m;
+    return S.autoOff && m === 'auto' ? 'acceptEdits' : m;
   }
   function modeHTML() {
     const cur = MODE_LIST.find((x) => x.id === chatMode()) || MODE_LIST[0];
     return '<div class="cd-mode-wrap">' +
       '<button type="button" class="cd-mode-btn is-' + cur.id + '" id="cdMode" aria-haspopup="menu" aria-expanded="' + (S.modeMenu ? 'true' : 'false') + '" title="Mode (' + (IS_MAC ? '⌘' : 'Ctrl') + '+Shift+M)">' + ICON[cur.icon] + '<span>' + esc(cur.name) + '</span>' + ICON.chev + '</button>' +
-      (S.modeMenu ? '<div class="cd-modes" role="menu" aria-label="Mode">' + MODE_LIST.map((x, k) =>
+      (S.modeMenu ? '<div class="cd-modes" role="menu" aria-label="Mode">' + modeList().map((x, k) =>
         '<button type="button" role="menuitemradio" aria-checked="' + (x.id === cur.id) + '" class="cd-mode-row' + (x.id === cur.id ? ' is-on' : '') + '" data-mode="' + x.id + '">' +
           '<span class="cd-mode-ic">' + ICON[x.icon] + '</span><span class="cd-mode-t"><b>' + esc(x.name) + '</b><small>' + esc(x.info) + '</small></span>' +
           '<span class="cd-mode-ck">' + (x.id === cur.id ? '✓' : '') + '</span><kbd>' + (k + 1) + '</kbd></button>').join('') +
@@ -1449,7 +1549,7 @@
   }
   async function setChatMode(m) {
     S.modeMenu = false;
-    if (!S.project || !MODE_LIST.some((x) => x.id === m) || m === chatMode()) return draw();
+    if (!S.project || !modeList().some((x) => x.id === m) || m === chatMode()) return draw();
     const was = { mode: S.project.mode, modeAt: S.project.modeAt };
     S.project = { ...S.project, mode: m, modeAt: Date.now() }; // shown at once
     draw();
@@ -1462,13 +1562,14 @@
   // ── A STEP WAITING ON THE OWNER (Claude Code's permission prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
   // switch to auto mode", "No"; and its plan approval: "Yes, and use auto mode", the other mode, "No, keep planning").
   // The step waits in Coder's job until the answer comes (this page sends it: /answer); a note can go with it.
-  const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1');
-  const PERM_TITLE = { bash: 'Bash command', write: 'Write file', edit: 'Edit file', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
+  // (A folder's Read rule, saved for a cd out of the project, as the folder: "reading /tmp/data/".)
+  const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
+  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
   function permOptions(e) {
-    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']];
+    if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
-    if (e.toAuto) o.push(['auto', 'Yes, and switch to auto mode']);
+    if (e.toAuto && !S.autoOff) o.push(['auto', 'Yes, and switch to auto mode']);
     o.push(['no', e.tool === 'web_fetch' ? 'No, and tell Coder what to do differently' : 'No']);
     return o;
   }
@@ -1490,9 +1591,11 @@
     let body = '';
     // (A heading line with text right under it is a heading too: a plan is often written "## Context" then its lines.)
     if (plan) body = '<div class="cd-plan-body">' + prose(String(e.plan || '').replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>';
-    else if (e.tool === 'bash') {
+    else if (e.tool === 'bash' || e.tool === 'powershell') {
       const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
-      body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>';
+      body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
+        // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
+        (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
     } else if (e.tool === 'write' || e.tool === 'edit') {
       // What the write or edit would do, as under each write's and edit's step.
       const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
@@ -1500,6 +1603,10 @@
       const upd = !!(e.change && e.change.kind === 'update');
       body = '<p class="cd-perm-desc">' + esc(e.path || '') + '</p><pre class="cd-perm-pre">' + (!lines.length ? (upd ? '(nothing)' : '(an empty file)') : upd ? lines.map((l) => '<span class="cd-wl' + (l[0] === '+' ? ' cd-dl-add' : l[0] === '-' ? ' cd-dl-del' : '') + '">' + esc(l) + '</span>').join('') : lines.map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l.slice(1))).join('\n')) + (more ? '\n… ' + more + ' more line' + (more === 1 ? '' : 's') : '') + '</pre>';
     } else if (e.tool === 'web_fetch') body = '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
+    // A WebSocket a monitor would open (Claude Code's Monitor `ws`): what it watches, and its address.
+    else if (e.tool === 'monitor') body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(e.url || '') + '</pre>';
+    // A file a rule of the owner's asks about (Read(…) on a read or a search): its path.
+    else if (/^(read|grep|glob|lsp)$/.test(e.tool || '')) body = '<pre class="cd-perm-pre">' + esc(e.path || '') + '</pre>';
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
     const opts = permOptions(e);
     const note = (S.permNotes && S.permNotes[e.pid]) || '';
@@ -1532,7 +1639,7 @@
     const repo = S.project.repo;
     // (`notices`: Claude Code's short warning row for a rule it keeps but warns about, "⚠ … allows any option at its * · use
     // an exact value"; `warn`: its full warning, shown when such a rule is added. Bash docs pass 5.)
-    let rules = { allow: [], ask: [], deny: [] }, err = '', notices = {}, warn = '';
+    let rules = { allow: [], ask: [], deny: [], dirs: [] }, err = '', notices = {}, warn = '';
     const r = await call('/permissions?repo=' + encodeURIComponent(repo));
     if (r.status === 200 && r.data && r.data.rules) { rules = r.data.rules; notices = r.data.notices || {}; } else err = (r.data && r.data.error) || 'The rules could not be loaded.';
     const wrap = document.createElement('div'); wrap.className = 'cd-sure';
@@ -1542,7 +1649,8 @@
     const key = (e) => { if (e.key === 'Escape') close(); };
     document.addEventListener('keydown', key);
     wrap.onclick = (e) => { if (e.target === wrap) close(); };
-    const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs']];
+    // (And its working folders, Claude Code's additionalDirectories: Coder works there as in the project.)
+    const KINDS = [['allow', 'Allow', 'runs without asking'], ['ask', 'Ask', 'always asks first, even in Auto'], ['deny', 'Deny', 'never runs'], ['dirs', 'Working folders', 'Coder works there as in the project (Claude Code’s additionalDirectories): a full path, or ~/ for Coder’s home']];
     const change = async (body) => {
       const x = await call('/permissions', { method: 'POST', body: JSON.stringify({ repo, ...body }) });
       if (x.status === 200 && x.data && x.data.rules) { rules = x.data.rules; notices = x.data.notices || {}; warn = typeof x.data.warning === 'string' ? x.data.warning : ''; err = ''; return true; }
@@ -1552,15 +1660,20 @@
     };
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Permission rules</div>' +
-        '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>.</div>' +
-        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + (rules[k].length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
+        '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>. For files, <code>Read(./.env)</code> or <code>Edit(src/**)</code>, written as in a .gitignore: <code>//</code> starts at the machine\'s root, <code>~/</code> at Coder\'s home, any other path at the project.</div>' +
+        KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + ((rules[k] || []).length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
         '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
         (warn ? '<p class="cd-rules-warn">⚠ ' + esc(warn) + '</p>' : '') +
+        // TRUSTING THE REPOSITORY'S OWN SETTINGS (Claude Code's workspace trust): its allow rules and working folders.
+        '<label class="cd-rules-trust"><input type="checkbox" data-rules-trust' + (rules.trust ? ' checked' : '') + '><span><b>Trust this repository’s settings</b>Use the allow rules and working folders in its own <code>.claude/settings.json</code>, as Claude Code does once you trust a folder. Its deny and ask rules always apply.</span></label>' +
         '<div class="cd-sure-row"><button type="button" class="cd-sure-yes" data-close>Done</button></div>';
       box.querySelector('[data-close]').onclick = close;
+      const trustBox = box.querySelector('[data-rules-trust]');
+      if (trustBox) trustBox.onchange = async () => { await change({ kind: 'trust', on: trustBox.checked }); paint(); };
       box.querySelectorAll('[data-rule-del]').forEach((b) => { b.onclick = async () => { await change({ kind: b.dataset.ruleDel, remove: b.dataset.rule }); paint(); }; });
       const form = box.querySelector('.cd-rules-add');
+      form.querySelector('select').onchange = (e) => { form.querySelector('input').placeholder = e.currentTarget.value === 'dirs' ? '~/shared or /data/notes' : 'Bash(npm test *)'; };
       form.onsubmit = async (e) => { e.preventDefault(); const v = form.querySelector('input').value.trim(); if (!v) return; const kind = form.querySelector('select').value; const ok = await change({ kind, add: v }); paint(); if (!ok) { const i = box.querySelector('.cd-rules-add input'); i.value = v; box.querySelector('.cd-rules-add select').value = kind; i.focus(); } };
     };
     paint();
@@ -1814,6 +1927,9 @@
     on('#envHostAdd', 'click', () => { const i = root.querySelector('#envHostIn'); const v = (i.value || '').trim().toLowerCase(); if (v && !S.envForm.hosts.includes(v)) S.envForm.hosts.push(v); draw(); });
     on('#envHostIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envHostAdd').click(); } });
     on('[data-nethostdel]', 'click', (e) => { S.envForm.hosts = S.envForm.hosts.filter((h) => h !== e.currentTarget.dataset.nethostdel); draw(); });
+    on('#envDenyAdd', 'click', () => { const i = root.querySelector('#envDenyIn'); const v = (i.value || '').trim().toLowerCase(); if (!S.envForm.denied) S.envForm.denied = []; if (v && !S.envForm.denied.includes(v)) S.envForm.denied.push(v); draw(); });
+    on('#envDenyIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envDenyAdd').click(); } });
+    on('[data-netdenydel]', 'click', (e) => { S.envForm.denied = (S.envForm.denied || []).filter((h) => h !== e.currentTarget.dataset.netdenydel); draw(); });
     on('[data-secid]', 'click', async (e) => {
       const { secid, secname } = e.currentTarget.dataset;
       if (!(await askSure('Remove “' + secname + '”?', 'Coder\'s commands will no longer get this key.', 'Remove'))) return;
@@ -1914,10 +2030,11 @@
           if (!S.modeMenu) return;
           if (e.key === 'Escape') { S.modeMenu = false; return draw(); }
           const k = Number(e.key);
-          if (k >= 1 && k <= MODE_LIST.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(MODE_LIST[k - 1].id); }
+          if (k >= 1 && k <= modeList().length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); setChatMode(modeList()[k - 1].id); }
         });
       }
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
+      if (!S.settingsHook) { S.settingsHook = true; window.addEventListener('gf:settings', () => { showSettings(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

@@ -8,17 +8,18 @@
 // nothing a bash command could not; they are just tidier and safer to use.
 // File tools stay inside the project folder.
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
 import tls from "node:tls";
-import { isIP, BlockList } from "node:net";
+import net, { isIP, BlockList } from "node:net";
 
 // HOW MUCH ONE READ GIVES (tool-by-tool comparison with Claude Code, 2026-11-08: Coder's read gave 400 lines and
 // its answer was then cut to 12,000 characters, the middle dropped, so the middle of a long file could be missed;
@@ -205,6 +206,35 @@ function runProg(cmd, args, { input = null, timeoutMs = 40_000, max = 30 * 1024 
     p.stdin.on("error", () => { /* it stopped reading */ });
     p.stdin.end(input || undefined);
   });
+}
+
+/**
+ * POWERSHELL'S PARSER, FOR CODER'S CHECKS (Bash docs pass 7; coder-psparse.mjs): Claude Code's parse script, run with
+ * pwsh the way Claude Code runs it, as this machine's AI user (as Claude Code runs it as you, never as the machine's
+ * admin) and never in the project's folder; tried twice, each try timed (Claude Code's CLAUDE_CODE_PWSH_PARSE_TIMEOUT_MS,
+ * 5 s; here CODER_PWSH_PARSE_TIMEOUT_MS). What pwsh did goes back as JSON, for psParseResult.
+ */
+async function toolPsParse({ command = "", timeoutMs = 0 } = {}) {
+  const req = psParseRequest(String(command));
+  if (req.fail) return JSON.stringify({ fail: req.fail });
+  const t = Number(timeoutMs) > 0 ? Math.min(Number(timeoutMs), 60_000) : PS_PARSE_TIMEOUT_MS;
+  let last = {};
+  for (let i = 0; i < PS_PARSE_TRIES; i++) {
+    last = await new Promise((done) => {
+      let p, timedOut = false, size = 0;
+      try { p = spawn("pwsh", req.args, { stdio: ["pipe", "pipe", "pipe"], cwd: tmpdir() }); } catch (e) { return done({ spawnError: String((e && e.message) || e) }); }
+      const out = [], err = [];
+      const timer = setTimeout(() => { timedOut = true; try { p.kill("SIGKILL"); } catch { /* gone */ } }, t);
+      p.stdout.on("data", (b) => { size += b.length; if (size <= 16 * 1024 * 1024) out.push(b); });
+      p.stderr.on("data", (b) => { if (err.length < 20) err.push(b); });
+      p.on("error", (e) => { clearTimeout(timer); done(e && e.code === "ENOENT" ? { noPwsh: true } : { spawnError: String((e && e.message) || e) }); });
+      p.on("close", (code) => { clearTimeout(timer); done({ code: timedOut ? null : code, timedOut, timeoutMs: t, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8").slice(0, 2000) }); });
+      p.stdin.on("error", () => { /* it stopped reading */ });
+      p.stdin.end(req.input);
+    });
+    if (last.noPwsh || last.code === 0) break;
+  }
+  return JSON.stringify(last);
 }
 
 /** A PNG's or JPEG's width and height, from its first bytes (null for anything else). */
@@ -1430,7 +1460,159 @@ export async function toolSnapDiff({ id } = {}) {
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff };
+/**
+ * AN HTTP HOOK'S REQUEST (coder-hooks.mjs; Claude Code's HTTP hooks: "Claude Code sends the hook's JSON input as the POST
+ * request body with Content-Type: application/json"): sent from here, Coder's machine, through the chat's network list as
+ * web_fetch is (a local address, such as http://localhost:8080, goes straight there). Its headers' $VAR and ${VAR} are the
+ * owner's variables it may use, any other empty ("References to unlisted variables are replaced with empty strings").
+ * Answers `{ status, body }`, `{ error }` or `{ timedOut: true }`, as JSON (the answer's first 1 MB).
+ */
+export async function toolHttpHook({ url, headers = {}, allowed = [], body = "", timeoutMs = 600_000 }) {
+  let u;
+  try { u = new URL(String(url)); } catch { return JSON.stringify({ error: "not a web address" }); }
+  if (u.protocol !== "http:" && u.protocol !== "https:") return JSON.stringify({ error: "not an http or https address" });
+  const ok = new Set((Array.isArray(allowed) ? allowed : []).map(String));
+  const fill = (v) => String(v).replace(/\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g, (_m, a, b) => { const k = a || b; return ok.has(k) && typeof process.env[k] === "string" ? process.env[k] : ""; });
+  const h = { "content-type": "application/json" };
+  for (const [k, v] of Object.entries(headers && typeof headers === "object" ? headers : {})) if (/^[A-Za-z0-9-]{1,100}$/.test(k) && typeof v === "string" && !/^(content-length|host|transfer-encoding|connection)$/i.test(k)) h[k.toLowerCase()] = fill(v).replace(/[\r\n]/g, "");
+  const data = Buffer.from(String(body));
+  h["content-length"] = String(data.length);
+  const local = ["localhost", "127.0.0.1", "[::1]"].includes(u.hostname);
+  const px = local ? null : viaProxy(u);
+  const mod = u.protocol === "https:" ? https : http;
+  const limit = Math.max(1000, Math.min(600_000, Number(timeoutMs) || 600_000));
+  return await new Promise((done) => {
+    let over = false;
+    const timer = setTimeout(() => { over = true; try { req.destroy(new Error("timed out")); } catch { /* gone */ } done(JSON.stringify({ timedOut: true })); }, limit);
+    const onRes = (res) => {
+      const chunks = []; let size = 0;
+      res.on("data", (c) => { size += c.length; if (size <= 1_000_000) chunks.push(c); });
+      res.on("end", () => { clearTimeout(timer); if (!over) done(JSON.stringify({ status: res.statusCode, body: Buffer.concat(chunks).toString("utf8") })); });
+      res.on("error", (e) => { clearTimeout(timer); if (!over) done(JSON.stringify({ error: String((e && e.message) || e).slice(0, 300) })); });
+    };
+    const req = px && px.path ? http.request({ ...px, method: "POST", headers: { ...h, ...px.headers } }, onRes) : mod.request(u, { method: "POST", headers: h, ...(px || {}) }, onRes);
+    req.on("error", (e) => { clearTimeout(timer); if (!over) done(JSON.stringify({ error: String((e && e.message) || e).slice(0, 300) })); });
+    req.end(data);
+  });
+}
+/**
+ * THE FILES FILECHANGED HOOKS WATCH, AS THEY ARE NOW (coder-agent.mjs's fileWatch): each full path's time and size, or
+ * `gone`. Only looked at, never read, and with the AI's own rights.
+ */
+export async function toolStamps({ paths }) {
+  const out = [];
+  for (const p of (Array.isArray(paths) ? paths : []).slice(0, 200)) {
+    if (typeof p !== "string" || !p.startsWith("/") || p.length > 4096) continue;
+    try { const st = await stat(p); out.push({ path: p, mtime: st.mtimeMs, size: st.size }); } catch { out.push({ path: p, gone: true }); }
+  }
+  return JSON.stringify(out);
+}
+
+/**
+ * A MONITOR ON A WEBSOCKET (Claude Code's Monitor `ws` source: "When a server already pushes events over a WebSocket, Claude
+ * can connect to it directly instead of writing a polling script"): this runs as the monitor's command, in the room, and each
+ * line it prints is one JSON value: a text message ("each one becomes one event, even when the message spans multiple
+ * lines"), "[binary frame, N bytes]" for a binary one ("not passed through"), and at its end an object: `{ close, reason }`
+ * when the socket closed ("the watch ends and Claude receives the close code"), `{ tooBig }` for a message over 1 MiB ("the
+ * watch ends"), `{ error }` when it could not connect. Through the chat's network list as web_fetch is; with none, never to a
+ * private, link-local or cloud-metadata address, "including hostnames that your machine resolves to one".
+ */
+export const WS_MAX = 1024 * 1024;
+const WS_GUID = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
+export async function toolWsWatch({ url, protocols = [] }, { out = (t) => process.stdout.write(t), allowPrivate = false } = {}) {
+  const say = (v) => out(JSON.stringify(v) + "\n");
+  let u;
+  try { u = new URL(String(url)); } catch { say({ error: "not a WebSocket address" }); return ""; }
+  if (u.protocol !== "ws:" && u.protocol !== "wss:") { say({ error: "not a ws:// or wss:// address" }); return ""; }
+  const secure = u.protocol === "wss:", host = u.hostname.replace(/^\[|\]$/g, ""), port = Number(u.port) || (secure ? 443 : 80);
+  const px = process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
+  // 1. ITS CONNECTION: through the proxy (CONNECT), or straight, refusing a private address.
+  const got = await new Promise((done) => {
+    if (px) {
+      const p = new URL(px);
+      const c = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: (host.includes(":") ? "[" + host + "]" : host) + ":" + port });
+      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "blocked by this repo's network list: " + host + " (ask the owner with propose_env, allow_host)" : "the proxy refused " + host }); } done({ sock }); });
+      c.on("error", (e) => done({ error: String((e && e.message) || e).slice(0, 300) }));
+      c.end();
+      return;
+    }
+    // (`allowPrivate`: a test's own server on this computer; never from the command line.)
+    if (!allowPrivate && isIP(host) && privateAddress(host)) return done({ error: "that address is on a private network" });
+    const sock = net.connect({ host, port, ...(allowPrivate ? {} : { lookup: safeLookup }) });
+    sock.once("connect", () => done({ sock }));
+    sock.once("error", (e) => done({ error: e && e.code === "EPRIVATE" ? "that address is on a private network" : String((e && e.message) || e).slice(0, 300) }));
+  });
+  if (got.error) { say({ error: got.error }); return ""; }
+  let sock = got.sock;
+  if (secure) {
+    sock = await new Promise((done) => {
+      const t = tls.connect({ socket: got.sock, servername: isIP(host) ? undefined : host, ALPNProtocols: ["http/1.1"] });
+      t.once("secureConnect", () => done(t));
+      t.once("error", (e) => { say({ error: String((e && e.message) || e).slice(0, 300) }); done(null); });
+    });
+    if (!sock) return "";
+  }
+  // 2. THE HANDSHAKE (RFC 6455): its key, the protocols offered, and the answer checked.
+  const key = randomBytes(16).toString("base64");
+  const list = (Array.isArray(protocols) ? protocols : []).filter((x) => typeof x === "string" && x);
+  sock.write("GET " + (u.pathname || "/") + (u.search || "") + " HTTP/1.1\r\nHost: " + u.host + "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: " + key + "\r\nSec-WebSocket-Version: 13\r\n" + (list.length ? "Sec-WebSocket-Protocol: " + list.join(", ") + "\r\n" : "") + "User-Agent: Coder\r\n\r\n");
+  return await new Promise((finishAll) => {
+    let head = Buffer.alloc(0), open = false, buf = Buffer.alloc(0), parts = [], partsLen = 0, partsOp = 0, ended = false;
+    const end = (v) => { if (ended) return; ended = true; if (v) say(v); try { sock.end(); } catch { /* gone */ } const k = setTimeout(() => { try { sock.destroy(); } catch { /* gone */ } }, 500); if (typeof k.unref === "function") k.unref(); finishAll(""); };
+    const send = (op, payload = Buffer.alloc(0)) => {
+      const mask = randomBytes(4), body = Buffer.from(payload), n = body.length;
+      const h = n < 126 ? Buffer.from([0x80 | op, 0x80 | n]) : (() => { const b = Buffer.alloc(4); b[0] = 0x80 | op; b[1] = 0x80 | 126; b.writeUInt16BE(n, 2); return b; })();
+      for (let i = 0; i < n; i++) body[i] ^= mask[i % 4];
+      try { sock.write(Buffer.concat([h, mask, body])); } catch { /* gone */ }
+    };
+    const frames = () => {
+      for (;;) {
+        if (buf.length < 2) return;
+        const fin = (buf[0] & 0x80) !== 0, op = buf[0] & 0x0f, masked = (buf[1] & 0x80) !== 0;
+        let len = buf[1] & 0x7f, at = 2;
+        if (len === 126) { if (buf.length < 4) return; len = buf.readUInt16BE(2); at = 4; }
+        else if (len === 127) { if (buf.length < 10) return; const big = buf.readBigUInt64BE(2); if (big > BigInt(WS_MAX)) return end({ tooBig: Number(big) }); len = Number(big); at = 10; }
+        if (masked) at += 4;
+        // ("Messages larger than 1 MiB: the watch ends", before their bytes are kept.)
+        if ((op === 0 || op === 1 || op === 2) && (op === 0 ? partsLen : 0) + len > WS_MAX) return end({ tooBig: (op === 0 ? partsLen : 0) + len });
+        if (buf.length < at + len) return;
+        let payload = buf.subarray(at, at + len);
+        if (masked) { const m = buf.subarray(at - 4, at); payload = Buffer.from(payload); for (let i = 0; i < payload.length; i++) payload[i] ^= m[i % 4]; }
+        buf = buf.subarray(at + len);
+        if (op === 8) { const code = payload.length >= 2 ? payload.readUInt16BE(0) : 1005; const reason = payload.length > 2 ? payload.subarray(2).toString("utf8").slice(0, 300) : ""; send(8, payload.subarray(0, 2)); return end({ close: code, ...(reason ? { reason } : {}) }); }
+        if (op === 9) { send(10, payload.subarray(0, 125)); continue; }
+        if (op === 10) continue;
+        if (op === 1 || op === 2) { partsOp = op; parts = [payload]; partsLen = payload.length; }
+        else if (op === 0 && parts.length) { parts.push(payload); partsLen += payload.length; }
+        else continue;
+        if (!fin) continue;
+        const whole = Buffer.concat(parts);
+        parts = []; partsLen = 0;
+        say(partsOp === 1 ? whole.toString("utf8") : "[binary frame, " + whole.length + " bytes]");
+      }
+    };
+    sock.on("data", (chunk) => {
+      if (ended) return;
+      if (open) { buf = Buffer.concat([buf, chunk]); return frames(); }
+      head = Buffer.concat([head, chunk]);
+      const k = head.indexOf("\r\n\r\n");
+      if (k < 0) { if (head.length > 16384) end({ error: "the server's answer to the handshake was too long" }); return; }
+      const lines = head.subarray(0, k).toString("latin1").split("\r\n");
+      const status = /^HTTP\/1\.[01] (\d{3})/.exec(lines[0] || "");
+      const hdr = Object.fromEntries(lines.slice(1).map((l) => { const i = l.indexOf(":"); return [l.slice(0, i).trim().toLowerCase(), l.slice(i + 1).trim()]; }));
+      if (!status || status[1] !== "101") return end({ error: "the server did not open a WebSocket (HTTP " + (status ? status[1] : "?") + ")" });
+      if (hdr["sec-websocket-accept"] !== createHash("sha1").update(key + WS_GUID).digest("base64")) return end({ error: "the server's handshake answer was wrong" });
+      open = true;
+      buf = head.subarray(k + 4);
+      frames();
+    });
+    // (A socket that ends with no close frame: 1006, "abnormal closure".)
+    sock.on("close", () => end({ close: 1006 }));
+    sock.on("error", (e) => end(open ? { close: 1006, reason: String((e && e.message) || e).slice(0, 300) } : { error: String((e && e.message) || e).slice(0, 300) }));
+  });
+}
+
+export const TOOLS = { ps_parse: toolPsParse, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

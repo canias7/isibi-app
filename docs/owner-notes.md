@@ -11,6 +11,98 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: The rest of the Bash docs, cloud only (your words: "Yea we need to build the rest of the batch tool, remember we are not doing local rn with only doing cloud")
+
+Not merged or deployed yet: on the branch with everything below, waiting for your word. All 440 tests pass.
+
+- **A safety hole in last batch's PowerShell, closed.** Coder's PowerShell check read the command as text, so a delete hidden inside brackets or quotes (for example `Write-Output "$(Remove-Item notes.txt)"`) could run without asking, even in Plan mode. Now PowerShell itself reads each command on Coder's machine, the way Claude Code does it, and Claude Code's 24 safety checks run on that, in its own words. PowerShell is still off unless you turn it on.
+- **PowerShell delete protection.** Deleting the whole disk, a top-level folder, or your home folder is refused in every mode, and so is a delete with a wildcard like `*`. Deleting the project folder itself asks first.
+- **PowerShell details:** which searches may "fail" with exit code 1 without it being an error, which settings-file variables reach PowerShell, and Claude Code's list of PowerShell commands that only read.
+- **Risky `rm` with your own Ask rule:** in Auto mode, Coder now asks you instead of refusing.
+- **Four new switches** for the environment's variables, to loosen the risky-`rm` check: `CODER_DISABLE_SUBSTITUTION_RM_PROMPT`, `CODER_DISABLE_INLINE_SHELL_RM_PROMPT`, `CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT`, and `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` (in Auto, the checker decides instead of a flat refusal).
+- **Hooks can leave a note for the Auto mode checker** about a step's result (for example "this ran on staging, not production"). Coder itself never sees the note.
+- **Hooks now get how long a step ran** (`duration_ms`).
+- **Left out on purpose (terminal-only):** Claude Code's "send now" key and its "Recently blocked" list. Claude Code's own apps don't have them either.
+
+## 2026-11-11: A hook can now answer Coder's question card (your words: "Want it added")
+
+Not merged or deployed yet: on the branch with the 11 items below, waiting for your word. All 432 tests pass.
+
+- **What it does.** When Coder asks you questions on a card, a hook (one of your scripts in the hook settings) can now answer them for you, as in Claude Code. The hook says "allow" and gives the answers. The card is then not shown, and Coder gets the answers and keeps working in the same turn.
+- **What you see:** a line in the chat, for example: A PreToolUse hook answered Coder's question for you: "Which database?"="Postgres".
+- **What Coder is told** is Claude Code's exact wording: "Your questions have been answered: …", or "The user answered: …" when an answer is not one of the choices.
+- **When you still get the card:** when the hook only says "allow" and gives no answers (as in Claude Code), or when you have an Ask rule for AskUserQuestion.
+- **A hook written for Claude Code works unchanged:** it sees Coder's card as Claude Code's AskUserQuestion.
+
+## 2026-11-11: The last 11 differences from Claude Code's Bash docs (your words: "yea do all of them")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 431 tests pass.
+
+- **A hole in Plan mode, closed.** In Plan mode, a hook that says "allow" no longer lets a command that changes things run. It still asks you, as Claude Code does. A hook can still approve the plan itself.
+- **Rules with wildcards.** A deny or ask rule can now name tools with `*`. For example, `*` in Ask means "ask before every tool". A tool you deny completely is now hidden from Coder, as in Claude Code.
+- **The repo's own `.claude/settings.json`.** Its deny and ask rules now always count. Its allow rules and extra folders only count once you tick the new box in the rules dialog: "Trust this repository's settings". Until then, the chat shows Claude Code's warning. Its `env` list now reaches Coder's commands, but your own variables win.
+- **Which file wins for turning hooks off:** the repo's file over yours, as in Claude Code.
+- **Instructions from extra folders.** With `CODER_ADDITIONAL_DIRECTORIES_CODER_MD=1` in the environment, Coder also reads each extra working folder's CODER.md and rules.
+- **Block writes outside the working folders** (outside Bash: the Write and Edit tools). With `CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES=1`, Write and Edit refuse anything outside the working folders, and the repo's settings files too, in Claude Code's words.
+- **Settings: "Turn off Auto mode".** Chats then start in Accept edits, and Auto is not offered anywhere.
+- **Blocked sites.** Environment, then Network access, now has a "Blocked sites" list. Those sites are never reached, even with Full access or a saved key.
+- **Keys kept away from commands.** With `CODER_SUBPROCESS_ENV_SCRUB=1`, variables that look like passwords or keys are removed before commands and hooks run. It uses Claude Code's own rules and is on by default for jobs started from GitHub. With it on, `CODER_SCRIPT_CAPS` (for example `{"deploy.sh": 2}`) limits how many times a script may run in a chat.
+- **Sites for one command, in Auto mode.** Coder can name extra sites a single command needs. The checker looks at them together with the command. If it's fine, only that command can reach them, and only while it runs.
+- **PowerShell.** With `CODER_USE_POWERSHELL_TOOL=1`, Coder gets Claude Code's PowerShell tool, with its own rules like `PowerShell(Get-ChildItem *)`. `CODER_DEFAULT_SHELL=powershell` runs your `!` commands in it, and a hook can say `"shell": "powershell"`. PowerShell 7 is added to the machine image, so the next deploy rebuilds that image once.
+
+## 2026-11-10: All 11 of the last Bash-docs items (your words: "yea do all of them")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 419 tests pass.
+
+- **More kinds of hooks.** Besides a command, a hook can now be:
+  - a web address Coder's machine sends the details to;
+  - a question to Coder's own model (Grok, low effort), like "is this command safe?";
+  - an "agent" hook that can look through the project first.
+  Hooks can also run in the background and tell Coder later. One of those can even wake a quiet chat when it finds a problem (Claude Code's `asyncRewake`).
+- **Six more hook moments:**
+  - after a whole round of steps;
+  - when auto mode's checker refuses something;
+  - when the model call fails;
+  - when Coder changes folder;
+  - when a file you name changes;
+  - when Coder's machine goes to sleep.
+- **Hooks behave like Claude Code's in the small ways too:**
+  - A hook that fails can block the action, if you ask for that.
+  - A hook can name the chat.
+  - A hook can set variables for Coder's later commands (Claude Code's `CLAUDE_ENV_FILE`).
+  - A hook that leaves a program running no longer freezes Coder: Coder waits 10 seconds, then refuses to trust its "allow".
+  - Your command prefix wraps hooks too.
+  - The memory cap's list of what it covers works as in Claude Code.
+- **Monitor on a WebSocket.** Coder can watch a live feed directly (Claude Code's Monitor `ws`). Each message is one event, and Coder is told the close code when the feed ends. It always asks you first, unless you add a `Monitor` allow rule; in Auto, the checker decides. A rule that blocks every Bash command blocks it too, as in Claude Code. Tried for real here against a public echo server.
+- **Monitor rules.** `Monitor` and `Monitor(…)` rules work in the rules list, and Auto sets the allow ones aside, as Claude Code does.
+- **zsh.** Set `CODER_SHELL` to `zsh` in an environment and Coder's commands run in zsh, with your `.zshrc` aliases (Claude Code's `CLAUDE_CODE_SHELL`). zsh is added to Coder's machine, so the next deploy rebuilds the machine's tools once (slow, one time).
+- **Settings, two new sections:**
+  - **Permissions: "Refuse instead of asking"** (Claude Code's `denyInsteadOfPrompting`). A step that would wait for your answer is refused at once, and Coder carries on with the rest. After 20 refusals in a row, it stops.
+  - **Auto mode rules** (Claude Code's `autoMode`): your trusted services, extra blocks, extra exceptions, and "check every command".
+- **Working folders** in the rules list (Claude Code's `additionalDirectories`): folders on Coder's machine where it works as in the project.
+- **What's next:** merge and deploy when you say so. Then I'll test each one live with Grok in the browser, recorded.
+
+## 2026-11-10: The last 4 from the Bash docs, and the 2 optional ones in Settings (your words: "yea do all 4, plus do the 2 u left out optional, the setting put it in setings")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 405 tests pass.
+
+- **Settings** (the gear's menu, new). Three choices for all your chats, each saved as soon as you change it:
+  - **Longest a background command may run:** 2 hours (Claude Code's limit), or 4, 8, 12 or 24 hours. Coder's machine stays on that long.
+  - **Stopping a background command also stops what it started on its own** (with `setsid` or `timeout`): on unless you turn it off. Off is what Claude Code really does today.
+  - **Low-disk warning:** Coder is told once, in Claude Code's words, when the work disk has less than 2 GB free (or 1, 5, 10, 20 GB, or off). Claude Code's `CLAUDE_CODE_WARN_DISK_FREE_GIB`.
+- **Monitor** (Claude Code's Monitor tool). Coder can start a watcher, like "tell me when the server prints an error". Every line it prints reaches Coder while it works, and the chat shows each one under an eye icon. It stops at its deadline (5 minutes unless Coder asks for up to 30), when its command ends, or when Coder stops it. If it prints too much, it is stopped. An idle chat is woken for its lines. Coder's old "monitor" (a look at a background command's output) is gone, as Claude Code's is: Coder reads the output file instead. I also fixed one thing I found while testing: when a watcher ended, Coder was told twice.
+- **Read(…) and Edit(…) rules** (in the rules list, next to Bash and WebFetch rules). For example, `Read(./.env)` as a deny rule stops Coder from reading any `.env` file, through its read and search tools, `cat`, `head`, `< .env`, `cp .env …` and @-mentions. `Edit(src/**)` covers edits, `> file`, `tee`, `rm`, `mv`, `cp`, `mkdir` and `touch`. They are written like a `.gitignore`, exactly as Claude Code's are: `//` starts at the machine's root, `~/` at Coder's home, any other path at the project. Allow rules let commands read or write outside the project without asking. "Yes, and don't ask again" on a `cd` outside the project now saves a Read rule for that folder, as Claude Code does. The refusals use Claude Code's own words.
+- **Hooks** (Claude Code's hooks). Your own commands that run at points in Coder's work: before or after each tool, when you send a message, when Coder finishes, at a chat's start, before and after a summary, and when a card waits for you. You write them in Settings, in Claude Code's settings format, and the repository's own `.claude/settings.json` hooks run too. A hook can block a command, change it, ask you first, add notes for Coder, or keep Coder going until the tests pass. They run on Coder's machine like its commands. The repository's hooks never run in a job started from GitHub. `"disableAllHooks": true` turns them all off.
+- **What's next:** merge and deploy when you say so, then test each one live with Grok in the browser (recorded).
+
+## 2026-11-10: Deploy 92, and Low effort and the cache checked live with Grok (recording 29) (your words: "Ok merge and deploy")
+
+- **Deploy 92** (main 750f662a) changed Coder's machine, so it built the machine's tools and stored them on Fly.io for the first time: the build step took 13 minutes. From the next change to Coder's machine on, only Coder's own files are built.
+- **Effort, checked from xAI's own answers.** After a fresh load, the picker said Low on the test account, which had High saved before. Every message sent "low", and xAI's answers said "low" too. A three-step message at Low used 36 thinking tokens in all.
+- **The cache, checked from xAI's own counts.** A three-step message (four calls to Grok): 22,784 of 41,417 input tokens came from the cache (55%; the first call has nothing to reuse). It cost $0.049; without the cache it would have cost about $0.084. The next messages at the same effort: 96% and 98% from the cache, under a cent each.
+- **One thing to know:** switching the effort in the middle of a chat makes the next message miss the cache once (11% when I switched to High). It looks like xAI keeps a separate cache for each effort level: the message after it, back on Low, hit Low's cache again (96%). Staying on one level keeps the cache.
+- Pictures: the picker on Low, and the chat. Recording 29.
+
 ## 2026-11-10: Grok's prompt cache, and the effort on Low (your words: "I want to do something kind of cache. The model", and "can you do the effort level on low and make sure it's actually on low")
 
 - **Caching.** xAI keeps the start of a request it has already seen, and charges a quarter of the price for that part ($0.50 instead of $2.00 a million tokens on Grok 4.7). Coder resends the whole chat to Grok on every step, so most of each request is a repeat. But xAI only finds its copy when every call of a chat carries the same key ("prompt_cache_key"). Without one, "requests can land on a cold server" and pay full price. Coder sent none. Now Coder's server adds the chat's own key to every call: Coder's, its checker's and its summaries'. The key is a scrambled form of the chat, so xAI never sees your account or the chat's name, and no machine can use another chat's key.

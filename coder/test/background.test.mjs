@@ -1,5 +1,5 @@
 // BACKGROUND COMMANDS, SEEN AND STOPPED BY CODER'S SERVICE (live test, 2026-11-08, issue #12 on the test
-// repository: in the admin sandbox, `monitor` said "[not running]" while `python3 -m http.server` served,
+// repository: in the admin sandbox, the old `monitor` said "[not running]" while `python3 -m http.server` served,
 // and `stop_job` said "[stopped job1]" but the server kept listening: both ran `kill` inside the sandbox,
 // where the machine's process numbers mean nothing). Now the service that started the command answers both.
 import { test } from "node:test";
@@ -15,11 +15,10 @@ const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { retu
 
 test("CD199 the agent asks Coder's service whether a background job runs, and has the service stop it (never a kill inside the sandbox); without the service (a test machine), the commands of before", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
+  // (Coder's old monitor, a look at a job's output, is gone with Claude Code's TaskOutput: Coder reads the output file.)
   const steps = [
     say("", [call("bash", { command: "python3 -m http.server 8000", run_in_background: true }, "b1")]),
-    say("", [call("monitor", { job: "job1" }, "m1")]),
     say("", [call("stop_job", { job: "job1" }, "s1")]),
-    say("", [call("monitor", { job: "job1" }, "m2")]),
     say("", [call("stop_job", { job: "job1" }, "s2")]),
     say("Done.", []),
   ];
@@ -33,14 +32,11 @@ test("CD199 the agent asks Coder's service whether a background job runs, and ha
     emit: (e) => events.push(e),
   }, { text: "serve the folder" });
   const out = (id) => events.find((e) => e.type === "result" && e.id === id).output;
-  assert.equal(out("m1"), "Serving HTTP on 0.0.0.0 port 8000\n[still running]", "the service says it runs");
-  assert.equal(out("s1"), "[stopped job1]");
-  assert.equal(out("m2"), "Serving HTTP on 0.0.0.0 port 8000\n[not running]");
+  assert.equal(out("s1"), "[stopped job1]", "the service says it runs, and stops it");
   assert.equal(out("s2"), "[job1 had already ended]");
   // The round's end asks too (a background command that ended is told once, like Claude Code's notice); once stopped, no more.
-  assert.deepEqual(asked, [["alive", 4242], ["alive", 4242], ["alive", 4242], ["alive", 4242], ["stop", 4242], ["alive", 4242], ["alive", 4242]]);
-  assert.ok(!sent.some((c) => /kill/.test(c)), "no kill sent as a command: " + JSON.stringify(sent));
-  assert.deepEqual(sent.filter((c) => c.startsWith("tail")), ["tail -n 40 /srv/bg/bg-1.log", "tail -n 40 /srv/bg/bg-1.log"]);
+  assert.deepEqual(asked, [["alive", 4242], ["alive", 4242], ["stop", 4242], ["alive", 4242]]);
+  assert.deepEqual(sent, ["python3 -m http.server 8000"], "only Coder's own command ran: no kill sent as a command, and no look at its output");
 
   // Without the service's help: the commands of before.
   n = 0; sent.length = 0; events.length = 0;
@@ -48,18 +44,22 @@ test("CD199 the agent asks Coder's service whether a background job runs, and ha
   assert.ok(sent.some((c) => c.includes("kill -0 4242")) && sent.some((c) => c.includes("kill -TERM -- -4242")));
 });
 
-test("CD200 on Coder's machine: a real background command is reported running, stopped for real by stop_job (with what it started), then reported ended; another job's process can never be stopped this way", async () => {
+test("CD200 on Coder's machine: a real background command runs on, is stopped for real by stop_job (with what it started), and is then said to have ended; another job's process can never be stopped this way", async () => {
   const { createApp } = await import("../container/server.mjs");
   const roots = { root: await mkdtemp(join(tmpdir(), "coder-bgw-")), gitRoot: await mkdtemp(join(tmpdir(), "coder-bgg-")), memRoot: await mkdtemp(join(tmpdir(), "coder-bgm-")), bgRoot: await mkdtemp(join(tmpdir(), "coder-bgb-")) };
+  // The child's process number, from the job's output file (read by the test as Coder reads it: the file, not the old monitor).
   const steps = [
     say("", [call("bash", { command: "node -e \"setInterval(() => {}, 1000)\" & node -e \"console.log('child', process.pid); setInterval(() => {}, 1000)\"", run_in_background: true }, "b1")]),
-    say("", [call("monitor", { job: "job1", wait_s: 1 }, "m1")]),
+    say("", [call("bash", { command: "sleep 1.5", description: "Wait for it to start" }, "w1")]),
     say("", [call("stop_job", { job: "job1" }, "s1")]),
-    say("", [call("monitor", { job: "job1" }, "m2")]),
+    say("", [call("stop_job", { job: "job1" }, "s2")]),
     say("Done.", []),
   ];
-  let n = 0;
-  const app = createApp({ ...roots, send: async () => steps[Math.min(n++, steps.length - 1)] });
+  let n = 0, child = 0;
+  const app = createApp({ ...roots, send: async (req) => {
+    if (n === 2) { const { readFileSync } = await import("node:fs"); const log = String(((req.messages.find((m) => m.role === "tool" && /Output is being written to: (\S+)\./.test(m.content)) || {}).content || "").match(/Output is being written to: (\S+)\./)?.[1] || ""); const m = /child (\d+)/.exec(log ? readFileSync(log, "utf8") : ""); child = m ? Number(m[1]) : 0; }
+    return steps[Math.min(n++, steps.length - 1)];
+  } });
   const srv = http.createServer(app);
   await new Promise((r) => srv.listen(0, r));
   const base = "http://127.0.0.1:" + srv.address().port;
@@ -68,13 +68,11 @@ test("CD200 on Coder's machine: a real background command is reported running, s
     let st;
     for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=bg-test1&since=0")).json(); if (st.result) break; await new Promise((r) => setTimeout(r, 100)); }
     const res = (id) => (st.events.find((e) => e.type === "result" && e.id === id) || {}).output || "";
-    assert.match(res("m1"), /child \d+/, res("m1"));
-    assert.match(res("m1"), /\[still running\]$/, res("m1"));
-    const child = Number(/child (\d+)/.exec(res("m1"))[1]);
-    assert.equal(res("s1"), "[stopped job1]");
-    assert.match(res("m2"), /\[not running\]$/);
+    assert.ok(child > 0, "the child said its number in the job's output file");
+    assert.equal(res("s1"), "[stopped job1]", "it ran until then");
+    assert.equal(res("s2"), "[job1 had already ended]");
     assert.equal(alive(child), false, "what it started is gone too");
-  } finally { srv.close(); }
+  } finally { if (child && alive(child)) { try { process.kill(child, "SIGKILL"); } catch { /* gone */ } } srv.close(); }
 });
 
 test("CD201 Coder is told its network setting when it is Full too (live test, 2026-11-08: asked which setting its environment has, it could not tell); a limited one is said as before", async () => {

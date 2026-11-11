@@ -111,8 +111,9 @@ test("CD343 a write through a link to a protected file is asked about in every m
 
 test("CD344 the machine wires it in: both checks get the link resolver, the permission check the call's settings; the page's card for a write through a link", () => {
   const agent = src("coder-agent.mjs");
-  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, ownRules\) \}\)/);
-  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: ownRules, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\] \}\)/);
+  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, rulesB\) \}\)/);
+  assert.match(agent, /const rulesB = c\.monitor \? monitorRules\(ownRules, modeB\) : ownRules;/, "a monitor's command: Bash's rules and Monitor's (CD385)");
+  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: rulesB, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\] \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /link = e\.kind === 'link' && paths\.length/);
   assert.match(page, /This command writes through a link that leads out of the project/);
@@ -154,12 +155,13 @@ test("CD345 a stop ends what the command started outside its process group too (
   }
   // Every stop uses it: the owner's Stop, a time limit, 5 GB, low memory (stopJob), and Coder's own stop_job.
   const server = src("server.mjs");
-  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
-  assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    endMarked\(j\.mark, "SIGKILL"\);/);
+  // (Unless the owner turned Stop's choice off in Settings, 2026-11-10: then they go on, as in Claude Code 2.1.322; CD380.)
+  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
+  assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    if \(!keep\) endMarked\(j\.mark, "SIGKILL"\);/);
   assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM"\);/);
   // Each of the chat's commands carries one (after the owner's own variables), and its background job keeps it.
   assert.match(server, /const mark = tool \? "" : newMark\(\);/);
-  assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \[TASK_MARK\]: mark \},/);
+  assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark \},/);
   assert.match(server, /cwd: startedIn, at: startedAt, mark, moved: !inBg,/);
 });
 
@@ -182,7 +184,8 @@ test("CD346 the sweep keeps a running command's processes that left its process 
   assert.deepEqual(ended.sort(), [12, 13, 14]);
   assert.deepEqual([...procs.keys()].sort(), [10, 11]);
   // The machine gives the sweep its kept commands' marks.
-  assert.match(src("server.mjs"), /keepMarks: new Set\(live\.map\(\(j\) => j\.mark\)\.filter\(Boolean\)\)/);
+  // (And, with Stop's choice off in Settings, the marks of stopped commands whose processes the owner lets go on: CD380.)
+  assert.match(src("server.mjs"), /keepMarks: new Set\(\[\.\.\.live\.map\(\(j\) => j\.mark\)\.filter\(Boolean\), \.\.\.kept\]\)/);
 });
 
 test("CD347 rules on one of the command's settings, such as Bash(run_in_background:true) (Claude Code's permissions docs, \"Match by input parameter\")", async () => {

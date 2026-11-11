@@ -38,7 +38,8 @@ test("CD354 pgrep, pkill and pidwait leave the command's own shells out (Claude 
 
 test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for every command, before the session's own variables): the owner's own GIT_EDITOR wins", async () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.ownerVars,/);
+  // (Pass 6: the repository's own env between them, under the owner's variables.)
+  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.repoSet\.env, \.\.\.ownerVars,/);
   // Why: as Coder's commands run (no terminal, TERM=dumb), git commit --amend failed; with it, the message is kept.
   const base = await mkdtemp(join(tmpdir(), "coder-gited-"));
   try {
@@ -69,7 +70,7 @@ test("CD356 bash's extended patterns are off in every command, after the shell s
     assert.ok(S.commandPrefix("").startsWith(S.EXTGLOB_OFF), "with no home of its own too");
     assert.ok(S.commandPrefix(home, "if [ -r /x ]; then . /x; fi\n").endsWith("if [ -r /x ]; then . /x; fi\n"), "the owner's CODER_ENV_FILE last");
     const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-    assert.match(server, /t\.prefix = commandPrefix\(home, envFileLine\(rawVars\.CODER_ENV_FILE, home0\)\);/);
+    assert.match(server, /t\.prefix = commandPrefix\(home, envFileLine\(rawVars\.CODER_ENV_FILE, home0\) \+ \(home \? hookEnvLine\(project\) : ""\), t\.shell\);/, "and the chat's hook env file after it (CD384), for the owner's CODER_SHELL (CD385e)");
   } finally { await rm(home, { recursive: true, force: true }); }
 });
 

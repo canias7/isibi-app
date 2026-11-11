@@ -78,8 +78,9 @@ export function gateForApt(address, { dir = GATE_DIR } = {}) {
  * started by root, as root. Root's own programs are named in full; the command itself is found after it became the AI's user.
  */
 export const NSENTER = "/usr/bin/nsenter", SETPRIV = "/usr/bin/setpriv";
-export function roomArgs(uid, gid, command, ns = ROOM_NS) {
-  return ["--net=" + ns, "--", SETPRIV, "--reuid=" + uid, "--regid=" + gid, "--clear-groups", "--", "bash", "-c", command];
+export function roomArgs(uid, gid, command, ns = ROOM_NS, shell = "bash") {
+  // (`shell`: the owner's CODER_SHELL, server.mjs's shellOf.)
+  return ["--net=" + ns, "--", SETPRIV, "--reuid=" + uid, "--regid=" + gid, "--clear-groups", "--", shell || "bash", "-c", command];
 }
 
 /** Waits for a child to print a line (or give up). */

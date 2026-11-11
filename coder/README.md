@@ -255,7 +255,7 @@ code in **each user's own GitHub**.
    chat's other repositories (`cwdInside`), else goes back to the project's folder
    with Claude Code's "Shell cwd was reset to <dir>". A command in the background
    never moves it ("Session cwd remains <dir>; …" when it had a cd, `CWD_WORDS`), and
-   monitor never shows its folder line (`noCwdMarks`). Grok's file tools get the
+   a background command's output never shows its folder line (`noCwdMarks`). Grok's file tools get the
    folder (`CODER_CWD`): a short path counts from it, grep and glob search there and
    list from there (`searchIn`), and files are named by full path there; the chat's
    steps still name them from the project (`projectPath`), and the app's notes use
@@ -280,7 +280,8 @@ code in **each user's own GitHub**.
    sends just the choice, as before. The event keeps the first question where
    older readers look (`text`, `options`) and all of them in `questions`; older
    one-question cards still show. The notification says how many more; on GitHub
-   (@coder) they are numbered and answered in one comment.
+   (@coder) they are numbered and answered in one comment. A PreToolUse hook can
+   answer the card instead (Claude Code's way; pass 6 below).
 
    **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
    the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits
@@ -655,6 +656,274 @@ a "high" an account saved before then counts as not chosen (`savedEffort`, and
 used (`coderSend`: cached and reasoning tokens, the effort sent and the one xAI
 says it used), and the chat's record keeps the last message's sum as `usage`
 (`usageSummary`, the auto mode checker's calls apart). Tests CD378 and CD379.
+
+**Settings** (owner, 2026-11-10: "the setting put it in setings"). Settings, in
+the account menu, keeps three choices on the account (`prefsOf`, `prefsChange` in
+`src/coder-routes.mjs`): the longest a background command may run (2 hours, as in
+Claude Code, or 4, 8, 12 or 24 hours, as Claude Code's `BASH_MAX_TIMEOUT_MS` raises
+it); whether Stop also ends what a command left running on its own, with `setsid`
+or `timeout` (on unless turned off); and the low-disk warning (Claude Code's
+`CLAUDE_CODE_WARN_DISK_FREE_GIB`: off, or 1, 2, 5, 10 or 20 GB; 2 GB unless
+changed): Coder is told once, in Claude Code's words, when the work disk has less
+free than that, and the chat shows it. Each message takes them to the machine
+(`machinePrefs`, then `prefsIn` and `usePrefs` in `container/server.mjs`), and the
+Worker keeps a chat's machine awake as long as its background limit allows
+(`watchBackground`'s `maxMs`). Tests: `test/settings.test.mjs`.
+
+**The monitor** (Claude Code's Monitor tool; owner, 2026-11-10: "yea do all 4").
+`monitor` runs a command in the background the bash way (the same checks, rules
+and questions), and each line it prints on stdout comes to Coder as an event:
+before each of Coder's answers it is given the lines printed since the last one,
+and how the monitor ended, once (`readMonitor` and `monitorNews` on the machine,
+`monitorSaid` in the agent). Its stderr goes to a file of its own
+(`~/.coder-monitors/<mark>.err`), so its output file holds only its events. Its
+deadline is 5 minutes unless asked, 30 at most (`monitorMs`); one that prints more
+than 400 lines at once is stopped; one whose command ends in its first second gives
+its lines back at once. An idle chat is woken for its lines as for a background
+command that ended (`untoldOf`), and the chat shows each event under an eye. Coder's
+old `monitor` (a look at a background command's output) is gone, as Claude Code's
+TaskOutput is: Coder reads the output file. Tests: `test/monitor.test.mjs`, CD39.
+
+**Read(…) and Edit(…) rules** (Claude Code's file rules; owner, 2026-11-10: "yea do
+all 4"). The rules list takes `Read(path)` and `Edit(path)` besides Bash and
+WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`):
+`//path` from the machine's root, `~/path` from Coder's home, any other path from
+the project (Coder keeps rules per repository, as Claude Code's local settings);
+a bare name matches at any depth; `src/**` matches a `src` folder at any depth in a
+deny or ask rule but only the top one in an allow rule; `!name` carves out of the
+plain relative rules before it; a deny rule also matches where a link leads, an
+allow rule must match both. They apply to Coder's file tools (`fileToolDecision`:
+read, grep, glob and lsp by Read rules, write and edit by Edit rules and Read deny
+rules, in Claude Code's words; a search's results leave out what a deny rule
+covers), to @-mentions, and to the files commands name (`commandFiles`: cat, head,
+sed, `< file` by Read rules; `> file`, tee, rm, mv, cp, mkdir, touch by Edit rules),
+in every mode. An allow rule opens a path outside the project to commands (never a
+protected file, and never a write in Plan), and "Yes, and don't ask again" on a cd
+outside saves that folder's Read rule. Whole-tool `Write`, `Grep`, `Glob` and `LSP`
+rules apply to Coder's tools; a path in one of them is kept and never matches, with
+Claude Code's warning. Tests: `test/file-rules.test.mjs`.
+
+**Hooks** (Claude Code's hooks; owner, 2026-11-10: "yea do all 4"). The owner's own
+hooks (Settings, a box of Claude Code's settings JSON, checked by the Worker:
+`hooksSetting`, `machineHooks`) and the repository's (`.claude/settings.json` and
+`.claude/settings.local.json`, read inside the project and never through a link,
+not in a job from GitHub: `hooksForTurn` in `container/server.mjs`) run on Coder's
+machine as Coder's commands do, the event's JSON on stdin (a file the machine
+writes, `@REQUEST`), their stderr kept apart from their stdout, with
+`CLAUDE_PROJECT_DIR` and `CLAUDE_CODE_REMOTE=true`. Events: SessionStart (a chat's
+first message, and after a summary), UserPromptSubmit, PreToolUse,
+PermissionRequest, PostToolUse, PostToolUseFailure, Notification (a card that
+waits), Stop (8 times in a row at most), PreCompact and PostCompact. Matchers,
+`if`, deduplication, the exit-code table (0, 2, other), JSON decisions
+(`permissionDecision`, `updatedInput`, `additionalContext`, `decision: "block"`,
+`continue: false`, `systemMessage`, `updatedToolOutput`) and the words Coder is
+given ("PreToolUse:Bash hook error: [cmd]: …") are Claude Code's
+(`container/coder-hooks.mjs`). A hook's allow skips a mode's question and the auto
+mode checker, never a deny or ask rule or Coder's own safety checks;
+`disableAllHooks` turns them all off. Tests: `test/hooks.test.mjs`.
+
+**The rest of Claude Code's hooks** (owner, 2026-11-10: "yea do all of them").
+Hook kinds: `command`; `http` (the event's JSON posted from Coder's machine through
+the chat's network list, `coder-tools.mjs`'s `http_hook`; headers' `$VAR` only for
+the variables both its `allowedEnvVars` and `httpHookAllowedEnvVars` name; only to
+addresses `allowedHttpHookUrls` lets through); `prompt` and `agent` (Coder's own
+model at low effort answers `{"ok": …}`; an agent hook may first read, grep and glob,
+up to 50 turns, under the owner's Read rules), each on the events Claude Code takes
+it on (`typesFor`). Fields: `async` and `asyncRewake` (run as background jobs on the
+machine, marked `hook`, never listed as the chat's background commands; what they
+say reaches Coder at its next step or message, `hookNews`; an asyncRewake one that
+exits 2 wakes an idle chat), `onFailure: "block"`, `statusMessage`,
+`continueOnBlock`, `sessionTitle` (the chat's name) and `watchPaths`. More events:
+PostToolBatch (after a round, its calls and results), PermissionDenied (after the
+checker refuses a call; `retry: true` is said to Coder), StopFailure (when the
+model call fails, matched on the error's kind), CwdChanged (after a cd), FileChanged
+(the files its matcher names, and watchPaths, looked at before each answer) and
+SessionEnd (when the machine stops, within Claude Code's 1.5-second budget,
+`CODER_SESSIONEND_HOOKS_TIMEOUT_MS`). SessionStart, CwdChanged and FileChanged
+hooks get `CLAUDE_ENV_FILE`, whose exports every later command reads first. A hook
+that leaves a program holding its output answers 10 seconds after it ends (the
+machine's `quietMs`), and an allow, a rewrite or added context from it is not
+believed, in Claude Code's words. `CODER_SHELL_PREFIX` wraps hook commands too; a
+Bash PostToolUse hook gets `tool_response.bashEditDiff` when CODER_BASH_EDIT_DIFF
+is on; `CODER_TOOL_MEMORY_CGROUP_EXCLUDE` names the kinds the memory cap covers
+(`hooks`, `lsp`, `helper`; `none`, `all-new`), never a hook that can block.
+Tests: `test/hooks-more.test.mjs`.
+
+**A monitor on a WebSocket, and Monitor rules** (owner, 2026-11-10: "yea do all of
+them"). `monitor` takes `ws: { url, protocols }` in place of a command (Claude
+Code's WebSocket source): each text message is one event, a binary one comes as
+"[binary frame, N bytes]", a message over 1 MiB ends the watch, and when the socket
+closes Coder is told its close code (`coder-tools.mjs`'s `ws_watch`, run as the
+monitor's command, through the chat's network list; never a private, link-local or
+cloud-metadata address). Its input is checked in Claude Code's words (`wsProblem`).
+It is refused under a rule denying every Bash command (and Coder has no monitor
+tool then), asked about by the owner alone under one asking for every Bash command,
+asked about without a `Monitor` allow rule (no "don't ask again"), and judged by
+the checker in Auto (`wsDecision`). `Monitor` and `Monitor(…)` rules join Bash's
+for a monitor's command (`monitorRules`); in Auto, every Monitor allow rule is set
+aside (`droppedInAuto`). Tests: `test/monitor-ws.test.mjs`.
+
+**CODER_SHELL** (Claude Code's `CLAUDE_CODE_SHELL`). The environment's
+`CODER_SHELL` runs Coder's commands (and the owner's `!` commands) in bash or zsh,
+by name or by its full path in /bin, /usr/bin or /usr/local/bin; anything else is
+bash (`shellOf`). zsh is in Coder's image; in zsh, the startup file's snapshot is
+zsh's (`SNAPSHOT_TAKE_ZSH`, from `~/.zshrc`), its extended patterns are off, and
+the command runs through `eval`, as Claude Code runs it. Hooks always run in bash (or,
+with a hook's `shell: "powershell"`, in PowerShell: pass 6 below).
+Tests: CD385e.
+
+**Auto mode rules, refusing instead of asking, and working folders** (owner,
+2026-11-10: "yea do all of them"). Settings keeps the owner's auto mode rules as
+Claude Code's `autoMode` block (`autoModeSetting`, `machineAutoMode`; Claude Code
+reads it only from the user's own settings): `environment`, `allow`, `soft_deny`
+and `hard_deny`, lists of sentences, with `"$defaults"` splicing in Coder's
+built-in entries (a list without it replaces them, and saving says so); the checker
+reads them in Claude Code's order (`checkerRules`, `checkerSystem`).
+`classifyAllShell` sends every command an allow rule would approve to the checker
+in Auto (`autoRulesCover`). "Refuse instead of asking" (Claude Code's
+`permissions.denyInsteadOfPrompting`, `denyInstead`) refuses a step that would show
+a card, in Claude Code's words (`DENY_INSTEAD_TEXT`), and Coder goes on; 20 in a row
+end the turn. The rules list keeps a repository's working folders (Claude Code's
+`permissions.additionalDirectories`, `dirs`, `dirProblem`): each one that is a
+folder on the machine joins the chat's working directories (`extraDirsOf`), and
+Coder is told of them. Tests: `test/auto-rules.test.mjs`.
+
+**Bash docs pass 6: the last differences** (owner, 2026-11-10: "yea do all of
+them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
+- *A hook answers the question card* (owner, 2026-11-11: "Want it added";
+  Claude Code's AskUserQuestion with a PreToolUse hook: "echo back the original
+  questions array and add an answers object"): a hook sees `ask_user` as
+  AskUserQuestion (`questions`, each with `multiSelect`); its `allow` with
+  `updatedInput` answers the card itself (`hookAnswers`, `answeredText`), which
+  is not shown, and Coder goes on in the same turn, told in Claude Code's words
+  ("Your questions have been answered: …"; "The user answered: …" when an answer
+  is not one of the choices or has notes; "The user did not answer the
+  questions." when none was given). Several choices are joined with ", " as
+  Claude Code joins them (`joinLabels`, `splitLabels`). Its `allow` alone, or an
+  ask rule on AskUserQuestion, still shows the card; answers of the wrong type
+  are refused in Claude Code's words. The chat shows a note with the answers.
+- *A hook's allow in Plan mode* (Claude Code's "Hook approvals in plan mode"):
+  a PreToolUse hook's `allow` no longer runs a command or a WebSocket watch that
+  isn't read-only in Plan mode (the card, or the checker, as with no hook); its
+  `updatedInput` still applies; `allow` with `updatedInput` on `exit_plan_mode`
+  approves the plan without the card, back to the owner's start mode
+  (`planExit`, the Worker's `prePlanMode`).
+- *Tool-name wildcards* (`toolGlob`, `toolGlobMatches`): deny and ask rules take
+  `*`, `B*`, `mcp__*`; an allow one is skipped, with Claude Code's point said. A
+  tool a deny rule names bare or by wildcard is no longer offered to Grok
+  (`toolDenied`), Coder's other tools and Grok's web search (`WebSearch`)
+  included; an ask rule on Coder's other tools shows a card first.
+- *The repository's own settings* (`repoSettings`, `withRepoRules`): its
+  `.claude/settings.json` and `.claude/settings.local.json` give their deny and
+  ask rules always; their allow rules and `additionalDirectories` only once the
+  owner turns on "Trust this repository's settings" in the rules dialog (Claude
+  Code's workspace trust; `setTrust`), with Claude Code's warning until then
+  (`heldNote`); their `env` reaches the commands under the owner's own
+  variables, minus what a repository shouldn't set (`REPO_ENV_OFF`); their read
+  and write blocks and `disableAutoMode` turn on. Never in a job from GitHub.
+- *`disableAllHooks`* by Claude Code's settings precedence: the repository's
+  local file, then its shared one, then the owner's.
+- *The working folders' instructions* (`extraInstructions`): with the
+  environment's `CODER_ADDITIONAL_DIRECTORIES_CODER_MD` (Claude Code's
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`), each working folder's CODER.md,
+  .coder/CODER.md and .coder/rules load as the project's do.
+- *The write block* (outside Bash: the file tools; Claude Code's
+  `permissions.blockWritesOutsideWorkingDirectories`, here
+  `CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES`): write and edit refuse a path
+  outside the working folders, and a repository's settings files anywhere, in
+  Claude Code's words (`WRITE_BLOCKED`, `SETTINGS_WRITE_BLOCKED`); Coder's
+  scratch folder and memory file stay writable.
+- *Turn off Auto mode* (Settings; Claude Code's `disableAutoMode`): chats start
+  in Accept edits, and Auto is offered nowhere (menu, cards, plan approval);
+  the machine keeps every way into Auto out (`offAuto`).
+- *Blocked sites* (an environment's network setting; Claude Code's
+  `sandbox.network.deniedDomains`, `hostDenied`): refused by the gate in every
+  setting, Full and a saved key's sites included, in Coder's words (`DENIED`);
+  Full with blocked sites goes through the gate (`netWalled`).
+- *The subprocess environment scrub and script caps* (`coder-scrub.mjs`; Claude
+  Code's `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` and `CLAUDE_CODE_SCRIPT_CAPS`, here
+  `CODER_SUBPROCESS_ENV_SCRUB` and `CODER_SCRIPT_CAPS`): credentials by Claude
+  Code's own name and value rules leave the variables commands and hooks get
+  (GitHub tokens, proxies and git's config stay; an index address loses its
+  password); on by default in jobs from GitHub. With the scrub on, a capped
+  script runs only so many times a chat (counts kept on the machine).
+- *Per-command hosts in Auto mode* (Claude Code's `allowed_domains` on Bash and
+  Monitor): a command may name hosts beyond the network list; the checker
+  reviews them with the command (allow rules and hook allows approve the
+  command, not the hosts); a card an ask rule shows lists them; once approved
+  the command gets its own pass to the gate (`openFor`, `passOf`, in its proxy
+  address), which opens them for it alone while it runs; an unlisted host is
+  refused in Claude Code's words (`UNLISTED`). Refused with network None or
+  without the gate; ignored in other modes and from GitHub.
+- *PowerShell* (`coder-ps.mjs`; Claude Code's PowerShell tool, opt-in on Linux):
+  `CODER_USE_POWERSHELL_TOOL` offers it where the machine has pwsh (the full
+  image installs PowerShell 7 from Microsoft's own package list), with Claude
+  Code's description, rules in the shape of Bash's (`PowerShell(...)`, aliases
+  canonicalized, every part must be allowed; `psDecision`), read-only cmdlets,
+  its Start-Sleep check; it runs with no profile, non-interactive, the execution
+  policy bypassed unless `CODER_POWERSHELL_RESPECT_EXECUTION_POLICY`, and its
+  folder kept between commands (`psCommand`). `CODER_DEFAULT_SHELL=powershell`
+  runs the owner's `!` commands in it; hooks take `shell: "powershell"`.
+  (What only reads, and the rest of its checks, moved to pass 7.)
+
+**Bash docs pass 7: the rest, cloud only** (owner, 2026-11-11: "Yea we need to
+build the rest of the batch tool, remember we are not doing local rn with only
+doing cloud"). Tests: `test/pass7.test.mjs` (CD399 to CD406). Left out as
+terminal-only: Ctrl+Enter's "send now" and the `/permissions` "Recently
+blocked" tab (Claude Code's apps answer `/permissions` with "isn't available in
+this environment").
+- *PowerShell read by PowerShell itself* (`coder-psparse.mjs`): Claude Code's
+  parse script, word for word, runs with pwsh on the machine as the AI's user,
+  never in the project's folder (`coder-tools.mjs`'s `ps_parse`; two tries,
+  `CODER_PWSH_PARSE_TIMEOUT_MS`, 5 s each; once a job per command); its answer
+  is read Claude Code's way into the commands at every depth (`psTransform`,
+  `psCommands`). Pass 6's check read the text, so a command hidden in brackets
+  or a string (`Write-Output "$(Remove-Item x)"`) passed for read-only and got
+  past deny rules: closed.
+- *Claude Code's 24 safety checks* (`psSafetyWhy`), in its order and words
+  (Invoke-Expression, a dynamic name, a nested pwsh, encoded parameters,
+  download and run, Add-Type, New-Object outside ConstrainedLanguage's types,
+  -FilePath scripts, Invoke-Item, scheduled tasks, ForEach-Object -MemberName,
+  elevation, script blocks, sub-expressions, expandable strings, splatting,
+  `--%`, .NET calls and types, environment writes, module loading, alias and
+  variable writes, WMI), then `using`, `#Requires` and the background `&`;
+  provider and network paths (`psProviderWhy`), file redirections, git beside
+  a cd or an archive, writes into .git (`psCompoundWhy`). A command it cannot
+  parse is asked about ("Command contains malformed syntax that cannot be
+  parsed: …"), its pieces still meeting deny rules.
+- *The decision* (`psDecision`): deny rules on the command or any command in
+  it; then removals Claude Code never allows; ask rules; the safety checks;
+  each command allowed by a rule (read ahead in full) or only reading, by Claude
+  Code's table of cmdlets and their own settings (`PS_READ_TABLE`,
+  `psCommandReadOnly`: no shortened setting, no variable-writing setting, no
+  unusual error mode) with its paths inside the working folders; a chain or any
+  statement that is not a plain pipeline asks; in Accept edits, Claude Code's
+  file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) inside the
+  working folders run (`psEditsOnly`). In Auto, the checker judges what would ask
+  (`readOnly` and `covered` say when it is not needed).
+- *Remove-Item* (`psRemovals`, with rm, del, erase, rd, ri, rmdir): a system
+  path (the root, a top-level folder, the home folder) or a wildcard target is
+  refused in every mode, in Claude Code's words; a variable reads as empty
+  (`$dir/*`); a recursive removal of the working folder or a folder above it
+  asks (the checker in Auto).
+- *PowerShell's own exit codes* (`psExitMeaning`): exit 1 is a normal result
+  from grep, rg, egrep, fgrep, findstr, git grep and git diff, and from a search
+  piped into a formatting cmdlet. *Its env files* (`psEnvLine`): the owner's
+  `CODER_ENV_FILE` and the hooks' env file reach PowerShell only when every line
+  is a plain assignment, then all of them (`t.psPrefix`, the exec's `ps`).
+- *A risky `rm` under the owner's own Ask rule* asks in Auto instead of being
+  refused; `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` lets the checker decide (with
+  the checker on), and `CODER_DISABLE_SUBSTITUTION_RM_PROMPT`,
+  `CODER_DISABLE_INLINE_SHELL_RM_PROMPT` and
+  `CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT` loosen `dangerousRm` (`off`). From the
+  environment's own variables only (`rmChecksOff`).
+- *Hook notes for the checker* (Claude Code's `classifierContext`): a
+  PostToolUse hook's note about a result goes to the Auto mode checker, never to
+  Grok (`checkerNotes`, `checkerTranscript`'s `notes`), at most 2,000
+  characters a call, dropped with a refused or replaced rewrite of its own, and
+  marked as unverified context from the application.
+- *`duration_ms`* in PostToolUse input: the tool's own running time, without
+  its card or its PreToolUse hooks (`ranAt`, `doneAt`).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

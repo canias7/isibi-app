@@ -89,12 +89,68 @@ export const NET_MODES = ["none", "trusted", "full", "custom"];
 export function normNetwork(n) {
   let mode = n && NET_MODES.includes(n.mode) ? n.mode : n && (n.mode === "limited" || n.limited) ? "custom" : n && n.limited === false && !n.mode ? "full" : "trusted";
   const defaults = n && typeof n.defaults === "boolean" ? n.defaults : true;
-  return { mode, hosts: (n && Array.isArray(n.hosts) ? n.hosts : []).map(okPattern).filter(Boolean).slice(0, 100), defaults };
+  // (Its blocked sites, only when it has some: an environment without them is as it was, its setup copy too.)
+  const denied = [...new Set((n && Array.isArray(n.denied) ? n.denied : []).map(okPattern).filter(Boolean))].slice(0, 100);
+  return { mode, hosts: (n && Array.isArray(n.hosts) ? n.hosts : []).map(okPattern).filter(Boolean).slice(0, 100), defaults, ...(denied.length ? { denied } : {}) };
 }
+/**
+ * A SITE ON THE ENVIRONMENT'S BLOCKED LIST (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * sandbox.network.deniedDomains: "Domains that are always blocked, even if matched by allowedDomains"; "A connection to a
+ * host in deniedDomains is refused in every permission mode"): refused in every network setting, Full included, and for a
+ * site with a saved key too.
+ */
+export function hostDenied(host, network) {
+  const n = normNetwork(network);
+  const h = String(host || "").toLowerCase();
+  return !!n.denied && n.denied.some((p) => hostMatches(h, p));
+}
+/**
+ * A COMMAND'S OWN HOST LIST (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's allowed_domains,
+ * "Hosts this sandboxed command needs to reach that the sandbox's network allowlist does not already cover"), each entry
+ * checked in Claude Code's words: "" when the list is right, else what is wrong with it.
+ */
+export const LIST_FORMAT = 'Entries must be a domain ("example.com"), a wildcard ("*.example.com"), an IPv4 address, or a bracketed IPv6 address in canonical form ("[::1]", "[2001:db8::1]", not "[2001:0db8::0001]"), any with an optional ":port" suffix (1-65535) \u2014 ASCII letters, digits, "-", "_" and "." only (punycode for international names), nothing else.';
+export const LIST_LOOPBACK = "this address names loopback or an IPv4 host under another spelling (an IPv4-mapped or NAT64 IPv6 literal, or the unspecified address); allow the dotted-quad IPv4 address or the real host instead.";
+export const LIST_SPELLING = "this entry does not spell the host the sandbox would dial (its canonical form differs); use that form, as the sandbox reports it.";
+/** One entry split: { host, port } (port 0: any), or null when its shape is wrong. */
+export function listEntry(e) {
+  const t = String(e ?? "");
+  let host = t, port = 0;
+  const v6 = /^\[([0-9a-fA-F:.]+)\](?::(\d{1,5}))?$/.exec(t);
+  if (v6) { host = "[" + v6[1] + "]"; port = v6[2] ? Number(v6[2]) : 0; }
+  else { const m = /^([A-Za-z0-9_.*-]+)(?::(\d{1,5}))?$/.exec(t); if (!m) return null; host = m[1]; port = m[2] ? Number(m[2]) : 0; }
+  if (port && !(port >= 1 && port <= 65535)) return null;
+  if (!v6) {
+    const name = host.startsWith("*.") ? host.slice(2) : host;
+    if (!name || name.includes("*") || name.split(".").some((x) => !x) || !/^[A-Za-z0-9_.-]+$/.test(name)) return null;
+  }
+  return { host, port };
+}
+export function listProblem(list) {
+  if (!Array.isArray(list)) return "allowed_domains is a list of hosts";
+  if (list.length > 100) return "allowed_domains has at most 100 entries";
+  for (const e of list) {
+    if (typeof e !== "string" || e.length > 260 || !listEntry(e)) return JSON.stringify(String(e)) + ": " + LIST_FORMAT;
+    const { host } = listEntry(e);
+    const bare = host.startsWith("[") ? host.slice(1, -1).toLowerCase() : host.toLowerCase();
+    if (/^0\./.test(bare) && /^\d+\.\d+\.\d+\.\d+$/.test(bare)) return JSON.stringify(e) + ": " + LIST_LOOPBACK;
+    if (host.startsWith("[") && (bare === "::" || /^::ffff:/.test(bare) || /^64:ff9b::/.test(bare))) return JSON.stringify(e) + ": " + LIST_LOOPBACK;
+    if (e !== e.toLowerCase() || e.endsWith(".") || (host.startsWith("[") && /(^|:)0+[0-9a-f]/.test(bare))) return JSON.stringify(e) + ": " + LIST_SPELLING;
+  }
+  return "";
+}
+/** Whether a command's list names a host (and its port), a wildcard covering its subdomains. */
+export function listCovers(list, host, port) {
+  const h = String(host || "").toLowerCase();
+  return (Array.isArray(list) ? list : []).some((e) => { const x = listEntry(e); return !!x && (!x.port || x.port === Number(port)) && hostMatches(h, x.host.toLowerCase()); });
+}
+/** Whether a network setting needs the gate in the way: anything but Full, or Full with blocked sites. */
+export const netWalled = (network) => { const n = normNetwork(network); return n.mode !== "full" || !!(n.denied && n.denied.length); };
 /** Is `host` reachable under this setting? Sites with a saved key always are (Claude Code's docs: "even when the network level would not otherwise allow them"). */
 export function hostAllowed(host, network, keyed = []) {
   const n = normNetwork(network);
   const h = String(host || "").toLowerCase();
+  if (hostDenied(h, n)) return false;
   if (keyed.some((p) => hostMatches(h, p))) return true;
   if (n.mode === "full") return true;
   if (n.mode === "none") return false;

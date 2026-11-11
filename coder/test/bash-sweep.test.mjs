@@ -243,7 +243,7 @@ test("CD296 (docs check: Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, \"r
   // On Coder's machine, the page and the note.
   const src = serverSrc();
   assert.match(src, /t\.noBg = varOn\(rawVars\.CODER_DISABLE_BACKGROUND_TASKS\);/);
-  assert.match(src, /stopAtTimeout: !!sleepFirst \|\| t\.noBg/);
+  assert.match(src, /stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\)/, "(a monitor still runs: Claude Code's Monitor does, CD381)");
   assert.match(src, /if \(t && t\.noBg\) return send\(200, \{ ok: false, why: "background commands are off in this chat's environment \(CODER_DISABLE_BACKGROUND_TASKS\)" \}\);/);
   assert.match(src, /BACKGROUND COMMANDS ARE OFF \(this chat's environment sets CODER_DISABLE_BACKGROUND_TASKS\)/);
   const S = await import("../container/server.mjs");

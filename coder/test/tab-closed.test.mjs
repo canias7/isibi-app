@@ -142,7 +142,8 @@ test("CD115 never asleep with work on it, the old builder's way (owner: \"we had
   const now = 10_000_000;
   // What the machine says.
   const none = new Map();
-  const zero = { background: 0, untold: 0, backgroundMs: 0, untoldMs: 0 };
+  // (bgMaxMs: the longest a background command may run, as the owner set it in Settings, 2026-11-10; 2 hours unless raised.)
+  const zero = { background: 0, untold: 0, backgroundMs: 0, untoldMs: 0, bgMaxMs: 7_200_000 };
   assert.deepEqual(busyState(new Map(), now, none), { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, ...zero });
   const map = new Map([["a-1", { running: true, started: now - 60_000, events: [] }]]);
   assert.deepEqual(busyState(map, now, none), { busy: true, working: 1, unsaved: 0, workingMs: 60_000, unsavedMs: 0, ...zero });
@@ -154,7 +155,7 @@ test("CD115 never asleep with work on it, the old builder's way (owner: \"we had
   assert.equal(busyState(map, now, none).busy, false, "a job that never started");
   // A BACKGROUND COMMAND still running after the answer (tool 4, part 2), and one that ended that Coder is not told of yet.
   const jobs = new Map([[11, { at: now - 600_000, end: null }], [12, { at: now - 900_000, end: { at: now - 30_000 }, told: false }], [13, { at: now - 900_000, end: { at: now - 30_000 }, told: true }]]);
-  assert.deepEqual(busyState(map, now, jobs), { busy: true, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, background: 1, untold: 1, backgroundMs: 600_000, untoldMs: 30_000 });
+  assert.deepEqual(busyState(map, now, jobs), { busy: true, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, background: 1, untold: 1, backgroundMs: 600_000, untoldMs: 30_000, bgMaxMs: 7_200_000 });
   assert.deepEqual(W.holdDecision({ background: 1, backgroundMs: 90 * 60_000 }), { hold: true, why: "background" });
   assert.deepEqual(W.holdDecision({ background: 1, backgroundMs: W.BG_HOLD_MS + 1 }), { hold: false, why: "stuck" }, "past its longest time limit");
   assert.deepEqual(W.holdDecision({ untold: 1, untoldMs: 60_000 }), { hold: true, why: "untold" });
@@ -188,7 +189,7 @@ test("CD116 the machine's /busy is behind its control key like the rest of its p
     assert.equal(r.status, 200);
     const b = await r.json();
     assert.equal(typeof b.busy, "boolean");
-    assert.deepEqual(Object.keys(b).sort(), ["background", "backgroundMs", "busy", "idleMs", "unsaved", "unsavedMs", "untold", "untoldMs", "working", "workingMs"]);
+    assert.deepEqual(Object.keys(b).sort(), ["background", "backgroundMs", "bgMaxMs", "busy", "idleMs", "unsaved", "unsavedMs", "untold", "untoldMs", "working", "workingMs"]);
   } finally { await new Promise((r) => srv.close(r)); }
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /const t = \{ running: true, stop: false, events: \[\], result: null, fg: new Set\(\), started: Date\.now\(\), resume: null, queue: \[\], mode: normMode\(body\.mode\), answers: new Map\(\), asking: "" \};/);

@@ -132,7 +132,9 @@ test("CD365 rules Claude Code keeps are saved with its warnings (a rule on the c
   assert.equal(d("rm a.txt", { deny: ["Bash(command:rm *)", "Bsh"] }), "allow");
   assert.equal(d("npm test", { allow: ["Bash(command:npm *)", "Bsh(npm *)"] }), "ask");
   // A tool of Claude Code's that Coder doesn't apply, or an MCP tool: not saved (Coder's own message).
-  for (const r of ["Read", "Edit(src/**)", "WebSearch", "mcp__x__y"]) assert.equal(P.ruleSaved(r), false, r);
+  for (const r of ["NotebookEdit", "Agent", "mcp__x__y"]) assert.equal(P.ruleSaved(r), false, r);
+  // (Read and Edit rules are Coder's own since the file rules: file-rules.test.mjs.)
+  for (const r of ["Read", "Edit(src/**)"]) assert.equal(P.ruleSaved(r), true, r);
   // The Worker saves them, with the warning, and the row in the list.
   const R = await import("../src/coder-routes.mjs");
   const bucket = { m: new Map(), async get(k) { return this.m.has(k) ? { text: async () => this.m.get(k) } : null; }, async put(k, v) { this.m.set(k, String(v)); } };

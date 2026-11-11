@@ -56,7 +56,7 @@ test("CD146 the machine's own disk is grown to the size Fly.io gave it (7.8 GB o
   // WIRING: the real service grows it before it starts listening, without waiting for it (resize2fs runs on its own);
   // the full image has resize2fs (e2fsprogs).
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\n\s+console\.log\("coder: the machine's own disk: " \+ growOwnDisk\(\)\);\n(\s+\/\/[^\n]*\n)*\s+http\.createServer\(createApp\(\{ kept: bootKept\(\),/, "and says what it did, in the machine's log");
+  assert.match(server, /\n\s+console\.log\("coder: the machine's own disk: " \+ growOwnDisk\(\)\);\n(\s+\/\/[^\n]*\n)*\s+const app = createApp\(\{ kept: bootKept\(\),/, "and says what it did, in the machine's log");
   assert.match(server, /grow = \(dev\) => \{ const c = spawn\("resize2fs", \[dev\], \{ stdio: "ignore", detached: true \}\); c\.on\("error", \(\) => \{\}\); c\.unref\(\); \}/, "started, never waited for");
   assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), /uidmap slirp4netns fuse-overlayfs iproute2 e2fsprogs \\\n/);
 });
