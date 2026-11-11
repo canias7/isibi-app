@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Round 4 is live (deploy 130) and tried in the browser with Grok (recording 39)
+
+**What went out:** everything chats use: the new page, the Worker and the new machine on Fly.io. All of Coder's tests passed on GitHub's machine first. The ones that need the picture and PDF programs were skipped, as planned.
+
+**One part didn't finish:** the backup machine on Cloudflare. It's only used if chats are switched from Fly.io back to Cloudflare. Building it needs Ubuntu's package servers, and GitHub's machine couldn't find them ("Could not resolve 'archive.ubuntu.com'"). They failed from my side too. So GitHub shows deploy 130 as failed, even though everything chats use went out. I'll run the deploy again once Ubuntu's servers answer. That changes nothing else.
+
+**Live test with Grok (recording 39).** Each result matches Claude Code's own answers from this morning.
+1. Hooks and rules:
+   - A hook's "no": "PreToolUse:Bash hook error: r39 hook says no", with its note "PreToolUse:Bash hook additional context: The hook word is PINEAPPLE".
+   - A hook that exits 2: "PreToolUse:Bash hook error: [command hook]: r39 exit two says no".
+   - A hook answer with no event name: the command ran, with Claude Code's "Hook JSON output validation failed — …" note.
+   - A block after the command: "PostToolUse:Bash hook blocking error from command: "command hook": r39 post says no".
+   - `cat .env` with a Read deny rule: "Permission to use Bash with command cat .env has been denied."
+   - `$"rm" -f …` with a deny rule on rm: it asked first, "This command can't be checked before it runs".
+2. Brackets and quoted words:
+   - `(ls)`, `{ ls; }`, `echo {a,b}`, `(ls; pwd)`, `echo <1-3>` and `$'ls' -a` each asked first, with Claude Code's reason.
+   - `echo $((1+1))` and `echo "$'x'"` ran without asking.
+3. A prompt hook's "no": "PreToolUse:Bash hook error: [the hook's prompt, as written]: r39 prompt says no", and the turn ended.
+
+Your test settings were put back afterwards (hooks off, no rules). Grok cost: 3 messages at Low effort plus one prompt-hook check; my estimate is under 50 cents.
+
 ## 2026-11-11: Why round 4 took three deploys to go out, and the fix
 
 Deploys 127, 128 and 129 all stopped on GitHub's machine before anything reached gofarther.dev, so nothing live changed.
