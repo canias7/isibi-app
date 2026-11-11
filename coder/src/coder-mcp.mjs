@@ -80,7 +80,6 @@ export const CATALOG = Object.freeze([
   { group: "Databases", name: "Neon", url: "https://mcp.neon.tech/mcp", about: "Manage Neon Postgres projects, branches and queries." },
   { group: "Databases", name: "MongoDB", url: "https://mcp.mongodb.com/mcp", about: "MongoDB Atlas clusters, databases and collections." },
   { group: "Databases", name: "Supabase", url: "https://mcp.supabase.com/mcp", about: "Manage Supabase projects: run SQL, change tables, read logs and deploy edge functions." },
-  { group: "Hosting", name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
   { group: "Hosting", name: "Cloudflare", url: "https://bindings.mcp.cloudflare.com/mcp", about: "Workers, KV, R2 and D1 in your Cloudflare account." },
   { group: "Hosting", name: "Cloudflare Logs", url: "https://observability.mcp.cloudflare.com/mcp", about: "Your Cloudflare Workers' logs and analytics, for debugging." },
   { group: "Hosting", name: "Railway", url: "https://mcp.railway.com", about: "Railway projects, services, deployments and variables." },
@@ -97,6 +96,8 @@ export const CATALOG = Object.freeze([
  */
 export const CATALOG_LATER = Object.freeze([
   // Sign-in only, no API keys (owner, 2026-11-11: "Lets only do the ones with mcp, tho not api key").
+  // Vercel's sign-in takes only return addresses it has approved (tried 2026-11-11: "invalid_redirect_uri ... not approved").
+  { group: "Hosting", name: "Vercel", url: "https://mcp.vercel.com", why: "only lets apps Vercel has approved sign in" },
   { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", why: "works only with an API key, not a sign-in" },
   { group: "Email", name: "Postmark", why: "no official hosted server yet" },
   { group: "Security", name: "Aikido", why: "no official hosted server yet" },

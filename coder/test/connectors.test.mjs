@@ -90,7 +90,7 @@ test("MC3 (2026-11-10) a server with no sign-in is added with its tools; with a 
   const r2 = await addConnector(env, b, "u1", { name: "Keyed", url: "https://mcp.example.com/mcp?k=1", key: "good", fetchFn: (u, i) => s2.fetchFn(String(u).replace("?k=1", ""), i) });
   assert.equal(r2.connector.status, "ok");
   assert.equal(r2.connector.auth, "key");
-  assert.ok(!b.m.get(listKey("u1")).includes("good"));
+  assert.ok(!b.m.get(listKey("u1")).includes('"good"'));
   assert.ok(!JSON.stringify(connectorOut(r2.connector)).includes("box"));
   // A wrong key: not kept.
   await assert.rejects(addConnector(env, b, "u1", { url: "https://mcp.example.com/mcp?k=2", key: "bad", fetchFn: (u, i) => s2.fetchFn(String(u).replace("?k=2", ""), i) }), /refused that key/);
@@ -120,7 +120,8 @@ test("MC4 (2026-11-10) a server that asks to sign in: its sign-in server is foun
   assert.equal(c.status, "ok");
   assert.equal(c.auth, "oauth");
   assert.equal(c.tools.length, 2);
-  assert.ok(!b.m.get(listKey("u1")).includes("good") && !b.m.get(listKey("u1")).includes("r1"));
+  // (As stored values: the sealed box is random letters that can hold "r1" by chance, which once made this test fail.)
+  assert.ok(!b.m.get(listKey("u1")).includes('"good"') && !b.m.get(listKey("u1")).includes('"r1"'));
   // A used sign-in cannot be used twice.
   await assert.rejects(finishSignIn(env, b, { state: state2, code: "the-code", nonce: "browser-nonce-123456", fetchFn: s.fetchFn }), /ended/);
 });
@@ -349,7 +350,7 @@ test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents ge
   // Sign-in only (owner, 2026-11-11): no connector in Discover takes a key; Render (key only) waits; the page asks for no key.
   assert.ok(CATALOG.every((k) => !k.key));
   assert.ok(CATALOG.find((k) => k.name === "MongoDB"));
-  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Render", "Postmark", "Aikido", "Redis"]);
+  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Vercel", "Render", "Postmark", "Aikido", "Redis"]);
   assert.ok(!readFileSync(new URL("../public/coder.js", import.meta.url), "utf8").includes('placeholder="API key (only if'));
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /addConnector\(env, bucket, uid, \{ name: body\.name, url: body\.url, key: "", id: cid/);
 });

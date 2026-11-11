@@ -4,6 +4,21 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Each app's sign-in tried (your question: "are you sure we dont need to make the app, for the authentication?")
+
+I registered Go Farther with each app's sign-in server the way Connect does, using the jessica.gofarther.dev return address. This stops before your login, so no account of yours was involved.
+
+- **Accepted (10):** Neon, Supabase, Cloudflare, Cloudflare Logs, Railway, Resend, Sentry, Linear, Stripe and Clerk. None of these needs an app made by hand. All that's left is your own login and the "Allow" screen.
+- **MongoDB:** uses Go Farther's public client file, which MongoDB can only read once jessica.gofarther.dev serves it.
+- **Refused:**
+  - **Vercel** said "the provided redirect URIs are not approved". Its sign-in only takes apps Vercel has approved, like Claude and Cursor. Moved to "coming later".
+  - The only way in would be to ask Vercel to approve Go Farther.
+- **A flaky test fixed:**
+  - MC4 sometimes failed, about one run in twenty. It checked that the saved list doesn't contain the text "r1", the fake refresh token.
+  - The encrypted part is random letters and sometimes contained "r1" by chance.
+  - It now checks for the token as a stored value. 40 runs in a row pass.
+- **Tests:** all 402 pass, 4 skipped as before.
+
 ## 2026-11-11: Sign-in only, no API keys (your word: "Lets only do the ones with mcp, tho not api key")
 
 - **Render** moved to "coming later", because its server only takes an API key.
