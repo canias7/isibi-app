@@ -164,7 +164,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook (prompt): rm is not allowed here");
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b2").content, "not run: a hook ended this turn");
   assert.ok(t.events.some((e) => e.type === "note" && e.warn === true && e.text === "PreToolUse hook: rm is not allowed here"));
-  assert.match(t.judged[0].messages[1].content, /^Is this safe\? \{"session_id":"shop-h2","cwd":"\/work\/shop","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":\{"command":"rm -rf build"/);
+  assert.match(t.judged[0].messages[1].content, /^Is this safe\? \{"session_id":"shop-h2","prompt_id":"[0-9a-f-]{36}","cwd":"\/work\/shop","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":\{"command":"rm -rf build"/);
   assert.deepEqual([t.judged[0].effort, t.judged[0].webSearch, t.judged[0].tools], ["low", false, []]);
   assert.equal(t.r.usage.length, 2, "the hook's call counts");
   // continueOnBlock: denied, and Coder goes on.
@@ -217,7 +217,8 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   const cwd = { now: "/work/shop" };
   t = await loop([say("", [call("bash", { command: "cd app" }, "b1")]), say("ok")], { CwdChanged: hk("direnv.sh") }, { cwd, onRun: (c) => { if (c === "cd app") cwd.now = "/work/shop/app"; }, hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"CwdChanged","watchPaths":["/work/shop/app/.envrc"]}}' }) });
   const cc = t.hookCalls.find((c) => c.input.hook_event_name === "CwdChanged");
-  assert.deepEqual([cc.input.old_cwd, cc.input.new_cwd, cc.x.hookEnv, cc.x.hookGate], ["/work/shop", "/work/shop/app", true, false]);
+  // (CwdChanged's variables go in the file cleared at each CwdChanged, Bash docs pass 8.)
+  assert.deepEqual([cc.input.old_cwd, cc.input.new_cwd, cc.x.hookEnv, cc.x.hookGate], ["/work/shop", "/work/shop/app", "cwd", false]);
   const resetAt = t.execs.findIndex((x) => x.envReset === true);
   assert.ok(resetAt >= 0 && resetAt < t.execs.indexOf(cc.x), "the env file made empty first");
   // FILECHANGED: the files its matcher names in the project (and watchPaths), looked at before each answer; one that
@@ -259,7 +260,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   t = await loop([say("ok")], { SessionStart: hk("start.sh"), UserPromptSubmit: hk("title.sh"), Notification: hk("n.sh") }, { hookRun: (i) => (i.hook_event_name === "UserPromptSubmit" ? { stdout: '{"hookSpecificOutput":{"hookEventName":"UserPromptSubmit","sessionTitle":"Cart checkout bug"}}' } : {}) });
   assert.equal(t.r.sessionTitle, "Cart checkout bug");
   const flags = Object.fromEntries(t.hookCalls.map((c) => [c.input.hook_event_name, [c.x.hookEnv, c.x.hookGate]]));
-  assert.deepEqual(flags, { SessionStart: [true, false], UserPromptSubmit: [false, true] });
+  assert.deepEqual(flags, { SessionStart: ["session", false], UserPromptSubmit: [false, true] });
   // STATUSMESSAGE: a line in the chat while it runs.
   t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "slow.sh", statusMessage: "Checking the policy…" }] }] });
   assert.ok(t.events.some((e) => e.type === "note" && e.hookStatus === true && e.text === "Checking the policy…"));
@@ -338,7 +339,8 @@ test("CD384c on a real machine: CLAUDE_ENV_FILE carries a SessionStart hook's va
 test("CD384d the machine's side: CODER_TOOL_MEMORY_CGROUP_EXCLUDE as Claude Code's kinds; a hook's exec gets its env file, the shell prefix and the quiet wait; the hook env file before each command; the Dockerfile copies what the hooks need", async () => {
   const S = await import("../container/server.mjs");
   assert.deepEqual([[...S.memCappedKinds("")], [...S.memCappedKinds("all-new")], [...S.memCappedKinds("none")], [...S.memCappedKinds("hooks, bogus")], [...S.memCappedKinds("hooks,lsp,helper")]], [[], [], ["hooks", "lsp", "helper"], ["lsp", "helper"], []]);
-  assert.equal(S.hookEnvLine("shop-1"), "if [ -r \"$HOME\"/.coder-hook-env/'shop-1.sh' ]; then . \"$HOME\"/.coder-hook-env/'shop-1.sh'; fi\n");
+  // (SessionStart's file, then CwdChanged's and FileChanged's, Bash docs pass 8.)
+  assert.equal(S.hookEnvLine("shop-1"), "if [ -r \"$HOME\"/.coder-hook-env/'shop-1.sh' ]; then . \"$HOME\"/.coder-hook-env/'shop-1.sh'; fi\nif [ -r \"$HOME\"/.coder-hook-env/'shop-1.cwd.sh' ]; then . \"$HOME\"/.coder-hook-env/'shop-1.cwd.sh'; fi\n");
   const server = read("container/server.mjs");
   assert.match(server, /const capped = tool && typeof t\.memCgNow === "function" && t\.memKinds instanceof Set && t\.memKinds\.has\(hook \? "hooks" : kind === "lsp" \? "lsp" : "helper"\) && !\(hook && hookGate\);/);
   assert.match(server, /\.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: t\.shellPrefix \|\| "" \} : \{\}\)/, "the owner's CODER_SHELL_PREFIX wraps hooks too");

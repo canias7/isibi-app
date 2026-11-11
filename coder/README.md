@@ -1026,6 +1026,28 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   the default rules of Claude Code's `claude auto-mode defaults` (2.1.322) that
   Coder's machine can meet: 60 block rules and 12 allow rules (28 and 9 before),
   about 7,200 more characters per check.
+- *Hooks meeting commands* (CD417, CD418). A PermissionRequest hook's allow
+  with `updatedInput` sends the call through again with it, "re-evaluated
+  against deny and ask rules" only: its PreToolUse hooks are not run again, an
+  ask rule shows the owner the card (no hook again), and the page shows the step
+  once, with the new command. Its `updatedPermissions` apply (`applyUpdates`):
+  addRules, replaceRules and removeRules on the job's rules (an allow rule for a
+  settings file kept as the owner's "don't ask again"), and setMode; working
+  folders are left alone. Its `permission_suggestions` are Claude Code's
+  `{toolName, ruleContent}` entries (`ruleEntry`, `entryRule`). An exec-form
+  hook gets `${CLAUDE_PROJECT_DIR}` as the path in `command` and each of `args`,
+  a PowerShell shell-form hook `${env:CLAUDE_PROJECT_DIR}` (`hookShell`). A
+  PowerShell call is `PowerShell` for every hook (`callTool`), and `if:
+  "PowerShell(Remove-Item *)"` matches each command it runs, nested ones too
+  (`psAllParts`). A call that never ran fires neither PostToolUse nor
+  PostToolUseFailure, and a command that fails its input checks (empty, too
+  long, a control character, a long foreground sleep) fires no PreToolUse
+  either. A Bash matcher on a Monitor's command gets a Bash call (`asBashInput`)
+  whose allow and `updatedInput` count for nothing (`withoutGrant`), never for a
+  WebSocket watch nor with an `if` naming Monitor. SessionStart's variables stay
+  for the chat; CwdChanged's and FileChanged's go in a second file, emptied at
+  each CwdChanged (`envKind`, `hookEnvLine`). A PreToolUse `"defer"` is
+  ignored. Hook input has `prompt_id`, and PostToolUseFailure `duration_ms`.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

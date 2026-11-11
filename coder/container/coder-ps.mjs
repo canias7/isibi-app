@@ -58,6 +58,37 @@ export function psParts(command) {
   out.push(cur);
   return out.map((x) => x.trim()).filter(Boolean);
 }
+/**
+ * EVERY PART OF A POWERSHELL COMMAND, those inside $( ), @( ) and { } too (Bash docs pass 8: a hook's `if`, such as Claude
+ * Code's own example "PowerShell(Remove-Item *)", checks each command the input runs, as a Bash `if` does). Single-quoted text
+ * is never looked into (PowerShell never expands it); double-quoted text is, as PowerShell runs a $( ) there.
+ */
+export function psAllParts(command) {
+  const out = [];
+  const walk = (text, depth) => {
+    if (depth > 6 || out.length > 400) return;
+    for (const part of psParts(text)) {
+      out.push(part);
+      const s = String(part);
+      for (let i = 0; i < s.length; i++) {
+        const opens = s[i] === "{" ? "{" : s[i] === "(" && (s[i - 1] === "$" || s[i - 1] === "@") ? "(" : "";
+        if (!opens) { if (s[i] === "'") { const k = s.indexOf("'", i + 1); if (k < 0) break; i = k; } continue; }
+        const shut = opens === "(" ? ")" : "}";
+        let d = 0, j = i;
+        for (; j < s.length; j++) {
+          if (s[j] === "'") { const k = s.indexOf("'", j + 1); if (k < 0) { j = s.length; break; } j = k; continue; }
+          if (s[j] === opens) d++;
+          else if (s[j] === shut && --d === 0) break;
+        }
+        if (j >= s.length) break;
+        walk(s.slice(i + 1, j), depth + 1);
+        i = j;
+      }
+    }
+  };
+  walk(String(command || ""), 0);
+  return out;
+}
 /** A part's first word, as typed. */
 export const psFirst = (part) => (String(part || "").trim().match(/^[^\s]+/) || [""])[0];
 

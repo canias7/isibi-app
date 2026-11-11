@@ -13,7 +13,7 @@
 // THE READ-ONLY SET is Claude Code 2.1.319's own (its lists, read from it on 2026-11-09): commands that run with any
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
-import { psRuleMatches, psExactRule } from "./coder-ps.mjs";
+import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
@@ -1038,6 +1038,15 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     // (More than the program, and a part worked out when it runs: the hook runs anyway.)
     const words = spec.replace(/:\*$/, "").replace(/\s+\*$/, "").trim().split(/\s+/);
     return words.length > 1 && /\$\(|`|\$[A-Za-z_{]/.test(command);
+  }
+  // (A PowerShell pattern, Bash docs pass 8: Claude Code's own "PowerShell(Remove-Item *)" checks every command the input
+  // runs, nested ones too, as permission rules match them: case-insensitive, aliases as their cmdlets; a command that can't be
+  // split runs the hook.)
+  if (tool === "PowerShell") {
+    const sp = settingSpec(spec);
+    if (sp && sp.name !== "command") return settingMatches(sp.value, args[sp.name]);
+    const parts = psAllParts(String(args.command || ""));
+    return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
   if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainMatches(spec, host); }
   const path = typeof args.file_path === "string" ? args.file_path : typeof args.path === "string" ? args.path : "";

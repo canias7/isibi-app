@@ -1114,8 +1114,11 @@
       }
       group = [];
     };
+    // (A step shown again with a changed command, after a PermissionRequest hook changed it: its last showing only.)
+    const lastStep = {};
+    S.events.forEach((e, i) => { if (e.type === 'bash' && e.id) lastStep[e.id] = i; });
     S.events.forEach((e, i) => {
-      if (e.type === 'bash') { group.push([e, i]); return; }
+      if (e.type === 'bash') { if (!e.id || lastStep[e.id] === i) group.push([e, i]); return; }
       if (e.type === 'result') return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;

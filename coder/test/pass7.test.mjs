@@ -322,7 +322,7 @@ test("CD405 PowerShell's own exit codes and env-file variables: exit 1 is a norm
     assert.equal(envOf("source.sh"), "");
     assert.equal(execFileSync("bash", ["-c", S.psEnvLine([join(d, "plain.sh"), join(d, "mixed.sh")]) + "echo \"[$NODE_ENV]\""], { encoding: "utf8" }), "[]\n", "across every file");
   } finally { rmSync(d, { recursive: true, force: true }); }
-  assert.deepEqual(S.envFilePaths("~/.env.sh", "/home/dev", "shop"), ['"$HOME"/\'.env.sh\'', '"$HOME"/.coder-hook-env/\'shop.sh\'']);
+  assert.deepEqual(S.envFilePaths("~/.env.sh", "/home/dev", "shop"), ['"$HOME"/\'.env.sh\'', '"$HOME"/.coder-hook-env/\'shop.sh\'', '"$HOME"/.coder-hook-env/\'shop.cwd.sh\'']);
   assert.match(read("container/server.mjs"), /t\.psPrefix = commandPrefix\(home, psEnvLine\(envFilePaths\(rawVars\.CODER_ENV_FILE, home0, home \? project : ""\)\), t\.shell\);/);
   assert.match(read("container/server.mjs"), /prefix: tool \? "" : ps && t\.psPrefix !== undefined \? t\.psPrefix : t\.prefix, /);
   // PowerShell's runs say so to the machine.

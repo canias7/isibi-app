@@ -186,7 +186,9 @@ export function envFileLine(value, project) {
  * CLAUDE_ENV_FILE environment variable, which provides a file path where you can persist environment variables for the shell
  * commands Claude runs later in the session"): in the AI's home, one per chat; the line every command starts with.
  */
-export const hookEnvLine = (project) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + ".sh"); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; };
+// (Two files, Bash docs pass 8: SessionStart's, kept for the chat; CwdChanged's and FileChanged's, emptied at each CwdChanged
+// as Claude Code clears theirs. The first is read first.)
+export const hookEnvLine = (project) => [".sh", ".cwd.sh"].map((x) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + x); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; }).join("");
 /**
  * THE ENV FILES FOR A POWERSHELL COMMAND (Bash docs pass 7; Claude Code: "PowerShell commands receive the variables from
  * CLAUDE_ENV_FILE too … but PowerShell never runs the file. Claude Code reads the assignments out of it and copies them
@@ -209,7 +211,7 @@ export function psEnvLine(paths) {
 export function envFilePaths(value, project, hookProject) {
   const out = [], v = String(value ?? "").trim();
   if (v && v.length <= 1000 && !/[\0\n\r]/.test(v)) out.push(v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v)));
-  if (hookProject) out.push('"$HOME"/.coder-hook-env/' + shellWord(String(hookProject) + ".sh"));
+  if (hookProject) for (const x of [".sh", ".cwd.sh"]) out.push('"$HOME"/.coder-hook-env/' + shellWord(String(hookProject) + x));
   return out;
 }
 /**
@@ -3053,7 +3055,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // THE MEMORY CAP FOR CODER'S OTHER PROCESSES (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's name):
           // hooks, code lookups and Coder's helpers when the owner's variable puts them under it, never a hook that can block.
           const capped = tool && typeof t.memCgNow === "function" && t.memKinds instanceof Set && t.memKinds.has(hook ? "hooks" : kind === "lsp" ? "lsp" : "helper") && !(hook && hookGate);
-          const hookEnvFile = hook && hookEnv && home ? join(home, ".coder-hook-env", project + ".sh") : "";
+          // (Which of the chat's two hook env files: SessionStart's, or CwdChanged's and FileChanged's, Bash docs pass 8.)
+          const hookEnvFile = hook && hookEnv && home ? join(home, ".coder-hook-env", project + (hookEnv === "cwd" ? ".cwd.sh" : ".sh")) : "";
           // A HOOK IN THE BACKGROUND (Claude Code's async and asyncRewake): started as a background command is, so it goes on after
           // Coder's answer, its output in a file; marked a hook, so it is none of the chat's background commands (Coder is not
           // told of it as one, the page does not list it). Its time limit: an asyncRewake hook's timeout; otherwise the

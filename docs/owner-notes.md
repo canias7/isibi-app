@@ -11,9 +11,9 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-11: Bash docs pass 8, parts A and B (your words: "Yes pls", to building the whole list, safety holes first)
+## 2026-11-11: Bash docs pass 8, parts A, B and C (your words: "Yes pls", to building the whole list, safety holes first)
 
-Not merged or deployed yet. I'll ask you once parts C, D and E are done too. All 450 tests pass.
+Not merged or deployed yet. I'll ask you once parts D and E are done too. All 452 tests pass.
 
 **Part A, the safety holes** (pushed earlier today):
 - **Deny and ask rules now see through the same wrappers Claude Code does.** Before, a deny rule on `git push` could be stepped around with `time -p git push`, `watch -d git push`, `flock -n …`, `setsid -w …`, `exec -a …` and others. A path like `/usr/bin/git` counts too. The dangerous-delete check sees through them as well.
@@ -37,6 +37,18 @@ Not merged or deployed yet. I'll ask you once parts C, D and E are done too. All
   - When the checker gives no usable answer, the step shows a grey "Not run" line instead of a red error. Coder waits a little longer each time and stops after 10 in a row. If the checker refuses to judge something, Coder is told that retrying won't help.
   - The counts behind "Auto mode paused after 3 blocks in a row, or 20 in all" now survive the machine's sleep.
   - The checker now has all of Claude Code's standard rules that fit Coder's machine: 60 block rules and 12 allow rules, up from 28 and 9. Each check sends about 1,800 more tokens. That is about a third of a cent at Grok 4.7's price, and a quarter of that once xAI has it cached.
+
+**Part C, your hooks and Coder's commands:**
+- **A hook can approve a command and change it.** When a "PermissionRequest" hook approves a command and rewrites it, Coder now runs the rewritten command. It checks it against your deny and ask rules first, as Claude Code does. Such a hook can also add rules or switch the mode. In the chat, the step shows the new command.
+- **`${CLAUDE_PROJECT_DIR}` works in more hooks**: those written as a program plus its arguments, and PowerShell hooks.
+- **PowerShell in hooks.** Hooks that run after a PowerShell command now see it as "PowerShell"; before, they saw "Bash". A hook's `if` can now name PowerShell commands, like Claude Code's own example `PowerShell(Remove-Item *)`.
+- **Fewer hooks running when they shouldn't:**
+  - A "tool failed" hook no longer runs for a command that was refused and never ran.
+  - A command with bad input (empty, hidden control characters, a long `sleep`) is turned away before any hook runs.
+- **Hooks made for Bash, on a Monitor's command:** they now see it as a Bash command. They can block it but can't approve or change it, as in Claude Code.
+- **Variables set by hooks:** when Coder changes folders, only variables from folder-change hooks are cleared. Those from start-of-chat hooks now stay.
+- **A hook answering "defer"** is now ignored, as in Claude Code's chats, instead of blocking the command.
+- Hooks now also get the message's ID (`prompt_id`), and "tool failed" hooks get how long the tool ran.
 
 ## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
 

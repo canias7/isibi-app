@@ -178,18 +178,62 @@ export function hooksFor(all, event, value = "", call = null) {
   const seen = new Set(), out = [];
   for (const h of Array.isArray(all) ? all : []) {
     if (!h || h.event !== event) continue;
-    if (!NO_MATCHER.has(event) && !matcherMatches(h.matcher, value, NARROW.has(event)) && !(value === "Monitor" && (event === "PreToolUse" || event === "PermissionRequest") && matcherMatches(h.matcher, "Bash"))) continue;
+    // A BASH MATCHER ON A MONITOR'S COMMAND (Bash docs pass 8; Claude Code 2.1.314: "A PreToolUse or PermissionRequest hook
+    // with a Bash matcher also runs on shell commands Claude starts with the Monitor tool, but its allow and updatedInput
+    // have no effect on them"; it "gets a Bash call"; it "doesn't run for a WebSocket watch", nor "if its if names Monitor").
+    const own = NO_MATCHER.has(event) || matcherMatches(h.matcher, value, NARROW.has(event));
+    const viaBash = !own && value === "Monitor" && (event === "PreToolUse" || event === "PermissionRequest") && matcherMatches(h.matcher, "Bash");
+    if (!own && !viaBash) continue;
+    if (viaBash && call && call.ws) continue;
+    let noGrant = viaBash;
     if (h.if) {
       if (!TOOL_EVENTS.has(event) || !call) continue;
-      const tool = call.tool === "Monitor" && /^Bash\(/.test(h.if) ? "Bash" : call.tool;
+      const named = (/^([A-Za-z_][A-Za-z0-9_-]*)/.exec(String(h.if).trim()) || [])[1] || "";
+      if (viaBash && named === "Monitor") continue;
+      // (A matcher that includes Monitor with an `if` naming Bash: the Monitor call's input, its command matched the Bash
+      // way, "but allow and updatedInput have no effect".)
+      const tool = call.tool === "Monitor" && named === "Bash" ? "Bash" : call.tool;
       if (!ifRuleMatches(h.if, tool, call.input, call.ctx || {})) continue;
+      if (call.tool === "Monitor" && named === "Bash") noGrant = true;
     }
     const key = handlerKey(h);
     if (seen.has(key)) continue;
     seen.add(key);
-    out.push(h);
+    out.push(viaBash ? { ...h, asBash: true, noGrant: true } : noGrant ? { ...h, noGrant: true } : h);
   }
   return out;
+}
+/**
+ * A RULE AS A PERMISSION UPDATE ENTRY HAS IT (Bash docs pass 8; Claude Code: "rules is an array of {toolName, ruleContent?}
+ * objects"; "Bash or Bash(*): { toolName: \"Bash\" }, because both match the whole tool"), and back.
+ */
+export function ruleEntry(rule) {
+  const m = /^([A-Za-z_][A-Za-z0-9_-]*)(?:\(([\s\S]*)\))?$/.exec(String(rule || "").trim());
+  if (!m) return null;
+  return m[2] === undefined || m[2].trim() === "*" || m[2].trim() === "" ? { toolName: m[1] } : { toolName: m[1], ruleContent: m[2] };
+}
+export function entryRule(e) {
+  if (!e || typeof e !== "object" || typeof e.toolName !== "string" || !/^[A-Za-z_][A-Za-z0-9_-]*$/.test(e.toolName)) return "";
+  return typeof e.ruleContent === "string" && e.ruleContent.trim() ? e.toolName + "(" + e.ruleContent + ")" : e.toolName;
+}
+/** A Monitor call's input as a Bash matcher's hook gets it: a Bash call (Claude Code 2.1.314). */
+export function asBashInput(input) {
+  const ti = input && input.tool_input && typeof input.tool_input === "object" ? input.tool_input : {};
+  return { ...input, tool_name: "Bash", tool_input: { command: String(ti.command || ""), ...(typeof ti.description === "string" ? { description: ti.description } : {}), run_in_background: true } };
+}
+/** A hook's answer with its allow and updatedInput taken out ("have no effect"), its deny and ask kept. */
+export function withoutGrant(event, result) {
+  if (!result || !result.json || typeof result.json !== "object") return result;
+  const j = { ...result.json };
+  if (j.hookSpecificOutput && typeof j.hookSpecificOutput === "object") {
+    const spec = { ...j.hookSpecificOutput };
+    delete spec.updatedInput;
+    if (event === "PreToolUse" && spec.permissionDecision === "allow") delete spec.permissionDecision;
+    if (event === "PermissionRequest" && spec.decision && typeof spec.decision === "object" && spec.decision.behavior === "allow") delete spec.decision;
+    j.hookSpecificOutput = spec;
+  }
+  if (j.decision === "approve" || j.decision === "allow") delete j.decision;
+  return { ...result, json: j };
 }
 
 /**
@@ -462,7 +506,9 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
     if (event === "PermissionDenied") { if (spec.retry === true) out.retry = true; continue; }
     if (event === "PreToolUse") {
       let d = typeof spec.permissionDecision === "string" ? spec.permissionDecision : j.decision === "approve" ? "allow" : j.decision === "block" ? "deny" : "";
-      if (d === "defer") d = "deny";
+      // ("defer": honored "only in non-interactive mode with the -p flag" for an app that resumes the run; otherwise "it logs a
+      // warning and ignores the hook result", Bash docs pass 8: Coder has no such app.)
+      if (d === "defer") d = "";
       if (result.kind === "block") d = "deny";
       const why = typeof spec.permissionDecisionReason === "string" ? spec.permissionDecisionReason : typeof j.reason === "string" ? j.reason : "";
       if (d === "deny") blockBy(result.kind === "block" ? (result.failBlock ? result.reason : why || result.reason) : why);
@@ -475,7 +521,13 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       if (result.failBlock) { out.decision = "deny"; out.reason = result.reason; continue; }
       const dec = spec.decision && typeof spec.decision === "object" ? spec.decision : {};
       if (dec.behavior === "deny") { out.decision = "deny"; out.reason = typeof dec.message === "string" ? cap(dec.message) : ""; if (dec.interrupt === true) out.stop = out.stop || { reason: out.reason }; }
-      else if (dec.behavior === "allow" && out.decision !== "deny") { out.decision = "allow"; if (dec.updatedInput && typeof dec.updatedInput === "object") out.updatedInput = dec.updatedInput; }
+      else if (dec.behavior === "allow" && out.decision !== "deny") {
+        out.decision = "allow";
+        if (dec.updatedInput && typeof dec.updatedInput === "object" && !Array.isArray(dec.updatedInput)) out.updatedInput = dec.updatedInput;
+        // (Its updatedPermissions, Bash docs pass 8: "array of permission update entries to apply, such as adding an allow rule or
+        // changing the session permission mode".)
+        if (Array.isArray(dec.updatedPermissions)) out.updatedPermissions = [...(out.updatedPermissions || []), ...dec.updatedPermissions.filter((x) => x && typeof x === "object" && !Array.isArray(x))].slice(0, 50);
+      }
       continue;
     }
     let rewrite = 0;
@@ -575,7 +627,11 @@ export function stopFailureKind(e) {
 const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 export function hookShell(h, mark, root) {
   // (A PowerShell hook: pwsh with no profile, non-interactive, the command encoded, its stdin the event's JSON.)
-  const cmd = Array.isArray(h.args) ? [h.command, ...h.args].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command)) : String(h.command);
+  // (THE PATH PLACEHOLDER, Bash docs pass 8: in exec form "the resolved script path as one argument with no quoting", in
+  // `command` and each of `args`; in a PowerShell shell-form command "rewrites the ${CLAUDE_PROJECT_DIR} … placeholders … to
+  // PowerShell's ${env:NAME} form"; in a Bash shell-form command the shell reads the exported variable itself.)
+  const put = (x) => String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
+  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}")) : String(h.command);
   return "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */
@@ -587,6 +643,6 @@ export function splitHookOut(out, mark) {
 }
 
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
-export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "" } = {}, extra = {}) {
-  return { session_id: String(session), cwd: String(cwd), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "" } = {}, extra = {}) {
+  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

@@ -544,3 +544,136 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   const css = fs.readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-notrun \{[^}]*color: #9ca3af;/);
 });
+
+test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them: a PermissionRequest hook's updatedInput (\"re-evaluated against deny and ask rules\") and updatedPermissions; its suggestions as {toolName, ruleContent} entries; the path placeholder in exec form and PowerShell's ${env:…}; a PowerShell call named PowerShell; `if: PowerShell(…)`; no PostToolUseFailure for a call that never ran, and input checks before PreToolUse; a Bash matcher on a Monitor command; CwdChanged clears only its own variables; \"defer\" ignored", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const H = await import("../container/coder-hooks.mjs");
+  const PS = await import("../container/coder-ps.mjs");
+  const { fakeParse: psFake } = await import("./ps-fake.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const loop = async (steps, hooks, { hookRun = () => ({}), mode = "acceptEdits", rules = null, answers = [], ps = false } = {}) => {
+    const events = [], seen = [], ran = [], hookCalls = [], cards = [];
+    let n = 0, k = 0;
+    const r = await A.runCoder({
+      send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)]; },
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) { const input = JSON.parse(x.payload); hookCalls.push({ input, x }); const a = (await hookRun(input)) || {}; return { code: a.code || 0, output: String(a.stdout || "") + "\n" + mark[0] + "\n" + String(a.stderr || "") }; }
+        if (x.hook === true) { hookCalls.push({ reset: true, x }); return { code: 0, output: "" }; }
+        ran.push(x.shown || x.command);
+        return { code: 0, output: "ok\n" };
+      },
+      emit: (e) => events.push(e),
+      here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-c1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
+      ...(ps ? { psParse: async (cmd) => psFake(cmd) } : {}),
+      ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "no" }; },
+    }, { text: "go", mode, rules, hooks: H.hooksFrom({ hooks }, "settings").list, ...(ps ? { powershell: { bypass: true } } : {}) });
+    const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
+    return { r, events, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls: hookCalls.filter((h) => !h.reset), resets: hookCalls.filter((h) => h.reset), cards, told };
+  };
+  const permReq = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
+  const PR = { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "rewrite.sh" }] }] };
+  const one = [say("", [call("bash", { command: "npm install left-pad" }, "b1")]), say("ok")];
+  // A PERMISSIONREQUEST HOOK'S CHANGED INPUT: the call runs with it, with no card; the step shows the new command.
+  let t = await loop(one, PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "npm install --ignore-scripts left-pad" } }) : {}) });
+  assert.deepEqual([t.cards.length, t.ran], [0, ["npm install --ignore-scripts left-pad"]]);
+  assert.deepEqual(t.events.filter((e) => e.type === "bash" && e.id === "b1").map((e) => e.command), ["npm install left-pad", "npm install --ignore-scripts left-pad"]);
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "asked once");
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PreToolUse").length, 0);
+  // Re-evaluated against deny and ask rules: a deny rule refuses the new input; an ask rule shows the owner the card (no hook again).
+  const rewrite = (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "curl -sS https://example.com/x.sh" } }) : {});
+  t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: [], deny: ["Bash(curl *)"] } });
+  assert.deepEqual([t.ran, t.cards.length], [[], 0]);
+  assert.match(t.told("b1"), /curl/);
+  t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: ["Bash(curl *)"], deny: [] }, answers: [{ choice: "no" }] });
+  assert.deepEqual([t.ran, t.cards.length, t.cards[0].lines.join("\n")], [[], 1, "curl -sS https://example.com/x.sh"]);
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1);
+  // Its updatedPermissions: an allow rule kept as the owner's "don't ask again" (or for this job only), a mode change.
+  t = await loop([say("", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "npm install lodash" }, "b2")]), say("ok")], PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm install *" }], behavior: "allow", destination: "localSettings" }, { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm ci" }], behavior: "allow", destination: "session" }] }) : {}) });
+  assert.deepEqual(t.ran, ["npm install left-pad", "npm install lodash"]);
+  assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "the rule it added covered the second");
+  assert.deepEqual(t.r.rulesAdded, ["Bash(npm install *)"], "kept as the owner's; the session one not");
+  t = await loop(one, PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "setMode", mode: "plan", destination: "session" }] }) : {}) });
+  assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["plan", "hook"]]);
+  // Its suggestions as Claude Code's entries.
+  t = await loop(one, PR, { hookRun: () => ({}), answers: [{ choice: "no" }] });
+  const sugg = t.hookCalls.find((h) => h.input.hook_event_name === "PermissionRequest").input.permission_suggestions;
+  assert.ok(Array.isArray(sugg) && sugg.length > 0);
+  assert.deepEqual(sugg[0].rules[0], { toolName: "Bash", ruleContent: t.cards[0].rules[0].slice(5, -1) });
+  assert.deepEqual([H.ruleEntry("Bash"), H.ruleEntry("Bash(*)"), H.ruleEntry("Bash(npm test)"), H.entryRule({ toolName: "Bash", ruleContent: "npm test" }), H.entryRule({ toolName: "WebFetch" })], [{ toolName: "Bash" }, { toolName: "Bash" }, { toolName: "Bash", ruleContent: "npm test" }, "Bash(npm test)", "WebFetch"]);
+  // THE PATH PLACEHOLDER: exec form gets the path itself; PowerShell's shell form gets ${env:…}; Bash's shell form reads the variable.
+  const sh = H.hookShell({ type: "command", command: "node", args: ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check.js", "--fix"] }, "MARK", "/work/shop");
+  assert.match(sh, /\n'node' '\/work\/shop\/\.claude\/hooks\/check\.js' '--fix'\n/);
+  const pw = H.hookShell({ type: "command", shell: "powershell", command: "& \"${CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" }, "MARK", "/work/shop");
+  const enc = /-EncodedCommand (\S+)/.exec(pw)[1];
+  assert.equal(Buffer.from(enc, "base64").toString("utf16le"), "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"");
+  assert.match(H.hookShell({ type: "command", command: "bash \"${CLAUDE_PROJECT_DIR}\"/x.sh" }, "MARK", "/work/shop"), /\nbash "\$\{CLAUDE_PROJECT_DIR\}"\/x\.sh\n/, "the shell expands it");
+  // A POWERSHELL CALL IS "PowerShell" after its PreToolUse hooks too; `if: PowerShell(…)` matches its commands.
+  t = await loop([say("", [call("powershell", { command: "Get-ChildItem" }, "p1")]), say("ok")], { PostToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "post.sh" }] }], PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [{ type: "command", if: "PowerShell(Get-ChildItem *)", command: "pre.sh" }] }] }, { ps: true });
+  assert.deepEqual(t.hookCalls.map((h) => [h.input.hook_event_name, h.input.tool_name]), [["PreToolUse", "PowerShell"], ["PostToolUse", "PowerShell"]]);
+  assert.deepEqual(PS.psAllParts("Get-ChildItem | ForEach-Object { Remove-Item $_ }; Write-Output \"$(Get-Date)\""), ["Get-ChildItem", "ForEach-Object { Remove-Item $_ }", "Remove-Item $_", "Write-Output \"$(Get-Date)\"", "Get-Date"]);
+  // NEVER RAN: no PostToolUseFailure; a command that fails its input checks fires no PreToolUse either.
+  const both = { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUseFailure: [{ matcher: "Bash", hooks: [{ type: "command", command: "fail.sh" }] }], PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "post.sh" }] }] };
+  t = await loop([say("", [call("bash", { command: "git push" }, "b1")]), say("ok")], both, { rules: { allow: [], ask: [], deny: ["Bash(git push *)"] } });
+  assert.deepEqual(t.hookCalls.map((h) => h.input.hook_event_name), ["PreToolUse"], "a denial fires PreToolUse only");
+  t = await loop([say("", [call("bash", { command: "sleep 40" }, "b1")]), say("ok")], both);
+  assert.deepEqual([t.hookCalls.length, /^Blocked: standalone sleep 40/.test(t.told("b1"))], [0, true], "rejected before hooks run");
+  t = await loop([say("", [call("bash", { command: "printf 'a\u0007b'" }, "b1")]), say("ok")], both);
+  assert.deepEqual([t.hookCalls.length, t.told("b1")], [0, "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'."]);
+  // A BASH MATCHER ON A MONITOR'S COMMAND: a Bash call; its allow and updatedInput no effect; never for a WebSocket watch, nor
+  // when its `if` names Monitor; a matcher that includes Monitor gets the Monitor call.
+  const hooks6 = [{ event: "PreToolUse", matcher: "Bash", type: "command", command: "a.sh" }, { event: "PreToolUse", matcher: "Bash|Monitor", type: "command", command: "b.sh" }, { event: "PreToolUse", matcher: "Bash", type: "command", command: "c.sh", if: "Monitor(tail *)" }, { event: "PreToolUse", matcher: ".*", type: "command", command: "d.sh", if: "Bash(tail *)" }];
+  const mon = { tool: "Monitor", input: { command: "tail -f app.log" }, ctx: {} };
+  assert.deepEqual(H.hooksFor(hooks6, "PreToolUse", "Monitor", mon).map((h) => [h.command, !!h.asBash, !!h.noGrant]), [["a.sh", true, true], ["b.sh", false, false], ["d.sh", false, true]]);
+  assert.deepEqual(H.hooksFor(hooks6, "PreToolUse", "Monitor", { ...mon, ws: true }).map((h) => h.command), ["b.sh", "d.sh"], "a WebSocket watch: no Bash matcher");
+  assert.deepEqual(H.hooksFor(hooks6, "PostToolUse", "Monitor", mon).map((h) => h.command), [], "PostToolUse: none of these");
+  assert.deepEqual(H.asBashInput({ hook_event_name: "PreToolUse", tool_name: "Monitor", tool_input: { command: "tail -f app.log", description: "Watch the log", timeout_ms: 60000 } }), { hook_event_name: "PreToolUse", tool_name: "Bash", tool_input: { command: "tail -f app.log", description: "Watch the log", run_in_background: true } });
+  const grant = { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { command: "x" }, additionalContext: "hi" } } };
+  assert.deepEqual(H.withoutGrant("PreToolUse", grant).json, { hookSpecificOutput: { hookEventName: "PreToolUse", additionalContext: "hi" } });
+  assert.deepEqual(H.withoutGrant("PreToolUse", { kind: "ok", json: { hookSpecificOutput: { permissionDecision: "deny" } } }).json.hookSpecificOutput.permissionDecision, "deny", "a deny still counts");
+  assert.deepEqual(H.withoutGrant("PermissionRequest", { kind: "ok", json: { hookSpecificOutput: { decision: { behavior: "allow" } } } }).json.hookSpecificOutput.decision, undefined);
+  // CWDCHANGED CLEARS ONLY ITS OWN VARIABLES (and FileChanged's); SessionStart's stay. "defer" is ignored.
+  t = await loop([say("", [call("bash", { command: "cd app" }, "b1")]), say("ok")], { SessionStart: [{ hooks: [{ type: "command", command: "s.sh" }] }], CwdChanged: [{ hooks: [{ type: "command", command: "c.sh" }] }] });
+  assert.deepEqual(t.hookCalls.map((h) => [h.input.hook_event_name, h.x.hookEnv]), [["SessionStart", "session"]], "(no cd in this stand-in)");
+  assert.deepEqual(t.resets.map((h) => h.x.hookEnv), ["session", "cwd"], "both emptied at a chat's start");
+  const agentSrc = (await import("node:fs")).readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(agentSrc, /await resetHookEnv\(\["cwd"\]\); await runHooks\("CwdChanged"/);
+  const out = H.hooksOutcome("PreToolUse", [{ hook: { type: "command", command: "d.sh" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "defer" } }, text: "" } }], { tool: "Bash" });
+  assert.deepEqual([out.decision, out.blocks], ["", []], "defer: ignored, the normal permission flow goes on");
+  // The page shows a step once, with its last command.
+  const page = (await import("node:fs")).readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /S\.events\.forEach\(\(e, i\) => \{ if \(e\.type === 'bash' && e\.id\) lastStep\[e\.id\] = i; \}\);/);
+  assert.match(page, /if \(e\.type === 'bash'\) \{ if \(!e\.id \|\| lastStep\[e\.id\] === i\) group\.push\(\[e, i\]\); return; \}/);
+});
+
+test("CD418 hook input as Claude Code's common fields give it: prompt_id, one per message of the owner's (\"Absent until the first user input\"), and duration_ms on PostToolUseFailure too", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const H = await import("../container/coder-hooks.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const run = async (text) => {
+    const inputs = [];
+    let n = 0;
+    const steps = [say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")];
+    await A.runCoder({
+      send: async () => steps[Math.min(n++, steps.length - 1)],
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) { inputs.push(JSON.parse(x.payload)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
+        return { code: 1, output: "1 test failed\n" };
+      },
+      emit: () => {}, here: () => "/work/shop", root: "/work/shop", chatId: "shop-c2", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
+      ask: async () => ({ choice: "yes" }),
+    }, { text, mode: "auto", hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUseFailure: [{ matcher: "Bash", hooks: [{ type: "command", command: "fail.sh" }] }] } }, "settings").list });
+    return inputs;
+  };
+  const a = await run("run the tests"), b = await run("again");
+  assert.deepEqual(a.map((x) => x.hook_event_name), ["PreToolUse", "PostToolUseFailure"]);
+  assert.match(a[0].prompt_id, /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
+  assert.equal(a[1].prompt_id, a[0].prompt_id, "the same message, the same id");
+  assert.notEqual(b[0].prompt_id, a[0].prompt_id, "a new message, a new id");
+  assert.ok(Number.isInteger(a[1].duration_ms) && a[1].duration_ms >= 0, "duration_ms on a failure");
+  assert.equal("prompt_id" in (await run(""))[0], false, "no message of the owner's: none");
+  assert.deepEqual(Object.keys(H.hookInput("Stop", { session: "s", promptId: "p-1" })), ["session_id", "prompt_id", "cwd", "permission_mode", "hook_event_name"]);
+});
