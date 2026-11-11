@@ -127,6 +127,7 @@
     $('gfSwitch').addEventListener('click', () => { mode = mode === 'in' ? 'up' : 'in'; say(''); draw(); });
     $('gfOut').addEventListener('click', async () => { await window.Auth.signOut(); location.href = '/'; });
     // NOTIFICATIONS (owner item 8): Coder's screen opens its panel.
+    $('gfConnectors').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:connectors')); });
     $('gfNotify').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:notify')); });
     if (window.Auth.isSignedIn()) showApp();
     else {

@@ -485,6 +485,27 @@
 .cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
 .cd-notify-hint { flex-basis: 100%; font-size: 12px; color: #6b7280; }
 
+/* CONNECTORS (MCP, 2026-11-10): the panel from the account menu, in the notifications panel's style. */
+.cd-conn { max-width: 480px; max-height: 86vh; overflow-y: auto; }
+.cd-conn-list { margin: 14px 0 4px; display: flex; flex-direction: column; gap: 8px; }
+.cd-conn-row { border: 1px solid #e5e3dd; border-radius: 12px; padding: 10px 12px; }
+.cd-conn-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 14px; color: #1f1e1d; }
+.cd-conn-host { font-size: 12px; color: #6b7280; }
+.cd-conn-main .cd-notify-on, .cd-conn-bad { margin-left: auto; font-size: 12px; }
+.cd-conn-bad { color: #b42318; font-weight: 600; }
+.cd-conn-acts { display: flex; gap: 6px; margin-top: 8px; }
+.cd-conn-acts button, .cd-conn-add button { font: inherit; font-size: 13px; border-radius: 9px; padding: 6px 12px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
+.cd-conn-tools { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: #4b5563; max-height: 200px; overflow-y: auto; }
+.cd-conn-tools li { margin-bottom: 4px; }
+.cd-conn-tools code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; color: #1f1e1d; }
+.cd-conn-ro { font-size: 11px; color: #166534; }
+.cd-conn-empty { margin: 14px 0 4px; font-size: 13px; color: #6b7280; }
+.cd-conn-add { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
+.cd-conn-addtitle { font-size: 13px; font-weight: 600; color: #1f1e1d; }
+.cd-conn-add input { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #ddd8d0; border-radius: 9px; background: #fff; color: #1f1e1d; min-width: 0; }
+.cd-conn-add .cd-notify-go { align-self: flex-start; background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-conn-add .cd-notify-go[disabled] { opacity: .6; cursor: default; }
+
 /* ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2), above the message box, each with a Stop. */
 .cd-bg { border: 1px solid #e6e2db; border-radius: 12px; background: #fff; margin: 0 0 8px; padding: 6px 12px; font: 13px Inter, system-ui, sans-serif; color: #374151; }
 .cd-bg-head { font-size: 11.5px; font-weight: 600; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; padding: 2px 0 4px; }

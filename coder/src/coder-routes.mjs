@@ -74,6 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
+import { readConnectors, connectorOut, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -520,6 +521,17 @@ export async function handleCoder(request, env, ctx, deps) {
     return Response.redirect(back + "?github=connected", 302);
   }
 
+  // ── A CONNECTOR'S SIGN-IN RETURNS (coder-mcp.mjs): a plain visit from its sign-in server; the state and this
+  // browser's cookie say whose it is. ──
+  if (parts[0] === "connectors" && parts[1] === "callback") {
+    const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
+    const cookie = String(request.headers.get("cookie") || "").split(/;\s*/).find((c) => c.startsWith(MCP_COOKIE + "="));
+    if (url.searchParams.get("error")) return Response.redirect(back + "?connector=failed", 302);
+    try { await finishSignIn(env, bucket, { state: url.searchParams.get("state"), code: url.searchParams.get("code"), nonce: cookie ? decodeURIComponent(cookie.slice(MCP_COOKIE.length + 1)) : "", fetchFn }); }
+    catch { return Response.redirect(back + "?connector=failed", 302); }
+    return Response.redirect(back + "?connector=connected", 302);
+  }
+
   // ── @CODER IN GITHUB COMMENTS: GitHub's signed notification (coder-mentions.mjs).
   // The job then runs as the person who connected that GitHub account. ──
   if (parts[0] === "github" && parts[1] === "webhook" && request.method === "POST") {
@@ -569,6 +581,27 @@ export async function handleCoder(request, env, ctx, deps) {
       catch { return json({ error: "GitHub could not be reached" }, 502); }
     }
     return json({ error: "not found" }, 404);
+  }
+
+  // CONNECTORS (MCP), ONE LIST PER PERSON FOR THE PLATFORM (owner, 2026-11-10): list, add (with a key, none, or its own
+  // sign-in), check again, remove. Never shows a sign-in or key.
+  if (parts[0] === "connectors") {
+    const cid = parts[1] || "";
+    if (!cid && request.method === "GET") return json({ ok: true, connectors: (await readConnectors(bucket, uid)).map(connectorOut), callback: String(env.CODER_PUBLIC_URL || "").replace(/\/+$/, "") + MCP_CALLBACK });
+    if (cid && !/^c[a-z0-9]{6,20}$/.test(cid)) return json({ error: "no such connector" }, 404);
+    if (cid && request.method === "DELETE") return (await removeConnector(bucket, uid, cid)) ? json({ ok: true }) : json({ error: "no such connector" }, 404);
+    if (request.method !== "POST") return json({ error: "method" }, 405);
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const nonce = newNonce();
+    let r;
+    try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: typeof body.key === "string" ? body.key : "", id: cid, nonce, fetchFn }); }
+    catch (e) { return json({ error: String((e && e.message) || e).slice(0, 300) }, 400); }
+    const res = json({ ok: true, connector: connectorOut(r.connector), ...(r.signIn ? { signIn: r.signIn } : {}) });
+    if (r.signIn) {
+      const host = new URL(String(env.CODER_PUBLIC_URL || "https://coder.gofarther.dev")).hostname.split(".").slice(-2).join(".");
+      res.headers.append("set-cookie", MCP_COOKIE + "=" + nonce + "; Path=/api/coder/connectors; Domain=" + host + "; Max-Age=900; HttpOnly; Secure; SameSite=Lax");
+    }
+    return res;
   }
 
   // CODE REVIEW, PER REPOSITORY (owner item 11, like Claude Code's "Review runs" and review level): set by an
@@ -902,6 +935,13 @@ export async function handleCoder(request, env, ctx, deps) {
     const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
     // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
     const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
+    // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs): their names and descriptions only; each call goes through the
+    // Worker with this job's pass, and only these names. Never in a job started from GitHub (strangers write there).
+    let connectors = [];
+    if (body.fromGithub !== true) {
+      try { const ct = connectorTools(await readConnectors(bucket, uid), Array.isArray(meta.connectorsOff) ? meta.connectorsOff : []); connectors = ct.tools; if (connectors.length) await keepJobTools(bucket, uid, id, next.turn, ct.map); } catch { connectors = []; }
+    }
+    const connOn = connectors.length ? { connectors } : {};
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -923,7 +963,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: normMode(meta.mode), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);

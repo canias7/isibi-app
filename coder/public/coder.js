@@ -209,6 +209,75 @@
     if (!canPush()) return null;
     try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
   }
+  // CONNECTORS (MCP), ONE LIST PER PERSON FOR THE WHOLE PLATFORM (owner, 2026-11-10): add an MCP server by its address
+  // (then its own sign-in, or a key), see its tools, check it again, remove it. Coder (and Gloopy) can use them all.
+  async function showConnectors(note) {
+    const r = await call('/connectors');
+    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Connectors could not be opened.'; return draw(); }
+    let list = r.data.connectors || [];
+    note = note || '';
+    let busy = false, open = '';
+    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+    const box = document.createElement('div'); box.className = 'cd-sure-box cd-notify cd-conn'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Connectors');
+    wrap.append(box); document.body.append(wrap);
+    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
+    const key = (e) => { if (e.key === 'Escape') close(); };
+    document.addEventListener('keydown', key);
+    wrap.onclick = (e) => { if (e.target === wrap) close(); };
+    const host = (u) => { try { return new URL(u).host; } catch (e) { return u; } };
+    const status = (c) => c.status === 'ok' ? '<span class="cd-notify-on">' + c.tools.length + ' tool' + (c.tools.length === 1 ? '' : 's') + '</span>'
+      : c.status === 'auth' ? '<span class="cd-conn-bad">Needs sign-in</span>' : '<span class="cd-conn-bad">' + esc(c.error || 'Not working') + '</span>';
+    const paint = () => {
+      box.innerHTML = '<div class="cd-sure-title">Connectors</div>' +
+        '<div class="cd-sure-text">Connect apps and services through MCP. Your connectors work in every chat, for Coder and Gloopy. Your sign-ins stay on our server, never on Coder’s machine.</div>' +
+        (list.length ? '<div class="cd-conn-list">' + list.map((c) => '<div class="cd-conn-row" data-id="' + esc(c.id) + '">' +
+          '<div class="cd-conn-main"><b>' + esc(c.name) + '</b><span class="cd-conn-host">' + esc(host(c.url)) + '</span>' + status(c) + '</div>' +
+          '<div class="cd-conn-acts">' + (c.tools.length ? '<button type="button" data-act="tools">' + (open === c.id ? 'Hide tools' : 'Tools') + '</button>' : '') +
+          '<button type="button" data-act="check">' + (c.status === 'auth' ? 'Sign in' : 'Check') + '</button><button type="button" data-act="remove">Remove</button></div>' +
+          (open === c.id ? '<ul class="cd-conn-tools">' + c.tools.map((t) => '<li><code>' + esc(t.name) + '</code>' + (t.readOnly ? ' <span class="cd-conn-ro">read-only</span>' : '') + (t.description ? '<br><span>' + esc(t.description) + '</span>' : '') + '</li>').join('') + '</ul>' : '') +
+          '</div>').join('') + '</div>' : '<div class="cd-conn-empty">No connectors yet.</div>') +
+        '<form class="cd-conn-add" id="cdConnAdd"><div class="cd-conn-addtitle">Add a connector</div>' +
+        '<input id="cdConnName" placeholder="Name (e.g. Linear)" maxlength="40" autocomplete="off">' +
+        '<input id="cdConnUrl" placeholder="MCP server address (https://…)" required autocomplete="off" inputmode="url">' +
+        '<input id="cdConnKey" type="password" placeholder="API key (only if the server needs one)" autocomplete="off">' +
+        '<button type="submit" class="cd-notify-go"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Connecting…' : 'Connect') + '</button></form>' +
+        (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
+        '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdConnDone">Done</button></div>';
+      box.querySelector('#cdConnDone').onclick = close;
+      box.querySelectorAll('.cd-conn-row [data-act]').forEach((b) => { b.onclick = () => act(b.closest('.cd-conn-row').getAttribute('data-id'), b.getAttribute('data-act')); });
+      box.querySelector('#cdConnAdd').onsubmit = async (e) => {
+        e.preventDefault();
+        if (busy) return;
+        const body = { name: box.querySelector('#cdConnName').value, url: box.querySelector('#cdConnUrl').value, key: box.querySelector('#cdConnKey').value };
+        busy = true; note = ''; paint();
+        const x = await call('/connectors', { method: 'POST', body: JSON.stringify(body) });
+        busy = false;
+        done(x);
+      };
+    };
+    const done = (x) => {
+      if (x.status !== 200) { note = (x.data && x.data.error) || 'It could not be connected.'; return paint(); }
+      if (x.data.signIn) { note = 'Opening its sign-in…'; paint(); window.location.href = x.data.signIn; return; }
+      const c = x.data.connector;
+      list = [...list.filter((y) => y.id !== c.id), c];
+      note = c.status === 'ok' ? c.name + ' is connected: ' + c.tools.length + ' tool' + (c.tools.length === 1 ? '' : 's') + '.' : c.name + ': ' + (c.error || 'not working');
+      paint();
+    };
+    const act = async (id, what) => {
+      const c = list.find((y) => y.id === id);
+      if (!c) return;
+      if (what === 'tools') { open = open === id ? '' : id; return paint(); }
+      if (what === 'remove') {
+        if (!(await askSure('Remove ' + c.name + '?', 'Coder and Gloopy can no longer use it. You can add it again later.', 'Remove'))) return;
+        const x = await call('/connectors/' + encodeURIComponent(id), { method: 'DELETE' });
+        if (x.status === 200) { list = list.filter((y) => y.id !== id); note = c.name + ' was removed.'; } else note = (x.data && x.data.error) || 'Not removed.';
+        return paint();
+      }
+      note = 'Checking ' + c.name + '…'; paint();
+      done(await call('/connectors/' + encodeURIComponent(id), { method: 'POST', body: '{}' }));
+    };
+    paint();
+  }
   async function showNotifications() {
     const r = await call('/push');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Notifications could not be opened.'; return draw(); }
@@ -810,6 +879,7 @@
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
     web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    connector: 'M9 2v6M15 2v6M6 8h12v4a6 6 0 0 1-12 0zM12 18v4',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -1918,6 +1988,13 @@
         });
       }
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
+      if (!S.connHook) {
+        S.connHook = true;
+        window.addEventListener('gf:connectors', () => { showConnectors(); });
+        // Back from a connector's sign-in: the list opens with how it went.
+        const back = new URLSearchParams(location.search).get('connector');
+        if (back) { history.replaceState(null, '', location.pathname); showConnectors(back === 'connected' ? 'Signed in: the connector is ready.' : 'The sign-in did not finish. Try again.'); }
+      }
       const q = new URLSearchParams(location.search);
       if (q.has('github')) {
         const g = q.get('github');

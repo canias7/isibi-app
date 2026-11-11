@@ -4,6 +4,28 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-10: Connectors (MCP): one list per person for the whole platform (your word: "one list for the platform ... per person")
+
+- **Where:** the account menu (the gear at the bottom left) now has **Connectors**. Add a connector with:
+  - a name;
+  - the MCP server's address;
+  - an API key, only if that server needs one.
+- **Signing in:**
+  - A server with its own sign-in (Linear, Notion and most others) opens that sign-in, then brings you back. This is OAuth, as Claude's connectors do it.
+  - A server with no sign-in, or one with a key, is checked at once and shows its tools.
+- **One list per person:** it is stored under your account for the whole platform, not for Coder alone. Coder uses it now. Gloopy can read the same list once its branch is merged, since Gloopy's agent isn't on this branch yet.
+- **In a chat:** Coder gets every working connector's tools, shown as "Used Linear: create_issue".
+  - In Plan mode, a tool that might change something asks you first.
+  - What a connector sends back is marked as outside data, so Coder doesn't take it as your instructions.
+  - Jobs started from GitHub never get connectors.
+- **Safety:** your sign-ins and keys are sealed on our server and never reach Coder's machine.
+  - The machine sends each tool call to our server with that job's pass, and the server adds the sign-in.
+  - Only the tools given at the job's start can be called.
+  - A sign-in can only be finished in the browser that started it.
+- **Not yet:** turning connectors on or off for each chat. For now every working connector is on in every chat.
+- **Tests:** MC1 to MC7 are new. All 396 pass, 4 skipped as before.
+- **Not deployed, not tried live yet.** The plan is to try it on jessica.gofarther.dev.
+
 ## 2026-11-10: A test copy at jessica.gofarther.dev, for the connectors (MCP) work (your word: "yes, you can do jessica")
 
 This chat's branch (`claude/dazzling-babbage-gh1aiv`) is for trying connectors (MCP). It is not merged to `main` until you say so.

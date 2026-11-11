@@ -10,6 +10,7 @@ import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
 import { handleLive, LIVE_PATH } from "./src/coder-live.mjs";
 import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
+import { handleMcp, MCP_PATH } from "./src/coder-mcp.mjs";
 import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
 import { runReviewJobs } from "./src/coder-review.mjs";
 import { runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
@@ -98,6 +99,9 @@ export default {
     let res;
     if (url.pathname.startsWith("/api/auth/")) {
       res = await handleSignin(request, env);
+    } else if (url.pathname === MCP_PATH) {
+      // YOUR CONNECTORS' SIGN-INS STAY HERE (2026-11-10): the machine's connector tool calls, with its job's pass.
+      res = await handleMcp(request, env);
     } else if (url.pathname === EGRESS_PATH) {
       // KEYS ADDED HERE, never on the machine (2026-11-06, like Claude Code): a job's pass, not a user.
       res = await handleEgress(request, env);
