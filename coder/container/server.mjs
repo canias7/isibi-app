@@ -3012,7 +3012,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -3050,7 +3050,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // A file or web tool is ended at its time limit, never sent to the background.
           // A HOOK (coder-hooks.mjs) runs as a tool does, with Claude Code's own for hooks: its answer once its own process has
           // been gone 10 seconds (`quietMs`), the owner's command prefix around it (CODER_SHELL_PREFIX, Claude Code's
-          // CLAUDE_CODE_SHELL_PREFIX: "wraps shell commands Claude Code spawns: Bash tool calls, hook commands …"), the folder
+          // CLAUDE_CODE_SHELL_PREFIX: "wraps shell commands Claude Code spawns: Bash tool calls, hook commands …"; "PowerShell
+          // hooks and exec-form hooks run without the prefix", and PowerShell's own commands are none of those: `noPrefix`), the folder
           // Coder's commands are in, and for SessionStart, CwdChanged and FileChanged the chat's hook env file (CLAUDE_ENV_FILE).
           // THE MEMORY CAP FOR CODER'S OTHER PROCESSES (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's name):
           // hooks, code lookups and Coder's helpers when the owner's variable puts them under it, never a hook that can block.
@@ -3063,7 +3064,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // background limit (Claude Code "doesn't enforce timeout on it"). One done in its first second answers at once.
           if (hook && hookAsync && typeof hookAsync === "object") {
             const hmark = newMark();
-            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
+            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: noPrefix ? "" : t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
             if (leader) t.fg.delete(leader);
             if (r && r.background && r.pid) {
               const n = 1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project && j.hook).map((j) => Number(String(j.id).slice(4)) || 0));
@@ -3072,7 +3073,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -3273,7 +3274,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const one = h.type === "http"
           ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
           : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
-        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
+        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
       }
     }
     await Promise.all(runs);

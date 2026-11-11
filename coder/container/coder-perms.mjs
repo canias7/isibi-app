@@ -14,7 +14,7 @@
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
-import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, PS_FORMATTERS } from "./coder-psparse.mjs";
+import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
@@ -728,8 +728,8 @@ export function parseRule(text) {
   const spec = m[2] === undefined ? null : m[2].trim();
   if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
   if (spec === "" ) return null;
-  // (A rule on the command itself, Bash(command:…), is never one: see ruleProblem.)
-  if (m[1] === "Bash" && spec !== null && settingSpec(spec) && settingSpec(spec).name === "command") return null;
+  // (A rule on the command itself, Bash(command:…) or PowerShell(command:…), is never one: see ruleProblem.)
+  if ((m[1] === "Bash" || m[1] === "PowerShell") && spec !== null && settingSpec(spec) && settingSpec(spec).name === "command") return null;
   if (m[1] === "Read" || m[1] === "Edit") {
     // (`:*` is Bash's alone: ruleProblem says so; a rule on the path itself, Read(file_path:…), is kept and never matches.)
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
@@ -880,7 +880,7 @@ function ruleParts(text) {
 export function ruleKept(text) {
   const r = ruleParts(text);
   if (!r) return false;
-  if (r.tool === "Bash" && r.content !== null) { const sp = settingSpec(r.content); return !!sp && sp.name === "command"; }
+  if ((r.tool === "Bash" || r.tool === "PowerShell") && r.content !== null) { const sp = settingSpec(r.content); return !!sp && sp.name === "command"; }
   // A FILE RULE CLAUDE CODE KEEPS BUT NEVER MATCHES: a path in a Write, NotebookEdit, MultiEdit, Glob or Grep rule (its
   // docs: "It checks file permissions against Edit and Read rules only, so it never consults a path rule that names one of the
   // other file tools. It keeps the rule"), and a rule on Read's or Edit's own path, `Read(file_path:…)`.
@@ -959,7 +959,7 @@ function ruleWarningOf(kind, text) {
     }
     if (k !== "deny" && k !== "ask") return null;
     if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets file_path as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
-    if (r.tool === "Bash") return { warning: "Permission " + k + ' rule "' + t + '" targets command as a raw string and will not match — use Bash(…) for Bash\'s own matcher.', notice: t + " never matches · use Bash(…)" };
+    if (r.tool === "Bash" || r.tool === "PowerShell") return { warning: "Permission " + k + ' rule "' + t + '" targets command as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     return { warning: "Permission " + k + ' rule "' + t + '" matches no known tool — check for typos.', notice: t + " matches no tool · check for typos" };
   }
   const m = /^Bash\(([\s\S]*)\)$/.exec(t);
@@ -1924,26 +1924,36 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
  * readOnly, covered }: `readOnly`, nothing for the checker to judge; `covered`, the owner's allow rules cover it all.
  * `pathAbs(p)` is a path as the machine resolves it (null when it cannot be told); `inside(p)`, inside the working folders.
  */
-export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "", byCommand = true } = {}) {
+export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "", byCommand = true, input = null } = {}) {
   const cmd = String(command ?? "").trim();
   const m = normMode(mode), auto = m === "auto";
   if (!cmd) return { verdict: "allow", why: "", suggest: null, readOnly: true };
   const p = parsed && typeof parsed === "object" && Array.isArray(parsed.statements) ? parsed : psParseFail(cmd, "PowerShell is not available", "NoPowerShell");
   const all = psCommands(p).filter((c) => c.elementType === "CommandAst");
-  const hit = (list, texts) => { for (const t of texts) { const r = list.find((x) => psRuleMatches(x.spec, t)); if (r) return r; } return null; };
+  // (A rule on one of the call's settings, PowerShell(run_in_background:true), as Bash's: Bash docs pass 8. It is no
+  // command pattern: only deny and ask rules match it, "allow rules continue to use each tool's own specifier syntax".)
+  const onSetting = (x) => { const sp = settingSpec(x.spec); return sp && sp.name !== "command" ? sp : null; };
+  const settingHit = (list) => (input && typeof input === "object" ? list.find((x) => { const sp = onSetting(x); return !!sp && settingMatches(sp.value, input[sp.name]); }) || null : null);
+  const hit = (list, texts) => { const on = list.filter((x) => !onSetting(x)); for (const t of texts) { const r = on.find((x) => psRuleMatches(x.spec, t)); if (r) return r; } return null; };
   const texts = [cmd, ...all.flatMap((c) => [c.text, [c.name, ...c.args].join(" ")])];
   // (A command PowerShell could not read: its pieces, split where a command could start, as Claude Code does.)
   const pieces = p.valid ? [] : cmd.replace(/<#[\s\S]*?#>/g, " ").replace(/`[\r\n]+\s*/g, "").split(/[;|\n\r{}()&]+/).map((x) => x.trim()).filter(Boolean);
-  const d = hit(rulesFor(rules.deny, "PowerShell", true), [...texts, ...pieces]);
+  const d = settingHit(rulesFor(rules.deny, "PowerShell", true)) || hit(rulesFor(rules.deny, "PowerShell", true), [...texts, ...pieces]);
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use PowerShell with command " + cmd + " has been denied.", suggest: null };
   const gone = psRemovals(p, pieces, { pathAbs, cwd, home });
   if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
-  const a = hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
+  const a = settingHit(rulesFor(rules.ask, "PowerShell", true)) || hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
   // (The "don't ask again" rule each question offers is Claude Code's: the command itself for its safety checks, provider
   // paths and file redirections; none for a command it cannot parse, the git, archive and .git checks, or deleting the
   // working folder; on the last question, each command that needs approval. See psExactRule.)
   const exact = psExactRule(cmd);
+  // THE COMMAND'S OWN RULE (Claude Code 2.1.322): an allow rule that is exactly this command (no wildcard; case aside)
+  // allows it once the checks below have nothing to ask; for a command PowerShell could not read, at once, unless its
+  // first word is a program by path or with a dot, or it names a network (UNC) path.
+  const allow = rulesFor(rules.allow, "PowerShell").filter((x) => !onSetting(x));
+  const ownRule = allow.some((r) => typeof r.spec === "string" && !r.spec.includes("*") && r.spec.trim().toLowerCase() === cmd.toLowerCase());
+  if (ownRule && !p.valid && psNameType(cmd.split(/\s+/)[0] || "") !== "application" && !/(\\\\|\/\/)[^\\/\s]/.test(cmd)) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: true };
   // (Only a rule short enough to be kept, as Bash's cards: RULE_MAX.)
   const asks = (why, suggest = []) => { const keep = suggest.filter((r) => r.length <= RULE_MAX + 10); return auto ? { verdict: "allow", why, suggest: null, readOnly: false, covered: false } : { verdict: "ask", why, suggest: keep.length ? keep : null }; };
   if (!p.valid) return asks("Command contains malformed syntax that cannot be parsed: " + ((p.errors[0] && p.errors[0].message) || "unknown error"));
@@ -1953,13 +1963,15 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (compound) return asks(compound);
   if (psFileRedirections(p).length) return asks("Command contains file redirections that could write to arbitrary paths", exact);
   if (gone.ask) return asks(gone.ask);
-  // EACH COMMAND: one an allow rule covers (read ahead in full), or one that only reads, inside the working folders.
-  const allow = rulesFor(rules.allow, "PowerShell");
+  if (ownRule && all.length) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: true };
+  // EACH COMMAND: one an allow rule covers (read ahead in full), or one that only reads, inside the working folders. A
+  // program by path or with a dot (dotnet.exe, ./build.ps1) only by a rule whose first word names it, as typed (Claude
+  // Code 2.1.322: "PowerShell(dotnet.exe build *)" pre-approves it; PowerShell(*) or PowerShell(dot*) never do).
   let covered = all.length > 0, readOnly = true, needs = false;
   const need = [];
   for (const c of all) {
-    const byRule = !psDynamicArgs(c) && c.nameType !== "application" && !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]);
-    const reads = psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x));
+    const byRule = !psDynamicArgs(c) && (c.nameType !== "application" ? !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]) : psProgramRule(c, allow));
+    const reads = psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x) && !psQuoted(x));
     if (!byRule) covered = false;
     if (!reads) readOnly = false;
     if (!byRule && !reads) { needs = true; need.push(c.text); }
@@ -1971,7 +1983,32 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   // ACCEPT EDITS: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) run there, with
   // the reading ones beside them, when every path they are given is inside the working folders.
   if (m === "acceptEdits" && byCommand !== false && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
-  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks("", [...new Set(need.flatMap(psExactRule))]);
+  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks(all.some((c) => psPathArgs(c).some(psQuoted)) ? PS_QUOTED_WHY : "", [...new Set(need.flatMap(psExactRule))]);
+}
+/**
+ * A PATH WITH A QUOTE CHARACTER IN IT (Claude Code 2.1.322's path check; its docs: "A positional argument that contains a quote
+ * character, such as the apostrophe in Set-Content .\notes.txt "It's done", still prompts even on in-scope paths, because Claude
+ * Code can't statically validate an argument whose quoted and unquoted readings differ. Pass the content through a named
+ * parameter such as -Value to avoid the prompt"): never one that only reads or that Accept edits lets through.
+ */
+const psQuoted = (x) => /['"\u2018-\u201F]/.test(String(x ?? ""));
+export const PS_QUOTED_WHY = "Paths containing quote characters cannot be statically validated and require manual approval";
+/** A word without the quotes around it (straight or curly), lower case. */
+const psUnquoted = (w) => String(w ?? "").replace(/^['"\u2018-\u201F]+|['"\u2018-\u201F]+$/g, "").toLowerCase();
+/** A text's first word as Claude Code reads it: a quoted one whole, with its quotes. */
+function psFirstWord(t) {
+  const s = String(t ?? "").trimStart(), q = s[0];
+  if (q === '"' || q === "'") { const k = s.indexOf(q, 1); return s.slice(0, k === -1 ? s.length : k + 1); }
+  return s.split(/\s+/)[0] ?? "";
+}
+/**
+ * WHETHER AN ALLOW RULE COVERS A PROGRAM BY PATH OR WITH A DOT (Claude Code 2.1.322): the command is typed as its name (no
+ * `& ` before it), and a rule that matches it starts with that same name.
+ */
+export function psProgramRule(c, allow) {
+  const name = String(c.name ?? "").toLowerCase();
+  if (!name || psUnquoted(psFirstWord(c.text)) !== name) return false;
+  return allow.some((r) => typeof r.spec === "string" && psRuleMatches(r.spec, c.text) && psUnquoted(psFirstWord(r.spec)) === name);
 }
 /** Claude Code's questions about a command made of several: git next to a cd or an archive, a write into .git. */
 function psCompoundWhy(p) {
@@ -2026,9 +2063,9 @@ function psEditsOnly(p, all, { nativeReadOnly, inside }) {
     const n = psCmdlet(c.name);
     if (n === "out-null" && c.args.length === 0) continue;
     if (PS_FORMATTERS.has(n) || n === "measure-object" || n === "out-string" || n === "out-host") { if (psCommandReadOnly(c, { nativeReadOnly })) continue; return false; }
-    if (psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x))) continue;
+    if (psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x) && !psQuoted(x))) continue;
     if (!EDITS.has(n)) return false;
-    if (!psPathArgs(c).every((x) => inside(x))) return false;
+    if (!psPathArgs(c).every((x) => inside(x) && !psQuoted(x))) return false;
   }
   return true;
 }

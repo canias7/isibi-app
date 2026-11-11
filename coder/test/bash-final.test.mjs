@@ -110,7 +110,7 @@ test("CD339 CODER_SHELL_PREFIX wraps each of the chat's commands (Claude Code's 
   } finally { await rm(dir, { recursive: true, force: true }); }
   const s = serverSrc();
   assert.match(s, /t\.shellPrefix = shellPrefixOf\(rawVars\.CODER_SHELL_PREFIX\);/);
-  assert.match(s, /\.\.\.\(tool \? \{ \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), \.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: t\.shellPrefix \|\| "" \} : \{\}\) \} : \{ onMove, onProgress: [^\n]*shellPrefix: t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the chat's commands and hooks (Claude Code: \"Bash tool calls, hook commands\"), never Coder's tools");
+  assert.match(s, /\.\.\.\(tool \? \{ \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), \.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "" \} : \{\}\) \} : \{ onMove, onProgress: [^\n]*shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the chat's commands and hooks (Claude Code: \"Bash tool calls, hook commands\"), never Coder's tools, PowerShell's commands or exec-form and PowerShell hooks (pass 8, CD425)");
 });
 
 test("CD340 the effort level is in each command's environment (Claude Code's CLAUDE_EFFORT: \"Set automatically in Bash tool subprocesses … to the effort level … Only set when the current model supports the effort parameter\"), as GOFARTHER_CODER_EFFORT beside Coder's other marks", async () => {

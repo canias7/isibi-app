@@ -31,7 +31,7 @@ import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
-import { psParseResult, psParseFail, psExitMeaning, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
+import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait } from "./coder-checker.mjs";
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
@@ -1165,6 +1165,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // (The owner's classifyAllShell, Claude Code's autoMode.classifyAllShell: "suspend every Bash and PowerShell allow rule while
   // auto mode is active, so the classifier evaluates every shell command regardless of your allow list".)
   const autoRulesCover = (command) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; return partsAllowedOrReadOnly(command, keep); };
+  // (PowerShell's in Auto, as Claude Code's: its rules without the ones Auto drops, PowerShell(*) and the like, and none with
+  // classifyAllShell. In Auto a PowerShell rule only decides whether the checker is asked: psDecision's `covered`.)
+  const autoPsRules = (rs) => ({ ...rs, allow: (rs.allow || []).filter((r) => !droppedInAuto(r, { classifyAllShell: !!(autoMode && autoMode.classifyAllShell === true) })) });
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
   // POWERSHELL'S OWN READING OF A COMMAND (coder-psparse.mjs), for its checks: pwsh parses it on the machine as the AI
@@ -1289,7 +1292,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     if (h.type === "prompt" || h.type === "agent") return runModelHook(h, input);
     const mark = hookMark();
     let r;
-    try { r = await deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, hookEnv: envKind(event), hookGate: GATING_EVENTS.has(event) }); }
+    try { r = await deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, noPrefix: Array.isArray(h.args) || h.shell === "powershell", hookEnv: envKind(event), hookGate: GATING_EVENTS.has(event) }); }
     catch (e) { return { code: -1, stdout: "", stderr: String((e && e.message) || e).slice(0, 500) }; }
     return { code: r && Number.isInteger(r.code) ? r.code : -1, ...splitHookOut(String((r && r.output) || ""), mark), timedOut: !!(r && r.timedOut), ...(r && r.quiet ? { quiet: true } : {}) };
   };
@@ -1378,7 +1381,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const mark = hookMark();
     const event = String(input.hook_event_name || h.event);
     Promise.resolve()
-      .then(() => deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, hookEnv: envKind(event), hookAsync: { event, mark, rewake: h.asyncRewake === true, label: hookName(h) } }))
+      .then(() => deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, noPrefix: Array.isArray(h.args) || h.shell === "powershell", hookEnv: envKind(event), hookAsync: { event, mark, rewake: h.asyncRewake === true, label: hookName(h) } }))
       .then((r) => {
         if (!r || r.background) return;
         const run = { code: Number.isInteger(r.code) ? r.code : -1, ...splitHookOut(String(r.output || ""), mark) };
@@ -2168,7 +2171,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false });
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -2272,11 +2275,11 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // ASKED ON A CARD, AND THIS STEP WAITS (Claude Code's Bash prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
         // switch to auto mode", "No"). Only a one-time Yes for a dangerous removal, a protected file, a very long command
         // or one an ask rule asks about (Claude Code: no "don't ask again" when it can't cover it all, and no switch to auto
-        // mode on a prompt one of your ask rules forced).
+        // mode on a prompt one of your ask rules forced; none on a PowerShell card at all, as Claude Code 2.1.322 offers none).
         let approval = null;
         if (rmWhy || ask || dec.verdict === "ask" || pausedCard || switchedCard) {
           const once = !!(rmWhy || ask || dec.byRule || pausedCard || switchedCard);
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
           approval = await askOwner(card, { hooks: !c.rerun });
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -2345,7 +2348,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (!byUser && !c.monitor) parts.push("To check interim output, use read on that file path.");
           text = sofar + parts.join(" ");
         } else {
-          const em = c.ps ? psExitMeaning(await psParse(command), code) : exitMeaning(command, code);
+          // (PowerShell: Claude Code's own rules, from the command's text and whether it printed anything; Bash docs pass 8.)
+          const em = c.ps ? psExitOf(command, code, noCwdMarks(String((r && r.output) || ""))) : exitMeaning(command, code);
           isError = em.isError;
           // A PICTURE PRINTED AS A DATA URL comes back as a picture (Claude Code: `isImage`; 2.1.72 "Fixed oversized and
           // truncated images from Bash data-URL output"): Coder's machine saved it, and read makes it fit, as for any picture.

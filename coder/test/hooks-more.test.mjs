@@ -343,7 +343,7 @@ test("CD384d the machine's side: CODER_TOOL_MEMORY_CGROUP_EXCLUDE as Claude Code
   assert.equal(S.hookEnvLine("shop-1"), "if [ -r \"$HOME\"/.coder-hook-env/'shop-1.sh' ]; then . \"$HOME\"/.coder-hook-env/'shop-1.sh'; fi\nif [ -r \"$HOME\"/.coder-hook-env/'shop-1.cwd.sh' ]; then . \"$HOME\"/.coder-hook-env/'shop-1.cwd.sh'; fi\n");
   const server = read("container/server.mjs");
   assert.match(server, /const capped = tool && typeof t\.memCgNow === "function" && t\.memKinds instanceof Set && t\.memKinds\.has\(hook \? "hooks" : kind === "lsp" \? "lsp" : "helper"\) && !\(hook && hookGate\);/);
-  assert.match(server, /\.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: t\.shellPrefix \|\| "" \} : \{\}\)/, "the owner's CODER_SHELL_PREFIX wraps hooks too");
+  assert.match(server, /\.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "" \} : \{\}\)/, "the owner's CODER_SHELL_PREFIX wraps hooks too (not exec-form or PowerShell ones: pass 8, CD425)");
   assert.match(server, /\.\.\.\(hookEnvFile \? \{ CLAUDE_ENV_FILE: hookEnvFile \} : \{\}\)/);
   assert.match(read("container/coder-agent.mjs"), /\.\.\.\(c\.name === "lsp" \? \{ kind: "lsp" \} : \{\}\)/);
   // A quiet exec, for real: the answer 1 second after its own process ends, the program it left still running.

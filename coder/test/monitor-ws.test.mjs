@@ -208,7 +208,7 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
   assert.match(read("container/Dockerfile"), /rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo zsh \\/);
   const server = read("container/server.mjs");
   assert.match(server, /t\.shell = shellOf\(rawVars\.CODER_SHELL\);/);
-  assert.match(server, /shellPrefix: t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks");
+  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks, nor PowerShell's (pass 8, CD425)");
   if (!ZSH) return;
   // FOR REAL: in zsh, with the prelude, its folder followed.
   const dir = await mkdtemp(join(tmpdir(), "coder-zsh-"));

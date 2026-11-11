@@ -11,9 +11,9 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-11: Bash docs pass 8, parts A, B and C (your words: "Yes pls", to building the whole list, safety holes first)
+## 2026-11-11: Bash docs pass 8, parts A, B, C and D (your words: "Yes pls", to building the whole list, safety holes first)
 
-Not merged or deployed yet. I'll ask you once parts D and E are done too. All 452 tests pass.
+Not merged or deployed yet. I'll ask you once part E is done too. All 459 tests pass.
 
 **Part A, the safety holes** (pushed earlier today):
 - **Deny and ask rules now see through the same wrappers Claude Code does.** Before, a deny rule on `git push` could be stepped around with `time -p git push`, `watch -d git push`, `flock -n …`, `setsid -w …`, `exec -a …` and others. A path like `/usr/bin/git` counts too. The dangerous-delete check sees through them as well.
@@ -49,6 +49,16 @@ Not merged or deployed yet. I'll ask you once parts D and E are done too. All 45
 - **Variables set by hooks:** when Coder changes folders, only variables from folder-change hooks are cleared. Those from start-of-chat hooks now stay.
 - **A hook answering "defer"** is now ignored, as in Claude Code's chats, instead of blocking the command.
 - Hooks now also get the message's ID (`prompt_id`), and "tool failed" hooks get how long the tool ran.
+
+**Part D, the PowerShell tool's details** (each copied from Claude Code 2.1.322's own program):
+- **Error or not, the way Claude Code decides.** For example, a search that finds nothing, piped into `Select-Object`, is not an error. But piped into `Out-Null` it is. `git diff` piped into `Select-Object` counts as "files differ", not an error. A `|` inside quotes no longer counts as a pipe. robocopy's codes 1 to 7 are not errors. Anything after a `&&`, or a command PowerShell can't find, is an error.
+- **Rules can now approve programs named with a dot or a path**, like `dotnet.exe` or `./build.ps1`. The rule has to name that program first, like `PowerShell(dotnet.exe build *)`. A catch-all rule like `PowerShell(*)` still doesn't approve them, as in Claude Code.
+- **A saved rule for a whole command now works.** Before, "don't ask again" on a command made of several parts saved a rule that never matched, so Coder kept asking. A chain like `npm install && npm test` asks twice, as in Claude Code. The first card offers a rule for each part, and the second offers one for the whole chain. After that it runs without asking.
+- **Rules on a command's settings now work for PowerShell too**, like `PowerShell(run_in_background:true)` to refuse background PowerShell commands. A rule like `PowerShell(command:rm *)` is kept but never matches, with Claude Code's warning, as for Bash.
+- **Auto mode now drops broad rules using Claude Code's own list.** `PowerShell(*)`, `PowerShell(pwsh *)`, `PowerShell(iex *)` and the like no longer let a command skip the checker. `classifyAllShell` now covers PowerShell too. The Bash list now matches Claude Code's exactly too. One effect: a rule like `Bash(make *)` now stays in effect in Auto, as it does in Claude Code (Coder used to drop it).
+- **PowerShell cards no longer offer "Yes, and switch to auto mode"**, as in Claude Code.
+- **In Accept edits, a file command with a quote character in a path argument now asks.** For example, `Set-Content .\notes.txt "It's done"`. Claude Code says "Paths containing quote characters cannot be statically validated and require manual approval". Passing the text with `-Value` avoids the card.
+- **Your `CODER_SHELL_PREFIX` no longer wraps PowerShell commands, or hooks written as a program plus its arguments, or PowerShell hooks.** Claude Code's version doesn't wrap them either.
 
 ## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
 

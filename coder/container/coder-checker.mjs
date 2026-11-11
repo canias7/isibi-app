@@ -329,20 +329,48 @@ export function resume(st) { st.paused = false; st.row = 0; keepState(st); }
 
 /**
  * ALLOW RULES AUTO MODE DROPS (Claude Code: "On entering auto mode, broad allow rules that grant arbitrary code execution
- * are dropped: Blanket Bash(*) …, Wildcarded interpreters like Bash(python*), Package-manager run commands"). Narrow rules
- * like Bash(npm test) stay.
+ * are dropped: Blanket Bash(*) or PowerShell(*), Wildcarded interpreters like Bash(python*), Package-manager run commands";
+ * Bash docs pass 8: its own lists and checks, 2.1.322). Narrow rules like Bash(npm test) stay. With the owner's
+ * classifyAllShell, every Bash and PowerShell allow rule is dropped ("suspend every Bash and PowerShell allow rule").
  */
-export function droppedInAuto(rule) {
-  // (Every rule naming Monitor: "together with every rule that names Monitor, because Monitor commands run through the shell".)
-  if (/^Monitor(\(|$)/.test(String(rule || "").trim())) return true;
-  const m = /^Bash(?:\(([\s\S]*)\))?$/.exec(String(rule || "").trim());
-  if (!m) return false;
-  const spec = m[1] === undefined ? "" : m[1].trim();
-  if (!spec || spec === "*" || spec === ":*") return true;
-  const word = spec.split(/\s+/)[0].replace(/:\*$/, "").replace(/\*$/, "");
-  const interpreters = /^(python[\d.]*|node|nodejs|deno|bun|ruby|perl|php|bash|sh|zsh|dash|ksh|lua|luajit|tsx|ts-node|Rscript|julia|osascript|pwsh)$/;
-  if (interpreters.test(word) && /\*/.test(spec)) return true;
-  if (/^(npm|pnpm|yarn|bun)\s+(run|run-script|exec|x|dlx)\b[\s\S]*\*/.test(spec) || /^(npx|bunx|pnpx)\b[\s\S]*\*/.test(spec)) return true;
-  if (/^(make|just|task|rake|gradle|gradlew|\.\/gradlew|mvn|cargo\s+run|go\s+run|uv\s+run|poetry\s+run|pipenv\s+run)\b[\s\S]*\*/.test(spec)) return true;
+const AUTO_RISKY = ["python", "python3", "python2", "node", "deno", "tsx", "ruby", "perl", "php", "lua", "npx", "bunx", "npm run", "yarn run", "pnpm run", "bun run", "bash", "sh", "ssh"];
+const AUTO_RISKY_BASH = [...AUTO_RISKY, "zsh", "fish", "eval", "exec", "env", "xargs", "sudo"];
+const AUTO_RISKY_PS = [...AUTO_RISKY, "pwsh", "powershell", "cmd", "wsl", "iex", "invoke-expression", "icm", "invoke-command", "start-process", "saps", "start", "start-job", "sajb", "start-threadjob", "invoke-wmimethod", "iwmi", "invoke-cimmethod", "icim", "wmic", "register-objectevent", "register-engineevent", "register-wmievent", "register-scheduledjob", "new-pssession", "nsn", "enter-pssession", "etsn", "add-type", "new-object"];
+/** Claude Code's check of a Bash rule's content: the program alone, with any `*` after it, or with an option before a `*`. */
+function riskyBash(content) {
+  const n = String(content).trim().toLowerCase();
+  if (n === "*") return true;
+  for (const s of AUTO_RISKY_BASH) {
+    if (n === s || n === s + ":*" || n === s + " *" || n === s + "*") return true;
+    if (n.startsWith(s + " ") && n.endsWith("*")) {
+      const l = n.slice(s.length + 1);
+      // (python -m with a dotted module, such as python -m http.server *, is narrow.)
+      if (l.startsWith("-") && !(/^python[\d.]*$/.test(s) && /^-m\s+\w+\.[\w.]+(\s*:|\s+)$/.test(l.slice(0, -1)))) return true;
+    }
+  }
   return false;
+}
+/** Its check of a PowerShell rule's content: the same, each program also with .exe. */
+function riskyPs(content) {
+  const n = String(content).trim().toLowerCase();
+  if (n === "*") return true;
+  for (const s of AUTO_RISKY_PS) {
+    const sp = s.indexOf(" "), exe = sp === -1 ? s + ".exe" : s.slice(0, sp) + ".exe" + s.slice(sp);
+    for (const w of [s, exe]) {
+      if (n === w || n === w + ":*" || n === w + "*" || n === w + " *") return true;
+      if (n.startsWith(w + " -") && n.endsWith("*")) return true;
+    }
+  }
+  return false;
+}
+export function droppedInAuto(rule, { classifyAllShell = false } = {}) {
+  const t = String(rule || "").trim();
+  // (Every rule naming Monitor: "together with every rule that names Monitor, because Monitor commands run through the shell".)
+  if (/^Monitor(\(|$)/.test(t)) return true;
+  const m = /^(Bash|PowerShell)(?:\(([\s\S]*)\))?$/.exec(t);
+  if (!m) return false;
+  if (classifyAllShell === true) return true;
+  const c = m[2];
+  if (c === undefined || c === "" || /^[\s*]+$/.test(c)) return true;
+  return m[1] === "Bash" ? riskyBash(c) : riskyPs(c);
 }

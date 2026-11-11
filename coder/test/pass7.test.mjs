@@ -295,16 +295,18 @@ test("CD404 a PostToolUse hook's note for the Auto mode checker (Claude Code's c
 });
 
 test("CD405 PowerShell's own exit codes and env-file variables: exit 1 is a normal result from grep, rg, egrep, fgrep, findstr, git grep and git diff, and from a search piped into a formatting cmdlet; the env files reach PowerShell only when every line is a plain assignment, then all of them", async () => {
-  const em = (cmd, code) => Q.psExitMeaning(fakeParse(cmd), code);
+  const em = (cmd, code, out = "") => Q.psExitOf(cmd, code, out);
   assert.deepEqual(em("rg TODO", 1), { isError: false, message: "No matches found" });
   assert.deepEqual(em("rg TODO | Select-Object -First 5", 1), { isError: false, message: "No matches found" });
   assert.deepEqual(em("findstr.exe x a.txt", 1), { isError: false, message: "No matches found" });
   assert.deepEqual(em("git diff a b", 1), { isError: false, message: "Files differ" });
   assert.deepEqual(em("git grep x", 1), { isError: false, message: "No matches found" });
-  assert.deepEqual(em("git diff | Select-Object -First 3", 1).isError, true, "only searches through a formatter");
+  assert.deepEqual(em("git diff | Select-Object -First 3", 1), { isError: false, message: "Files differ" }, "Claude Code 2.1.322: git diff through a formatter that printed nothing");
+  assert.equal(em("git diff | Select-Object -First 3", 1, "diff --git a/x b/x").isError, true, "it printed: the formatter's own code");
   assert.deepEqual(em("find . -name x", 1).isError, true, "find is no search in PowerShell's list");
   assert.deepEqual(em("rg TODO | Out-File x.txt", 1).isError, true);
-  assert.deepEqual(em("rg TODO", 2), { isError: true, message: "Command failed with exit code 2" });
+  assert.deepEqual(em("rg TODO", 2), { isError: true, message: "" });
+  assert.deepEqual(em("Get-Item nope", 1), { isError: true, message: "Command failed with exit code 1" });
   assert.deepEqual(em("Get-ChildItem", 0), { isError: false, message: "" });
   // In the loop: told as Claude Code tells it.
   const t = await job([say("", [call("powershell", { command: "rg TODO", description: "Search" }, "p1")]), say("ok")], { mode: "acceptEdits", extra: PS_ON, deps: { exec: async (x) => (/coder-tools\.mjs/.test(String(x.command)) ? { code: 0, output: "" } : { code: 1, output: "" }) }, parse: (c) => fakeParse(c), rules: { allow: ["PowerShell(rg *)"], deny: [], ask: [] } });

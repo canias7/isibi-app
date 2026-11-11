@@ -1048,6 +1048,32 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   for the chat; CwdChanged's and FileChanged's go in a second file, emptied at
   each CwdChanged (`envKind`, `hookEnvLine`). A PreToolUse `"defer"` is
   ignored. Hook input has `prompt_id`, and PostToolUseFailure `duration_ms`.
+- *PowerShell's details* (`test/pass8-ps.test.mjs`, CD419 to CD425), each from
+  Claude Code 2.1.322's own program. Exit codes (`coder-psparse.mjs`'s
+  `psExitOf`, `psLastSegment`, `psProgram`): read from the command's text and
+  whether it printed anything, not from its parse; the last part's program,
+  or, when nothing was printed, the search before its formatting cmdlets
+  (`Select-Object`, `Sort-Object`, `Group-Object`, `Get-Unique`,
+  `Format-Table/List/Wide`, `Out-String`, `Out-Host`; not `Out-Null`); a
+  quoted `|` is no pipe; robocopy's 0 to 7 and `where.exe`/`fc.exe`'s 1 are not
+  failures; after a `&&`, or when the output says a command was not found, it
+  is one. A program by path or with a dot (`dotnet.exe`, `./build.ps1`) is
+  allowed only by a rule whose first word names it as typed
+  (`psProgramRule`): `PowerShell(dotnet.exe build *)` yes, `PowerShell(*)` or
+  `PowerShell(dot*)` no. A rule that is exactly the whole command allows it
+  (several commands too); a `&&` chain still asks the first time, as Claude
+  Code's does, offering each part's rule, then the chain's own. Deny and ask
+  rules on a call's settings (`PowerShell(run_in_background:true)`), and
+  `PowerShell(command:…)` kept but never matching, with Claude Code's warning.
+  In Auto, Claude Code's own lists of broad rules are dropped
+  (`coder-checker.mjs`'s `droppedInAuto`, word for word, for Bash and
+  PowerShell: `PowerShell(*)`, `PowerShell(pwsh *)`, `PowerShell(iex *)`,
+  `Bash(python -c *)`…; `Bash(make *)` now stays, as in Claude Code), and
+  `classifyAllShell` covers PowerShell. A PowerShell card has no "switch to
+  auto mode". In Accept edits a path argument with a quote character asks,
+  in Claude Code's words (`PS_QUOTED_WHY`): `Set-Content .\notes.txt "It's
+  done"` asks, `-Value "It's done"` does not. `CODER_SHELL_PREFIX` never wraps
+  a PowerShell command, an exec-form hook or a PowerShell hook (`noPrefix`).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
