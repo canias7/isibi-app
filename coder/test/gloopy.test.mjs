@@ -5792,7 +5792,7 @@ test("GL116 (2026-11-11) live test: a secure site refused for its certificate wh
   assert.match(agent, /try \{ r = await hub\.act\(act\); \} catch \(e\) \{ no\("error: " \+ String\(\(e && e\.message\) \|\| e\)\.slice\(0, 700\)\); continue; \}/);
 });
 
-test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, Gloopy's computer notes why (cut off, closed by the app with its code, a message too big, not a WebSocket message, or turned off here) and the live view's data carries it; turning routing off lets the owner's computer go, not only leaves it unused", async () => {
+test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, Gloopy's computer notes why (cut off, closed by the app with its code, a message too big, not a WebSocket message, or turned off here) and the live view's data carries it; the link never keeps Gloopy's computer awake; turning routing off lets the owner's computer go, not only leaves it unused", async () => {
   const { makeTunnel, wsAccept, wsOver } = await import("../container/gloopy-route.mjs");
   const net = await import("node:net");
   const tunnel = makeTunnel({ now: () => 1234 });
@@ -5844,6 +5844,36 @@ test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, 
     assert.equal(tunnel.status().cut.why, "routing was turned off");
     a.destroy();
   } finally { tunnel.close(); machine.close(); }
+  // The link (and each time it comes again) is no use of Gloopy's computer: the clock that puts it to sleep after 10
+  // quiet minutes is not started over by it (found live: with the app open, the machine never slept).
+  {
+    const { createApp } = await import("../container/server.mjs");
+    const KEY = "k".repeat(40);
+    const app = createApp({ env: { CODER_CONTROL_KEY: KEY, CODER_IMAGE: "full" } });
+    const srv = http.createServer(app);
+    srv.on("upgrade", app.upgrade);
+    const base = await listen(srv);
+    const idle = async () => (await (await fetch(base + "/busy", { headers: { "x-coder-key": KEY } })).json()).idleMs;
+    const socks = [];
+    try {
+    await new Promise((ok) => setTimeout(ok, 300));
+    const before = await idle();
+    assert.ok(before >= 250, "quiet since it started");
+    for (let i = 0; i < 2; i++) {
+      const s = await new Promise((ok) => {
+        const c = net.connect(Number(new URL(base).port), "127.0.0.1", () => c.write("GET /gloopy/route HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nx-coder-key: " + KEY + "\r\n\r\n"));
+        let got = "";
+        const onData = (d) => { got += d; if (got.includes("\r\n\r\n")) { c.removeListener("data", onData); ok(c); } };
+        c.on("data", onData);
+      });
+      socks.push(s);
+      assert.ok(await until(() => app.tunnel.connected), "linked");
+      s.destroy();
+      assert.ok(await until(() => !app.tunnel.connected));
+    }
+    assert.ok((await idle()) >= before, "linking twice did not count as use");
+    } finally { for (const x of socks) x.destroy(); app.tunnel.close(); srv.closeAllConnections?.(); srv.close(); }
+  }
   // Coder's service: turning routing off lets the link go; the live view's data says why the last one ended.
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /routeWanted = on === true;\n\s+\/\/ Turned off: the owner's computer is let go too, not only left unused \(its app's ticket is worthless by now\)\.\n\s+if \(!routeWanted && tunnel\.connected\) tunnel\.close\("routing was turned off"\);/);

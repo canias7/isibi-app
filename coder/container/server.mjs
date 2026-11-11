@@ -2214,7 +2214,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!want && env && (env.FLY_MACHINE_ID || env.CODER_DATA)) return deny("503 Service Unavailable");
     if (want && req.headers["x-coder-key"] !== want) return deny("403 Forbidden");
     if (env.CODER_IMAGE !== "full") return deny("404 Not Found");
-    lastAsked = Date.now();
+    // The link is no use of this machine: it never resets the clock that puts it to sleep (found live, 2026-11-11: each
+    // time the app linked again after a cut, the clock started over, so with the app open the machine never slept).
     const ws = wsAccept(req, socket, head);
     if (ws) tunnel.attach(ws);
   };
