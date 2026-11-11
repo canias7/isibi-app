@@ -15,7 +15,7 @@
 //     x-coder-method   its method
 //     x-coder-headers  its headers, as base64url JSON
 //     body             its body
-import { okHost, hostMatches, keyAllowed, headerValue } from "../container/coder-secrets.mjs";
+import { okHost, hostMatches, keyAllowed, headerValue, REPO_NOT_ENABLED, API_PATH_NOT_AVAILABLE } from "../container/coder-secrets.mjs";
 import { readEnvData, envIdOf } from "./coder-environments.mjs";
 import { pkcs1ToPkcs8 } from "./coder-mentions.mjs";
 
@@ -40,7 +40,7 @@ export const GRAPHQL_REFUSED = "GitHub GraphQL is not available from Coder's ses
  * GITHUB'S API FOR `gh` (owner, 2026-11-07, item 6: "gh: installed, but not logged in"). Like Claude Code's
  * GitHub proxy (its docs, read 2026-11-07): `gh`'s requests, made with the placeholder "proxy-injected", go
  * out with the owner's GitHub login put in here, never on the machine; only "for the repositories attached
- * to the session" (others: "GitHub access to ... is not enabled for this session"); GraphQL is refused with
+ * to the session" (others: Claude Code's cloud words, REPO_NOT_ENABLED and API_PATH_NOT_AVAILABLE); GraphQL is refused with
  * the REST fallback named. A job started from GitHub (strangers can write there) may only read.
  */
 /** A GitHub Actions log request (a run's, an attempt's, a job's), and where GitHub keeps the logs it redirects to. */
@@ -53,7 +53,10 @@ export async function githubApi(request, env, bucket, uid, meta, target, { fetch
   const m = /^\/repos\/([^/]+)\/([^/]+)(\/|$)/.exec(path);
   let full = "";
   try { full = m ? (decodeURIComponent(m[1]) + "/" + decodeURIComponent(m[2])).toLowerCase() : ""; } catch { full = ""; }
-  if (!m || !plainPath(path + target.search) || !repos.includes(full)) return ghRefused("GitHub access to " + (full || path.slice(0, 100)) + " is not enabled for this session: only this chat's repositories (" + repos.join(", ") + "), as gh api repos/OWNER/REPO/...", 403);
+  // (Claude Code's cloud words, the owner: "use the same claude code wording": a repository the chat doesn't have, and a
+  // path that is no repository's.)
+  if (!m || !plainPath(path + target.search)) return ghRefused(API_PATH_NOT_AVAILABLE, 403);
+  if (!repos.includes(full)) return ghRefused(REPO_NOT_ENABLED, 403);
   const h = request.headers;
   const method = String(h.get("x-coder-method") || "GET").toUpperCase();
   if (!/^[A-Z]{1,20}$/.test(method)) return ghRefused("bad method", 400);

@@ -81,31 +81,75 @@ export function fromResponsesOutput(j) {
 }
 
 /**
- * A `send` for `runCoder`: `{ model, messages, tools, tool_choice } → { message, searches, usage }`.
- * Throws on a missing key, a failed call or an answer with no message (the loop says so).
- * Retries once on 429 / 5xx after a short wait.
+ * CLAUDE CODE'S RETRIES FOR A MODEL CALL (the owner, 2026-11-11: "use the same claude code wording", after a live test where
+ * xAI answered "Internal error during token generation" twice in a row and Coder, which tried once more, gave up; read from
+ * Claude Code 2.1.322's own program): 10 more tries by default (its CLAUDE_CODE_MAX_RETRIES, at most 15; here
+ * CODER_MAX_RETRIES), for 408, 409, 429, any 5xx and a connection that failed; each after the server's retry-after, else
+ * 500 ms doubling each time up to 32 seconds, with up to a quarter more at random. While it waits, the chat says so in its
+ * words: "API error · Retrying in 1s · attempt 1/10", the error itself from the third try on.
+ */
+export const MAX_RETRIES = 10, MAX_RETRIES_CLAMP = 15, RETRY_BASE_MS = 500, RETRY_MAX_MS = 32_000;
+export const retryable = (status) => status === 408 || status === 409 || status === 429 || status >= 500;
+export function maxRetriesOf(env) {
+  const v = env && env.CODER_MAX_RETRIES;
+  const n = v === undefined || v === null || String(v).trim() === "" ? NaN : Number(v);
+  return Number.isInteger(n) && n >= 0 ? Math.min(n, MAX_RETRIES_CLAMP) : MAX_RETRIES;
+}
+export function retryWaitMs(attempt, retryAfter = null, rand = Math.random) {
+  const ra = retryAfter === null || retryAfter === undefined || String(retryAfter).trim() === "" ? NaN : Number(retryAfter);
+  if (Number.isFinite(ra) && ra >= 0) return Math.min(Math.round(ra * 1000), 10 * 60_000);
+  const base = Math.min(RETRY_BASE_MS * Math.pow(2, Math.max(1, attempt) - 1), RETRY_MAX_MS);
+  return Math.round(base + rand() * 0.25 * base);
+}
+export const retryLine = ({ attempt, maxRetries, waitMs, error }) =>
+  (attempt >= Math.min(3, maxRetries) ? String(error || "API error").replace(/\s+/g, " ").slice(0, 300) : "API error") +
+  " · Retrying in " + Math.max(1, Math.ceil((Number(waitMs) || 0) / 1000)) + "s · attempt " + attempt + "/" + maxRetries;
+
+/**
+ * A `send` for `runCoder`: `{ model, messages, tools, tool_choice, onRetry } → { message, searches, usage }`.
+ * Throws on a missing key, a failed call (after Claude Code's retries, above) or an answer with no message (the loop says so).
+ * `onRetry({ attempt, maxRetries, waitMs, error })`: told before each wait.
  * `via` `{ url, headers }`: through Coder's Worker with the job's pass (no key here).
  */
-export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)), via = null } = {}) {
+export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)), via = null, rand = Math.random } = {}) {
   const key = env && typeof env.XAI_API_KEY === "string" ? env.XAI_API_KEY : "";
+  const maxRetries = maxRetriesOf(env);
   return async (req) => {
     if (!via && !key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
     let withEffort = !!req.effort;
     const { instructions, input } = toResponsesInput(req.messages);
     const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch !== false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
-    for (let attempt = 0; attempt < 2; attempt++) {
-      const r = await fetchFn(via ? via.url : CODER_ENDPOINT, {
-        method: "POST", body,
-        headers: via ? { ...via.headers, "content-type": "application/json" } : { authorization: "Bearer " + key, "content-type": "application/json" },
-        signal: AbortSignal.timeout(CODER_CALL_MS),
-      });
-      if ((r.status === 429 || r.status >= 500) && attempt === 0) { await wait(3000); continue; }
+    let attempt = 0, effortAsked = false;
+    const again = async (ms, error) => {
+      attempt++;
+      if (typeof req.onRetry === "function") { try { req.onRetry({ attempt, maxRetries, waitMs: ms, error }); } catch { /* the call goes on */ } }
+      await wait(ms);
+    };
+    for (;;) {
+      let r;
+      try {
+        r = await fetchFn(via ? via.url : CODER_ENDPOINT, {
+          method: "POST", body,
+          headers: via ? { ...via.headers, "content-type": "application/json" } : { authorization: "Bearer " + key, "content-type": "application/json" },
+          signal: AbortSignal.timeout(CODER_CALL_MS),
+        });
+      } catch (e) {
+        // A connection that failed is tried again; a call that ran past its own time limit is not.
+        const timedOut = e && (e.name === "TimeoutError" || e.name === "AbortError");
+        if (!timedOut && attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), "Connection error: " + String((e && e.message) || e).slice(0, 200)); continue; }
+        throw e;
+      }
+      if (retryable(r.status) && attempt < maxRetries) {
+        const t = await r.text().catch(() => "");
+        await again(retryWaitMs(attempt + 1, r.headers && typeof r.headers.get === "function" ? r.headers.get("retry-after") : null, rand), "AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : ""));
+        continue;
+      }
       // THE EFFORT SAFETY NET: a model that refuses the effort setting is asked
       // again without it (once), rather than failing every message.
-      if (r.status === 400 && withEffort && attempt === 0) {
+      if (r.status === 400 && withEffort && !effortAsked) {
         const t = await r.text().catch(() => "");
-        if (/reasoning|effort/i.test(t)) { withEffort = false; body = make(); continue; }
+        if (/reasoning|effort/i.test(t)) { withEffort = false; effortAsked = true; body = make(); continue; }
         throw Object.assign(new Error("AI call failed: 400 " + t.replace(/\s+/g, " ").slice(0, 160)), { status: 400 });
       }
       if (!r.ok) { const t = await r.text().catch(() => ""); throw Object.assign(new Error("AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : "")), { status: r.status }); }
@@ -122,6 +166,5 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       const said = j.reasoning && typeof j.reasoning.effort === "string" ? j.reasoning.effort.slice(0, 20) : "";
       return { message, searches, usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
     }
-    throw new Error("AI call failed");
   };
 }

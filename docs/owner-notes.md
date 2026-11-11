@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Claude Code's own ways for round 3's three differences (your words: "merge and deploy and use the same claude code wording")
+
+Read from Claude Code's cloud and its own program in this session, then copied:
+1. **A private address** (the cloud's `169.254.169.254`, localhost, the machine's own network): refused with Claude Code's cloud answer, "Destination IP is in a private/reserved range" (a 403 with `x-deny-reason: private_dest_ip`). There is no extra note in the command's result, as in Claude Code. Before, Coder used the words of Claude Code's local version.
+2. **A repository the chat doesn't have** (downloading its archive, or `gh` on it): Claude Code's sentence, "GitHub access to this repository is not enabled for this session." Claude Code goes on "Use add_repo to request access"; Coder's AI has no add_repo, because you add repositories, so Coder says "To request access, ask the owner to add it to this chat (+ Repository)." A `gh` call to a path that is no repository's (like `gh api user`) gets Claude Code's "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)." I could only see that sentence up to "(repos/{owner}/…", so the end is my best match.
+3. **When Grok's server fails:** Coder now tries again the way Claude Code does. That's up to 10 more times (Claude Code's default; `CODER_MAX_RETRIES` changes it, at most 15), for "busy", "timed out" and server errors and a lost connection. It waits what the server asks, else half a second doubling to 32 seconds. While it waits, the chat shows Claude Code's line, "API error · Retrying in 1s · attempt 1/10". Before, Coder tried once more after 3 seconds. A failed call usually costs nothing.
+
+Tests: CD511, CD512, and four older tests that checked the old words. All on the branch with round 3's three fixes; going live with this "merge and deploy".
+
 ## 2026-11-11: Round 3 of the live test: the rest of the bash tool, live with Grok, and the same in Claude Code (your words: "yea go ahead test all of it")
 
 Tested live on gofarther.dev with Grok and filmed (recordings 37s, 37s-S2S3S4, 37s5, 37o, 37h, 37hx and 37p), in new chats on canias7/testingforclaude ("Live test 10 Nov" environment, Accept edits). Every setting a step changed was put back after it. At the end: no hooks, no rules, the same two variables, network Limited with package managers, nothing running.

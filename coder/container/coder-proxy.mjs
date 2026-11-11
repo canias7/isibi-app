@@ -23,7 +23,7 @@ import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync, unlinkSync, copyFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 
-import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS, listCovers } from "./coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS, listCovers, REPO_NOT_ENABLED, REPO_DOCS } from "./coder-secrets.mjs";
 import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { isIP } from "node:net";
@@ -45,8 +45,14 @@ export function localKind(address) {
   if (/^169\.254\./.test(x) || /^fe[89ab][0-9a-f]:/.test(x)) return "link-local";
   return privateAddress(x) ? "private" : "";
 }
-/** Claude Code's words for it (the body of the gate's 403). */
-export const LOCAL_REFUSED = (host, kind) => "Connection to " + host + " blocked: resolved to a " + kind + " address";
+/**
+ * CLAUDE CODE'S CLOUD WORDS FOR IT (its network proxy's 403, seen 2026-11-11 in a Claude Code cloud session: "HTTP/1.1 403
+ * Forbidden", "x-deny-reason: private_dest_ip", text/plain, "Destination IP is in a private/reserved range", and no note in
+ * the command's result; the owner: "use the same claude code wording"). Before, Coder used Claude Code's local sandbox's
+ * words ("Connection to … blocked: resolved to a loopback address").
+ */
+export const LOCAL_REFUSED = () => "Destination IP is in a private/reserved range";
+export const LOCAL_DENY_REASON = "private_dest_ip";
 /**
  * A lookup that refuses local and private addresses, IN EVERY NETWORK SETTING (pass 8: with Full, a command could reach
  * the machine's own services through the gate; a command still reaches its own localhost directly, NO_PROXY).
@@ -324,7 +330,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const m = /^\/([^/?#]+)\/([^/?#]+)/.exec(String(target || ""));
     if (!m) return "";
     const name = (decodeURIComponentSafe(m[1]) + "/" + decodeURIComponentSafe(m[2]).replace(/\.git$/i, "")).toLowerCase();
-    return repos.includes(name) ? "" : "GitHub access to " + name.replace(/[^a-z0-9._/-]/g, "") + " is not enabled for this session";
+    return repos.includes(name) ? "" : REPO_NOT_ENABLED;
   };
   // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
   const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
@@ -358,7 +364,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const target = String(req.url || "");
     if (!target.startsWith("/")) { res.writeHead(400, { "content-type": "text/plain" }); return res.end("Coder's proxy: only a path (starting with /) may be sent to " + host + ", not a full address"); }
     if (githubHere(host)) return toEgress(req, res, host, target);
-    if (archiveHost(host)) { const why = archiveRefused(target); if (why) { blocked(host, "a source archive of a repository this chat doesn't have"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(why); } }
+    if (archiveHost(host)) { const why = archiveRefused(target); if (why) { const b = JSON.stringify({ message: why, documentation_url: REPO_DOCS }); res.writeHead(403, { "content-type": "application/json; charset=utf-8", "content-length": Buffer.byteLength(b) }); return res.end(b); } }
     const rule = ruleFor(host);
     const pathOk = rule && (!rule.paths.length || (plainPath(target) && rule.paths.some((p) => target.startsWith(p))));
     // A path outside the secret's prefixes, or one with a "." or ".." part
@@ -421,10 +427,10 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     if (!allowed(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "x-deny-reason": "host_not_allowed" }); return res.end(own ? UNLISTED(host) : BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
-    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) { const kind = localKind(host) || "private", b = LOCAL_REFUSED(host, kind); blocked(host, "resolved to a " + kind + " address"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); }
+    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) { const b = LOCAL_REFUSED(); res.writeHead(403, { "x-deny-reason": LOCAL_DENY_REASON, "content-length": Buffer.byteLength(b), "content-type": "text/plain" }); return res.end(b); }
     try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, lookup: publicLookup }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
     catch { res.writeHead(400); return res.end("bad request"); }
-    up.on("error", (e) => { if (e && e.code === "EPRIVATE") { const b = LOCAL_REFUSED(host, e.kind); blocked(host, "resolved to a " + e.kind + " address"); if (!res.headersSent) res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); } if (!res.headersSent) { failed(host, port, cantReach(e)); res.writeHead(502); } res.end(); });
+    up.on("error", (e) => { if (e && e.code === "EPRIVATE") { const b = LOCAL_REFUSED(); if (!res.headersSent) res.writeHead(403, { "x-deny-reason": LOCAL_DENY_REASON, "content-length": Buffer.byteLength(b), "content-type": "text/plain" }); return res.end(b); } if (!res.headersSent) { failed(host, port, cantReach(e)); res.writeHead(502); } res.end(); });
     req.pipe(up);
   });
   server.on("connect", (req, sock, head) => {
@@ -454,7 +460,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     // ANY OTHER HOST: a plain tunnel; nothing is read or added.
     let out;
-    const refuse = (kind) => { blocked(host, "resolved to a " + kind + " address"); const b = LOCAL_REFUSED(host, kind); try { sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); } catch { /* gone */ } };
+    const refuse = () => { const b = LOCAL_REFUSED(); try { sock.end("HTTP/1.1 403 Forbidden\r\nX-Deny-Reason: " + LOCAL_DENY_REASON + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\nContent-Type: text/plain\r\n\r\n" + b); } catch { /* gone */ } };
     if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) return refuse(localKind(host) || "private");
     let open = false;
     try { out = net.connect({ port, host, lookup: publicLookup }, () => { open = true; sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });

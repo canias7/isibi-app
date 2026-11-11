@@ -183,9 +183,11 @@ test("CD449 a source archive of a repository this chat doesn't have gets Claude 
     const curl = (url) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "20", "-w", " %{http_code}", url], { env }, (err, so) => ok(err ? "failed " + String(so) : String(so))));
     assert.equal(await curl("https://codeload.github.com/ana/shop/tar.gz/refs/heads/main"), "archive /ana/shop/tar.gz/refs/heads/main 200");
     assert.equal(await curl("https://codeload.github.com/ana/docs/zip/main"), "archive /ana/docs/zip/main 200");
-    assert.equal(await curl("https://codeload.github.com/someone/else/zip/main"), "GitHub access to someone/else is not enabled for this session 403");
+    // (Claude Code's cloud answer since round 3, the owner: "use the same claude code wording": GitHub's JSON, its sentence.)
+    const refused = '{"message":"GitHub access to this repository is not enabled for this session. To request access, ask the owner to add it to this chat (+ Repository).","documentation_url":"https://gofarther.dev/docs"} 403';
+    assert.equal(await curl("https://codeload.github.com/someone/else/zip/main"), refused);
     px.setRepos([]);
-    assert.equal(await curl("https://codeload.github.com/ana/shop/tar.gz/main"), "GitHub access to ana/shop is not enabled for this session 403", "a chat with no repository: none");
+    assert.equal(await curl("https://codeload.github.com/ana/shop/tar.gz/main"), refused, "a chat with no repository: none");
   } finally { await px.close(); up.close(); }
   const src = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(src, /px\.setRepos\(\[body\.repo, \.\.\.extras\.map\(\(x\) => x && x\.repo\)\]/);

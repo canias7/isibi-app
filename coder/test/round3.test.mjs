@@ -55,3 +55,60 @@ test("CD510 a hook's notice in the chat keeps its reason when its command is lon
   const src = (await import("node:fs")).readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(src, /for \(const n of o\.notices\) emit\(\{ type: "note", text: hookNoteText\(scrub\(n\)\), hook: event \}\);/);
 });
+
+test("CD511 a failed Grok call is tried again as Claude Code does (the owner: \"use the same claude code wording\"): 10 more times by default, for 408, 409, 429, 5xx and a lost connection, after retry-after or 500 ms doubling to 32 s, with Claude Code's line in the chat", async () => {
+  const { coderSend, retryWaitMs, retryLine, maxRetriesOf, retryable, MAX_RETRIES } = await import("../container/coder-model.mjs");
+  const ok = () => new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "hi" }] }] }));
+  const run = async (answers, env = {}) => {
+    const seen = [], waits = [], told = [];
+    let n = 0;
+    const fetchFn = async () => { const a = answers[Math.min(n, answers.length - 1)]; n++; seen.push(n); if (a instanceof Error) throw a; return typeof a === "number" ? new Response("boom " + a, { status: a, headers: a === 429 ? { "retry-after": "3" } : {} }) : ok(); };
+    const send = coderSend({ XAI_API_KEY: "k", ...env }, { fetchFn, wait: async (ms) => { waits.push(ms); }, rand: () => 0 });
+    let r = null, err = null;
+    try { r = await send({ messages: [], tools: [], onRetry: (x) => told.push(retryLine(x)) }); } catch (e) { err = e; }
+    return { calls: seen.length, waits, told, r, err };
+  };
+  // Ten tries more, then the error, as Claude Code (its CLAUDE_CODE_MAX_RETRIES is 10 by default).
+  assert.equal(MAX_RETRIES, 10);
+  const all500 = await run([500]);
+  assert.equal(all500.calls, 11);
+  assert.match(String(all500.err && all500.err.message), /^AI call failed: 500 boom 500$/);
+  assert.deepEqual(all500.waits, [500, 1000, 2000, 4000, 8000, 16000, 32000, 32000, 32000, 32000]);
+  assert.deepEqual(all500.told.slice(0, 3), ["API error · Retrying in 1s · attempt 1/10", "API error · Retrying in 1s · attempt 2/10", "AI call failed: 500 boom 500 · Retrying in 2s · attempt 3/10"]);
+  assert.equal(all500.told[9], "AI call failed: 500 boom 500 · Retrying in 32s · attempt 10/10");
+  // Twice an error, then an answer (the live test's "Internal error during token generation" twice).
+  const twice = await run([500, 500, "ok"]);
+  assert.deepEqual([twice.calls, twice.r && twice.r.message.content], [3, "hi"]);
+  // Which answers are tried again: 408, 409, 429 (after its retry-after), 5xx and a lost connection; not 4xx else, nor a call
+  // that ran past its own time limit.
+  assert.deepEqual([408, 409, 429, 500, 502, 503, 529, 400, 401, 403, 404].map(retryable), [true, true, true, true, true, true, true, false, false, false, false]);
+  assert.deepEqual((await run([429, "ok"])).waits, [3000]);
+  assert.equal((await run([404])).calls, 1);
+  assert.equal((await run([new TypeError("fetch failed"), "ok"])).calls, 2);
+  const late = Object.assign(new Error("The operation was aborted due to timeout"), { name: "TimeoutError" });
+  assert.equal((await run([late, "ok"])).calls, 1);
+  // The wait: retry-after first; else 500 ms doubling to 32 s, plus up to a quarter more at random.
+  assert.deepEqual([1, 2, 3, 7, 10].map((a) => retryWaitMs(a, null, () => 0)), [500, 1000, 2000, 32000, 32000]);
+  assert.equal(retryWaitMs(1, null, () => 1), 625);
+  assert.equal(retryWaitMs(4, "2", () => 0), 2000);
+  // CODER_MAX_RETRIES as Claude Code's CLAUDE_CODE_MAX_RETRIES: a number, at most 15.
+  assert.deepEqual([undefined, "", "0", "3", "99", "x"].map((v) => maxRetriesOf({ CODER_MAX_RETRIES: v })), [10, 10, 0, 3, 15, 10]);
+  assert.equal((await run([500], { CODER_MAX_RETRIES: "0" })).calls, 1);
+  assert.equal((await run([503], { CODER_MAX_RETRIES: "2" })).calls, 3);
+  // The chat shows each wait (a note), as Claude Code's line does.
+  const src = (await import("node:fs")).readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(src, /onRetry: \(x\) => emit\(\{ type: "note", text: retryLine\(x\), retry: true \}\)/);
+});
+
+test("CD512 Claude Code's cloud words (the owner: \"use the same claude code wording\"): a private address is refused with its proxy's 403 and no note; a repository the chat doesn't have, in its GitHub proxy's sentence", async () => {
+  const X = await import("../container/coder-proxy.mjs");
+  const S = await import("../container/coder-secrets.mjs");
+  assert.equal(X.LOCAL_REFUSED(), "Destination IP is in a private/reserved range");
+  assert.equal(X.LOCAL_DENY_REASON, "private_dest_ip");
+  assert.match(S.REPO_NOT_ENABLED, /^GitHub access to this repository is not enabled for this session\. /);
+  assert.match(S.API_PATH_NOT_AVAILABLE, /^This GitHub API path is not available: sessions are bound to their configured repositories\. Use repository-scoped endpoints \(repos\/\{owner\}\//);
+  // The gate keeps no "blocked" record for a private address any more (Claude Code's cloud adds no note to the command).
+  const src = (await import("node:fs")).readFileSync(new URL("../container/coder-proxy.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(src, /blocked\(host, "resolved to a /);
+  assert.doesNotMatch(src, /blocked\(host, "a source archive/);
+});

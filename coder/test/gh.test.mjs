@@ -68,10 +68,11 @@ test("CD173 Coder's server puts the owner's GitHub login into gh's calls only fo
   assert.equal(r.status, 403);
   assert.equal((await r.json()).message, GRAPHQL_REFUSED);
   assert.match(GRAPHQL_REFUSED, /^GitHub GraphQL is not available from Coder's sessions\. Use GitHub's REST API instead: gh api repos\/\{owner\}\/\{repo\}\//);
-  for (const u of ["https://api.github.com/repos/someone/else", "https://api.github.com/user", "https://api.github.com/repos/ana/shop/../../user", "https://api.github.com/search/code?q=x"]) {
+  // (Claude Code's cloud words since round 3, the owner: "use the same claude code wording".)
+  for (const [u, said] of [["https://api.github.com/repos/someone/else", "GitHub access to this repository is not enabled for this session. To request access, ask the owner to add it to this chat (+ Repository)."], ["https://api.github.com/user", "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)."], ["https://api.github.com/repos/ana/shop/../../user", "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)."], ["https://api.github.com/search/code?q=x", "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...)."]]) {
     const x = await call(u);
     assert.equal(x.status, 403, u);
-    assert.match((await x.json()).message, /^GitHub access to .* is not enabled for this session: only this chat's repositories \(ana\/shop, ana\/api\)/, u);
+    assert.equal((await x.json()).message, said, u);
   }
   assert.equal(sent.length, 2, "nothing refused reached GitHub");
   // A JOB GITHUB STARTED: read only. A job that is not running: nothing.

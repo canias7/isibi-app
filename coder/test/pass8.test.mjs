@@ -90,7 +90,9 @@ test("CD410 the gate refuses a local address in every network setting, Full too,
   const { join } = await import("node:path");
   const X = await import("../container/coder-proxy.mjs");
   assert.deepEqual(["127.0.0.1", "::1", "169.254.169.254", "10.1.2.3", "fdaa::3", "8.8.8.8"].map(X.localKind), ["loopback", "loopback", "link-local", "private", "private", ""]);
-  assert.equal(X.LOCAL_REFUSED("myapp.test", "loopback"), "Connection to myapp.test blocked: resolved to a loopback address");
+  // (Claude Code's cloud words since round 3, the owner: "use the same claude code wording".)
+  assert.equal(X.LOCAL_REFUSED("myapp.test", "loopback"), "Destination IP is in a private/reserved range");
+  assert.equal(X.LOCAL_DENY_REASON, "private_dest_ip");
   const ask = (px, text) => new Promise((ok) => {
     let b = "";
     const s = net.connect(px.port, "127.0.0.1", () => s.write(text));
@@ -106,13 +108,14 @@ test("CD410 the gate refuses a local address in every network setting, Full too,
     const t0 = Date.now();
     const a = await ask(px, "CONNECT 127.0.0.1:8080 HTTP/1.1\r\nHost: x\r\n\r\n");
     assert.match(a, /^HTTP\/1\.1 403 Forbidden/);
-    assert.match(a, /Connection to 127\.0\.0\.1 blocked: resolved to a loopback address$/);
-    assert.match(await ask(px, "CONNECT localhost:8080 HTTP/1.1\r\nHost: x\r\n\r\n"), /^HTTP\/1\.1 403 Forbidden[\s\S]*Connection to localhost blocked: resolved to a loopback address$/);
-    assert.match(await ask(px, "GET http://169.254.169.254/latest/meta-data HTTP/1.1\r\nHost: 169.254.169.254\r\nConnection: close\r\n\r\n"), /^HTTP\/1\.1 403[\s\S]*Connection to 169\.254\.169\.254 blocked: resolved to a link-local address$/);
+    assert.match(a, /\r\nX-Deny-Reason: private_dest_ip\r\n[\s\S]*\r\n\r\nDestination IP is in a private\/reserved range$/);
+    assert.match(await ask(px, "CONNECT localhost:8080 HTTP/1.1\r\nHost: x\r\n\r\n"), /^HTTP\/1\.1 403 Forbidden[\s\S]*Destination IP is in a private\/reserved range$/);
+    const meta = await ask(px, "GET http://169.254.169.254/latest/meta-data HTTP/1.1\r\nHost: 169.254.169.254\r\nConnection: close\r\n\r\n");
+    assert.match(meta, /^HTTP\/1\.1 403[\s\S]*\r\nx-deny-reason: private_dest_ip\r\n[\s\S]*\r\n\r\nDestination IP is in a private\/reserved range$/i);
     assert.match(await ask(px, "CONNECT [::1]:8080 HTTP/1.1\r\nHost: x\r\n\r\n"), /^HTTP\/1\.1 40[03]/);
+    // (No note in the command's result, as in Claude Code's cloud: its 403 says it.)
     const seen = px.blockedSince(t0);
-    assert.ok(seen.some((x) => x.host === "127.0.0.1" && x.why === "resolved to a loopback address"), JSON.stringify(seen));
-    assert.match(X.blockedNote(seen), /127\.0\.0\.1 \(resolved to a loopback address\)/);
+    assert.ok(!seen.some((x) => /resolved to a/.test(x.why)), JSON.stringify(seen));
     // Limited settings: refused too (localhost can't even be put on the list).
     px.setNetwork({ mode: "custom", hosts: ["localhost"] });
     assert.match(await ask(px, "CONNECT localhost:8080 HTTP/1.1\r\nHost: x\r\n\r\n"), /^HTTP\/1\.1 403 Forbidden/);
