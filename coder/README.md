@@ -1332,6 +1332,43 @@ commands, monitors and wording, from Claude Code 2.1.322's own program. Tests:
   sweep for its marked processes now leaves its process group out:
   `endMarked`'s `skipGroup`).
 
+**Bash docs pass 9, part E** (the same "Yes pls"): the hooks details, from
+Claude Code's hooks reference and 2.1.322's own program. Tests:
+`test/pass9-e.test.mjs` (CD485 to CD497).
+- *How a hook runs*: a shell-form command with `sh -c` (`hookShell`; Claude
+  Code: "sh -c on macOS and Linux"), never in the chat's CODER_SHELL; its own
+  `timeout` kept as given (600 is the default, not a cap; `HOOK_TIMEOUT_MAX_S`
+  only keeps a timer sane); at most 12 prompt or agent hooks at once
+  (`MODEL_HOOKS_AT_ONCE`); a handler is its type, command, `if` and shell
+  (`handlerKey`), so the same command under two `if` values is two handlers.
+- *What a hook is told*: `permission_mode` "default" in the cloud's Accept edits
+  (`hookMode`, `fileEdits` false); for a command, Claude Code's Bash output
+  fields (`bashFacts`: `backgroundTaskId`, `backgroundedByUser`,
+  `timedOutAfterMs`, `returnCodeInterpretation`); `bashEditDiff: { skipped:
+  true }` for a git command that moves the work tree; PostToolUse for a
+  background command (it had never fired) and PostToolUseFailure for one that
+  could not start (`notStarted`).
+- *What a hook says*: a PreToolUse hook's additionalContext reaches Coder when
+  the call does not run (its own deny, a rule, a No); a text past 10,000
+  characters is saved in the chat's output folder and given as its path and a
+  2,000-character preview (`persistHookText`, the machine's `saveText`); an
+  answer naming another event is no answer ("Hook returned incorrect event
+  name: …", `wrongEvent`); several JSON lines that hold no hook field are plain
+  text, other broken JSON in Claude Code's words (`notJson`); a command's new
+  output must have Bash's shape, stdout, stderr and interrupted
+  (`bashShapeProblem`), else the original stays, in Claude Code's words.
+- *Folders and files*: CwdChanged runs for the owner's `!` cd too (`cwdMoved`);
+  the env file CwdChanged and FileChanged hooks write is cleared at every move;
+  FileChanged's names are files in the commands' current folder; a hook run
+  while that folder is gone runs from the project's and leaves it as it is, so
+  Coder's next command says "Shell cwd was reset to …" (`hookHome`).
+- *Small*: the card's permission_prompt Notification hooks 6 seconds after it
+  shows, never for one answered sooner (`PROMPT_NOTIFY_MS`;
+  CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS turns them off); the AI's home
+  has `~/.claude` (the machine's start, and the image).
+- *Not copied*: `transcript_path` (Claude Code's conversation file on its
+  machine; Coder keeps the conversation on its server).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

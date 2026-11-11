@@ -611,7 +611,7 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   const enc = /-EncodedCommand (\S+)/.exec(pw)[1];
   // (With Claude Code's ending after it, so a program's exit 2 blocks: Bash docs pass 9.)
   assert.equal(Buffer.from(enc, "base64").toString("utf16le"), "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" + H.PS_HOOK_EXIT2);
-  assert.match(H.hookShell({ type: "command", command: "bash \"${CLAUDE_PROJECT_DIR}\"/x.sh" }, "MARK", "/work/shop"), /\nbash "\$\{CLAUDE_PROJECT_DIR\}"\/x\.sh\n/, "the shell expands it");
+  assert.match(H.hookShell({ type: "command", command: "bash \"${CLAUDE_PROJECT_DIR}\"/x.sh" }, "MARK", "/work/shop"), /\nsh -c 'bash "\$\{CLAUDE_PROJECT_DIR\}"\/x\.sh'\n/, "the shell expands it (sh -c, as Claude Code)");
   // A POWERSHELL CALL IS "PowerShell" after its PreToolUse hooks too; `if: PowerShell(…)` matches its commands.
   t = await loop([say("", [call("powershell", { command: "Get-ChildItem" }, "p1")]), say("ok")], { PostToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "post.sh" }] }], PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [{ type: "command", if: "PowerShell(Get-ChildItem *)", command: "pre.sh" }] }] }, { ps: true });
   assert.deepEqual(t.hookCalls.map((h) => [h.input.hook_event_name, h.input.tool_name]), [["PreToolUse", "PowerShell"], ["PostToolUse", "PowerShell"]]);
@@ -641,7 +641,7 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   assert.deepEqual(t.hookCalls.map((h) => [h.input.hook_event_name, h.x.hookEnv]), [["SessionStart", "session"]], "(no cd in this stand-in)");
   assert.deepEqual(t.resets.map((h) => h.x.hookEnv), ["session", "cwd"], "both emptied at a chat's start");
   const agentSrc = (await import("node:fs")).readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.match(agentSrc, /await resetHookEnv\(\["cwd"\]\); await runHooks\("CwdChanged"/);
+  assert.match(agentSrc, /await resetHookEnv\(\["cwd"\]\);\n    await runHooks\("CwdChanged"/);
   const out = H.hooksOutcome("PreToolUse", [{ hook: { type: "command", command: "d.sh" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "defer" } }, text: "" } }], { tool: "Bash" });
   assert.deepEqual([out.decision, out.blocks], ["", []], "defer: ignored, the normal permission flow goes on");
   // The page shows a step once, with its last command.

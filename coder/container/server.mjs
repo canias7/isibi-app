@@ -2397,6 +2397,9 @@ export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } 
   mkdirSync(d.home, { recursive: true, mode: 0o755 });
   if (dev) chownSync(d.home, dev.uid, dev.gid);
   chmodSync(d.home, 0o755);
+  // ITS ~/.claude, as a Claude Code machine has one (Bash docs pass 9: the hooks guide's examples write to ~/.claude/…, which
+  // failed here). Made only when nothing is there (never through a link the AI left), then the AI's.
+  try { mkdirSync(join(d.home, ".claude"), { mode: 0o755 }); if (dev) lchownSync(join(d.home, ".claude"), dev.uid, dev.gid); } catch { /* there already */ }
   return d;
 }
 
@@ -3247,6 +3250,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         send: via ? coderSend(env, { via }) : sendFn,
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
         hookNews: () => hookNews(project),
+        // A HOOK'S TEXT PAST 10,000 CHARACTERS, saved in the chat's output folder (Claude Code: "saves the output to a file in
+        // the session directory"), which Coder's read may open: the file's path. A new plain file, never through a link.
+        saveText: (text) => {
+          mkdirSync(outDir, { recursive: true, mode: 0o755 });
+          const file = join(outDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
+          const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+          try { writeFileSync(fd, String(text)); } finally { closeSync(fd); }
+          return file;
+        },
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
         // (The chat's id: a hook's session_id.)
         chatId: project,
@@ -3278,11 +3290,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // THE FOLDER IT STARTS IN, checked again first: one that is gone (a rewind, a command in the background) or is
           // no longer inside the project sends the command back to the project's folder, and its answer says so.
           const notes = [];
+          // (A hook never moves it: one whose folder is gone runs from the project's, and Coder's next command is still told
+          // its folder was reset, as Claude Code runs a hook from a fallback folder and leaves the session's as it is. Bash
+          // docs pass 9.)
+          let hookHome = false;
           if (here && t.cwd !== home0) {
             const ok = await cwdInside(t.cwd, workRoots);
-            if (ok) t.cwd = ok; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
+            if (ok) t.cwd = ok; else if (hook) hookHome = true; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
           }
-          const moved = here && t.cwd !== home0;
+          const moved = here && t.cwd !== home0 && !hookHome;
           const startedIn = t.cwd, startedAt = Date.now();
           // (The gate's count of failed connections now, for the note a failed command gets: Claude Code's E0t() at its start.)
           const fails0 = !tool && px && typeof px.failCount === "function" ? px.failCount() : null;
@@ -3491,7 +3507,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

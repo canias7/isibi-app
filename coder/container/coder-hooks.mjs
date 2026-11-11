@@ -10,6 +10,7 @@
 // modules: the Worker checks the owner's hooks with it.)
 import { utf16Base64 } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
+import { bashResultText } from "./coder-checks.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
 export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
@@ -39,12 +40,13 @@ export function typesFor(event) {
 /**
  * Claude Code's timeouts, in seconds: "Defaults: 600 for command, http, and mcp_tool; 30 for prompt; 60 for agent. Claude
  * Code lowers the command, http, and mcp_tool default to 30 on UserPromptSubmit"; SessionEnd hooks share a 1.5-second budget
- * (sessionEndBudget). A hook's own `timeout` is kept, up to 600.
+ * (sessionEndBudget). A hook's own `timeout` is kept as given, as in Claude Code (600 is its default, not a cap: Bash docs
+ * pass 9); only past a day is it cut, where a timer could no longer hold it (the job's own limit comes long before).
  */
-export const HOOK_TIMEOUT_S = 600;
+export const HOOK_TIMEOUT_S = 600, HOOK_TIMEOUT_MAX_S = 86_400;
 export function timeoutFor(event, given, type = "command") {
   const n = Number(given);
-  if (Number.isFinite(n) && n > 0) return Math.min(HOOK_TIMEOUT_S, Math.max(1, Math.round(n)));
+  if (Number.isFinite(n) && n > 0) return Math.min(HOOK_TIMEOUT_MAX_S, Math.max(1, Math.round(n)));
   if (type === "prompt") return 30;
   if (type === "agent") return 60;
   if (event === "SessionEnd") return 1.5;
@@ -63,6 +65,30 @@ export function sessionEndBudget(hooks, envMs) {
 }
 /** "A hook's additionalContext, systemMessage, and initialUserMessage strings, and its plain stdout, are capped at 10,000 characters." */
 export const HOOK_TEXT_MAX = 10_000;
+/**
+ * A HOOK'S TEXT PAST 10,000 CHARACTERS, SAVED (Bash docs pass 9; Claude Code's hooks reference: "except for PreCompact stdout,
+ * Claude Code saves the output to a file in the session directory. It replaces the output with the file path and a preview of
+ * up to the first 2,000 characters. A large valid Bash result is handled the same way"): a run's plain stdout, measured whole,
+ * and its JSON's additionalContext and systemMessage, each on its own, saved with `save(text)` (it answers the file's path)
+ * and replaced by Claude Code's saved-output form. One that could not be saved is cut as before.
+ */
+export function persistHookText(event, run, save) {
+  if (!run || typeof save !== "function" || typeof run.stdout !== "string") return run;
+  const big = (t) => typeof t === "string" && t.length > HOOK_TEXT_MAX;
+  const keep = (t) => { let f = ""; try { f = String(save(t) || ""); } catch { f = ""; } return f ? bashResultText({ output: t, size: Buffer.byteLength(t), file: f, inlineMax: HOOK_TEXT_MAX }) : t; };
+  const t = run.stdout.trim();
+  if (t.startsWith("{") && t.endsWith("}")) {
+    let v = null;
+    try { v = JSON.parse(t); } catch { v = null; }
+    if (!v || typeof v !== "object" || Array.isArray(v)) return run;
+    let changed = false;
+    const fix = (o, k) => { if (o && typeof o === "object" && big(o[k])) { o[k] = keep(o[k]); changed = true; } };
+    fix(v, "systemMessage");
+    fix(v.hookSpecificOutput, "additionalContext");
+    return changed ? { ...run, stdout: JSON.stringify(v) } : run;
+  }
+  return big(run.stdout) && event !== "PreCompact" ? { ...run, stdout: keep(run.stdout) } : run;
+}
 /** Claude Code's cap on Stop hooks that keep a turn going: "after stop hooks have continued the turn eight times in a row". */
 export const STOP_BLOCK_CAP = 8;
 /** The owner's hooks box in Settings: at most this many characters of JSON. */
@@ -166,7 +192,10 @@ export function matcherMatches(matcher, value, narrow = false) {
 }
 
 /** One handler's key, for "If you define the same handler in more than one settings file, it runs once". */
-const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.prompt);
+// (The same handler is its type, what it runs, and its `if` and shell: two with the same command under different `if` values
+// are two handlers, and each runs when it matches; Claude Code: "If you define the same handler in more than one settings
+// file, it runs once". Bash docs pass 9.)
+const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.prompt) + "\u0000" + String(h.if || "") + "\u0000" + String(h.shell || "");
 
 /**
  * THE HOOKS THAT RUN FOR ONE EVENT, deduplicated: `value` is what the matcher filters (a tool's name, how a session started,
@@ -375,11 +404,32 @@ export const hookName = (h) => "[" + (h.type === "http" ? String(h.url) : h.type
 const cap = (s) => { const t = String(s ?? ""); return t.length > HOOK_TEXT_MAX ? t.slice(0, 2000) + "\n… (" + (t.length - 2000).toLocaleString("en-US") + " more characters left out)" : t; };
 const BLOCK_FAIL = 'blocking because onFailure is "block"';
 
-/** Stdout as Claude Code reads it: one JSON object "with nothing around it but whitespace", else plain text (or a parse failure). */
+/**
+ * Stdout as Claude Code reads it: one JSON object "with nothing around it but whitespace", else plain text (or a parse
+ * failure). Its own rules (2.1.322, Bash docs pass 9): several lines that are each JSON, none of them a hook's answer (no
+ * field Claude Code reads), are plain text ("Hook output is several JSON documents, treating as plain text"), such as a
+ * program's log; any other object that does not parse is a failure, in its words (`bad`).
+ */
+const HOOK_FIELDS = new Set(["continue", "suppressOutput", "stopReason", "decision", "reason", "systemMessage", "hookSpecificOutput", "async", "asyncTimeout"]);
+const severalDocs = (t) => {
+  const lines = t.split("\n").filter((l) => l.trim());
+  if (lines.length < 2) return false;
+  return lines.every((l) => { try { const v = JSON.parse(l.trim()); return !(v && typeof v === "object" && !Array.isArray(v)) || !Object.keys(v).some((k) => HOOK_FIELDS.has(k)); } catch { return false; } });
+};
+export const notJson = (err) => "Hook output looks like a JSON object but is not valid JSON \u2014 " + err + ". Emit the payload with a JSON encoder (jq, ConvertTo-Json, json.dumps) rather than string concatenation so backslashes and quotes inside strings are escaped.";
 function readStdout(stdout) {
   const t = String(stdout || "").trim();
   if (!(t.startsWith("{") && t.endsWith("}"))) return { json: null, bad: "" };
-  try { const v = JSON.parse(t); return v && typeof v === "object" && !Array.isArray(v) ? { json: v, bad: "" } : { json: null, bad: "not a JSON object" }; } catch (e) { return { json: null, bad: String((e && e.message) || e).slice(0, 200) }; }
+  try { const v = JSON.parse(t); return v && typeof v === "object" && !Array.isArray(v) ? { json: v, bad: "" } : { json: null, bad: "not a JSON object" }; } catch (e) {
+    if (severalDocs(t)) return { json: null, bad: "" };
+    return { json: null, bad: String((e && e.message) || e).slice(0, 200) };
+  }
+}
+/** A hook's answer for another event (Claude Code: "Hook returned incorrect event name: expected '…' but got '…'"), or "". */
+export function wrongEvent(event, json) {
+  const sp = json && json.hookSpecificOutput;
+  if (!sp || typeof sp !== "object" || sp.hookEventName === event) return "";
+  return "Hook returned incorrect event name: expected '" + event + "' but got '" + String(sp.hookEventName) + "'. Full stdout: " + JSON.stringify(json, null, 2).slice(0, 4000);
 }
 /** Whether an answer "grants, rewrites or injects" (Claude Code's words): an allow, a new input or output, added context. */
 const grants = (j) => {
@@ -423,8 +473,10 @@ export function hookResult(event, run, hook = {}) {
     const t = String(body || "").trim();
     if (!t) return { kind: "ok", json: null, text: "", reason: "", notice: "" };
     const { json, bad } = readStdout(t);
+    const wrongHttp = wrongEvent(event, json);
+    if (wrongHttp) return fail("failed", wrongHttp) || { kind: "error", json: null, text: "", reason: "", notice: wrongHttp };
     if (json) return { kind: "ok", json, text: "", reason: "", notice: "" };
-    return fail("failed", bad || "the response was not a JSON object") || { kind: "error", json: null, text: "", reason: "", notice: bad ? "Hook output is not valid JSON: " + bad : "The response was not a JSON object" };
+    return fail("failed", bad ? notJson(bad) : "the response was not a JSON object") || { kind: "error", json: null, text: "", reason: "", notice: bad ? notJson(bad) : "The response was not a JSON object" };
   }
   const code = run && Number.isInteger(run.code) ? run.code : -1;
   const stdout = String((run && run.stdout) || ""), stderr = String((run && run.stderr) || "");
@@ -439,7 +491,10 @@ export function hookResult(event, run, hook = {}) {
   const text = json || bad ? "" : stdout;
   const firstErr = stderr.split("\n").map((l) => l.trim()).find(Boolean) || "";
   if (code === 2) return { kind: "block", json, text: "", reason: cap(stderr.trim()), notice: "" };
-  if (bad) return fail("failed", "Hook output is not valid JSON: " + bad) || { kind: "error", json: null, text: "", reason: "", notice: "Hook output is not valid JSON: " + bad };
+  if (bad) return fail("failed", notJson(bad)) || { kind: "error", json: null, text: "", reason: "", notice: notJson(bad) };
+  // (An answer naming another event is no answer: Claude Code's hookEventName check.)
+  const wrong = wrongEvent(event, json);
+  if (wrong) return fail("failed", wrong) || { kind: "error", json: null, text: "", reason: "", notice: wrong };
   if (code !== 0) { const f = fail("failed", stderr.trim()); if (f) return f; }
   if (code === 0 || json) return { kind: "ok", json, text: cap(text), reason: "", notice: "" };
   return { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: " + firstErr };
@@ -465,6 +520,12 @@ export function hookResult(event, run, hook = {}) {
  *               classifierContext: at most 2,000 characters for the call, shared by its hooks; a note whose own rewrite of
  *               the output was refused, or replaced by another hook's, is dropped), or ""
  */
+/** What is wrong with a command's new output for Claude Code's Bash output shape ("" when nothing). */
+export function bashShapeProblem(u) {
+  if (!u || typeof u !== "object" || Array.isArray(u)) return "Expected an object with stdout, stderr and interrupted, received " + (Array.isArray(u) ? "array" : u === null ? "null" : typeof u) + ".";
+  const miss = [["stdout", "string"], ["stderr", "string"], ["interrupted", "boolean"]].filter(([k, t]) => typeof u[k] !== t).map(([k, t]) => k + " (" + t + ")");
+  return miss.length ? "Expected " + miss.join(", ") + "." : "";
+}
 export function hooksOutcome(event, runs, { tool = "" } = {}) {
   const label = event + (tool && TOOL_EVENTS.has(event) ? ":" + tool : "");
   const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
@@ -534,8 +595,13 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
     if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) {
       const u = spec.updatedToolOutput;
       rewrite = -1;
-      if (typeof u === "string") { out.updatedOutput = u; rewrite = lastRewrite = ++rewrites; }
-      else if (u && typeof u === "object" && typeof u.stdout === "string") { out.updatedOutput = u.stdout + (typeof u.stderr === "string" && u.stderr ? "\n" + u.stderr : ""); rewrite = lastRewrite = ++rewrites; }
+      // (For a command, Claude Code checks it against Bash's output shape, stdout and stderr strings and interrupted a boolean,
+      // and uses the original output when it does not match, in its words; a match is shown as its result is, stdout then
+      // stderr. Bash docs pass 9.)
+      const bad = tool === "Bash" || tool === "PowerShell" ? bashShapeProblem(u) : "";
+      if (bad) out.notices.push("PostToolUse hook returned updatedToolOutput that does not match " + tool + "'s output shape; using original output. " + bad);
+      else if (typeof u === "string") { out.updatedOutput = u; rewrite = lastRewrite = ++rewrites; }
+      else if (u && typeof u === "object" && typeof u.stdout === "string") { out.updatedOutput = [u.stdout.replace(/^(\s*\n)+/, "").trimEnd(), typeof u.stderr === "string" ? u.stderr.trim() : "", u.interrupted === true ? "<error>Command was aborted before completion</error>" : ""].filter(Boolean).join("\n"); rewrite = lastRewrite = ++rewrites; }
     }
     // A NOTE FOR THE AUTO MODE CHECKER (Claude Code: "Return classifierContext to send a short note about the tool call's
     // result to the auto mode classifier rather than to Claude").
@@ -630,13 +696,15 @@ const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
  * program that ends with exit code 2 makes the hook exit 2 as well, so it blocks; pwsh on its own exits 1 for it.
  */
 export const PS_HOOK_EXIT2 = "\n; if (-not $?) { if ($LASTEXITCODE -eq 2) { exit 2 } }";
+// (A shell-form command runs with `sh -c`, as Claude Code runs it ("sh -c on macOS and Linux": dash on Ubuntu), never in the
+// shell Coder's commands use; Bash docs pass 9.)
 export function hookShell(h, mark, root) {
   // (A PowerShell hook: pwsh with no profile, non-interactive, the command encoded, its stdin the event's JSON.)
   // (THE PATH PLACEHOLDER, Bash docs pass 8: in exec form "the resolved script path as one argument with no quoting", in
   // `command` and each of `args`; in a PowerShell shell-form command "rewrites the ${CLAUDE_PROJECT_DIR} … placeholders … to
   // PowerShell's ${env:NAME} form"; in a Bash shell-form command the shell reads the exported variable itself.)
   const put = (x) => String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
-  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : String(h.command);
+  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : "sh -c " + shq(String(h.command));
   return "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */

@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 5 built: the hooks details (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 531 automated tests pass (13 of them new).
+
+- **Your hooks now run with plain `sh`, as in Claude Code**, not in the shell Coder's commands use. A hook written for bash only (with `[[ ]]`, for example) should call bash itself, as it must in Claude Code.
+- **Hooks are told the mode as Claude Code's cloud says it:** "default" in your Accept edits.
+- **Folder changes:** CwdChanged hooks now also run when your `!` command does a `cd`. FileChanged watches its files in the folder Coder's commands are in now, not always the project's top folder. What these hooks save for later commands is cleared at every folder change.
+- **What hooks say:**
+  - Extra context from a PreToolUse hook reaches Grok even when the call doesn't run.
+  - Text over 10,000 characters is saved to a file; Grok gets its path and the first 2,000 characters (before, the rest was cut).
+  - A JSON answer must name its event (`hookEventName`), as Claude Code requires. One that names another event, or none, is ignored, with Claude Code's message. Several JSON lines (like a log) count as plain text.
+  - A hook's new output for a command must have Claude Code's shape (stdout, stderr, interrupted); otherwise the original stays and the chat says why.
+- **What hooks are told about a command:** its background ID, its time limit when it was moved to the background, and the meaning of an exit code like grep's 1.
+- **Smaller:** a hook's own time limit is no longer cut at 10 minutes; at most 12 prompt or agent hooks run at once; the same command with two different `if` settings runs for each; the waiting-for-your-approval hook fires after 6 seconds, and not at all if you answer sooner (CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS turns it off); `git checkout` and the like say `bashEditDiff: skipped`; the AI's home has a `~/.claude` folder (the hooks guide writes there); a command that could not start (full disk) fires PostToolUseFailure.
+- **Two bugs found while testing, fixed:** background commands never fired PostToolUse hooks; now they do, as in Claude Code. And a hook that ran while Coder's folder was gone quietly moved Coder back to the project folder, so Coder was never told; now its next command says "Shell cwd was reset to …", as in Claude Code.
+- **Heads-up:** if one of your hooks answers with JSON but leaves out `hookEventName`, it will now be ignored, as in Claude Code.
+- **Not copied, your call:** `transcript_path`. Claude Code gives hooks the path of the conversation file on its machine. Coder keeps the conversation on its server, not as a file on the machine. I can write one in Claude Code's format if you want hooks to read it.
+
+**Next:** part 6, the page, with screenshots for you.
+
 ## 2026-11-11: Bash docs pass 9, part 4 built: your `!` commands, background commands, monitors and wording (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 518 automated tests pass (14 of them new).

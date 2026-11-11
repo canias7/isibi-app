@@ -27,7 +27,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
@@ -417,6 +417,10 @@ export const RM_REFUSED = "Permission for this command was denied by a built-in 
  * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
  */
 export const BG_NOTICE = "You will be notified when it completes.";
+/** How long a card waits before its "permission_prompt" Notification hooks run (Claude Code's 6 seconds). */
+export const PROMPT_NOTIFY_MS = 6000;
+/** How many prompt or agent hooks run at once (Claude Code: "If more than 12 of them are prompt or agent hooks, 12 of those run at once"). */
+export const MODEL_HOOKS_AT_ONCE = 12;
 /** A MONITOR'S DEADLINE (Claude Code: "5 minutes by default, at most 30 minutes"), in milliseconds. */
 export const MONITOR_MS = 5 * 60 * 1000, MONITOR_MAX_MS = 30 * 60 * 1000;
 export const monitorMs = (ms) => (Number.isFinite(Number(ms)) && Number(ms) > 0 ? Math.max(1000, Math.min(MONITOR_MAX_MS, Math.round(Number(ms)))) : MONITOR_MS);
@@ -1217,10 +1221,13 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null} = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null} = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
+  // (What a command's PostToolUse hooks get beyond its output, in Claude Code's Bash output's names: backgroundTaskId,
+  // backgroundedByUser, timedOutAfterMs, returnCodeInterpretation. Bash docs pass 9.)
+  const bashFacts = new Map();
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
@@ -1347,6 +1354,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
     }
   };
   const askOwner = async (card, { hooks = true } = {}) => {
+    // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner answered
+    // sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs pass 9.)
+    let notifyTool = "";
     // PERMISSIONREQUEST HOOKS (Claude Code: "Runs when the user is shown a permission dialog"; "decision.behavior allow/deny"):
     // one may answer for the owner. A deny goes to Coder with its message (its "interrupt": true stops Coder). Then the
     // NOTIFICATION hooks of a card that waits for the owner ("permission_prompt"), on their own.
@@ -1365,7 +1375,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         return { choice: "yes", comment: "", ...(o.updatedInput ? { updatedInput: o.updatedInput } : {}) };
       }
       if (o && o.decision === "deny") { if (o.stop) return { choice: "stop", comment: "" }; return { choice: "no", comment: "(a PermissionRequest hook of the owner's denied it" + (o.reason ? ": " + scrub(o.reason) : "") + ")" }; }
-      runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + tool, notification_type: "permission_prompt" }).catch(() => {});
+      notifyTool = tool;
     }
     // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the call is refused at
     // once in Claude Code's words, and Coder goes on; 20 refused in a row end the turn.
@@ -1378,8 +1388,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
     }
     const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     emit({ type: "permission", pid, ...card });
+    const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
+    const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
     let a = null;
-    try { a = await deps.ask(pid, { until: started + maxMs }); } catch { a = null; }
+    try { a = await deps.ask(pid, { until: started + maxMs }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
     const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
@@ -1405,7 +1417,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
   // until the first user input"; Bash docs pass 8. A turn with no message of the owner's has none.)
   const promptId = typeof text === "string" && text.trim() ? randomUUID() : "";
-  const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: modeNow(), effort: String(effort || ""), promptId });
+  // (The mode as Claude Code names it to hooks: in its cloud, the Accept edits the owner picks is "default" for commands, as
+  // Coder's is when commands that change files ask, `fileEdits` false; Bash docs pass 9.)
+  const hookMode = () => { const m = modeNow(); return m === "acceptEdits" && fileEdits === false ? "default" : m; };
+  const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: hookMode(), effort: String(effort || ""), promptId });
   const hookMark = () => "<<coder-hook-stderr-" + Math.random().toString(36).slice(2, 12) + ">>";
   /** A command hook's own command (hookShell): the event's JSON on its stdin, its stderr kept apart, Claude Code's variables set. */
   const hookCommand = (h, mark) => hookShell(h, mark, String(deps.root || ""));
@@ -1555,7 +1570,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
     const now0 = list.filter((h) => !bg(h));
     // (Claude Code's statusMessage, "Custom spinner message displayed while the hook runs": a line in the chat.)
     for (const h of now0) if (h.statusMessage) emit({ type: "note", text: scrub(h.statusMessage).slice(0, 200), hook: event, hookStatus: true });
-    const runs = await Promise.all(now0.map(async (h) => { const r = hookResult(event, await runHook(h, inputFor(h)), h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
+    // (A text past 10,000 characters is saved to a file in the chat's output folder, its path and preview given instead, as
+    // Claude Code does: persistHookText.)
+    const saveText = typeof deps.saveText === "function" ? deps.saveText : null;
+    // (At most 12 prompt or agent hooks at once; the rest start as those finish, each one's timeout from its own start:
+    // Claude Code's hooks reference. Bash docs pass 9.)
+    const slots = { free: MODEL_HOOKS_AT_ONCE, wait: [] };
+    const slot = async (h) => { if (h.type !== "prompt" && h.type !== "agent") return () => {}; if (slots.free > 0) slots.free--; else await new Promise((ok) => slots.wait.push(ok)); return () => { const next = slots.wait.shift(); if (next) next(); else slots.free++; }; };
+    const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } const r = hookResult(event, persistHookText(event, ran, saveText), h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
     const o = hooksOutcome(event, runs, { tool: value });
     for (const n of o.notices) emit({ type: "note", text: scrub(n).slice(0, 600), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
@@ -1569,13 +1591,28 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
   /** The chat's hook env file (CLAUDE_ENV_FILE) made empty: at a chat's start, and before its CwdChanged hooks run. */
   const resetHookEnv = async (which = ["session", "cwd"]) => { for (const k of which) { try { await deps.exec({ command: "rm -f -- \"${CLAUDE_ENV_FILE:-/nonexistent/x}\" 2>/dev/null; true", timeoutS: 10, tool: true, hook: true, hookEnv: k, envReset: true }); } catch { /* none to empty */ } } };
   /**
+   * A COMMAND THAT MOVED THE CHAT'S FOLDER, Coder's or the owner's `!` one (Claude Code's CwdChanged: "Runs when a shell command
+   * in the main conversation changes the working directory"): what CwdChanged and FileChanged hooks wrote to their env file is
+   * cleared ("until the next CwdChanged event, when Claude Code clears them"), whether or not a CwdChanged hook is set; then
+   * its hooks run. Bash docs pass 9.
+   */
+  const cwdMoved = async (where0) => {
+    if (!hookList.some((h) => h.event === "CwdChanged" || h.event === "FileChanged")) return;
+    const cwdNow = hookCtx().cwd;
+    if (!where0 || !cwdNow || cwdNow === where0) return;
+    await resetHookEnv(["cwd"]);
+    await runHooks("CwdChanged", "", { old_cwd: where0, new_cwd: cwdNow });
+  };
+  /**
    * FILECHANGED HOOKS (Claude Code: "Runs when a watched file changes on disk"; its matcher "is split on | and each segment is
    * registered as a literal filename in the working directory", with the watchPaths hooks give): before each answer, Coder
    * looks at the watched files, and each one that changed, appeared or went runs the event's hooks (`change`, `add`,
    * `unlink`).
    */
   const fileWatch = async () => {
-    const base = String(deps.root || "");
+    // (Its names are files in the folder Coder's commands are in now, as Claude Code's "working directory": after a cd, that
+    // folder's. Bash docs pass 9.)
+    const base = String(hookCtx().cwd || deps.root || "");
     const paths = [...new Set([...watchedNames(hookList).map((n) => (n.startsWith("/") ? n : base + "/" + n)), ...watchDyn])].slice(0, 200);
     if (!paths.length) return;
     const got = jsonOf((await appTool(deps, "stamps", { paths })).output);
@@ -1610,16 +1647,23 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
     const res = resultsSeen.get(c.id) || {};
     if (res.hookBlocked) return;
     // (A call that never ran fires neither, Bash docs pass 8: Claude Code's PostToolUseFailure "doesn't fire for tool calls
-    // rejected before execution: … a permission denial"; Coder marks such a step with code -1.)
-    if (res.code === -1) return;
+    // rejected before execution: … a permission denial"; Coder marks such a step with code -1. A PreToolUse hook's
+    // additionalContext reaches Coder all the same, as Claude Code gives it whatever the call's fate: Bash docs pass 9.)
+    // (One that passed its checks and could not start, its disk full, failed as it ran: PostToolUseFailure, as in Claude Code.
+    // One in the background ran: PostToolUse, with its backgroundTaskId, as Claude Code's. Bash docs pass 9.)
+    if (res.code === -1 && !res.notStarted && !res.background) {
+      if (c.hook && Array.isArray(c.hook.context) && c.hook.context.length) convo[at] = { ...convo[at], content: String(convo[at].content || "") + "\n\n" + scrub(hookNote("PreToolUse", c.hook.context)) };
+      return;
+    }
     const content = String(convo[at].content || "");
     const failed = Number.isInteger(res.code) && res.code !== 0 && !res.ok && !res.background;
     const tool = callTool(c);
     const input = callInput(c);
     const ev = failed ? "PostToolUseFailure" : "PostToolUse";
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
-    const diff = c.name === "bash" && !c.monitor ? editDiffFor(res.files) : null;
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    // (A git command that moves the work tree takes none: Claude Code says so with `skipped: true`. Bash docs pass 9.)
+    const diff = c.name === "bash" && !c.monitor ? (editDiff === true && !res.background && !c.ps && movesWorkTree(String((c.args && c.args.command) || "")) ? { skipped: true } : editDiffFor(res.files)) : null;
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}) } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
     if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
     let text = content;
     if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
@@ -1875,11 +1919,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
     // (Moved to the background after the default timeout, as Claude Code's ! command is, not after the longest: Bash docs
     // pass 9; it had waited 10 minutes.)
     const ownS = commandTimeoutS({}, timeouts);
+    const ownWhere0 = typeof deps.here === "function" ? String(deps.here() || "") : "";
     try { r = await deps.exec({ command: psOwn ? psCommand(command, { bypass: powershell.bypass !== false }) : command, ...(psOwn ? { shown: command, ps: true } : {}), timeoutS: ownS, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
     catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
     const code = r && Number.isInteger(r.code) ? r.code : -1;
     const bg = !!(r && r.background);
     const files = await snapAfter(snapId, !bg && !(r && r.notStarted));
+    // (A cd in it moves the chat's folder, as Coder's own do: CwdChanged hooks run for it too, as Claude Code's do.)
+    if (!bg) await cwdMoved(ownWhere0);
     const said = !bg ? "" : (r.byUser ? "Command was manually backgrounded by user with ID: " + (typeof r.jobId === "string" ? r.jobId : "?") : "Command did not complete within its " + ownS + "s timeout and was moved to the background (ID: " + (typeof r.jobId === "string" ? r.jobId : "?") + ")") + ". Output is being written to: " + r.log + ". You will be notified when it completes.";
     const printed = scrub(noCwdMarks(String((r && r.output) || "")));
     // CODER ANSWERS IT (Claude Code: "Claude responds to the command output automatically"), unless the environment's
@@ -2261,7 +2308,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         if (pre && pre.decision === "deny") {
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
           emit({ type: "result", id: c.id, code: -1, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
-          reply(scrub(pre.reason));
+          // (Its additionalContext too, as Claude Code gives it with a hook's deny: Bash docs pass 9.)
+          reply(scrub(pre.reason) + (Array.isArray(pre.context) && pre.context.length ? "\n\n" + scrub(hookNote("PreToolUse", pre.context)) : ""));
           if (pre.endTurn) { for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(pre.endTurn); }
           continue;
         }
@@ -2541,7 +2589,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         if (bg && r.pid && r.log) { job = typeof r.jobId === "string" && /^job\d+$/.test(r.jobId) ? r.jobId : "job" + (1 + Math.max(0, ...[...jobs.keys()].map((k) => Number(k.slice(3)) || 0))); jobs.set(job, { pid: r.pid, log: r.log, command, desc, at: now(), moved: !inBg, cwd: where0, done: false, ...(c.monitor ? { monitor: true } : {}) }); }
         // CLAUDE CODE'S RESULT (its words, tried on 2026-11-09): a background command's id and output file; otherwise the
         // output, as bashResultText gives it, with "Exit code N" only for a failure (grep's exit 1 is none).
-        let text = "", isError = false, thumbs = [];
+        let text = "", isError = false, thumbs = [], interp = "";
         if (r && r.notStarted) { text = String(r.output || ""); isError = true; }
         else if (bg) {
           // (Claude Code's words: started in the background; moved by the owner, its Ctrl+B; moved at its timeout, with what it
@@ -2561,6 +2609,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         } else {
           // (PowerShell: Claude Code's own rules, from the command's text and whether it printed anything; Bash docs pass 8.)
           const em = c.ps ? psExitOf(command, code, noCwdMarks(String((r && r.output) || ""))) : exitMeaning(command, code);
+          if (!em.isError && code !== 0 && em.message) interp = String(em.message);
           isError = em.isError;
           // A PICTURE PRINTED AS A DATA URL comes back as a picture (Claude Code: `isImage`; 2.1.72 "Fixed oversized and
           // truncated images from Bash data-URL output"): Coder's machine saved it, and read makes it fit, as for any picture.
@@ -2585,7 +2634,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its
         // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
         if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;
-        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
+        bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && !inBg && !(r && r.byUser) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}) });
+        emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(r && r.notStarted ? { notStarted: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
         let viewed = "";
@@ -2597,7 +2647,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], tim
         reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + (hostsUnchecked ? "\n\n" + HOSTS_UNCHECKED : "") + yesNote(approval), bg || (r && r.notStarted) ? null : { exitCode: code });
         // CWDCHANGED HOOKS (Claude Code: "Runs when the working directory changes, for example when Claude executes a cd
         // command"), with the chat's hook env file made empty first (Claude Code clears CLAUDE_ENV_FILE for them).
-        if (!bg && hookList.some((h) => h.event === "CwdChanged")) { const cwdNow = hookCtx().cwd; if (where0 && cwdNow && cwdNow !== where0) { await resetHookEnv(["cwd"]); await runHooks("CwdChanged", "", { old_cwd: where0, new_cwd: cwdNow }); } }
+        if (!bg) await cwdMoved(where0);
       } else if (c.name === "stop_job") {
         // A BACKGROUND JOB OR A MONITOR, STOPPED (as `dev`, like any command).
         const j = jobs.get(String(c.args.job || ""));

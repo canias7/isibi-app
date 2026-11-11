@@ -68,7 +68,7 @@ test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, p
   assert.equal(r("PreToolUse", { code: 0, quiet: true, stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }).reason, H.QUIET_GRANT);
   assert.equal(r("PostToolUse", { code: 0, quiet: true, stdout: '{"hookSpecificOutput":{"additionalContext":"x"}}' }).reason, H.QUIET_GRANT);
   assert.equal(r("PreToolUse", { code: 0, quiet: true, stdout: '{"hookSpecificOutput":' }).reason, H.QUIET_PARTIAL);
-  assert.equal(r("PreToolUse", { code: 0, quiet: true, stdout: '{"hookSpecificOutput":{"permissionDecision":"deny"}}' }).kind, "ok");
+  assert.equal(r("PreToolUse", { code: 0, quiet: true, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}' }).kind, "ok");
   assert.match(H.QUIET_GRANT, /stdio went quiet .* refusing to honor the suspect capture$/);
   // HTTP RESPONSES (Claude Code's "HTTP response handling").
   const hr = (http0, hook = { type: "http" }) => H.hookResult("PreToolUse", { http: http0 }, hook);
@@ -245,7 +245,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   // answer decides; an address allowedHttpHookUrls leaves out is not sent to.
   const posts = [];
   const httpHooks = [{ event: "PreToolUse", matcher: "Bash", type: "http", url: "https://hooks.example.com/pre", headers: { Authorization: "Bearer $MY_TOKEN" }, allowedEnvVars: ["MY_TOKEN", "OTHER"], timeout: 30, source: "settings", urlsAllowed: ["https://hooks.example.com/*"], envAllowed: ["MY_TOKEN"] }];
-  t = await loop([say("", [call("bash", { command: "rm -rf dist" }, "b1")]), say("ok")], httpHooks, { tools: { http_hook: (a, x) => { posts.push({ a, x }); return JSON.stringify({ status: 200, body: '{"hookSpecificOutput":{"permissionDecision":"deny","permissionDecisionReason":"policy says no"}}' }); } } });
+  t = await loop([say("", [call("bash", { command: "rm -rf dist" }, "b1")]), say("ok")], httpHooks, { tools: { http_hook: (a, x) => { posts.push({ a, x }); return JSON.stringify({ status: 200, body: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"policy says no"}}' }); } } });
   assert.deepEqual([posts[0].a.url, posts[0].a.allowed, JSON.parse(posts[0].a.body).tool_input.command, posts[0].a.timeoutMs, posts[0].x.hook, posts[0].x.hookGate], ["https://hooks.example.com/pre", ["MY_TOKEN"], "rm -rf dist", 30000, true, true]);
   assert.deepEqual([t.ran, t.r.messages.find((m) => m.tool_call_id === "b1").content], [[], "PreToolUse:Bash hook blocking error from command: [https://hooks.example.com/pre]: policy says no"]);
   t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], [{ ...httpHooks[0], urlsAllowed: [] }], { tools: { http_hook: () => { throw new Error("never sent"); } } });

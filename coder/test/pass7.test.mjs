@@ -273,7 +273,7 @@ test("CD404 a PostToolUse hook's note for the Auto mode checker (Claude Code's c
   assert.equal(H.hooksOutcome("PostToolUse", [note("staging only")], { tool: "Bash" }).classifierContext, "staging only");
   assert.equal(H.hooksOutcome("PostToolUse", [note("a"), note("b")], { tool: "Bash" }).classifierContext, "a\nb");
   assert.equal(H.hooksOutcome("PostToolUse", [note("x".repeat(3000))], { tool: "Bash" }).classifierContext.length, 2000);
-  assert.equal(H.hooksOutcome("PostToolUse", [note("mine", { updatedToolOutput: { stdout: "[redacted]" } })], { tool: "Bash" }).classifierContext, "mine", "kept with its own rewrite");
+  assert.equal(H.hooksOutcome("PostToolUse", [note("mine", { updatedToolOutput: { stdout: "[redacted]", stderr: "", interrupted: false } })], { tool: "Bash" }).classifierContext, "mine", "kept with its own rewrite");
   assert.equal(H.hooksOutcome("PostToolUse", [note("mine", { updatedToolOutput: { bad: 1 } })], { tool: "Bash" }).classifierContext, "", "its rewrite refused");
   assert.equal(H.hooksOutcome("PostToolUse", [note("mine", { updatedToolOutput: "first" }), run({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "second" } })], { tool: "Bash" }).classifierContext, "", "replaced by another hook's");
   assert.equal(H.hooksOutcome("PostToolUse", [note("plain"), run({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "other" } })], { tool: "Bash" }).classifierContext, "plain", "a note with no rewrite stays");
