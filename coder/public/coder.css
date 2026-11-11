@@ -519,6 +519,8 @@
 .cx-scol { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
 .cx-ok { color: #1f1e1d; display: flex; }
 .cx-warn { display: flex; }
+.cx-group-h { font-size: 12px; font-weight: 600; color: #8b8a86; text-transform: uppercase; letter-spacing: .04em; padding: 16px 6px 6px; border-bottom: 1px solid #e5e3dd; }
+.cx-soon { opacity: .6; }
 .cx-empty { padding: 24px 6px; font-size: 14px; color: #8b8a86; }
 .cx-backb { font: inherit; font-size: 14px; font-weight: 500; border: 0; background: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-left: -8px; border-radius: 8px; color: #1f1e1d; }
 .cx-dhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; flex-wrap: wrap; }

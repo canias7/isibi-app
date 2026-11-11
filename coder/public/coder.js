@@ -233,6 +233,7 @@
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Connectors could not be opened.'; return draw(); }
     let list = r.data.connectors || [];
     const catalog = r.data.catalog || [];
+    const later = r.data.later || [];
     const st = { tab: 'yours', q: '', open: '', note: note || '', busy: '', shut: {} };
     const page = document.createElement('div'); page.className = 'cx'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', 'Connectors');
     document.body.append(page);
@@ -248,7 +249,8 @@
       const added = new Set(list.map((c) => c.url));
       const rows = st.tab === 'yours'
         ? list.filter(match).map((c) => '<div class="cx-row cx-click" data-row="' + esc(c.id) + '" tabindex="0"><div class="cx-name">' + cxBadge(c.name) + '<span>' + esc(c.name) + '</span></div><div class="cx-tcol">' + typeCell(c) + '</div><div class="cx-scol">' + statusCell(c) + '</div></div>').join('')
-        : catalog.filter((k) => !added.has(k.url) && match(k)).map((k) => '<div class="cx-row"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.about) + '</span></span></div><div class="cx-tcol"><span class="cx-type">Web</span></div><div class="cx-scol"><button type="button" class="cx-btn cx-btn-dark" data-act="connect" data-url="' + esc(k.url) + '" data-name="' + esc(k.name) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.busy === k.url ? 'Connecting…' : 'Connect') + '</button></div></div>').join('');
+        : catalog.filter((k) => !added.has(k.url) && match(k)).map((k, i, all) => (i === 0 || all[i - 1].group !== k.group ? '<div class="cx-group-h">' + esc(k.group || '') + '</div>' : '') + '<div class="cx-row"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.about) + '</span></span></div><div class="cx-tcol"><span class="cx-type">Web</span></div><div class="cx-scol"><button type="button" class="cx-btn cx-btn-dark" data-act="connect" data-url="' + esc(k.url) + '" data-name="' + esc(k.name) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.busy === k.url ? 'Connecting…' : 'Connect') + '</button></div></div>').join('');
+      const soon = st.tab === 'discover' ? later.filter(match).map((k) => '<div class="cx-row cx-soon"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.group) + ' · ' + esc(k.why) + '</span></span></div><div class="cx-tcol"></div><div class="cx-scol"><span class="cx-pill">Coming later</span></div></div>').join('') : '';
       const empty = st.tab === 'yours' ? (list.length ? 'No connector matches.' : 'No connectors yet. Pick one in Discover, or press + Add for any MCP server.') : 'Nothing more to add here. + Add takes any MCP server’s address.';
       return '<div class="cx-top"><div class="cx-h">Connectors</div><button type="button" class="cx-x" data-act="close" aria-label="Close">' + CX_ICON.close + '</button></div>' +
         '<div class="cx-sub">Connect apps and services through MCP. They work in every chat, for Coder and Gloopy. Your sign-ins stay on our server, never on Coder’s machine.</div>' +
@@ -256,7 +258,7 @@
         '<label class="cx-search">' + CX_ICON.search + '<input id="cxQ" placeholder="Search" value="' + esc(st.q) + '" autocomplete="off"></label>' +
         '<button type="button" class="cx-btn cx-add" data-act="add">+ Add</button></div>' +
         (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
-        '<div class="cx-table"><div class="cx-row cx-head"><div class="cx-name">Connector</div><div class="cx-tcol">Type</div><div class="cx-scol">Status</div></div>' + (rows || '<div class="cx-empty">' + esc(empty) + '</div>') + '</div>';
+        '<div class="cx-table"><div class="cx-row cx-head"><div class="cx-name">Connector</div><div class="cx-tcol">Type</div><div class="cx-scol">Status</div></div>' + (rows || (soon ? '' : '<div class="cx-empty">' + esc(empty) + '</div>')) + (soon ? '<div class="cx-group-h">Coming later</div>' + soon : '') + '</div>';
     };
     const permRow = (c, t) => '<div class="cx-tool"><span class="cx-tname">' + esc(cxTitle(t)) + (t.description ? '<span class="cx-info" title="' + esc(t.description) + '">i</span>' : '') + '</span>' +
       '<span class="cx-perms" role="group" aria-label="' + esc(cxTitle(t)) + '">' + ['allow', 'ask', 'block'].map((p) => '<button type="button" class="' + (t.perm === p ? 'on' : '') + '" data-perm="' + p + '" data-tool="' + esc(t.name) + '" title="' + PERM_WORDS[p] + '" aria-pressed="' + (t.perm === p) + '">' + CX_ICON[p] + '</button>').join('') + '</span></div>';

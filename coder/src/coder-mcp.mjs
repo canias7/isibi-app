@@ -69,15 +69,31 @@ export async function setPerms(bucket, uid, id, { tool = "", group = "", perm })
  * registered on the fly) over Streamable HTTP. Adding one is the same as typing its address.
  */
 export const CATALOG = Object.freeze([
-  { name: "Linear", url: "https://mcp.linear.app/mcp", about: "Find, create and update issues, projects and comments in Linear." },
-  { name: "Notion", url: "https://mcp.notion.com/mcp", about: "Search, read and edit pages and databases in your Notion workspace." },
-  { name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
-  { name: "Stripe", url: "https://mcp.stripe.com", about: "Work with customers, payments, products and invoices in Stripe." },
-  { name: "Supabase", url: "https://mcp.supabase.com/mcp", about: "Manage Supabase projects: run SQL, change tables, read logs and deploy edge functions." },
-  { name: "Neon", url: "https://mcp.neon.tech/mcp", about: "Manage Neon Postgres projects, branches and queries." },
-  { name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
-  { name: "Hugging Face", url: "https://huggingface.co/mcp", about: "Search models, datasets and Spaces on Hugging Face." },
-  { name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", about: "Search Cloudflare's documentation." },
+  // The owner's list (2026-11-11), each address tried live that day: it asks to sign in and lets apps register on the fly.
+  { group: "Databases", name: "Neon", url: "https://mcp.neon.tech/mcp", about: "Manage Neon Postgres projects, branches and queries." },
+  { group: "Databases", name: "Supabase", url: "https://mcp.supabase.com/mcp", about: "Manage Supabase projects: run SQL, change tables, read logs and deploy edge functions." },
+  { group: "Hosting", name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
+  { group: "Hosting", name: "Cloudflare", url: "https://bindings.mcp.cloudflare.com/mcp", about: "Workers, KV, R2 and D1 in your Cloudflare account." },
+  { group: "Hosting", name: "Cloudflare Logs", url: "https://observability.mcp.cloudflare.com/mcp", about: "Your Cloudflare Workers' logs and analytics, for debugging." },
+  { group: "Hosting", name: "Railway", url: "https://mcp.railway.com", about: "Railway projects, services, deployments and variables." },
+  { group: "Email", name: "Resend", url: "https://mcp.resend.com/mcp", about: "Send email and manage domains, audiences and broadcasts in Resend." },
+  { group: "Monitoring and debugging", name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
+  { group: "Project management", name: "Linear", url: "https://mcp.linear.app/mcp", about: "Find, create and update issues, projects and comments in Linear." },
+  { group: "Payments", name: "Stripe", url: "https://mcp.stripe.com", about: "Work with customers, payments, products and invoices in Stripe." },
+  { group: "Authentication", name: "Clerk", url: "https://mcp.clerk.com/mcp", about: "Clerk users, organizations and sign-in settings." },
+  { group: "Docs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", about: "Search Cloudflare's documentation (no sign-in)." },
+]);
+/**
+ * ON THE OWNER'S LIST BUT NOT CONNECTABLE YET (tried 2026-11-11): Render and MongoDB have official servers whose sign-in
+ * does not let apps register on the fly (they need an app registered with them first); Postmark, Aikido and Redis have no
+ * official hosted MCP server.
+ */
+export const CATALOG_LATER = Object.freeze([
+  { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", why: "needs an app registered with Render first" },
+  { group: "Databases", name: "MongoDB", url: "https://mcp.mongodb.com/mcp", why: "needs an app registered with MongoDB first" },
+  { group: "Email", name: "Postmark", why: "no official hosted server yet" },
+  { group: "Security", name: "Aikido", why: "no official hosted server yet" },
+  { group: "Databases", name: "Redis", why: "no official hosted server yet" },
 ]);
 const aboutOf = (url) => { const k = CATALOG.find((x) => x.url === url); return k ? k.about : ""; };
 

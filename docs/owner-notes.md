@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Your apps in Discover (your list: databases, hosting, email, security, monitoring, project management, payments, sign-in)
+
+I tried each app's official MCP address live to see whether it works with our sign-in (it has to let apps register on the fly).
+
+- **In Discover now, grouped by your categories:**
+  - Databases: Neon, Supabase.
+  - Hosting: Vercel, Cloudflare (Workers, KV, R2, D1), Cloudflare Logs, Railway.
+  - Email: Resend.
+  - Monitoring and debugging: Sentry.
+  - Project management: Linear.
+  - Payments: Stripe.
+  - Authentication: Clerk.
+  - Docs: Cloudflare Docs, which needs no sign-in.
+- **"Coming later", shown greyed at the bottom of Discover:**
+  - **Render and MongoDB** have official servers, but their sign-in needs us to register an app with them first. That's item 7 in `docs/connectors-vs-claude-code.md`.
+  - **Postmark, Aikido and Redis** have no official hosted MCP server I could find. Only third-party copies exist, which we shouldn't send your logins through.
+- **Tests:** all 397 pass. Not deployed yet.
+
 ## 2026-11-11: The Connectors page now looks like Claude's (your word, with its screenshots: "Like this look")
 
 - **The page:** Connectors opens as a full page, not a small box. It has:
