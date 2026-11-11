@@ -95,3 +95,20 @@ test("D9 the page may ask the app only this: start, stop or nudge the link and r
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
   for (const f of ["main.js", "links.js", "route.js", "preload.js"]) assert.ok(pkg.build.files.includes(f), f);
 });
+
+test("D10 live test (2026-11-11): a link refused while Gloopy's computer is asleep is asked for again, though Node's WebSocket then says only \"error\" and never \"close\"", async () => {
+  const made = [];
+  class FakeWS {
+    constructor(url) { this.url = url; made.push(this); const first = made.length === 1; setTimeout(() => (first ? this.onerror && this.onerror({}) : this.onopen && this.onopen()), 10); }
+    send() {}
+    close() { this.closed = true; }
+  }
+  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, retryMs: 50, device: "Test Mac" });
+  r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+  assert.ok(await until(() => r.status().connected), "linked on the next try");
+  assert.equal(made.length, 2);
+  assert.equal(made[0].closed, true, "the refused one is let go");
+  assert.equal(made[1].url, "ws://127.0.0.1:1/api/coder/gloopy-route?t=t");
+  r.stop();
+  assert.equal(r.status().connected, false);
+});

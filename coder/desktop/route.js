@@ -103,11 +103,12 @@ function makeRoute(deps = {}) {
   const proxy = deps.proxy !== undefined ? deps.proxy : (process.env.HTTPS_PROXY || process.env.https_proxy || "");
   const connectTcp = deps.connect || ((o) => net.connect(o));
   const later = deps.setTimeout || setTimeout;
+  const retryMs = Number.isFinite(deps.retryMs) ? deps.retryMs : RETRY_MS;
   const device = String(deps.device || os.hostname() || "this computer").slice(0, 60);
   // `trying`: a link being opened (never two at once).
   let want = null, ws = null, trying = null, retry = null, keep = null, since = 0, lastError = "";
   const streams = new Map();
-  const counts = { opened: 0, blocked: 0, failed: 0 };
+  const counts = { opened: 0, blocked: 0, failed: 0, got: 0, sent: 0 };
   let lastBlocked = "";
 
   // Through a proxy this computer must use (an office's): a CONNECT to the site by its name.
@@ -170,17 +171,32 @@ function makeRoute(deps = {}) {
 
   const dropAll = () => { for (const s of streams.values()) s.destroy(); streams.clear(); };
   const schedule = (ms) => { if (retry || !want) return; retry = later(() => { retry = null; connect(); }, ms); };
+  // (retryMs, for tests: how long before asking again when Gloopy's computer is asleep.)
   const connect = () => {
     if (!want || ws || trying || typeof WS !== "function") return;
     let sock;
     try { sock = new WS(want.url + (want.url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(want.ticket)); } catch (e) { lastError = String((e && e.message) || e); return schedule(RETRY_MS); }
     trying = sock;
     sock.binaryType = "arraybuffer";
-    let up = false;
-    const send = (b) => { if (ws === sock) { try { sock.send(b); } catch { /* closing */ } } };
-    sock.onopen = () => {
+    let up = false, over = false;
+    const send = (b) => { if (ws === sock) { counts.sent++; try { sock.send(b); } catch { /* closing */ } } };
+    // A link that failed or ended, whichever way it says so (live test, 2026-11-11: Node's WebSocket says only "error",
+    // never "close", when Gloopy's computer is asleep and the handshake is refused): asked again in a while.
+    const failed = (why) => {
+      if (over) return;
+      over = true;
+      clearTimeout(guard);
       if (trying === sock) trying = null;
-      if (!want) { try { sock.close(); } catch { /* gone */ } return; }
+      if (ws === sock) { ws = null; if (keep) { clearInterval(keep); keep = null; } dropAll(); }
+      lastError = why;
+      try { sock.close(); } catch { /* gone */ }
+      schedule(up ? 2000 : retryMs);
+    };
+    const guard = later(() => { if (!up) failed("Gloopy's computer did not answer"); }, CONNECT_MS);
+    sock.onopen = () => {
+      clearTimeout(guard);
+      if (trying === sock) trying = null;
+      if (!want || over) { over = true; try { sock.close(); } catch { /* gone */ } return; }
       ws = sock; up = true; since = Date.now(); lastError = "";
       send(frame(ROUTE.HELLO, 0, JSON.stringify({ v: 1, device })));
       if (keep) clearInterval(keep);
@@ -188,6 +204,7 @@ function makeRoute(deps = {}) {
       if (keep.unref) keep.unref();
     };
     sock.onmessage = (m) => {
+      counts.got++;
       if (typeof m.data === "string") return;
       const b = Buffer.from(m.data);
       if (b.length < 5) return;
@@ -197,13 +214,8 @@ function makeRoute(deps = {}) {
       const s = streams.get(f.id);
       if (s) s.take(f);
     };
-    sock.onclose = () => {
-      if (trying === sock) trying = null;
-      if (ws === sock) { ws = null; if (keep) { clearInterval(keep); keep = null; } dropAll(); }
-      if (!up) lastError = lastError || "Gloopy's computer is asleep or out of reach";
-      schedule(up ? 2000 : RETRY_MS);
-    };
-    sock.onerror = () => { lastError = up ? "the link was cut" : "Gloopy's computer is asleep or out of reach"; };
+    sock.onclose = () => failed(up ? "the link was cut" : "Gloopy's computer is asleep or out of reach");
+    sock.onerror = () => failed(up ? "the link was cut" : "Gloopy's computer is asleep or out of reach");
   };
   return {
     start: ({ url, ticket } = {}) => {

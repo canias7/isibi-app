@@ -5606,7 +5606,7 @@ test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on i
   assert.match(server, /if \(routeWanted && !routeProxy\) \{ const p = makeRouteProxy\(\{ tunnel, uid: webUid \}\); await p\.listen\(\); routeProxy = p; \}/);
   assert.match(server, /if \(gloopy\) await browserRoute\(body\.route === true\);/);
   assert.match(server, /try \{ await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/);
-  assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud" \} : \{\}\);/);
+  assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud", link: \(\(\{ device, streams, got, sent \}\) => \(\{ device, streams, got, sent \}\)\)\(tunnel\.status\(\)\) \} : \{\}\);/, "and how the link is doing (messages each way)");
   assert.match(server, /srv\.on\("upgrade", app\.upgrade\);/);
   const { createApp } = await import("../container/server.mjs");
   const app = createApp({ env: { CODER_CONTROL_KEY: "k".repeat(40), CODER_IMAGE: "full" } });
@@ -5640,7 +5640,7 @@ test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on i
   }
 });
 
-test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in the Worker: the switch answers the desktop app a ticket for its link (and the link's address); turning it off makes every ticket worthless; the link reaches Gloopy's computer only while it is awake (never waking it), with the ticket; each turn and take-over carries the switch; the link to Fly is joined both ways", async () => {
+test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in the Worker: the switch answers the desktop app a ticket for its link (and the link's address); turning it off makes every ticket worthless; the link reaches Gloopy's computer only while it is awake (never waking it), with the ticket; each turn and take-over carries the switch; Fly's answer is handed back for Cloudflare to join", async () => {
   const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
   const { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } = await import("../src/coder-auth.mjs");
   const { flyRouteLink } = await import("../src/coder-fly.mjs");
@@ -5713,21 +5713,13 @@ test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in t
     await bucket.put(names.key, JSON.stringify({ id: "m123", stopped: true }));
     assert.equal(await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID), null, "asleep: no link, and not woken");
     await bucket.put(names.key, JSON.stringify({ id: "m123", stopped: false }));
-    const sock = () => { const l = {}, sent = []; return { sent, l, accept() { this.accepted = true; }, send(x) { sent.push(x); }, close() { this.closed = true; }, addEventListener(k, f) { (l[k] ||= []).push(f); }, fire(k, e) { for (const f of l[k] || []) f(e); } }; };
-    const up = sock(), app = sock(), here = sock();
     const asked = [];
-    class Pair { constructor() { return { 0: app, 1: here }; } }
-    class R { constructor(body, init) { this.status = init.status; this.webSocket = init.webSocket; } }
-    const res = await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID, { fetchFn: async (u, init) => { asked.push([u, init.headers]); return { webSocket: up }; }, WebSocketPair: Pair, Response: R });
-    assert.deepEqual([res.status, res.webSocket === app], [101, true]);
+    const upgraded = { status: 101, webSocket: { the: "machine's socket" } };
+    const res = await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID, { fetchFn: async (u, init) => { asked.push([u, init.headers]); return upgraded; } });
+    assert.equal(res, upgraded, "the machine's answer, as it is: Cloudflare joins its socket to the app's");
     assert.equal(asked[0][0], "https://gofarther-coder.fly.dev/gloopy/route");
-    assert.deepEqual([asked[0][1].Upgrade, asked[0][1]["fly-force-instance-id"], typeof asked[0][1]["x-coder-key"]], ["websocket", "m123", "string"]);
-    assert.ok(here.accepted && up.accepted);
-    here.fire("message", { data: "to-machine" });
-    up.fire("message", { data: "to-app" });
-    assert.deepEqual([up.sent, here.sent], [["to-machine"], ["to-app"]]);
-    up.fire("close", {});
-    assert.ok(here.closed && up.closed, "one end closing closes both");
+    assert.deepEqual([asked[0][1].Upgrade, asked[0][1].Connection, asked[0][1]["Sec-WebSocket-Version"], asked[0][1]["fly-force-instance-id"], typeof asked[0][1]["x-coder-key"]], ["websocket", "Upgrade", "13", "m123", "string"]);
+    assert.equal(await flyRouteLink(flyEnv, "u1-" + GLOOPY_ID, { fetchFn: async () => ({ status: 403 }) }), null, "a machine that won't take it: no link");
   }
   // The Worker answers the link's 101 as it is (a copy would lose its socket).
   const worker = await readFile(new URL("../worker.js", import.meta.url), "utf8");

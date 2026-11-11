@@ -161,7 +161,8 @@ const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(Math.min(n, 0xff
  * private address, or it could not reach the site). `connected`, `status()`.
  */
 export function makeTunnel({ now = Date.now } = {}) {
-  let ws = null, nextId = 1, keep = null, since = 0, device = "";
+  // `got`/`sent`: messages each way on this link (to see it work: live test, 2026-11-11).
+  let ws = null, nextId = 1, keep = null, since = 0, device = "", got = 0, sent = 0;
   const streams = new Map(), opening = new Map();
   const drop = (why) => {
     for (const [, o] of opening) o.reject(new Error(why));
@@ -171,13 +172,14 @@ export function makeTunnel({ now = Date.now } = {}) {
   };
   const attach = (sock) => {
     if (ws) { const old = ws; ws = null; drop("the link to the owner's computer changed"); try { old.close(); } catch { /* gone */ } }
-    ws = sock; since = now(); device = "";
-    const send = (b) => { if (ws === sock) sock.send(b); };
+    ws = sock; since = now(); device = ""; got = 0; sent = 0;
+    const send = (b) => { if (ws === sock) { sent++; sock.send(b); } };
     if (keep) clearInterval(keep);
     keep = setInterval(() => send(routeFrame(ROUTE.KEEP, 0)), ROUTE_KEEP_MS);
     keep.unref?.();
     sock.on("message", (m) => {
       if (ws !== sock || typeof m === "string") return;
+      got++;
       const f = routeRead(m);
       if (!f) return;
       if (f.type === ROUTE.HELLO) { try { device = String(JSON.parse(f.payload.toString("utf8")).device || "").replace(/[^\w .()-]/g, "").slice(0, 60); } catch { /* none */ } return; }
@@ -199,12 +201,13 @@ export function makeTunnel({ now = Date.now } = {}) {
     if (nextId > 0xfffffff0) nextId = 1;
     const timer = setTimeout(() => { if (opening.delete(id)) reject(Object.assign(new Error("the owner's computer did not answer in time"), { refused: true })); }, ROUTE_OPEN_MS);
     opening.set(id, { resolve, reject, timer });
+    sent++;
     ws.send(routeFrame(ROUTE.OPEN, id, JSON.stringify({ host: String(host), port: Number(port) })));
   });
   return {
     attach, open,
     get connected() { return !!ws; },
-    status: () => ({ connected: !!ws, since: ws ? since : 0, device: ws ? device : "", streams: streams.size }),
+    status: () => ({ connected: !!ws, since: ws ? since : 0, device: ws ? device : "", streams: streams.size, got, sent }),
     close: () => { if (ws) { const old = ws; ws = null; drop("closed"); try { old.close(); } catch { /* gone */ } } if (keep) { clearInterval(keep); keep = null; } },
   };
 }

@@ -1668,7 +1668,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     } catch { /* the browser goes its own way */ }
   };
   // Which way the browser's new connections go now, for the live view: through the owner's computer, or Gloopy's own.
-  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud" } : {});
+  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud", link: (({ device, streams, got, sent }) => ({ device, streams, got, sent }))(tunnel.status()) } : {});
   // THE LIVE VIEW AS A STREAM (live test, 2026-11-10: each look paid the Worker's sign-in check, about half a second, so
   // the owner saw about two pictures a second): one request, answered with the page's pictures as Chromium sends them
   // (an event each, carrying a look's answer), and with its state when that changes or every SCREEN_BEAT_MS, for up to

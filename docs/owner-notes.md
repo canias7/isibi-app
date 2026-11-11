@@ -36,6 +36,10 @@ Tried live on the test copy with Grok, recorded:
   - On Gloopy's computer, a small proxy takes connections only from its browser's own user, so Gloopy's commands can't send anything through your computer.
   - When the switch changes, the browser restarts at the next step, staying signed in, as for a time-zone change.
 - **Using it:** the Mac and Windows apps need rebuilding to have it.
+- **Found in the live test, and fixed:**
+  - The app didn't try the link again after Gloopy's computer said it was asleep. When the handshake is refused, Node's WebSocket says only "error", never "close", and the app was waiting for "close". Now an error counts too, and a link that never answers is given up after 15 seconds. Test D10.
+  - Nothing came back from Gloopy's computer through Go Farther's servers to the app. The link is now passed on Cloudflare's own way, and both ends count the messages each way, which shows in the app's status.
+  - Settings' "On" note didn't show.
 
 Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch), GL115 (the page), D7 to D9 (the desktop app: private addresses, the link, what the page may ask); CD119, CD129, CD146, GL25 and GL106 updated.
 
