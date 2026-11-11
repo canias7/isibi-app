@@ -2,6 +2,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+
+// READ'S PICTURES AND PDFs are tested with the programs Coder's machine has for them (ImageMagick, poppler, as
+// read-pictures.test.mjs does). On a machine without them (GitHub's deploy machine when their install fails, deploy 129,
+// 2026-11-11) those tests, or those parts of a test, are skipped, as the deploy expects; everything else still runs.
+const onPath = (cmd) => spawnSync("sh", ["-c", "command -v " + cmd], { stdio: "ignore" }).status === 0;
+const MAGICK = onPath("convert") && onPath("identify"), POPPLER = onPath("pdftotext") && onPath("pdfinfo") && onPath("pdftoppm");
+const NEEDS_MAGICK = MAGICK ? false : "needs ImageMagick, as Coder's machine has it";
+// A 1×1 PNG, for a test that needs a picture file but never opens it.
+const TINY_PNG = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==", "base64");
 
 const HERE = (p) => new URL("../" + p, import.meta.url);
 const call = (name, args, id = "c1") => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -237,9 +247,9 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
   assert.ok(sub && sub.cut === true && sub.text.length === NOTE_ONE_MAX, "taken up to 40,000 characters, and marked");
   const shown = laterNotes(ins.later, dir, "src/a.js", new Set());
   assert.match(shown, /src\/CODER\.md goes on past 40,000 characters: read the rest of it with the read tool, from line 7\d\d\]/);
-  // A password-protected PDF (made with pypdf, when this machine has it).
+  // A password-protected PDF (made with pypdf, when this machine has it and poppler to read it).
   let pypdf = true; try { execFileSync("python3", ["-c", "import pypdf"]); } catch { pypdf = false; }
-  if (pypdf) {
+  if (pypdf && POPPLER) {
     execFileSync("python3", ["-c", "import pypdf, sys\nw = pypdf.PdfWriter()\nw.add_blank_page(612, 792)\nw.encrypt('secret')\nw.write(sys.argv[1])", join(dir, "locked.pdf")]);
     const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
     let msg = "";
@@ -266,7 +276,7 @@ const machine = (dir, other = () => ({ code: 0, output: "ok" }), env = process.e
   try { return { code: 0, output: execSync(command, { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20, env }) }; } catch (e) { return { code: Number.isInteger(e.status) ? e.status : 1, output: String(e.stdout || "") }; }
 };
 
-test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"includes the content of the file in the conversation when it fits the Read tool's token limit\"): a file whole with its folder's instructions, a picture shown, a folder as its listing; a file too big for one read is named, not included; a path that is not a file (a package name) is left alone; never in a job from GitHub; the note is the app's, not the owner's, when a long chat is summarized", async () => {
+test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"includes the content of the file in the conversation when it fits the Read tool's token limit\"): a file whole with its folder's instructions, a picture shown, a folder as its listing; a file too big for one read is named, not included; a path that is not a file (a package name) is left alone; never in a job from GitHub; the note is the app's, not the owner's, when a long chat is summarized", { skip: NEEDS_MAGICK }, async () => {
   const { runCoder, mentionedPaths, MENTIONS_MAX } = await import("../container/coder-agent.mjs");
   const { turnCut, transcriptText, isAppNote } = await import("../container/coder-compact.mjs");
   const { fileMentions } = await import("../src/coder-routes.mjs");
@@ -336,7 +346,6 @@ test("CD210 after a long job is summarized, the files it was working on are read
   const { runCoder, rereadFiles, REREAD_FILES, REREAD_ONE } = await import("../container/coder-agent.mjs");
   const { isSummary } = await import("../container/coder-compact.mjs");
   const { mkdtemp, writeFile, utimes } = await import("node:fs/promises");
-  const { execFileSync } = await import("node:child_process");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
   assert.equal(REREAD_FILES, 5);
@@ -382,7 +391,7 @@ test("CD210 after a long job is summarized, the files it was working on are read
   const dir2 = await mkdtemp(join(tmpdir(), "coder-reread-"));
   const touched = new Map();
   for (let i = 1; i <= 7; i++) { await writeFile(join(dir2, "f" + i + ".js"), "file " + i + "\n"); await utimes(join(dir2, "f" + i + ".js"), t0 + i, t0 + i); touched.set("f" + i + ".js", i); }
-  execFileSync("convert", ["-size", "8x8", "xc:blue", join(dir2, "pic.png")]);
+  await writeFile(join(dir2, "pic.png"), TINY_PNG);
   touched.set("pic.png", 8); touched.set("gone.js", 9);
   const text = await rereadFiles({ exec: machine(dir2) }, [], touched);
   const named = [...text.matchAll(/^--- (\S+) ---$/gm)].map((m) => m[1]);
@@ -434,7 +443,7 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
-  assert.match(await tool("read", { path: "fake.pdf" }), /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s);
+  assert.match(await tool("read", { path: "fake.pdf" }), POPPLER ? /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s : /^error: this machine has no PDF reader \(poppler\); use bash$/);
 });
 
 test("CD213 a command that changes a file Coder read says so in its result, as Claude Code's do (\"This command modified 1 file you've previously read … Call Read before editing\"); a file changed any other way (a command in the background, or between messages) gets no note, as the owner's two tests in Claude Code showed, and is never put down to Coder's next command; Coder's own edits are no news; only on a machine that follows the files", async () => {
@@ -721,7 +730,7 @@ test("CD219 the review (2026-11-08): a chat with no history (new, or rewound to 
   assert.equal(all, Math.round(Buffer.byteLength(Array.from({ length: 2000 }, (_, i) => "row " + i + " " + "é".repeat(60)).join("\n")) / 1024));
 });
 
-test("CD220 a big picture is shown smaller, and Coder is told so, with its real size and how to crop for fine detail (Claude Code's docs: \"Claude may see a downscaled version of a large screenshot … crop the region you care about, such as with ImageMagick via Bash, and then read the crop\"); a small one is shown as it is", async () => {
+test("CD220 a big picture is shown smaller, and Coder is told so, with its real size and how to crop for fine detail (Claude Code's docs: \"Claude may see a downscaled version of a large screenshot … crop the region you care about, such as with ImageMagick via Bash, and then read the crop\"); a small one is shown as it is", { skip: NEEDS_MAGICK }, async () => {
   const { mkdtemp } = await import("node:fs/promises");
   const { execFileSync } = await import("node:child_process");
   const { tmpdir } = await import("node:os");
@@ -853,12 +862,14 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   // Edit changes UTF-16 files as UTF-16 since its turn (tool 3, 2026-11-09), as Claude Code's Edit ("unless the file starts with a little-endian UTF-16 byte-order mark").
   assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /^The file le\.txt has been updated successfully\./);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("jéllo\nwörld\n", "utf16le")]), "still UTF-16, its mark kept");
-  // A CMYK JPEG: the picture Grok gets is sRGB.
-  execFileSync("convert", ["-size", "64x48", "xc:red", "-colorspace", "CMYK", join(dir, "cmyk.jpg")]);
-  assert.equal(execFileSync("identify", ["-format", "%[colorspace]", join(dir, "cmyk.jpg")]).toString(), "CMYK");
-  const out = await tool("read", { path: "cmyk.jpg" });
-  const pic = JSON.parse(out.slice(PICS_MARK.length)).pictures[0];
-  assert.equal(execFileSync("identify", ["-format", "%[colorspace]", "-"], { input: Buffer.from(pic.data, "base64") }).toString(), "sRGB");
+  // A CMYK JPEG: the picture Grok gets is sRGB (where this machine has ImageMagick, as Coder's has).
+  if (MAGICK) {
+    execFileSync("convert", ["-size", "64x48", "xc:red", "-colorspace", "CMYK", join(dir, "cmyk.jpg")]);
+    assert.equal(execFileSync("identify", ["-format", "%[colorspace]", join(dir, "cmyk.jpg")]).toString(), "CMYK");
+    const out = await tool("read", { path: "cmyk.jpg" });
+    const pic = JSON.parse(out.slice(PICS_MARK.length)).pictures[0];
+    assert.equal(execFileSync("identify", ["-format", "%[colorspace]", "-"], { input: Buffer.from(pic.data, "base64") }).toString(), "sRGB");
+  }
   // file_path for path.
   await writeFile(join(dir, "a.txt"), "alpha\n");
   let k = 0;
@@ -945,14 +956,16 @@ test("CD226 the second review (2026-11-08), the tools and the machine: a read ne
   // The scratch folder: read opens a crop there (named by its whole path); a link out of it is refused.
   assert.equal(SCRATCH, "/tmp/coder-scratch");
   await mkdir(SCRATCH, { recursive: true });
-  execFileSync("convert", ["-size", "40x30", "xc:green", join(SCRATCH, "part-cd226.png")]);
-  assert.match((await read(SCRATCH + "/part-cd226.png")).text, /^Picture: \/tmp\/coder-scratch\/part-cd226\.png \(40×30, PNG, /);
+  if (MAGICK) {
+    execFileSync("convert", ["-size", "40x30", "xc:green", join(SCRATCH, "part-cd226.png")]);
+    assert.match((await read(SCRATCH + "/part-cd226.png")).text, /^Picture: \/tmp\/coder-scratch\/part-cd226\.png \(40×30, PNG, /);
+  }
   await symlink("/etc/passwd", join(SCRATCH, "out-cd226.txt")).catch(() => {});
   assert.match((await read(SCRATCH + "/out-cd226.txt")).text, /leads outside/);
   await rm(join(SCRATCH, "part-cd226.png"), { force: true }); await unlink(join(SCRATCH, "out-cd226.txt")).catch(() => {});
   // A WebP's real size (ImageMagick tells it when the header is not PNG or JPEG).
-  execFileSync("convert", ["-size", "4000x2000", "xc:white", join(dir, "wide.webp")]);
-  assert.match((await read("wide.webp")).text, /^Picture: wide\.webp \(4000×2000, WEBP, [^)]*\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 2\.00 to map them to the real picture\)/);
+  if (MAGICK) execFileSync("convert", ["-size", "4000x2000", "xc:white", join(dir, "wide.webp")]);
+  if (MAGICK) assert.match((await read("wide.webp")).text,/^Picture: wide\.webp \(4000×2000, WEBP, [^)]*\), shown to you as a picture after these results, made smaller \(2000×1000; multiply coordinates by 2\.00 to map them to the real picture\)/);
   // After a summary: the top-level CODER.md fresh; .coder/CODER.md as it was; a top-level file gone or turned into a link: left out.
   const { repoInstructions, topNotes } = await import("../container/server.mjs");
   const repo = await mkdtemp(join(tmpdir(), "coder-review2-repo-"));
@@ -981,7 +994,7 @@ test("CD226 the second review (2026-11-08), the tools and the machine: a read ne
   assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const dropM = capped\.dropped,/);
 });
 
-test("CD227 the picture a read opens is shown in the chat, small, under its step, like Claude Code's (the owner: \"Fix those 3\"): Coder's machine makes a JPEG of at most 320 pixels; Grok still gets the picture itself, the chat's record only the small copy; an @-mentioned picture too; the page shows only JPEG data URLs", async () => {
+test("CD227 the picture a read opens is shown in the chat, small, under its step, like Claude Code's (the owner: \"Fix those 3\"): Coder's machine makes a JPEG of at most 320 pixels; Grok still gets the picture itself, the chat's record only the small copy; an @-mentioned picture too; the page shows only JPEG data URLs", { skip: NEEDS_MAGICK }, async () => {
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { execFileSync } = await import("node:child_process");
   const { readFileSync } = await import("node:fs");
@@ -1022,7 +1035,7 @@ test("CD227 the picture a read opens is shown in the chat, small, under its step
   assert.match(readFileSync(HERE("public/coder.css"), "utf8"), /\.cd-cmd-pics img \{/);
 });
 
-test("CD228 pictures the owner sends are saved as files Coder can open again (Claude Code 2.1.275: \"they are now saved where Claude can open them as files\"; the owner: \"Fix those 3\"): in the project's .coder-pictures folder, never saved to the branch; Coder is told where; the newest 50 stay; not in a job from GitHub", async () => {
+test("CD228 pictures the owner sends are saved as files Coder can open again (Claude Code 2.1.275: \"they are now saved where Claude can open them as files\"; the owner: \"Fix those 3\"): in the project's .coder-pictures folder, never saved to the branch; Coder is told where; the newest 50 stay; not in a job from GitHub", { skip: NEEDS_MAGICK }, async () => {
   const { mkdtemp, readFile, readdir } = await import("node:fs/promises");
   const { execFileSync } = await import("node:child_process");
   const { tmpdir } = await import("node:os");

@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Why round 4 took three deploys to go out, and the fix
+
+Deploys 127, 128 and 129 all stopped on GitHub's machine before anything reached gofarther.dev, so nothing live changed.
+- **Why:** before Coder's tests, the deploy installs the picture, PDF and search programs that Coder's own machine has (ImageMagick, poppler and ripgrep). On GitHub's machine that install got stuck: over 20 minutes twice (I stopped both), then the whole 12 minutes it is allowed. Without those programs, 9 tests failed instead of being skipped, so deploy 129 stopped there.
+- **The fix, part 1:** the install now leaves out the slow rebuild of the manual pages' index (a known slow step on GitHub's Ubuntu machines). It installs only what the programs need, the same way Coder's own machine does. If it ever fails again, the deploy shows apt's last lines and the times.
+- **The fix, part 2:** the 10 tests that need one of those programs now skip just those parts when it's missing, as the other picture tests already did. I ran the whole suite both ways here. With the programs, all pass. Without them, none fail.
+- Nothing in Coder itself changed.
+
 ## 2026-11-11: Round 4's last three copied too (your words: "copy those too, then merge and deploy")
 
 I checked the hook wording in Claude Code's command-line version first (3 short runs, about 1 cent).

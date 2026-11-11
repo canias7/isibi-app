@@ -342,7 +342,9 @@ test("CD302 (the live test after deploy 75) read and grep open the chat's own co
   const run = (fn, args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const T = await import(" + JSON.stringify(tools) + "); process.stdout.write(String(await T." + fn + "(" + JSON.stringify(args) + ")));"], { cwd: proj, encoding: "utf8", env: { ...process.env, CODER_OUTPUT_DIRS: bg + ":" + out } }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || e.message); } };
   assert.match(run("toolRead", { path: join(bg, "bg-1.log") }), /^ +1\ttick 1\n +2\ttick 2\n +3\tall done$/, "a background command's log");
   assert.match(run("toolRead", { path: join(out, "abc123.txt"), offset: 51, limit: 1 }), /51\tthe needle/, "a long output's saved file, a part of it");
-  assert.match(run("toolGrep", { pattern: "needle", path: join(out, "abc123.txt") }), /the needle/, "searched");
+  // grep searches with ripgrep, as Coder's machine has it (skipped on a machine without it, as the deploy expects).
+  let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
+  if (hasRg) assert.match(run("toolGrep", { pattern: "needle", path: join(out, "abc123.txt") }), /the needle/, "searched");
   assert.match(run("toolRead", { path: join(bg, "bg-2.log") }), /that path leads outside the project/, "never through a link out");
   assert.match(run("toolRead", { path: join(other, "secret.txt") }), /that path is outside the project/, "nothing else outside the project");
   assert.match(run("toolWrite", { path: join(bg, "bg-9.log"), content: "x" }), /outside the project/, "no tool writes there");
