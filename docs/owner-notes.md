@@ -11,6 +11,42 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Hooks and rules in Claude Code's command-line version, next to Coder's round 3 (your words: "yes Haiku")
+
+Claude Code's command-line version (2.1.322, the same program this cloud session runs, in its cloud setting) ran round 3's rule and hook cases with Haiku. Each case ran in its own test folder on this session's machine, with the same rules and hooks Coder had. Cost: 12 cents in total. Nothing in Coder was changed.
+
+**The same in both:**
+- **Deny rules:** all 13 commands were stopped. 8 of them got the same sentence, word for word ("Permission to use Bash with command … has been denied.").
+- **Allow rules that must not reach too far** (with the rules as your own, as in Coder): the same 7 results with the same reasons, word for word. `mkdir -p r39dir` and `cd ./r39dir && touch …` ran. Writing outside the project, `nohup cat /etc/hostname`, `cd r39dir && touch …` and `eval` asked.
+- **A repository's own allow rules:** Claude Code set them aside in a folder it had not been told to trust, but kept the repository's deny rules. Coder does the same until you turn on "Trust this repository's settings".
+- **Odd commands:** `echo =ls` and `DEBUG=1 ls` asked, with the same reasons. `GOOS=linux ls` ran.
+- **The `!` rule:** sample.env was read and prod.env was refused.
+- **Hooks:**
+  - A hook's "no" stopped the command, and its extra note reached the AI.
+  - A hook answer with no event name was ignored, and the command ran.
+  - A PermissionRequest hook answered the card for you and changed the command ("rewritten-by-hook"). The rule it added let the next `touch` run.
+  - 12,000 characters of hook text went to a file with a 2 KB preview, in the same words.
+  - In Plan mode, a hook's "ask" stayed a question, with the hook's reason.
+
+**Different (your call):**
+1. **A file rule's refusal:** Claude Code gives its plain sentence, "Permission to use Bash with command cat prod.env has been denied.", in all 12 ways I tried: through a variable, `./`, a full path, `<`, `>`, `head`, `cp`, `git diff`, and grep with a wildcard. Coder says "cat from '/data/work/…/prod.env' was blocked by a deny rule." Claude Code's program has that sentence too, but another check always answers first.
+2. **A hook's "no" in JSON:** Claude Code says "PreToolUse:Bash hook error: r39 hook says no". Coder says "PreToolUse:Bash hook blocking error from command: [the hook's whole command]: r37 hook says no".
+3. **A hook's "no" by exit code 2:** Claude Code calls the hook "[command hook]": "PreToolUse:Bash hook error: [command hook]: r39 exit two says no". Coder puts the hook's whole command in the brackets.
+4. **A hook's extra note** starts with "PreToolUse:Bash hook additional context:" in Claude Code, and "PreToolUse hook additional context:" in Coder.
+5. **A hook answer with no event name:** Claude Code's note says "Hook JSON output validation failed — hookSpecificOutput is missing required field "hookEventName"", then the hook's output and the shape it expects. Coder's says "Hook returned incorrect event name: expected 'PreToolUse' but got 'undefined'." Claude Code says that only when a name is there but wrong.
+6. **`$"rm" -f …` with a deny rule on rm:** Claude Code asks, saying "This command can't be checked before it runs". Coder refuses it outright with the rule's sentence. Coder is stricter here.
+7. **`echo <1-3>`:** both ask. Claude Code's reason is "Contains zsh <N-M> numeric-range glob". Coder's is the dangerous-delete check's "This command could not be checked for dangerous rm operations…", because Coder runs that check first.
+8. **`(cd /tmp) && git status`:** both ask. Claude Code's reason is "This command uses shell operators that require approval for safety", which it gives for any command with brackets. Coder's is "This Bash command contains multiple operations. The following parts require approval: cd /tmp, git status".
+
+**Not for Coder:** a hook's "defer" stops Claude Code's command-line version on the spot, for apps that resume a run later. Coder ignores it, as Claude Code's docs say a normal session does. Left as it is.
+
+**Not compared:**
+- **The no-break space:** Haiku typed a normal space both times, even when told not to.
+- **A dangerous delete in Plan mode:** Haiku would not call the tool in Plan mode, even when told it was a test. Round 3 already matched Claude Code's words for a dangerous delete.
+- **PowerShell:** it isn't on this machine.
+
+The test script and Claude Code's own records are in this session's scratch folder, not in the repository.
+
 ## 2026-11-11: Deploy 126: round 3's fixes and Claude Code's own ways live, and tested live with Grok (recordings 38 and 38b) (your words: "merge and deploy")
 
 Merged into main and deployed (deploy 126, live at 12:50 UTC). All 546 tests passed first. Tested live on gofarther.dev with Grok and filmed, in new chats on canias7/testingforclaude. All passed:
