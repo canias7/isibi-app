@@ -18,6 +18,10 @@ const ROUTE = Object.freeze({ OPEN: 1, OK: 2, FAIL: 3, DATA: 4, END: 5, RESET: 6
 const ROUTE_CHUNK = 32 * 1024, ROUTE_WINDOW = 1024 * 1024, ROUTE_ACK = 128 * 1024, ROUTE_KEEP_MS = 25_000;
 /** Asleep or cut off: asked again after this long (sooner when the page says Gloopy just started). */
 const RETRY_MS = 20_000, CONNECT_MS = 15_000;
+// The link's own answer can take a while: right after Gloopy's computer wakes, Go Farther passes the link on as soon as
+// it is awake, and its start takes longer than CONNECT_MS (live test, 2026-11-11: the app gave up just before the link
+// came, and Gloopy's computer saw it close at once; the next try, 20 seconds later, worked).
+const LINK_MS = 45_000;
 // Nothing at all from Gloopy's computer for this long (more than two of its keepalives): the link is dead though no one
 // said so (this computer slept, or its network changed), and a new one is asked for (the live test, 2026-11-11).
 const DEAD_MS = 60_000;
@@ -186,7 +190,8 @@ function makeRoute(deps = {}) {
     const send = (b) => { if (ws === sock) { counts.sent++; try { sock.send(b); } catch { /* closing */ } } };
     // A link that failed or ended, whichever way it says so (live test, 2026-11-11: Node's WebSocket says only "error",
     // never "close", when Gloopy's computer is asleep and the handshake is refused): asked again in a while.
-    const failed = (why) => {
+    // (`again`: when to ask again; null: not at all, until the page gives a new ticket.)
+    const failed = (why, again = up ? 2000 : retryMs) => {
       if (over) return;
       over = true;
       clearTimeout(guard);
@@ -194,9 +199,10 @@ function makeRoute(deps = {}) {
       if (ws === sock) { ws = null; if (keep) { clearInterval(keep); keep = null; } dropAll(); }
       lastError = why;
       try { sock.close(); } catch { /* gone */ }
-      schedule(up ? 2000 : retryMs);
+      if (again === null) want = null;
+      else schedule(again);
     };
-    const guard = later(() => { if (!up) failed("Gloopy's computer did not answer"); }, CONNECT_MS);
+    const guard = later(() => { if (!up) failed("Gloopy's computer did not answer"); }, LINK_MS);
     sock.onopen = () => {
       clearTimeout(guard);
       if (trying === sock) trying = null;
@@ -221,7 +227,16 @@ function makeRoute(deps = {}) {
       if (s) s.take(f);
     };
     // (The close's own code, said with it: 1006 cut off, 1009 too big, 1002 not WebSocket as expected…)
-    sock.onclose = (e) => failed((up ? "the link was cut" : "Gloopy's computer is asleep or out of reach") + (e && e.code && e.code !== 1000 ? " (" + e.code + (e.reason ? ": " + String(e.reason).slice(0, 80) : "") + ")" : ""));
+    // Refused by Go Farther, with its reason (the Worker opens and closes the link at once with a code of its own, since
+    // a refused handshake's status can't be read here): asleep is asked again later; the rest wait for a new ticket.
+    sock.onclose = (e) => {
+      const code = e && e.code;
+      if (code === 4409) return failed("Gloopy's computer is asleep: the link comes when Gloopy starts work or you take over", retryMs);
+      if (code === 4403) return failed("Sending Gloopy's browser through this computer was turned off", null);
+      if (code === 4401) return failed("The link's ticket ran out; Go Farther gives a new one while it is open", null);
+      if (code === 4404) return failed("There is no Gloopy on this account", null);
+      failed((up ? "the link was cut" : "Gloopy's computer is asleep or out of reach") + (code && code !== 1000 ? " (" + code + (e.reason ? ": " + String(e.reason).slice(0, 80) : "") + ")" : ""));
+    };
     // A link that was up says "error" first and then "close" with its code (Node's WebSocket, seen live in the app,
     // 2026-11-11): the close is waited for a moment, so its code is kept. One that never opened says only "error" (D10).
     sock.onerror = () => { if (up) later(() => failed("the link was cut"), 1000); else failed("Gloopy's computer is asleep or out of reach"); };

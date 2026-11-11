@@ -55,9 +55,9 @@ Tried live on the test copy with Grok, recorded:
   - The link never woke a sleeping Gloopy's computer: the app was told "asleep" until a take-over woke it.
   - With the app open, and made to link again twice, Gloopy's computer still went to sleep 10.8 minutes after the page went idle, only 5.3 minutes after the app's last link.
   - Turned off on the website, Settings said "Off. Gloopy's browser goes straight out now." Gloopy's computer let the app go at once, and the live view dropped "Through your computer". The same page then showed 152.233.48.176, Gloopy's own address.
-- **Small things left (routing; not changed):**
-  - Turned off from another device, the app keeps asking for its link every 20 seconds and is refused each time. Its status reads "asleep or out of reach" until its page next checks, when it opens or within 50 minutes. It can't yet tell "refused" from "asleep".
-  - Twice, the app's first link right after Gloopy's computer woke closed within seconds; the app linked again on its own in 2 to 4 seconds.
+- **The two small things left, fixed** (your words: "Finish the browser"):
+  - **Turned off from another device:** the app kept asking for its link every 20 seconds, and said "asleep or out of reach". It couldn't tell a refusal from sleep, because the app's WebSocket can't read why a link was refused. Now Go Farther opens a refused link and closes it at once with its own reason. Turned off: the app stops asking and says so. Ticket ran out, or no Gloopy: it stops until its page gives it a new ticket. Asleep: it asks again in 20 seconds, as before. Tests D13 and GL114.
+  - **The first link after Gloopy's computer woke closed within seconds:** most likely the app gave up waiting after 15 seconds while Gloopy's computer was still starting, and the next try, 20 seconds later, worked. It now waits 45 seconds for the link. Test D13.
 
 Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch, off at once), GL115 (the page), GL116 (the certificate note), GL117 (why a link ended, a link gone quiet, never keeping Gloopy's computer awake, off at once), D7 to D12 (the desktop app: private addresses, the link, what the page may ask, trying again, why a link closed, a link gone quiet); CD119, CD129, CD146, GL25 and GL106 updated.
 

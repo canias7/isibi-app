@@ -5671,6 +5671,13 @@ test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in t
   assert.deepEqual([d.options.route, d.options.routeVer, d.url], [true, 0, "wss://test.gofarther.dev/api/coder/gloopy-route"]);
   const t1 = d.ticket;
   assert.deepEqual((await readRouteTicket(env, t1)).uid, "u1");
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  // A refused link says why in a way the app can hear (live test, 2026-11-11): on Cloudflare it is opened and closed at
+  // once with a code of its own; here (no WebSocketPair), the same as an answer, as below.
+  assert.match(routes, /export const LINK_REFUSED = Object\.freeze\(\{ 401: \[4401, "ticket"\], 403: \[4403, "off"\], 404: \[4404, "no gloopy"\], 409: \[4409, "asleep"\] \}\);/);
+  assert.match(routes, /server\.accept\(\);\n\s+server\.close\(LINK_REFUSED\[status\]\[0\], LINK_REFUSED\[status\]\[1\]\);\n\s+return new Response\(null, \{ status: 101, webSocket: client \}\);/);
+  for (const [st, why] of [[401, "That link's ticket isn't good, or ran out."], [403, "Sending Gloopy's browser through your computer was turned off."], [404, "There is no Gloopy here."]]) assert.ok(routes.includes("return refuseLink(" + st + ", { error: \"" + why + "\" });"), String(st));
+  assert.ok(routes.includes("if (!awake) return refuseLink(409, { asleep: true });"));
   // The link: a WebSocket only; asleep, refused (never woken); awake, joined to Gloopy's computer.
   assert.equal((await link(t1, false)).status, 426);
   assert.equal((await link("forged.x")).status, 401);
@@ -5689,7 +5696,6 @@ test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in t
   machine.length = 0;
   await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ take: true }) });
   assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true, route: true } });
-  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /monitor: \(await readOptions\(bucket, uid\)\)\.monitor, route: \(await readOptions\(bucket, uid\)\)\.route, grant:/);
   // Off: every ticket given before stops working; an awake Gloopy's computer is told at once (it lets the link go, so
   // new pages go straight out: live test, 2026-11-11).

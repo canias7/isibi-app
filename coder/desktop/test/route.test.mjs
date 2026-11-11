@@ -170,3 +170,41 @@ test("D12 live test (2026-11-11): nothing at all from Gloopy's computer for a wh
     assert.ok(await until(() => made.length === 2 && r.status().connected, 5000), "a new link is asked for");
   } finally { r.stop(); }
 });
+
+test("D13 live test (2026-11-11): a link Go Farther refuses says why (its own close codes, since a refused handshake's status can't be read): asleep is asked again later; turned off, a ticket run out or no Gloopy stop asking until the page gives a new ticket", async () => {
+  const run = async (code) => {
+    const made = [];
+    class FakeWS {
+      constructor(url) { this.url = url; made.push(this); setTimeout(() => { this.onopen && this.onopen(); setTimeout(() => this.onclose && this.onclose({ code, reason: "" }), 5); }, 5); }
+      send() {}
+      close() { this.closed = true; }
+    }
+    const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, retryMs: 60, device: "Test Mac" });
+    r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+    assert.ok(await until(() => made.length >= 1 && !r.status().connected && r.status().error !== ""), "refused");
+    await new Promise((ok) => setTimeout(ok, 250));
+    const s = r.status();
+    r.stop();
+    return { tries: made.length, on: s.on, error: s.error };
+  };
+  const asleep = await run(4409);
+  assert.ok(asleep.tries >= 2, "asleep: asked again later");
+  assert.equal(asleep.on, true);
+  assert.equal(asleep.error, "Gloopy's computer is asleep: the link comes when Gloopy starts work or you take over");
+  for (const [code, words] of [[4403, "Sending Gloopy's browser through this computer was turned off"], [4401, "The link's ticket ran out; Go Farther gives a new one while it is open"], [4404, "There is no Gloopy on this account"]]) {
+    const x = await run(code);
+    assert.deepEqual([x.tries, x.on, x.error], [1, false, words], String(code));
+  }
+  // The link's own answer is waited for longer than a site's (Gloopy's computer may be starting: live test).
+  const src = readFileSync(new URL("../route.js", import.meta.url), "utf8");
+  assert.match(src, /const RETRY_MS = 20_000, CONNECT_MS = 15_000;/);
+  assert.match(src, /const LINK_MS = 45_000;/);
+  assert.match(src, /const guard = later\(\(\) => \{ if \(!up\) failed\("Gloopy's computer did not answer"\); \}, LINK_MS\);/);
+  // A new ticket from the page starts it again.
+  const made = [];
+  class OkWS { constructor(url) { this.url = url; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); } send() {} close() {} }
+  const r = makeRoute({ WebSocket: OkWS, anyUrl: true, device: "Test Mac" });
+  r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "new" });
+  assert.ok(await until(() => r.status().connected));
+  r.stop();
+});

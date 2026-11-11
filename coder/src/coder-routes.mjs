@@ -2133,16 +2133,32 @@ async function gloopyRoute(g) {
  * THE DESKTOP APP'S LINK (2026-11-11), with its ticket: joined to Gloopy's computer while it is awake (a link never
  * wakes it, and doesn't keep it awake); 409 { asleep: true } while it sleeps (the app asks again in a while).
  */
+/**
+ * A LINK REFUSED, SAID SO THE APP CAN HEAR WHY (live test, 2026-11-11: Node's WebSocket never shows a refused
+ * handshake's status, so a link turned off on another device was asked for again every 20 seconds as if "asleep"):
+ * where Cloudflare can, the link is opened and closed at once with a code of its own (4401 the ticket ran out, 4403
+ * turned off, 4404 no Gloopy: stop asking; 4409 asleep: ask again later); elsewhere (tests), the same as an answer.
+ */
+export const LINK_REFUSED = Object.freeze({ 401: [4401, "ticket"], 403: [4403, "off"], 404: [4404, "no gloopy"], 409: [4409, "asleep"] });
+function refuseLink(status, body) {
+  const Pair = globalThis.WebSocketPair;
+  if (typeof Pair !== "function" || !LINK_REFUSED[status]) return json(body, status);
+  const pair = new Pair(), client = pair[0], server = pair[1];
+  server.accept();
+  server.close(LINK_REFUSED[status][0], LINK_REFUSED[status][1]);
+  return new Response(null, { status: 101, webSocket: client });
+}
+
 async function gloopyRouteLink(request, env, deps, bucket, url) {
   if (String(request.headers.get("upgrade") || "").toLowerCase() !== "websocket") return json({ error: "This is the desktop app's link to Gloopy's computer." }, 426);
   const t = await readRouteTicket(env, url.searchParams.get("t") || "");
-  if (!t) return json({ error: "That link's ticket isn't good, or ran out." }, 401);
+  if (!t) return refuseLink(401, { error: "That link's ticket isn't good, or ran out." });
   const o = await readOptions(bucket, t.uid);
-  if (!o.route || o.routeVer !== t.ver) return json({ error: "Sending Gloopy's browser through your computer was turned off." }, 403);
-  if (!(await getJson(bucket, keyOf(t.uid, GLOOPY_ID, "meta.json"), null))) return json({ error: "There is no Gloopy here." }, 404);
+  if (!o.route || o.routeVer !== t.ver) return refuseLink(403, { error: "Sending Gloopy's browser through your computer was turned off." });
+  if (!(await getJson(bucket, keyOf(t.uid, GLOOPY_ID, "meta.json"), null))) return refuseLink(404, { error: "There is no Gloopy here." });
   const name = t.uid + "-" + GLOOPY_ID;
   const awake = typeof deps.awake === "function" ? await deps.awake(name).catch(() => false) : flyOn(env) ? await flyAwake(env, name).catch(() => false) : false;
-  if (!awake) return json({ asleep: true }, 409);
+  if (!awake) return refuseLink(409, { asleep: true });
   if (typeof deps.routeLink !== "function") return json({ error: "Gloopy's computer can't take a link here." }, 501);
   const r = await deps.routeLink(name).catch(() => null);
   return r || json({ error: "Gloopy's computer could not be reached." }, 502);
