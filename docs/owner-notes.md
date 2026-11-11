@@ -4,6 +4,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
+
+I used a browser on my side, signed in as the test account. You sent the emailed code. Screenshots are in the chat.
+
+- **Signed in:** with the password without the "@". The one with it was refused.
+- **Cloudflare Docs** (no sign-in): Discover, then Connect.
+  - It said "Cloudflare Docs is connected: 2 tools".
+  - Its page shows the two real tools, "Search Cloudflare docs" and "Get Pages migration guide", both read-only and on Always allow.
+- **Linear:**
+  - Connect opened Linear's real page: "Go Farther is requesting access", with jessica's address, "Read, Write" and an Approve button.
+  - I didn't press Approve, because the next step needs a Linear account.
+- **Not tried: Coder using a connector in a chat.**
+  - On jessica the home page says "Connect GitHub to start", and the test copy has no GitHub connected.
+  - Without GitHub a chat can't be opened there.
+- **Waiting on you:** please change the test account's password, since it was in the chat.
+
 ## 2026-11-11: Your second list of apps, each sign-in tried
 
 I found each app's official MCP address and registered Go Farther with it the way Connect does (jessica's return address, before any login).
