@@ -63,3 +63,28 @@ Your word: "go back to the Claude Code docs and look up the MCP tools ... see wh
 | 30 | MCP tasks (beta) | long server jobs polled every 2 seconds (250 ms to 30 s), cancellable | a tool that supports tasks is asked to run as one; Coder's server follows it (every 0.25 to 30 seconds, 2 by default) until it ends, up to 30 minutes, then cancels it | done 2026-11-11 |
 
 Not on the page, so not needed to match: sampling, structured content and outputSchema, destructiveHint, title, notifications/cancelled. Ours only: the hourly tool-list refresh (Claude Code relies on list_changed, which a web request can't hear).
+
+## Third check: Claude.ai's connector help pages, the Agent SDK's MCP page, and Claude Code's permissions, hooks and settings pages (2026-11-11)
+
+Your word: "Ok yes pls" (to reading the other pages that mention MCP). Pages: support.claude.com articles 11175166 and 11176164,
+code.claude.com/docs/en/agent-sdk/mcp, /permissions, /hooks, /settings.
+
+| # | What | Claude | Coder now | Status |
+|---|------|--------|-----------|--------|
+| 31 | Connectors on or off per chat | "enable connectors for individual conversations via the "+" button … then "Connectors"" | every working connector is on in every chat (the server can already keep a chat's off list; no button) | to do |
+| 32 | Tools off per chat | "Using the "Search and tools" menu, disable any tools that aren't relevant to the current conversation" | only per tool for all chats | to do |
+| 33 | Sign in later | "Sign in now", "Sign in when needed" or "No sign in" when adding | sign-in starts at once | to do |
+| 34 | A whole connector switched off | statuses "pending", "connected", "failed", "needs-auth", "disabled" | ok, needs sign-in, not working (no "disabled") | to do |
+| 35 | Warnings for custom connectors | "services that haven't been verified by Anthropic"; "Malicious MCP servers may include hidden instructions"; "Monitor changes in tool behavior" | none shown | to do |
+| 36 | Tool changes noticed | (the warning above) | lists refreshed hourly, changes not shown | to do (show new or changed tools) |
+| 37 | Wildcard rules | `mcp__<server>__*`, `mcp__github__get_*`; `"deny": ["mcp__*"]` turns off every MCP tool | one tool or one group at a time | to do (all of a connector at once; all connectors off) |
+| 38 | "On demand" tool access | "Auto (the default)" or "On demand"; "If you have 10 or more connectors active, consider switching to On demand" | tool search switches by size on its own | later (an owner setting) |
+| 39 | Team controls | owners add connectors for the team; members request them; owners set Always allow / Needs approval / Blocked for everyone ("Individual users can't override this") | one person only | later (when teams come) |
+| 40 | Free plan limit | "Free users are limited to one custom connector" | no limit but 20 | later (when plans come) |
+| 41 | Hooks on connector tools | PreToolUse/PostToolUse match `mcp__<server>__.*`; an `mcp_tool` hook calls a connector's tool; PostToolUse can replace an MCP answer (`updatedMCPToolOutput`) | Coder's hooks don't cover connectors (hooks are on another branch) | later |
+| 42 | Elicitation hooks | `Elicitation` and `ElicitationResult` hooks answer or change what the server asks | none | later (needs #29) |
+| 43 | Interactive connectors | connectors that show live UI in the chat; owners can turn those tool calls off | none | later |
+
+Same already: tool permissions Always allow / Needs approval / Blocked; a connector from a known service shows its own name, not "Custom"; sign-in by the published client document ("Use Claude's published identity (Recommended)") or registration on the fly ("Register automatically"); servers must be reachable over the public internet (ours are called from our server too); the SDK's "MCP servers that fail to connect don't throw" (ours say "not working" and the chat goes on).
+
+Not for us: `.mcp.json` approval, `enableAllProjectMcpServers`-style settings, `--disallowedTools`, `dontAsk` mode, Cowork's `mcp__workspace__bash`, `/cd` disconnecting project servers, the SDK's in-process servers and status calls.
