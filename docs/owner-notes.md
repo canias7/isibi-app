@@ -6,6 +6,28 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
 
+## 2026-11-11: Connectors like Claude.ai's: per chat, off switches, sign in later, warnings, tool changes (your word: "Ok start", items #31 to #37)
+
+Screenshots (with sample data) are in the chat.
+
+- **In the chat box:** a new **Connectors** chip next to the model and effort. It opens "Connectors in this chat":
+  - a switch for each connector;
+  - "N/M tools" to turn single tools off for this chat.
+  - Changes count from the next message.
+  - It also says which connectors are off everywhere or not signed in yet. (#31, #32)
+- **On the Connectors page:**
+  - **"Turn off all connectors"**: Coder uses none of them in any chat until you turn it back on. (#37)
+  - **Turn off / Turn on** on each connector's page: it shows "Off" in the list, and your sign-in and tool settings are kept. (#34)
+  - **"All tools…"** sets every tool of one connector at once. (#37)
+  - **"Its tools changed since you last looked"**, listing what's new, changed or removed, with **Mark as seen**. The list shows "Tools changed" too. (#36)
+- **Custom connectors get a warning,** on + Add and on their page: "only add servers you trust", because a bad server can hide instructions and its tools can change. (#35)
+- **+ Add has "Sign in now" or "Sign in when needed"** (#33):
+  - With "when needed", the connector waits on your list.
+  - A chat that has it switched on shows "Not signed in yet: … Sign in from Connectors to use it here".
+  - Coder is told, so it can say so.
+- **Tests:** MC16 is new. All 405 pass, 4 skipped as before.
+- **Not deployed yet.**
+
 ## 2026-11-11: Connectors: the rest of Claude Code's MCP list (your word: "Yes, do all of the rest")
 
 Items #22 and #26 to #30 of `docs/connectors-vs-claude-code.md`.

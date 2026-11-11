@@ -71,13 +71,13 @@ code.claude.com/docs/en/agent-sdk/mcp, /permissions, /hooks, /settings.
 
 | # | What | Claude | Coder now | Status |
 |---|------|--------|-----------|--------|
-| 31 | Connectors on or off per chat | "enable connectors for individual conversations via the "+" button … then "Connectors"" | every working connector is on in every chat (the server can already keep a chat's off list; no button) | to do |
-| 32 | Tools off per chat | "Using the "Search and tools" menu, disable any tools that aren't relevant to the current conversation" | only per tool for all chats | to do |
-| 33 | Sign in later | "Sign in now", "Sign in when needed" or "No sign in" when adding | sign-in starts at once | to do |
-| 34 | A whole connector switched off | statuses "pending", "connected", "failed", "needs-auth", "disabled" | ok, needs sign-in, not working (no "disabled") | to do |
-| 35 | Warnings for custom connectors | "services that haven't been verified by Anthropic"; "Malicious MCP servers may include hidden instructions"; "Monitor changes in tool behavior" | none shown | to do |
-| 36 | Tool changes noticed | (the warning above) | lists refreshed hourly, changes not shown | to do (show new or changed tools) |
-| 37 | Wildcard rules | `mcp__<server>__*`, `mcp__github__get_*`; `"deny": ["mcp__*"]` turns off every MCP tool | one tool or one group at a time | to do (all of a connector at once; all connectors off) |
+| 31 | Connectors on or off per chat | "enable connectors for individual conversations via the "+" button … then "Connectors"" | a Connectors chip in the chat box: each connector on or off for this chat, from the next message | done 2026-11-11 |
+| 32 | Tools off per chat | "Using the "Search and tools" menu, disable any tools that aren't relevant to the current conversation" | the same box: each tool on or off for this chat | done 2026-11-11 |
+| 33 | Sign in later | "Sign in now", "Sign in when needed" or "No sign in" when adding | + Add: Sign in now, or Sign in when needed; a chat is told which connectors wait for their sign-in | done 2026-11-11 |
+| 34 | A whole connector switched off | statuses "pending", "connected", "failed", "needs-auth", "disabled" | Turn off / Turn on on a connector's page; shown as Off; sign-in and tool settings kept | done 2026-11-11 |
+| 35 | Warnings for custom connectors | "services that haven't been verified by Anthropic"; "Malicious MCP servers may include hidden instructions"; "Monitor changes in tool behavior" | on + Add and on every custom connector's page | done 2026-11-11 |
+| 36 | Tool changes noticed | (the warning above) | new, changed and removed tools shown on its page and as "Tools changed" in the list, until Mark as seen | done 2026-11-11 |
+| 37 | Wildcard rules | `mcp__<server>__*`, `mcp__github__get_*`; `"deny": ["mcp__*"]` turns off every MCP tool | "Turn off all connectors" on the Connectors page; "All tools…" sets every tool of a connector at once | done 2026-11-11 |
 | 38 | "On demand" tool access | "Auto (the default)" or "On demand"; "If you have 10 or more connectors active, consider switching to On demand" | tool search switches by size on its own | later (an owner setting) |
 | 39 | Team controls | owners add connectors for the team; members request them; owners set Always allow / Needs approval / Blocked for everyone ("Individual users can't override this") | one person only | later (when teams come) |
 | 40 | Free plan limit | "Free users are limited to one custom connector" | no limit but 20 | later (when plans come) |

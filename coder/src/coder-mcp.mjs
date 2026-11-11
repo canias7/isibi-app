@@ -82,7 +82,7 @@ export async function setPerms(bucket, uid, id, { tool = "", group = "", perm })
   const c = list.find((x) => x.id === id);
   if (!c) return null;
   const perms = { ...(c.perms || {}) };
-  for (const t of c.tools || []) if (t.name === tool || (group === "read" && t.readOnly) || (group === "write" && !t.readOnly)) perms[t.name] = perm;
+  for (const t of c.tools || []) if (t.name === tool || group === "all" || (group === "read" && t.readOnly) || (group === "write" && !t.readOnly)) perms[t.name] = perm;
   c.perms = perms;
   await writeConnectors(bucket, uid, list);
   return c;
@@ -123,9 +123,37 @@ export const CATALOG_LATER = Object.freeze([
 ]);
 const aboutOf = (url) => { const k = CATALOG.find((x) => x.url === url); return k ? k.about : ""; };
 
+/**
+ * TOOL CHANGES (Claude's custom connector warning: "Monitor changes in tool behavior: Server developers may update tool
+ * behavior unexpectedly"): what was added, removed or changed since the owner last looked, kept until they mark it seen.
+ */
+export function toolChanges(before, after, kept = null) {
+  const b = new Map((before || []).map((t) => [t.name, t])), a = new Map((after || []).map((t) => [t.name, t]));
+  const sig = (t) => JSON.stringify([t.description, t.inputSchema, !!t.readOnly]);
+  const prev = kept && Array.isArray(kept.added) ? kept : { added: [], removed: [], changed: [] };
+  const added = [...new Set([...prev.added.filter((n) => a.has(n)), ...[...a.keys()].filter((n) => !b.has(n))])];
+  const removed = [...new Set([...prev.removed.filter((n) => !a.has(n)), ...[...b.keys()].filter((n) => !a.has(n))])];
+  const changed = [...new Set([...prev.changed.filter((n) => a.has(n) && !added.includes(n)), ...[...a.keys()].filter((n) => b.has(n) && sig(b.get(n)) !== sig(a.get(n)))])];
+  return { added: added.slice(0, 50), removed: removed.slice(0, 50), changed: changed.slice(0, 50) };
+}
+/** The owner's own connector settings: allOff turns every connector off for every chat (Claude Code: a deny rule "mcp__*"). */
+export const settingsKeyOf = (uid) => "connectors/" + uid + "-settings.json";
+export async function readConnectorSettings(bucket, uid) { const v = await getJson(bucket, settingsKeyOf(uid), {}); return { allOff: v && v.allOff === true }; }
+export async function writeConnectorSettings(bucket, uid, v) { await putJson(bucket, settingsKeyOf(uid), { allOff: v.allOff === true }); }
+/** Switch a whole connector off or on (Claude's "disabled"), or mark its tool changes seen. */
+export async function setConnectorState(bucket, uid, id, { disabled, seen }) {
+  const list = await readConnectors(bucket, uid);
+  const c = list.find((x) => x.id === id);
+  if (!c) return null;
+  if (typeof disabled === "boolean") c.disabled = disabled;
+  if (seen === true) delete c.changes;
+  await writeConnectors(bucket, uid, list);
+  return c;
+}
+
 /** What the page is shown of a connector: never its sign-in. */
 export function connectorOut(c) {
-  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.status || "ok", error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
+  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.disabled ? "disabled" : c.status || "ok", disabled: !!c.disabled, ...(c.changes && (c.changes.added.length || c.changes.removed.length || c.changes.changed.length) ? { changes: c.changes } : {}), error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
 }
 
 /** A connector's address: https only (http only for localhost tests), no user name or password in it. */
@@ -162,12 +190,13 @@ export function toolName(connectorName, tool) {
  * The tools of a person's connectors as Grok's function tools, and which connector and tool each name is: at most
  * TOOLS_MAX in all. `off` is the ids of connectors switched off.
  */
-export function toolsFor(list, off = []) {
+export function toolsFor(list, off = [], toolsOff = []) {
   const tools = [], map = {};
   const used = new Set();
   for (const c of list) {
-    if (off.includes(c.id) || c.status === "auth" || !Array.isArray(c.tools)) continue;
-    for (const t of c.tools.filter((x) => permOf(c, x) !== "block").slice(0, TOOLS_PER_CONNECTOR)) {
+    // (Switched off, here or for this chat: Claude's "disabled" status and its per-conversation Connectors toggle.)
+    if (c.disabled || off.includes(c.id) || c.status === "auth" || !Array.isArray(c.tools)) continue;
+    for (const t of c.tools.filter((x) => permOf(c, x) !== "block" && !toolsOff.includes(c.id + ":" + x.name)).slice(0, TOOLS_PER_CONNECTOR)) {
       if (tools.length >= TOOLS_MAX) break;
       let name = toolName(c.name, t.name);
       for (let k = 2; used.has(name); k++) name = toolName(c.name + k, t.name);
@@ -611,7 +640,7 @@ export async function tokenOf(env, bucket, uid, c, { fetchFn = fetch, now = Date
  * Adds (or re-checks) a connector: with a key, or none, its tools are read now; a server that asks to sign in gives
  * { signIn: address } for the page to open.
  */
-export async function addConnector(env, bucket, uid, { name, url, key = "", id = "", nonce = "", fetchFn = fetch, now = Date.now() }) {
+export async function addConnector(env, bucket, uid, { name, url, key = "", id = "", nonce = "", later = false, fetchFn = fetch, now = Date.now() }) {
   const list = await readConnectors(bucket, uid);
   let c = id ? list.find((x) => x.id === id) : null;
   if (id && !c) throw new Error("no such connector");
@@ -629,7 +658,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { c.tools = await listTools(c.url, token, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; }
+    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -649,6 +678,9 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     if (e instanceof NeedsSignIn && !k && c.auth !== "key") {
       c.status = "auth"; c.error = "";
       await writeConnectors(bucket, uid, list);
+      // "SIGN IN WHEN NEEDED" (Claude's custom connector choice): kept on the list, signed in from its page or when a chat
+      // needs it.
+      if (later) return { connector: c };
       return { connector: c, signIn: await startSignIn(env, bucket, { uid, connector: c, wwwAuth: e.header, nonce, fetchFn, now }) };
     }
     // A new one that does not work is not kept.
@@ -672,13 +704,13 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
   for (const c of list) {
     if (only && c.id !== only) continue;
     if (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS)) continue;
-    try { c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; changed = true; }
+    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -728,7 +760,7 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
 
 /** SERVER INSTRUCTIONS (Claude Code: given to the model at the start, up to 4,096 characters): each working connector's. */
 export function connectorNotes(list, off = []) {
-  return list.filter((c) => c.status === "ok" && !off.includes(c.id) && typeof c.instructions === "string" && c.instructions.trim()).slice(0, 10).map((c) => ({ name: c.name, instructions: c.instructions.slice(0, INSTRUCTIONS_MAX) }));
+  return list.filter((c) => c.status === "ok" && !c.disabled && !off.includes(c.id) && typeof c.instructions === "string" && c.instructions.trim()).slice(0, 10).map((c) => ({ name: c.name, instructions: c.instructions.slice(0, INSTRUCTIONS_MAX) }));
 }
 
 /**
@@ -739,12 +771,16 @@ export function connectorNotes(list, off = []) {
 export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
   if (fromGithub) return {};
   try {
+    if ((await readConnectorSettings(bucket, uid)).allOff) return {};
     const mine = await readConnectors(bucket, uid), off = Array.isArray(meta && meta.connectorsOff) ? meta.connectorsOff : [];
-    const ct = toolsFor(mine, off);
-    if (!ct.tools.length) return {};
+    const toolsOff = Array.isArray(meta && meta.toolsOff) ? meta.toolsOff : [];
+    // Connectors on for this chat but waiting for their sign-in ("Sign in when needed"): Coder is told, so it can say so.
+    const waiting = mine.filter((c) => c.status === "auth" && !c.disabled && !off.includes(c.id)).map((c) => c.name).slice(0, 10);
+    const ct = toolsFor(mine, off, toolsOff);
+    if (!ct.tools.length) return waiting.length ? { connectorsWaiting: waiting } : {};
     await keepJobTools(bucket, uid, id, turn, ct.map);
     const notes = connectorNotes(mine, off);
-    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}) };
+    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}), ...(waiting.length ? { connectorsWaiting: waiting } : {}) };
   } catch { return {}; }
 }
 

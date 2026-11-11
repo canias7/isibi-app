@@ -494,3 +494,57 @@ test("MC15 (2026-11-11, Claude Code's MCP docs) prompts as /connector:prompt, re
   // The page lists a connector's prompts and resources.
   assert.match(readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), /'<div class="cx-ph">Prompts<\/div>/);
 });
+
+test("MC16 (2026-11-11, Claude.ai's connector pages) per-chat connectors and tools, a connector switched off, every connector off, sign in when needed, tool changes, the custom warning", async () => {
+  const m = await import("../src/coder-mcp.mjs");
+  const b = memBucket(), s = fakeServer();
+  const r = await addConnector(env, b, "u1", { name: "Linear", url: "https://mcp.example.com/mcp", fetchFn: s.fetchFn });
+  const id = r.connector.id;
+  // Per chat: a connector off, or one of its tools.
+  assert.deepEqual(m.toolsFor(await readConnectors(b, "u1"), [], [id + ":create_issue"]).tools.map((t) => t.name), ["mcp__linear__list_issues"]);
+  assert.equal((await m.jobConnectors(b, "u1", "chat-1", 2, { connectorsOff: [id] }, false)).connectors, undefined);
+  assert.deepEqual((await m.jobConnectors(b, "u1", "chat-1", 2, { toolsOff: [id + ":list_issues"] }, false)).connectors.map((t) => t.name), ["mcp__linear__create_issue"]);
+  // A whole connector off: no tools anywhere, shown as off; on again.
+  await m.setConnectorState(b, "u1", id, { disabled: true });
+  assert.equal(connectorOut((await readConnectors(b, "u1"))[0]).status, "disabled");
+  assert.equal(m.toolsFor(await readConnectors(b, "u1")).tools.length, 0);
+  await m.setConnectorState(b, "u1", id, { disabled: false });
+  // Every connector off at once.
+  await m.writeConnectorSettings(b, "u1", { allOff: true });
+  assert.deepEqual(await m.jobConnectors(b, "u1", "chat-1", 3, {}, false), {});
+  await m.writeConnectorSettings(b, "u1", { allOff: false });
+  assert.equal((await m.jobConnectors(b, "u1", "chat-1", 4, {}, false)).connectors.length, 2);
+  // Every tool of a connector at once.
+  assert.deepEqual(connectorOut(await m.setPerms(b, "u1", id, { group: "all", perm: "block" })).tools.map((t) => t.perm), ["block", "block"]);
+  await m.setPerms(b, "u1", id, { group: "all", perm: "allow" });
+  // Sign in when needed: kept without opening a sign-in; a chat is told it waits.
+  const s2 = fakeServer({ auth: true });
+  const later = await addConnector(env, b, "u1", { name: "Notion", url: "https://mcp.example.com/mcp?x=1", later: true, fetchFn: (u, i) => s2.fetchFn(String(u).replace("?x=1", ""), i) });
+  assert.equal(later.signIn, undefined);
+  assert.equal(later.connector.status, "auth");
+  assert.deepEqual((await m.jobConnectors(b, "u1", "chat-1", 5, {}, false)).connectorsWaiting, ["Notion"]);
+  // Tool changes: new, changed, removed, kept until seen.
+  const before = [{ name: "a", description: "A" }, { name: "b", description: "B" }];
+  const after = [{ name: "a", description: "A, now different" }, { name: "c", description: "C" }];
+  assert.deepEqual(m.toolChanges(before, after), { added: ["c"], removed: ["b"], changed: ["a"] });
+  const refreshed = [{ ...TOOLS[0], description: "List issues, faster" }, TOOLS[1], { name: "delete_issue", inputSchema: { type: "object" } }];
+  const changing = async (u, i) => { const msg = JSON.parse(i.body); if (msg.method === "tools/list") return new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { tools: refreshed } }), { headers: { "content-type": "application/json" } }); return s.fetchFn(u, i); };
+  await m.refreshTools(env, b, "u1", { fetchFn: changing, now: Date.now() + m.TOOLS_FRESH_MS + 1, only: id });
+  const ch = connectorOut((await readConnectors(b, "u1")).find((c) => c.id === id)).changes;
+  assert.deepEqual(ch, { added: ["delete_issue"], removed: [], changed: ["list_issues"] });
+  await m.setConnectorState(b, "u1", id, { seen: true });
+  assert.equal(connectorOut((await readConnectors(b, "u1")).find((c) => c.id === id)).changes, undefined);
+  // Coder told about a connector waiting for its sign-in, and the chat shows it.
+  let i = 0; const seen = [], events = [];
+  await runCoder({ send: async (q) => { seen.push(q); return { message: { role: "assistant", content: "ok" }, usage: { in: 1, out: 1 } }; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "x", connectorsWaiting: ["Notion"] });
+  assert.match(seen[0].messages[0].content, /CONNECTORS NOT SIGNED IN YET: Notion\./);
+  assert.ok(events.some((e) => e.type === "note" && e.text === "Not signed in yet: Notion. Sign in from Connectors to use it here."));
+  // The routes and the page.
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /if \(action === "connectors" && \(request\.method === "GET" \|\| request\.method === "POST"\)\)/);
+  assert.match(routes, /if \(cid === "settings" && request\.method === "POST"\)/);
+  assert.ok(routes.indexOf('cid === "settings"') < routes.indexOf("if (cid && !/^c[a-z0-9]{6,20}$/.test(cid))"));
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  for (const want of ["id=\"cdConnChip\"", "Connectors in this chat", "Turn off all connectors", "data-act=\"toggle\"", "Its tools changed since you last looked", "Custom connector.</b> It isn’t one of the connectors Go Farther checked", "Sign in when needed", "data-group=\"all\""]) assert.ok(page.includes(want), want);
+  void i;
+});

@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -589,11 +589,18 @@ export async function handleCoder(request, env, ctx, deps) {
   // sign-in), check again, remove. Never shows a sign-in or key.
   if (parts[0] === "connectors") {
     const cid = parts[1] || "";
-    if (!cid && request.method === "GET") return json({ ok: true, connectors: (await readConnectors(bucket, uid)).map(connectorOut), catalog: CATALOG, later: CATALOG_LATER, callback: String(env.CODER_PUBLIC_URL || "").replace(/\/+$/, "") + MCP_CALLBACK });
+    // EVERY CONNECTOR OFF OR ON AT ONCE, for every chat (Claude Code: a deny rule "mcp__*").
+    if (cid === "settings" && request.method === "POST") { let b2 = {}; try { b2 = await request.json(); } catch { b2 = {}; } await writeConnectorSettings(bucket, uid, { allOff: b2.allOff === true }); return json({ ok: true, allOff: b2.allOff === true }); }
+    if (!cid && request.method === "GET") return json({ ok: true, allOff: (await readConnectorSettings(bucket, uid)).allOff, connectors: (await readConnectors(bucket, uid)).map(connectorOut), catalog: CATALOG, later: CATALOG_LATER, callback: String(env.CODER_PUBLIC_URL || "").replace(/\/+$/, "") + MCP_CALLBACK });
     if (cid && !/^c[a-z0-9]{6,20}$/.test(cid)) return json({ error: "no such connector" }, 404);
     if (cid && request.method === "DELETE") return (await removeConnector(bucket, uid, cid)) ? json({ ok: true }) : json({ error: "no such connector" }, 404);
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
+    // A WHOLE CONNECTOR SWITCHED OFF OR ON (Claude's "disabled"), or its tool changes marked seen.
+    if (cid && parts[2] === "state") {
+      const c = await setConnectorState(bucket, uid, cid, { disabled: typeof body.disabled === "boolean" ? body.disabled : undefined, seen: body.seen === true });
+      return c ? json({ ok: true, connector: connectorOut(c) }) : json({ error: "no such connector" }, 404);
+    }
     if (cid && parts[2] === "perms") {
       const c = await setPerms(bucket, uid, cid, { tool: String(body.tool || ""), group: String(body.group || ""), perm: body.perm });
       return c ? json({ ok: true, connector: connectorOut(c) }) : json({ error: "not changed" }, 400);
@@ -601,7 +608,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const nonce = newNonce();
     // (Sign-in only, no API keys: owner, 2026-11-11, "only do the ones with mcp, tho not api key". A key sent is ignored.)
     let r;
-    try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: "", id: cid, nonce, fetchFn }); }
+    try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: "", id: cid, nonce, later: body.later === true, fetchFn }); }
     catch (e) { return json({ error: String((e && e.message) || e).slice(0, 300) }, 400); }
     const res = json({ ok: true, connector: connectorOut(r.connector), ...(r.signIn ? { signIn: r.signIn } : {}) });
     if (r.signIn) {
@@ -1017,6 +1024,24 @@ export async function handleCoder(request, env, ctx, deps) {
     let told = false;
     if (next && next.status === "running") told = !!((await post("/mode", { project: id, mode: body.mode }).then((r) => r.json()).catch(() => null)) || {}).ok;
     return json({ ok: true, project: next || meta, told });
+  }
+  // THIS CHAT'S CONNECTORS (Claude: "enable connectors for individual conversations via the "+" button", and "disable any
+  // tools that aren't relevant to the current conversation"): each connector on or off here, and each of its tools.
+  // GET gives them as this chat sees them; POST { off: [connector ids], toolsOff: ["<id>:<tool>"] } saves them, from the next
+  // message on.
+  if (action === "connectors" && (request.method === "GET" || request.method === "POST")) {
+    const list = await readConnectors(bucket, uid);
+    if (request.method === "POST") {
+      let b2 = {}; try { b2 = await request.json(); } catch { b2 = {}; }
+      const ids = new Set(list.map((c) => c.id));
+      const off = (Array.isArray(b2.off) ? b2.off : []).map(String).filter((x) => ids.has(x)).slice(0, 50);
+      const toolsOff = (Array.isArray(b2.toolsOff) ? b2.toolsOff : []).map(String).filter((x) => ids.has(x.split(":")[0])).slice(0, 500);
+      await saveMeta(bucket, uid, { ...meta, connectorsOff: off, toolsOff });
+      meta.connectorsOff = off; meta.toolsOff = toolsOff;
+    }
+    const off = Array.isArray(meta.connectorsOff) ? meta.connectorsOff : [], toolsOff = Array.isArray(meta.toolsOff) ? meta.toolsOff : [];
+    return json({ ok: true, allOff: (await readConnectorSettings(bucket, uid)).allOff, connectors: list.map((c) => ({ id: c.id, name: c.name, status: c.disabled ? "disabled" : c.status || "ok", on: !off.includes(c.id),
+      tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", on: !toolsOff.includes(c.id + ":" + t.name), blocked: (c.perms || {})[t.name] === "block" })) })) });
   }
   // THE OWNER'S ANSWER ON A CARD A STEP WAITS ON (Claude Code's permission prompt; a plan's approval), for the running job.
   if (action === "answer" && request.method === "POST") {
