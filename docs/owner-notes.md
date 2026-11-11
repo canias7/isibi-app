@@ -71,7 +71,15 @@ Tried live on the test copy with Grok, recorded:
   - A helper's tab can't ask for your key.
   - Passkey autofill stays the browser's own.
   - The app's small window never loads the site: the app makes its page itself.
-- **Not tried with a real key yet:** I have no key here. Keys that need a PIN may not work in the app on a Mac yet. On Windows, Windows asks for the PIN itself.
+- **Tried live** (no physical key here, so a virtual one, the standard way to test them; nothing was registered on any site):
+  - I made a test key and gave it to the real desktop app's key window. I used webauthn.me's debugger, a page that only shows what a key signs and stores nothing.
+  - Gloopy opened it and loaded the key's id, but couldn't tick one box, so it handed me its browser. I ticked the box and pressed Authenticate. The live view said "The page asks for your security key, to sign in to www.webauthn.me", with "Use my security key".
+  - I pressed it. The app's window signed with the key, and the page showed the signature.
+  - Handed back, Gloopy read it: "Authentication succeeded… origin https://www.webauthn.me, type webauthn.get… user present and user verified."
+- **Found in the live test:**
+  - Gloopy's instructions still said a passkey is the owner's to do by hand, so it handed off a key step instead of pressing the button. Now it does the step, and you're asked on the card.
+  - In the app's window, a site that doesn't say which key it wants (passkey-style, with no key named) is refused at once here: the app can't pick a key. A key the site names (the usual YubiKey case, as with GitHub or Google) signs fine. When this happens, the card now says so in plain words. On Windows, Windows picks the key itself, so it may work there; not tried.
+- **Not tried with a real key yet.** Keys that need a PIN may not work in the app on a Mac. On Windows, Windows asks for the PIN itself.
 
 Tests GL118 (in a real browser: the request held, wrong answers refused, the right one reaching the page as the browser's own, "Not now", a helper's tab, autofill), GL119 (Gloopy's step to the card and back, the Worker, the page), D14 (the app: only a sign-in for that site, the window's own page, one at a time); D9 and GL115 updated.
 

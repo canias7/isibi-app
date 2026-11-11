@@ -167,7 +167,9 @@
   // reaches your key (plugged into that computer); it signs a page's request in Gloopy's browser for that page's site only.
   const DESKTOP_KEY = typeof window !== 'undefined' && window.gofartherDesktop && window.gofartherDesktop.securityKey ? window.gofartherDesktop.securityKey : null;
   // What became of the app's try, in words.
-  const keyWords = (r) => { const n = r && r.error; return n === 'NotAllowedError' ? 'Your key wasn’t used: it timed out, or it was cancelled. Try again.' : n === 'InvalidStateError' ? 'That key isn’t one this site knows. Try another of your keys.' : n === 'SecurityError' ? 'This computer couldn’t sign that site’s request.' : String((r && r.message) || 'Your key couldn’t be used.').slice(0, 200); };
+  // (`q`, the request: one that names no key, as a passkey's, is one the app can't pick a key for on every computer: live
+  // test, 2026-11-11, the app's own window refused it at once where a key named by the site signed.)
+  const keyWords = (r, q) => { const n = r && r.error; return n === 'NotAllowedError' ? (q && Array.isArray(q.allowCredentials) && !q.allowCredentials.length ? 'Your key wasn’t used. This site didn’t say which key it wants (as with passkeys), and on this computer the app can’t pick one yet. Choose “Not now” and sign in another way.' : 'Your key wasn’t used: it timed out, or it was cancelled. Try again.') : n === 'InvalidStateError' ? 'That key isn’t one this site knows. Try another of your keys.' : n === 'SecurityError' ? 'This computer couldn’t sign that site’s request.' : String((r && r.message) || 'Your key couldn’t be used.').slice(0, 200); };
   async function desktopRouteSync() {
     if (!DESKTOP_ROUTE || !S.project || !GLOOPY) return;
     if (S.routeTimer) clearTimeout(S.routeTimer);
@@ -2097,7 +2099,7 @@
       S.cardMsg = { id, text: 'Touch your security key…' }; draw();
       let r;
       try { r = await DESKTOP_KEY.get({ origin: ev.origin, request: ev.request }); } catch (err) { r = { message: String((err && err.message) || err) }; }
-      if (!r || !r.credential) { S.cardMsg = { id, text: keyWords(r) }; return draw(); }
+      if (!r || !r.credential) { S.cardMsg = { id, text: keyWords(r, ev.request) }; return draw(); }
       S.cardMsg = null;
       cardAnswer(id, 'key', { credential: r.credential }, 'Your key’s answer could not be sent.');
     });
@@ -2322,7 +2324,7 @@
       let r;
       try { r = await DESKTOP_KEY.get({ origin: w.key.origin, request: w.key.request }); } catch (err) { r = { message: String((err && err.message) || err) }; }
       if (S.web !== w) return;
-      if (!r || !r.credential) { w.msg = keyWords(r); return draw(); }
+      if (!r || !r.credential) { w.msg = keyWords(r, w.key.request); return draw(); }
       w.msg = ''; webKeySend({ credential: r.credential });
     });
     on('#cdWebKeyNo', 'click', () => webKeySend({ skip: true }));
