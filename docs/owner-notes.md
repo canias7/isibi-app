@@ -17,12 +17,14 @@ What I read: all 203 pages of Claude Code's docs (downloaded today), its whole c
 
 About 100 differences. About 35 are safety gaps. Waiting for your word before building any of it.
 
-**Three things about pass 8, which is not live yet:**
-- **A bug I added in pass 8.** In the new Accept edits, a rule that allows a command also lets that command write anywhere: with the rule `Bash(echo *)`, `echo x > /etc/passwd` runs without asking. Before pass 8 it asked. Pass 8 should not go live until this is fixed. Checked.
+**First, about pass 8, which is not live yet:**
+- **Two bugs I added in pass 8.** Pass 8 should not go live until both are fixed. I checked each against the live code, which does not have them.
+  - In the new Accept edits, a rule that allows a command also lets that command write anywhere: with the rule `Bash(echo *)`, `echo x > /etc/passwd` runs without asking.
+  - A command with a plain `nice` in front slips past your deny rules and the dangerous-delete check: with a deny rule on rm, `nice rm x` runs, and `nice rm -rf ~` is no longer seen as dangerous. Same for `stdbuf -o L cat secret.env` and a Read deny rule.
 - **One pass 8 change may be the wrong way round.** I made Accept edits ask before a command changes files. One page of Claude Code's docs says its cloud "Accept edits" is really "default" mode. Another says the cloud's standard set-up pre-approves routine tool calls, Bash included, and the quickstart says Accept edits means "Claude makes changes and pushes a branch without stopping for approval". If that holds, Claude Code's cloud asks for almost nothing in Accept edits. The pre-approved list comes from Anthropic's servers, so I can't read it. One try in a real Claude Code cloud chat settles it.
 - **A correction.** In pass 8 I said Claude Code 2.1.322 has no notice for a background command stuck waiting for typed input. It has one. A reader found it.
 
-**1. Safety gaps: Coder lets through what Claude Code stops**
+**1. Safety gaps: Coder lets through what Claude Code stops.** These are in the live Coder today. I ran 16 of them against the live code and got the same results.
 - A command hidden inside `(( … ))`, or inside `<( … )` in a `[[ … ]]` test, is checked by nothing. `(( $(rm -rf ~) )) && ls` runs without asking in Accept edits and Plan, counts as "only reads" so Auto skips its checker, and deny rules and the dangerous-delete check don't see it. Real bash runs the hidden part. Checked.
 - `cd -` fools the folder check: Coder reads it as a folder named "-" in the project, bash goes to the previous folder. `cd - && rm -rf home` runs unasked in Accept edits. Same for a short `cd name` when CDPATH is set. Checked.
 - `~dev/…`, `~root`, `~+` and `~-` are read as names inside the project: `cat ~dev/.ssh/id_rsa` runs unasked, a deny rule on `~/.ssh` doesn't stop it, and `rm -rf ~dev` isn't seen as dangerous. Checked.
@@ -30,7 +32,7 @@ About 100 differences. About 35 are safety gaps. Waiting for your word before bu
 - A command Coder can't read counts as dangerous only when it mentions rm. Claude Code treats every unreadable command that way. Checked.
 - A command that backgrounds part of itself with `&` is not asked about. Checked.
 - An allow rule reaches outside the project: with `Bash(touch *)`, `touch /etc/x` runs. Same for mkdir, rm, cp, sed, `nohup cat /etc/passwd` under `Bash(cat *)`, and PowerShell. In Claude Code no command rule covers a path outside the working folders. Checked.
-- Five ways past a deny or ask rule: `nice rm x`, `A[0]=1 rm -rf /`, `$"rm" -rf /`, `X=rm export X; $X -rf build`, and `git diff --no-index /dev/null .env` past a Read rule. Checked.
+- Four ways past a deny or ask rule: `A[0]=1 rm -rf /`, `$"rm" -rf /`, `X=rm export X; $X -rf build`, and `git diff --no-index /dev/null .env` past a Read rule. Checked.
 - Deny rules that never fire: one written as a whole command with `>` or `&&` in it, and any PowerShell rule ending in `:*`. Checked.
 - A repository's own `!` rule cancels your deny rule. Checked.
 - Rules like `Bash(eval *)` or `Bash(source *)` approve anything. Claude Code never lets a wildcard rule approve eval, source, exec, trap and 13 more. Checked.
