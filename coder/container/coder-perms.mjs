@@ -15,7 +15,7 @@
 // allowed only for the commands whose every option only reads.
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
-import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs } from "./coder-shell.mjs";
+import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -868,6 +868,10 @@ export function monitorRules(rules, mode = "auto") {
     const x = parseRule(r);
     // (A wildcard naming Monitor but not Bash, `Mon*`, is a rule on all of Monitor; one naming Bash applies to it as it is.)
     if (x && x.glob) { out[k].push(k !== "allow" && toolGlobMatches(x.tool, "Monitor") && !toolGlobMatches(x.tool, "Bash") ? "Bash" : r); continue; }
+    // (A rule on one of Bash's own settings, Bash(run_in_background:true), is on Bash calls, never on a monitor: Bash docs pass
+    // 9, every monitor had been refused by one. A Monitor rule on one of the monitor's settings, Monitor(timeout_ms:*), is
+    // matched against the monitor's own input: bashDecision's `settings`.)
+    if (x && x.tool === "Bash" && x.spec !== null) { const sp = settingSpec(x.spec); if (sp && sp.name !== "command") continue; }
     if (!x || x.tool !== "Monitor") { out[k].push(r); continue; }
     if (k === "allow" && mode === "auto") continue;
     out[k].push(x.spec === null ? "Bash" : "Bash(" + x.spec + ")");
@@ -926,10 +930,12 @@ export function wsProblem(args) {
  * takes these besides its command.
  */
 export const BASH_SETTINGS = ["description", "timeout", "run_in_background"];
-/** A Bash rule's specifier read as a rule on a setting, `{ name, value }`, or null when it is a command pattern. */
-export function settingSpec(spec) {
+// (A monitor's own: Claude Code's Monitor(timeout_ms:*) is on the monitor's input, never Bash's; Bash docs pass 9.)
+export const MONITOR_SETTINGS = ["description", "timeout_ms", "ws"];
+/** A Bash (or Monitor) rule's specifier read as a rule on a setting, `{ name, value }`, or null when it is a command pattern. */
+export function settingSpec(spec, names = BASH_SETTINGS) {
   const m = typeof spec === "string" ? /^\s*([A-Za-z_]+)\s*:\s*([\s\S]*?)\s*$/.exec(spec) : null;
-  return m && (BASH_SETTINGS.includes(m[1]) || m[1] === "command") ? { name: m[1], value: m[2] } : null;
+  return m && (names.includes(m[1]) || m[1] === "command") ? { name: m[1], value: m[2] } : null;
 }
 /** Whether a setting's value, as Grok sent it, fits a rule's (a scalar only; `*` is any text). */
 export function settingMatches(pattern, value) {
@@ -1129,7 +1135,7 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
   if (spec === null || spec === "*") return true;
   const args = input && typeof input === "object" ? input : {};
   if (tool === "Bash" || tool === "Monitor") {
-    const sp = settingSpec(spec);
+    const sp = settingSpec(spec, tool === "Monitor" ? MONITOR_SETTINGS : BASH_SETTINGS);
     if (sp && sp.name !== "command") return settingMatches(sp.value, args[sp.name]);
     const command = String(args.command || "");
     const read = readCommand(command, { cwd, home });
@@ -1175,7 +1181,22 @@ function denyTexts(cmd) {
   return [...out];
 }
 /** For allow rules: past the safe wrappers and settings only; none when an unsafe setting is in front. */
-function allowTexts(cmd) { const w = readWords(cmd.words, { wrappers: true }); return w ? textsOf(w) : []; }
+// THE TEXTS AN ALLOW RULE IS TRIED AGAINST (Claude Code's hY for an allow rule, 2.1.322: the part as typed, without its
+// redirections, and the same past the variables in front it counts as safe and the wrappers it looks past, its CT, which
+// takes `timeout` away with its own settings too. Bash docs pass 9: `Bash(NODE_ENV=production npm run *)` never matched its
+// own command, nor `Bash(npm test *)` `timeout -s KILL 30 npm test`.)
+function allowTexts(cmd) {
+  const words = cmd.words || [];
+  const out = words.length ? textsOf(words) : [];
+  let w = readWords(words, { wrappers: true });
+  for (let guard = 0; w && w.length && guard < 8; guard++) {
+    out.push(...textsOf(w));
+    const next = processWrappers(w);
+    if (next === w) break;
+    w = readWords(next, { wrappers: true });
+  }
+  return [...new Set(out)];
+}
 
 /**
  * Whether an allow rule approves one part of a command, as text `t`: an exec wrapper (watch, setsid, flock …) or a find that
@@ -1195,58 +1216,75 @@ function rulesFor(list, tool, globs = false) {
 }
 
 // ── "DON'T ASK AGAIN" ────────────────────────────────────────────────────────
-// Claude Code saves a rule for each part of the command that needed asking (up to five), and offers the option only when
-// those rules cover all of it: a prefix rule like `npm test *`, never one for code given inline (python -c), an exec
-// wrapper (watch, setsid, flock) or a find that runs or deletes.
-const SUBCOMMANDS = new Set(["git", "gh", "npm", "pnpm", "yarn", "bun", "deno", "cargo", "go", "docker", "podman", "kubectl", "helm", "pip", "pip3", "poetry", "uv", "pipenv", "conda", "dotnet", "mvn", "gradle", "gradlew", "mvnw", "make", "composer", "bundle", "rails", "rake", "mix", "flutter", "dart", "swift", "terraform", "tofu", "brew", "apt", "apt-get", "dnf", "yum", "apk", "systemctl", "gcloud", "aws", "az", "firebase", "vercel", "netlify", "wrangler", "supabase", "fly", "flyctl", "heroku", "rustup", "npx", "bunx", "pnpx", "corepack", "nx", "turbo"]);
-const RUN_SCRIPT = new Set(["run", "run-script"]);
-const INTERPRETERS = new Set(["python", "python3", "python2", "node", "ruby", "perl", "php", "bash", "sh", "zsh", "dash", "ksh", "lua", "Rscript", "tsx", "ts-node"]);
-const INLINE_CODE = new Set(["-c", "-e", "-p", "--eval", "--print", "-E", "-r", "-i"]);
-const EXEC_WRAPPERS = new Set(["watch", "setsid", "ionice", "flock", "chrt", "taskset", "unbuffer", "sudo", "doas", "su", "env", "exec", "eval", "source", ".", "nsenter", "chroot", "xargs", "parallel", "direnv", "devbox", "mise", "nix-shell"]);
-/** Programs whose prefix rule would allow too much: their rule is the exact command. */
-const EXACT_ONLY = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "chgrp", "dd", "kill", "pkill", "killall", "curl", "wget", "ssh", "scp", "sftp", "rsync", "awk", "gawk", "sed", "tee", "truncate", "shred", "ln", "mount", "umount", "crontab", "nc", "ncat", "socat", "telnet", "ftp", "mkfs", "fdisk", "iptables", "find", "tar", "unzip", "zip", "install", "patch"]);
 /**
- * NO WIDER RULE THAN THE COMMAND (Bash docs pass 8): a wrapper Coder could not see past (`timeout -s KILL 30 …`, `time -p …`,
- * `strace -f …`) gets the exact command as its rule, as Claude Code 2.1.322 refuses a prefix rule for its wrappers and shells
- * (its pve list) and saves the command itself; and an exact rule is never one with a `*` in it, which would match far more.
+ * THE RULE "YES, AND DON'T ASK AGAIN" SAVES FOR ONE PART, Claude Code's own (Bash docs pass 9; its uPn, mso and ter in
+ * 2.1.322, whose Bash tool passes no prefix helper, so this is always its rule; side by side over 38 commands, Coder's had
+ * differed in 16): a heredoc's command and the word after it (`cat <<EOF …` → `cat *`); a part over several lines, its first
+ * line and ` *`; the first two words and ` *` when the second looks like a subcommand (`npm install lodash` →
+ * `npm install *`, `npm run build` → `npm run *`) and the first is no shell or wrapper, past the variables in front Claude
+ * Code counts as safe (`NODE_ENV=test npm test` → `npm test *`); otherwise the part exactly as written (`ls -la`,
+ * `pytest tests/`, `timeout 30 npm test`, `FOO=1 npm test`).
+ * Kept from Coder: no rule for a part whose program is worked out when it runs, or that runs a command substitution (no rule
+ * could approve it), nor an exact one with a `*` in it (it would match more than the card shows); eval, source and the rest
+ * of Claude Code's list get the part exactly, as only an exact rule can approve them.
  */
-const PREFIX_REFUSED = new Set(["fish", "csh", "tcsh", "cmd", "powershell", "pwsh", "command", "builtin", "noglob", "nice", "stdbuf", "nohup", "timeout", "time", "strace", "ltrace", "script", "unshare", "pkexec", "runuser"]);
+// (Claude Code's shells and wrappers, its pve: the first word of a two-word rule is never one of them.)
+const RULE_WRAPPERS = new Set(["sh", "bash", "zsh", "fish", "csh", "tcsh", "ksh", "dash", "cmd", "powershell", "pwsh", "env", "xargs", "command", "builtin", "noglob", "nice", "stdbuf", "nohup", "timeout", "time", "watch", "ionice", "chrt", "setsid", "taskset", "strace", "ltrace", "script", "flock", "unshare", "nsenter", "sudo", "doas", "pkexec", "su", "runuser"]);
+const SUBCOMMAND_WORD = /^[a-z][a-z0-9]*(-[a-z0-9]+)*$/;
+/** Whether Claude Code looks past `NAME=value` in front of a command (its FD, here rbEnvSafe: the same list and checks). */
+export const safeLeadVar = (name, value) => rbEnvSafe(name, value);
+/** How many words in front are safe variables (its y8e), or null when one is not. */
+function leadVarCount(words) {
+  let n = 0;
+  while (n < words.length && /^[A-Za-z_]\w*=/.test(words[n])) { const eq = words[n].indexOf("="); if (!safeLeadVar(words[n].slice(0, eq), words[n].slice(eq + 1))) return null; n++; }
+  return n;
+}
+/** The two words of a prefix rule (its mso), or null. */
+function twoWordRule(text) {
+  const n = String(text).trim().split(/\s+/).filter(Boolean);
+  if (!n.length) return null;
+  const r = leadVarCount(n);
+  if (r === null) return null;
+  const s = n.slice(r);
+  if (s.length < 2 || RULE_WRAPPERS.has(s[0].split("/").pop()) || !SUBCOMMAND_WORD.test(s[1])) return null;
+  return s.slice(0, 2).join(" ");
+}
+/** A heredoc's command (its ter), or null. */
+function heredocRule(text) {
+  const at = text.indexOf("<<");
+  if (at <= 0) return null;
+  const r = text.slice(0, at).trim();
+  if (!r) return null;
+  const two = twoWordRule(r);
+  if (two) return two;
+  const h = r.split(/\s+/).filter(Boolean), y = leadVarCount(h);
+  if (y === null || y >= h.length || RULE_WRAPPERS.has(h[y].split("/").pop())) return null;
+  return h.slice(y, y + 2).join(" ") || null;
+}
+/** Claude Code's rule for one part's text (its uPn): `prefix *`, or the text itself, an exact rule. */
+export function ruleShape(text) {
+  const t = String(text ?? "");
+  const hd = t.includes("<<") ? heredocRule(t) : null;
+  if (hd) return hd + " *";
+  if (t.includes("\n")) { const first = t.split("\n")[0].trim(); if (first) return first + " *"; }
+  const two = twoWordRule(t);
+  return two ? two + " *" : t;
+}
 const exactRule = (t) => (t && !t.includes("*") ? t : null);
 /** The rule to save for one simple command, or null when none can be offered. */
 export function suggestFor(cmd) {
-  const w = readWords(cmd.words, { wrappers: true });
-  if (!w || !w.length) return null;
-  const p0 = w[0];
-  if (p0.expand || p0.subst || p0.glob) return null;
-  const prog = p0.text, name = basename(prog);
-  if (EXEC_WRAPPERS.has(name)) return null;
-  if (prog.startsWith("-") || PREFIX_REFUSED.has(name)) return (cmd.words || []).some((x) => x.subst || x.expand) ? null : exactRule((cmd.words || []).map((x) => x.raw).join(" "));
-  const rest = w.slice(1);
-  if (rest.some((x) => x.subst)) return null;
-  const raw = w.map((x) => x.raw).join(" ");
-  if (name === "find" && rest.some((x) => FIND_ACTS.has(x.text))) return null;
-  if (INTERPRETERS.has(name)) {
-    let k = 0;
-    while (k < rest.length && rest[k].text.startsWith("-") && rest[k].text !== "-m") { if (INLINE_CODE.has(rest[k].text)) return null; k++; }
-    // No script, only options (node --test, python3 -V): the program and its first option.
-    if (k >= rest.length) return rest.length && !rest[0].expand ? prog + " " + rest[0].raw + " *" : null;
-    if (rest[k].text === "-m") return rest[k + 1] && !rest[k + 1].expand ? prog + " -m " + rest[k + 1].raw + " *" : null;
-    return rest[k].expand ? null : prog + " " + rest[k].raw + " *";
-  }
-  if (EXACT_ONLY.has(name)) return exactRule(raw);
-  if (SUBCOMMANDS.has(name)) {
-    if (name === "git" && rest[0] && rest[0].text.startsWith("-")) return null; // git -C / -c: as written only
-    const k = rest.findIndex((x) => !x.text.startsWith("-"));
-    if (k < 0) return exactRule(raw);
-    if (rest.slice(0, k).length && name !== "npx" && name !== "bunx" && name !== "pnpx") return null;
-    const sub = rest[k];
-    if (sub.expand) return null;
-    if (RUN_SCRIPT.has(sub.text) && ["npm", "pnpm", "yarn", "bun"].includes(name) && rest[k + 1] && !rest[k + 1].text.startsWith("-")) return prog + " " + sub.raw + " " + rest[k + 1].raw + " *";
-    return prog + " " + sub.raw + " *";
-  }
-  // A program the project holds (./scripts/test.sh, ./gradlew): it and its first word.
-  if (prog.includes("/")) { const sub = rest.find((x) => !x.text.startsWith("-")); return prog + (sub && !sub.expand && rest.indexOf(sub) === 0 ? " " + sub.raw : "") + " *"; }
-  return prog + " *";
+  const words = cmd.words || [];
+  if (!words.length || words.some((x) => x.subst)) return null;
+  const w = readWords(words, { wrappers: true }) || leadWords(words);
+  if (!w || !w.length || w[0].expand || w[0].subst || w[0].glob) return null;
+  const typed = words.map((x) => x.raw).join(" ");
+  if (EVAL_LIKE.has(basename(w[0].text))) return exactRule(typed);
+  // (A heredoc: its command and the marker, as Claude Code reads the part's text; the lines after it are not kept here, so
+  // one that is no prefix rule gets none.)
+  const doc = (cmd.redirects || []).some((r) => r.heredoc);
+  const shape = ruleShape(doc ? typed + " <<" : typed);
+  if (doc) return shape.endsWith(" *") ? shape : null;
+  return shape === typed ? exactRule(typed) : shape;
 }
 
 // ── THE DECISION ─────────────────────────────────────────────────────────────
@@ -1258,7 +1296,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [] } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1266,14 +1304,15 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // DENY, THEN ASK: a rule on one of the call's settings (Bash(run_in_background:true), see settingSpec), or a rule on the
   // command matching any part of it, nested ones too (Claude Code: "including a command nested inside a subshell, a command
   // substitution, or a control-flow body"). A rule on a setting is no command pattern.
-  const onSetting = (x) => { const sp = settingSpec(x.spec); return sp && sp.name !== "command" ? sp : null; };
+  // (`settings`: the names of the call's own settings, a monitor's for a monitor: MONITOR_SETTINGS.)
+  const onSetting = (x) => { const sp = settingSpec(x.spec, settings); return sp && sp.name !== "command" ? sp : null; };
   const settingHit = (list) => (input && typeof input === "object" ? list.find((x) => { const sp = onSetting(x); return !!sp && settingMatches(sp.value, input[sp.name]); }) || null : null);
   // (Each part also with its redirections, as Claude Code splits a command: `Bash(echo hi > out.txt)` denies that part.)
-  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of [...denyTexts(c), partText(c)]) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
+  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec, settings)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of [...denyTexts(c), partText(c)]) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
   // THE WHOLE COMMAND AS ONE TEXT, for a rule with no wildcard (Claude Code's exact candidates, its `pXt`; Bash docs pass 9:
   // `Bash(git status && npm test)` as a deny rule never refused its own text, nor approved it as an allow rule).
   const whole = String(command ?? "").trim().replace(/[ \t]+/g, " ");
-  const exactHit = (list) => list.find((x) => typeof x.spec === "string" && !x.spec.includes("*") && !settingSpec(x.spec) && x.spec.replace(/[ \t]+/g, " ").trim() === whole) || null;
+  const exactHit = (list) => list.find((x) => typeof x.spec === "string" && !x.spec.includes("*") && !settingSpec(x.spec, settings) && x.spec.replace(/[ \t]+/g, " ").trim() === whole) || null;
   const d = settingHit(deny) || exactHit(deny) || commandHit(deny);
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   // THE OWNER'S READ AND EDIT RULES ON THE FILES THE COMMAND NAMES (Bash docs, the owner, 2026-11-10: "yea do all 4"; Claude

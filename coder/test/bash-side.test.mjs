@@ -107,7 +107,7 @@ test("CD364 the card says Claude Code's sentence alone (no \"This command requir
   assert.ok(!agent.includes('"This command requires approval: " + ask.why'), "no prefix");
   assert.match(agent, /why: String\(rmWhy \|\| \(ask \? ask\.why : pausedCard \? pausedWhy\(checkSt\.byRow\) : switchedCard \? MODE_SWITCHED : dec\.why\)\)\.slice\(0, 800\)/);
   assert.match(agent, /reply\("not run yet: " \+ \(ask\.note \|\| ask\.why\)/);
-  assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false, scratch: \[SCRATCH\] \}\)/);
+  assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false, scratch: \[SCRATCH\], \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
   // The read block's sentence is kept as Claude Code says it (it was lowercased into "This command requires approval: …").
   assert.match(agent, /ask = \{ kind: "readblock", paths: \[\], allow: \[allowRunText\(command\)\], why: rb, note: w, github: w \}/);
   // commandAsk, every mode: a protected file by its full path, in Claude Code's sentence.

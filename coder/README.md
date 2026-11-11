@@ -1254,6 +1254,32 @@ and what its cloud machine does (seen in a cloud session that day). Tests:
   repository's settings, which wins; and whether a variable edited in the
   environment reaches a chat already open before its machine sleeps.
 
+**Bash docs pass 9, part C** (the same "Yes pls"): the rules and "don't ask
+again", from Claude Code 2.1.322's own program. Tests: `test/pass9-c.test.mjs`
+(CD467 to CD470).
+- *The rule "don't ask again" saves* (CD467, CD468; `suggestFor`, `ruleShape`,
+  Claude Code's uPn, mso and ter): the first two words and ` *` when the second
+  looks like a subcommand and the first is no shell or wrapper, past the
+  variables in front Claude Code counts as safe (`safeLeadVar`, its FD); a
+  heredoc's command; a part over several lines, its first line; otherwise the
+  command exactly as written. Over 38 commands, Coder's had differed in 16 (it
+  saved `ls *` for `ls -la`); now all 38 are Claude Code's. Kept from Coder: no
+  rule for a command whose program is worked out when it runs or that runs a
+  command substitution, no exact rule with a `*` in it, and `eval` and the rest
+  of Claude Code's list get the exact command. Each rule offered approves its
+  command the next time.
+- *An allow rule is tried against the command as typed too* (CD469,
+  `allowTexts`, Claude Code's hY): `Bash(NODE_ENV=production npm run *)` matches
+  its own command; and past `timeout` with its own settings (`-s KILL`,
+  `--signal=…`, `-k 5`; Claude Code's CT): `Bash(npm test *)` covers
+  `timeout -s KILL 30 npm test`.
+- *Rules on a monitor's own settings* (CD470, `MONITOR_SETTINGS`,
+  `monitorRules`): `Monitor(timeout_ms:*)`, `Monitor(description:…)` match what
+  Coder asked the monitor for; Bash's (`Bash(run_in_background:true)`) are on
+  Bash calls only (one had refused every monitor). Hooks see a monitor's own
+  input in every event (`callInput`), never the background bash call Coder
+  makes of it.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

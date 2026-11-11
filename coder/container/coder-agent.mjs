@@ -34,7 +34,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait } from "./coder-checker.mjs";
-import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -1318,7 +1318,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       const call = calls0.find((x) => x.id === card.id) || {};
       const tool = call.monitor ? "Monitor" : ccTool(card.tool);
       const callArgs = call.args || {};
-      const input0 = call.monitor ? hookToolInput("monitor", { command: callArgs.command, description: callArgs.description }) : hookToolInput(card.tool, callArgs);
+      const input0 = call.monitor ? hookToolInput("monitor", call.monitorArgs || { command: callArgs.command, description: callArgs.description }) : hookToolInput(card.tool, callArgs);
       // (Its suggestions as Claude Code's entries: "rules is an array of {toolName, ruleContent?} objects".)
       const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
       const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
@@ -1505,6 +1505,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   /** One event's hooks, run: what they said together (hooksOutcome), or null when none matched. */
   /** A call's tool by Claude Code's name for its hooks: a PowerShell call stays "PowerShell" after Coder runs it the bash way (Bash docs pass 8). */
   const callTool = (c) => (c.monitor ? "Monitor" : c.ps ? "PowerShell" : ccTool(c.name));
+  // (What hooks see as a call's input: a monitor's own, never the background bash call Coder makes of it; Bash docs pass 9.)
+  const callInput = (c) => (c.monitor && c.monitorArgs ? hookToolInput("monitor", c.monitorArgs) : hookToolInput(c.name, c.args));
   const runHooks = async (event, value, extra, call = null) => {
     const list = hookList.length ? hooksFor(hookList, event, value, call) : [];
     if (!list.length) return null;
@@ -1576,7 +1578,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const content = String(convo[at].content || "");
     const failed = Number.isInteger(res.code) && res.code !== 0 && !res.ok && !res.background;
     const tool = callTool(c);
-    const input = hookToolInput(c.name, c.args);
+    const input = callInput(c);
     const ev = failed ? "PostToolUseFailure" : "PostToolUse";
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
     const diff = c.name === "bash" && !c.monitor ? editDiffFor(res.files) : null;
@@ -1688,7 +1690,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const deniedHooks = async (c, reason, { retry = true } = {}) => {
     if (!hookList.length) return "";
     const tool = callTool(c);
-    const input = hookToolInput(c.name, c.args);
+    const input = callInput(c);
     const o = await runHooks("PermissionDenied", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id, reason: String(reason || "") }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
     return o && o.retry && retry ? "\n\nThe PermissionDenied hook indicated you may retry this tool call." : "";
   };
@@ -2232,7 +2234,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       if (c.name === "monitor" && !github && wholeRule(ownRules, "deny", "Bash")) { emit({ type: "bash", id: c.id, command: scrub(String((c.args && c.args.command) || "")).slice(0, 2000), monitor: true }); emit({ type: "result", id: c.id, code: -1, output: MONITOR_BASH_DENIED }); reply(MONITOR_BASH_DENIED); continue; }
       // (A PowerShell call goes the bash way, marked: its own checks and rules there, and pwsh to run it.)
       if (c.name === "powershell" && c.args && typeof c.args === "object") { c.ps = true; c.name = "bash"; }
-      if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms), ...(c.args.allowed_domains !== undefined ? { allowed_domains: c.args.allowed_domains } : {}) }; }
+      if (c.name === "monitor" && c.args && typeof c.args === "object") { c.monitor = true; c.monitorArgs = c.args; c.name = "bash"; c.args = { command: c.args.command, description: c.args.description, run_in_background: true, timeout: monitorMs(c.args.timeout_ms), ...(c.args.allowed_domains !== undefined ? { allowed_domains: c.args.allowed_domains } : {}) }; }
       if (hookList.length) postFor = c;
       // CODER'S OTHER TOOLS UNDER A RULE ON THE WHOLE TOOL (Bash docs pass 6: a bare name, or a wildcard such as `*`, Claude
       // Code's "Tool name wildcards"): a deny rule refuses the call, in Claude Code's words ("Permission to use … has been
@@ -2310,7 +2312,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH] });
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH], ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -2949,7 +2951,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     // or says "continue": false ends the turn, its reason a warning that stays in the chat.
     if (hookList.some((h) => h.event === "PostToolBatch")) {
       const answerOf = (id) => { for (let k = convo.length - 1; k >= 0; k--) if (convo[k].role === "tool" && convo[k].tool_call_id === id) return String(convo[k].content || ""); return ""; };
-      const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: callTool(c), tool_input: hookToolInput(c.name, c.args), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
+      const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: callTool(c), tool_input: callInput(c), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
       if (b && b.context.length) roundNotes.push(hookNote("PostToolBatch", b.context));
       if (b && (b.stop || b.decision === "block")) {
         const why = (b.stop && b.stop.reason) || b.blocks.join("\n") || b.reason || "A PostToolBatch hook stopped Coder.";

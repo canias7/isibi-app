@@ -143,7 +143,8 @@ test("CD433 \"don't ask again\" never offers a rule wider than the command: past
   const s = (c) => P.suggestFor(SH.parseShell(c).commands[0]);
   assert.equal(s("timeout -s KILL 30 npm install"), "timeout -s KILL 30 npm install", "not timeout *");
   assert.equal(s("strace -f ./a.out"), "strace -f ./a.out");
-  assert.equal(s("timeout 30 npm install"), "npm install *", "a plain timeout: seen through, as before");
+  // (Pass 9: Claude Code's own rule, its uPn: timeout is one of its wrappers, so the command itself.)
+  assert.equal(s("timeout 30 npm install"), "timeout 30 npm install");
   assert.equal(s("rm *.log"), null, "rm *.log as a rule would allow any rm ending in .log");
   assert.equal(s("rm build.log"), "rm build.log");
   assert.equal(s("npm install"), "npm install *");

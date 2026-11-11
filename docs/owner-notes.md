@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 3 built: the rules and "don't ask again" (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 504 automated tests pass (4 of them new).
+
+- **"Yes, and don't ask again" now saves Claude Code's own rule.** Before, Coder often saved a wider one: for `ls -la` it saved `ls *`. Now, like Claude Code: the first two words and a star when the second looks like a sub-command (`npm install *`, `git commit *`, `npm run *`), otherwise the exact command (`ls -la`, `pytest tests/`, `timeout 30 npm test`). I compared 38 commands: before, 16 differed; now all 38 match. Each rule it offers really does approve that command the next time (tested).
+- A few commands that used to get no "don't ask again" at all now get the exact command as their rule, as in Claude Code (inline code like `python3 -c '…'`, `watch ls`, `FOO=1 npm test`). An exact rule only ever approves that same text.
+- **Kept Coder's way in three spots, all stricter:** no rule for a command whose program is only known when it runs (`$CMD x`), none that would contain a `*` (it would allow more than the card shows), and `eval`-like commands get only the exact command.
+- **Rules written the way a command is typed now work**, like `Bash(NODE_ENV=production npm run *)`. And `Bash(npm test *)` now covers `timeout -s KILL 30 npm test` (timeout with its own options).
+- **Monitors and rules on settings:** a rule like `Bash(run_in_background:true)` used to refuse every monitor; now it only applies to ordinary commands, as in Claude Code. Rules on a monitor's own settings, like `Monitor(timeout_ms:*)`, now work. Your hooks now see a monitor's own settings instead of the background command Coder turns it into.
+
+**Next:** part 4: your `!` commands, background commands, monitors, and wording.
+
 ## 2026-11-11: Bash docs pass 9, part 2 built: how Claude Code's cloud machine runs commands (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 500 automated tests pass (12 of them new).

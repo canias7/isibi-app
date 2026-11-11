@@ -539,7 +539,7 @@ function timeoutAt(n) {
   return k;
 }
 /** time [-p], nohup, timeout and `nice -n N` in front (Claude Code's `ier`); `w`: words, compared by their text. */
-function processWrappers(w) {
+export function processWrappers(w) {
   for (;;) {
     const r = progName(w[0] ? w[0].text : "");
     if (r === "time" || r === "nohup") {
