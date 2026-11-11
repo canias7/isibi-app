@@ -322,11 +322,23 @@ test("CD282 (tool 4, docs pass 2) what persists between commands, as in Claude C
   const base = "http://127.0.0.1:" + srv.address().port;
   try {
     const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
-    assert.equal((await post("/turn", { project: "shop-snap", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh" } } })).status, 200);
+    // (Bash's startup file under bash: CODER_SHELL=bash. Since pass 9 a machine with zsh runs commands in zsh, as Claude Code's
+    // cloud machine does, and zsh reads ~/.zshrc: below.)
+    assert.equal((await post("/turn", { project: "shop-snap", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh", CODER_SHELL: "bash" } } })).status, 200);
     let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-snap&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     const out = st.events.find((e) => e.type === "result" && e.id === "s1").output;
     assert.equal(out, "hi from an alias\nhello you\nmytool ran\nno-completion\nfrom-env-file", out);
     assert.ok(existsSync(join(home, ".cache", "coder", "shell-snapshot.sh")));
+    // THE SAME IN ZSH, the default where it is installed (Bash docs pass 9): its ~/.zshrc's aliases, functions and PATH.
+    if (existsSync("/usr/bin/zsh") || existsSync("/bin/zsh")) {
+      await writeFile(join(home, ".zshrc"), "echo 'Welcome!'\nalias hi='echo hi from an alias'\ngreet() { echo \"hello $1\"; }\n_comp_x() { :; }\nexport PATH=\"$HOME/tools:$PATH\"\n");
+      n = 0;
+      assert.equal((await post("/turn", { project: "shop-snapz", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh" } } })).status, 200);
+      for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-snapz&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+      const outZ = st.events.find((e) => e.type === "result" && e.id === "s1").output;
+      assert.equal(outZ, "hi from an alias\nhello you\nmytool ran\nno-completion\nfrom-env-file", outZ);
+      assert.ok(existsSync(join(home, ".cache", "coder", "shell-snapshot.zsh")));
+    }
   } finally { await new Promise((r) => srv.close(r)); }
 });
 

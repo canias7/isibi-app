@@ -16,6 +16,34 @@ const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "mksh", "busy
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
 /** Claude Code's Unicode spaces (its `lon`): none of them separates words in bash. */
 export const UNICODE_SPACE = /[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/;
+/** Claude Code's escaped blank (`\ `, `\<tab>`) and its joined lines (a backslash-newline inside a word), as it tests them. */
+const ESCAPED_BLANK = /\\[ \t]/;
+const JOINED_LINE = /(?:^|[^ \t\\])(?:\\\\)*\\\n|[ \t](?:\\\\)+\\\n|\\[ \t]\\\n/;
+/**
+ * A command's text with each `{` inside quotes or backquotes made a blank, escapes and comments kept (Claude Code's At), so a
+ * brace with a quote after it shows only where the shell would expand it.
+ */
+export function quotedBracesBlanked(e) {
+  if (!e.includes("{")) return e;
+  const t = [];
+  let sq = false, dq = false, bt = false, start = true, i = 0;
+  while (i < e.length) {
+    const u = e[i];
+    if (bt) {
+      if (u === "\\" && (e[i + 1] === "`" || e[i + 1] === "\\" || e[i + 1] === "$")) { t.push(u, e[i + 1]); i += 2; }
+      else { if (u === "`") bt = false; t.push(u === "{" ? " " : u); i++; }
+    } else if (sq) { if (u === "'") sq = false; t.push(u === "{" ? " " : u); i++; }
+    else if (dq) {
+      if (u === "\\" && (e[i + 1] === '"' || e[i + 1] === "\\" || e[i + 1] === "`")) { t.push(u, e[i + 1]); i += 2; }
+      else if (u === "`") { bt = true; t.push(u); i++; }
+      else { if (u === '"') dq = false; t.push(u === "{" ? " " : u); i++; }
+    } else if (u === "\\" && i + 1 < e.length) { t.push(u, e[i + 1]); if (e[i + 1] !== "\n") start = false; i += 2; }
+    else if (u === "#" && start) { while (i < e.length && e[i] !== "\n") { t.push(e[i]); i++; } start = true; }
+    else if (u === "`") { bt = true; start = false; t.push(u); i++; }
+    else { if (u === "'") sq = true; else if (u === '"') dq = true; start = " \t\n;|&()<>".includes(u); t.push(u); i++; }
+  }
+  return t.join("");
+}
 /** Claude Code's literal arithmetic piece (its `ir`): a number in any base, or operators. */
 const ARITH_LITERAL = /^(?:[0-9]+|0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z]+|[-+*/%^&|~!<>=?:(),]+|<<|>>|\*\*|&&|\|\||[<>=!]=|\$\(\(|\)\))$/;
 /** The first piece of an arithmetic expression that is no number or operator ("" when there is none). */
@@ -54,6 +82,14 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // only at spaces, tabs and new lines, so a no-break space in `cat<U+00A0>./evil` is part of one program's name.)
   if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) noteComplex("Contains lone surrogate");
   if (UNICODE_SPACE.test(s)) noteComplex("Contains Unicode whitespace");
+  // (And where bash and zsh read a command differently, Claude Code 2.1.322's own patterns, its ct: an escaped blank or a
+  // line joined in the middle of a word, zsh's ~[…] and =cmd expansions, its <N-M> globs, and a brace with a quote in it
+  // outside quotes. Coder's commands run in zsh as Claude Code's cloud ones do: Bash docs pass 9.)
+  if (ESCAPED_BLANK.test(s) || JOINED_LINE.test(s)) noteComplex("Contains backslash-escaped whitespace");
+  if (/~\[/.test(s)) noteComplex("Contains zsh ~[ dynamic directory syntax");
+  if (/(?:^|[\s;&|])=[a-zA-Z_]/.test(s)) noteComplex("Contains zsh =cmd equals expansion");
+  if (/<\d*-\d*>/.test(s)) noteComplex("Contains zsh <N-M> numeric-range glob");
+  if (/\{[^}]*['"]/.test(quotedBracesBlanked(s))) noteComplex("Contains brace with quote character (expansion obfuscation)");
 
   const fail = () => { ok = false; };
   const peek = (n = 0) => s[i + n];

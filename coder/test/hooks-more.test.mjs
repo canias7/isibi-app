@@ -164,7 +164,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook (prompt): rm is not allowed here");
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b2").content, "not run: a hook ended this turn");
   assert.ok(t.events.some((e) => e.type === "note" && e.warn === true && e.text === "PreToolUse hook: rm is not allowed here"));
-  assert.match(t.judged[0].messages[1].content, /^Is this safe\? \{"session_id":"shop-h2","prompt_id":"[0-9a-f-]{36}","cwd":"\/work\/shop","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":\{"command":"rm -rf build"/);
+  assert.match(t.judged[0].messages[1].content, /^Is this safe\? \{"session_id":"shop-h2","prompt_id":"[0-9a-f-]{36}","cwd":"\/work\/shop","scratchpad_dir":"\/tmp\/coder-scratch","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":\{"command":"rm -rf build"/);
   assert.deepEqual([t.judged[0].effort, t.judged[0].webSearch, t.judged[0].tools], ["low", false, []]);
   assert.equal(t.r.usage.length, 2, "the hook's call counts");
   // continueOnBlock: denied, and Coder goes on.

@@ -648,6 +648,7 @@ export function splitHookOut(out, mark) {
 }
 
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
-export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "" } = {}, extra = {}) {
-  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
+  // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
+  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

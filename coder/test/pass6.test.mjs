@@ -323,8 +323,8 @@ test("CD392 the repository's own .claude/settings.json and .claude/settings.loca
   // The machine: the env under the owner's variables, the rules, the working folders (those only the repository adds kept apart
   // for the write block), the blocks; the trust switch from the owner's rules.
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const repoSet = repoSettings\(dir, \{ trust: !!\(body\.rules && body\.rules\.trust === true\), github: body\.github === true, several: extraRepos\(body\)\.length > 0 \}\);\n\s+\/\/ \(Kept for rules[^\n]*\n\s+t\.repoSet = repoSet;\n\s+for \(const h of repoSet\.held\) t\.events\.push\(\{ at: Date\.now\(\), type: "note", text: heldNote\(h\) \}\);/);
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\), /);
+  assert.match(server, /const repoSet = repoSettings\(dir, \{ trust: !!\(body\.rules && body\.rules\.trust === true\), github: body\.github === true, several: extraRepos\(body\)\.length > 0 \}\);\n\s+\/\/ \(Kept for rules[^\n]*\n\s+t\.repoSet = repoSet;\n(?:\s+t\.[^\n]*\n){3}\s+for \(const h of repoSet\.held\) t\.events\.push\(\{ at: Date\.now\(\), type: "note", text: heldNote\(h\) \}\);/);
+  assert.match(server, /const extraEnv = \{ \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\), GIT_EDITOR: "true", /);
   assert.match(server, /rules: withRepoRules\(body\.rules, repoSet\), /);
   assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads, writeBlock: varOn\(rawVars\.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockWrites, /);
   assert.match(server, /repoDirs: repoOnlyDirs,/);

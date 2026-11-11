@@ -1075,6 +1075,7 @@ HOW YOU WORK
 - A message the owner sent while you were working comes in the middle of your turn, after your tool results, starting "The owner sent a new message while you were working:". Read it and take it into account as you go on: change course if it asks you to.
 - A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
+- Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of /tmp or other system temp directories; it is this chat's own, isolated from the project, and can generally be used without permission prompts. Only use /tmp if the owner explicitly asks.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
@@ -1223,10 +1224,17 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // RULES THE OWNER CHANGES WHILE CODER WORKS (Bash docs pass 8; Claude Code: a change takes effect at the next tool call):
   // looked at before each tool call; the job's own "don't ask again" rules kept.
   let rulesSeen = null;
+  // (And THE REPOSITORY'S HOOKS AND BLOCKS when its settings files change mid-job, Bash docs pass 9: from the next step on.)
+  let hooksSeen = null, blocksSeen = null;
   const freshRules = () => {
     if (typeof deps.rulesNow !== "function") return;
     let nr = null;
     try { nr = deps.rulesNow(); } catch { nr = null; }
+    let nh = null, nb = null;
+    try { nh = typeof deps.hooksNow === "function" ? deps.hooksNow() : null; } catch { nh = null; }
+    if (Array.isArray(nh) && nh !== hooksSeen) { hooksSeen = nh; hookList = okHooks(nh); }
+    try { nb = typeof deps.blocksNow === "function" ? deps.blocksNow() : null; } catch { nb = null; }
+    if (nb && typeof nb === "object" && nb !== blocksSeen) { blocksSeen = nb; readBlock = !!(readBlock || nb.read); writeBlock = !!nb.write; }
     if (!nr || typeof nr !== "object" || nr === rulesSeen) return;
     rulesSeen = nr;
     for (const k of ["allow", "ask", "deny"]) { ownRules[k] = []; for (const r of Array.isArray(nr[k]) ? nr[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r); }
@@ -1354,7 +1362,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // Coder's machine. Each runs as Coder's commands do (its user, its room, the folder its commands are in), the event's JSON on
   // stdin (a file the machine writes, as for a big tool request), its stderr kept apart from its stdout; at once, the matching
   // ones of an event together. The owner sees each one's message and each one that failed; Coder, what it adds or blocks.
-  const hookList = Array.isArray(hooks) ? hooks.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : typeof h.command === "string")) : [];
+  const okHooks = (list) => (Array.isArray(list) ? list.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : typeof h.command === "string")) : []);
+  // (Read again when the repository's settings files change mid-job: freshRules.)
+  let hookList = okHooks(hooks);
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
   // until the first user input"; Bash docs pass 8. A turn with no message of the owner's has none.)
   const promptId = typeof text === "string" && text.trim() ? randomUUID() : "";
@@ -2113,6 +2123,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     // STOP HOOKS: one that blocks (decision "block", or exit 2), or that gives feedback (additionalContext), keeps Coder going,
     // its reason given as Claude Code gives it ("Stop hook feedback"); at most STOP_BLOCK_CAP times in a row ("after stop hooks
     // have continued the turn eight times in a row, Claude Code overrides the next block and ends the turn").
+    // (The repository's settings, looked at again before its Stop hooks too, as before each step: freshRules.)
+    if (!calls.length) freshRules();
     if (!calls.length && hookList.length && stopRun < STOP_BLOCK_CAP) {
       const o = await runHooks("Stop", "", { stop_hook_active: stopHookActive, last_assistant_message: scrub(said).slice(0, 20000), background_tasks: [...jobs.entries()].filter(([, j]) => !j.done).map(([id, j]) => ({ id, type: j.monitor ? "monitor" : "shell", status: "running", description: String(j.desc || "").slice(0, 1000), command: String(j.command || "").slice(0, 1000) })), session_crons: [] });
       if (o && o.stop) { if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); } return stopByHook(o); }
@@ -2137,9 +2149,38 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     let postFor = null;
     const runPost = async () => { const pc = postFor; postFor = null; if (pc) await postHooks(pc); };
     stopRun = 0;
+    // COMMANDS THAT ONLY READ, SEVERAL IN A ROW IN ONE REPLY, RUN AT THE SAME TIME (Bash docs pass 9; Claude Code runs a
+    // Bash call alongside others when it only reads, its isConcurrencySafe): with no hooks, each such command that is
+    // allowed even in Plan (no folder change, nothing asked, read block or not) starts as soon as the first of the run
+    // does; the loop takes its result in its turn. `ahead`: a call's id → its result to come.
+    const ahead = new Map();
+    const runsAhead = (x) => {
+      if (!x || x.name !== "bash" || x.ps || x.monitor || x.rerun || github || hookList.length || !x.args || typeof x.args !== "object") return false;
+      // (Not with the script caps on: they count each command as it is checked, in its turn.)
+      if (deps.scriptCaps && deps.scriptCaps.caps) return false;
+      const cmd = typeof x.args.command === "string" ? x.args.command : "";
+      if (!cmd.trim() || x.args.run_in_background === true || x.args.run_in_background === "true" || x.args.allowed_domains !== undefined) return false;
+      if (commandProblem(cmd) || leadsWithSleep(cmd) || sleepBlockFor(cmd, false, "") || !wholeReadOnly(cmd)) return false;
+      if (readCommand(cmd).cmds.some((k) => ["cd", "pushd", "popd", "chdir"].includes(String(((k.words || [])[0] || {}).text || "").split("/").pop()))) return false;
+      if (emailMark && namesUserAgentWithAddress(inputText(x.args), emailMark)) return false;
+      const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
+      if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
+      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH], exists: (q) => pathExists(q) })) return false;
+      return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }).verdict === "allow";
+    };
+    const startAhead = (x) => {
+      const descIn = [x.args.description, x.args.command_description].find((d) => typeof d === "string" && d.trim());
+      const desc = descIn ? scrub(visibleChars(descIn.trim().replace(/\s+/g, " "))).slice(0, 200) : "";
+      return Promise.resolve(deps.exec({ command: x.args.command, timeoutS: commandTimeoutS(x.args, timeouts), here: true, follow: true, inBg: false, sleepFirst: false, desc, limitMs: 0 })).catch((e) => ({ code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }));
+    };
     for (let i = 0; i < calls.length; i++) {
       freshRules();
       await runPost();
+      // (The run starts in the order asked, this one first, and only while the job has time left and was not stopped: the
+      // time limit is checked before each command starts.)
+      if (!ahead.has((calls[i] || {}).id) && i + 1 < calls.length && runsAhead(calls[i]) && runsAhead(calls[i + 1]) && now() - started <= maxMs && !(await stopped())) {
+        for (let j = i; j < calls.length && runsAhead(calls[j]); j++) ahead.set(calls[j].id, startAhead(calls[j]));
+      }
       if (hookStop) return stopByHook(hookStop);
       if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + m }); return end("done", { summary: lastSaid || m }); }
       if (!deniedLast) deniedRow = 0;
@@ -2269,7 +2310,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false });
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH] });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -2310,7 +2351,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock && !c.ps) {
-          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], exists: (p) => pathExists(p) });
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH], exists: (p) => pathExists(p) });
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
@@ -2338,7 +2379,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let pausedCard = false, switchedCard = false;
         const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        const wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        const wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
         // Code's session then starts in "default", where a run that can't ask is denied what needs approval.)
         if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -2399,8 +2440,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           }
         }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
-        // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
-        if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+        // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit). (One already started with the
+        // read-only commands beside it was checked when they started: its result is taken.)
+        if (!ahead.has(c.id) && now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
         // THE SCRIPT CAPS (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS with the
         // scrub on): a command naming a capped script once too often is not run, in Claude Code's words; the count is kept.
         if (deps.scriptCaps && deps.scriptCaps.caps && deps.scriptCaps.counts) {
@@ -2421,7 +2463,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
         const snapId = inBg ? "" : await snapBefore(command);
         ranAt.set(c.id, now());
-        try { r = await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command, ps: true } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
+        try { r = ahead.has(c.id) ? await ahead.get(c.id) : await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command, ps: true } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const files = await snapAfter(snapId, !(r && (r.background || r.notStarted)));
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
@@ -2471,6 +2513,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
         if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
         if (r && typeof r.netNote === "string" && r.netNote) text += "\n\n" + r.netNote;
+        // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its
+        // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
+        if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;
         emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).

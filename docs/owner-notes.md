@@ -11,6 +11,32 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 2 built: how Claude Code's cloud machine runs commands (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 500 automated tests pass (12 of them new).
+
+**What changed on Coder's machine, to match Claude Code's cloud machine:**
+- Commands now run in **zsh** (bash if zsh isn't there), as Claude Code's cloud does. Your CODER_SHELL can name bash or zsh anywhere on the machine.
+- The places where zsh reads a command differently from bash now ask, in Claude Code's words: an escaped space, a word split across lines, `~[…]`, `=ls`, `<1-5>`, a brace with a quote in it, zsh's own risky commands (`zmodload`, `ztcp` and 42 more), and zsh's `cd OLD NEW`.
+- The machine's settings for commands are Claude Code's: `TERM=linux`, no LANG, CI or NO_COLOR, Python prints at once, apt never asks questions.
+- **Your variables win now.** Your JAVA_HOME, TERM, GOPATH and the like used to be overwritten by the machine's; now yours count (never PATH or HOME). Names like USER_POOL_ID or PATH_PREFIX used to be dropped by mistake; now they reach commands.
+- git never waits for a password and turns `git@github.com:` addresses into https. The project now has a normal `origin`, so `gh pr list` knows which repository it is in. The AWS and Google tools get Claude Code's placeholder login.
+- `GIT_EDITOR=true` always, even if your variables set another editor, as Claude Code does.
+- **Every tool finds the network gate:** Yarn, npm, Docker, gcloud, Electron, Java and others get their own proxy setting, and AWS, Cargo, Deno, pip, uv and others their certificate setting. Java gets a certificate store with the gate's certificate in it, so Maven and Gradle work behind a limited network, saved keys included (I tried a real Java request through the gate).
+- **A scratch folder for each chat** (`/tmp/coder-scratch`). Coder is told to use it instead of `/tmp`, in Claude Code's words. Writing a command's output there doesn't ask. Hooks are told where it is.
+- **Output in the right order:** a command's errors now show where they happened. Before, they all came at the end (200 out of 200 tries).
+- **Commands that only read run at the same time** when Coder asks for several at once (like several `cat` or `git log`), as Claude Code does. Anything that changes something still runs on its own.
+- Numbers like `300_000` work in BASH_DEFAULT_TIMEOUT_MS.
+- When a command fails and a site it tried was allowed but couldn't be reached (no such name, site down), Coder is told, in Claude Code's own words, with the address of a page listing the recent failures. A blocked site still gets Coder's own note, as before.
+- A repository's `.claude/settings.json` can now set four more of Claude Code's command settings (the command prefix, the memory-cap kinds, the memory-pressure stop, the SessionEnd hook time). Yours win.
+- **If the repository's settings file changes while Coder works,** its rules and hooks count from Coder's next step (before, from the next message), as Claude Code does. A read block it turns on stays on for that job even if removed.
+
+**Found while building, and fixed:** my first version of "read at the same time" could start a command after the job's time limit; now the limit is checked before a group starts, and they start in the order Coder asked. And a command caught by zsh's checks that also can't be read now gets Claude Code's reason instead of "Parse error".
+
+**Left for you to decide (not built):** when the same variable is set both in your environment and in the repository's settings file, Claude Code uses the file's; Coder uses yours. And Claude Code gives an open chat an edited variable only after its machine sleeps; Coder gives it at the next message.
+
+**Next:** part 3, the rules and "don't ask again" list, then the `!` commands, background commands and monitors.
+
 ## 2026-11-11: Bash docs pass 9, part 1 built: pass 8's two bugs and the safety gaps (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 488 automated tests pass (18 of them new).

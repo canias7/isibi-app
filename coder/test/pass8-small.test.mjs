@@ -166,8 +166,9 @@ test("CD434 a rule the owner changes while Coder works counts from the next tool
   // The machine and the Worker.
   const server = read("container/server.mjs");
   assert.match(server, /if \(url\.pathname === "\/rules" && req\.method === "POST"\) \{/);
-  assert.match(server, /t\.rulesNext = withRepoRules\(\{ allow: r\.allow, ask: r\.ask, deny: r\.deny \}, t\.repoSet\) \|\| \{ allow: \[\], ask: \[\], deny: \[\] \};/);
-  assert.match(server, /rulesNow: \(\) => t\.rulesNext \|\| null,/);
+  // (Pass 9: the owner's rules kept, to go with the repository's own as they are now, read again when its files change.)
+  assert.match(server, /t\.ownerRules = \{ allow: r\.allow, ask: r\.ask, deny: r\.deny \};\n\s+t\.rulesNext = withRepoRules\(t\.ownerRules, t\.repoSet\) \|\| \{ allow: \[\], ask: \[\], deny: \[\] \};/);
+  assert.match(server, /rulesNow: \(\) => \{ repoNow\(\); return t\.rulesNext \|\| null; \},/);
   const routes = read("src/coder-routes.mjs");
   assert.match(routes, /await tellRunning\(r, rules\);/);
   assert.match(routes, /if \(!m \|\| m\.repo !== repoName \|\| m\.status !== "running"\) return;/);

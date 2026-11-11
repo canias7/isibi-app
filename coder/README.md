@@ -1188,6 +1188,72 @@ Claude Code's docs and its program, 2.1.322. Tests: `test/pass9-a.test.mjs`
 - *Auto mode* (CD454): a narrow allow rule skips the checker only when the
   path checks pass too (`partsAllowedOrReadOnly` with where the command runs).
 
+**Bash docs pass 9, part B** (owner, 2026-11-11, the same "Yes pls"): how
+Claude Code's cloud machine runs commands, from its docs, its program (2.1.322)
+and what its cloud machine does (seen in a cloud session that day). Tests:
+`test/pass9-b.test.mjs` (CD455 to CD466).
+- *zsh* (CD455, CD456): with no `CODER_SHELL`, commands run in zsh where it is
+  installed, then bash, as Claude Code's cloud sessions do (`shellOf`);
+  `CODER_SHELL` takes a full path anywhere that names bash or zsh and is there.
+  Claude Code's checks for where bash and zsh read a command differently ask,
+  in its words, before any rule (`parseShell`'s `complex`): an escaped blank or
+  a word joined across lines, `~[…]`, `=cmd`, `<N-M>`, a brace with a quote
+  outside quotes (`quotedBracesBlanked`); zsh's own builtins (`ZSH_DANGEROUS`,
+  its list of 44); zsh's `cd OLD NEW` (`CD_TWO_WHY`). When a command also can't
+  be parsed, the zsh reason is given, not "Parse error".
+- *The machine's presets* (CD457, `cleanEnv`): Claude Code's cloud machine's:
+  `TERM=linux`, `DEBIAN_FRONTEND=noninteractive`, `PYTHONUNBUFFERED=1`,
+  `IS_SANDBOX=1`; no `LANG`, `CI` or `NO_COLOR`. git never waits for a password
+  (`GIT_TERMINAL_PROMPT=0`, `GCM_INTERACTIVE=never`, `credential.interactive`
+  off) and turns `git@github.com:` into https; the AWS and Google tools get
+  Claude Code's `proxy-injected` placeholders. The clone has a normal `origin`
+  (the repository's address, no login in it), so `gh` and other tools know
+  which repository they are in (`prepareRepo`).
+- *The owner's variables win* (CD458): the owner's and the repository's
+  variables come after the machine's presets (`JAVA_HOME`, `TERM`, `GOPATH` …),
+  never over its `PATH` and `HOME`; names that only start with PATH, HOME,
+  SHELL or USER (`USER_POOL_ID`, `PATH_PREFIX`) now reach commands (`safeVars`).
+  `GIT_EDITOR=true` comes after them all, as Claude Code sets it.
+- *Each tool's proxy and certificates* (CD459, `toolProxyEnv`): Yarn, npm,
+  global-agent, Electron, Docker, gcloud, fsspec and Java get the gate as their
+  proxy, and the certificate settings of AWS, Cargo, Deno, gRPC, Hex, httplib2,
+  Nix, pip and uv point at the gate's bundle. Java gets a trust store holding
+  the gate's certificate (`javaTrustStore`), so Maven, Gradle and Java programs
+  work behind the wall, saved keys included.
+- *A scratchpad folder* (CD460): `/tmp/coder-scratch`, made private before
+  each command (`SCRATCH_MAKE`). Coder is told to use it instead of `/tmp`, in
+  Claude Code's words; a command's write there passes the path check (Claude
+  Code: "Scratchpad files for current session are allowed for writing"), so a
+  read-only command's output goes there without asking, and a file command is
+  then as any other; hooks get it as `scratchpad_dir`.
+- *Output in order* (CD461): a command's output and its errors come back as
+  printed (`merge`: one stream, as Claude Code's one file); before, errors
+  landed after everything else.
+- *Commands that only read run at the same time* (CD462, `runsAhead`): several
+  in one reply start together, in the order asked, while the job has time
+  left; results come back in that order. One that changes something, a hook,
+  the background or the script caps keep each in its turn.
+- *Numbers* (CD463, `envNumber`): `300_000`, `300,000` and `3e5` as Claude Code
+  reads them.
+- *The gate* (CD464): its refusals carry `x-deny-reason: host_not_allowed`. A
+  command that failed is told which connections to allowed sites failed while
+  it ran, in Claude Code's words (`failedNote`: "[agent-proxy] While this
+  command ran, 1 connection through the agent proxy failed: …"), up to three
+  lines, newest first, and where to see them all: the gate's status page at
+  Claude Code's address, `/__agentproxy/status` (no secret on it).
+- *Four more settings from a repository* (CD465, `REPO_OWN_ENV`):
+  `CLAUDE_CODE_SHELL_PREFIX`, `CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE`,
+  `CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP` and
+  `CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS`; the owner's own win.
+- *Settings changed mid-job* (CD466): a repository's settings files are looked
+  at before each step (`repoFilesStamp`) and read again when they change
+  (`repoNow`): their rules, hooks and blocks count from the next step; a read
+  block they drop stays on for the job, as Claude Code's does. Their env and
+  folders wait for the next message.
+- Left for the owner: when the same variable is in the environment and the
+  repository's settings, which wins; and whether a variable edited in the
+  environment reaches a chat already open before its machine sleeps.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

@@ -195,7 +195,7 @@ test("CD425 CODER_SHELL_PREFIX wraps only what Claude Code's CLAUDE_CODE_SHELL_P
   assert.equal(by(/pwsh -NoProfile/).noPrefix, true, "a PowerShell hook: not");
   // The machine: a PowerShell command (the AI's or the owner's !) and a hook marked so never get the prefix.
   const server = read("container/server.mjs");
-  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/);
+  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash", merge: true \}\)/);
   assert.match(server, /\.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "" \} : \{\}\)/);
   assert.match(server, /prefix: "", \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "", extraEnv:/, "a background hook too");
   assert.match(server, /hook: true, noPrefix: h\.type === "command" && \(Array\.isArray\(h\.args\) \|\| h\.shell === "powershell"\) \}\)/, "SessionEnd's");

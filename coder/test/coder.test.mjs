@@ -43,7 +43,9 @@ test("CD1 dangerous commands are refused with the reason; ordinary ones run", as
 
 test("CD2 commands run with no secrets in reach; key-shaped text is hidden; long output is cut and says so", async () => {
   const env = cleanEnv("/work/p");
-  assert.deepEqual(Object.keys(env).filter((k) => /KEY|TOKEN|SECRET/.test(k)), []);
+  // (Pass 9: only Claude Code's cloud placeholders, "proxy-injected", and git's own GIT_CONFIG_KEY_n setting names: no value.)
+  assert.deepEqual(Object.entries(env).filter(([k, v]) => /KEY|TOKEN|SECRET/.test(k) && !/^GIT_CONFIG_KEY_\d$/.test(k) && v !== "proxy-injected"), []);
+  assert.deepEqual(Object.keys(env).filter((k) => /KEY|TOKEN|SECRET/.test(k) && !/^GIT_CONFIG_KEY_\d$/.test(k)).sort(), ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CLOUDSDK_AUTH_ACCESS_TOKEN"]);
   process.env.XAI_API_KEY = "xai-thisisasecretkeyvalue1234567890";
   const dir = await mkdtemp(join(tmpdir(), "coder-"));
   const r = await execIn(dir, "env; echo ok", 10);
@@ -645,7 +647,10 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   const marker = join(dir, "..", "HOOK-RAN");
   execFileSync("mkdir", ["-p", join(gd, "hooks")]);
   for (const h of ["pre-commit", "pre-push", "post-checkout"]) { writeFileSync(join(gd, "hooks", h), "#!/bin/sh\ntouch " + marker + "\n"); execFileSync("chmod", ["+x", join(gd, "hooks", h)]); }
-  execFileSync("git", ["--git-dir=" + gd, "remote", "add", "origin", "/nonexistent/evil.git"]);
+  // (Pass 9: the clone has its own origin, the repository's address with no login in it, as Claude Code's cloud clone does;
+  // pointed elsewhere, it changes nothing either.)
+  assert.equal(execFileSync("git", ["--git-dir=" + gd, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim(), remote + "ana/shop.git");
+  execFileSync("git", ["--git-dir=" + gd, "remote", "set-url", "origin", "/nonexistent/evil.git"]);
   writeFileSync(join(dir, "b.txt"), "b\n");
   const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
@@ -753,10 +758,25 @@ test("CD27 the history is capped from the oldest, at a user's message; the time 
   assert.equal(c.at(-1), msgs.at(-1));
   let t = 0;
   const ran = [];
-  const r = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }),
+  // (Pass 9: the second in the background, so the two never start together.)
+  const r = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b", run_in_background: true }) } }] } }),
     exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
   assert.equal(r.status, "time");
   assert.deepEqual(ran, ["echo a"]);
+  // TWO THAT ONLY READ, asked together, start together (Bash docs pass 9, as Claude Code runs them), so both before the
+  // limit, in the order asked; the job ends at the next check.
+  t = 0; ran.length = 0;
+  const r2 = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }),
+    exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
+  assert.equal(r2.status, "time");
+  assert.deepEqual(ran, ["echo a", "echo b"]);
+  // (A run asked for once the time is up never starts.)
+  t = 0; ran.length = 0;
+  let round = 0;
+  const r3 = await runCoder({ now: () => t, send: async () => { round++; if (round === 1) return { message: { content: "", tool_calls: [{ id: "0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo z", run_in_background: true }) } }, { id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }; return { message: { content: "Done." } }; },
+    exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
+  assert.equal(r3.status, "time");
+  assert.deepEqual(ran, ["echo z"]);
 });
 
 test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws its own", () => {

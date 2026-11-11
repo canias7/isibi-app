@@ -36,11 +36,13 @@ test("CD354 pgrep, pkill and pidwait leave the command's own shells out (Claude 
   assert.match(commandProblem("kill -9 1"), /refused/);
 });
 
-test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for every command, before the session's own variables): the owner's own GIT_EDITOR wins", async () => {
+test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for every command, after the session's own variables)", async () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  // (Pass 6: the repository's own env between them, under the owner's variables.)
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\),/);
-  // Why: as Coder's commands run (no terminal, TERM=dumb), git commit --amend failed; with it, the message is kept.
+  // (Pass 6: the repository's own env under the owner's variables. Pass 9: GIT_EDITOR after both, as Claude Code 2.1.322 builds
+  // a command's env: `{...os(), SHELL, GIT_EDITOR:"true", …}`, the session's own settings' env already in os().)
+  assert.match(server, /const extraEnv = \{ \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\), GIT_EDITOR: "true",/);
+  // Why: as Coder's commands run (no terminal), git commit --amend failed; with it, the message is kept. (TERM=dumb before pass 9
+  // said "Terminal is dumb, but EDITOR unset"; with Claude Code's TERM=linux git tries an editor and fails on the missing terminal.)
   const base = await mkdtemp(join(tmpdir(), "coder-gited-"));
   try {
     const { cleanEnv } = await import("../container/coder-checks.mjs");
@@ -49,7 +51,7 @@ test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for 
     git(["init", "-q"]); await writeFile(join(base, "a.txt"), "a\n"); git(["add", "a.txt"]); git(["commit", "-qm", "first message"]);
     const without = git(["commit", "--amend"]);
     assert.notEqual(without.status, 0);
-    assert.match(without.stderr, /Terminal is dumb, but EDITOR unset/);
+    assert.match(without.stderr, /Terminal is dumb, but EDITOR unset|problem with the editor/);
     const withIt = git(["commit", "--amend"], { GIT_EDITOR: "true" });
     assert.equal(withIt.status, 0, withIt.stderr);
     assert.equal(git(["log", "-1", "--format=%s"]).stdout.trim(), "first message");

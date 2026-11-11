@@ -678,5 +678,5 @@ test("CD418 hook input as Claude Code's common fields give it: prompt_id, one pe
   assert.notEqual(b[0].prompt_id, a[0].prompt_id, "a new message, a new id");
   assert.ok(Number.isInteger(a[1].duration_ms) && a[1].duration_ms >= 0, "duration_ms on a failure");
   assert.equal("prompt_id" in (await run(""))[0], false, "no message of the owner's: none");
-  assert.deepEqual(Object.keys(H.hookInput("Stop", { session: "s", promptId: "p-1" })), ["session_id", "prompt_id", "cwd", "permission_mode", "hook_event_name"]);
+  assert.deepEqual(Object.keys(H.hookInput("Stop", { session: "s", promptId: "p-1" })), ["session_id", "prompt_id", "cwd", "scratchpad_dir", "permission_mode", "hook_event_name"]);
 });

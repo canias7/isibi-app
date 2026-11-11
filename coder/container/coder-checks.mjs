@@ -93,11 +93,14 @@ export const DEV_HOME = "/home/dev";
  * could leave a program for root to run.
  */
 export function cleanEnv(home, { root = false } = {}) {
+  // (What Claude Code's cloud machine gives its commands, seen on one, 2026-11-11: TERM=linux, no LANG, CI or NO_COLOR, which
+  // change what tools do (with CI=1 pnpm won't update a lockfile, Jest won't write a new snapshot), and its
+  // DEBIAN_FRONTEND, PYTHONUNBUFFERED and IS_SANDBOX: Bash docs pass 9.)
   const base = {
-    LANG: "C.UTF-8",
-    TERM: "dumb",
-    CI: "1",
-    NO_COLOR: "1",
+    TERM: "linux",
+    DEBIAN_FRONTEND: "noninteractive",
+    PYTHONUNBUFFERED: "1",
+    IS_SANDBOX: "1",
     npm_config_update_notifier: "false",
     npm_config_fund: "false",
     npm_config_audit: "false",
@@ -123,6 +126,21 @@ export function cleanEnv(home, { root = false } = {}) {
     NVM_DIR: h + "/.nvm",
     XDG_RUNTIME_DIR: h + "/.docker-run",
     DOCKER_HOST: "unix://" + h + "/.docker-run/docker.sock",
+    // GIT AND GH NEVER WAIT FOR A TYPED LOGIN, AND git@github.com: ADDRESSES GO BY HTTPS (Claude Code's cloud machine's own
+    // settings, seen 2026-11-11; Bash docs pass 9).
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "",
+    GCM_INTERACTIVE: "never",
+    GH_NO_UPDATE_NOTIFIER: "1",
+    GIT_CONFIG_COUNT: "3",
+    GIT_CONFIG_KEY_0: "credential.interactive", GIT_CONFIG_VALUE_0: "false",
+    GIT_CONFIG_KEY_1: "url.https://github.com/.insteadOf", GIT_CONFIG_VALUE_1: "git@github.com:",
+    GIT_CONFIG_KEY_2: "url.https://github.com/.insteadOf", GIT_CONFIG_VALUE_2: "ssh://git@github.com/",
+    // (The AWS and Google tools' placeholder logins, as Claude Code's machine has: the gate signs a request with a saved key
+    // of that kind, so the tools run without one of their own.)
+    AWS_ACCESS_KEY_ID: "proxy-injected",
+    AWS_SECRET_ACCESS_KEY: "proxy-injected",
+    CLOUDSDK_AUTH_ACCESS_TOKEN: "proxy-injected",
   };
 }
 

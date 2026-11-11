@@ -309,7 +309,8 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
       // (Only this job's snapshot of the shell's startup file is there: tool 4, docs pass 2.)
       assert.deepEqual(await readdir(c.dirs.home), [".cache"], "the other setup's home is gone");
       assert.deepEqual(await readdir(join(c.dirs.home, ".cache")), ["coder"]);
-      assert.deepEqual(await readdir(join(c.dirs.home, ".cache", "coder")), ["shell-snapshot.sh"]);
+      // (zsh's where zsh is installed: Bash docs pass 9, the shell Claude Code's cloud machine runs commands in.)
+      assert.deepEqual(await readdir(join(c.dirs.home, ".cache", "coder")), [["/usr/bin/zsh", "/bin/zsh", "/usr/local/bin/zsh"].some((z) => existsSync(z)) ? "shell-snapshot.zsh" : "shell-snapshot.sh"]);
       assert.equal(existsSync(join(c.data, ".coder-admin")), false, "and its admin layer");
     } finally { await c.close(); }
   }

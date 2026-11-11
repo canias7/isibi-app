@@ -197,8 +197,11 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
   const R = await import("../container/coder-room.mjs");
   const SB = await import("../container/coder-sandbox.mjs");
   const has = (p) => p === "/usr/bin/zsh" || p === "/bin/zsh" || p === "/usr/bin/bash";
-  assert.deepEqual(["", "zsh", "/usr/bin/zsh", "/bin/zsh", "fish", "/home/dev/zsh", "/usr/bin/bash", "bash", "/opt/zsh"].map((v) => S.shellOf(v, { exists: has })), ["bash", "/usr/bin/zsh", "/usr/bin/zsh", "/bin/zsh", "bash", "bash", "/usr/bin/bash", "bash", "bash"]);
+  assert.deepEqual(["", "zsh", "/usr/bin/zsh", "/bin/zsh", "fish", "/home/dev/zsh", "/usr/bin/bash", "bash", "/opt/zsh"].map((v) => S.shellOf(v, { exists: has })), ["/usr/bin/zsh", "/usr/bin/zsh", "/usr/bin/zsh", "/bin/zsh", "bash", "bash", "/usr/bin/bash", "bash", "bash"]);
   assert.equal(S.shellOf("zsh", { exists: () => false }), "bash", "not on this machine: bash");
+  // (Unset: the machine's zsh, as Claude Code's cloud sessions run commands; without one, bash. Bash docs pass 9.)
+  assert.equal(S.shellOf("", { exists: () => false }), "bash");
+  assert.equal(S.shellOf(undefined, { exists: (p) => p === "/bin/zsh" }), "/bin/zsh");
   assert.ok(S.commandPrefix("/h", "", "/usr/bin/zsh").startsWith(S.SNAPSHOT_READ_ZSH + S.EXTGLOB_OFF_ZSH + "unalias pkill"));
   assert.ok(S.commandPrefix("/h").startsWith(S.SNAPSHOT_READ + S.EXTGLOB_OFF), "bash as before");
   assert.match(S.SNAPSHOT_TAKE_ZSH, /zsh -i -c '\n/);
@@ -208,7 +211,7 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
   assert.match(read("container/Dockerfile"), /rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo zsh \\/);
   const server = read("container/server.mjs");
   assert.match(server, /t\.shell = shellOf\(rawVars\.CODER_SHELL\);/);
-  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks, nor PowerShell's (pass 8, CD425)");
+  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash", merge: true \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks, nor PowerShell's (pass 8, CD425)");
   if (!ZSH) return;
   // FOR REAL: in zsh, with the prelude, its folder followed.
   const dir = await mkdtemp(join(tmpdir(), "coder-zsh-"));

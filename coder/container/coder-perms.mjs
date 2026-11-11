@@ -221,6 +221,10 @@ const EXACT_RULE_WRAPPERS = new Set(["watch", "ionice", "chrt", "setsid", "tasks
  * `Bash(source *)` approve nothing. Its reason, or "".
  */
 const EVAL_LIKE = new Set(["eval", "source", ".", "exec", "nocorrect", "fc", "coproc", "trap", "enable", "mapfile", "readarray", "hash", "bind", "complete", "compgen", "alias", "let"]);
+/** Claude Code's zsh builtins that "can bypass security checks" (its ZSH_DANGEROUS_BUILTINS, 2.1.322; Bash docs pass 9). */
+export const ZSH_DANGEROUS = new Set(["zmodload", "emulate", "sysopen", "sysread", "syswrite", "sysseek", "zpty", "ztcp", "zsocket", "zf_rm", "zf_mv", "zf_ln", "zf_chmod", "zf_chown", "zf_mkdir", "zf_rmdir", "zf_chgrp", "repeat", "foreach", "zcompile", "setopt", "unsetopt", "disable", "shopt", "autoload", "functions", "zformat", "zparseopts", "zstyle", "zregexparse", "getln", "vared", "strftime", "pcre_match", "zstat", "zselect", "zgetattr", "zlistattr", "ztie", "zuntie", "syserror", "zsystem", "zftp", "zcurses"]);
+/** Claude Code's words for a cd given two folders (zsh's `cd OLD NEW`). */
+export const CD_TWO_WHY = "cd with two or more directory arguments requires manual approval. zsh's \"cd OLD NEW\" form substitutes OLD\u2192NEW in $PWD, producing a target path that cannot be statically validated.";
 const AWKS = new Set(["awk", "gawk", "mawk", "nawk"]);
 function awkProgramWhy(e) {
   if (/(?<![A-Za-z_])system[\s\\]*\(/.test(e)) return "awk program contains system() which executes arbitrary commands";
@@ -237,6 +241,7 @@ export function semanticWhy(c) {
   if (!w[0]) return "";
   const n = basename(w[0].text), args = w.slice(1).map((x) => x.text);
   if (n === "find") { const act = args.find((x) => FIND_ACTS.has(x)); if (act) return findActionWhy(act); }
+  if (ZSH_DANGEROUS.has(n)) return "Zsh builtin '" + n + "' can bypass security checks";
   if (EVAL_LIKE.has(n) && !(n === "fc" && !args.some((x) => /^[+-].*[es]/.test(x))) && !(n === "compgen" && !args.some((x) => /^[+-].*[CFW]/.test(x)))) return "'" + n + "' evaluates arguments as shell code";
   if (EXACT_RULE_WRAPPERS.has(n) && args.length) return wrapperWhy(n);
   if (n === "jq") {
@@ -1253,7 +1258,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [] } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1295,7 +1300,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // "default" for commands, unless the repository's settings say acceptEdits: `byCommand`, Bash docs pass 8.)
   const editsOk = normMode(mode) === "acceptEdits" && byCommand !== false;
   const cloudDefault = normMode(mode) === "acceptEdits" && byCommand === false;
-  if (!read.ok) return { verdict: "ask", why: PARSE_ERROR, suggest: null };
+  // (When Claude Code's checks of the whole text caught it first, theirs is the reason, as its ct() runs before its parser:
+  // `ls <1-5>` asks with "Contains zsh <N-M> numeric-range glob", not "Parse error". Bash docs pass 9.)
+  if (!read.ok) return { verdict: "ask", why: (Array.isArray(read.complex) && read.complex[0]) || PARSE_ERROR, suggest: null };
   // (An exact rule for the whole command, as Claude Code's: it approves it as written, once its paths check out.)
   const wholeAllow = exactHit(allow);
   // TOO COMPLEX TO CHECK (Claude Code's own reasons: a command hidden in arithmetic or a [[ ]] test, a no-break space …;
@@ -1384,7 +1391,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // approves; a part in `parts` asks unless one of the owner's allow rules covers it (`partWhy`: its own reason).
   const needs = [], partWhy = new Map();
   const needFor = (c, why, safety = false) => needs.push({ c, why, safety });
-  const own = (Array.isArray(ownDirs) ? ownDirs : []).filter((x) => typeof x === "string" && x);
+  // THE CHAT'S SCRATCH FOLDER (Bash docs pass 9; Claude Code: "Scratchpad files for current session are allowed for
+  // writing", and for reading): read and written without asking, after the deny rules; through a link, no.
+  const scr = (Array.isArray(scratch) ? scratch : []).filter((x) => typeof x === "string" && x.startsWith("/"));
+  const inScratch = (p) => !!p && scr.some((d) => (p === d || p.startsWith(d.replace(/\/+$/, "") + "/")) && (typeof real !== "function" || (() => { try { const to = real(p); return !to || to === p || to.startsWith(d.replace(/\/+$/, "") + "/"); } catch { return true; } })()));
+  const own = [...(Array.isArray(ownDirs) ? ownDirs : []), ...scr].filter((x) => typeof x === "string" && x);
   const isOwn = (p) => own.some((d) => p === d || p.startsWith(d.replace(/\/+$/, "") + "/"));
   // EACH FILE IT WRITES (redirections, tee): in Accept edits, a file inside the project that is not protected, not named
   // with a wildcard (Claude Code: a target that "contains a glob character needs your approval"), and no link out of the
@@ -1399,6 +1410,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     if (x.glob) { needFor(x.cmd, SHELL_EXPANSION); continue; }
     if (x.tildeUser) { needFor(x.cmd, TILDE_WHY); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
+    if (inScratch(x.path)) continue;
     const pw = pathWhy(x.path);
     if (pw.why === "protected") needFor(x.cmd, sensitiveWhy(pw.to || x.path, pw.to ? x.path : ""), true);
     else if (pw.why === "outside" && !String(x.raw || "").startsWith("~") && editOk(x.path)) continue;
@@ -1435,6 +1447,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     // (Claude Code's own reason for one a prefix rule can't approve: eval, source, awk with system() …; Bash docs pass 9.)
     const sem = semanticWhy(c);
     if (sem) partWhy.set(c, sem);
+    // (Two folders: zsh's `cd OLD NEW`, asked whatever rule matches, as Claude Code's path check does: Bash docs pass 9.)
+    if (name === "cd" && (readWords(c.words) || []).slice(1).filter((x) => x.text !== "--" && !/^-[PLe@]+$/.test(x.text)).length >= 2) { needFor(c, CD_TWO_WHY); continue; }
     // A cd out of the project, or into another folder before git (its hooks), is asked about (Claude Code's docs).
     if (ro && name === "cd") {
       const cw = readWords(c.words) || [];
@@ -1465,7 +1479,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       const odd = pathArgs(c, { cwd, home }).find((a) => a.computed || a.tildeUser || a.dotdot);
       if (odd) { needFor(c, odd.tildeUser ? TILDE_WHY : odd.dotdot ? globDotDotWhy(odd.p, " against the working directories") : runtimeTargetWhy(uname || name)); continue; }
       if (fc.sure) {
-        const bare = fc.paths.map((p) => p.replace(/\/\*$/, ""));
+        const bare = fc.paths.map((p) => p.replace(/\/\*$/, "")).filter((p) => !inScratch(p));
+        // (Only the scratch folder: Accept edits' own, as inside the project; otherwise a part as any command is.)
+        if (!bare.length && fc.paths.length) { if (editsOk || (ro && !sem)) continue; parts.push(c); continue; }
         const ways = bare.map((p) => pathWhy(p));
         // A protected file, by name or through a link, is never approved by a rule (Claude Code: "permissions.allow rules
         // … do not pre-approve protected-path writes"): asked each time.
