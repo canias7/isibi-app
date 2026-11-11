@@ -10,6 +10,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { HOME, isInsideApp, isSafeOutside, isAppPage } = require("./links");
 const { makeRoute } = require("./route");
+const { makeKeys } = require("./key");
 
 // ONE WINDOW: opening the app again brings it to the front.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -75,6 +76,10 @@ ipcMain.handle("route:start", allowed((o) => route.start(o)));
 ipcMain.handle("route:stop", allowed(() => route.stop()));
 ipcMain.handle("route:kick", allowed(() => route.kick()));
 ipcMain.handle("route:status", allowed(() => route.status()));
+// YOUR SECURITY KEY FOR GLOOPY'S BROWSER (2026-11-11; key.js): a page there asked to sign in with a security key and you
+// chose "Use my security key": your key, plugged into this computer, signs that very request for that page's site only.
+const keys = makeKeys({ BrowserWindow, session, parent: () => win });
+ipcMain.handle("key:get", allowed((o) => keys.get(o)));
 
 app.whenReady().then(() => {
   // ONLY WHAT THE SITE NEEDS: notifications and copying; nothing else (camera, location…).

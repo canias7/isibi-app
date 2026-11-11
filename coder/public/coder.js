@@ -163,6 +163,11 @@
   // while the page is open (a ticket lasts 12 hours). Sending a message or taking over nudges it (Gloopy's computer has
   // just woken).
   const DESKTOP_ROUTE = typeof window !== 'undefined' && window.gofartherDesktop && window.gofartherDesktop.route ? window.gofartherDesktop.route : null;
+  // HARDWARE SECURITY KEYS (2026-11-11; Grok Bot's "Use hardware security keys"): only the Go Farther app for Mac or Windows
+  // reaches your key (plugged into that computer); it signs a page's request in Gloopy's browser for that page's site only.
+  const DESKTOP_KEY = typeof window !== 'undefined' && window.gofartherDesktop && window.gofartherDesktop.securityKey ? window.gofartherDesktop.securityKey : null;
+  // What became of the app's try, in words.
+  const keyWords = (r) => { const n = r && r.error; return n === 'NotAllowedError' ? 'Your key wasn’t used: it timed out, or it was cancelled. Try again.' : n === 'InvalidStateError' ? 'That key isn’t one this site knows. Try another of your keys.' : n === 'SecurityError' ? 'This computer couldn’t sign that site’s request.' : String((r && r.message) || 'Your key couldn’t be used.').slice(0, 200); };
   async function desktopRouteSync() {
     if (!DESKTOP_ROUTE || !S.project || !GLOOPY) return;
     if (S.routeTimer) clearTimeout(S.routeTimer);
@@ -1084,7 +1089,7 @@
     const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
     const gone = (i, e) => { const x = !S.events.slice(i + 1).some((y) => y.type === 'user') && expiredOf(i, e); return x ? '<p class="cd-card-expired">' + esc(x.text || 'Expired.') + '</p>' : ''; };
     // Redrawn when the soonest open card's time is up.
-    const soon = S.events.map((e, i) => (['approval', 'signin', 'pay', 'handoff'].includes(e.type) && cardOpen(i, e) && Number(e.expires) > 0 ? Number(e.expires) : 0)).filter(Boolean).sort((a, b) => a - b)[0];
+    const soon = S.events.map((e, i) => (['approval', 'signin', 'pay', 'handoff', 'key'].includes(e.type) && cardOpen(i, e) && Number(e.expires) > 0 ? Number(e.expires) : 0)).filter(Boolean).sort((a, b) => a - b)[0];
     clearTimeout(S.expiryTimer); if (soon) S.expiryTimer = setTimeout(draw, Math.max(1000, soon - Date.now() + 500));
     const stateOf = (e, i) => { const r = results[e.id]; return !r ? (S.running && i > lastUser ? 'run' : 'gone') : r.background ? 'bg' : r.code === 0 ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
@@ -1179,6 +1184,17 @@
           // EXPIRED, IT CAN STILL BECOME A RULE (Grok Bot's "Always allow next time").
           (!live && ruleOffered && !e.byRule && expiredOf(i, e) && !S.events.slice(i + 1).some((x) => x.type === 'user') ? (S.ruleSaved === e.id ? '<p class="cd-card-until">Saved: next time Gloopy goes ahead.</p>' : '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-allow-next="' + esc(e.id) + '" data-step="' + esc(step + (e.site ? ' on ' + e.site : '')) + '">Always allow next time</button></div>') : '') +
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">' + nay + '</button>' + (!ruleOffered || e.byRule ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + yes + '</button></div>' : '') + '</div>');
+      }
+      else if (e.type === 'key') {
+        // YOUR SECURITY KEY FOR GLOOPY'S BROWSER (2026-11-11; Grok Bot's "Use hardware security keys"): a page there asks to
+        // sign in with a security key; in the Go Farther app on your Mac or Windows computer, your own key (plugged in) signs
+        // that page's request, for that site only. Asked each time; elsewhere, the card says where your key works.
+        const live = cardOpen(i, e);
+        const site = esc(e.site || 'the site');
+        const msg = S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '';
+        out.push('<div class="cd-secret cd-signin cd-keycard"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Use your security key for ' + site + '</b>' +
+          '<p class="cd-secret-p">' + site + ' asks Gloopy’s browser to sign in with a security key. ' + (DESKTOP_KEY ? 'With your key plugged into this computer, choose “Use my security key”, then touch it. It signs in for Gloopy on ' + site + ' only.' : 'Your key works from the Go Farther app on your Mac or Windows computer, plugged into it: open this chat there.') + '</p>' + until(i, e) + gone(i, e) +
+          (live ? msg + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-key-skip="' + esc(e.id) + '">Not now</button>' + (DESKTOP_KEY ? '<button type="button" class="cd-card-yes" data-key-use="' + esc(e.id) + '">Use my security key</button>' : '') + '</div>' : '') + '</div>');
       }
       else if (e.type === 'signin') {
         // THE PRIVATE SIGN-IN FORM (Gloopy, 2026-11-09; like Grok Bot's Secure Form and dots' private sign-in): what you type
@@ -1428,7 +1444,9 @@
         '<div class="cd-web-tools cd-web-nav"><button type="button" id="cdWebBack">Back</button><button type="button" id="cdWebFwd">Forward</button><button type="button" id="cdWebReload">Reload</button>' +
         '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>' +
         // A FILE FROM YOUR DEVICE, when the page asks for one (its own file box never shows here).
-        (w.chooser ? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file.</span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden></label></div>' : '') : '') +
+        (w.chooser ? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file.</span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden></label></div>' : '') +
+        // YOUR SECURITY KEY (2026-11-11), when the page asks for one: signed in the Go Farther app, or not now.
+        (w.key ? '<div class="cd-web-tools cd-web-file cd-web-key"><span>The page asks for your security key, to sign in to ' + esc(w.key.site) + '.</span>' + (DESKTOP_KEY ? '<button type="button" class="cd-web-pick" id="cdWebKeyUse">Use my security key</button>' : '<span class="cd-web-keyhow">Your key works from the Go Farther app on your Mac or Windows computer.</span>') + '<button type="button" class="cd-web-pick" id="cdWebKeyNo">Not now</button></div>' : '') : '') +
       // TEACH A TASK (Grok Bot's): do it once while you have control, then name it; Gloopy writes it down as a how-to.
       (w.control && w.taught ? '<div class="cd-web-tools cd-web-note"><input id="cdWebTaskName" class="cd-web-in" type="text" placeholder="What should Gloopy call this task?" autocomplete="off" maxlength="80" value="' + esc(S.webTask || '') + '"><button type="button" class="cd-web-go" id="cdWebTaskSend">Send to Gloopy</button><button type="button" id="cdWebTaskDrop">Discard</button></div>' : '') +
       '<div class="cd-web-foot">' + (w.lane && !w.control ? '<p>Helper ' + w.lane + '’s own tab: you can watch it. Gloopy’s page is the one you can take over.</p></div></div>' : '') + (w.lane && !w.control ? '' : (w.msg ? '<p class="cd-web-err">' + esc(w.msg) + '</p>' : w.control && w.teaching ? '<p>Teaching Gloopy: do the task, then press Done. ' + w.teaching.steps + ' step' + (w.teaching.steps === 1 ? '' : 's') + ' so far' + (w.teaching.full ? ' (that’s the most it keeps)' : '') + '. Passwords and card details aren’t kept.</p>' : w.control && w.taught ? '<p>' + w.taught.steps.filter((x) => !/^On https?:/.test(x)).length + ' steps written down. Name the task to send them to Gloopy.</p>' : w.control ? '<p>Click on the page to use it. ' + (ho ? 'Do only this: ' + esc(ho.task) + (/[.!?…]$/.test(ho.task) ? '' : '.') : 'Gloopy sees the page again when you hand it back.') + '</p>' : w.working || S.running ? '<p id="cdWebDid">' + (w.last ? 'Gloopy: ' + esc(w.last.did) : 'You’re watching Gloopy work.') + '</p>' : '<p>Take over to use Gloopy’s browser yourself, then hand it back.</p>') +
@@ -1481,6 +1499,8 @@
     // Gloopy's last step (its words, and where on the page), and a page asking you for a file.
     w.last = d.last && typeof d.last.did === 'string' ? { did: d.last.did.slice(0, 200), box: d.last.box && Number.isFinite(d.last.box.x) ? d.last.box : null } : null;
     w.chooser = !!d.chooser;
+    // A page waiting for your security key (2026-11-11): its site, and its request (for the Go Farther app to sign).
+    w.key = d.key && typeof d.key.site === 'string' && d.key.request && typeof d.key.request === 'object' ? { site: d.key.site.slice(0, 200), origin: String(d.key.origin || '').slice(0, 300), request: d.key.request } : null;
     // Through the owner's computer (2026-11-11): "desktop" while its new connections go through it.
     w.route = d.route === 'desktop' || d.route === 'cloud' ? d.route : '';
     // Its helpers' tabs: a helper's that closed returns the view to Gloopy's page.
@@ -1508,7 +1528,7 @@
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(','), w.route || ''].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
   // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
   // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
@@ -1656,6 +1676,19 @@
       if (r.status === 200 && !(r.data && r.data.error)) { w.msg = ''; webTake_(r.data); }
       else { w.msg = (r.data && r.data.error) || 'That did not reach Gloopy’s browser.'; if (r.status === 409) w.control = false; }
       webPaint(b);
+    });
+  }
+  // YOUR SECURITY KEY'S ANSWER (or "not now"), while you have control: through Gloopy's computer, to the page waiting.
+  function webKeySend(key) {
+    const w = S.web;
+    if (!w || !w.control) return;
+    S.webQueue = (S.webQueue || Promise.resolve()).then(async () => {
+      const b = webShape();
+      const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ key }) });
+      if (S.web !== w) return;
+      w.msg = r.status === 200 && r.data && (r.data.ok || r.data.skipped) ? '' : String((r.data && (r.data.why || r.data.error)) || 'Your key’s answer didn’t reach Gloopy’s browser.');
+      w.key = null;
+      webPaint(b); webTick();
     });
   }
   // Keys typed on the page itself: letters go together (a short pause sends them); Enter, Tab, arrows and the like one by one.
@@ -2054,6 +2087,21 @@
     });
     // THE SIGN-IN CARD'S OTHER WAYS (the audit, 2026-11-10): the login you saved, a code (emptied from its box as it is
     // sent, never kept here), or doing it yourself in Gloopy's browser (handing it back answers the card).
+    // YOUR SECURITY KEY ON ITS CARD (2026-11-11): signed in the Go Farther app (the card's own request, for its own site),
+    // then sent; or "not now".
+    on('[data-key-use]', 'click', async (e) => {
+      const id = e.currentTarget.dataset.keyUse;
+      const ev = S.events.find((x) => x.type === 'key' && x.id === id);
+      if (!ev || !S.project || !DESKTOP_KEY) return;
+      e.currentTarget.disabled = true;
+      S.cardMsg = { id, text: 'Touch your security key…' }; draw();
+      let r;
+      try { r = await DESKTOP_KEY.get({ origin: ev.origin, request: ev.request }); } catch (err) { r = { message: String((err && err.message) || err) }; }
+      if (!r || !r.credential) { S.cardMsg = { id, text: keyWords(r) }; return draw(); }
+      S.cardMsg = null;
+      cardAnswer(id, 'key', { credential: r.credential }, 'Your key’s answer could not be sent.');
+    });
+    on('[data-key-skip]', 'click', (e) => { const id = e.currentTarget.dataset.keySkip; if (!S.project) return; e.currentTarget.disabled = true; cardAnswer(id, 'key', { skip: true }, 'Your answer could not be sent.'); });
     on('[data-signin-saved]', 'click', (e) => { const id = e.currentTarget.dataset.signinSaved; if (!S.project) return; e.currentTarget.disabled = true; cardAnswer(id, 'signin', { useSaved: true }, 'Your saved login could not be used.'); });
     on('#cdSignCode', 'input', (e) => { const b = root.querySelector('[data-signin-code]'); if (b) b.disabled = !e.currentTarget.value.trim(); });
     on('#cdSignCode', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = root.querySelector('[data-signin-code]'); if (b && !b.disabled) b.click(); } });
@@ -2265,6 +2313,19 @@
     on('#cdWebUrl', 'input', (e) => { S.webUrl = e.currentTarget.value; });
     on('#cdWebUrl', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); webGo(); } });
     on('#cdWebGo', 'click', webGo);
+    // YOUR SECURITY KEY, while you have control (2026-11-11): the Go Farther app has your key sign the page's request.
+    on('#cdWebKeyUse', 'click', async (e) => {
+      const w = S.web;
+      if (!w || !w.key || !DESKTOP_KEY) return;
+      e.currentTarget.disabled = true;
+      w.msg = 'Touch your security key…'; draw();
+      let r;
+      try { r = await DESKTOP_KEY.get({ origin: w.key.origin, request: w.key.request }); } catch (err) { r = { message: String((err && err.message) || err) }; }
+      if (S.web !== w) return;
+      if (!r || !r.credential) { w.msg = keyWords(r); return draw(); }
+      w.msg = ''; webKeySend({ credential: r.credential });
+    });
+    on('#cdWebKeyNo', 'click', () => webKeySend({ skip: true }));
     // A file from your device, into the page that asked for it (at most 5 MB, as Gloopy's own uploads).
     on('#cdWebFile', 'change', (e) => {
       const f = e.currentTarget.files && e.currentTarget.files[0];

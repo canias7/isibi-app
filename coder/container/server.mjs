@@ -2168,7 +2168,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.result = { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.result = { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,
         // /gloopy/signin or /gloopy/card.
-        .then(() => { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : { kind: "card", ...r.cardRequest }); })
+        .then(() => { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest || r.keyRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : r.keyRequest ? { kind: "key", ...r.keyRequest } : { kind: "card", ...r.cardRequest }); })
         .finally(() => {
           // THE TURN IS OVER: nothing it started keeps running, and its logs go; no request of Gloopy's goes on unchecked.
           if (t.writes) t.writes.check = null;
@@ -2384,6 +2384,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         try {
           const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
           return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+        } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // THE OWNER'S SECURITY KEY (2026-11-11; Grok Bot's "Use hardware security keys"): what it signed on their computer
+      // (in the Go Farther app), or "not now", for the page waiting for it: from the card this chat's last turn showed
+      // (`id`), or from their live view while they have control (`control`). Checked there to be for its very request.
+      if (url.pathname === "/gloopy/key" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (body.control === true) { if (!ownerControl) return send(409, { error: "Take over first." }); }
+        else { if (!p || p.kind !== "key" || p.id !== body.id) return send(409, { error: "no security key is waiting" }); pending.delete(project); }
+        try {
+          const r = await browserHub().keyAnswer({ site: body.control === true ? "" : String(p.site || ""), ...(body.skip === true ? { skip: true } : { credential: body.credential }) });
+          return send(200, { ok: r.ok === true, ...(r.skipped ? { skipped: true } : {}), title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
         } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
       }
       // GLOOPY SIGNED OUT OF A SITE BY THE OWNER (the audit, 2026-11-10): that site's cookies and its pages' storage go from

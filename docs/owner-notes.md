@@ -59,6 +59,20 @@ Tried live on the test copy with Grok, recorded:
   - **Turned off from another device:** the app kept asking for its link every 20 seconds, and said "asleep or out of reach". It couldn't tell a refusal from sleep, because the app's WebSocket can't read why a link was refused. Now Go Farther opens a refused link and closes it at once with its own reason. Turned off: the app stops asking and says so. Ticket ran out, or no Gloopy: it stops until its page gives it a new ticket. Asleep: it asks again in 20 seconds, as before. Tests D13 and GL114.
   - **The first link after Gloopy's computer woke closed within seconds:** most likely the app gave up waiting after 15 seconds while Gloopy's computer was still starting, and the next try, 20 seconds later, worked. It now waits 45 seconds for the link. Test D13.
 
+**Your security key for Gloopy's browser** (your words: "Finish the browser"; Grok Bot's "Use hardware security keys"):
+- **What it does:** when a site in Gloopy's browser asks to sign in with a security key (a YubiKey or similar), Gloopy's browser holds the request for you. Gloopy's step ends with a card in the chat: "Use your security key for github.com". Or, if you have control in the live view, a bar there asks the same.
+- **Using it:** in the Go Farther app on your Mac or Windows computer, with your key plugged in, choose "Use my security key". A small window of the app says which site it's for, and you touch your key. It signs in for Gloopy on that site only, and Gloopy carries on. "Not now" tells the site no, as a browser would. On the website or phone, the card says your key works from the app. Each use asks you first, as Grok Bot's does.
+- **What it can't do:**
+  - It only signs in; it never registers a new key.
+  - It only works for the site that asked (its own domain), and only over a secure address with a name.
+  - Gloopy's browser takes only an answer to that very request: the same challenge, the same site, and a key the site asked for. Anything else is refused.
+  - A helper's tab can't ask for your key.
+  - Passkey autofill stays the browser's own.
+  - The app's small window never loads the site: the app makes its page itself.
+- **Not tried with a real key yet:** I have no key here. Keys that need a PIN may not work in the app on a Mac yet. On Windows, Windows asks for the PIN itself.
+
+Tests GL118 (in a real browser: the request held, wrong answers refused, the right one reaching the page as the browser's own, "Not now", a helper's tab, autofill), GL119 (Gloopy's step to the card and back, the Worker, the page), D14 (the app: only a sign-in for that site, the window's own page, one at a time); D9 and GL115 updated.
+
 Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch, off at once), GL115 (the page), GL116 (the certificate note), GL117 (why a link ended, a link gone quiet, never keeping Gloopy's computer awake, off at once), D7 to D12 (the desktop app: private addresses, the link, what the page may ask, trying again, why a link closed, a link gone quiet); CD119, CD129, CD146, GL25 and GL106 updated.
 
 ## 2026-11-10: The new browser pieces tried live, and four fixes

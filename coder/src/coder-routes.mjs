@@ -665,7 +665,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake, fetchFn };
     if (action === "message" && request.method === "POST") return gloopyMessage(g);
     if (action === "state" && request.method === "GET") return gloopyState(g);
-    if ((action === "approve" || action === "signin" || action === "handoff" || action === "card") && request.method === "POST") return gloopyCard(g, action);
+    if ((action === "approve" || action === "signin" || action === "handoff" || action === "card" || action === "key") && request.method === "POST") return gloopyCard(g, action);
     if (action === "screen" && request.method === "GET") return gloopyScreen(g);
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action === "schedules") return gloopySchedules(g);
@@ -1634,7 +1634,7 @@ async function gloopyState(g) {
     const ed = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" && s.result.approvalRequest.edit && typeof s.result.approvalRequest.edit === "object" ? s.result.approvalRequest.edit : null;
     const editAsk = ed && typeof ed.id === "string" && /^s[a-z0-9]{4,20}$/.test(ed.id) ? { id: ed.id, name: String(ed.name || "").slice(0, 60), task: String(ed.task || "").slice(0, 2000), ...(ed.spec && cleanSchedule(ed.spec) ? { spec: cleanSchedule(ed.spec) } : {}) } : null;
     const hookAsk = s.result.approvalRequest && s.result.approvalRequest.kind === "webhook" && s.result.approvalRequest.webhook && HOOK_ID.test(String(s.result.approvalRequest.webhook.id || "")) && cleanWebhook(s.result.approvalRequest.webhook) ? { id: s.result.approvalRequest.webhook.id, ...cleanWebhook(s.result.approvalRequest.webhook) } : null;
-    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(editAsk ? { edit: editAsk } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : null;
+    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(editAsk ? { edit: editAsk } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : s.result.keyRequest ? { kind: "key", id: String(s.result.keyRequest.id || ""), site: String(s.result.keyRequest.site || "").slice(0, 200) } : null;
     // When the card was raised; in a run the owner did not start, until when it waits for them (the audit, 2026-11-10).
     const want = want0 ? { ...want0, at: Date.now(), ...(meta.bg ? { expires: Date.now() + CARD_TTL_MS } : {}) } : null;
     // A request held for the owner's OK that no card asks about (the turn ended another way first) is let go.
@@ -1763,8 +1763,8 @@ async function gloopyCard(g, action) {
   const meta = await expireCard(bucket, uid, id, g.meta);
   if (was && !meta.pending && String(was.id || "") === String(body.id || "")) return json({ error: "This card has expired: it waited 30 minutes for you. Nothing was done.", expired: true, project: meta }, 409);
   const p = meta.pending && typeof meta.pending === "object" ? meta.pending : null;
-  const kind = { approve: "approval", signin: "signin", handoff: "handoff", card: "card" }[action];
-  if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser.", card: "Gloopy isn't waiting for a card." }[action] }, 409);
+  const kind = { approve: "approval", signin: "signin", handoff: "handoff", card: "card", key: "key" }[action];
+  if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser.", card: "Gloopy isn't waiting for a card.", key: "Gloopy isn't waiting for your security key." }[action] }, 409);
   const site = String(p.site || "the site");
   let note = "", said = "", grant = "", madeRoom = "";
   if (action === "approve" && p.webhook) {
@@ -1828,6 +1828,17 @@ async function gloopyCard(g, action) {
     if (decision === "deny") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + " on " + site + ". It was not done. Don't try it another way: say what you would have done, and stop or go on without it.)"; said = "Denied: " + p.step; }
     else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; }
     else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; grant = String(p.step || ""); }
+  } else if (action === "key") {
+    // THE OWNER'S SECURITY KEY (2026-11-11; Grok Bot's "Use hardware security keys"): what their key signed in the Go
+    // Farther app on their computer goes to the page waiting for it (checked there to be for its very request, its site
+    // and a key it asked for), or "not now" (the page is told no, as a browser tells it).
+    const skip = body.skip === true;
+    let r = null;
+    try { r = await post("/gloopy/key", { project: id, id: p.id, ...(skip ? { skip: true } : { credential: keyCredentialOf(body.credential) }) }).then((x) => x.json()); } catch { r = null; }
+    const where = r && r.url ? " Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url).slice(0, 500) + "." : "";
+    if (skip) { note = "(Note from Gloopy's app, not the owner: the owner chose not to use their security key on " + site + " now; the page was told no." + where + " Go on without signing in there, or say plainly what you could not do.)"; said = "Not now: your security key on " + site; }
+    else if (r && r.ok) { note = "(Note from Gloopy's app, not the owner: the owner's security key signed in on " + site + "." + where + " Look at the page before you go on, to see whether it worked.)"; said = "Used your security key on " + site; }
+    else { note = "(Note from Gloopy's app, not the owner: the owner's security key could not be used on " + site + " (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached").slice(0, 300) + ")." + where + " Look at the page; to try again, do the step that asked for the key again.)"; said = "Your security key could not be used on " + site; }
   } else if (action === "handoff") {
     // THE OWNER DID THE STEP IN GLOOPY'S BROWSER (or not): the browser is Gloopy's again, and Gloopy hears where it is.
     let r = null;
@@ -2134,6 +2145,18 @@ async function gloopyRoute(g) {
  * wakes it, and doesn't keep it awake); 409 { asleep: true } while it sleeps (the app asks again in a while).
  */
 /**
+ * WHAT THE OWNER'S SECURITY KEY SIGNED (2026-11-11), as the page sends it: only its own fields, as text of a sane size
+ * (Gloopy's computer checks it is for its very request, its site and a key it asked for). null when it isn't one.
+ */
+export function keyCredentialOf(c) {
+  const ok = (v, max) => typeof v === "string" && v.length <= max && /^[A-Za-z0-9_-]*$/.test(v);
+  const r = c && typeof c === "object" && c.response && typeof c.response === "object" ? c.response : null;
+  if (!r || !ok(c.id, 1400) || !ok(c.rawId || "", 1400) || !ok(r.clientDataJSON, 8000) || !ok(r.authenticatorData, 8000) || !ok(r.signature, 2000) || !ok(r.userHandle || "", 1000)) return null;
+  const ext = c.clientExtensionResults && typeof c.clientExtensionResults.appid === "boolean" ? { appid: c.clientExtensionResults.appid } : {};
+  return { id: c.id, rawId: c.rawId || c.id, response: { clientDataJSON: r.clientDataJSON, authenticatorData: r.authenticatorData, signature: r.signature, userHandle: r.userHandle || "" }, authenticatorAttachment: c.authenticatorAttachment === "platform" ? "platform" : "cross-platform", clientExtensionResults: ext };
+}
+
+/**
  * A LINK REFUSED, SAID SO THE APP CAN HEAR WHY (live test, 2026-11-11: Node's WebSocket never shows a refused
  * handshake's status, so a link turned off on another device was asked for again every 20 seconds as if "asleep"):
  * where Cloudflare can, the link is opened and closed at once with a code of its own (4401 the ticket ran out, 4403
@@ -2425,6 +2448,14 @@ async function gloopyTakeOver(g) {
     try { r = await post("/gloopy/area", { project: id, x: n(body.area.x), y: n(body.area.y), w: n(body.area.w), h: n(body.area.h) }); } catch { r = null; }
     const out = r ? await r.json().catch(() => null) : null;
     return out ? json({ ok: r.ok && !out.error, ...out }, r.ok ? 200 : r.status) : json({ error: "Gloopy's computer could not be reached." }, 502);
+  }
+  // YOUR SECURITY KEY, while you have control (2026-11-11; Grok Bot: take over, then sign in, "On Mac and Windows, you can
+  // also use a hardware security key"): what it signed in the Go Farther app, or "not now", for the page asking for it.
+  if (body.key && typeof body.key === "object") {
+    let r = null;
+    try { r = await post("/gloopy/key", { project: id, control: true, ...(body.key.skip === true ? { skip: true } : { credential: keyCredentialOf(body.key.credential) }) }); } catch { r = null; }
+    const out = r ? await r.json().catch(() => null) : null;
+    return out ? json({ ...out, ok: r.ok && out.ok !== false }, r.ok ? 200 : r.status) : json({ error: "Gloopy's computer could not be reached." }, 502);
   }
   // TEACH A TASK (Grok Bot's), while you have control.
   if (typeof body.teach === "boolean") {

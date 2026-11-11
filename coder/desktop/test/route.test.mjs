@@ -77,13 +77,14 @@ test("D8 the link: only to Go Farther's own address; each connection Gloopy's br
 test("D9 the page may ask the app only this: start, stop or nudge the link and read how it is doing, and only from gofarther.dev's own pages; the test copy only by a gofarther.dev address; the files go in the app", () => {
   const preload = readFileSync(new URL("../preload.js", import.meta.url), "utf8");
   assert.match(preload, /contextBridge\.exposeInMainWorld\("gofartherDesktop", \{\n  route: \{/);
-  assert.deepEqual([...preload.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map((m) => m[1]), ["route:start", "route:stop", "route:kick", "route:status"]);
+  assert.deepEqual([...preload.matchAll(/ipcRenderer\.invoke\("([^"]+)"/g)].map((m) => m[1]), ["route:start", "route:stop", "route:kick", "route:status", "key:get"]);
   const main = readFileSync(new URL("../main.js", import.meta.url), "utf8");
   assert.match(main, /preload: path\.join\(__dirname, "preload\.js"\) \}/);
   assert.match(main, /contextIsolation: true, sandbox: true, nodeIntegration: false/);
   assert.match(main, /const fromApp = \(e\) => \{ try \{ return isAppPage\(e\.senderFrame && e\.senderFrame\.url\); \} catch \{ return false; \} \};/);
   assert.match(main, /const allowed = \(f\) => \(e, arg\) => \{ if \(!fromApp\(e\)\) throw new Error\("not allowed"\); return f\(arg\); \};/);
   for (const k of ["start", "stop", "kick", "status"]) assert.match(main, new RegExp('ipcMain\\.handle\\("route:' + k + '", allowed\\('));
+  assert.match(main, /ipcMain\.handle\("key:get", allowed\(\(o\) => keys\.get\(o\)\)\);/, "your key, only for the app's own pages too");
   const { isAppPage } = require("../links.js");
   for (const u of ["https://gofarther.dev/", "https://www.gofarther.dev/gloopy"]) assert.equal(isAppPage(u), true, u);
   for (const u of ["https://github.com/login", "https://evil.example/", "http://gofarther.dev/", "https://gofarther.dev.evil.com/", "https://u:p@gofarther.dev/", "file:///x", null]) assert.equal(isAppPage(u), false, String(u));
@@ -93,7 +94,7 @@ test("D9 the page may ask the app only this: start, stop or nudge the link and r
   assert.equal(homeOf("https://evil.example/"), "https://gofarther.dev/ false");
   assert.equal(homeOf("http://test.gofarther.dev/"), "https://gofarther.dev/ false");
   const pkg = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"));
-  for (const f of ["main.js", "links.js", "route.js", "preload.js"]) assert.ok(pkg.build.files.includes(f), f);
+  for (const f of ["main.js", "links.js", "route.js", "preload.js", "key.js"]) assert.ok(pkg.build.files.includes(f), f);
 });
 
 test("D10 live test (2026-11-11): a link refused while Gloopy's computer is asleep is asked for again, though Node's WebSocket then says only \"error\" and never \"close\"", async () => {
@@ -207,4 +208,55 @@ test("D13 live test (2026-11-11): a link Go Farther refuses says why (its own cl
   r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "new" });
   assert.ok(await until(() => r.status().connected));
   r.stop();
+});
+
+test("D14 your security key for Gloopy's browser (2026-11-11; Grok Bot's \"Use hardware security keys\"): only a sign-in, only for a site with a name over https and only its own domain; a small window of the app at the site's own address, whose page the app makes (nothing is fetched from the site), asks your key to sign that very request; one at a time; the window and its session go after", async () => {
+  const { makeKeys, keyAskOf, KEY_PATH, KEY_PAGE } = require("../key.js");
+  const ch = Buffer.alloc(32, 3).toString("base64url");
+  assert.deepEqual(keyAskOf("https://github.com", { challenge: ch, allowCredentials: [{ id: "abc", transports: ["usb", "x"] }], userVerification: "required", timeout: 9e9 }),
+    { origin: "https://github.com", host: "github.com", request: { challenge: ch, rpId: "github.com", timeout: 120000, userVerification: "required", allowCredentials: [{ id: "abc", transports: ["usb"] }] } });
+  assert.equal(keyAskOf("https://login.example.com", { challenge: ch, rpId: "example.com" }).request.rpId, "example.com");
+  for (const [o, r, why] of [["http://github.com", { challenge: ch }, /not a site/], ["https://10.0.0.1", { challenge: ch }, /not a site/], ["https://github.com/x", { challenge: ch }, /not a site/], ["https://github.com", { challenge: "x" }, /not a sign-in request/],
+    ["https://github.com", { challenge: ch, rpId: "gitlab.com" }, /not a sign-in for this site/], ["https://example.com", { challenge: ch, rpId: "com" }, /not a sign-in for this site/], ["https://github.com", { challenge: ch, allowCredentials: [{ id: "a b" }] }, /not a sign-in request/]])
+    assert.throws(() => keyAskOf(o, r), why, o);
+  // Electron, as far as it is used: a session of its own, a window, the page it is shown.
+  const seen = { loaded: [], scripts: [], closed: 0, unhandled: 0, made: [] };
+  let handler = null, answer = null;
+  const session = { fromPartition: (name) => { seen.made.push(name); return { protocol: { handle: (scheme, f) => { assert.equal(scheme, "https"); handler = f; }, unhandle: () => { seen.unhandled++; } } }; } };
+  class BrowserWindow {
+    constructor(o) { this.o = o; this.gone = false; this.webContents = { executeJavaScript: async (code, gesture) => { seen.scripts.push([code, gesture]); return answer; } }; }
+    async loadURL(u) { seen.loaded.push(u); }
+    once() {}
+    isDestroyed() { return this.gone; }
+    close() { this.gone = true; seen.closed++; }
+  }
+  const keys = makeKeys({ BrowserWindow, session });
+  answer = { credential: { id: "abc", rawId: "abc", response: { clientDataJSON: "e30", authenticatorData: "AA", signature: "AA", userHandle: "" }, authenticatorAttachment: "cross-platform", clientExtensionResults: {} } };
+  const r = await keys.get({ origin: "https://github.com", request: { challenge: ch, allowCredentials: [{ id: "abc" }] } });
+  assert.deepEqual(r, answer);
+  assert.deepEqual(seen.loaded, ["https://github.com" + KEY_PATH]);
+  assert.equal(KEY_PATH, "/.well-known/gofarther-security-key");
+  assert.equal(seen.scripts[0][1], true, "as your own gesture");
+  assert.match(seen.scripts[0][0], /^\(async function signIn\(o\) \{[\s\S]*\}\)\(\{"site":"github.com","request":\{"challenge":"[A-Za-z0-9_-]+","rpId":"github.com","timeout":120000,"userVerification":"preferred","allowCredentials":\[\{"id":"abc","transports":\[\]\}\]\}\}\)$/);
+  assert.equal(seen.closed, 1, "the window goes");
+  assert.equal(seen.unhandled, 1);
+  assert.match(seen.made[0], /^gofarther-security-key-\d+$/, "a session kept nowhere (no persist:)");
+  // Only that one page, made by the app; anything else the window asks for is not found (never fetched from the site).
+  const page = await handler({ url: "https://github.com" + KEY_PATH });
+  assert.equal(await page.text(), KEY_PAGE);
+  assert.equal((await handler({ url: "https://github.com/login" })).status, 404);
+  assert.match(KEY_PAGE, /Gloopy's browser wants to sign in to <b id="site"><\/b>\./);
+  // Not a sign-in it may do: nothing is opened.
+  assert.deepEqual(await keys.get({ origin: "https://github.com", request: { challenge: ch, rpId: "evil.com" } }), { error: "SecurityError", message: "not a sign-in for this site" });
+  assert.equal(seen.loaded.length, 1);
+  // One at a time.
+  let release;
+  const slow = new Promise((ok) => { release = ok; });
+  class SlowWindow extends BrowserWindow { constructor(o) { super(o); this.webContents.executeJavaScript = () => slow; } }
+  const keys2 = makeKeys({ BrowserWindow: SlowWindow, session });
+  const first = keys2.get({ origin: "https://github.com", request: { challenge: ch } });
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.deepEqual(await keys2.get({ origin: "https://github.com", request: { challenge: ch } }), { error: "InvalidStateError", message: "Your key is in use for another sign-in." });
+  release({ error: "NotAllowedError", message: "" });
+  assert.deepEqual(await first, { error: "NotAllowedError", message: "" });
 });

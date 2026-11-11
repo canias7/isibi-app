@@ -302,6 +302,9 @@ export async function serve(dir) {
       p.toJSON = function () { return { ...json.call(this), brands: copy(brands) }; };
     } catch { /* not a page that has them */ }
   }, [name.metadata.brands, name.metadata.fullVersionList]).catch(() => {});
+  // HARDWARE SECURITY KEYS (see keyRequestOf): what a page asks Coder's service, and the page's own side.
+  await ctx.exposeBinding("__gfKey", ({ page: p, frame }, msg) => keyAsked(p, frame, msg)).catch(() => {});
+  await ctx.addInitScript(keyPage).catch(() => {});
   // ITS SIGN-INS, BACK ON A NEW COMPUTER (the audit, 2026-11-10): the copy Coder's Worker kept (cookies, and each site's
   // local storage), left here by Coder's service before the browser first started on this disk, then gone.
   await restoreState(ctx, join(dir, RESTORE_FILE)).catch(() => {});
@@ -317,7 +320,8 @@ export async function serve(dir) {
   // lane is opened at its first step and closed when the helpers are done (or LANE_IDLE_MS after its last step). All the
   // lanes are tabs of this one browser, so the owner's sign-ins are theirs too.
   // DOWNLOADS (fix 2), per lane: the ones going, the ones done (waiting to be handed over) and what to say about the others.
-  const laneState = () => ({ dialogs: [], armed: false, uploading: false, fileAsked: false, dl: { going: new Map(), ready: [], notes: [] }, busy: Promise.resolve(), last: Date.now() });
+  // `key`: a page of the lane waiting for the owner's security key (see keyAsked); `keyNote`: a helper's page asked for one.
+  const laneState = () => ({ dialogs: [], armed: false, uploading: false, fileAsked: false, dl: { going: new Map(), ready: [], notes: [] }, busy: Promise.resolve(), last: Date.now(), key: null, keyNote: "" });
   const L0 = Object.assign(laneState(), { id: 0 });
   Object.defineProperty(L0, "page", { get: () => page, set: (p) => { page = p; } });
   const lanes = new Map();
@@ -331,6 +335,50 @@ export async function serve(dir) {
   };
   const laneDrop = async (k) => { const L = lanes.get(k); lanes.delete(k); if (!L) return; await L.ready.catch(() => {}); for (const p of L.pages) await p.close().catch(() => {}); };
   const lanesClose = async () => { const n = lanes.size; for (const k of [...lanes.keys()]) await laneDrop(k); return { ok: true, closed: n }; };
+  // A PAGE ASKS FOR THE OWNER'S SECURITY KEY (see keyPage): held for them (Gloopy's own page only; a newer ask takes the
+  // place of an older one), answered with what their key signed or a refusal, or refused after KEY_WAIT_MS.
+  const keyAsked = (p, frame, msg) => {
+    const L = laneOf(p);
+    if (!L) return { error: "NotAllowedError" };
+    if (msg && msg.cancel === true) { if (L.key && L.key.frame === frame && L.key.doc === msg.doc) { L.key.done({ error: "AbortError" }); L.key = null; } return { ok: true }; }
+    let origin = "", host = "";
+    try { const u = new URL(frame.url()); origin = u.origin; host = u.hostname; } catch { /* no address */ }
+    if (!keyOrigin(origin)) return { error: "NotAllowedError", message: "Only a secure site's page can ask for a security key." };
+    if (L !== L0) { L.keyNote = siteOf(origin); return { error: "NotAllowedError", message: "A helper's tab can't use the owner's security key." }; }
+    let request;
+    try { request = keyRequestOf(msg && msg.request, host); } catch (e) { return { error: "SecurityError", message: String((e && e.message) || e) }; }
+    if (L.key) L.key.done({ error: "NotAllowedError" });
+    return new Promise((answer) => {
+      const k = { page: p, frame, doc: String((msg && msg.doc) || ""), origin, site: siteOf(origin), request, at: Date.now() };
+      k.done = (r) => { clearTimeout(k.timer); answer(r); };
+      k.timer = setTimeout(() => { if (L.key === k) L.key = null; answer({ error: "NotAllowedError", message: "No one answered in time." }); }, KEY_WAIT_MS);
+      k.timer.unref?.();
+      L.key = k;
+      wakeSoon();
+    });
+  };
+  // THE OWNER'S ANSWER (the service's own): what their key signed (checked to be for this very request), or skip.
+  const keyAnswer = async (x) => {
+    const k = L0.key;
+    if (!k) throw new Error("no page is waiting for a security key now");
+    if (x.site && x.site !== k.site) throw new Error("the page waiting for a security key is on " + k.site + " now");
+    // Still the same page (the one that asked has not gone on to another).
+    if ((await k.frame.evaluate(() => window.__gfKeyDoc).catch(() => "")) !== k.doc) { L0.key = null; k.done({ error: "AbortError" }); throw new Error("the page that asked for the security key has gone on"); }
+    if (x.skip === true) {
+      L0.key = null;
+      k.done({ error: "NotAllowedError", message: "The owner chose not to use their security key." });
+      await settle(L0);
+      return { skipped: true, title: await page.title().catch(() => ""), url: page.url() };
+    }
+    const c = keyAnswerOf(x.credential, k);
+    L0.key = null;
+    k.done({ credential: c });
+    await settle(L0);
+    lastAct = { at: Date.now(), did: "Signed in to " + k.site + " with the owner's security key" };
+    wakeSoon();
+    return { ok: true, title: await page.title().catch(() => ""), url: page.url() };
+  };
+  const keyNow = () => (L0.key ? { key: { site: L0.key.site, origin: L0.key.origin, request: L0.key.request } } : {});
   // The helpers' tabs, for the owner's live view: which there are, and where each is.
   const lanesNow = () => Promise.all([...lanes.values()].filter((L) => L.page && !L.page.isClosed()).map(async (L) => ({ id: L.id, url: L.page.url(), title: await L.page.title().catch(() => "") })));
   const dl = L0.dl;
@@ -371,6 +419,8 @@ export async function serve(dir) {
       (yes ? d.accept() : d.dismiss()).catch(() => {});
     });
     p.on("download", onDownload);
+    // A page waiting for the owner's security key that closed: nothing waits any more.
+    p.on("close", () => { const L = laneOf(p); if (L && L.key && L.key.page === p) { L.key.done({ error: "AbortError" }); L.key = null; } });
     // A PAGE ASKING FOR A FILE is always caught here (found 2026-11-10: one left to Chromium opens a box no one can see in
     // a headless browser, and blocks the next): the owner's own click gets a file prompt in their live view; Gloopy's
     // upload step gives its file; any other is said in the step's answer.
@@ -439,8 +489,10 @@ export async function serve(dir) {
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
     const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards, L), maskColor: "#9ca3af" }).catch(() => null);
-    const said = asked(L).map((x) => "\n" + x).join("") + (L.fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "");
-    L.fileAsked = false;
+    const said = asked(L).map((x) => "\n" + x).join("") + (L.fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "")
+      + (L.key ? "\nThe page asks for a security key, to sign in to " + L.key.site + ". It waits for the owner: their key is plugged into their own computer." : "")
+      + (L.keyNote ? "\nThe page asked for a security key (" + L.keyNote + "): a helper can't use the owner's key. Say so in your answer, and Gloopy will do it." : "");
+    L.fileAsked = false; L.keyNote = "";
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
     const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
@@ -452,7 +504,7 @@ export async function serve(dir) {
       if (buf.length > SHOT_FILE_MAX) throw new Error("the whole page is too long for one screenshot: take one of what is in view (without full), scrolling between them");
       file = { type, data: buf.toString("base64") };
     }
-    return { text, shot: shot ? shot.toString("base64") : "", ...(file ? { picture: file } : {}) };
+    return { text, shot: shot ? shot.toString("base64") : "", ...(file ? { picture: file } : {}), ...(L === L0 && L.key ? { keyRequest: { site: L.key.site, origin: L.key.origin, request: L.key.request } } : {}) };
   };
   // DOWNLOADS HANDED OVER (fix 2): each one done, as base64 (then gone from here), and what to say about the others. A
   // step from a card (`keep`) hands over none: they wait for the next step (Coder's service asks at the next turn's start).
@@ -911,7 +963,7 @@ export async function serve(dir) {
     }
     const last = lastAct && Date.now() - lastAct.at < 20_000 ? { did: lastAct.did, ...(lastAct.box ? { box: lastAct.box } : {}), ago: Date.now() - lastAct.at } : null;
     if (chooser && Date.now() - chooser.at > CHOOSER_MS) chooser = null;
-    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}), ...(others.length ? { lanes: others } : {}) };
+    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...keyNow(), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}), ...(others.length ? { lanes: others } : {}) };
     if (wait && newest.from === "cast" && newest.page === page && newest.hash) return x.since === newest.hash ? { ...where, same: true, hash: newest.hash } : { ...where, hash: newest.hash, shot: newest.shot, w: VIEW.width, h: VIEW.height };
     const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
     if (!shot) return { ...where, same: true };
@@ -1017,6 +1069,7 @@ export async function serve(dir) {
           else if (x.action === "stage") out = await stage(x);
           else if (x.action === "area") out = await area(x);
           else if (x.action === "teach") out = await teachOnOff(x);
+          else if (x.action === "keyAnswer") out = await keyAnswer(x);
           else if (x.action === "collect") out = await handOver(false);
           else if (x.action === "closeLanes") out = await lanesClose();
           else { ask = checkAsk(x); out = await run(ask); }
@@ -1124,6 +1177,98 @@ export function thumbOf(b64) {
 export const ROUTE_CERT_NOTE = " Gloopy's browser goes through the owner's computer right now. If every secure site says this, that computer's network is checking secure connections with its own certificate (some office networks and security programs do), and Gloopy's browser won't accept that. Turning off \"Through your own computer\" in Settings → Browser sends it straight out again.";
 export const routeCertNote = (msg, routed) => (routed && /net::ERR_CERT_/.test(String(msg)) ? String(msg) + ROUTE_CERT_NOTE : String(msg));
 
+/**
+ * HARDWARE SECURITY KEYS (the owner, 2026-11-11: "Finish the browser"; Grok Bot's "Use hardware security keys": the
+ * Bot's browser can use a key plugged into the owner's computer, each use approved first). A page in Gloopy's browser
+ * that asks to sign in with a security key (navigator.credentials.get, with a public key) is held here; Gloopy's step
+ * says so and the owner is asked on a card (or in their live view, while they have control); on their Mac or Windows
+ * computer the Go Farther app has their key sign that very request, for that very site, and the answer goes to the page
+ * as the browser's own would. A helper's tab can't ask. A page only ever asks for its own site (its frame's address,
+ * never what it says), and only an answer to that request, from a key it asked for, is taken.
+ */
+export const KEY_WAIT_MS = 10 * 60_000;
+const KEY_TRANSPORTS = ["usb", "nfc", "ble", "hybrid", "internal", "smart-card"];
+const b64uOk = (v, max) => typeof v === "string" && v.length <= max && /^[A-Za-z0-9_-]*$/.test(v);
+/** Whether a page at this address may ask for a security key: a secure site with a name (or localhost, for tests). */
+export function keyOrigin(origin) {
+  const o = String(origin || "");
+  // (A name, never an address: a security key is never for an IP address.)
+  return /^https:\/\/([a-z0-9-]+\.)+[a-z][a-z0-9-]*(:\d{1,5})?$/i.test(o) || /^http:\/\/localhost(:\d{1,5})?$/.test(o);
+}
+/** A page's request, kept to what a security key sign-in has (else throws); `host` is the asking frame's own. */
+export function keyRequestOf(raw, host) {
+  const r = raw && typeof raw === "object" ? raw : {};
+  if (!b64uOk(r.challenge, 1024) || r.challenge.length < 16) throw new Error("the page gave no proper challenge");
+  const h = String(host || "").toLowerCase();
+  const rpId = typeof r.rpId === "string" && r.rpId ? r.rpId.toLowerCase() : "";
+  if (rpId && !(rpId === h || (h.endsWith("." + rpId) && rpId.includes(".")))) throw new Error("the page asked for another site's key");
+  const allow = Array.isArray(r.allowCredentials) ? r.allowCredentials : [];
+  if (allow.length > 64) throw new Error("the page asked for too many keys");
+  const allowCredentials = allow.map((c) => {
+    if (!c || !c.id || !b64uOk(c.id, 1400)) throw new Error("a key the page asked for has no proper id");
+    return { type: "public-key", id: c.id, transports: (Array.isArray(c.transports) ? c.transports : []).map(String).filter((t) => KEY_TRANSPORTS.includes(t)) };
+  });
+  const userVerification = ["required", "preferred", "discouraged"].includes(r.userVerification) ? r.userVerification : "preferred";
+  const timeout = Math.max(0, Math.min(KEY_WAIT_MS, Math.round(Number(r.timeout) || 0)));
+  const appid = typeof r.appid === "string" && /^https:\/\//.test(r.appid) && r.appid.length <= 300 ? r.appid : "";
+  return { challenge: r.challenge, rpId: rpId || h, timeout, userVerification, allowCredentials, ...(appid ? { appid } : {}) };
+}
+/** What the owner's key signed, kept to what an answer has, and only one for request `k` (its challenge, its site, a key it asked for); else throws. */
+export function keyAnswerOf(raw, k) {
+  const c = raw && typeof raw === "object" ? raw : {}, r = c.response && typeof c.response === "object" ? c.response : {};
+  if (!c.id || !b64uOk(c.id, 1400) || !b64uOk(c.rawId || c.id, 1400)) throw new Error("the answer has no proper key id");
+  if (!r.clientDataJSON || !r.authenticatorData || !r.signature || !b64uOk(r.clientDataJSON, 8000) || !b64uOk(r.authenticatorData, 8000) || !b64uOk(r.signature, 2000) || !b64uOk(r.userHandle || "", 1000)) throw new Error("the answer is not a security key's");
+  let cd;
+  try { cd = JSON.parse(Buffer.from(r.clientDataJSON, "base64url").toString("utf8")); } catch { throw new Error("the answer is not a security key's"); }
+  if (!cd || cd.type !== "webauthn.get" || cd.challenge !== k.request.challenge || cd.origin !== k.origin) throw new Error("the answer is not for the request this page made");
+  if (k.request.allowCredentials.length && !k.request.allowCredentials.some((a) => a.id === c.id)) throw new Error("the answer is from a key the page didn't ask for");
+  const ext = c.clientExtensionResults && typeof c.clientExtensionResults.appid === "boolean" ? { appid: c.clientExtensionResults.appid } : {};
+  return { id: c.id, rawId: c.rawId || c.id, response: { clientDataJSON: r.clientDataJSON, authenticatorData: r.authenticatorData, signature: r.signature, userHandle: r.userHandle || "" }, authenticatorAttachment: c.authenticatorAttachment === "platform" ? "platform" : "cross-platform", clientExtensionResults: ext };
+}
+/**
+ * THE PAGE'S SIDE (an init script, so self-contained): a secure page's navigator.credentials.get for a public key asks
+ * Coder's service through __gfKey (with this document's own mark), and gets back what the owner's key signed, made into
+ * a PublicKeyCredential as the browser's own; or a refusal, as the browser's own. Passkey autofill (conditional) and
+ * everything else stay the browser's.
+ */
+export function keyPage() {
+  try {
+    const cc = navigator.credentials;
+    if (!cc || !window.isSecureContext || typeof window.PublicKeyCredential !== "function") return;
+    const orig = cc.get.bind(cc);
+    const doc = Math.random().toString(36).slice(2);
+    Object.defineProperty(window, "__gfKeyDoc", { value: doc });
+    const bytes = (b) => (b instanceof ArrayBuffer ? new Uint8Array(b) : ArrayBuffer.isView(b) ? new Uint8Array(b.buffer, b.byteOffset, b.byteLength) : null);
+    const b64u = (b) => { const a = bytes(b); if (!a) return ""; let t = ""; for (let i = 0; i < a.length; i++) t += String.fromCharCode(a[i]); return btoa(t).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
+    const unb64u = (v) => { const t = atob(String(v || "").replace(/-/g, "+").replace(/_/g, "/")); const a = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) a[i] = t.charCodeAt(i); return a.buffer; };
+    const fail = (name, message) => new DOMException(message || "The operation either timed out or was not allowed.", name || "NotAllowedError");
+    const made = (c) => {
+      const r = Object.create(AuthenticatorAssertionResponse.prototype);
+      Object.defineProperties(r, { clientDataJSON: { value: unb64u(c.response.clientDataJSON), enumerable: true }, authenticatorData: { value: unb64u(c.response.authenticatorData), enumerable: true }, signature: { value: unb64u(c.response.signature), enumerable: true }, userHandle: { value: c.response.userHandle ? unb64u(c.response.userHandle) : null, enumerable: true } });
+      const ext = c.clientExtensionResults || {};
+      const p = Object.create(PublicKeyCredential.prototype);
+      Object.defineProperties(p, { id: { value: c.id, enumerable: true }, rawId: { value: unb64u(c.rawId), enumerable: true }, type: { value: "public-key", enumerable: true }, response: { value: r, enumerable: true }, authenticatorAttachment: { value: c.authenticatorAttachment || "cross-platform", enumerable: true },
+        getClientExtensionResults: { value: () => ({ ...ext }) }, toJSON: { value: () => ({ id: c.id, rawId: c.rawId, type: "public-key", response: { ...c.response }, authenticatorAttachment: c.authenticatorAttachment || "cross-platform", clientExtensionResults: { ...ext } }) } });
+      return p;
+    };
+    const get = function get(options) {
+      const pk = options && options.publicKey;
+      if (!pk || options.mediation === "conditional" || typeof window.__gfKey !== "function") return orig(options);
+      const signal = options.signal;
+      if (signal && signal.aborted) return Promise.reject(fail("AbortError", "The operation was aborted."));
+      const request = { challenge: b64u(pk.challenge), rpId: typeof pk.rpId === "string" ? pk.rpId : "", timeout: Number(pk.timeout) || 0, userVerification: String(pk.userVerification || ""),
+        allowCredentials: Array.isArray(pk.allowCredentials) ? pk.allowCredentials.slice(0, 65).map((c) => ({ type: "public-key", id: b64u(c && c.id), transports: c && Array.isArray(c.transports) ? c.transports.map(String) : [] })) : [],
+        ...(pk.extensions && typeof pk.extensions.appid === "string" ? { appid: pk.extensions.appid } : {}) };
+      return new Promise((resolve, reject) => {
+        if (signal) signal.addEventListener("abort", () => { window.__gfKey({ cancel: true, doc }).catch(() => {}); reject(fail("AbortError", "The operation was aborted.")); }, { once: true });
+        window.__gfKey({ request, doc }).then((r) => { try { if (r && r.credential) resolve(made(r.credential)); else reject(fail(r && r.error, r && r.message)); } catch { reject(fail()); } }, () => reject(fail()));
+      });
+    };
+    Object.defineProperty(get, "toString", { value: () => "function get() { [native code] }" });
+    Object.defineProperty(cc, "get", { value: get, configurable: true, writable: true });
+  } catch { /* a page without them */ }
+}
+
 /** The proxy the browser is started with (2026-11-11): only Coder's own, on this machine ({ server: "http://127.0.0.1:port" }); null for none. */
 export function routeProxyOf(raw) {
   let p = null;
@@ -1177,7 +1322,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     act: async (args, lane = 0) => {
       const r = await call({ ...checkAsk(args), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) });
       const shot = typeof r.shot === "string" ? r.shot : "";
-      return { text: String(r.text || ""), shot, thumb: thumbOf(shot), ...handed(r), ...(r.picture && typeof r.picture.data === "string" ? { picture: { type: r.picture.type === "jpeg" ? "jpeg" : "png", data: r.picture.data } } : {}) };
+      return { text: String(r.text || ""), shot, thumb: thumbOf(shot), ...handed(r), ...(r.picture && typeof r.picture.data === "string" ? { picture: { type: r.picture.type === "jpeg" ? "jpeg" : "png", data: r.picture.data } } : {}), ...(r.keyRequest && typeof r.keyRequest === "object" ? { keyRequest: r.keyRequest } : {}) };
     },
     // A FILE TO UPLOAD (fix 3), made ready: { name, data } (base64, from the work folder) → { staged, name, size }.
     stage: ({ name, data }) => call({ action: "stage", name, data }),
@@ -1230,6 +1375,9 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     area: ({ x, y, w, h }) => call({ action: "area", x, y, w, h }),
     // Teach a task (Grok Bot's): on, then off (the owner's steps written down).
     teach: (on) => call({ action: "teach", on: on === true }),
+    // HARDWARE SECURITY KEYS (2026-11-11): the owner's answer to the page waiting for their key (`credential`, what their
+    // key signed on their computer, or `skip`), for the site it asked on.
+    keyAnswer: ({ site = "", credential = null, skip = false } = {}) => call({ action: "keyAnswer", site: String(site), ...(skip === true ? { skip: true } : { credential }) }),
   };
 }
 

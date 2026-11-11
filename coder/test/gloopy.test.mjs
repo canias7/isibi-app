@@ -5770,7 +5770,7 @@ test("GL115 (2026-11-11) Gloopy's browser through the owner's own computer, on t
   // The live view.
   assert.match(ui, /w\.route = d\.route === 'desktop' \|\| d\.route === 'cloud' \? d\.route : '';/);
   assert.match(ui, /\(w\.route === 'desktop' && !w\.lane \? '<span class="cd-web-route" title="Sites see your computer’s internet connection">Through your computer<\/span>' : ''\)/);
-  assert.match(ui, /\(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| ''\]\.join\('\|'\)/);
+  assert.match(ui, /\(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| '', w\.key \? w\.key\.site : ''\]\.join\('\|'\)/, "(and a page waiting for your security key: GL119)");
   const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-web-route\{/);
 });
@@ -5944,4 +5944,167 @@ test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, 
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /routeWanted = on === true;\n\s+\/\/ Turned off: the owner's computer is let go too, not only left unused \(its app's ticket is worthless by now\)\.\n\s+if \(!routeWanted && tunnel\.connected\) tunnel\.close\("routing was turned off"\);/);
   assert.match(server, /link: \(\(\{ device, streams, got, sent, cut \}\) => \(\{ device, streams, got, sent, \.\.\.\(cut \? \{ cut \} : \{\}\) \}\)\)\(tunnel\.status\(\)\)/);
+});
+
+test("GL118 (2026-11-11) hardware security keys (Grok Bot's \"Use hardware security keys\"), in a real browser: a page asking to sign in with a security key is held for the owner and said in Gloopy's step; only an answer to that very request (its challenge, its site, a key it asked for) is taken, and the page gets it as the browser's own credential; \"Not now\" gives the page the browser's own refusal; a helper's tab can't ask; requests are kept to what a sign-in has", async (t) => {
+  const { makeBrowserHub, hasBrowser, keyOrigin, keyRequestOf, keyAnswerOf } = await import("../container/gloopy-browser.mjs");
+  // Requests and answers, kept to what they should be.
+  for (const o of ["https://github.com", "https://login.example.co.uk:8443", "http://localhost:3000"]) assert.equal(keyOrigin(o), true, o);
+  for (const o of ["http://github.com", "https://10.0.0.1", "https://localhost", "file://", "", "https://a"]) assert.equal(keyOrigin(o), false, o);
+  const ch = Buffer.alloc(32, 7).toString("base64url");
+  assert.deepEqual(keyRequestOf({ challenge: ch, rpId: "github.com", allowCredentials: [{ id: "a1", transports: ["usb", "telepathy"] }], userVerification: "discouraged", timeout: 60000 }, "github.com"),
+    { challenge: ch, rpId: "github.com", timeout: 60000, userVerification: "discouraged", allowCredentials: [{ type: "public-key", id: "a1", transports: ["usb"] }] });
+  assert.equal(keyRequestOf({ challenge: ch }, "login.example.com").rpId, "login.example.com", "its own site when it names none");
+  assert.equal(keyRequestOf({ challenge: ch, rpId: "example.com" }, "login.example.com").rpId, "example.com", "its site's own domain");
+  assert.throws(() => keyRequestOf({ challenge: ch, rpId: "evil.com" }, "login.example.com"), /another site's key/);
+  assert.throws(() => keyRequestOf({ challenge: ch, rpId: "com" }, "example.com"), /another site's key/);
+  assert.throws(() => keyRequestOf({ challenge: "short" }, "example.com"), /no proper challenge/);
+  assert.throws(() => keyRequestOf({ challenge: ch, allowCredentials: [{ id: "not base64url!" }] }, "example.com"), /no proper id/);
+  const k0 = { origin: "https://github.com", request: { challenge: ch, allowCredentials: [{ id: "a1" }] } };
+  const cd = (o) => Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: ch, origin: "https://github.com", ...o })).toString("base64url");
+  const good = { id: "a1", rawId: "a1", response: { clientDataJSON: cd({}), authenticatorData: Buffer.alloc(37, 1).toString("base64url"), signature: Buffer.alloc(70, 2).toString("base64url"), userHandle: "" }, clientExtensionResults: { appid: false, other: 1 } };
+  assert.deepEqual(keyAnswerOf(good, k0).clientExtensionResults, { appid: false });
+  assert.throws(() => keyAnswerOf({ ...good, response: { ...good.response, clientDataJSON: cd({ challenge: "other" }) } }, k0), /not for the request this page made/);
+  assert.throws(() => keyAnswerOf({ ...good, response: { ...good.response, clientDataJSON: cd({ origin: "https://evil.com" }) } }, k0), /not for the request this page made/);
+  assert.throws(() => keyAnswerOf({ ...good, response: { ...good.response, clientDataJSON: cd({ type: "webauthn.create" }) } }, k0), /not for the request this page made/);
+  assert.throws(() => keyAnswerOf({ ...good, id: "zz", rawId: "zz" }, k0), /a key the page didn't ask for/);
+  assert.throws(() => keyAnswerOf({ ...good, response: { ...good.response, signature: "" } }, k0), /not a security key's/);
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  // A site's sign-in page that asks for a security key, and says what it got.
+  const keyId = Buffer.from("my-yubikey-credential").toString("base64url");
+  const page = `<title>Sign in</title><button id="go" onclick="go(false)">Use key</button><button onclick="go(true)">Autofill</button><p id="out">waiting</p><script>
+    const b64u = (b) => btoa(String.fromCharCode(...new Uint8Array(b))).replace(/\\+/g, "-").replace(/\\//g, "_").replace(/=+$/, "");
+    const un = (s) => Uint8Array.from(atob(s.replace(/-/g, "+").replace(/_/g, "/")), (c) => c.charCodeAt(0));
+    async function go(auto) {
+      const out = document.getElementById("out");
+      out.textContent = "asking";
+      try {
+        const c = await navigator.credentials.get({ ...(auto ? { mediation: "conditional" } : {}), publicKey: { challenge: un("${ch}"), rpId: "localhost", allowCredentials: [{ type: "public-key", id: un("${keyId}"), transports: ["usb"] }], userVerification: "discouraged", timeout: 60000 } });
+        const cdj = JSON.parse(new TextDecoder().decode(c.response.clientDataJSON));
+        const got = { id: c.id, raw: b64u(c.rawId) === c.id, type: c.type, isCred: c instanceof PublicKeyCredential, isResp: c.response instanceof AuthenticatorAssertionResponse, cdType: cdj.type, sig: c.response.signature.byteLength, json: c.toJSON().response.signature, att: c.authenticatorAttachment, ext: Object.keys(c.getClientExtensionResults()).length };
+        out.textContent = "GOT " + Object.entries(got).map(([k, v]) => k + "=" + v).join(" ") + " END";
+      } catch (e) { out.textContent = "REFUSED " + e.name; }
+    }</script>`;
+  const site = http.createServer((q, r) => { r.setHeader("content-type", "text/html"); r.end(page); });
+  const base = (await listen(site)).replace("127.0.0.1", "localhost");
+  const origin = base.replace(/\/$/, "");
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-key-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    let a = await hub.act({ action: "open", url: base + "/login" });
+    a = await hub.act({ action: "click", ref: refOf(a.text, /button "Use key"(?: \[[a-z]+\])* \[ref=([a-z0-9]+)\]/) });
+    assert.match(a.text, /\nThe page asks for a security key, to sign in to localhost:\d+\. It waits for the owner: their key is plugged into their own computer\./);
+    assert.deepEqual(a.keyRequest.request, { challenge: ch, rpId: "localhost", timeout: 60000, userVerification: "discouraged", allowCredentials: [{ type: "public-key", id: keyId, transports: ["usb"] }] });
+    assert.equal(a.keyRequest.origin, origin);
+    // Answers that are not for this request are refused, and the page still waits.
+    const ans = (o = {}, r = {}) => ({ id: keyId, rawId: keyId, response: { clientDataJSON: Buffer.from(JSON.stringify({ type: "webauthn.get", challenge: ch, origin, ...o })).toString("base64url"), authenticatorData: Buffer.alloc(37, 5).toString("base64url"), signature: Buffer.alloc(71, 9).toString("base64url"), userHandle: "", ...r }, clientExtensionResults: {} });
+    await assert.rejects(hub.keyAnswer({ credential: ans({ challenge: "x".repeat(43) }) }), /not for the request this page made/);
+    await assert.rejects(hub.keyAnswer({ credential: ans({ origin: "https://github.com" }) }), /not for the request this page made/);
+    await assert.rejects(hub.keyAnswer({ site: "github.com", credential: ans() }), /is on localhost:\d+ now/);
+    const s1 = await hub.screen({});
+    assert.equal(s1.key.site, new URL(base).host, "the owner's live view knows a key is wanted");
+    // The right one: the page gets it as the browser's own credential.
+    const done = await hub.keyAnswer({ credential: ans() });
+    assert.equal(done.ok, true);
+    let l = await hub.act({ action: "look" });
+    assert.ok(l.text.includes("GOT id=" + keyId + " raw=true type=public-key isCred=true isResp=true cdType=webauthn.get sig=71 json=" + Buffer.alloc(71, 9).toString("base64url") + " att=cross-platform ext=0 END"), l.text.slice(0, 600));
+    assert.equal(l.keyRequest, undefined, "nothing waits now");
+    assert.equal((await hub.screen({})).key, undefined);
+    await assert.rejects(hub.keyAnswer({ credential: ans() }), /no page is waiting for a security key now/);
+    // "Not now": the page hears the browser's own refusal.
+    a = await hub.act({ action: "click", ref: refOf(l.text, /button "Use key"(?: \[[a-z]+\])* \[ref=([a-z0-9]+)\]/) });
+    assert.ok(a.keyRequest);
+    assert.equal((await hub.keyAnswer({ skip: true })).skipped, true);
+    l = await hub.act({ action: "look" });
+    assert.match(l.text, /REFUSED NotAllowedError/);
+    // Passkey autofill (conditional) stays the browser's own: never held for the owner.
+    a = await hub.act({ action: "click", ref: refOf(l.text, /button "Autofill"(?: \[[a-z]+\])* \[ref=([a-z0-9]+)\]/) });
+    assert.equal(a.keyRequest, undefined);
+    assert.doesNotMatch(a.text, /security key/);
+    // A helper's tab can't ask for the owner's key.
+    let h = await hub.act({ action: "open", url: base + "/login" }, 1);
+    h = await hub.act({ action: "click", ref: refOf(h.text, /button "Use key"(?: \[[a-z]+\])* \[ref=([a-z0-9]+)\]/) }, 1);
+    assert.match(h.text, /\nThe page asked for a security key \(localhost:\d+\): a helper can't use the owner's key\. Say so in your answer, and Gloopy will do it\./);
+    assert.equal(h.keyRequest, undefined);
+    assert.match((await hub.act({ action: "look" }, 1)).text, /REFUSED NotAllowedError/);
+  } finally { await hub.closeLanes().catch(() => {}); site.close(); }
+});
+
+test("GL119 (2026-11-11) hardware security keys, from Gloopy's step to the card and back: a step after which the page waits for a key ends the turn on a card; the card's answer (what the owner's key signed in the Go Farther app, kept to its own fields) goes to Gloopy's computer for the page, or \"not now\"; while the owner has control, from their live view; the page shows the card and the live view's bar, and only the app can use the key", async () => {
+  // GLOOPY'S STEP: the page asks for a key; the owner is asked on a card; the turn ends there.
+  const req = { challenge: Buffer.alloc(32, 4).toString("base64url"), rpId: "github.com", timeout: 60000, userVerification: "preferred", allowCredentials: [{ type: "public-key", id: "a1", transports: ["usb"] }] };
+  const events = [];
+  const b = fakeBrowser({ ...ELS, e10: { name: "Use security key", tag: "button", type: "button" } });
+  const act0 = b.act;
+  b.act = async (a) => { const r = await act0(a); return a.action === "click" && a.ref === "e10" ? { ...r, keyRequest: { site: "github.com", origin: "https://github.com", request: req } } : r; };
+  const g = withChecks([say("", [call("browser", { action: "click", ref: "e10" }, "k1"), call("browser", { action: "look" }, "k2")]), say("never said")], [{ decision: "allow", why: "x" }]);
+  const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => events.push(e) }, { text: "sign in to github", ...GLOOPY });
+  const card = events.find((e) => e.type === "key");
+  assert.match(card.id, /^sk[a-z0-9]+$/);
+  assert.deepEqual({ ...card, id: "", at: 0 }, { type: "key", id: "", at: 0, site: "github.com", origin: "https://github.com", request: req });
+  assert.deepEqual(out.keyRequest, { id: card.id, site: "github.com", origin: "https://github.com", request: req });
+  assert.match(out.messages.find((m) => m.tool_call_id === "k1").content, /\n\nThe owner was asked on a card for their security key, to sign in to github\.com \(it is plugged into their own computer\)\. Your turn ends here; the next message says how it went\.$/);
+  assert.equal(out.messages.find((m) => m.tool_call_id === "k2").content, "not run: the page waits for the owner's security key first");
+  assert.deepEqual(b.acted.map((a) => a.action), ["click"]);
+  // GLOOPY'S COMPUTER: the card it waits on; the owner's answer to the page (from the card, or while they have control).
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /r\.keyRequest \? \{ kind: "key", \.\.\.r\.keyRequest \}/);
+  assert.match(server, /if \(body\.control === true\) \{ if \(!ownerControl\) return send\(409, \{ error: "Take over first\." \}\); \}\n\s+else \{ if \(!p \|\| p\.kind !== "key" \|\| p\.id !== body\.id\) return send\(409, \{ error: "no security key is waiting" \}\); pending\.delete\(project\); \}/);
+  assert.match(server, /browserHub\(\)\.keyAnswer\(\{ site: body\.control === true \? "" : String\(p\.site \|\| ""\), \.\.\.\(body\.skip === true \? \{ skip: true \} : \{ credential: body\.credential \}\) \}\)/);
+  // THE WORKER: the card and its answers.
+  const { handleCoder, GLOOPY_ID, keyCredentialOf } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1" };
+  const machine = [];
+  let answer = {};
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async () => true,
+    container: () => ({ fetch: async (rq) => { const u = new URL(rq.url), body = rq.method === "POST" ? await rq.json() : null; machine.push({ path: u.pathname, body }); return Response.json(answer[u.pathname] || { ok: true }, { status: 200 }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const setMeta = (o) => bucket.m.set(metaKey, JSON.stringify({ ...meta(), ...o }));
+  const cred = { id: "a1", rawId: "a1", response: { clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0", authenticatorData: "AAAA", signature: "BBBB", userHandle: "", extra: "dropped" }, authenticatorAttachment: "cross-platform", clientExtensionResults: { appid: true, other: 1 }, junk: "x".repeat(10) };
+  assert.deepEqual(keyCredentialOf(cred), { id: "a1", rawId: "a1", response: { clientDataJSON: "eyJ0eXBlIjoid2ViYXV0aG4uZ2V0In0", authenticatorData: "AAAA", signature: "BBBB", userHandle: "" }, authenticatorAttachment: "cross-platform", clientExtensionResults: { appid: true } });
+  assert.equal(keyCredentialOf({ ...cred, id: "not <ok>" }), null);
+  assert.equal(keyCredentialOf({ id: "a1" }), null);
+  setMeta({ status: "idle", saved: meta().turn, waiting: "key", pending: { kind: "key", id: "sk1", site: "github.com" } });
+  assert.equal((await go("projects/" + GLOOPY_ID + "/key", { method: "POST", body: JSON.stringify({ id: "sk2", credential: cred }) })).status, 409, "another card");
+  answer = { "/gloopy/key": { ok: true, title: "Dashboard", url: "https://github.com/" } };
+  let r = await (await go("projects/" + GLOOPY_ID + "/key", { method: "POST", body: JSON.stringify({ id: "sk1", credential: cred }) })).json();
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/key", body: { project: GLOOPY_ID, id: "sk1", credential: keyCredentialOf(cred) } }, "only its own fields go");
+  assert.equal(r.said, "Used your security key on github.com");
+  assert.equal(r.project.note, "(Note from Gloopy's app, not the owner: the owner's security key signed in on github.com. Your browser's page is now “Dashboard” at https://github.com/. Look at the page before you go on, to see whether it worked.)");
+  setMeta({ waiting: "key", pending: { kind: "key", id: "sk3", site: "github.com" } });
+  answer = { "/gloopy/key": { ok: false, skipped: true, title: "Sign in", url: "https://github.com/session" } };
+  r = await (await go("projects/" + GLOOPY_ID + "/key", { method: "POST", body: JSON.stringify({ id: "sk3", skip: true }) })).json();
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, id: "sk3", skip: true });
+  assert.equal(r.said, "Not now: your security key on github.com");
+  assert.match(r.project.note, /the owner chose not to use their security key on github\.com now; the page was told no\./);
+  setMeta({ waiting: "key", pending: { kind: "key", id: "sk4", site: "github.com" } });
+  answer = { "/gloopy/key": { ok: false, why: "the answer is not for the request this page made" } };
+  r = await (await go("projects/" + GLOOPY_ID + "/key", { method: "POST", body: JSON.stringify({ id: "sk4", credential: cred }) })).json();
+  assert.equal(r.said, "Your security key could not be used on github.com");
+  assert.match(r.project.note, /could not be used on github\.com \(the answer is not for the request this page made\)\. Look at the page; to try again, do the step that asked for the key again\.\)$/);
+  // While the owner has control: from their live view.
+  answer = { "/gloopy/key": { ok: true, title: "Dashboard", url: "https://github.com/" } };
+  r = await (await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ key: { credential: cred } }) })).json();
+  assert.deepEqual(machine.at(-1), { path: "/gloopy/key", body: { project: GLOOPY_ID, control: true, credential: keyCredentialOf(cred) } });
+  assert.equal(r.ok, true);
+  await go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify({ key: { skip: true } }) });
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, control: true, skip: true });
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /s\.result\.keyRequest \? \{ kind: "key", id: String\(s\.result\.keyRequest\.id \|\| ""\), site: String\(s\.result\.keyRequest\.site \|\| ""\)\.slice\(0, 200\) \} : null;/);
+  // THE PAGE: the card, the live view's bar, and only the Go Farther app reaches the key.
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /const DESKTOP_KEY = typeof window !== 'undefined' && window\.gofartherDesktop && window\.gofartherDesktop\.securityKey \? window\.gofartherDesktop\.securityKey : null;/);
+  assert.match(ui, /<b class="cd-secret-t">Use your security key for ' \+ site \+ '<\/b>/);
+  assert.match(ui, /Your key works from the Go Farther app on your Mac or Windows computer, plugged into it: open this chat there\./);
+  assert.match(ui, /r = await DESKTOP_KEY\.get\(\{ origin: ev\.origin, request: ev\.request \}\);/);
+  assert.match(ui, /cardAnswer\(id, 'key', \{ credential: r\.credential \}, 'Your key’s answer could not be sent\.'\);/);
+  assert.match(ui, /cardAnswer\(id, 'key', \{ skip: true \}, 'Your answer could not be sent\.'\);/);
+  assert.match(ui, /The page asks for your security key, to sign in to ' \+ esc\(w\.key\.site\) \+ '\./);
+  assert.match(ui, /r = await DESKTOP_KEY\.get\(\{ origin: w\.key\.origin, request: w\.key\.request \}\);/);
+  assert.match(ui, /const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ key \}\) \}\);/);
+  assert.match(ui, /\['approval', 'signin', 'pay', 'handoff', 'key'\]\.includes\(e\.type\)/, "its card counts down like the others");
 });
