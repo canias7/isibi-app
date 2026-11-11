@@ -548,3 +548,28 @@ test("MC16 (2026-11-11, Claude.ai's connector pages) per-chat connectors and too
   for (const want of ["id=\"cdConnChip\"", "Connectors in this chat", "Turn off all connectors", "data-act=\"toggle\"", "Its tools changed since you last looked", "Custom connector.</b> It isn’t one of the connectors Go Farther checked", "Sign in when needed", "data-group=\"all\""]) assert.ok(page.includes(want), want);
   void i;
 });
+
+test("MC17 (2026-11-11, Claude's \"Use your own OAuth client\") a custom connector signs in with the owner's own Client ID and secret: nothing registered, the secret sealed and never shown, the token asked for with it", async () => {
+  const b = memBucket(), seen = [];
+  const base = fakeServer({ auth: true });
+  const fetchFn = async (u, i = {}) => {
+    seen.push([String(u), i]);
+    if (String(u) === "https://auth.example.com/.well-known/oauth-authorization-server") return new Response(JSON.stringify({ authorization_endpoint: "https://auth.example.com/authorize", token_endpoint: "https://auth.example.com/token" }), { headers: { "content-type": "application/json" } });
+    if (String(u) === "https://auth.example.com/token") { const f = new URLSearchParams(i.body); return new Response(JSON.stringify(f.get("code") === "the-code" && i.headers.authorization === "Basic " + btoa("my-app:my-secret-123") ? { access_token: "good", expires_in: 3600 } : { error: "invalid_client" }), { status: f.get("code") === "the-code" ? 200 : 400, headers: { "content-type": "application/json" } }); }
+    return base.fetchFn(u, i);
+  };
+  const r = await addConnector(env, b, "u1", { name: "Google Drive", url: "https://mcp.example.com/mcp", clientId: "my-app", clientSecret: "my-secret-123", nonce: "n-1234567890abcdef", fetchFn });
+  const u = new URL(r.signIn);
+  assert.equal(u.searchParams.get("client_id"), "my-app");
+  assert.ok(!seen.some(([x]) => x.includes("register")), "nothing registered");
+  assert.ok(!b.m.get(listKey("u1")).includes("my-secret-123"), "the secret is sealed");
+  assert.equal(connectorOut(r.connector).ownClient, true);
+  assert.ok(!JSON.stringify(connectorOut(r.connector)).includes("my-secret"), "never shown");
+  await finishSignIn(env, b, { state: u.searchParams.get("state"), code: "the-code", nonce: "n-1234567890abcdef", fetchFn });
+  const [c] = await readConnectors(b, "u1");
+  assert.equal(c.status, "ok");
+  assert.equal(c.tools.length, 2);
+  await assert.rejects(addConnector(env, b, "u1", { url: "https://mcp.example.com/other", clientId: "bad id with spaces", fetchFn }), /doesn't look right/);
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(page.includes("<summary>Use your own OAuth client</summary>"));
+});

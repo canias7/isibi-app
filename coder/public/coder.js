@@ -233,6 +233,7 @@
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Connectors could not be opened.'; return draw(); }
     let list = r.data.connectors || [];
     const catalog = r.data.catalog || [];
+    const cb = r.data.callback || '';
     const later = r.data.later || [];
     const st = { tab: 'yours', q: '', open: '', note: note || '', busy: '', shut: {}, allOff: r.data.allOff === true };
     const page = document.createElement('div'); page.className = 'cx'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', 'Connectors');
@@ -288,7 +289,7 @@
         (c.changes.removed.length ? '<br>Removed: ' + c.changes.removed.map((n) => '<code>' + esc(n) + '</code>').join(', ') : '') +
         '<br><button type="button" class="cx-btn" data-act="seen" data-id="' + esc(c.id) + '">Mark as seen</button></div>' : '') +
       (c.about ? '<p class="cx-desc">' + esc(c.about) + '</p>' : '') +
-      '<p class="cx-url">' + esc(c.url) + (c.auth === 'oauth' ? ' · signed in' : c.auth === 'key' ? ' · with a key' : '') + (c.status !== 'ok' ? ' · <span class="cx-bad">' + esc(c.status === 'auth' ? 'needs sign-in' : (c.error || 'not working')) + '</span>' : '') + '</p>' +
+      '<p class="cx-url">' + esc(c.url) + (c.auth === 'oauth' ? ' · signed in' : c.auth === 'key' ? ' · with a key' : '') + (c.ownClient ? ' · your own OAuth client' : '') + (c.status !== 'ok' ? ' · <span class="cx-bad">' + esc(c.status === 'auth' ? 'needs sign-in' : (c.error || 'not working')) + '</span>' : '') + '</p>' +
       (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
       (c.tools.length ? '<div class="cx-ph cx-ph-row"><span>Tool permissions</span><select class="cx-gsel" data-group="all" aria-label="Every tool of this connector at once"><option value="" selected>All tools…</option><option value="allow">All: Always allow</option><option value="ask">All: Needs approval</option><option value="block">All: Blocked</option></select></div><p class="cx-desc">Choose when Coder may use these tools. Always allow: it uses them freely. Needs approval: it asks you first in Accept edits and Plan mode (in Auto mode it goes ahead). Blocked: never offered.</p>' +
         group(c, 'read', 'Read-only tools', c.tools.filter((t) => t.readOnly)) + group(c, 'write', 'Write/delete tools', c.tools.filter((t) => !t.readOnly))
@@ -336,6 +337,9 @@
         '<input class="cd-sure-in" id="cxUrl" placeholder="MCP server address (https://…)" required autocomplete="off" inputmode="url">' +
         // (Sign-in only, no API keys: owner, 2026-11-11.) WHEN TO SIGN IN (Claude's "Sign in now" or "Sign in when needed").
         '<div class="cx-when"><label><input type="radio" name="cxWhen" value="now" checked> Sign in now</label><label><input type="radio" name="cxWhen" value="later"> Sign in when needed</label></div>' +
+        // YOUR OWN OAUTH CLIENT (Claude's "Use your own OAuth client"), for apps that don't let Go Farther register itself.
+        '<details class="cx-adv"><summary>Use your own OAuth client</summary><p>For apps that only let approved apps sign in (Google, Microsoft, Slack, Zoom): register an app there with this redirect URL, then paste its Client ID and secret.</p><code class="cx-cb">' + esc(cb) + '</code>' +
+        '<input class="cd-sure-in" id="cxCid" placeholder="Client ID" autocomplete="off"><input class="cd-sure-in" id="cxCsec" type="password" placeholder="Client secret (if it has one)" autocomplete="off"></details>' +
         '<div class="cx-addnote"></div><div class="cd-sure-row"><button type="button" class="cd-sure-no">Cancel</button><button type="submit" class="cx-btn cx-btn-dark">Add</button></div>';
       wrap.append(box); document.body.append(wrap);
       const end = () => wrap.remove();
@@ -345,7 +349,7 @@
       box.onsubmit = async (e) => {
         e.preventDefault();
         const btn = box.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Connecting…';
-        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: box.querySelector('#cxName').value, url: box.querySelector('#cxUrl').value, later: (box.querySelector('input[name=cxWhen]:checked') || {}).value === 'later' }) });
+        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: box.querySelector('#cxName').value, url: box.querySelector('#cxUrl').value, later: (box.querySelector('input[name=cxWhen]:checked') || {}).value === 'later', clientId: box.querySelector('#cxCid').value, clientSecret: box.querySelector('#cxCsec').value }) });
         if (x.status !== 200) { btn.disabled = false; btn.textContent = 'Add'; box.querySelector('.cx-addnote').textContent = (x.data && x.data.error) || 'It could not be connected.'; return; }
         end(); done(x);
       };

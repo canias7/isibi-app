@@ -572,6 +572,10 @@
 .cx-chattoollist label { display: flex; align-items: center; gap: 8px; cursor: pointer; }
 .cd-connchip { display: inline-flex; align-items: center; gap: 5px; border: 0; background: transparent; border-radius: 8px; padding: 4px 8px; font: 500 12.5px Inter, system-ui, sans-serif; color: #4b5563; cursor: pointer; }
 .cd-connchip:hover { background: #f3f1ed; color: #0d1b2a; }
+.cx-adv { margin-top: 12px; font-size: 13px; color: #4b5563; }
+.cx-adv summary { cursor: pointer; color: #1f1e1d; font-weight: 500; }
+.cx-adv p { margin: 8px 0 6px; line-height: 1.45; }
+.cx-cb { display: block; font-size: 12px; background: #f1eee9; border-radius: 6px; padding: 6px 8px; overflow-wrap: anywhere; color: #1f1e1d; }
 .cx-plist { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: #4b5563; }
 .cx-plist li { margin-bottom: 6px; overflow-wrap: anywhere; }
 .cx-plist code { font-size: 12.5px; background: #f1eee9; border-radius: 4px; padding: 1px 5px; color: #1f1e1d; }

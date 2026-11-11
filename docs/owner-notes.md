@@ -6,6 +6,17 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
 
+## 2026-11-11: Custom connectors: "Use your own OAuth client" (your word: "we can start with the custom connectors")
+
+- **+ Add** now has **"Use your own OAuth client"**, as Claude.ai's custom connectors do.
+  - It shows the redirect URL to register.
+  - It takes the Client ID and secret of an app you registered with the service.
+  - It's for apps that only let approved apps sign in: Google, Microsoft, Slack, Zoom.
+- **The secret** is kept encrypted with the connector and never shown again. The connector's page says "your own OAuth client".
+- **With it,** Go Farther doesn't register itself. It signs in with your app.
+- **This is how the Google and Microsoft apps can come later:** you register one app in Google Cloud or Microsoft Entra, then add each one here.
+- **Tests:** MC17 is new. All 406 pass, 4 skipped as before.
+
 ## 2026-11-11: Connectors like Claude.ai's: per chat, off switches, sign in later, warnings, tool changes (your word: "Ok start", items #31 to #37)
 
 Screenshots (with sample data) are in the chat.

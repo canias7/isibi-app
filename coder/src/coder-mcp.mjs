@@ -153,7 +153,7 @@ export async function setConnectorState(bucket, uid, id, { disabled, seen }) {
 
 /** What the page is shown of a connector: never its sign-in. */
 export function connectorOut(c) {
-  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.disabled ? "disabled" : c.status || "ok", disabled: !!c.disabled, ...(c.changes && (c.changes.added.length || c.changes.removed.length || c.changes.changed.length) ? { changes: c.changes } : {}), error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
+  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.disabled ? "disabled" : c.status || "ok", disabled: !!c.disabled, ...(c.ownClient ? { ownClient: true } : {}), ...(c.changes && (c.changes.added.length || c.changes.removed.length || c.changes.changed.length) ? { changes: c.changes } : {}), error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
 }
 
 /** A connector's address: https only (http only for localhost tests), no user name or password in it. */
@@ -566,7 +566,12 @@ export async function pkce() {
 export async function startSignIn(env, bucket, { uid, connector, wwwAuth, nonce, fetchFn = fetch, now = Date.now() }) {
   const where = await discover(connector.url, wwwAuth, { fetchFn });
   const redirect = redirectUri(env);
-  const client = await register(where, redirect, { fetchFn, env });
+  // YOUR OWN OAUTH CLIENT (Claude's custom connector option "Use your own OAuth client"): for a sign-in server that doesn't
+  // let apps register themselves (Google, Microsoft, Slack, Zoom), the Client ID and secret of an app the owner registered
+  // there, kept sealed with the connector.
+  let own = null;
+  if (connector.ownClient) { try { own = await unseal(env, connector.ownClient); } catch { own = null; } }
+  const client = own && own.id ? { id: String(own.id), secret: String(own.secret || "") } : await register(where, redirect, { fetchFn, env });
   const { verifier, challenge } = await pkce();
   const state = rand(24);
   await putJson(bucket, pendingKey(state), { box: await seal(env, { uid, id: connector.id, verifier, client, where, redirect, nonce, until: now + PENDING_MS }) });
@@ -640,7 +645,7 @@ export async function tokenOf(env, bucket, uid, c, { fetchFn = fetch, now = Date
  * Adds (or re-checks) a connector: with a key, or none, its tools are read now; a server that asks to sign in gives
  * { signIn: address } for the page to open.
  */
-export async function addConnector(env, bucket, uid, { name, url, key = "", id = "", nonce = "", later = false, fetchFn = fetch, now = Date.now() }) {
+export async function addConnector(env, bucket, uid, { name, url, key = "", id = "", nonce = "", later = false, clientId = "", clientSecret = "", fetchFn = fetch, now = Date.now() }) {
   const list = await readConnectors(bucket, uid);
   let c = id ? list.find((x) => x.id === id) : null;
   if (id && !c) throw new Error("no such connector");
@@ -652,6 +657,11 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     if (list.some((x) => sameServer(x.url, clean))) throw new Error("that MCP server is already on your list");
     c = { id: "c" + rand(9).replace(/[^A-Za-z0-9]/g, "x").toLowerCase(), name: cleanName(name, clean), url: clean, auth: "none", tools: [], status: "auth", at: now };
     list.push(c);
+  }
+  const cid = String(clientId || "").trim();
+  if (cid) {
+    if (!/^[\x21-\x7e]{1,300}$/.test(cid) || String(clientSecret || "").length > 1000) throw new Error("that Client ID or secret doesn't look right");
+    c.ownClient = await seal(env, { id: cid, secret: String(clientSecret || "").trim() });
   }
   const k = String(key || "").trim();
   if (k) { c.auth = "key"; c.box = await seal(env, { key: k.slice(0, 4000) }); }

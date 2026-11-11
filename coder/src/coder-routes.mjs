@@ -608,7 +608,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const nonce = newNonce();
     // (Sign-in only, no API keys: owner, 2026-11-11, "only do the ones with mcp, tho not api key". A key sent is ignored.)
     let r;
-    try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: "", id: cid, nonce, later: body.later === true, fetchFn }); }
+    try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: "", id: cid, nonce, later: body.later === true, clientId: typeof body.clientId === "string" ? body.clientId : "", clientSecret: typeof body.clientSecret === "string" ? body.clientSecret : "", fetchFn }); }
     catch (e) { return json({ error: String((e && e.message) || e).slice(0, 300) }, 400); }
     const res = json({ ok: true, connector: connectorOut(r.connector), ...(r.signIn ? { signIn: r.signIn } : {}) });
     if (r.signIn) {
