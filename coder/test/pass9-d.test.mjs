@@ -267,11 +267,11 @@ test("CD483 auto mode's checker unreachable: Claude Code's words name why when i
   assert.match(K.checkUnavailable("grok-4.7", "this action"), /^grok-4\.7 is temporarily unavailable, so auto mode/);
 });
 
-test("CD484 a Read or Edit deny rule that stops a command says so in Claude Code's words (\"cat from '…' was blocked by a deny rule.\", \"Output redirection to '…' …\", \"Input redirection from '…' …\", \"rm to '…' …\")", () => {
+test("CD484 a Read or Edit deny rule that stops a command says so in Claude Code's words, its sentence for the whole command (\"Permission to use Bash with command cat .env has been denied.\"; its command-line version, 2026-11-11)", () => {
   const d = (c, deny) => P.bashDecision(c, { mode: "auto", rules: { allow: [], ask: [], deny }, cwd: "/w", workdirs: ["/w"], home: "/h" });
-  assert.deepEqual([d("cat .env", ["Read(.env)"]).verdict, d("cat .env", ["Read(.env)"]).why], ["deny", "cat from '/w/.env' was blocked by a deny rule."]);
-  assert.equal(d("echo x > .env", ["Edit(.env)"]).why, "Output redirection to '/w/.env' was blocked by a deny rule.");
-  assert.equal(d("wc -l < .env", ["Read(.env)"]).why, "Input redirection from '/w/.env' was blocked by a deny rule.");
-  assert.equal(d("rm -f .env", ["Edit(.env)"]).why, "rm to '/w/.env' was blocked by a deny rule.");
-  assert.equal(d("cp .env /tmp/x", ["Read(.env)"]).why, "cp from '/w/.env' was blocked by a deny rule.");
+  assert.deepEqual([d("cat .env", ["Read(.env)"]).verdict, d("cat .env", ["Read(.env)"]).why], ["deny", "Permission to use Bash with command cat .env has been denied."]);
+  assert.equal(d("echo x > .env", ["Edit(.env)"]).why, "Permission to use Bash with command echo x > .env has been denied.");
+  assert.equal(d("wc -l < .env", ["Read(.env)"]).why, "Permission to use Bash with command wc -l < .env has been denied.");
+  assert.equal(d("rm -f .env", ["Edit(.env)"]).why, "Permission to use Bash with command rm -f .env has been denied.");
+  assert.equal(d("cp .env /tmp/x", ["Read(.env)"]).why, "Permission to use Bash with command cp .env /tmp/x has been denied.");
 });

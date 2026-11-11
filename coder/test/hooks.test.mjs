@@ -58,19 +58,20 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   // Each event's decisions.
   const out = (event, runs, tool) => H.hooksOutcome(event, runs.map(([command, run]) => ({ hook: { command }, result: H.hookResult(event, run) })), { tool });
   const d1 = out("PreToolUse", [["no-rm.sh", { code: 2, stderr: "Blocked: rm commands are not allowed" }], ["ok.sh", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}' }]], "Bash");
-  assert.deepEqual([d1.decision, d1.reason], ["deny", "PreToolUse:Bash hook error: [no-rm.sh]: Blocked: rm commands are not allowed"], "Claude Code's words; deny > ask > allow");
+  assert.deepEqual([d1.decision, d1.reason], ["deny", "PreToolUse:Bash hook error: [command hook]: Blocked: rm commands are not allowed"], "Claude Code's cloud words, a hook named by its kind; deny > ask > allow");
   const d2 = out("PreToolUse", [["a", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}' }], ["b", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"check first","updatedInput":{"command":"npm test -- --ci"},"additionalContext":"CI is red"}}' }]], "Bash");
   assert.deepEqual([d2.decision, d2.reason, d2.updatedInput, d2.context], ["ask", "check first", { command: "npm test -- --ci" }, ["CI is red"]]);
   assert.equal(out("PreToolUse", [["old", { code: 0, stdout: '{"decision":"approve"}' }]], "Bash").decision, "allow", "the deprecated approve");
   const p = out("PostToolUse", [["lint.sh", { code: 0, stdout: '{"decision":"block","reason":"2 lint errors","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"fix them first"}}' }]], "Edit");
-  assert.deepEqual([p.decision, p.blocks, p.context], ["block", ["PostToolUse:Edit hook blocking error from command: [lint.sh]: 2 lint errors"], ["fix them first"]]);
+  assert.deepEqual([p.decision, p.blocks, p.context], ["block", ['PostToolUse:Edit hook blocking error from command: "command hook": 2 lint errors'], ["fix them first"]]);
   assert.equal(out("PostToolUse", [["r", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"stdout":"[redacted]","stderr":"","interrupted":false}}}' }]], "Bash").updatedOutput, "[redacted]");
   const u = out("UserPromptSubmit", [["ctx", { code: 0, stdout: "Branch: main\n" }], ["gate", { code: 0, stdout: '{"decision":"block","reason":"No secrets in prompts"}' }]]);
   assert.deepEqual([u.decision, u.reason, u.context], ["block", "No secrets in prompts", ["Branch: main"]]);
-  assert.deepEqual(out("Stop", [["t", { code: 2, stderr: "run the tests first" }]]).blocks, ["Stop hook error: [t]: run the tests first"]);
+  assert.deepEqual(out("Stop", [["t", { code: 2, stderr: "run the tests first" }]]).blocks, ["Stop hook feedback:\n[command hook]: run the tests first"]);
+  assert.deepEqual(out("Stop", [["t", { code: 0, stdout: '{"decision":"block","reason":"run the tests first"}' }]]).blocks, ['Stop hook feedback:\nrun the tests first\n\nStop hook blocking error from command: "command hook": run the tests first']);
   const st = out("PostToolUse", [["s", { code: 0, stdout: '{"continue":false,"stopReason":"Build failed","systemMessage":"heads up"}' }]], "Bash");
   assert.deepEqual([st.stop, st.messages], [{ reason: "Build failed" }, ["heads up"]]);
-  assert.deepEqual(out("PreToolUse", [["x", { code: 1, stderr: "oops" }]], "Bash").notices, ["PreToolUse:Bash hook error: [x]: Failed with non-blocking status code: oops"]);
+  assert.deepEqual(out("PreToolUse", [["x", { code: 1, stderr: "oops" }]], "Bash").notices, ["PreToolUse:Bash hook error: [command hook]: Failed with non-blocking status code: oops"]);
   assert.deepEqual(out("SessionStart", [["s", { code: 2, stderr: "nope" }]]).decision, "", "SessionStart can't block");
   const pr = out("PermissionRequest", [["p", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"not on Fridays"}}}' }]], "Bash");
   assert.deepEqual([pr.decision, pr.reason], ["deny", "not on Fridays"]);
@@ -112,7 +113,7 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // PRETOOLUSE: exit 2 blocks the command, its stderr to Coder in Claude Code's words; nothing runs.
   let t = await hooked([say("", [call("bash", { command: "rm -rf build", description: "Clean" }, "b1")]), say("ok")], { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./no-rm.sh" }] }] }, { hookRun: (i) => (/^rm /.test(i.tool_input.command) ? { code: 2, stderr: "Blocked: rm commands are not allowed" } : {}) });
   assert.deepEqual(t.ran, []);
-  assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook error: [./no-rm.sh]: Blocked: rm commands are not allowed");
+  assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook error: [command hook]: Blocked: rm commands are not allowed");
   // Its input: Claude Code's common fields and the call's.
   const inp = t.hookCalls[0].input;
   assert.deepEqual([inp.hook_event_name, inp.session_id, inp.cwd, inp.permission_mode, inp.tool_name, inp.tool_input.command, inp.tool_use_id], ["PreToolUse", "shop-h1", "/work/shop", "auto", "Bash", "rm -rf build", "b1"]);
@@ -128,7 +129,7 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // POSTTOOLUSE: its block reason and context beside the result; a PreToolUse hook's context too.
   t = await hooked([say("", [call("bash", { command: "npm run build", description: "Build" }, "b1")]), say("ok")], { PreToolUse: hk("pre.sh"), PostToolUse: hk("post.sh") }, { hookRun: (i) => (i.hook_event_name === "PreToolUse" ? { stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"Deploy target: staging"}}' } : { stdout: '{"decision":"block","reason":"bundle over 2 MB","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"see size.log"}}' }) });
   const b1 = t.r.messages.find((m) => m.tool_call_id === "b1").content;
-  assert.match(b1, /^ok\n\nPostToolUse:Bash hook blocking error from command: \[post\.sh\]: bundle over 2 MB\n\n\(Note from Coder's app, not the owner: PreToolUse hook additional context: Deploy target: staging\)\n\n\(Note from Coder's app, not the owner: PostToolUse hook additional context: see size\.log\)$/);
+  assert.match(b1, /^ok\n\nPostToolUse:Bash hook blocking error from command: "command hook": bundle over 2 MB\n\n\(Note from Coder's app, not the owner: PreToolUse:Bash hook additional context: Deploy target: staging\)\n\n\(Note from Coder's app, not the owner: PostToolUse:Bash hook additional context: see size\.log\)$/);
   const post = t.hookCalls.find((c) => c.input.hook_event_name === "PostToolUse").input;
   assert.deepEqual([post.tool_response.stdout, post.tool_response.code], ["ok", 0]);
   // USERPROMPTSUBMIT: a block keeps the message from Coder (no model call), in Claude Code's words; plain stdout is context.
@@ -148,7 +149,7 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   t = await hooked([say("All done.")], { Stop: hk("tests.sh") }, { hookRun: (i) => { stops++; assert.equal(i.stop_hook_active, stops > 1); assert.equal(i.last_assistant_message, "All done."); return { code: 2, stderr: "Run the tests first." }; } });
   assert.equal(stops, 8);
   assert.equal(t.seen.length, 9);
-  assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner: Stop hook error: [tests.sh]: Run the tests first.)");
+  assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner: Stop hook feedback:\n[command hook]: Run the tests first.)");
   t = await hooked([say("Done."), say("Ran them.")], { Stop: hk("fb.sh") }, { hookRun: (i) => (i.stop_hook_active ? {} : { stdout: '{"hookSpecificOutput":{"hookEventName":"Stop","additionalContext":"Please run the test suite before finishing"}}' }) });
   assert.equal(t.seen.length, 2);
   assert.match(t.seen[1].messages.at(-1).content, /Stop hook feedback:\nPlease run the test suite before finishing\)$/);
@@ -170,7 +171,7 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // A non-blocking error is shown to the owner, and the command runs.
   t = await hooked([say("", [call("bash", { command: "ls", description: "List" }, "b1")]), say("ok")], { PreToolUse: hk("flaky.sh") }, { hookRun: () => ({ code: 1, stderr: "something broke" }) });
   assert.equal(t.ran.length, 1);
-  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [flaky.sh]: Failed with non-blocking status code: something broke"));
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [command hook]: Failed with non-blocking status code: something broke"));
 });
 
 test("CD383c on a real machine: the owner's hooks and the repository's .claude/settings.json run as Coder's commands do, the event's JSON on stdin, exit 2 blocks with stderr, JSON on stdout decides; never the repository's in a job from GitHub, none with disableAllHooks, and never a settings file through a link", async () => {
@@ -197,8 +198,8 @@ test("CD383c on a real machine: the owner's hooks and the repository's .claude/s
     let st;
     for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=hk-test1&since=0")).json(); if (st.result) break; await new Promise((r) => setTimeout(r, 100)); }
     const last = seen.at(-1).messages;
-    assert.equal(last.find((m) => m.role === "tool" && m.tool_call_id === "b1").content, "PreToolUse:Bash hook error: [" + account.hooks.PreToolUse[0].hooks[0].command + "]: Blocked: rm commands are not allowed");
-    assert.equal(last.find((m) => m.role === "tool" && m.tool_call_id === "b2").content, "hello\n\n(Note from Coder's app, not the owner: PostToolUse hook additional context: saw Bash in auto printing \"hello\")");
+    assert.equal(last.find((m) => m.role === "tool" && m.tool_call_id === "b1").content, "PreToolUse:Bash hook error: [command hook]: Blocked: rm commands are not allowed");
+    assert.equal(last.find((m) => m.role === "tool" && m.tool_call_id === "b2").content, "hello\n\n(Note from Coder's app, not the owner: PostToolUse:Bash hook additional context: saw Bash in auto printing \"hello\")");
     assert.ok(seen[0].messages.some((m) => m.content === "(Note from Coder's app, not the owner: SessionStart hook additional context: This repo is a test shop.)"));
     const startIn = JSON.parse(readFileSync(join(dir, "start-input.json"), "utf8"));
     assert.deepEqual([startIn.hook_event_name, startIn.source, startIn.session_id], ["SessionStart", "startup", "hk-test1"]);
@@ -237,9 +238,11 @@ test("CD383d Settings has the owner's hooks: a box of Claude Code's settings JSO
   const grab = (name) => page.slice(page.indexOf("  function " + name + "("), page.indexOf("\n  }\n", page.indexOf("  function " + name + "(")) + 4);
   const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
   const { stepAutoBlock, hookBlockOf } = new Function("esc", grab("autoBlockOf") + grab("hookBlockOf") + grab("stepAutoBlock") + "return { stepAutoBlock, hookBlockOf };")(esc);
-  const r = { code: -1, hookBlocked: true, output: "PreToolUse:Bash hook error: [./no-rm.sh]: Blocked: rm commands are not allowed" };
-  assert.deepEqual(hookBlockOf(r), { event: "PreToolUse:Bash", why: "[./no-rm.sh]: Blocked: rm commands are not allowed" });
-  assert.equal(stepAutoBlock(r), '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">PreToolUse:Bash hook error: [./no-rm.sh]: Blocked: rm commands are not allowed</div></div>');
+  const r = { code: -1, hookBlocked: true, output: "PreToolUse:Bash hook error: [command hook]: Blocked: rm commands are not allowed" };
+  assert.deepEqual(hookBlockOf(r), { event: "PreToolUse:Bash", why: "[command hook]: Blocked: rm commands are not allowed" });
+  assert.equal(stepAutoBlock(r), '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">PreToolUse:Bash hook error: [command hook]: Blocked: rm commands are not allowed</div></div>');
+  // (A hook's "no" in JSON has no brackets in Claude Code's words: the box shows it too.)
+  assert.deepEqual(hookBlockOf({ code: -1, hookBlocked: true, output: "PreToolUse:Bash hook error: Blocked by hook" }), { event: "PreToolUse:Bash", why: "Blocked by hook" });
   assert.equal(hookBlockOf({ code: -1, output: r.output }), null, "only a step the loop marked as blocked by a hook");
   assert.match(page, /hookBlockOf\(r\) \? 'blocked by hook'/);
 });

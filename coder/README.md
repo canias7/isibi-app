@@ -1124,7 +1124,9 @@ Claude Code's docs and its program, 2.1.322. Tests: `test/pass9-a.test.mjs`
   Unicode blank asks ("Contains Unicode whitespace"); a lone surrogate too. A
   `&` asks in Claude Code's words whatever rule matches (`BG_OP_WHY`); in Auto
   it goes to the checker. A command that can't be parsed counts as a risky
-  removal (`RM_UNCHECKED`) (CD439).
+  removal (`RM_UNCHECKED`), unless Claude Code's checks of the whole text
+  (`textReasons`) catch it first: then, where the owner is asked, theirs is the
+  reason (round 4) (CD439).
 - *A cd in a compound command* (Claude Code's JJo, RZt, w8e and Cer):
   `CD_WRITE_WHY` and `CD_REDIRECT_WHY` for a write after a cd, unless the
   command starts `cd ./DIR &&` (or a full path) inside the project with only
@@ -1327,8 +1329,9 @@ commands, monitors and wording, from Claude Code 2.1.322's own program. Tests:
   (status: …)", "No task found with ID: …"); KillShell and KillBash are its
   names in rules; the checker's reason when it can't be reached
   (`unavailableWhy`: rate-limited, overloaded, server error, timed out,
-  connection failed); "cat from '…' was blocked by a deny rule."
-  (`fileBlockedWhy`).
+  connection failed). (A Read or Edit deny rule's refusal of a command was
+  "cat from '…' was blocked by a deny rule." here; round 4 found Claude Code
+  gives its sentence for the whole command, see below.)
 - *Two bugs fixed on the way*: output was decoded piece by piece, so a letter
   split between two pieces showed as "��" (`utf8Partial`: each stream's letters
   decoded whole); and a stopped command's own processes got SIGTERM twice (the
@@ -1435,6 +1438,65 @@ everything in Bash not tried live before. Tests: `test/round3.test.mjs`.
     GitHub proxy's sentence (`REPO_NOT_ENABLED`, `API_PATH_NOT_AVAILABLE` in
     `coder-secrets.mjs`; Coder's AI has no add_repo, so the owner's
     "+ Repository" is named), test CD512.
+
+**Round 4: Claude Code's command-line version next to round 3** (owner,
+2026-11-11: "yes Haiku", then "yes copy all of them"). Claude Code 2.1.322, in
+its cloud setting, ran round 3's rule and hook cases with Haiku, and then the
+cases each difference raised (24 runs, 17 cents in all). Tests:
+`test/round4.test.mjs`, where every expected answer is Claude Code's own.
+- *A file rule's refusal* (`bashDecision`): "Permission to use Bash with
+  command <command> has been denied.", as Claude Code gave it for every way of
+  naming the file (CD513).
+- *A hook's block* (`hooksOutcome`'s `blockBy`): PreToolUse "PreToolUse:Bash
+  hook error: <reason>" ("Blocked by hook" with none); exit 2 "[command hook]:
+  <stderr>" ("No stderr output"), stdout's JSON not read; another event's
+  "PostToolUse:Bash hook blocking error from command: "command hook": …"; a
+  Stop hook's "Stop hook feedback:" and a new line, and for a JSON block that
+  other line too. A hook is named by its kind (`hookKind`: "command hook",
+  "http hook", "prompt hook", "agent hook"), never by its command or address,
+  as in Claude Code's cloud (CD514). The page's "Blocked by your hook" box
+  reads both shapes (`hookBlockOf`).
+- *A hook answer with no event name* (`wrongEvent`): Claude Code's note word
+  for word, "Hook JSON output validation failed — hookSpecificOutput is missing
+  required field "hookEventName"", the hook's output and `HOOK_SHAPE` (CD515).
+- *A hook's note* names the hook as Claude Code does: "PreToolUse:Bash hook
+  additional context: …" for a tool's events (`hookNote`), "SessionStart …"
+  and "UserPromptSubmit …" for the others (CD519).
+- *$"…" and $'…'* (`parseShell`'s `ansiC`, `locale`, `quotedHead`): they ask,
+  "This command can't be checked before it runs", "Text with escape codes in
+  this command can't be checked before it runs", or for a command name written
+  $'…' with an operand after it, "command head $'rm' — a $'…' word the shell
+  decodes before looking the command up" (after `command`, `exec`, `builtin`
+  and the like: "… after command …", `quotedHeadWhy`). No rule can name such a
+  command, so a deny rule on rm no longer refuses `$"rm" -f x` there: it asks;
+  a rule on another part still refuses; in Auto Coder still holds such a name
+  to the rules. The rm check still sees through both (CD516).
+- *Brackets and braces* ask, even for a command that only reads, and no allow
+  rule passes them; a deny rule inside still refuses first; Auto leaves them to
+  its checker (CD517): `( … )` "This command uses shell operators that require
+  approval for safety" (`SHELL_OPERATORS`), with a `;` of its own inside "This
+  command can't be checked before it runs", with a redirection or after `time`
+  "A group in parentheses …" (`GROUP_PARENS`); `{ …; }` and `(( … ))` "A group
+  in braces or double parentheses …" (`GROUP_BRACES`); a function "A function
+  definition …"; `for (( … ))` "A counting for loop …"; `{a,b}` "Brace
+  expansion"; `{1..3}` "A brace pattern …". `if`, `while` and plain `;` lists
+  are unchanged.
+- *A command Claude Code's checks of the whole text catch* (`echo <1-3>`): the
+  card names their reason, not the rm check's; in Auto it is still refused as
+  one that can't be checked (CD518).
+- *69 of Claude Code's answers*, verdict and words, are checked together
+  (CD520).
+- *The last three* (the owner: "copy those too"): arithmetic of numbers only,
+  `echo $((1+1))`, and a `$` that starts nothing, `echo "$'x'"`, only read and
+  run (`readDollar`'s `literal`) (CD521); a prompt hook's "no" is
+  "PreToolUse:Bash hook error: [<its prompt as written>]: <reason>" and an agent
+  hook's "… Agent hook condition was not met: <reason>"; after a call "…
+  hook blocking error from command: "<its prompt>": …"; a Stop hook's "Stop hook
+  feedback:" and a new line (CD522). With these, all 71 of Claude Code's answers
+  match (CD520).
+- *Not copied, left as it is:* a hook's "defer" (Claude Code's command-line
+  version stops the run for an app that resumes it; Coder ignores it, as
+  Claude Code's docs say a normal session does).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

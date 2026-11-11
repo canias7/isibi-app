@@ -248,7 +248,11 @@ test("CD348 six cases that ask in Accept edits and Plan, as in Claude Code, and 
   // 2. An operator with nothing after it: no allow rule approves it ("treats the command as unparseable").
   for (const c of ["npm test &&", "npm test ||", "npm test | ", "npm test && # then lint"]) asks(c, { allow: ["Bash(npm *)"] });
   assert.equal(d("npm test &&", "acceptEdits", { allow: ["Bash(npm *)"] }).why, "Parse error");
-  for (const c of ["npm test && npm run lint", "npm test &&\nnpm run lint", "npm test && (npm run lint)", "npm test && [[ -f x ]]"]) assert.equal(d(c, "acceptEdits", { allow: ["Bash(npm *)"] }).verdict, "allow", c);
+  for (const c of ["npm test && npm run lint", "npm test &&\nnpm run lint", "npm test && [[ -f x ]]"]) assert.equal(d(c, "acceptEdits", { allow: ["Bash(npm *)"] }).verdict, "allow", c);
+  // (A part in brackets: Claude Code asks whatever allow rule there is, "This command uses shell operators that require
+  // approval for safety"; its command-line version, 2026-11-11.)
+  assert.deepEqual([d("npm test && (npm run lint)", "acceptEdits", { allow: ["Bash(npm *)"] }).verdict, d("npm test && (npm run lint)", "acceptEdits", { allow: ["Bash(npm *)"] }).why], ["ask", "This command uses shell operators that require approval for safety"]);
+  assert.equal(d("npm test && (npm run lint)", "auto", { allow: ["Bash(npm *)"] }).verdict, "allow", "Auto: the checker's");
   // 3. Exec wrappers: a prefix rule doesn't approve them, an exact rule does.
   for (const [c, r] of [["watch -n1 ls", "Bash(watch *)"], ["setsid npm start", "Bash(setsid *)"], ["flock /tmp/l make", "Bash(flock *)"], ["ionice -c3 make", "Bash(ionice:*)"], ["nsenter -t 1 ls", "Bash(nsenter *)"]]) asks(c, { allow: [r] });
   assert.equal(d("watch -n1 ls", "acceptEdits", { allow: ["Bash(watch -n1 ls)"] }).verdict, "allow");

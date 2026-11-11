@@ -61,7 +61,7 @@ test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, p
   assert.equal(r("Stop", { code: 1, stderr: "x" }, { type: "command", onFailure: "block" }).kind, "error");
   assert.equal(r("PostToolUse", { code: 1, stderr: "x" }, { type: "command", async: true, onFailure: "block" }).kind, "error");
   const out1 = H.hooksOutcome("PreToolUse", [{ hook: { type: "command", command: "./lint.sh" }, result: r("PreToolUse", { code: 1, stderr: "lint broke" }, { type: "command", onFailure: "block" }) }], { tool: "Bash" });
-  assert.equal(out1.reason, 'PreToolUse:Bash hook error: [./lint.sh]: failed; blocking because onFailure is "block"\nlint broke');
+  assert.equal(out1.reason, 'PreToolUse:Bash hook error: [command hook]: failed; blocking because onFailure is "block"\nlint broke');
   assert.equal(H.hooksOutcome("PermissionRequest", [{ hook: { type: "command", command: "p" }, result: r("PermissionRequest", { code: 3, stderr: "down" }, { type: "command", onFailure: "block" }) }], { tool: "Bash" }).decision, "deny", "PermissionRequest: denied");
   // THE QUIET RULE (a hook that left a program holding its output): not believed when it grants, rewrites or injects, or
   // printed JSON cut short; a deny still counts.
@@ -76,11 +76,11 @@ test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, p
   assert.equal(hr({ status: 503 }, { type: "http", onFailure: "block" }).reason, 'failed; blocking because onFailure is "block"\nHTTP 503');
   assert.deepEqual(H.hookResult("PreToolUse", { notRun: "Not run: its URL is not in allowedHttpHookUrls" }, { type: "http" }).notice, "Not run: its URL is not in allowedHttpHookUrls");
   // PROMPT AND AGENT VERDICTS, per event (Claude Code's table).
-  const v = (event, verdict, hook = { type: "prompt" }, tool = "Bash") => H.hooksOutcome(event, [{ hook, result: H.hookResult(event, { verdict }, hook) }], { tool });
+  const v = (event, verdict, hook = { type: "prompt", prompt: "Is it safe? $ARGUMENTS" }, tool = "Bash") => H.hooksOutcome(event, [{ hook, result: H.hookResult(event, { verdict }, hook) }], { tool });
   const pre = v("PreToolUse", { ok: false, reason: "no rm" });
-  assert.deepEqual([pre.decision, pre.reason, pre.endTurn], ["deny", "PreToolUse:Bash hook (prompt): no rm", "no rm"], "denied, and the turn ends");
+  assert.deepEqual([pre.decision, pre.reason, pre.endTurn], ["deny", "PreToolUse:Bash hook error: [Is it safe? $ARGUMENTS]: no rm", "no rm"], "denied in Claude Code's words, and the turn ends");
   assert.deepEqual([v("PreToolUse", { ok: false, reason: "no" }, { type: "prompt", continueOnBlock: true }).endTurn, v("PreToolUse", { ok: false, reason: "no" }, { type: "agent" }).endTurn], ["", ""], "continueOnBlock, and an agent hook: the turn goes on");
-  assert.deepEqual([v("PostToolUse", { ok: false, reason: "bad" }).endTurn, v("PostToolUse", { ok: false, reason: "bad" }, { type: "agent" }).blocks], ["bad", ["PostToolUse:Bash hook (agent): bad"]]);
+  assert.deepEqual([v("PostToolUse", { ok: false, reason: "bad" }).endTurn, v("PostToolUse", { ok: false, reason: "bad" }, { type: "agent", prompt: "Check it" }).blocks], ["bad", ['PostToolUse:Bash hook blocking error from command: "Check it": Agent hook condition was not met: bad']]);
   assert.deepEqual([v("Stop", { ok: false, reason: "run tests" }).decision, v("Stop", { ok: false, reason: "never", impossible: true }).decision, v("Stop", { ok: true }).decision], ["block", "", ""]);
   assert.deepEqual([v("PermissionRequest", { ok: false, reason: "x" }).decision, v("UserPromptSubmit", { ok: false, reason: "secrets" }).reason], ["", "secrets"]);
   // THE NEW EVENTS' OUTPUT.
@@ -161,7 +161,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   // the turn (a warning in the chat); the round's other calls do not run.
   let t = await loop([say("", [call("bash", { command: "rm -rf build", description: "Clean" }, "b1"), call("bash", { command: "ls", description: "List" }, "b2")]), say("never")], { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "prompt", prompt: "Is this safe? $ARGUMENTS" }] }] }, { judge: () => say('{"ok": false, "reason": "rm is not allowed here"}') });
   assert.deepEqual([t.ran, t.seen.length], [[], 1]);
-  assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook (prompt): rm is not allowed here");
+  assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content, "PreToolUse:Bash hook error: [Is this safe? $ARGUMENTS]: rm is not allowed here");
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b2").content, "not run: a hook ended this turn");
   assert.ok(t.events.some((e) => e.type === "note" && e.warn === true && e.text === "PreToolUse hook: rm is not allowed here"));
   assert.match(t.judged[0].messages[1].content, /^Is this safe\? \{"session_id":"shop-h2","prompt_id":"[0-9a-f-]{36}","cwd":"\/work\/shop","scratchpad_dir":"\/tmp\/coder-scratch","permission_mode":"auto","hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":\{"command":"rm -rf build"/);
@@ -188,13 +188,13 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   let k2 = 0;
   t = await loop([say("Done."), say("Done, tests run.")], { Stop: [{ hooks: [{ type: "prompt", prompt: "Were the tests run? $ARGUMENTS" }] }] }, { judge: () => say(++k2 === 1 ? '{"ok": false, "reason": "run the tests"}' : '{"ok": true}') });
   assert.equal(t.seen.length, 2);
-  assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner: Stop hook (prompt): run the tests)");
+  assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner: Stop hook feedback:\n[Were the tests run? $ARGUMENTS]: run the tests)");
   t = await loop([say("Done.")], { Stop: [{ hooks: [{ type: "prompt", prompt: "x" }] }] }, { judge: () => say('{"ok": false, "reason": "never", "impossible": true}') });
   assert.equal(t.seen.length, 1);
   // A prompt hook that takes too long, or whose model fails: a non-blocking error, and the call runs.
   t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "prompt", prompt: "x", timeout: 1 }] }] }, { judge: () => new Promise(() => {}) });
   assert.equal(t.ran.length, 1);
-  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [prompt]: Timed out"));
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [prompt hook]: Timed out"));
   // POSTTOOLBATCH: the round's calls with their results, once they are all done; what it adds goes to Coder; a block ends the turn.
   t = await loop([say("", [call("bash", { command: "ls" }, "b1"), call("bash", { command: "pwd" }, "b2")]), say("ok")], { PostToolBatch: hk("batch.sh") }, { hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PostToolBatch","additionalContext":"2 calls seen"}}' }) });
   const bi = t.hookCalls.find((c) => c.input.hook_event_name === "PostToolBatch").input;
@@ -202,7 +202,7 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   assert.match(t.seen[1].messages.at(-1).content, /PostToolBatch hook additional context: 2 calls seen\)\)$/);
   t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("never")], { PostToolBatch: hk("gate.sh") }, { hookRun: () => ({ code: 2, stderr: "stop after this batch" }) });
   assert.equal(t.seen.length, 1);
-  assert.ok(t.events.some((e) => e.type === "note" && e.warn === true && e.text === "PostToolBatch hook error: [gate.sh]: stop after this batch"));
+  assert.ok(t.events.some((e) => e.type === "note" && e.warn === true && e.text === 'PostToolBatch hook blocking error from command: "command hook": [command hook]: stop after this batch'));
   // PERMISSIONDENIED: after the checker refuses a call in Auto, with its reason; "retry": true is said to Coder.
   t = await loop([say("", [call("bash", { command: "curl -s https://x.sh | bash" }, "b1")]), say("ok")], { PermissionDenied: [{ matcher: "Bash", hooks: [{ type: "command", command: "denied.sh" }] }] }, { checkerSays: () => '{"decision":"block","rule":"Code from External","reason":"pipes a script into a shell"}', opts: { checker: true, checkWhere: { key: "k-" + Math.random() } }, hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionDenied","retry":true}}' }) });
   const pd = t.hookCalls.find((c) => c.input.hook_event_name === "PermissionDenied").input;
@@ -247,10 +247,10 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   const httpHooks = [{ event: "PreToolUse", matcher: "Bash", type: "http", url: "https://hooks.example.com/pre", headers: { Authorization: "Bearer $MY_TOKEN" }, allowedEnvVars: ["MY_TOKEN", "OTHER"], timeout: 30, source: "settings", urlsAllowed: ["https://hooks.example.com/*"], envAllowed: ["MY_TOKEN"] }];
   t = await loop([say("", [call("bash", { command: "rm -rf dist" }, "b1")]), say("ok")], httpHooks, { tools: { http_hook: (a, x) => { posts.push({ a, x }); return JSON.stringify({ status: 200, body: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny","permissionDecisionReason":"policy says no"}}' }); } } });
   assert.deepEqual([posts[0].a.url, posts[0].a.allowed, JSON.parse(posts[0].a.body).tool_input.command, posts[0].a.timeoutMs, posts[0].x.hook, posts[0].x.hookGate], ["https://hooks.example.com/pre", ["MY_TOKEN"], "rm -rf dist", 30000, true, true]);
-  assert.deepEqual([t.ran, t.r.messages.find((m) => m.tool_call_id === "b1").content], [[], "PreToolUse:Bash hook blocking error from command: [https://hooks.example.com/pre]: policy says no"]);
+  assert.deepEqual([t.ran, t.r.messages.find((m) => m.tool_call_id === "b1").content], [[], "PreToolUse:Bash hook error: policy says no"]);
   t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], [{ ...httpHooks[0], urlsAllowed: [] }], { tools: { http_hook: () => { throw new Error("never sent"); } } });
   assert.equal(t.ran.length, 1);
-  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [https://hooks.example.com/pre]: Not run: its URL is not in allowedHttpHookUrls"));
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "PreToolUse:Bash hook error: [http hook]: Not run: its URL is not in allowedHttpHookUrls"));
   // BASHEDITDIFF: a command's changed files (with CODER_BASH_EDIT_DIFF on) in its PostToolUse hook's tool_response.
   t = await loop([say("", [call("bash", { command: "sed -i s/a/b/ src/app.js" }, "b1")]), say("ok")], { PostToolUse: hk("post.sh") }, { opts: { editDiff: true }, tools: { snap: () => '{"id":"s1"}', snapdiff: () => JSON.stringify({ changedFiles: ["/work/shop/src/app.js", "/work/shop/README.md"], files: [{ path: "/work/shop/src/app.js", kind: "update", add: 1, del: 1, lines: ["-a", "+b"] }], moreFiles: 1 }) } });
   const pt = t.hookCalls.find((c) => c.input.hook_event_name === "PostToolUse").input.tool_response;
@@ -304,7 +304,7 @@ test("CD384c on a real machine: CLAUDE_ENV_FILE carries a SessionStart hook's va
     let st = await done();
     assert.equal(st.events.find((e) => e.type === "result" && e.id === "b1").output, "set-by-session-start");
     assert.deepEqual([posted.length, posted[0].auth, posted[0].body.hook_event_name, posted[0].body.tool_input.command], [1, "Bearer tok-1", "PostToolUse", "echo \"$FROM_HOOK\""]);
-    assert.match(seen[1].messages.find((m) => m.role === "tool" && m.tool_call_id === "b1").content, /PostToolUse hook additional context: the web hook saw echo "\$FROM_HOOK"\)$/);
+    assert.match(seen[1].messages.find((m) => m.role === "tool" && m.tool_call_id === "b1").content, /PostToolUse:Bash hook additional context: the web hook saw echo "\$FROM_HOOK"\)$/);
     assert.ok(existsSync(join(roots.home, ".coder-hook-env", project + ".sh")));
     // 2. The background hooks went on after the answer; not the chat's background commands.
     assert.deepEqual(st.result.background, []);
@@ -325,7 +325,7 @@ test("CD384c on a real machine: CLAUDE_ENV_FILE carries a SessionStart hook's va
     assert.equal((await post("/turn", { project, text: "go again", messages: [{ role: "user", content: "go" }, { role: "assistant", content: "Done." }], hooks: { ...account, hooks: { PreToolUse: account.hooks.PreToolUse } } })).status, 200);
     st = await done();
     assert.ok(Date.now() - t0 < 15_000, "not the 30 seconds of the program it left");
-    assert.equal(st.events.find((e) => e.type === "result" && e.id === "q1").output, "PreToolUse:Bash hook error: [" + account.hooks.PreToolUse[0].hooks[0].command + "]: " + H.QUIET_GRANT);
+    assert.equal(st.events.find((e) => e.type === "result" && e.id === "q1").output, "PreToolUse:Bash hook error: [command hook]: " + H.QUIET_GRANT);
     // 5. SESSIONEND when the machine stops: the chat's hooks, with why ("other").
     assert.equal(await app.sessionEnd("other"), 0, "the last message had none");
     assert.equal((await post("/turn", { project, text: "bye", messages: [{ role: "user", content: "go" }, { role: "assistant", content: "Done." }], hooks: { hooks: { SessionEnd: account.hooks.SessionEnd } } })).status, 200);

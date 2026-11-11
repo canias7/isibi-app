@@ -23,7 +23,8 @@ import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from 
 export { viewedFile };
 import { retryLine } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
-import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists } from "./coder-bashcheck.mjs";
+import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
+import { textReasons } from "./coder-shell.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
@@ -1642,8 +1643,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (ev) await runHooks("FileChanged", p.split("/").pop(), { file_path: p, event: ev });
     }
   };
-  /** What hooks add for Coder, as a note from Coder's app (Claude Code: "wrapped in a system reminder … starts with the hook's name"). */
-  const hookNote = (event, texts) => "(Note from Coder's app, not the owner: " + texts.map((t) => event + " hook additional context: " + scrub(String(t))).join("\n\n") + ")";
+  /**
+   * What hooks add for Coder, as a note from Coder's app (Claude Code: "wrapped in a system reminder … starts with the hook's
+   * name"): the hook's name as Claude Code writes it, its event and, for a tool's, the tool ("PreToolUse:Bash hook additional
+   * context: …", "SessionStart hook additional context: …"; its command-line version, 2026-11-11).
+   */
+  const hookNote = (name, texts) => "(Note from Coder's app, not the owner: " + texts.map((t) => name + " hook additional context: " + scrub(String(t))).join("\n\n") + ")";
   /**
    * POSTTOOLUSE AND POSTTOOLUSEFAILURE HOOKS for one step that ran (Claude Code: "Runs immediately after a tool completes
    * successfully"; "after a tool call fails"): its result as Coder will read it; what they say is put beside the result ("decision
@@ -1664,7 +1669,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (One that passed its checks and could not start, its disk full, failed as it ran: PostToolUseFailure, as in Claude Code.
     // One in the background ran: PostToolUse, with its backgroundTaskId, as Claude Code's. Bash docs pass 9.)
     if (res.code === -1 && !res.notStarted && !res.background) {
-      if (c.hook && Array.isArray(c.hook.context) && c.hook.context.length) convo[at] = { ...convo[at], content: String(convo[at].content || "") + "\n\n" + scrub(hookNote("PreToolUse", c.hook.context)) };
+      if (c.hook && Array.isArray(c.hook.context) && c.hook.context.length) convo[at] = { ...convo[at], content: String(convo[at].content || "") + "\n\n" + scrub(hookNote("PreToolUse:" + callTool(c), c.hook.context)) };
       return;
     }
     const content = String(convo[at].content || "");
@@ -1679,7 +1684,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
     let text = content;
     if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
-    const more = [...(o ? o.blocks : []), ...(c.hook && c.hook.context && c.hook.context.length ? [hookNote("PreToolUse", c.hook.context)] : []), ...(o && o.context.length ? [hookNote(ev, o.context)] : [])];
+    const more = [...(o ? o.blocks : []), ...(c.hook && c.hook.context && c.hook.context.length ? [hookNote("PreToolUse:" + tool, c.hook.context)] : []), ...(o && o.context.length ? [hookNote(ev + ":" + tool, o.context)] : [])];
     if (more.length) text += "\n\n" + more.map((x) => scrub(String(x))).join("\n\n");
     if (text !== content) convo[at] = { ...convo[at], content: text };
     if (o && o.stop) hookStop = o;
@@ -2321,7 +2326,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
           emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(pre.reason).slice(0, 2000), hookBlocked: true });
           // (Its additionalContext too, as Claude Code gives it with a hook's deny: Bash docs pass 9.)
-          reply(scrub(pre.reason) + (Array.isArray(pre.context) && pre.context.length ? "\n\n" + scrub(hookNote("PreToolUse", pre.context)) : ""));
+          reply(scrub(pre.reason) + (Array.isArray(pre.context) && pre.context.length ? "\n\n" + scrub(hookNote("PreToolUse:" + tool, pre.context)) : ""));
           if (pre.endTurn) { for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(pre.endTurn); }
           continue;
         }
@@ -2407,7 +2412,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Plan, where the checker reviews commands, handles one as Auto does: Claude Code, "When the classifier reviews commands
         // during planning and no bypass permissions are available, handles it as in auto mode", Bash docs pass 8.)
         const rmAuto = modeB === "auto" || (modeB === "plan" && planChecks);
-        const rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} });
+        let rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} });
+        // (One that Claude Code's checks of the whole text catch, `echo <1-3>`: the owner is asked with their reason, as those
+        // run before Claude Code reads the command; tried in its command-line version, 2026-11-11, the owner: "yes copy all of
+        // them". Where no one is asked, Auto, it is still refused as one that can't be checked.)
+        if (rmWhy === RM_UNCHECKED && !rmAuto && canAsk() && textReasons(command).length) rmWhy = "";
         // (In Auto: the owner's own Ask rule on the command asks them instead, with no time limit (Claude Code: "If an
         // explicit ask rule matches the command, Claude Code asks you instead, even in auto mode"); with the environment's
         // CODER_DISABLE_DANGEROUS_RM_TIMEOUT the checker decides (Claude Code: "auto: the classifier decides").)
