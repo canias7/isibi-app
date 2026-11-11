@@ -30,10 +30,15 @@ test("CD437 pass 8's first bug: in Coder's cloud Accept edits (Claude Code's \"d
 });
 
 test("CD438 pass 8's second bug and the ways past a rule: bare nice, nice --, stdbuf -o L (spaced) are looked past again; A[0]=1, $\"rm\" and X=rm export X; git diff's file operands against a Read deny rule", () => {
-  for (const c of ["nice rm x", "nice -- rm x", "nice -n 5 rm x", "nice -5 rm x", "stdbuf -o L rm x", "stdbuf -oL rm x", "A[0]=1 rm -rf /", '$"rm" -rf /', "X=rm export X; $X -rf build"]) assert.equal(v(c, { rules: R("deny", ["Bash(rm *)"]) }), "deny", c);
+  for (const c of ["nice rm x", "nice -- rm x", "nice -n 5 rm x", "nice -5 rm x", "stdbuf -o L rm x", "stdbuf -oL rm x", "A[0]=1 rm -rf /", "X=rm export X; $X -rf build"]) assert.equal(v(c, { rules: R("deny", ["Bash(rm *)"]) }), "deny", c);
+  // ($"rm": Claude Code asks, "This command can't be checked before it runs", whatever rule there is (its command-line
+  // version, 2026-11-11); in Auto Coder still refuses it by the rule; the rm check still sees it.)
+  assert.deepEqual([v('$"rm" -rf /', { rules: R("deny", ["Bash(rm *)"]) }), why('$"rm" -rf /', { rules: R("deny", ["Bash(rm *)"]) })], ["ask", "This command can't be checked before it runs"]);
+  assert.equal(v('$"rm" -rf /', { rules: R("deny", ["Bash(rm *)"]), mode: "auto" }), "deny");
+  assert.ok(B.dangerousRm('$"rm" -rf /', { cwd: ROOT, home: "/home/dev" }));
   assert.equal(v("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), "deny");
   // (Claude Code names the program past its wrappers.)
-  assert.equal(why("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), "cat from '/work/shop/secret.env' was blocked by a deny rule.");
+  assert.equal(why("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), "Permission to use Bash with command stdbuf -o L cat secret.env has been denied.");
   assert.equal(v("git diff --no-index /dev/null .env", { rules: R("deny", ["Read(./.env)"]) }), "deny");
   assert.equal(v('F=.env readonly F; cat "$F"', { rules: R("deny", ["Read(.env)"]) }), "deny");
   // The rm check sees past them too.
@@ -43,7 +48,8 @@ test("CD438 pass 8's second bug and the ways past a rule: bare nice, nice --, st
 test("CD439 commands Claude Code finds too complex to check: one hidden in (( )), $(( )) or a [[ ]] test is read and asked about (and a deny rule still refuses it); a no-break space or other Unicode blank asks; a `&` asks in Claude Code's words, whatever rule matches", () => {
   assert.equal(v("(( $(rm -rf ~) )) && ls", { rules: R("deny", ["Bash(rm *)"]) }), "deny");
   assert.equal(v("[[ -n <(rm -rf ~) ]] && ls", { rules: R("deny", ["Bash(rm *)"]) }), "deny");
-  assert.deepEqual([v("(( $(id) )) && ls"), why("(( $(id) )) && ls")], ["ask", "Arithmetic expansion references variable or non-literal: $("]);
+  assert.deepEqual([v("(( $(id) )) && ls"), why("(( $(id) )) && ls")], ["ask", "A group in braces or double parentheses in this command can't be checked before it runs"]);
+  assert.deepEqual([v("echo $(( $(id) ))"), why("echo $(( $(id) ))")], ["ask", "Arithmetic expansion references variable or non-literal: $("]);
   assert.equal(why("[[ -n $(id) ]] && ls"), "[[ ]] test contains expansion / command / process substitution");
   assert.equal(P.wholeReadOnly("(( $(id) )) && ls"), false);
   assert.deepEqual([v("cat ./evil"), why("cat ./evil")], ["ask", "Contains Unicode whitespace"]);

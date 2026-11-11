@@ -59,10 +59,10 @@ test("CD487 a PreToolUse hook's additionalContext reaches Coder whatever the cal
   const ctx = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", ...(decision ? { permissionDecision: decision, permissionDecisionReason: "not now" } : {}), additionalContext: "the deploy window is closed" } }) });
   let t = await loop([say("", [call("bash", { command: "npm publish" }, "b1")]), say("ok")], { PreToolUse: cmd("p.sh") }, { hookRun: () => ctx("deny") });
   assert.match(t.told("b1"), /not now/);
-  assert.match(t.told("b1"), /PreToolUse hook additional context: the deploy window is closed/);
+  assert.match(t.told("b1"), /PreToolUse:Bash hook additional context: the deploy window is closed/);
   t = await loop([say("", [call("bash", { command: "npm publish" }, "b1")]), say("ok")], { PreToolUse: cmd("p.sh") }, { hookRun: () => ctx(""), opts: { rules: { allow: [], ask: [], deny: ["Bash(npm publish)"] } } });
   assert.match(t.told("b1"), /has been denied/);
-  assert.match(t.told("b1"), /PreToolUse hook additional context: the deploy window is closed/);
+  assert.match(t.told("b1"), /PreToolUse:Bash hook additional context: the deploy window is closed/);
   assert.deepEqual(t.ran, []);
 });
 
@@ -82,7 +82,7 @@ test("CD488 a hook's text past 10,000 characters is saved to a file in the chat'
   assert.equal(H.persistHookText("PostToolUse", { code: 0, stdout: "small" }, save).stdout, "small");
   // In Coder's loop, with the machine's save.
   const t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], { PostToolUse: cmd("p.sh") }, { hookRun: () => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: big } }) }), deps: { saveText: save } });
-  assert.match(t.told("b1"), /PostToolUse hook additional context: <persisted-output>\nOutput too large \(13\.7KB\)\. Full output saved to: \/data\/memory\/shop\.out\/k3x9q1a2b\.txt/);
+  assert.match(t.told("b1"), /PostToolUse:Bash hook additional context: <persisted-output>\nOutput too large \(13\.7KB\)\. Full output saved to: \/data\/memory\/shop\.out\/k3x9q1a2b\.txt/);
 });
 
 test("CD489 a hook's own timeout is kept as given (Claude Code's 600 is a default, not a cap); at most 12 prompt or agent hooks run at once, the rest as those finish", async () => {

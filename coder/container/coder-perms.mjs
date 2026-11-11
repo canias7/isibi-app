@@ -1312,7 +1312,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const onSetting = (x) => { const sp = settingSpec(x.spec, settings); return sp && sp.name !== "command" ? sp : null; };
   const settingHit = (list) => (input && typeof input === "object" ? list.find((x) => { const sp = onSetting(x); return !!sp && settingMatches(sp.value, input[sp.name]); }) || null : null);
   // (Each part also with its redirections, as Claude Code splits a command: `Bash(echo hi > out.txt)` denies that part.)
-  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec, settings)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of [...denyTexts(c), partText(c)]) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
+  // (A part whose command name is written $'…' or $"…" is one no rule can name: Claude Code asks instead, "This command can't
+  // be checked before it runs"; tried in its command-line version, 2026-11-11. In Auto, where that would go to the checker,
+  // Coder still holds such a name to the owner's rules.)
+  const ruleCmds = (cmds) => (normMode(mode) === "auto" ? cmds : cmds.filter((c) => !c.quotedHead));
+  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec, settings)); for (const c of ruleCmds([...read.cmds, ...shadow.cmds])) for (const t of [...denyTexts(c), partText(c)]) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
   // THE WHOLE COMMAND AS ONE TEXT, for a rule with no wildcard (Claude Code's exact candidates, its `pXt`; Bash docs pass 9:
   // `Bash(git status && npm test)` as a deny rule never refused its own text, nor approved it as an allow rule).
   const whole = String(command ?? "").trim().replace(/[ \t]+/g, " ");
@@ -1323,12 +1327,16 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // Code: "Read and Edit deny rules apply … to file commands Claude Code recognizes in Bash, such as cat, head, tail, sed, and
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
-  const files = commandFiles(read, { cwd, home });
+  const files = commandFiles({ ...read, cmds: ruleCmds(read.cmds) }, { cwd, home });
   const fctx = { root: workdirs[0] || cwd, home, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
-  const ruleFiles = [...files, ...commandFiles(shadow, { cwd, home })];
+  const ruleFiles = [...files, ...commandFiles({ ...shadow, cmds: ruleCmds(shadow.cmds) }, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
-  if (fd) return { verdict: "deny", rule: fd.rule, why: fileBlockedWhy(fd.f), suggest: null };
+  // (In Claude Code's own sentence for a whole command: it gave "Permission to use Bash with command cat prod.env has been
+  // denied." for every way of naming the file tried, a variable, ./, a full path, < and >, head, cp, git diff and grep with
+  // a wildcard; its "cat from '…' was blocked by a deny rule" is never reached. Tried in its command-line version,
+  // 2026-11-11; the owner: "yes copy all of them".)
+  if (fd) return { verdict: "deny", rule: fd.rule, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   const a = settingHit(ask) || exactHit(ask) || commandHit(ask);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
   const fa = fileHit("ask");

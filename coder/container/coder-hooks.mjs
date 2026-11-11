@@ -400,7 +400,13 @@ export function answeredText(questions, answers, annotations) {
  * A hook's name in a message: `[<command>]`, as Claude Code names a command hook ("PreToolUse:Bash hook error:
  * [${CLAUDE_PROJECT_DIR}/.claude/hooks/no-rm.sh]: …"); its address for an HTTP hook, "prompt" or "agent" for the others.
  */
-export const hookName = (h) => "[" + (h.type === "http" ? String(h.url) : h.type === "prompt" || h.type === "agent" ? h.type : String(h.command) + (h.args && h.args.length ? " " + h.args.join(" ") : "")) + "]";
+export const hookName = (h) => "[" + hookKind(h) + "]";
+/**
+ * (Claude Code's cloud names a hook by its kind, "command hook", "http hook", …, never by its command or address: a hook
+ * that exited 2 gave "PreToolUse:Bash hook error: [command hook]: …" in its command-line version, 2026-11-11, with the
+ * cloud's settings; the owner: "yes copy all of them".)
+ */
+export const hookKind = (h) => (h && typeof h.type === "string" && h.type !== "command" ? h.type : "command") + " hook";
 /**
  * A HOOK'S NOTICE AS THE CHAT SHOWS IT ("<Event>:<Tool> hook error: [<command>]: <why>"): whole up to `max` characters; past
  * that its command is cut short ("…"), never the reason after it (live test round 3: a 1,000-character hook command filled
@@ -439,12 +445,19 @@ function readStdout(stdout) {
     return { json: null, bad: String((e && e.message) || e).slice(0, 200) };
   }
 }
-/** A hook's answer for another event (Claude Code: "Hook returned incorrect event name: expected '…' but got '…'"), or "". */
+/**
+ * A hook's answer for another event (Claude Code: "Hook returned incorrect event name: expected '…' but got '…'"), or one
+ * with no event name at all, in Claude Code's words for that (2.1.322: "Hook JSON output validation failed — …", the
+ * hook's output, then the shape it expects, HOOK_SHAPE; tried in its command-line version, 2026-11-11), or "".
+ */
 export function wrongEvent(event, json) {
   const sp = json && json.hookSpecificOutput;
   if (!sp || typeof sp !== "object" || sp.hookEventName === event) return "";
+  if (sp.hookEventName === undefined) return "Hook JSON output validation failed \u2014 hookSpecificOutput is missing required field \"hookEventName\"\n\nThe hook's output was: " + JSON.stringify(json, null, 2).slice(0, 4000) + "\n\nExpected schema:\n" + HOOK_SHAPE;
   return "Hook returned incorrect event name: expected '" + event + "' but got '" + String(sp.hookEventName) + "'. Full stdout: " + JSON.stringify(json, null, 2).slice(0, 4000);
 }
+/** The shape Claude Code says it expects when a hook's answer fails its check (2.1.322, word for word). */
+export const HOOK_SHAPE = "{\n  \"continue\": \"boolean (optional)\",\n  \"suppressOutput\": \"boolean (optional)\",\n  \"stopReason\": \"string (optional)\",\n  \"decision\": \"\\\"approve\\\" | \\\"block\\\" (optional)\",\n  \"reason\": \"string (optional)\",\n  \"systemMessage\": \"string (optional)\",\n  \"terminalSequence\": \"string (optional)\",\n  \"hookSpecificOutput\": {\n    \"for PreToolUse\": {\n      \"hookEventName\": \"\\\"PreToolUse\\\"\",\n      \"permissionDecision\": \"\\\"allow\\\" | \\\"deny\\\" | \\\"ask\\\" | \\\"defer\\\" (optional)\",\n      \"permissionDecisionReason\": \"string (optional)\",\n      \"updatedInput\": \"object (optional) - Modified tool input to use\"\n    },\n    \"for PermissionRequest\": {\n      \"hookEventName\": \"\\\"PermissionRequest\\\"\",\n      \"decision\": {\n        \"to allow\": {\n          \"behavior\": \"\\\"allow\\\"\",\n          \"updatedInput\": \"object (optional) - Modified tool input to use\",\n          \"updatedPermissions\": \"array (optional) - Permission updates\"\n        },\n        \"to deny\": {\n          \"behavior\": \"\\\"deny\\\"\",\n          \"message\": \"string (optional)\",\n          \"interrupt\": \"boolean (optional)\"\n        }\n      }\n    },\n    \"for UserPromptSubmit\": {\n      \"hookEventName\": \"\\\"UserPromptSubmit\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolUse\": {\n      \"hookEventName\": \"\\\"PostToolUse\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for PostToolBatch\": {\n      \"hookEventName\": \"\\\"PostToolBatch\\\"\",\n      \"additionalContext\": \"string (optional)\"\n    },\n    \"for Stop / SubagentStop\": {\n      \"hookEventName\": \"\\\"Stop\\\" | \\\"SubagentStop\\\"\",\n      \"additionalContext\": \"string (optional) - Feedback for the model; the conversation continues so the model can act on it\"\n    }\n  }\n}";
 /** Whether an answer "grants, rewrites or injects" (Claude Code's words): an allow, a new input or output, added context. */
 const grants = (j) => {
   if (!j) return false;
@@ -577,7 +590,17 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
     if (typeof spec.sessionTitle === "string" && spec.sessionTitle.trim() && (event === "SessionStart" || event === "UserPromptSubmit")) out.sessionTitle = spec.sessionTitle.trim().slice(0, 200);
     if (typeof spec.additionalContext === "string" && spec.additionalContext.trim()) out.context.push(cap(spec.additionalContext));
     if (result.text && result.text.trim() && (event === "UserPromptSubmit" || event === "SessionStart" || event === "PreCompact")) out.context.push(cap(result.text.trim()));
-    const blockBy = (why) => { out.blocks.push(label + " hook " + (result.kind === "block" ? "error" : "blocking error from command") + ": " + hookName(hook) + ": " + (why || "(no reason given)")); };
+    // A BLOCK IN CLAUDE CODE'S WORDS (2.1.322, tried in its command-line version on 2026-11-11, the owner: "yes copy all of
+    // them"): its reason is the hook's own, "Blocked by hook" when it gave none; a block by exit 2 is "[command hook]: " and
+    // the hook's stderr, "No stderr output" when it printed none. A PreToolUse block is "PreToolUse:Bash hook error: …";
+    // another event's is "PostToolUse:Bash hook blocking error from command: "command hook": …"; a Stop hook's is "Stop hook
+    // feedback:" and a new line, then for a JSON block that other line too, as Claude Code gives the model both.
+    const blockBy = (why) => {
+      const byExit = result.kind === "block";
+      const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
+      const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
+      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : fromCommand);
+    };
     if (event === "PermissionDenied") { if (spec.retry === true) out.retry = true; continue; }
     if (event === "PreToolUse") {
       let d = typeof spec.permissionDecision === "string" ? spec.permissionDecision : j.decision === "approve" ? "allow" : j.decision === "block" ? "deny" : "";
@@ -586,7 +609,8 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       if (d === "defer") d = "";
       if (result.kind === "block") d = "deny";
       const why = typeof spec.permissionDecisionReason === "string" ? spec.permissionDecisionReason : typeof j.reason === "string" ? j.reason : "";
-      if (d === "deny") blockBy(result.kind === "block" ? (result.failBlock ? result.reason : why || result.reason) : why);
+      // (Exit 2: its stderr alone, as Claude Code, which reads no JSON from a hook that exits 2.)
+      if (d === "deny") blockBy(result.kind === "block" ? result.reason : why);
       if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); }
       if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny") out.updatedInput = spec.updatedInput;
       continue;
@@ -622,8 +646,8 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
     if (event === "PostToolUse" && typeof spec.classifierContext === "string" && spec.classifierContext.trim()) notes.push({ text: spec.classifierContext.trim(), rewrite });
     // A BLOCK: exit 2, or decision "block" (UserPromptSubmit, PostToolUse, PostToolUseFailure, PostToolBatch, Stop, PreCompact).
     if (result.kind === "block" || j.decision === "block") {
-      const why = typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
-      if (event === "SessionStart" || event === "PostCompact") { if (result.kind === "block") out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "(no reason given)")); continue; }
+      const why = result.kind === "block" ? result.reason : typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
+      if (event === "SessionStart" || event === "PostCompact") { if (result.kind === "block") out.notices.push(label + " hook error: " + hookName(hook) + ": " + (result.reason || "No stderr output")); continue; }
       if (event === "Notification") continue;
       out.decision = "block";
       blockBy(why);

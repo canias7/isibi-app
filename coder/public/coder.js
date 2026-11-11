@@ -944,7 +944,9 @@
   // A CALL ONE OF THE OWNER'S HOOKS BLOCKED (hooks, 2026-11-10; Claude Code shows the hook's error under the call): the hook's
   // words, shown without opening the step.
   function hookBlockOf(r) {
-    const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\[[\s\S]*)$/.exec(String(r.output || '')) : null;
+    // ("PreToolUse:Bash hook error: <its reason>", or "… [command hook]: <its stderr>" for one that exited 2: Claude Code's
+    // words, 2026-11-11.)
+    const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\S[\s\S]*)$/.exec(String(r.output || '')) : null;
     return m ? { event: m[1], why: m[2].replace(/\s+/g, ' ').trim().slice(0, 600) } : null;
   }
   // A STEP THAT NEVER RAN: the server marks its result `ran: false` (Bash docs pass 9, part F); a chat from before is known

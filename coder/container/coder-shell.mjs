@@ -44,6 +44,59 @@ export function quotedBracesBlanked(e) {
   }
   return t.join("");
 }
+/**
+ * CLAUDE CODE'S CHECKS OF THE WHOLE TEXT, before it reads a command (2.1.322, its `ct`; Bash docs pass 9): a lone surrogate
+ * and Unicode whitespace, then where bash and zsh read a command differently: an escaped blank or a line joined in the
+ * middle of a word, zsh's ~[…] and =cmd expansions, its <N-M> globs, and a brace with a quote in it outside quotes. Coder's
+ * commands run in zsh as Claude Code's cloud ones do. Their reasons, in Claude Code's order.
+ */
+export function textReasons(source) {
+  const s = String(source ?? "");
+  const out = [];
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) out.push("Contains lone surrogate");
+  if (UNICODE_SPACE.test(s)) out.push("Contains Unicode whitespace");
+  if (ESCAPED_BLANK.test(s) || JOINED_LINE.test(s)) out.push("Contains backslash-escaped whitespace");
+  if (/~\[/.test(s)) out.push("Contains zsh ~[ dynamic directory syntax");
+  if (/(?:^|[\s;&|])=[a-zA-Z_]/.test(s)) out.push("Contains zsh =cmd equals expansion");
+  if (/<\d*-\d*>/.test(s)) out.push("Contains zsh <N-M> numeric-range glob");
+  if (/\{[^}]*['"]/.test(quotedBracesBlanked(s))) out.push("Contains brace with quote character (expansion obfuscation)");
+  return out;
+}
+/**
+ * CLAUDE CODE'S REASONS FOR BRACKETS AND QUOTED WORDS (2.1.322, tried in its command-line version on 2026-11-11). Each
+ * asks, in every mode but Auto, even for a command that only reads; no allow rule passes it; a deny rule on another part
+ * still refuses first.
+ */
+export const GROUP_BRACES = "A group in braces or double parentheses in this command can't be checked before it runs";
+export const GROUP_PARENS = "A group in parentheses in this command can't be checked before it runs";
+export const FUNCTION_DEF = "A function definition in this command can't be checked before it runs";
+export const COUNTING_FOR = "A counting for loop in this command can't be checked before it runs";
+export const BRACE_EXPANSION = "Brace expansion";
+export const BRACE_PATTERN = "A brace pattern in this command can't be checked before it runs";
+export const CANT_CHECK = "This command can't be checked before it runs";
+export const ESCAPE_CODES = "Text with escape codes in this command can't be checked before it runs";
+export const SHELL_OPERATORS = "This command uses shell operators that require approval for safety";
+/** Claude Code's reason for a command name written $'…' (its "command head" check), after a wrapper or not. */
+export const quotedHeadWhy = (raw, after = "") => "command head " + raw + (after ? " after " + after : "") + " — a $'…' word the shell decodes before looking the command up";
+/** The words before a command name Claude Code looks past for that check (its `On`). */
+const HEAD_WRAPPERS = /^(?:builtin|command|exec|time|coproc|noglob|nocorrect|-)$/;
+/** Whether a subshell's text has a `;` of its own, outside quotes and inner brackets (Claude Code then says CANT_CHECK). */
+function ownSemicolon(text) {
+  let depth = 0;
+  for (let j = 0; j < text.length; j++) {
+    const ch = text[j];
+    if (ch === "\\") { j++; continue; }
+    if (ch === "'") { const e = text.indexOf("'", j + 1); if (e < 0) return false; j = e; continue; }
+    if (ch === "\"") { let k = j + 1; while (k < text.length && text[k] !== "\"") k += text[k] === "\\" ? 2 : 1; j = k; continue; }
+    if (ch === "`") { const e = text.indexOf("`", j + 1); if (e < 0) return false; j = e; continue; }
+    if (ch === "(") depth++;
+    else if (ch === ")") depth = Math.max(0, depth - 1);
+    else if (ch === ";" && depth === 0) return true;
+  }
+  return false;
+}
+/** Where each reason stands among a command's reasons: the first one is the one shown (Claude Code's own order). */
+const LATE = new Map([[CANT_CHECK, 1], [ESCAPE_CODES, 2], [SHELL_OPERATORS, 3]]);
 /** Claude Code's literal arithmetic piece (its `ir`): a number in any base, or operators. */
 const ARITH_LITERAL = /^(?:[0-9]+|0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z]+|[-+*/%^&|~!<>=?:(),]+|<<|>>|\*\*|&&|\|\||[<>=!]=|\$\(\(|\)\))$/;
 /** The first piece of an arithmetic expression that is no number or operator ("" when there is none). */
@@ -80,16 +133,12 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   const noteComplex = (why) => { if (!complex.includes(why)) complex.push(why); };
   // (Claude Code checks the whole text first: "Contains lone surrogate", "Contains Unicode whitespace". Bash splits words
   // only at spaces, tabs and new lines, so a no-break space in `cat<U+00A0>./evil` is part of one program's name.)
-  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) noteComplex("Contains lone surrogate");
-  if (UNICODE_SPACE.test(s)) noteComplex("Contains Unicode whitespace");
-  // (And where bash and zsh read a command differently, Claude Code 2.1.322's own patterns, its ct: an escaped blank or a
-  // line joined in the middle of a word, zsh's ~[…] and =cmd expansions, its <N-M> globs, and a brace with a quote in it
-  // outside quotes. Coder's commands run in zsh as Claude Code's cloud ones do: Bash docs pass 9.)
-  if (ESCAPED_BLANK.test(s) || JOINED_LINE.test(s)) noteComplex("Contains backslash-escaped whitespace");
-  if (/~\[/.test(s)) noteComplex("Contains zsh ~[ dynamic directory syntax");
-  if (/(?:^|[\s;&|])=[a-zA-Z_]/.test(s)) noteComplex("Contains zsh =cmd equals expansion");
-  if (/<\d*-\d*>/.test(s)) noteComplex("Contains zsh <N-M> numeric-range glob");
-  if (/\{[^}]*['"]/.test(quotedBracesBlanked(s))) noteComplex("Contains brace with quote character (expansion obfuscation)");
+  for (const why of textReasons(s)) noteComplex(why);
+  // (Claude Code's reasons for brackets and quoted words, 2.1.322, tried in its command-line version on 2026-11-11 with the
+  // owner's word, "yes copy all of them": they ask in every mode but Auto, even for a command that only reads, and no allow
+  // rule passes them. A command head written $'…' says so first; a $"…" or $'…' anywhere, and a bracket group, after the
+  // others.)
+  let sawAnsiC = false, sawLocale = false, operators = false;
 
   const fail = () => { ok = false; };
   const peek = (n = 0) => s[i + n];
@@ -169,7 +218,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // ONE WORD, from i: quotes taken away, expansions kept as written and marked, nested commands read.
   function readWord(depth) {
     const start = i;
-    let text = "", quoted = false, expand = false, subst = false, glob = false, tilde = false;
+    let text = "", quoted = false, expand = false, subst = false, glob = false, tilde = false, ansiC = false, locale = false;
     let parts = 0, varOnly = true;
     if (s[i] === "~") tilde = true;
     while (i < s.length) {
@@ -177,9 +226,11 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (/[ \t\n;&|()<>]/.test(ch)) break;
       if (ch === "\\") { if (s[i + 1] === "\n") { i += 2; continue; } text += s[i + 1] || ""; i += 2; varOnly = false; parts++; continue; }
       if (ch === "'") { const e = s.indexOf("'", i + 1); if (e < 0) { fail(); text += s.slice(i + 1); i = s.length; break; } text += s.slice(i + 1, e); i = e + 1; quoted = true; varOnly = false; parts++; continue; }
-      // ($"…": bash's translated string, a double-quoted one; Bash docs pass 9: `$"rm" -rf /` got past a deny rule on rm.)
-      if (ch === "$" && s[i + 1] === "\"") { i++; continue; }
-      if (ch === "$" && s[i + 1] === "'") { // $'...'
+      // ($"…": bash's translated string, read as a double-quoted one, so the rm check still sees `$"rm" -rf /`; Claude Code
+      // can't check one before it runs, and asks: CANT_CHECK.)
+      if (ch === "$" && s[i + 1] === "\"") { locale = true; sawLocale = true; i++; continue; }
+      // ($'…': decoded, so the rm check sees through it; Claude Code asks for one: ESCAPE_CODES, or its command head check.)
+      if (ch === "$" && s[i + 1] === "'") { ansiC = true; sawAnsiC = true; // $'...'
         let j = i + 2, v = "";
         while (j < s.length && s[j] !== "'") { if (s[j] === "\\") { v += s[j + 1] === "n" ? "\n" : s[j + 1] === "t" ? "\t" : s[j + 1] || ""; j += 2; continue; } v += s[j]; j++; }
         if (j >= s.length) { fail(); i = s.length; break; }
@@ -206,11 +257,14 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (ch === "`") { const e = findBacktick(i + 1); if (e < 0) { fail(); i = s.length; break; } nested(s.slice(i + 1, e), depth + 1); text += s.slice(i, e + 1); expand = true; subst = true; varOnly = false; i = e + 1; parts++; continue; }
       if (ch === "*" || ch === "?") glob = true;
       if (ch === "[" && s.indexOf("]", i + 1) > i) glob = true;
-      if (ch === "{" && /^\{[^{}\s]*,[^{}\s]*\}/.test(s.slice(i))) glob = true; // a brace expansion stands for several words
+      // A BRACE EXPANSION stands for several words: `{a,b}` (Claude Code: "Brace expansion") or `{1..3}` (its "A brace
+      // pattern …"); either asks.
+      if (ch === "{" && /^\{[^{}\s]*,[^{}\s]*\}/.test(s.slice(i))) { glob = true; noteComplex(BRACE_EXPANSION); }
+      else if (ch === "{" && /^\{[^{}\s,]*\.\.[^{}\s,]*\}/.test(s.slice(i))) { glob = true; noteComplex(BRACE_PATTERN); }
       text += ch; varOnly = false; i++; parts++;
     }
     const raw = s.slice(start, i);
-    return { text, raw, quoted, expand, subst, glob, tilde, bare: expand && varOnly && parts >= 1 && !subst };
+    return { text, raw, quoted, expand, subst, glob, tilde, ansiC, locale, bare: expand && varOnly && parts >= 1 && !subst };
   }
 
   // $NAME, ${...}, $(...), $((...)), $1, $@ …: `{ raw, subst, variable }` (a plain variable, not a substitution).
@@ -258,7 +312,9 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // ONE SIMPLE COMMAND (or a compound's opening word), from i, until a separator or a closing bracket.
   function readCommand(depth, closer) {
     const words = [], redirects = [];
-    let compoundSkip = false, some = false;
+    let compoundSkip = false, some = false, subshellFirst = false;
+    // (A subshell where a command starts: Claude Code asks with SHELL_OPERATORS, or, with a redirection on it, GROUP_PARENS.)
+    const done = (r) => { if (subshellFirst) { if (redirects.length) noteComplex(GROUP_PARENS); else operators = true; } return r; };
     for (;;) {
       skipBlanks();
       if (i >= s.length) break;
@@ -273,17 +329,23 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       // A SUBSHELL or a GROUP where a command starts: read on its own.
       if (ch === "(" && !words.length) {
         some = true;
-        if (s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); continue; } // (( arithmetic ))
-        i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue;
+        if (s[i + 1] === "(") { noteComplex(GROUP_BRACES); i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); continue; } // (( arithmetic ))
+        subshellFirst = true;
+        // (With a `;` of its own inside, Claude Code says it can't check it: `(ls; pwd)`; tried 2026-11-11.)
+        i++; const text = readUntilClose("(", ")"); if (ownSemicolon(text)) noteComplex(CANT_CHECK); nested(text, depth + 1); continue;
       }
       if (ch === "(" && words.length === 1 && s[i + 1] === "(" && (words[0].text === "for") && !words[0].quoted) {
-        i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); return { words: [], redirects, compoundSkip: false, some: true };
+        noteComplex(COUNTING_FOR);
+        i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); return done({ words: [], redirects, compoundSkip: false, some: true });
       }
       if (ch === "(" && words.length) {
         // A FUNCTION'S DEFINITION, name() { …; }: the name is no command; the body that follows is read like any commands.
-        if (/^\(\s*\)/.test(s.slice(i))) { i = s.indexOf(")", i) + 1; return { words: [], redirects, compoundSkip: false, some: true }; }
+        if (/^\(\s*\)/.test(s.slice(i))) { noteComplex(FUNCTION_DEF); i = s.indexOf(")", i) + 1; return done({ words: [], redirects, compoundSkip: false, some: true }); }
+        // (A subshell after a keyword, `! ( … )` or `if ( … )`: Claude Code's SHELL_OPERATORS; after `time`, GROUP_PARENS.)
+        if (words.length === 1 && !words[0].quoted && words[0].text === "time") noteComplex(GROUP_PARENS);
+        else if (words.length === 1 && !words[0].quoted && RESERVED_LEAD.has(words[0].text)) operators = true;
         // process substitution would have been <( or >(: anything else is a word bash would refuse
-        i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue;
+        i++; const text = readUntilClose("(", ")"); if (words.length === 1 && !words[0].quoted && RESERVED_LEAD.has(words[0].text) && ownSemicolon(text)) noteComplex(CANT_CHECK); nested(text, depth + 1); continue;
       }
       if (ch === ")") { fail(); i++; continue; }
       // [[ … ]]: a test, not a command; its words are not run.
@@ -320,11 +382,11 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       // A COMPOUND's own words end its first part: `for x in a b; do` names no command; `case … in` either.
       if (words.length === 1 && (w.text === "for" || w.text === "select" || w.text === "case") && !w.quoted) compoundSkip = true;
       // `function name { …; }`: the name is no command.
-      if (words.length === 2 && words[0].text === "function" && !words[0].quoted) return { words: [], redirects, compoundSkip: false };
+      if (words.length === 2 && words[0].text === "function" && !words[0].quoted) { noteComplex(FUNCTION_DEF); return done({ words: [], redirects, compoundSkip: false }); }
       // `case WORD in`: its patterns follow, read by readCase.
       if (compoundSkip && words[0].text === "case" && words.length === 3 && w.text === "in") break;
     }
-    return { words, redirects, compoundSkip, some };
+    return done({ words, redirects, compoundSkip, some });
   }
 
   // THE LIST: commands and their separators, to the end or to the closer.
@@ -347,7 +409,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       // Reserved words that only open or close a compound are not the command.
       // (bash's `time` keyword takes `-p`, and `--`, before the command: `time -p git push` runs `git push`. Pass 8: the -p
       // was left as the command, so a deny rule on `git push` missed it.)
-      while (words.length && RESERVED_LEAD.has(words[0].text) && !words[0].quoted) { const lead = words[0].text; words = words.slice(1); if (lead === "time") while (words.length && !words[0].quoted && (words[0].text === "-p" || words[0].text === "--")) words = words.slice(1); }
+      while (words.length && RESERVED_LEAD.has(words[0].text) && !words[0].quoted) { const lead = words[0].text; words = words.slice(1); if (lead === "{") noteComplex(GROUP_BRACES); if (lead === "time") while (words.length && !words[0].quoted && (words[0].text === "-p" || words[0].text === "--")) words = words.slice(1); }
       while (words.length && RESERVED_END.has(words[words.length - 1].text) && !words[words.length - 1].quoted && words.length === 1) words = [];
       if (c.compoundSkip) {
         // `for NAME in WORDS` / `case WORD in`: only words, no command; the body follows after `do` / the patterns.
@@ -356,7 +418,25 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
         words = [];
       }
       if (words.length || c.redirects.length || c.compoundSkip || c.some) joining = false;
-      if (words.length || c.redirects.length) out.push({ words, redirects: c.redirects, depth, inScript: scriptDepth > 0, top: depth === 0 ? topIndex++ : -1, afterPipe: lastSep === "|" || lastSep === "|&" });
+      // A COMMAND NAME WRITTEN $'…' (Claude Code's "command head" check, 2.1.322): with an operand after it, not an option,
+      // it says so; past the words it looks through (HEAD_WRAPPERS), "after" the last one, unless `command -v` only looks
+      // the name up. Its rules can't match such a name either (`quotedHead`, coder-perms.mjs).
+      const lw = leadWords(words);
+      if (lw.length) {
+        const operand = (ws) => ws.some((f) => !/^[-+]/.test(f.text));
+        if (lw[0].ansiC && operand(lw.slice(1))) noteComplex(quotedHeadWhy(lw[0].raw));
+        else if (!lw[0].quoted) {
+          let a = lw[0].text, r = lw.slice(1), lookup = false;
+          while (HEAD_WRAPPERS.test(a) && r.length) {
+            while (r.length && /^-/.test(r[0].text)) { const f = r[0].text; if (a === "command" && /^-[pP]*[vV]/.test(f)) lookup = true; r = r.slice(a === "exec" && /^-[cl]*a$/.test(f) ? 2 : 1); }
+            if (!lookup && r.length && r[0].ansiC && operand(r.slice(1))) { noteComplex(quotedHeadWhy(r[0].raw, a)); break; }
+            a = r.length ? r[0].text : ""; r = r.slice(1);
+          }
+        }
+      }
+      const head = unwrapped(words)[0] || lw[0];
+      const quotedHead = !!head && (head.ansiC || head.locale);
+      if (words.length || c.redirects.length) out.push({ words, redirects: c.redirects, depth, inScript: scriptDepth > 0, top: depth === 0 ? topIndex++ : -1, afterPipe: lastSep === "|" || lastSep === "|&", ...(quotedHead ? { quotedHead: true } : {}) });
       if (i !== before) lastSep = "";
       if (i === before) i++;
     }
@@ -440,6 +520,11 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       for (const sc of r.commands) out.push({ ...sc, depth: c.depth + 1, inScript: true, scriptQuote: script.raw.startsWith("\"") ? "double" : script.raw.startsWith("'") ? "single" : "none", scriptArgs: w.slice(k + 1).map((x) => x.text), top: -1 });
     }
   }
+  // (A $"…" or $'…' anywhere, and a subshell, after the reasons above: Claude Code gives those first.)
+  if (sawLocale) noteComplex(CANT_CHECK);
+  if (sawAnsiC) noteComplex(ESCAPE_CODES);
+  if (operators) noteComplex(SHELL_OPERATORS);
+  complex.sort((a, b) => (LATE.get(a) || 0) - (LATE.get(b) || 0));
   return { ok, commands: out, loopVars, dangling, complex, background };
 }
 

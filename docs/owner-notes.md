@@ -11,6 +11,42 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Round 4: Claude Code's eight differences copied into Coder (your words: "yes copy all of them")
+
+On the branch, not live yet. Before changing anything, I checked each one again in Claude Code's command-line version (Haiku, with the cloud's settings), including the cases each one raised. All runs today, the comparison included, came to 24 runs and 17 cents.
+
+**What Coder now does, as Claude Code does:**
+1. **A file rule's refusal** uses Claude Code's sentence for the whole command: "Permission to use Bash with command cat prod.env has been denied."
+2. **A hook's "no" in JSON** reads "PreToolUse:Bash hook error: <its reason>", or "… Blocked by hook" when it gives none.
+3. **A hook is named by its kind**, "[command hook]", never by its command. A hook that exits 2 gives "PreToolUse:Bash hook error: [command hook]: <what it printed>", or "No stderr output". After a command, a hook's block reads `PostToolUse:Bash hook blocking error from command: "command hook": …`. A Stop hook's reads "Stop hook feedback:" and the reason on the next line.
+4. **A hook's extra note** starts with "PreToolUse:Bash hook additional context:" (the tool's name is added; SessionStart's and UserPromptSubmit's stay as they were).
+5. **A hook answer with no event name:** Claude Code's note, character for character: "Hook JSON output validation failed — hookSpecificOutput is missing required field "hookEventName"", the hook's output, and the shape it expects.
+6. **`$"…"` and `$'…'`** now ask instead of being refused or run:
+   - `$"rm" -f x` asks, "This command can't be checked before it runs", even with a deny rule on rm.
+   - `$'rm' -f x` asks, "command head $'rm' — a $'…' word the shell decodes before looking the command up".
+   - Any other `$'…'`, even in `echo`, asks, "Text with escape codes in this command can't be checked before it runs".
+   - A deny rule on another part of the same command still refuses it.
+   - In Auto, Coder still refuses `$"rm"` by your rule (Claude Code's Auto wasn't checked).
+   - The dangerous-delete check still sees through both.
+7. **`echo <1-3>`:** the card now gives Claude Code's reason, "Contains zsh <N-M> numeric-range glob". In Auto it's still refused, as before.
+8. **Brackets and braces** now ask, even for a command that only reads, and your allow rules don't skip them:
+   - `(…)`: "This command uses shell operators that require approval for safety". With a `;` inside: "This command can't be checked before it runs". With a `>` after it, or after `time`: "A group in parentheses…".
+   - `{ …; }` and `(( … ))`: "A group in braces or double parentheses…".
+   - A function, `for ((…))`, `{a,b}` and `{1..3}` each get Claude Code's own reason.
+   - Before, Coder ran `(ls)`, `{ ls; }`, `echo {a,b}` and `ls | (cat)` without asking. Claude Code asked for every one.
+   - A deny rule on a command inside the brackets still refuses first. In Auto, the checker decides, as before.
+   - `if`/`then`, plain `;` lists and `echo a{b` are unchanged.
+
+**The page:** a hook's "no" in JSON now gets the "Blocked by your hook" box under its step, with the hook's reason. Before, that step only said "✕ not run" (screenshots sent in the chat; a preview on the real page with this branch's code, nothing deployed).
+
+**Tests:** 8 new tests (CD513 to CD520), including 69 of Claude Code's own answers, verdict and words, checked together; Coder matches all 69. 16 older tests were updated to the new wording.
+
+**Found, not copied (your call):**
+- `echo $((1+1))` and `echo "$'x'"` run in Claude Code; Coder asks first.
+- A prompt or agent hook's "no" reads "PreToolUse:Bash hook error: [<its prompt>]: <reason>" in Claude Code's program; Coder's reads "PreToolUse:Bash hook (prompt): <reason>". I read this one in its program; I didn't run it.
+
+**Not tried live yet:** everything above needs a merge and a deploy before it can be tested on gofarther.dev with Grok.
+
 ## 2026-11-11: Hooks and rules in Claude Code's command-line version, next to Coder's round 3 (your words: "yes Haiku")
 
 Claude Code's command-line version (2.1.322, the same program this cloud session runs, in its cloud setting) ran round 3's rule and hook cases with Haiku. Each case ran in its own test folder on this session's machine, with the same rules and hooks Coder had. Cost: 12 cents in total. Nothing in Coder was changed.

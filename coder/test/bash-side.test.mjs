@@ -154,13 +154,11 @@ test("CD366 the shell reader knows a command fed by a pipe (for the read block's
   assert.deepEqual(at("a && b\nc | d"), [["a", false], ["b", false], ["c", false], ["d", true]]);
 });
 
-test("CD367 a short read after a cd inside ( … ) or $( … ) still runs (that cd is checked on its own); one that climbs with .. from there asks; the variable sentence is for variables, not $( … )", async () => {
+test("CD367 a command in ( … ) asks, as Claude Code's command-line version did on 2026-11-11, even one that only reads: \"This command uses shell operators that require approval for safety\", or with a ; of its own inside, \"This command can't be checked before it runs\", before any other reason; the variable sentence is for variables, not $( … )", async () => {
   const P = await import("../container/coder-perms.mjs");
   const d = (c) => P.bashDecision(c, ctx("acceptEdits"));
-  for (const c of ["(cd src && cat a.js)", "(cd src && ls)", "(cd docs; head -3 notes.md)"]) assert.equal(d(c).verdict, "allow", c);
-  assert.equal(d("(cd src && cat ../../../etc/passwd)").why, "cat in '../../../etc/passwd' requires manual approval: the path it names depends on a directory change in the same command.");
-  assert.equal(d("(cd /etc && cat passwd)").why, "cd in '/etc' was blocked. For security, Coder may only change directories to the allowed working directories for this session: " + DIRS + ".");
-  assert.equal(d("(cd src; cat /etc/hostname)").why, "cat in '/etc/hostname' was blocked. For security, Coder may only concatenate files from the allowed working directories for this session: " + DIRS + ".");
+  const OPS = "This command uses shell operators that require approval for safety", CANT = "This command can't be checked before it runs";
+  for (const [c, why] of [["(cd src && cat a.js)", OPS], ["(cd src && ls)", OPS], ["(cd docs; head -3 notes.md)", CANT], ["(cd src && cat ../../../etc/passwd)", OPS], ["(cd /etc && cat passwd)", OPS], ["(cd src; cat /etc/hostname)", CANT]]) assert.deepEqual([d(c).verdict, d(c).why], ["ask", why], c);
   for (const c of ["echo $(date)", "echo $(cd src && cat a.js)"]) assert.equal(d(c).why, "This command requires approval", c);
   for (const c of ["echo ${HOME}x", 'wc -l "$F"']) assert.equal(d(c).why, "A variable in this command can't be checked before it runs", c);
 });
