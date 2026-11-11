@@ -341,3 +341,47 @@ test("CD406 PostToolUse hooks get duration_ms (Claude Code: \"Tool execution tim
   assert.equal(typeof post.input.duration_ms, "number");
   assert.ok(post.input.duration_ms >= 0 && post.input.duration_ms < 120, "the card's wait is not counted: " + post.input.duration_ms);
 });
+
+test("CD407 the \"don't ask again\" rule on a PowerShell card is Claude Code's (its Le; live test 30 found Coder offering PowerShell(Write-Output *), a rule for every Write-Output): the command itself for its safety checks, provider paths and file redirections, none with a * or a line break in it; none for a command it cannot parse, the git, archive and .git checks or deleting the working folder; on the last question, each command that needs approval, exactly", async () => {
+  const PS = await import("../container/coder-ps.mjs");
+  assert.equal(PS.psSuggest, undefined, "the old prefix rules are gone");
+  // Claude Code's Le: the exact text, trimmed; none when it has a * or a line break.
+  assert.deepEqual(PS.psExactRule("  Remove-Item build \t"), ["PowerShell(Remove-Item build)"]);
+  assert.deepEqual([PS.psExactRule("Get-ChildItem *.log"), PS.psExactRule("Get-Date\nGet-Location"), PS.psExactRule("   "), PS.psExactRule(null)], [[], [], [], []]);
+  // A safety check: the whole command (the live test's card), in Accept edits and Plan.
+  for (const m of ["acceptEdits", "plan"]) {
+    assert.deepEqual(decide(EXP, expParse(), m).suggest, ["PowerShell(" + EXP + ")"], m);
+    assert.deepEqual(decide(SUB, subParse(), m).suggest, ["PowerShell(" + SUB + ")"], m);
+  }
+  // ... with a * in it: no rule offered.
+  const STAR = 'Write-Output "$(Get-ChildItem *.log)"';
+  const starParse = parseOf(STAR, [pipeline(STAR, [cmdAst(STAR, str("Write-Output"), el("ExpandableStringExpressionAst", '"$(Get-ChildItem *.log)"', { value: "$(Get-ChildItem *.log)" }))], { nestedCommands: [cmdAst("Get-ChildItem *.log", str("Get-ChildItem"), str("*.log"))], securityPatterns: { hasExpandableStrings: true, hasSubExpressions: true } })]);
+  assert.deepEqual([decide(STAR, starParse, "plan").verdict, decide(STAR, starParse, "plan").why, decide(STAR, starParse, "plan").suggest], ["ask", "Command contains subexpressions $()", null]);
+  // Claude Code settles a question before a rule's yes: the rule it offered there does not skip that question next time.
+  assert.equal(decide(EXP, expParse(), "plan", { allow: ["PowerShell(" + EXP + ")"] }).verdict, "ask");
+  // A provider path and a file redirection: the whole command.
+  const ro = (cmd, m = "plan") => decide(cmd, fakeParse(cmd), m);
+  assert.deepEqual(ro("Get-Item function:prompt").suggest, ["PowerShell(Get-Item function:prompt)"]);
+  const redir = parseOf("Get-ChildItem > list.txt", [pipeline("Get-ChildItem > list.txt", [{ ...cmdAst("Get-ChildItem > list.txt", str("Get-ChildItem")), redirections: [{ type: "FileRedirectionAst", append: false, fromStream: "Output", locationText: "list.txt" }] }])]);
+  assert.deepEqual(decide("Get-ChildItem > list.txt", redir, "plan").suggest, ["PowerShell(Get-ChildItem > list.txt)"]);
+  // None: a command PowerShell could not read, the cd-and-git, archive and .git checks, deleting the working folder.
+  assert.equal(decide("Get-ChildItem (", Q.psParseFail("Get-ChildItem (", "Missing closing ')' in expression.", "MissingEndParenthesisInExpression"), "plan").suggest, null);
+  for (const cmd of ["Set-Location ..; git status", "Expand-Archive a.zip; npm test", "Set-Content .git/hooks/pre-commit x"]) assert.deepEqual([ro(cmd).verdict, ro(cmd).suggest], ["ask", null], cmd);
+  const wd = ro("Remove-Item -Recurse .");
+  assert.deepEqual([wd.verdict, wd.why, wd.suggest], ["ask", "Remove-Item -Recurse targeting '.' would delete the working directory including .git and .claude — requires manual approval", null]);
+  // The last question: each command that needs approval, exactly; a reading one beside it gets none; each once.
+  assert.deepEqual(ro("Remove-Item build").suggest, ["PowerShell(Remove-Item build)"]);
+  assert.deepEqual(ro("Get-ChildItem; Remove-Item build").suggest, ["PowerShell(Remove-Item build)"]);
+  assert.deepEqual(ro("npm test; npm test").suggest, ["PowerShell(npm test)"]);
+  assert.deepEqual([ro("Remove-Item *.log").verdict, ro("Remove-Item *.log").suggest], ["ask", null], "a * in it: none");
+  const long = "Remove-Item " + "a".repeat(400);
+  assert.deepEqual([ro(long).verdict, ro(long).suggest], ["ask", null], "too long to be kept as a rule (as Bash's cards): none");
+  // The rule offered there allows that command again, and only that one.
+  const rule = ro("Remove-Item build").suggest[0];
+  assert.equal(decide("Remove-Item build", fakeParse("Remove-Item build"), "plan", { allow: [rule] }).verdict, "allow");
+  assert.equal(decide("Remove-Item src", fakeParse("Remove-Item src"), "plan", { allow: [rule] }).verdict, "ask");
+  // Auto offers nothing (the checker judges it); a refusal and a rule's own question offer nothing either.
+  assert.equal(decide(EXP, expParse(), "auto").suggest, null);
+  assert.equal(ro("Remove-Item -Recurse /").suggest, null);
+  assert.equal(decide("npm test", fakeParse("npm test"), "plan", { ask: ["PowerShell(npm *)"] }).suggest, null);
+});

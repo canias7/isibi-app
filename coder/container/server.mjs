@@ -35,7 +35,7 @@ import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
-import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
+import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
@@ -3028,7 +3028,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           // WHAT THE NETWORK LIST BLOCKED WHILE IT RAN, by host and why (Claude Code names them too, 2.1.224 and 2.1.251).
           let netNote = "";
-          if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; if (b.length) netNote = "Blocked by this chat's network list while this command ran: " + b.slice(0, 10).map((x) => x.host + " (" + x.why + ")").join(", ") + ". If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None."; } catch { /* no proxy */ } }
+          if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; netNote = blockedNote(b); } catch { /* no proxy */ } }
           return { ...r, ...(errLog && r && r.background ? { errLog } : {}), ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}) };
         },
         // A path Grok gave a tool, as a full path (a short one counts from where the commands are); the project's folder.

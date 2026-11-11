@@ -11,9 +11,29 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
+
+Merged to main and deployed (deploy 111): the three entries below, and the two from 2026-11-10 that were still waiting. All tests passed before the deploy.
+
+Tested live on gofarther.dev with Grok and filmed, in test chats on canias7/testingforclaude. Every delete aimed at a folder that does not exist, so nothing could be lost. Afterwards your test settings were put back: the environment's variables and blocked sites, the hooks, the Ask rule and the Auto mode setting.
+
+- **PowerShell's first real run on Coder's machine: passed.** A command that only reads (`Get-ChildItem -Name | Select-Object -First 5`) ran with no card in Accept edits.
+- **A delete hidden in quotes: passed.** `Write-Output "done $(Remove-Item …)"` stopped and asked first, with Claude Code's reason "Command contains subexpressions $()". Answered No.
+- **A search that finds nothing** (`rg`, exit code 1): **passed.** Not reported as an error.
+- **Auto mode, PowerShell deleting a top-level folder: passed.** Refused before anything ran, in Claude Code's words: "Remove-Item on system path '/coder-test-not-real' is blocked. This path is protected from removal."
+- **Auto mode, a risky `rm`: passed both ways.** Without an Ask rule, it is refused. With your Ask rule `Bash(rm *)`, it asks instead ("Dangerous rm operation on mounted drive path … cannot be auto-allowed by permission rules"), with only Yes and No. Answered No.
+- **Writing outside the project folder** (`CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES=1`): **passed.** Refused.
+- **A blocked site** (example.com on the environment's blocked sites): **passed.** Refused, and Coder was told it was "on the blocked sites list".
+- **A hook answering the question card: passed.** No card; the chat showed: A PreToolUse hook answered Coder's question for you: "Which color do you prefer?"="Red".
+- **Settings, Turn off Auto mode: passed.** The mode menu showed only Accept edits and Plan. Turned back on afterwards.
+- **Found by the test, fixed on the branch** (not merged or deployed yet, waiting for your word; all 441 tests pass):
+  - The "don't ask again" choice on a PowerShell card offered a rule for every command of that kind (for example `PowerShell(Write-Output *)`). Claude Code offers the exact command only, and none on some questions. Coder now does the same.
+  - After a blocked site, Coder was told to ask you to allow it, which can never work for a site on the blocked list. Now it is told only you can take it off the list.
+- **My mistakes, redone:** two steps were run again because my messages told Grok what to expect ("it should be refused"), so it answered without trying. My own test machine also restarted once in the middle of a run. Coder was not affected, and the settings were put back.
+
 ## 2026-11-11: The rest of the Bash docs, cloud only (your words: "Yea we need to build the rest of the batch tool, remember we are not doing local rn with only doing cloud")
 
-Not merged or deployed yet: on the branch with everything below, waiting for your word. All 440 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111), and tested live with Grok: see the entry above.
 
 - **A safety hole in last batch's PowerShell, closed.** Coder's PowerShell check read the command as text, so a delete hidden inside brackets or quotes (for example `Write-Output "$(Remove-Item notes.txt)"`) could run without asking, even in Plan mode. Now PowerShell itself reads each command on Coder's machine, the way Claude Code does it, and Claude Code's 24 safety checks run on that, in its own words. PowerShell is still off unless you turn it on.
 - **PowerShell delete protection.** Deleting the whole disk, a top-level folder, or your home folder is refused in every mode, and so is a delete with a wildcard like `*`. Deleting the project folder itself asks first.
@@ -26,7 +46,7 @@ Not merged or deployed yet: on the branch with everything below, waiting for you
 
 ## 2026-11-11: A hook can now answer Coder's question card (your words: "Want it added")
 
-Not merged or deployed yet: on the branch with the 11 items below, waiting for your word. All 432 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111), and tested live with Grok: see the entry at the top.
 
 - **What it does.** When Coder asks you questions on a card, a hook (one of your scripts in the hook settings) can now answer them for you, as in Claude Code. The hook says "allow" and gives the answers. The card is then not shown, and Coder gets the answers and keeps working in the same turn.
 - **What you see:** a line in the chat, for example: A PreToolUse hook answered Coder's question for you: "Which database?"="Postgres".
@@ -36,7 +56,7 @@ Not merged or deployed yet: on the branch with the 11 items below, waiting for y
 
 ## 2026-11-11: The last 11 differences from Claude Code's Bash docs (your words: "yea do all of them")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 431 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111). PowerShell, the blocked sites, the write block and Turn off Auto mode were tested live with Grok: see the entry at the top.
 
 - **A hole in Plan mode, closed.** In Plan mode, a hook that says "allow" no longer lets a command that changes things run. It still asks you, as Claude Code does. A hook can still approve the plan itself.
 - **Rules with wildcards.** A deny or ask rule can now name tools with `*`. For example, `*` in Ask means "ask before every tool". A tool you deny completely is now hidden from Coder, as in Claude Code.
@@ -52,7 +72,7 @@ Not merged or deployed yet: on the branch, waiting for your word. All 431 tests 
 
 ## 2026-11-10: All 11 of the last Bash-docs items (your words: "yea do all of them")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 419 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111).
 
 - **More kinds of hooks.** Besides a command, a hook can now be:
   - a web address Coder's machine sends the details to;
@@ -84,7 +104,7 @@ Not merged or deployed yet: on the branch, waiting for your word. All 419 tests 
 
 ## 2026-11-10: The last 4 from the Bash docs, and the 2 optional ones in Settings (your words: "yea do all 4, plus do the 2 u left out optional, the setting put it in setings")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 405 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111).
 
 - **Settings** (the gear's menu, new). Three choices for all your chats, each saved as soon as you change it:
   - **Longest a background command may run:** 2 hours (Claude Code's limit), or 4, 8, 12 or 24 hours. Coder's machine stays on that long.

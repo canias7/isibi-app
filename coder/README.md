@@ -924,6 +924,20 @@ this environment").
   marked as unverified context from the application.
 - *`duration_ms`* in PostToolUse input: the tool's own running time, without
   its card or its PreToolUse hooks (`ranAt`, `doneAt`).
+- *The "don't ask again" rule on a PowerShell card* (live test 30, 2026-11-11;
+  CD407): Claude Code's (its `Le`; `psExactRule`): the command itself for its
+  safety checks, provider paths and file redirections; none for a command it
+  cannot parse, the git, archive and .git checks or deleting the working
+  folder, or with a `*` or a line break in it; on the last question, each
+  command that needs approval, exactly; never one too long to be kept
+  (`RULE_MAX`, as Bash's cards). Coder offered `PowerShell(Write-Output *)`, a
+  rule for every Write-Output (`psSuggest`, gone). As in Claude Code, a rule
+  offered on a safety check does not skip that check next time.
+- *The note after a blocked site* (live test 32, 2026-11-11; `coder-proxy.mjs`'s
+  `blockedNote`): a site on the environment's blocked sites list is no longer
+  followed by "ask the owner to allow it with propose_env (allow_host)", which
+  can never work for it (that list wins over anything allowed); Coder is told
+  that only the owner can take it off the list.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

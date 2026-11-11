@@ -78,19 +78,16 @@ export function psRuleMatches(spec, part) {
   const w = psFirst(part);
   return ruleRegex(spec).test(psCanon(w) + String(part).trim().slice(w.length));
 }
-/** The "don't ask again" rules for a command: one for each part (up to five), its first word, and the next for a program with subcommands. */
-const SUBCOMMANDS = new Set(["git", "npm", "npx", "yarn", "pnpm", "docker", "kubectl", "cargo", "go", "dotnet", "pip", "pip3", "python", "python3", "node", "gh", "make"]);
-export function psSuggest(command) {
-  const out = [];
-  for (const p of psParts(command).slice(0, 5)) {
-    const words = p.split(/\s+/).filter(Boolean);
-    const w = words[0] || "";
-    if (!w || w.startsWith("$") || w === "&" || w === ".") return null;
-    const head = SUBCOMMANDS.has(w.toLowerCase()) && words[1] && !words[1].startsWith("-") ? w + " " + words[1] : w;
-    const r = "PowerShell(" + head + " *)";
-    if (!out.includes(r)) out.push(r);
-  }
-  return out.length ? out : null;
+/**
+ * THE "DON'T ASK AGAIN" RULE FOR A POWERSHELL COMMAND (Claude Code's Le; live test 30, 2026-11-11: Coder offered
+ * PowerShell(Write-Output *), a rule for every Write-Output, where Claude Code offers the command itself): the exact
+ * text, trimmed, as a rule; none when the text has a `*` (a rule would read it as a wildcard) or a line break.
+ */
+export function psExactRule(text) {
+  const raw = String(text ?? "");
+  if (raw.includes("\n") || raw.includes("*")) return [];
+  const t = raw.replace(/^[\s\u0085\u180e]+|[\s\u0085\u180e]+$/g, "");
+  return t ? ["PowerShell(" + t + ")"] : [];
 }
 
 /** Claude Code's Start-Sleep check (its "standalone Start-Sleep N", "Start-Sleep N followed by: …"), with Coder's sleep message. */

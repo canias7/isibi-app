@@ -13,7 +13,7 @@
 // THE READ-ONLY SET is Claude Code 2.1.319's own (its lists, read from it on 2026-11-09): commands that run with any
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
-import { psRuleMatches, psSuggest } from "./coder-ps.mjs";
+import { psRuleMatches, psExactRule } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
@@ -1783,28 +1783,38 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
   const a = hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
-  const suggest = psSuggest(cmd);
-  const asks = (why) => (auto ? { verdict: "allow", why, suggest: null, readOnly: false, covered: false } : { verdict: "ask", why, suggest });
+  // (The "don't ask again" rule each question offers is Claude Code's: the command itself for its safety checks, provider
+  // paths and file redirections; none for a command it cannot parse, the git, archive and .git checks, or deleting the
+  // working folder; on the last question, each command that needs approval. See psExactRule.)
+  const exact = psExactRule(cmd);
+  // (Only a rule short enough to be kept, as Bash's cards: RULE_MAX.)
+  const asks = (why, suggest = []) => { const keep = suggest.filter((r) => r.length <= RULE_MAX + 10); return auto ? { verdict: "allow", why, suggest: null, readOnly: false, covered: false } : { verdict: "ask", why, suggest: keep.length ? keep : null }; };
   if (!p.valid) return asks("Command contains malformed syntax that cannot be parsed: " + ((p.errors[0] && p.errors[0].message) || "unknown error"));
-  const safety = psSafetyWhy(p) || psProviderWhy(p) || psCompoundWhy(p) || (psFileRedirections(p).length ? "Command contains file redirections that could write to arbitrary paths" : "") || gone.ask;
-  if (safety) return asks(safety);
+  const safety = psSafetyWhy(p) || psProviderWhy(p);
+  if (safety) return asks(safety, exact);
+  const compound = psCompoundWhy(p);
+  if (compound) return asks(compound);
+  if (psFileRedirections(p).length) return asks("Command contains file redirections that could write to arbitrary paths", exact);
+  if (gone.ask) return asks(gone.ask);
   // EACH COMMAND: one an allow rule covers (read ahead in full), or one that only reads, inside the working folders.
   const allow = rulesFor(rules.allow, "PowerShell");
   let covered = all.length > 0, readOnly = true, needs = false;
+  const need = [];
   for (const c of all) {
     const byRule = !psDynamicArgs(c) && c.nameType !== "application" && !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]);
     const reads = psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x));
     if (!byRule) covered = false;
     if (!reads) readOnly = false;
-    if (!byRule && !reads) needs = true;
+    if (!byRule && !reads) { needs = true; need.push(c.text); }
   }
   // (A statement that is not a plain pipeline of commands, such as an assignment or an if: approval.)
-  if (p.statements.some((s) => s.statementType !== "PipelineAst" || !s.commands.length || s.commands.some((c) => c.elementType !== "CommandAst"))) { needs = true; readOnly = false; covered = false; }
+  const odd = p.statements.filter((s) => s.statementType !== "PipelineAst" || !s.commands.length || s.commands.some((c) => c.elementType !== "CommandAst"));
+  if (odd.length) { needs = true; readOnly = false; covered = false; if (!need.length) for (const s of odd) if (String(s.text || "").trim() === cmd) need.push(s.text); }
   if (!needs) return { verdict: "allow", why: "", suggest: null, readOnly, covered };
   // ACCEPT EDITS: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) run there, with
   // the reading ones beside them, when every path they are given is inside the working folders.
   if (m === "acceptEdits" && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
-  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : { verdict: "ask", why: "", suggest };
+  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks("", [...new Set(need.flatMap(psExactRule))]);
 }
 /** Claude Code's questions about a command made of several: git next to a cd or an archive, a write into .git. */
 function psCompoundWhy(p) {

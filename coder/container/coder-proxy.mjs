@@ -50,6 +50,20 @@ export function passOf(headers) {
   return /^cmd:[0-9a-f]{32}$/.test(t) ? t.slice(4) : "";
 }
 /** A site on the environment's blocked list (Claude Code's words: "<host> is in sandbox.network.deniedDomains"), in Coder's. */
+/**
+ * WHAT A COMMAND IS TOLD AFTER THE GATE REFUSED SITES WHILE IT RAN: each site with its reason, then what can be done
+ * about it (live test 32, 2026-11-11: a site on the blocked sites list was followed by "ask the owner to allow it with
+ * propose_env (allow_host)", which can never work, since that list wins over anything allowed). `list`: blockedSince's.
+ */
+export function blockedNote(list) {
+  const b = (Array.isArray(list) ? list : []).slice(0, 10);
+  if (!b.length) return "";
+  const listed = b.filter((x) => x.why === "on the blocked sites list").length;
+  return "Blocked by this chat's network list while this command ran: " + b.map((x) => x.host + " (" + x.why + ")").join(", ") + ". " +
+    (listed === b.length
+      ? "A site on the blocked sites list is refused whatever the network setting allows: don't retry it or propose allowing it; only the owner can take it off that list."
+      : "If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None" + (listed ? "; one on the blocked sites list stays refused whatever is allowed, and only the owner can take it off that list." : "."));
+}
 export const DENIED = (host) => "Blocked: " + host + " is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.";
 
 // THE HOST A COMMAND ASKS FOR, checked before the network list, the secrets or

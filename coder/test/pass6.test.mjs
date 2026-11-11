@@ -621,8 +621,9 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // The decision.
   const dec = (cmd, mode, rules = {}) => P.psDecision(cmd, { mode, rules, nativeReadOnly: nro, parsed: fakeParse(cmd), cwd: "/work/shop", pathAbs: (x) => "/work/shop/" + x, inside: () => true });
   assert.equal(dec("Get-ChildItem", "acceptEdits").verdict, "allow");
-  assert.deepEqual([dec("Remove-Item build", "plan").verdict, dec("Remove-Item build", "plan").suggest], ["ask", ["PowerShell(Remove-Item *)"]]);
-  assert.deepEqual(dec("git commit -m x; npm test", "plan").suggest, ["PowerShell(git commit *)", "PowerShell(npm test *)"]);
+  // (The "don't ask again" rules are Claude Code's: each command that needs approval, exactly; see CD407.)
+  assert.deepEqual([dec("Remove-Item build", "plan").verdict, dec("Remove-Item build", "plan").suggest], ["ask", ["PowerShell(Remove-Item build)"]]);
+  assert.deepEqual(dec("git commit -m x; npm test", "plan").suggest, ["PowerShell(git commit -m x)", "PowerShell(npm test)"]);
   assert.equal(dec("rm -r build", "auto", { deny: ["PowerShell(Remove-Item *)"] }).why, "Permission to use PowerShell with command rm -r build has been denied.");
   assert.equal(dec("Get-ChildItem", "auto", { deny: ["*"] }).verdict, "deny");
   assert.deepEqual([dec("npm test", "auto", { ask: ["PowerShell(npm *)"] }).verdict, dec("npm test", "auto", { ask: ["PowerShell(npm *)"] }).byRule], ["ask", true]);
@@ -673,7 +674,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // One that changes things, in Plan mode: a PowerShell card (in Accept edits, Claude Code runs a removal inside the
   // project: test/pass7.test.mjs); denied by a rule: refused.
   t = await job([say("", [call("powershell", { command: "Remove-Item build -Recurse", description: "Clean" }, "p1")]), say("ok")], { mode: "plan", extra: on, answers: [{ choice: "no" }] });
-  assert.deepEqual([t.cards[0].tool, t.cards[0].rules], ["powershell", ["PowerShell(Remove-Item *)"]]);
+  assert.deepEqual([t.cards[0].tool, t.cards[0].rules], ["powershell", ["PowerShell(Remove-Item build -Recurse)"]], "Claude Code's rule: the command itself (CD407)");
   assert.deepEqual(t.ran, []);
   t = await job([say("", [call("powershell", { command: "rm build", description: "Clean" }, "p1")]), say("ok")], { extra: on, rules: { allow: [], ask: [], deny: ["PowerShell(Remove-Item *)"] } });
   assert.equal(t.told("p1"), "Permission to use PowerShell with command rm build has been denied.");
