@@ -11,13 +11,64 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-11: Round 3 of the live test, under way: two fixes so far (your words: "yea go ahead test all of it")
+## 2026-11-11: Round 3 of the live test: the rest of the bash tool, live with Grok, and the same in Claude Code (your words: "yea go ahead test all of it")
 
-Testing live on gofarther.dev with Grok everything in the bash tool not tried live before: safety cases, your variables, the network gate, several commands at once, a rule added mid-job, notes on cards, a repository's own settings, background commands, hooks, and PowerShell. The full results come in the next entry when the round is done.
+Tested live on gofarther.dev with Grok and filmed (recordings 37s, 37s-S2S3S4, 37s5, 37o, 37h, 37hx and 37p), in new chats on canias7/testingforclaude ("Live test 10 Nov" environment, Accept edits). Every setting a step changed was put back after it. At the end: no hooks, no rules, the same two variables, network Limited with package managers, nothing running.
 
-**Two fixes so far, on the branch (not live yet):**
-1. **A file in the home folder named with `~`:** the card for `echo … >> ~/.zshrc` named the file as the project's folder with a `~` in it. It still asked first; only the name was wrong. Now it names the file in the AI's home folder, as Claude Code does. Test CD508.
-2. **`gh` showing why it was refused:** when Coder refuses a `gh` call (for example to a repository the chat doesn't have), `gh` printed "invalid character 'G' looking for beginning of value" instead of the reason, because Coder's answer was plain text. Now it is in GitHub's own format, so `gh` shows Coder's reason. Test CD509.
+**Passed:**
+- **Deny rules, 13 of 13 refused:** `git push` behind `time -p`, a full path, `flock` and `setsid`; `rm` behind `A[0]=1`, `$"rm"`, a variable, and inside `$(( ))`; `.env` read through a variable, by `git diff --no-index`, and copied onto; `grep` with a wildcard; a rule for a whole command with `>` in it.
+- **Allow rules that must not reach too far:** with allow rules for `echo`, `touch`, `cat` and `eval`, these still asked: `echo x > /etc/passwd`, `touch /etc/…`, `nohup cat /etc/hostname`, `cd r37dir && touch …`, and `eval`. `cd ./r37dir && touch …` ran.
+- **Odd commands ask:** a no-break space, zsh's `=ls` and `<1-3>`, `DEBUG=1 ls`, a `cd` in brackets before `git`. `GOOS=linux ls` ran.
+- **A `!` rule:** with deny `Read(*.env)` and `Read(!sample.env)`, sample.env was read and prod.env refused.
+- **Your variables:** `CDPATH` and `OTEL_…` are not given to commands. With the read block on, `cat /etc/hostname` and `env -C /etc cat hostname` asked.
+- **The network gate:** a site not on the list was blocked with Coder's note. With the network on Full, localhost and the cloud address `169.254.169.254` were refused, and a host that doesn't exist got Claude Code's "[agent-proxy] … connect_unreachable" note, word for word.
+- **Several read-only commands in one reply** started at the same moment, as in Claude Code.
+- **A rule you add while Coder works** counts from its next step. A note sent with Yes reaches Grok; with "don't ask again" it doesn't.
+- **A repository's own `.claude/settings.json`:** its deny rule worked from the next step; its variables from the next message (`BASH_MAX_OUTPUT_LENGTH` worked; `CDPATH` and `GITHUB_ACTIONS` refused; an ordinary one given).
+- **A background `gh` command after the answer** reached the chat's repository.
+- **zsh with `KSH_OPTION_PRINT`** in `~/.zshrc`: commands still print.
+- **97 MB of output:** "Output exceeded the 64MB persist limit; only the first 64MB were saved to: …", word for word as Claude Code.
+- **The low-disk warning** (set to 20 GB): "Disk space is low: 9.2 GB free …".
+- **Hooks:**
+  - A hook's "no" stops a command, and its extra note reaches Grok. A "defer" is ignored.
+  - A PermissionRequest hook answered the card for you and changed the command; the rule it added lasted the whole chat.
+  - Long hook text (12,000 characters) was saved to a file with a preview.
+  - A background command's hook got its job ID, and every hook got the message's ID.
+  - The folder-change hook ran on your own `!cd`, and the file-watch hook on a watched file.
+  - In Plan mode a hook's "ask" stayed your question, and a dangerous delete was refused in Claude Code's words.
+  - The hook for a waiting card ran after 6 seconds ("Coder needs your permission to use Bash").
+  - SessionStart said "resume" after the machine had slept 11 minutes.
+- **PowerShell:**
+  - A search with no results is not an error.
+  - A rule naming `dotnet.exe` let it run. An allow rule didn't reach outside the project.
+  - `rm` was refused by a Remove-Item rule, and a background command by its rule.
+  - An invisible U+FEFF was refused.
+  - A folder change, quotes in a path, and a chain each asked. Its cards have no "switch to auto mode".
+  - A pwsh hook exiting with code 2 blocked.
+
+**Found and fixed on the branch (not live yet):**
+1. The card for `echo … >> ~/.zshrc` named the file as the project folder with `~` in it. It still asked; now it names the file in the AI's home, as Claude Code does. Test CD508.
+2. `gh` showed "invalid character 'G' looking for beginning of value" instead of Coder's reason when a call was refused. Now `gh` shows the reason. Test CD509.
+3. A hook's error note in the chat was cut at 600 characters, so with a long hook command the reason never showed ("Hook returned incorrect event name …"). Now a long command is shortened instead, and the reason always shows. Test CD510.
+
+**Claude Code, the same things (this session, free):**
+- **The same:** several read-only commands at once, the machine's settings, the "[agent-proxy]" note, the 64 MB note, the `sleep` refusal and the dangerous-delete refusal (word for word). PowerShell's error text comes back as "#< CLIXML …" in both; Claude Code's own program has a label for it.
+- **Different, your call:**
+  - **The cloud address 169.254.169.254:** Claude Code says "Destination IP is in a private/reserved range"; Coder says "Connection to 169.254.169.254 blocked: resolved to a link-local address" (copied from Claude Code's local version, not its cloud).
+  - **A repository the chat doesn't have:** Claude Code says "GitHub access to this repository is not enabled for this session. Use add_repo to request access…"; Coder names the repository and adds its own note.
+  - **When Grok's server fails** (outside the bash tool): Coder tries once more; Claude Code tries up to 10 times, waiting longer each time. It happened once in this round: xAI said "Internal error during token generation" twice in a row, and that message's summary was lost (its commands had run).
+
+**Not tried live:**
+- **The low-memory warning:** the machine had 15 GB free, and the highest setting is 8 GB.
+- **A chat with several repositories:** it needs a second test repository with settings in it.
+- **As before:** the network gate failing (it can't be made to fail from a chat), real dangerous deletes, the out-of-memory stop, the email check.
+- **Hooks and rules on Claude Code's side:** this session can't change its own. Claude Code's command-line version could, with Haiku (paid, waiting for your word).
+
+**My test script's own mistakes, redone:**
+- A plain No on a card ends Coder's turn, as in Claude Code, so three steps stopped at their first card. I reran them answering No with a note.
+- My first background `gh` check used `gh api user`, which Coder refuses (it isn't the chat's repository), as Claude Code's cloud does. I redid it with the repository.
+
+Grok cost: about 22 messages and a few wake-ups, at Low effort; my estimate is $2 to $3.
 
 ## 2026-11-11: Deploy 125: the two round 2 fixes live, and tested live with Grok (recordings 36 and 36b) (your words: "merge and deploy")
 

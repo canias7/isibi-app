@@ -1416,6 +1416,9 @@ everything in Bash not tried live before. Tests: `test/round3.test.mjs`.
 - *gh's refusals are GitHub's JSON* (`ghRefused`, `{"message": …}`): gh shows
   why (a plain-text refusal came out as "invalid character 'G' looking for
   beginning of value"), as with Claude Code's GitHub proxy (test CD509).
+- *A hook's notice keeps its reason* (`hookNoteText`): past 600 characters
+  its command is cut short, never the reason after it (a 1,000-character hook
+  command had hidden "Hook returned incorrect event name"; test CD510).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

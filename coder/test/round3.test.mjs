@@ -37,3 +37,21 @@ test("CD509 gh's refusals are GitHub's JSON ({\"message\": …}), so gh shows wh
   assert.equal((body.match(/return text\(/g) || []).length, 0);
   assert.ok((body.match(/return ghRefused\(/g) || []).length >= 9);
 });
+
+test("CD510 a hook's notice in the chat keeps its reason when its command is long: the command is cut short, never the reason (live: a 1,000-character hook filled the 600 characters and \"Hook returned incorrect event name\" never showed)", async () => {
+  const { hookNoteText, hookResult, hooksOutcome } = await import("../container/coder-hooks.mjs");
+  const hook = { type: "command", command: "i=$(cat); " + "x".repeat(1000) + "; exit 0" };
+  const r = hookResult("PreToolUse", { code: 0, stdout: '{"hookSpecificOutput":{"permissionDecision":"deny"}}', stderr: "" }, hook);
+  const n = hooksOutcome("PreToolUse", [{ hook, result: r }], { tool: "Bash" }).notices[0];
+  assert.ok(n.length > 1000);
+  const t = hookNoteText(n);
+  assert.ok(t.length <= 620, String(t.length));
+  assert.match(t, /^PreToolUse:Bash hook error: \[i=\$\(cat\); x+…\]: Hook returned incorrect event name: expected 'PreToolUse' but got 'undefined'\. Full stdout: \{/);
+  // Short ones whole; a long reason itself cut at 1,400 characters; anything else in that shape cut at the end as before.
+  assert.equal(hookNoteText("PreToolUse:Bash hook error: [echo x]: Timed out"), "PreToolUse:Bash hook error: [echo x]: Timed out");
+  assert.match(hookNoteText("Stop hook error: [echo x]: " + "y".repeat(3000)), /^Stop hook error: \[echo x\]: y{1400}…$/);
+  assert.equal(hookNoteText("z".repeat(900)), "z".repeat(600));
+  // The chat's notes use it.
+  const src = (await import("node:fs")).readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(src, /for \(const n of o\.notices\) emit\(\{ type: "note", text: hookNoteText\(scrub\(n\)\), hook: event \}\);/);
+});

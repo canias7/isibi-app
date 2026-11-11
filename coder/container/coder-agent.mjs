@@ -27,7 +27,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
@@ -1590,7 +1590,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const slot = async (h) => { if (h.type !== "prompt" && h.type !== "agent") return () => {}; if (slots.free > 0) slots.free--; else await new Promise((ok) => slots.wait.push(ok)); return () => { const next = slots.wait.shift(); if (next) next(); else slots.free++; }; };
     const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } const r = hookResult(event, persistHookText(event, ran, saveText), h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
     const o = hooksOutcome(event, runs, { tool: value });
-    for (const n of o.notices) emit({ type: "note", text: scrub(n).slice(0, 600), hook: event });
+    for (const n of o.notices) emit({ type: "note", text: hookNoteText(scrub(n)), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
     if (o.watchPaths) { watchDyn = o.watchPaths.slice(0, 200); keepWatch(); }
     // (A SessionStart hook's title applies "when `source` is "startup", "resume", or "fork"", not after a summary.)
