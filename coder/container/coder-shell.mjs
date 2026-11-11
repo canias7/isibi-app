@@ -7,6 +7,8 @@
 // `ok` is false when the command cannot be read through (an open quote, bracket or here-document): the shell may then
 // read it differently than this did, which Claude Code's rm check treats as a danger of its own.
 
+// (Bracket groups are numbered across every reading, so two never share a number.)
+let groupSeq = 0;
 const SEPARATORS = ["&&", "||", ";;&", ";;", ";&", "|&", ";", "|", "&", "\n"];
 const RESERVED_LEAD = new Set(["if", "then", "else", "elif", "do", "while", "until", "!", "{", "time", "coproc"]);
 const RESERVED_END = new Set(["fi", "done", "esac", "}"]);
@@ -37,13 +39,16 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   const peek = (n = 0) => s[i + n];
   const startsWith = (t) => s.startsWith(t, i);
 
-  // A NESTED LIST: the text between matching brackets, read on its own (its commands go in the same list).
+  // A NESTED LIST: the text between matching brackets, read on its own (its commands go in the same list), each command
+  // marked with the brackets it is in, outermost first (`groups`: a subshell, a $(…), a `…` or a <(…) runs in a shell of
+  // its own, so a cd there stays there; Bash docs pass 8).
   function nested(text, depth, inScript = false) {
     const r = parseShell(text, { scriptDepth });
     if (!r.ok) fail();
     loopVars.push(...r.loopVars);
     if (r.dangling) dangling = true;
-    for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1 });
+    const id = ++groupSeq;
+    for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1, groups: [id, ...(c.groups || [])] });
   }
 
   // From an opening "(" (already read), the text up to its matching ")", minding quotes and nesting.
@@ -250,7 +255,9 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (pendingHeredocs.length && s[i] === "\n") takeHeredocs(depth);
       let words = c.words;
       // Reserved words that only open or close a compound are not the command.
-      while (words.length && RESERVED_LEAD.has(words[0].text) && !words[0].quoted) words = words.slice(1);
+      // (bash's `time` keyword takes `-p`, and `--`, before the command: `time -p git push` runs `git push`. Pass 8: the -p
+      // was left as the command, so a deny rule on `git push` missed it.)
+      while (words.length && RESERVED_LEAD.has(words[0].text) && !words[0].quoted) { const lead = words[0].text; words = words.slice(1); if (lead === "time") while (words.length && !words[0].quoted && (words[0].text === "-p" || words[0].text === "--")) words = words.slice(1); }
       while (words.length && RESERVED_END.has(words[words.length - 1].text) && !words[words.length - 1].quoted && words.length === 1) words = [];
       if (c.compoundSkip) {
         // `for NAME in WORDS` / `case WORD in`: only words, no command; the body follows after `do` / the patterns.
@@ -355,22 +362,119 @@ export const basename = (p) => String(p || "").replace(/\/+$/, "").split("/").po
  * env/sudo/watch/ionice/setsid and similar exec wrappers"): the words of the command each one runs.
  */
 export function unwrapped(words) {
-  let w = leadWords(words);
-  for (let guard = 0; guard < 8 && w.length; guard++) {
-    const p = basename(w[0].text);
-    const opts = (from, withValue = new Set()) => { let k = from; while (k < w.length && w[k].text.startsWith("-") && w[k].text !== "--") { if (withValue.has(w[k].text)) k++; k++; } if (w[k] && w[k].text === "--") k++; return k; };
-    if (p === "command" || p === "builtin" || p === "noglob" || p === "nohup" || p === "exec") { if (p === "command" && w[1] && /^-[vV]$/.test(w[1].text)) return []; w = w.slice(opts(1)); continue; }
-    if (p === "time") { w = w.slice(opts(1)); continue; }
-    if (p === "nice" || p === "ionice") { w = w.slice(opts(1, new Set(["-n", "-c"]))); continue; }
-    if (p === "stdbuf") { w = w.slice(opts(1, new Set(["-i", "-o", "-e"]))); continue; }
-    if (p === "timeout") { let k = opts(1, new Set(["-s", "-k", "--signal", "--kill-after"])); k++; w = w.slice(k); continue; }
-    if (p === "sudo" || p === "doas") { w = w.slice(opts(1, new Set(["-u", "-g", "-C", "-D", "-h", "-p", "-r", "-t", "-U"]))); w = leadWords(w); continue; }
-    if (p === "env") { let k = opts(1, new Set(["-u", "-C", "--unset", "--chdir", "-S"])); while (k < w.length && /^[A-Za-z_][A-Za-z0-9_]*=/.test(w[k].text)) k++; w = w.slice(k); continue; }
-    if (p === "watch" || p === "setsid" || p === "flock" || p === "chrt" || p === "taskset" || p === "unbuffer") { let k = opts(1, new Set(["-n", "-d", "-w", "-x"])); if ((p === "flock") && w[k]) k++; if ((p === "chrt" || p === "taskset") && w[k]) k++; w = w.slice(k); continue; }
-    if (p === "xargs") { if (w[1] && w[1].text.startsWith("-")) return w; w = w.slice(1); continue; }
-    break;
+  const steps = unwrapSteps(words);
+  return steps[steps.length - 1];
+}
+// CLAUDE CODE'S WRAPPER TABLES (its program, 2.1.322; Bash docs pass 8, the owner, 2026-11-11: "Yes pls"): for each exec
+// wrapper, the settings that take a value (its `aer`); the settings whose value is itself a command (its `ler`: env -S,
+// flock -c, script -c); a word that comes before the command (its `der`: chrt's priority, taskset's mask, flock's lock file,
+// script's file). Pass 7's own table read watch -d, flock -n and setsid -w as taking a value, so `watch -d git push` and
+// `time -p git push` got past a deny rule on `git push` (found by the pass 8 check).
+const WRAP_VALUE = Object.freeze({
+  env: ["-u", "-C", "--unset", "--chdir"],
+  sudo: ["-u", "-g", "-U", "-C", "-D", "-h", "-p", "-r", "-R", "-t", "-T", "--user", "--group", "--other-user", "--close-from", "--chdir", "--host", "--prompt", "--role", "--chroot", "--type", "--command-timeout", "-a", "--auth-type"],
+  doas: ["-a", "-u", "-C"], pkexec: ["--user"], watch: ["-n", "--interval", "--equexit"],
+  ionice: ["-c", "-n", "-p", "-P", "-u", "--class", "--classdata", "--pid", "--pgid", "--uid"], setsid: [], taskset: ["-c", "--cpu-list"],
+  chrt: ["-p", "--pid", "-T", "-P", "-D", "--sched-runtime", "--sched-period", "--sched-deadline"],
+  strace: ["-e", "-o", "-p", "-s", "-E", "-P", "-S", "-a", "-b", "-I", "-u", "-X", "-O", "-U", "--output", "--trace", "--expr", "--attach", "--string-limit", "--env", "--trace-path", "--columns", "--user", "--interruptible", "--detach-on", "--const-print-style", "--summary-sort-by", "--summary-syscall-overhead", "--summary-columns"],
+  ltrace: ["-a", "-A", "-e", "-l", "-n", "-o", "-p", "-s", "-u", "-x", "-D", "-F", "--align", "--config", "--debug", "--indent", "--library", "--output", "--string-max", "-w", "--where"],
+  flock: ["-w", "-E", "--timeout", "--wait", "--conflict-exit-code"],
+  script: ["-E", "-T", "-m", "-o", "-O", "-B", "-I", "--echo", "--log-timing", "--logging-format", "--output-limit", "--log-out", "--log-io", "--log-in"],
+  unshare: ["-R", "-w", "-S", "-G", "--setuid", "--setgid", "--root", "--wd", "--propagation", "--setgroups", "--monotonic", "--boottime"],
+  nsenter: ["-t", "-S", "-G", "--target", "--setuid", "--setgid"], exec: ["-a"], command: [], builtin: [], noglob: [], nocorrect: [],
+});
+const WRAP_COMMAND = Object.freeze({ env: ["-S", "--split-string"], flock: ["-c", "--command"], script: ["-c", "--command"] });
+const WRAP_POSITIONAL = Object.freeze({ chrt: (e) => /^\d+$/.test(e), taskset: (e) => /^(0x[\da-f]+|\d+)$/i.test(e), flock: () => true, script: () => true });
+const ASSIGN_WORD = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
+const ownOf = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
+/** A program's name as Claude Code compares it (its `II`): the last part of a path, without `.exe`. */
+export const progName = (t) => String(t ?? "").replace(/^.*[\\/]/, "").replace(/\.exe$/i, "");
+/** Where timeout's duration is (Claude Code's `W3e`): -1 when a setting it does not know comes first. */
+function timeoutAt(n) {
+  const VAL = /^[A-Za-z0-9_.+-]+$/;
+  let k = 1;
+  while (k < n.length) {
+    const r = n[k], s = n[k + 1];
+    if (r === "--foreground" || r === "--preserve-status" || r === "--verbose") k++;
+    else if (/^--(?:kill-after|signal)=[A-Za-z0-9_.+-]+$/.test(r)) k++;
+    else if ((r === "--kill-after" || r === "--signal") && s && VAL.test(s)) k += 2;
+    else if (r === "--") { k++; break; }
+    else if (r.startsWith("--")) return -1;
+    else if (r === "-v") k++;
+    else if ((r === "-k" || r === "-s") && s && VAL.test(s)) k += 2;
+    else if (/^-[ks][A-Za-z0-9_.+-]+$/.test(r)) k++;
+    else if (r.startsWith("-")) return -1;
+    else break;
   }
-  return w;
+  return k;
+}
+/** time [-p], nohup, timeout and `nice -n N` in front (Claude Code's `ier`); `w`: words, compared by their text. */
+function processWrappers(w) {
+  for (;;) {
+    const r = progName(w[0] ? w[0].text : "");
+    if (r === "time" || r === "nohup") {
+      const s = r === "time" && w[1] && w[1].text === "-p" ? 2 : 1;
+      if (w[s] && w[s].text.startsWith("-") && w[s].text !== "--") return w;
+      w = w.slice(w[s] && w[s].text === "--" ? s + 1 : s);
+    } else if (r === "timeout") {
+      const s = timeoutAt(w.map((x) => x.text));
+      if (s < 0 || !w[s] || !/^\d+(?:\.\d+)?[smhd]?$/.test(w[s].text)) return w;
+      w = w.slice(s + 1);
+    } else if (r === "nice" && w[1] && w[1].text === "-n" && w[2] && /^-?\d+$/.test(w[2].text)) w = w.slice(w[3] && w[3].text === "--" ? 4 : 3);
+    else return w;
+  }
+}
+/** A command string given to a wrapper (env -S '…', flock -c '…'), as words. */
+const looseWords = (s) => s.trim().split(/\s+/).filter(Boolean).map((t) => ({ text: t, raw: t, quoted: false, expand: /\$/.test(t), subst: /\$\(|`/.test(t), glob: /[*?[]/.test(t), tilde: t.startsWith("~"), bare: false }));
+/**
+ * EVERY FORM A COMMAND IS MATCHED AS (Claude Code's deny and ask rules try each: the command, past its settings in front,
+ * past each wrapper in turn, and, as the last, the command the wrappers run; its `Yut`, `ier` and `CT`), first to last.
+ * Bare `xargs` is taken away too (its docs); `xargs` with settings is matched as itself.
+ */
+export function unwrapSteps(words) {
+  let w = leadWords(words);
+  const steps = [w];
+  const push = (x) => { if (x !== steps[steps.length - 1]) steps.push(x); };
+  for (let guard = 0; guard < 16 && w.length; guard++) {
+    const before = w;
+    while (w.length && ASSIGN_WORD.test(w[0].text) && !w[0].quoted) w = w.slice(1);
+    push(w);
+    w = processWrappers(w);
+    push(w);
+    // (stdbuf with its modes written on, and nice -N: the forms Claude Code's `CT` takes away from the text.)
+    if (w[0] && progName(w[0].text) === "stdbuf") { let k = 1; while (w[k] && /^-[ioe][LN0-9]+$/.test(w[k].text)) k++; if (k > 1) { w = w.slice(w[k] && w[k].text === "--" ? k + 1 : k); push(w); } }
+    if (w[0] && progName(w[0].text) === "nice" && w[1] && /^-\d+$/.test(w[1].text)) { w = w.slice(w[2] && w[2].text === "--" ? 3 : 2); push(w); }
+    const r = w[0] ? progName(w[0].text) : "";
+    const s = ownOf(WRAP_VALUE, r);
+    if (s !== undefined) {
+      const h = ownOf(WRAP_COMMAND, r), y = ownOf(WRAP_POSITIONAL, r);
+      let k = 1, inner, H = false, stop = false;
+      while (k < w.length) {
+        const K = w[k].text;
+        if (K === "--") { k++; if (!H && y !== undefined && k + 1 < w.length && y(w[k].text)) { H = true; k++; continue; } break; }
+        if (h !== undefined) {
+          if (h.includes(K) && w[k + 1] !== undefined) { const v = w[k + 1].text.trim(); if (v !== "") { inner = v; break; } k += 2; continue; }
+          const eq = K.indexOf("=");
+          if (eq > 0 && h.includes(K.slice(0, eq))) { const v = K.slice(eq + 1).trim(); if (v !== "") { inner = v; break; } k++; continue; }
+          if (K.length > 2 && K[1] !== "-" && h.includes(K.slice(0, 2))) { const v = K.slice(2).trim(); if (v !== "") { inner = v; break; } k++; continue; }
+        }
+        if (K.startsWith("-") && (K !== "-" || y === undefined)) {
+          if (r === "command" && /^-[pvV]+$/.test(K) && /[vV]/.test(K)) { stop = true; break; }
+          k += s.includes(K) && k + 1 < w.length ? 2 : 1; continue;
+        }
+        if (r === "env" && ASSIGN_WORD.test(K)) { k++; continue; }
+        if (!H && y && y(K) && k + 1 < w.length) { H = true; k++; continue; }
+        break;
+      }
+      if (stop) { push(w); break; }
+      if (inner !== undefined) { const iw = looseWords(inner); if (!iw.length) break; w = iw; push(w); continue; }
+      if (k >= w.length) { push(w); break; }
+      w = w.slice(k);
+    } else if (r === "xargs" && !(w[1] && w[1].text.startsWith("-"))) w = w.slice(1);
+    push(w);
+    if (w === before) break;
+  }
+  return steps;
 }
 
 /** The top-level commands' texts, as Claude Code splits a command at &&, ||, ;, |, & and new lines (its `jg`). */

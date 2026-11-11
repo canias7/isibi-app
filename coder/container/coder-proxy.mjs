@@ -26,14 +26,34 @@ import { join } from "node:path";
 import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS, listCovers } from "./coder-secrets.mjs";
 import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
+import { isIP } from "node:net";
 import { privateAddress } from "./coder-tools.mjs";
 export { okHost, HEADER_RE, PREFIXES, headerValue } from "./coder-secrets.mjs";
 
-/** In limited mode, a lookup that refuses private addresses (the firewall leaves the proxy as the only way out). */
+/**
+ * WHAT KIND OF LOCAL ADDRESS (Claude Code's words: "loopback addresses such as 127.0.0.1, link-local addresses such as the
+ * 169.254.169.254 cloud metadata endpoint, and addresses assigned to your own machine"; Coder's machine also has a
+ * private network, Fly.io's): "" for a public one.
+ */
+export function localKind(address) {
+  const a = String(address || "").toLowerCase().replace(/^\[|\]$/g, "");
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  const x = v4 ? v4[1] : a;
+  if (/^127\./.test(x) || x === "::1" || x === "0.0.0.0" || x === "::") return "loopback";
+  if (/^169\.254\./.test(x) || /^fe[89ab][0-9a-f]:/.test(x)) return "link-local";
+  return privateAddress(x) ? "private" : "";
+}
+/** Claude Code's words for it (the body of the gate's 403). */
+export const LOCAL_REFUSED = (host, kind) => "Connection to " + host + " blocked: resolved to a " + kind + " address";
+/**
+ * A lookup that refuses local and private addresses, IN EVERY NETWORK SETTING (pass 8: with Full, a command could reach
+ * the machine's own services through the gate; a command still reaches its own localhost directly, NO_PROXY).
+ */
 function publicLookup(hostname, opts, cb) {
   dnsLookup(hostname, { ...(typeof opts === "object" ? opts : {}), all: true }, (err, list) => {
     if (err) return cb(err);
-    if (!list.length || list.some((x) => privateAddress(x.address))) return cb(Object.assign(new Error("a private address"), { code: "EPRIVATE" }));
+    const bad = (list || []).find((x) => privateAddress(x.address));
+    if (!list.length || bad) return cb(Object.assign(new Error("a private address"), { code: "EPRIVATE", kind: bad ? localKind(bad.address) || "private" : "private" }));
     if (opts && opts.all) return cb(null, list);
     cb(null, list[0].address, list[0].family);
   });
@@ -266,7 +286,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     let up;
     try {
-    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: target, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
+    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: target, headers, ...(!upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
       if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws, s.live].filter((x) => x && x.length >= 8); for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => one.includes(x))) delete back[k]; } }
@@ -292,9 +312,10 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     if (!allowed(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(own ? UNLISTED(host) : BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
-    try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
+    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) { const kind = localKind(host) || "private", b = LOCAL_REFUSED(host, kind); blocked(host, "resolved to a " + kind + " address"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); }
+    try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, lookup: publicLookup }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
     catch { res.writeHead(400); return res.end("bad request"); }
-    up.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    up.on("error", (e) => { if (e && e.code === "EPRIVATE") { const b = LOCAL_REFUSED(host, e.kind); blocked(host, "resolved to a " + e.kind + " address"); if (!res.headersSent) res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); } if (!res.headersSent) res.writeHead(502); res.end(); });
     req.pipe(up);
   });
   server.on("connect", (req, sock, head) => {
@@ -324,9 +345,11 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     // ANY OTHER HOST: a plain tunnel; nothing is read or added.
     let out;
-    try { out = net.connect({ port, host, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
+    const refuse = (kind) => { blocked(host, "resolved to a " + kind + " address"); const b = LOCAL_REFUSED(host, kind); try { sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); } catch { /* gone */ } };
+    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) return refuse(localKind(host) || "private");
+    try { out = net.connect({ port, host, lookup: publicLookup }, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
     } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
-    out.on("error", () => { try { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); } catch { /* gone */ } });
+    out.on("error", (e) => { if (e && e.code === "EPRIVATE") return refuse(e.kind); try { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); } catch { /* gone */ } });
   });
   // Nothing a command sends may crash the service (the audit, 2026-11-06).
   for (const s of [server, inner]) { s.on("clientError", (_e, so) => { try { so.destroy(); } catch { /* gone */ } }); s.on("error", () => {}); }

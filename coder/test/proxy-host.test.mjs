@@ -252,20 +252,22 @@ test("CD97 audit (2026-11-06): hostMatches matches only real DNS names; the netw
       s.on("close", done);
       s.on("error", done);
     });
-    assert.equal(tunnel, "HTTP/1.1 200 Connection Established\r\n\r\nping", "Full: a tunnel to an IPv4 address");
-    assert.match(await get(px, "http://127.0.0.1:" + webPort + "/x"), /^HTTP\/1\.1 200 [\s\S]*plain \/x$/, "Full: plain http:// to an IPv4 address");
-    assert.doesNotMatch(await connect(px, "localhost:" + echoPort), /^HTTP\/1\.1 40[03] /, "Full: a one-label name");
-    // IPv6 in brackets is let through on Full (this machine may have no IPv6, so the
-    // connection itself may fail with 502, but never 400 or 403).
-    assert.doesNotMatch(await connect(px, "[::1]:" + echoPort), /^HTTP\/1\.1 40[03] /, "Full: CONNECT to [::1]");
+    // (Bash docs pass 8, the owner, 2026-11-11: "Yes pls": Full no longer reaches the machine's own local addresses through
+    // the gate, by name or by number, in Claude Code's words; its sandbox proxy refuses "the connection when the name
+    // resolves only to local addresses". A command still reaches its own localhost directly: NO_PROXY.)
+    assert.match(tunnel, /^HTTP\/1\.1 403 Forbidden[\s\S]*Connection to 127\.0\.0\.1 blocked: resolved to a loopback address$/, "Full: a tunnel to the machine's own address");
+    assert.match(await get(px, "http://127.0.0.1:" + webPort + "/x"), /^HTTP\/1\.1 403 [\s\S]*resolved to a loopback address$/, "Full: plain http:// to it");
+    assert.match(await connect(px, "localhost:" + echoPort), /^HTTP\/1\.1 403 [\s\S]*Connection to localhost blocked: resolved to a loopback address$/, "Full: a name for it");
+    assert.match(await connect(px, "[::1]:" + echoPort), /^HTTP\/1\.1 403 /, "Full: CONNECT to [::1]");
     // Plain http:// hands Node the address without its brackets (the audit, 2026-11-06):
     // with them, Node looked "[::1]" up as a name, so it never worked. Checked where the
     // proxy hands it on (the proxy's "node:http" is this one), since the answer here is
     // 502 either way: the stand-in listens on IPv4 only, and this machine may have no IPv6.
     const handed = [], realRequest = http.request;
     http.request = (o, ...rest) => { handed.push(o && o.host); return realRequest.call(http, o, ...rest); };
-    try { assert.doesNotMatch(await get(px, "http://[::1]:" + webPort + "/"), /^HTTP\/1\.1 40[03] /, "Full: http:// to [::1]"); } finally { http.request = realRequest; }
-    assert.deepEqual(handed, ["::1"], "the address, without brackets");
+    // (A public IPv6 address now: a local one is refused before it is handed on.)
+    try { assert.doesNotMatch(await get(px, "http://[2606:4700:4700::1111]:" + webPort + "/"), /^HTTP\/1\.1 40[03] /, "Full: http:// to a public IPv6 address"); } finally { http.request = realRequest; }
+    assert.deepEqual(handed, ["2606:4700:4700::1111"], "the address, without brackets");
     for (const mode of ["trusted", "custom", "none"]) {
       px.setNetwork({ mode, hosts: ["*.allowed.example"], defaults: true });
       for (const t of ["127.0.0.1:" + echoPort, "[::1]:" + echoPort, "localhost:" + echoPort]) assert.match(await connect(px, t), /^HTTP\/1\.1 403 /, mode + ": CONNECT " + t);

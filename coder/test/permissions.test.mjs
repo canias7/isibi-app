@@ -167,8 +167,11 @@ test("CD313 the files a command writes and Accept edits' file commands, read lik
   assert.equal(r.cdAway, true);
   const t = (c) => fileCommandTargets(parseShell(c).commands[0], ROOT);
   assert.deepEqual(t("mkdir -p a/b"), { paths: [ROOT + "/a/b"], sure: true });
-  assert.deepEqual(t("cp -r src dist"), { paths: [ROOT + "/src", ROOT + "/dist"], sure: true });
-  assert.deepEqual(t("mv -t out a b"), { paths: [ROOT + "/out", ROOT + "/a", ROOT + "/b"], sure: true });
+  // (dist may be a folder: what cp would write there counts for the owner's rules, Bash docs pass 8, CD409.)
+  assert.deepEqual(t("cp -r src dist"), { paths: [ROOT + "/src", ROOT + "/dist"], sure: true, maybe: [ROOT + "/dist/src"] });
+  assert.deepEqual(t("cp -r src dist/"), { paths: [ROOT + "/src", ROOT + "/dist/src"], sure: true });
+  // (-t names the folder; the files it writes there stand for it: Bash docs pass 8, CD409.)
+  assert.deepEqual(t("mv -t out a b"), { paths: [ROOT + "/a", ROOT + "/b", ROOT + "/out/a", ROOT + "/out/b"], sure: true });
   assert.deepEqual(t("rm src/*.log"), { paths: [ROOT + "/src/*"], sure: true });
   assert.equal(t("rm $X").sure, false);
   assert.equal(t("cp --backup a b").sure, false);

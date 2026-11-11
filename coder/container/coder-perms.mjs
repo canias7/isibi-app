@@ -15,7 +15,7 @@
 // allowed only for the commands whose every option only reads.
 import { psRuleMatches, psExactRule } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, PS_FORMATTERS } from "./coder-psparse.mjs";
-import { parseShell, unwrapped, leadWords, basename } from "./coder-shell.mjs";
+import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -450,7 +450,9 @@ export function fileCommandTargets(cmd, cwd) {
   const hasPrefix = lead.length !== cmd.words.length;
   const w = readWords(cmd.words, { wrappers: true });
   if (!w || !w.length) return null;
-  const prog = w[0].text;
+  // (cp and mv named by a path, /bin/cp, are cp and mv: Claude Code 2.1.321, "Changed cp and mv spelled by a path, such as
+  // /bin/cp, to get the same path checks as cp and mv".)
+  const prog = ["cp", "mv"].includes(progName(w[0].text)) ? progName(w[0].text) : w[0].text;
   if (w[0].quoted || w[0].expand || !["mkdir", "touch", "rm", "rmdir", "mv", "cp", "sed"].includes(prog)) return null;
   const rest = w.slice(1);
   // touch: plain file paths only, nothing in front.
@@ -469,7 +471,8 @@ export function fileCommandTargets(cmd, cwd) {
   }
   const opt = FILE_OPTS[prog];
   const paths = [];
-  let sure = true, operands = false, scriptTaken = prog !== "sed";
+  let sure = true, operands = false, scriptTaken = prog !== "sed", intoDir = "";
+  const ops = [];
   for (let i = 0; i < rest.length; i++) {
     const x = rest[i], t = x.text;
     if (!operands && t === "--") { operands = true; continue; }
@@ -479,7 +482,7 @@ export function fileCommandTargets(cmd, cwd) {
       if (opt.value.has(name)) {
         const v = eq > 0 ? { ...x, text: t.slice(eq + 1) } : rest[++i];
         if (prog === "sed" && (name === "-e" || name === "--expression")) { scriptTaken = true; continue; }
-        if (name === "-t" || name === "--target-directory") { const p = fullPath(v, cwd); if (p) paths.push(p); else sure = false; }
+        if (name === "-t" || name === "--target-directory") { const p = fullPath(v, cwd); if (p) { paths.push(p); intoDir = p; } else sure = false; }
         continue;
       }
       if (prog === "sed" && /^-e./.test(t)) { scriptTaken = true; continue; }
@@ -491,14 +494,31 @@ export function fileCommandTargets(cmd, cwd) {
       // A wildcard stays where its folder is; one that could reach a dot-folder (.git, .husky) or climb out is not sure.
       if (/(^|\/)\.[^/]*[*?[]|(^|\/)[*?[][^/]*\.\.|\.\./.test(t) || /(^|\/)\[/.test(t) || x.expand || x.tilde) { sure = false; continue; }
       const base = globBase(t), p = fullPath({ ...x, text: base }, cwd);
-      if (p) paths.push(p + "/*"); else sure = false;
+      if (p) { paths.push(p + "/*"); ops.push({ path: p + "/*", glob: true, name: "" }); } else sure = false;
       continue;
     }
     const p = fullPath(x, cwd);
-    if (p) paths.push(p); else sure = false;
+    if (p) { paths.push(p); ops.push({ path: p, glob: false, name: x.text.replace(/\/+$/, "").split("/").pop(), text: x.text }); } else sure = false;
+  }
+  // THE FILE A cp OR mv INTO A FOLDER WRITES (Claude Code 2.1.321: "Fixed deny rules and protected-file prompts not applying
+  // to the file that a cp or mv into a directory writes"): the folder (-t, or the last name) and, in it, each source's
+  // name (anything in it for a wildcard source). The last name may be a file or a folder: both are checked.
+  const maybe = [];
+  if ((prog === "cp" || prog === "mv") && ops.length) {
+    const last = ops[ops.length - 1];
+    const dest = intoDir || (ops.length > 1 ? last.path : "");
+    const sources = intoDir ? ops : ops.slice(0, -1);
+    // (A folder for sure: -t, two sources or more, or a name ending in / or being . or ..; one that may be either: the
+    // files in it count for the owner's rules only, `maybe`.)
+    const clear = !!intoDir || sources.length > 1 || /\/$/.test(String(last.text || "")) || last.name === "." || last.name === "..";
+    if (dest && !dest.endsWith("/*")) {
+      // (Into a folder for sure: the files it writes there stand for it.)
+      if (clear) { const di = paths.indexOf(dest); if (di >= 0) paths.splice(di, 1); }
+      for (const src of sources) { const q = src.glob || !src.name || src.name === "." || src.name === ".." ? dest.replace(/\/+$/, "") + "/*" : dest.replace(/\/+$/, "") + "/" + src.name; if (!paths.includes(q) && !maybe.includes(q)) (clear ? paths : maybe).push(q); }
+    }
   }
   if (!paths.length) sure = false;
-  return { paths, sure };
+  return maybe.length ? { paths, sure, maybe } : { paths, sure };
 }
 
 // ── THE WHOLE COMMAND ────────────────────────────────────────────────────────
@@ -509,7 +529,9 @@ export function fileCommandTargets(cmd, cwd) {
  */
 export function wholeReadOnly(command) {
   const r = readCommand(command);
-  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c));
+  // (git after a cd that went elsewhere, in brackets too, is no read-only command: Claude Code asks, 2.1.309.)
+  const gitElsewhere = (c) => { const w = readWords(c.words) || []; return !!w[0] && basename(w[0].text) === "git" && (r.cdAway || c.dir !== "/"); };
+  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c) && !gitElsewhere(c));
 }
 /**
  * GIT COMMANDS THAT MOVE THE WORK TREE (Claude Code 2.1.319's own list; its hooks reference: "Set for a Git command that moves
@@ -550,10 +572,58 @@ const HOME_WORD = /^(?:"(?:\$HOME|\$\{HOME\})(\/[^"$`\\\n]*)?"|(?:\$HOME|\$\{HOM
 const SETS_HOME = /(^|[^A-Za-z0-9_])HOME\+?=|\b(?:export|declare|typeset|local|readonly|read|unset|mapfile|readarray|getopts|printf)\b[^;&|\n]*\bHOME\b/;
 const homeWord = (w, home) => { const m = w && home && !w.tilde ? HOME_WORD.exec(String(w.raw || "")) : null; return m ? { ...w, text: normalPath(home + (m[1] || m[2] || "")), expand: false, subst: false, quoted: true } : w; };
 const pwdWord = (w, dir) => { const m = w && dir !== false && !w.tilde ? PWD_WORD.exec(String(w.raw || "")) : null; return m ? { ...w, text: normalPath(dir + m[1]), expand: false, subst: false, quoted: true } : w; };
-export function readCommand(command, { cwd = "/", home = "" } = {}) {
+// A variable's value put into a word (readCommand's `vars`): every $NAME and ${NAME} in it known, none other, no single quote.
+const VAR_REF = /\$\{([A-Za-z_][A-Za-z0-9_]*)\}|\$([A-Za-z_][A-Za-z0-9_]*)/g;
+function varWord(w, known, unknown) {
+  const raw = String((w && w.raw) || "");
+  if (!raw.includes("$") || raw.includes("'") || /\$\(|`/.test(raw)) return w;
+  let ok = true;
+  const out = raw.replace(VAR_REF, (m, a, b) => { const n = a || b; if (!known.has(n) || unknown.has(n)) { ok = false; return m; } return known.get(n); });
+  if (!ok || out.includes("$")) return w;
+  const text = out.replace(/\\(.)/g, "$1").replace(/"/g, "");
+  return { ...w, text, expand: false, subst: false, quoted: true, bare: false };
+}
+// The variables a top-level part sets (readCommand's `vars`).
+const DECLARES = new Set(["export", "declare", "typeset", "readonly", "local"]);
+function noteVars(c, known, unknown) {
+  const w = c.words;
+  const set = (word) => {
+    const m = /^([A-Za-z_][A-Za-z0-9_]*)(\+?)=([\s\S]*)$/.exec(String(word.text || ""));
+    if (!m) return;
+    const literal = !word.subst && !/\$|`/.test(m[3]) && !(word.expand && !word.quoted && /\$/.test(String(word.raw || "")));
+    if (!literal || unknown.has(m[1])) { known.delete(m[1]); unknown.add(m[1]); return; }
+    known.set(m[1], m[2] && known.has(m[1]) ? known.get(m[1]) + m[3] : m[2] ? null : m[3]);
+    if (known.get(m[1]) === null) { known.delete(m[1]); unknown.add(m[1]); }
+  };
+  if (w.length && w.every((x) => /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(String(x.raw || "")))) { for (const x of w) set(x); return; }
+  const words = unwrapped(w);
+  const prog = words[0] ? basename(words[0].text) : "";
+  const names = (from) => words.slice(from).filter((x) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(x.text)).map((x) => x.text);
+  const lose = (list) => { for (const n of list) { known.delete(n); unknown.add(n); } };
+  if (DECLARES.has(prog)) {
+    const opts = words.slice(1).filter((x) => /^[-+][A-Za-z]+$/.test(x.text)).map((x) => x.text).join("");
+    if (/[nNaA]/.test(opts)) { lose(words.slice(1).map((x) => String(x.text).split("=")[0]).filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))); return; }
+    for (const x of words.slice(1)) if (!/^[-+]/.test(x.text)) set(x);
+    return;
+  }
+  if (prog === "unset") { for (const n of names(1)) { known.delete(n); unknown.delete(n); } return; }
+  if (prog === "read" || prog === "mapfile" || prog === "readarray" || prog === "getopts" || prog === "printf") lose(names(1));
+}
+export function readCommand(command, { cwd = "/", home = "" , vars = false } = {}) {
   const r = parseShell(String(command || ""));
   const writes = [], reads = [];
   let dir = cwd, cdAway = false, unsureDir = false, cdSeen = false;
+  // THE FOLDER IN EACH BRACKET GROUP (a subshell, a $(…), a `…`, a <(…)), for deny and ask rules (`vars`): where it started,
+  // then its own cds (Claude Code 2.1.309: "Fixed an Edit(path) deny rule not blocking a Bash redirect to that path in some
+  // commands that also held a subshell"; `(cd src && echo x > ../.env)` writes .env). The other reading keeps such a folder
+  // unknown, so a short path there asks in Claude Code's words (CD367).
+  const groupDir = new Map();
+  const dirFor = (c) => { if (!vars) return unsureDir ? false : dir; let d = unsureDir ? false : dir; for (const g of c.groups || []) { if (!groupDir.has(g)) groupDir.set(g, d); d = groupDir.get(g); } return d; };
+  // THE VARIABLES THE COMMAND SETS BEFORE A PART (`vars`, for deny and ask rules only; Claude Code 2.1.290, 2.1.309): a
+  // plain value set at the top level (NAME=value, or after export, declare, typeset, readonly or local) is put in where
+  // a later part names it ($NAME, ${NAME}), so `F=.env; cat $F` meets a rule on .env and `C=curl; $C x` one on curl. A
+  // name a loop, read, mapfile, getopts or printf -v sets, or one set by a command's output, is left as written.
+  const known = new Map(), unknown = new Set(vars ? r.loopVars || [] : []);
   const setsPwd = SETS_PWD.test(String(command || ""));
   const homeAt = home && typeof home === "string" && home.startsWith("/") && !SETS_HOME.test(String(command || "")) ? home : "";
   for (const c of r.commands) {
@@ -561,7 +631,8 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
     // THE FOLDER THIS PART RUNS IN (Claude Code 2.1.321: "Fixed a case where Bash permission checks judged a file write from
     // the wrong folder and didn't prompt"): where the cds before it at the top level left it, or unknown (`false`) once a cd
     // could have gone anywhere, or ran inside a subshell, a function or a $(…) (its folder is then not the one tracked here).
-    c.dir = unsureDir ? false : dir;
+    c.dir = dirFor(c);
+    if (vars && known.size) { c.words = c.words.map((x) => varWord(x, known, unknown)); for (const x of c.redirects) if (x.target) x.target = varWord(x.target, known, unknown); }
     if (!setsPwd && c.dir !== false) { c.words = c.words.map((x) => pwdWord(x, c.dir)); for (const x of c.redirects) if (x.target) x.target = pwdWord(x.target, c.dir); }
     const w = unwrapped(c.words);
     const prog = w[0] ? basename(w[0].text) : "";
@@ -572,7 +643,7 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
       if (NO_FILE.has(t.text)) continue;
       // (A here-string's word is text, not a file: Claude Code checks no "here-docs and here-strings".)
       if (x.op === "<<<") continue;
-      const path = unsureDir && !t.text.startsWith("/") ? "" : fullPath(t, dir);
+      const path = c.dir === false && !t.text.startsWith("/") ? "" : fullPath(t, c.dir === false ? "/" : c.dir);
       // `glob`: an unquoted * ? or [ (Claude Code: an output target that "contains a glob character needs your approval",
       // an input one too); `afterCd`: an input target given as a short path after a cd in the same command (Claude Code:
       // "a relative path that follows a cd in the same command, needs your approval even when an allow rule covers it").
@@ -580,12 +651,18 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
       if (x.op === "<" || x.op === "<&") reads.push({ path, raw: t.raw, glob: !!t.glob, afterCd: cdSeen && !t.text.startsWith("/"), cmd: c, expand: !!(t.expand || t.subst) });
       else writes.push({ path, raw: t.raw, glob: !!t.glob, cmd: c, expand: !!(t.expand || t.subst) });
     }
-    if (prog === "tee") for (let k = 1; k < w.length; k++) { const t = w[k].text; if (t === "--" || (t.startsWith("-") && t.length > 1)) continue; writes.push({ via: "tee", cmd: c, expand: !!(w[k].expand || w[k].subst), path: unsureDir && !t.startsWith("/") ? "" : fullPath(w[k], dir), raw: w[k].raw, glob: !!w[k].glob }); }
+    if (prog === "tee") for (let k = 1; k < w.length; k++) { const t = w[k].text; if (t === "--" || (t.startsWith("-") && t.length > 1)) continue; writes.push({ via: "tee", cmd: c, expand: !!(w[k].expand || w[k].subst), path: c.dir === false && !t.startsWith("/") ? "" : fullPath(w[k], c.dir === false ? "/" : c.dir), raw: w[k].raw, glob: !!w[k].glob }); }
     if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") cdSeen = true;
-    if ((prog === "cd" || prog === "pushd" || prog === "popd") && c.top >= 0) {
+    const inGroup = !!(c.groups && c.groups.length);
+    if ((prog === "cd" || prog === "pushd" || prog === "popd") && inGroup && vars) {
+      // (A cd in brackets: that group's folder only.)
+      const to = w[1] ? fullPath(w[1], c.dir) : "";
+      groupDir.set(c.groups[c.groups.length - 1], !to || prog !== "cd" ? false : to);
+    } else if ((prog === "cd" || prog === "pushd" || prog === "popd") && c.top >= 0) {
       const to = w[1] ? fullPath(w[1], unsureDir ? false : dir) : "";
       if (!to || prog !== "cd") unsureDir = true; else if (to !== dir) { dir = to; cdAway = true; }
     } else if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") unsureDir = true;
+    if (vars && c.top >= 0 && !inGroup) noteVars(c, known, unknown);
   }
   // `loopVars`: each loop's own variable (`for NAME in …`); `dangling`: an operator with nothing after it (coder-shell.mjs).
   return { ok: r.ok, cmds: r.commands, writes, reads, cdAway, unsureDir, loopVars: r.loopVars || [], dangling: !!r.dangling };
@@ -930,8 +1007,20 @@ function textsOf(words) {
   const raw = words.map((x) => x.raw).join(" "), plain = words.map((x) => x.text).join(" ");
   return raw === plain ? [raw] : [raw, plain];
 }
-/** For deny and ask rules: past every wrapper and setting in front (Claude Code: "A deny or ask rule matches past any leading assignment"). */
-function denyTexts(cmd) { return textsOf(unwrapped(cmd.words)); }
+/**
+ * For deny and ask rules: every form Claude Code tries (its `hY` for deny and ask rules: "A deny or ask rule matches past
+ * any leading assignment"; and "Bash deny rules now match commands wrapped in env/sudo/watch/ionice/setsid and similar
+ * exec wrappers"): the command as written, past its settings in front, past each wrapper in turn, and the command the
+ * wrappers run, that last also with its program named without a path (`/usr/bin/curl x` as `curl x`, its `II`).
+ */
+function denyTexts(cmd) {
+  const steps = unwrapSteps(cmd.words);
+  const out = new Set(textsOf(cmd.words));
+  for (const s of steps) for (const t of textsOf(s)) out.add(t);
+  const last = steps[steps.length - 1];
+  if (last && last[0] && progName(last[0].text) !== last[0].text) for (const t of textsOf([{ ...last[0], text: progName(last[0].text), raw: progName(last[0].text) }, ...last.slice(1)])) out.add(t);
+  return [...out];
+}
 /** For allow rules: past the safe wrappers and settings only; none when an unsafe setting is in front. */
 function allowTexts(cmd) { const w = readWords(cmd.words, { wrappers: true }); return w ? textsOf(w) : []; }
 
@@ -1010,13 +1099,15 @@ export function suggestFor(cmd) {
  */
 export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [] } = {}) {
   const read = readCommand(command, { cwd, home });
+  // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
+  const shadow = readCommand(command, { cwd, home, vars: true });
   const deny = rulesFor(rules.deny, "Bash", true), ask = rulesFor(rules.ask, "Bash", true), allow = rulesFor(rules.allow, "Bash");
   // DENY, THEN ASK: a rule on one of the call's settings (Bash(run_in_background:true), see settingSpec), or a rule on the
   // command matching any part of it, nested ones too (Claude Code: "including a command nested inside a subshell, a command
   // substitution, or a control-flow body"). A rule on a setting is no command pattern.
   const onSetting = (x) => { const sp = settingSpec(x.spec); return sp && sp.name !== "command" ? sp : null; };
   const settingHit = (list) => (input && typeof input === "object" ? list.find((x) => { const sp = onSetting(x); return !!sp && settingMatches(sp.value, input[sp.name]); }) || null : null);
-  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec)); for (const c of read.cmds) for (const t of denyTexts(c)) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
+  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of denyTexts(c)) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
   const d = settingHit(deny) || commandHit(deny);
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   // THE OWNER'S READ AND EDIT RULES ON THE FILES THE COMMAND NAMES (Bash docs, the owner, 2026-11-10: "yea do all 4"; Claude
@@ -1025,7 +1116,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles(read, { cwd, home });
   const fctx = { root: workdirs[0] || cwd, home, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
-  const fileHit = (kind) => { for (const f of files) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
+  const ruleFiles = [...files, ...commandFiles(shadow, { cwd, home })];
+  const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
   if (fd) return { verdict: "deny", rule: fd.rule, why: fileBlockedWhy(fd.f, workdirs), suggest: null };
   const a = settingHit(ask) || commandHit(ask);
@@ -1123,7 +1215,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       if (!to || !insideWork(to, workdirs)) { partWhy.set(c, to ? blockedWhy("cd", to, workdirs) : VAR_UNCHECKED); parts.push(c); continue; }
       continue;
     }
-    if (ro && name === "git" && read.cdAway) { gitAfterCd = true; partWhy.set(c, GIT_AFTER_CD); parts.push(c); continue; }
+    if (ro && name === "git" && (read.cdAway || c.dir !== cwd)) { gitAfterCd = true; partWhy.set(c, GIT_AFTER_CD); parts.push(c); continue; }
     if (ro) {
       // A READ OF A PATH OUTSIDE THE PROJECT ASKS (the live side-by-side, 2026-11-10: Claude Code 2.1.322 asked for
       // `cat /etc/hostname`, `ls /`, `head -1 /etc/passwd`, `ls ../` and `cat ~/.bashrc` in Accept edits, and in Plan without
@@ -1252,7 +1344,7 @@ export function commandFiles(read, { cwd = "/", home = "" } = {}) {
     for (const a of pathArgs(c, { cwd, home })) if (a.full) out.push({ tool: "Read", path: a.full, name, how: "cmd", glob: !!a.glob, raw: a.p });
     const fc = c.dir === false ? null : fileCommandTargets(c, c.dir === undefined ? cwd : c.dir);
     // (cp, mv and sed -i read what they change, so a Read rule on one of their files counts too.)
-    if (fc) for (const p of fc.paths) if (p) for (const tool of ["cp", "mv", "sed"].includes(name) ? ["Edit", "Read"] : ["Edit"]) out.push({ tool, path: p.replace(/\/\*$/, ""), name, how: "cmd", glob: /\/\*$/.test(p) });
+    if (fc) for (const p of [...fc.paths, ...(fc.maybe || [])]) if (p) for (const tool of ["cp", "mv", "sed"].includes(name) ? ["Edit", "Read"] : ["Edit"]) out.push({ tool, path: p.replace(/\/\*$/, ""), name, how: "cmd", glob: /\/\*$/.test(p) });
   }
   for (const x of read.reads || []) if (x.path && !x.expand) out.push({ tool: "Read", path: x.path, name: "", how: "in", glob: !!x.glob });
   for (const x of read.writes || []) if (x.path && !x.expand) out.push({ tool: "Edit", path: x.path, name: x.via === "tee" ? "tee" : "", how: x.via === "tee" ? "tee" : "out", glob: !!x.glob });
@@ -1295,7 +1387,12 @@ export function pathArgs(c, { cwd = "/", home = "" } = {}) {
   const rule = READ_PATHS[basename(words[0].text)];
   if (!rule) return [];
   const args = words.slice(1), dir = c.dir === undefined ? cwd : c.dir, out = [];
-  for (const p of rule(args.map((x) => x.text))) {
+  // (A wildcard the shell expands is files wherever it stands, the pattern's place or an option's value too: Claude Code
+  // 2.1.271, "Fixed Bash permission checks skipping files a wildcard expands to when the wildcard sits in a command's
+  // pattern or option value (for example grep -v dir/* file)".)
+  const listed = rule(args.map((x) => x.text));
+  for (const x of args) if (x.glob && !x.text.startsWith("-") && !listed.includes(x.text)) listed.push(x.text);
+  for (const p of listed) {
     if (p === "-" || NOT_FILES.has(p)) continue;
     const word = args.find((x) => x.text === p) || args.find((x) => x.text.endsWith(p)) || {};
     let text = p;
