@@ -257,3 +257,73 @@ test("MC9 (2026-11-11, from Claude Code's MCP docs) 403 means sign in too; Check
     }
   }
 });
+
+test("MC10 (2026-11-11, from Claude Code's MCP docs) tool search: many connector tools are sent as names and one connector_search; what it finds is loaded for the rest of the job", async () => {
+  const { deferConnectors, findConnectorTools, CONNECTOR_UPFRONT_MAX } = await import("../container/coder-agent.mjs");
+  const mk = (n) => connectorTools(Array.from({ length: n }, (_, i) => ({ name: "mcp__linear__tool_" + i, label: "Linear: tool " + i, description: i === 7 ? "Create an issue in a team" : "Something else " + i, parameters: { type: "object", properties: {} } })));
+  assert.equal(deferConnectors(mk(CONNECTOR_UPFRONT_MAX)), false);
+  const many = mk(CONNECTOR_UPFRONT_MAX + 5);
+  assert.equal(deferConnectors(many), true);
+  assert.deepEqual(findConnectorTools(many, "create issue").map((t) => t.name)[0], "mcp__linear__tool_7");
+  assert.deepEqual(findConnectorTools(many, "select:mcp__linear__tool_3,mcp__linear__tool_4").map((t) => t.name), ["mcp__linear__tool_3", "mcp__linear__tool_4"]);
+  let i = 0;
+  const seen = [], ran = [];
+  const replies = [
+    { message: { role: "assistant", content: "", tool_calls: [{ id: "s1", type: "function", function: { name: "connector_search", arguments: JSON.stringify({ query: "create issue" }) } }] }, usage: { in: 1, out: 1 } },
+    { message: { role: "assistant", content: "", tool_calls: [{ id: "k1", type: "function", function: { name: "mcp__linear__tool_7", arguments: "{}" } }] }, usage: { in: 1, out: 1 } },
+    { message: { role: "assistant", content: "done" }, usage: { in: 1, out: 1 } },
+  ];
+  await runCoder({ send: async (q) => { seen.push(q.tools.map((t) => t.function.name)); return replies[Math.min(i++, 2)]; }, exec: async () => ({ code: 0, output: "" }), mcp: async (n) => { ran.push(n); return { text: "ok", isError: false }; } }, { text: "x", connectors: many });
+  assert.ok(seen[0].includes("connector_search") && !seen[0].some((n) => n.startsWith("mcp__")));
+  assert.ok(seen[1].includes("mcp__linear__tool_7"));
+  assert.deepEqual(ran, ["mcp__linear__tool_7"]);
+});
+
+test("MC11 (2026-11-11, from Claude Code's MCP docs) an older SSE server works: an address ending in /sse, or one that refuses Streamable HTTP with 405", async () => {
+  const { mcpSession } = await import("../src/coder-mcp.mjs");
+  const fakeSse = () => {
+    let push;
+    const enc = new TextEncoder();
+    return async (url, init = {}) => {
+      const u = new URL(String(url));
+      if (init.method === "GET") {
+        const body = new ReadableStream({ start(c) { push = (t) => c.enqueue(enc.encode(t)); push("event: endpoint\ndata: /messages?session=abc\n\n"); } });
+        return new Response(body, { headers: { "content-type": "text/event-stream" } });
+      }
+      if (u.pathname === "/messages") {
+        const msg = JSON.parse(init.body);
+        if ("id" in msg) {
+          const result = msg.method === "initialize" ? { protocolVersion: "2024-11-05", capabilities: {} } : msg.method === "tools/list" ? { tools: TOOLS } : { content: [{ type: "text", text: "sse ok" }] };
+          setTimeout(() => push("event: message\ndata: " + JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\n\n"), 5);
+        }
+        return new Response("Accepted", { status: 202 });
+      }
+      return new Response("Method Not Allowed", { status: 405 });
+    };
+  };
+  const [r] = await mcpSession("https://old.example.com/sse", "", [["tools/list", {}]], { fetchFn: fakeSse() });
+  assert.deepEqual(r.tools.map((t) => t.name), ["list_issues", "create_issue"]);
+  // A server that refuses the newer transport (405) is tried over SSE.
+  const [c] = await mcpSession("https://old.example.com/mcp", "", [["tools/call", { name: "a", arguments: {} }]], { fetchFn: fakeSse() });
+  assert.equal(c.content[0].text, "sse ok");
+});
+
+test("MC12 (2026-11-11, from Claude Code's MCP docs) tool lists stay fresh: older than an hour, read again after a job starts; a tool the server no longer has re-reads its list", async () => {
+  const { refreshTools, callTool, TOOLS_FRESH_MS } = await import("../src/coder-mcp.mjs");
+  const b = memBucket(), s = fakeServer();
+  const t0 = 1_000_000;
+  const r = await addConnector(env, b, "u1", { name: "Linear", url: "https://mcp.example.com/mcp", fetchFn: s.fetchFn, now: t0 });
+  let lists = 0;
+  const counting = (u, i) => { if (i.body && JSON.parse(i.body).method === "tools/list") lists++; return s.fetchFn(u, i); };
+  assert.equal(await refreshTools(env, b, "u1", { fetchFn: counting, now: t0 + 60_000 }), false);
+  assert.equal(lists, 0, "fresh: not read again");
+  assert.equal(await refreshTools(env, b, "u1", { fetchFn: counting, now: t0 + TOOLS_FRESH_MS + 1 }), true);
+  assert.equal(lists, 1);
+  assert.equal((await readConnectors(b, "u1"))[0].toolsAt, t0 + TOOLS_FRESH_MS + 1);
+  // A call to a tool the server no longer has: its list is read again at once.
+  lists = 0;
+  const gone = async (u, i) => { const m = i.body && JSON.parse(i.body); if (m && m.method === "tools/call") return new Response(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: { isError: true, content: [{ type: "text", text: "Unknown tool: old_tool" }] } }), { headers: { "content-type": "application/json" } }); return counting(u, i); };
+  const out = await callTool(env, b, "u1", r.connector.id, "old_tool", {}, { fetchFn: gone, now: t0 + TOOLS_FRESH_MS + 2 });
+  assert.equal(out.isError, true);
+  assert.equal(lists, 1);
+});

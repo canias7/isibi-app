@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Connectors: tool search, older SSE servers, fresh tool lists (items 5, 8 and 10 of `docs/connectors-vs-claude-code.md`; your word: "Yes go ahaed")
+
+- **5. Tool search:**
+  - When your connectors have more than 20 tools between them, Coder is first shown only their names, plus one tool, "connector_search".
+  - It searches for the ones it needs, and those load for the rest of the job.
+  - This keeps each Grok call smaller and cheaper, as Claude Code's tool search does.
+  - The chat shows it as "Searched connectors for …".
+- **8. Older servers:** some servers still use the older "SSE" way of connecting (Asana, for example).
+  - Coder now tries the new way first.
+  - If the address ends in /sse, or the server refuses the new way, it uses SSE, like Claude Code.
+- **10. Fresh tool lists:**
+  - Claude Code hears straight away when a server's tools change. A website can't keep that line open.
+  - So instead, a connector's tool list older than an hour is read again in the background after a job starts.
+  - A call to a tool the server no longer has re-reads its list at once.
+- **A fix found while testing:** the SSE time limit left a timer running after an answer came back. It is now cleared.
+- **Tests:** MC10 to MC12 are new. All 401 pass, 4 skipped as before.
+- **Not deployed yet.**
+
 ## 2026-11-11: Connectors made more like Claude Code's (items 1, 2, 3, 4 and 6 of `docs/connectors-vs-claude-code.md`; your word: "start building the mcp stuff with claude code docs")
 
 - **1. Signing in again:** a server answering 403 (Forbidden) now counts as "needs sign-in", like 401. Claude Code does the same.

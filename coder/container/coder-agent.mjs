@@ -788,6 +788,32 @@ export function connectorCaller(via, fetchFn = fetch) {
     return { text: String(j.text || ""), isError: j.isError === true };
   };
 }
+/**
+ * TOOL SEARCH, LIKE CLAUDE CODE'S (its MCP docs: only the tools' names load at the start, and Claude searches for the ones
+ * it needs; with ENABLE_TOOL_SEARCH=auto, tools load upfront while their definitions stay under 10% of the context). Here:
+ * when the connectors' tools are more than CONNECTOR_UPFRONT_MAX, or their definitions more than CONNECTOR_UPFRONT_CHARS,
+ * Grok gets their names and one connector_search tool; what it finds is added to its tools for the rest of the job.
+ */
+export const CONNECTOR_UPFRONT_MAX = 20;
+export const CONNECTOR_UPFRONT_CHARS = 40_000;
+export const SEARCH_RESULTS_MAX = 5;
+export function deferConnectors(tools) {
+  return tools.length > CONNECTOR_UPFRONT_MAX || JSON.stringify(tools.map((t) => [t.description, t.parameters])).length > CONNECTOR_UPFRONT_CHARS;
+}
+export function searchTool(tools) {
+  return { type: "function", function: { name: "connector_search",
+    description: "Find the owner's connector tools (MCP) you need, then call them. Their full descriptions are not loaded yet; these are their names:\n" + tools.map((t) => t.name + " (" + t.label + ")").join("\n").slice(0, 8000) + "\nquery: words to look for (e.g. \"linear issue\"), or \"select:<name>,<name>\" for exact names. The tools found can be called from then on.",
+    parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } };
+}
+/** The connector tools a query finds: "select:a,b" for exact names, or the best word matches, at most SEARCH_RESULTS_MAX. */
+export function findConnectorTools(tools, query) {
+  const q = String(query || "").trim();
+  if (/^select:/i.test(q)) { const want = q.slice(7).split(",").map((x) => x.trim()).filter(Boolean); return tools.filter((t) => want.includes(t.name)).slice(0, SEARCH_RESULTS_MAX * 2); }
+  const words = q.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 1);
+  if (!words.length) return [];
+  const score = (t) => { const name = t.name.toLowerCase(), text = (t.label + " " + t.description).toLowerCase(); return words.reduce((n, w) => n + (name.includes(w) ? 3 : 0) + (text.includes(w) ? 1 : 0), 0); };
+  return tools.map((t) => [score(t), t]).filter(([n]) => n > 0).sort((a, b) => b[0] - a[0]).slice(0, SEARCH_RESULTS_MAX).map(([, t]) => t);
+}
 /** How long the machine waits for a connector call (the Worker's own limit is 5 minutes). */
 export const CONNECTOR_WAIT_MS = 5 * 60_000 + 30_000;
 /** A connector's answer longer than this is saved to a file in the scratch folder (Claude Code: over 50,000 characters). */
@@ -1060,7 +1086,10 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // The owner's connectors' tools come after Coder's own (never in a job started from GitHub, nor without a way to call them).
   const mcpTools = !github && typeof deps.mcp === "function" ? connectorTools(connectors) : [];
   const mcpByName = new Map(mcpTools.map((t) => [t.name, t]));
-  const chatTools = [...toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax }), ...mcpTools.map((t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } }))];
+  const asFn = (t) => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } });
+  const mcpDeferred = mcpTools.length > 0 && deferConnectors(mcpTools);
+  const mcpLoaded = new Set(mcpDeferred ? [] : mcpTools.map((t) => t.name));
+  const chatTools = [...toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax }), ...(mcpDeferred ? [searchTool(mcpTools)] : mcpTools.map(asFn))];
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
   const fgMaxS = timeouts && timeouts.maxMs > 0 ? Math.round(timeouts.maxMs / 1000) : MAX_TIMEOUT_S;
   const bgMaxMs = timeouts && timeouts.bgMaxMs > 0 ? timeouts.bgMaxMs : 7_200_000;
@@ -1809,6 +1838,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
+      } else if (c.name === "connector_search" && mcpDeferred) {
+        const found = findConnectorTools(mcpTools, c.args.query);
+        for (const t of found) if (!mcpLoaded.has(t.name)) { mcpLoaded.add(t.name); chatTools.push(asFn(t)); }
+        emit({ type: "bash", id: c.id, tool: "connector", verb: "Searched", command: "connectors for " + JSON.stringify(scrub(String(c.args.query || "")).slice(0, 100)) });
+        emit({ type: "result", id: c.id, code: 0, output: found.length ? found.map((t) => t.label).join("\n") : "(none found)" });
+        reply(found.length ? "Found and loaded (call them now):\n" + found.map((t) => JSON.stringify({ name: t.name, description: t.description, parameters: t.parameters })).join("\n").slice(0, 30000) : "No connector tool matches that. The names are in connector_search's description.");
       } else if (mcpByName.has(c.name)) {
         // A CONNECTOR'S TOOL (MCP), with the owner's permission for it (like Claude's: Allow, Needs approval, Block; Block is
         // never offered). Needs approval asks in Accept edits and Plan; in Auto it runs, as Claude's Auto mode does.

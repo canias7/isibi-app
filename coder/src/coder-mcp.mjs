@@ -184,7 +184,7 @@ export async function readAnswer(res, id) {
  * One MCP session: initialize, then the methods asked for, in order. `token`: the sign-in (a Bearer token) or "".
  * Throws NeedsSignIn on 401.
  */
-export async function mcpSession(url, token, steps, { fetchFn = fetch } = {}) {
+async function httpSession(url, token, steps, { fetchFn = fetch } = {}) {
   let session = "", id = 0;
   const post = async (method, params, notify = false) => {
     const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
@@ -198,7 +198,7 @@ export async function mcpSession(url, token, steps, { fetchFn = fetch } = {}) {
     catch (e) { throw new Error(e && (e.name === "TimeoutError" || e.name === "AbortError") ? "the MCP server did not answer within " + Math.round(ms / 1000) + " seconds" : "the MCP server could not be reached"); }
     // (Claude Code: a server "needs auth" on 401 Unauthorized or 403 Forbidden.)
     if (res.status === 401 || res.status === 403) throw new NeedsSignIn(res.headers.get("www-authenticate"));
-    if (!res.ok && !(notify && res.status === 202)) throw new Error("the MCP server answered " + res.status);
+    if (!res.ok && !(notify && res.status === 202)) throw Object.assign(new Error("the MCP server answered " + res.status), { status: res.status, first: method === "initialize" });
     const s = res.headers.get("mcp-session-id");
     if (s) session = s;
     if (notify) return null;
@@ -209,6 +209,84 @@ export async function mcpSession(url, token, steps, { fetchFn = fetch } = {}) {
   const out = [];
   for (const [method, params] of steps) out.push(await post(method, params));
   return out;
+}
+
+/**
+ * One MCP session, in the current transport (Streamable HTTP) or, for an older server, the SSE one. Like Claude Code (its
+ * MCP docs: SSE "is deprecated"; it tries HTTP first and falls back to SSE): an address ending in /sse goes straight to SSE;
+ * otherwise a server that refuses the first request with 400, 404 or 405 is tried over SSE.
+ */
+export async function mcpSession(url, token, steps, opts = {}) {
+  if (/\/sse\/?$/.test(new URL(url).pathname)) return sseSession(url, token, steps, opts);
+  try { return await httpSession(url, token, steps, opts); }
+  catch (e) {
+    if (!(e && e.first && [400, 404, 405].includes(e.status))) throw e;
+    return sseSession(url, token, steps, opts);
+  }
+}
+
+/**
+ * THE OLDER SSE TRANSPORT (MCP 2024-11-05): a GET opens an event stream whose first event, "endpoint", says where to POST
+ * messages; the answers come back on the stream.
+ */
+export async function sseSession(url, token, steps, { fetchFn = fetch } = {}) {
+  const auth = token ? { authorization: "Bearer " + token } : {};
+  const ctl = new AbortController();
+  let res;
+  try { res = await fetchFn(url, { method: "GET", headers: { accept: "text/event-stream", ...auth }, signal: ctl.signal }); }
+  catch { throw new Error("the MCP server could not be reached"); }
+  if (res.status === 401 || res.status === 403) throw new NeedsSignIn(res.headers.get("www-authenticate"));
+  if (!res.ok || !res.body) throw new Error("the MCP server answered " + res.status);
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  let buf = "";
+  /** The next event (type and data) from the stream. */
+  const nextEvent = async () => {
+    for (;;) {
+      const cut = buf.search(/\r?\n\r?\n/);
+      if (cut >= 0) {
+        const block = buf.slice(0, cut); buf = buf.slice(cut).replace(/^\r?\n\r?\n/, "");
+        let type = "message", data = [];
+        for (const l of block.split(/\r?\n/)) { if (l.startsWith("event:")) type = l.slice(6).trim(); else if (l.startsWith("data:")) data.push(l.slice(5).replace(/^ /, "")); }
+        if (data.length) return { type, data: data.join("\n") };
+        continue;
+      }
+      const { value, done } = await reader.read();
+      if (done) throw new Error("the MCP server closed the connection");
+      buf += dec.decode(value, { stream: true });
+    }
+  };
+  // (The timer is cleared once the answer comes, so it never holds anything open.)
+  const within = (p, ms) => { let t; return Promise.race([p, new Promise((_, no) => { t = setTimeout(() => no(new Error("the MCP server did not answer within " + Math.round(ms / 1000) + " seconds")), ms); })]).finally(() => clearTimeout(t)); };
+  try {
+    const first = await within(nextEvent(), REQUEST_TIMEOUT_MS);
+    if (first.type !== "endpoint") throw new Error("the MCP server did not say where to send messages");
+    const endpoint = new URL(first.data.trim(), url);
+    if (endpoint.origin !== new URL(url).origin) throw new Error("the MCP server sent messages elsewhere");
+    let id = 0;
+    const post = async (method, params, notify = false) => {
+      const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
+      const r = await fetchFn(endpoint.href, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(msg) });
+      if (r.status === 401 || r.status === 403) throw new NeedsSignIn(r.headers.get("www-authenticate"));
+      if (!r.ok) throw new Error("the MCP server answered " + r.status);
+      if (notify) return null;
+      const ms = method === "tools/call" ? CALL_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+      const wait = async () => {
+        for (;;) {
+          const ev = await nextEvent();
+          let m; try { m = JSON.parse(ev.data); } catch { continue; }
+          if (!m || m.id !== msg.id) continue;
+          if (m.error) throw new Error("the MCP server said: " + String(m.error.message || "error").slice(0, 300));
+          return m.result;
+        }
+      };
+      return within(wait(), ms);
+    };
+    await post("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: CLIENT });
+    await post("notifications/initialized", null, true);
+    const out = [];
+    for (const [method, params] of steps) out.push(await post(method, params));
+    return out;
+  } finally { ctl.abort(); try { await reader.cancel(); } catch { /* closed */ } }
 }
 
 /** All the server's tools (up to 5 pages), as kept on the list. */
@@ -333,7 +411,7 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.auth = "oauth";
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
-  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
+  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
   await writeConnectors(bucket, p.uid, list);
   return { uid: p.uid, id: c.id };
 }
@@ -379,7 +457,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { c.tools = await listTools(c.url, token, { fetchFn }); }
+    try { c.tools = await listTools(c.url, token, { fetchFn }); c.toolsAt = now; }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -389,7 +467,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
       const again = await readConnectors(bucket, uid);
       const mine = again.find((x) => x.id === c.id);
       if (mine) c.box = mine.box;
-      c.tools = await listTools(c.url, fresh, { fetchFn });
+      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now;
     }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
@@ -407,6 +485,30 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     await writeConnectors(bucket, uid, list);
     return { connector: c };
   }
+}
+
+/**
+ * TOOL LIST CHANGES (Claude Code: on a server's list_changed it fetches the new list). A web request cannot keep a session
+ * open to hear that, so instead: after a job starts, each working connector whose list is older than TOOLS_FRESH_MS is
+ * read again (for the next job), and a call to a tool the server no longer has re-reads its list at once.
+ */
+export const TOOLS_FRESH_MS = 60 * 60 * 1000;
+export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Date.now(), only = "", force = false } = {}) {
+  const list = await readConnectors(bucket, uid);
+  let changed = false;
+  for (const c of list) {
+    if (only && c.id !== only) continue;
+    if (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS)) continue;
+    try { c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); c.toolsAt = now; changed = true; }
+    catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
+  }
+  if (changed) {
+    // The latest of each (a refreshed login saved meanwhile is kept).
+    const fresh = await readConnectors(bucket, uid);
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; } }
+    await writeConnectors(bucket, uid, fresh);
+  }
+  return changed;
 }
 
 export async function removeConnector(bucket, uid, id) {
@@ -427,8 +529,14 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
     const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {} }]], { fetchFn });
     return resultText(r);
   };
-  try { return await once(false); }
+  try {
+    const r = await once(false);
+    // A tool the server no longer has: its list is read again, for the next job.
+    if (r.isError && /unknown tool|tool not found|not found: ?tool/i.test(r.text)) await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
+    return r;
+  }
   catch (e) {
+    if (/unknown tool|tool not found/i.test(String(e && e.message))) await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
     if (e instanceof NeedsSignIn && c.auth === "oauth") {
       try { return await once(true); } catch { /* below */ }
     }

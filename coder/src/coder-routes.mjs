@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -946,6 +946,8 @@ export async function handleCoder(request, env, ctx, deps) {
       try { const ct = connectorTools(await readConnectors(bucket, uid), Array.isArray(meta.connectorsOff) ? meta.connectorsOff : []); connectors = ct.tools; if (connectors.length) await keepJobTools(bucket, uid, id, next.turn, ct.map); } catch { connectors = []; }
     }
     const connOn = connectors.length ? { connectors } : {};
+    // Lists older than an hour are read again in the background, for the next job (coder-mcp.mjs, refreshTools).
+    if (connectors.length && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshTools(env, bucket, uid, { fetchFn }).catch(() => {}));
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
