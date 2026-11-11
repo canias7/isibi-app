@@ -570,7 +570,14 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       if (v.ok) continue;
       const why = v.reason || "(no reason given)";
       const goOn = hook.type === "agent" || hook.continueOnBlock === true;
-      const line = label + " hook (" + hook.type + "): " + why;
+      // (Claude Code's words, tried in its command-line version on 2026-11-11: a prompt hook's "[<its prompt as written>]:
+      // <reason>", an agent hook's "Agent hook condition was not met: <reason>"; "PreToolUse:Bash hook error: …" before a
+      // call, "… hook blocking error from command: "<its prompt>": …" after one, "Stop hook feedback:" and a new line for a
+      // Stop hook, with no second line, unlike a command hook's JSON block.)
+      const prompt = String(hook.prompt ?? "");
+      const err = hook.type === "agent" ? "Agent hook condition was not met: " + why : "[" + prompt + "]: " + why;
+      const fromCommand = label + " hook blocking error from command: \"" + prompt + "\": " + err;
+      const line = event === "PreToolUse" ? label + " hook error: " + err : event === "Stop" ? "Stop hook feedback:\n" + err : fromCommand;
       if (event === "Stop") { if (!v.impossible) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } }
       else if (event === "PreToolUse") { out.decision = "deny"; out.reason = line; out.blocks.push(line); if (!goOn) out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }

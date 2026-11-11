@@ -151,7 +151,7 @@ test("CD519 a hook's note carries the hook's name as Claude Code writes it: \"Pr
   assert.ok(!/PreToolUse hook additional context/.test(all));
 });
 
-test("CD520 Claude Code's own answers on 2026-11-11, 69 commands: Coder gives the same verdict and the same words for each", () => {
+test("CD520 Claude Code's own answers on 2026-11-11, 71 commands: Coder gives the same verdict and the same words for each", () => {
   const RA = { deny: ["Bash(git push *)", "Bash(rm *)", "Read(.env)", "Edit(.env)", "Read(r39secrets/**)", "Bash(echo hi > r39-out.txt)"] };
   const RD = { deny: ["Read(*.env)", "Read(!sample.env)", "Edit(*.env)"] };
   const RV2 = { deny: ["Bash(rm *)", "Bash(git push *)"] };
@@ -170,11 +170,31 @@ test("CD520 Claude Code's own answers on 2026-11-11, 69 commands: Coder gives th
     ["! (ls)", RV8, "ask", OPS], ["if (ls); then pwd; fi", RV8, "ask", OPS], ["(ls) > /dev/null", RV8, "ask", PAR], ["{ ls; } > /dev/null", RV8, "ask", BR], ["echo {1..3}", RV8, "ask", "A brace pattern in this command can't be checked before it runs"], ["ls src/{a,b}", RV8, "ask", "Brace expansion"], ["function g { ls; }", RV8, "ask", FUNC], ["echo a{b", RV8, "allow", ""], ["echo \"{a,b}\"", RV8, "allow", ""], ["echo x", RV8, "allow", ""],
     ["echo =ls", {}, "ask", "Contains zsh =cmd equals expansion"], ["GOOS=linux ls", {}, "allow", ""], ["DEBUG=1 ls", {}, "ask", "This command requires approval"], ["(cd /tmp) && git status", {}, "ask", OPS],
     ["(ls; pwd)", {}, "ask", CANT], ["(cd src; cat a.js)", {}, "ask", CANT], ["(cat /etc/hostname)", {}, "ask", OPS],
+    ["echo $((1+1))", {}, "allow", ""], ["echo \"$'x'\"", {}, "allow", ""],
   ];
-  assert.equal(cases.length, 69);
+  assert.equal(cases.length, 71);
   for (const [c, rules, v, why] of cases) {
     const d = decide(c, rules);
     assert.equal(d.verdict, v, c);
     if (v !== "allow") assert.equal(d.why, why, c);
   }
+});
+
+test("CD521 (the owner: \"copy those too\") a command with arithmetic of numbers only, `echo $((1+1))`, and a $ that starts nothing, `echo \"$'x'\"`, only read and run, as in Claude Code; arithmetic with a variable or a command still asks", () => {
+  for (const c of ["echo $((1+1))", "echo \"$'x'\"", "echo a$", "printf '%d' $(( 2 * 3 ))"]) assert.equal(decide(c).verdict, "allow", c);
+  assert.deepEqual([decide("echo $((a+1))").verdict, decide("echo $((a+1))").why], ["ask", "Arithmetic expansion references variable or non-literal: a"]);
+  assert.deepEqual([decide("echo $(( $(id) ))").verdict, decide("echo $(( $(id) ))").why], ["ask", "Arithmetic expansion references variable or non-literal: $("]);
+  assert.equal(decide("echo \"cost $5\"").why, "A variable in this command can't be checked before it runs");
+  assert.equal(P.wholeReadOnly("echo $((1+1))"), true);
+});
+
+test("CD522 (the owner: \"copy those too\") a prompt or agent hook's \"no\" in Claude Code's words, as its command-line version gave them on 2026-11-11: \"PreToolUse:Bash hook error: [<its prompt as written>]: <reason>\" (the turn ends), \"PreToolUse:Bash hook error: Agent hook condition was not met: <reason>\" (it goes on); after a call \"… hook blocking error from command: \\\"<its prompt>\\\": …\"; a Stop hook's \"Stop hook feedback:\" and a new line", () => {
+  const v = (event, verdict, hook, tool = "Bash") => H.hooksOutcome(event, [{ hook, result: H.hookResult(event, { verdict }, hook) }], { tool });
+  const P1 = "Check this Bash call: $ARGUMENTS. If its command contains MARK_PROMPT, answer ok false with reason r39 prompt says no. Otherwise answer ok true.";
+  const pre = v("PreToolUse", { ok: false, reason: "r39 prompt says no" }, { type: "prompt", prompt: P1 });
+  assert.deepEqual([pre.decision, pre.reason, pre.endTurn], ["deny", "PreToolUse:Bash hook error: [" + P1 + "]: r39 prompt says no", "r39 prompt says no"]);
+  const ag = v("PreToolUse", { ok: false, reason: "r39 agent says no" }, { type: "agent", prompt: "Check it: $ARGUMENTS" });
+  assert.deepEqual([ag.decision, ag.reason, ag.endTurn], ["deny", "PreToolUse:Bash hook error: Agent hook condition was not met: r39 agent says no", ""]);
+  assert.deepEqual(v("PostToolUse", { ok: false, reason: "bad" }, { type: "prompt", prompt: "p?", continueOnBlock: true }).blocks, ['PostToolUse:Bash hook blocking error from command: "p?": [p?]: bad']);
+  assert.deepEqual(v("Stop", { ok: false, reason: "say BANANA" }, { type: "prompt", prompt: "Read the transcript: $ARGUMENTS." }, "").blocks, ["Stop hook feedback:\n[Read the transcript: $ARGUMENTS.]: say BANANA"]);
 });

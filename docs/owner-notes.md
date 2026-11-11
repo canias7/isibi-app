@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Round 4's last three copied too (your words: "copy those too, then merge and deploy")
+
+I checked the hook wording in Claude Code's command-line version first (3 short runs, about 1 cent).
+- **`echo $((1+1))` and `echo "$'x'"`** now run without asking, as in Claude Code. Arithmetic with a name or a command in it still asks.
+- **A prompt hook's "no"** reads "PreToolUse:Bash hook error: [<its prompt, as written>]: <reason>", and the turn ends. **An agent hook's** reads "PreToolUse:Bash hook error: Agent hook condition was not met: <reason>", and the turn goes on. Both match what Claude Code gave.
+- **A Stop prompt hook's "no"** reaches the AI as "Stop hook feedback:" with the reason on the next line, as in Claude Code.
+- Tests: 2 more (CD521, CD522). All 71 of Claude Code's answers now match.
+
 ## 2026-11-11: Round 4: Claude Code's eight differences copied into Coder (your words: "yes copy all of them")
 
 On the branch, not live yet. Before changing anything, I checked each one again in Claude Code's command-line version (Haiku, with the cloud's settings), including the cases each one raised. All runs today, the comparison included, came to 24 runs and 17 cents.
@@ -41,9 +49,7 @@ On the branch, not live yet. Before changing anything, I checked each one again 
 
 **Tests:** 8 new tests (CD513 to CD520), including 69 of Claude Code's own answers, verdict and words, checked together; Coder matches all 69. 16 older tests were updated to the new wording.
 
-**Found, not copied (your call):**
-- `echo $((1+1))` and `echo "$'x'"` run in Claude Code; Coder asks first.
-- A prompt or agent hook's "no" reads "PreToolUse:Bash hook error: [<its prompt>]: <reason>" in Claude Code's program; Coder's reads "PreToolUse:Bash hook (prompt): <reason>". I read this one in its program; I didn't run it.
+**Found, not copied (your call):** `echo $((1+1))`, `echo "$'x'"`, and a prompt or agent hook's "no". All three were copied later the same day (see the entry above).
 
 **Not tried live yet:** everything above needs a merge and a deploy before it can be tested on gofarther.dev with Grok.
 

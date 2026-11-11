@@ -1486,13 +1486,17 @@ cases each difference raised (24 runs, 17 cents in all). Tests:
   one that can't be checked (CD518).
 - *69 of Claude Code's answers*, verdict and words, are checked together
   (CD520).
-- *Not copied, left as they are:* a hook's "defer" (Claude Code's command-line
+- *The last three* (the owner: "copy those too"): arithmetic of numbers only,
+  `echo $((1+1))`, and a `$` that starts nothing, `echo "$'x'"`, only read and
+  run (`readDollar`'s `literal`) (CD521); a prompt hook's "no" is
+  "PreToolUse:Bash hook error: [<its prompt as written>]: <reason>" and an agent
+  hook's "… Agent hook condition was not met: <reason>"; after a call "…
+  hook blocking error from command: "<its prompt>": …"; a Stop hook's "Stop hook
+  feedback:" and a new line (CD522). With these, all 71 of Claude Code's answers
+  match (CD520).
+- *Not copied, left as it is:* a hook's "defer" (Claude Code's command-line
   version stops the run for an app that resumes it; Coder ignores it, as
-  Claude Code's docs say a normal session does). *Found, not copied yet:*
-  `echo $((1+1))` and `echo "$'x'"` run in Claude Code but ask in Coder; a
-  prompt or agent hook's "no" reads "PreToolUse:Bash hook error: [<its
-  prompt>]: <reason>" in Claude Code's program, "PreToolUse:Bash hook (prompt):
-  <reason>" in Coder.
+  Claude Code's docs say a normal session does).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

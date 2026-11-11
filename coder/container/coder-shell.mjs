@@ -243,7 +243,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
           if (s[j] === "\\") { const n = s[j + 1]; if (n === "\"" || n === "\\" || n === "$" || n === "`") { text += n; j += 2; varOnly = false; continue; } if (n === "\n") { j += 2; continue; } text += "\\"; j++; varOnly = false; continue; }
           if (s[j] === "$") {
             const save = i; i = j; const e = readDollar(depth); j = i; i = save;
-            text += e.raw; expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; inner.push(e); continue;
+            text += e.raw; if (!e.literal) expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; inner.push(e); continue;
           }
           if (s[j] === "`") { const e = findBacktick(j + 1); if (e < 0) { fail(); j = s.length; break; } nested(s.slice(j + 1, e), depth + 1); text += s.slice(j, e + 1); expand = true; subst = true; varOnly = false; j = e + 1; continue; }
           text += s[j]; varOnly = false; j++;
@@ -253,7 +253,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
         if (!inner.length) varOnly = false;
         continue;
       }
-      if (ch === "$") { const e = readDollar(depth); text += e.raw; expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; parts++; continue; }
+      if (ch === "$") { const e = readDollar(depth); text += e.raw; if (!e.literal) expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; parts++; continue; }
       if (ch === "`") { const e = findBacktick(i + 1); if (e < 0) { fail(); i = s.length; break; } nested(s.slice(i + 1, e), depth + 1); text += s.slice(i, e + 1); expand = true; subst = true; varOnly = false; i = e + 1; parts++; continue; }
       if (ch === "*" || ch === "?") glob = true;
       if (ch === "[" && s.indexOf("]", i + 1) > i) glob = true;
@@ -272,13 +272,16 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     const start = i;
     i++; // $
     const ch = s[i];
-    if (ch === "(" && s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; const held = arith(inner.replace(/\)$/, ""), depth); return { raw: s.slice(start, i), subst: held, variable: false }; }
+    // (Numbers and operators only, `$((1+1))`: Claude Code runs `echo $((1+1))` as a command that only reads; tried
+    // 2026-11-11. One with a variable or a command in it is too complex, as before.)
+    if (ch === "(" && s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; const expr = inner.replace(/\)$/, ""); const held = arith(expr, depth); return { raw: s.slice(start, i), subst: held, variable: false, literal: !held && !arithNonLiteral(expr) }; }
     if (ch === "[") { i++; const inner = readUntilClose("[", "]"); return { raw: s.slice(start, i), subst: arith(inner, depth), variable: false }; }
     if (ch === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); return { raw: s.slice(start, i), subst: true, variable: false }; }
     if (ch === "{") { const e = s.indexOf("}", i); if (e < 0) { fail(); i = s.length; return { raw: s.slice(start), subst: false, variable: true }; } const inner = s.slice(i + 1, e); i = e + 1; if (/\$\(|`/.test(inner)) { nested(inner.replace(/^[^$`]*/, ""), depth + 1); } return { raw: s.slice(start, i), subst: false, variable: true, inner }; }
     if (/[A-Za-z_]/.test(ch || "")) { while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++; return { raw: s.slice(start, i), subst: false, variable: true }; }
     if (/[0-9@*#?$!-]/.test(ch || "")) { i++; return { raw: s.slice(start, i), subst: false, variable: true }; }
-    return { raw: "$", subst: false, variable: false };
+    // (A $ that starts nothing, `"$'x'"` or `a$`: bash keeps it as it is; Claude Code runs `echo "$'x'"`; tried 2026-11-11.)
+    return { raw: "$", subst: false, variable: false, literal: true };
   }
 
   // A REDIRECTION's operator at i (after an optional fd number already read): `{ op, len }` or null.
