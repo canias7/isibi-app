@@ -82,7 +82,8 @@ export function wsOver(socket, head = null, { mask = false } = {}) {
   socket.on("error", (e) => end("the connection failed" + (e && e.code ? " (" + e.code + ")" : "")));
   return {
     send: (data) => write(wsFrame(typeof data === "string" ? 1 : 2, data, mask)),
-    close: () => { if (closed) return; write(wsFrame(8, Buffer.from([0x03, 0xe8]), mask)); setTimeout(() => end("closed here"), 200).unref?.(); },
+    // (`code`: the close's own; 1000, or 4403 when routing was turned off: the app then stops asking.)
+    close: (code = 1000) => { if (closed) return; write(wsFrame(8, Buffer.from([(code >> 8) & 0xff, code & 0xff]), mask)); setTimeout(() => end("closed here"), 200).unref?.(); },
     on: (k, f) => { if (ev[k]) ev[k].push(f); },
     get open() { return !closed; },
   };
@@ -231,7 +232,7 @@ export function makeTunnel({ now = Date.now, keepMs = ROUTE_KEEP_MS, deadMs = RO
     get connected() { return !!ws; },
     status: () => ({ connected: !!ws, since: ws ? since : 0, device: ws ? device : "", streams: streams.size, got, sent, cut }),
     // (`why`: noted as the link's end, as a cut is: "routing was turned off".)
-    close: (why = "closed here") => { if (ws) { const old = ws; ws = null; cut = { at: now(), why: String(why).slice(0, 120) }; drop("closed"); try { old.close(); } catch { /* gone */ } } if (keep) { clearInterval(keep); keep = null; } },
+    close: (why = "closed here", code = 1000) => { if (ws) { const old = ws; ws = null; cut = { at: now(), why: String(why).slice(0, 120) }; drop("closed"); try { old.close(code); } catch { /* gone */ } } if (keep) { clearInterval(keep); keep = null; } },
   };
 }
 

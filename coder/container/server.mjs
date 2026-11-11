@@ -1664,7 +1664,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (env.CODER_IMAGE !== "full" || ownerControl) return;
     routeWanted = on === true;
     // Turned off: the owner's computer is let go too, not only left unused (its app's ticket is worthless by now).
-    if (!routeWanted && tunnel.connected) tunnel.close("routing was turned off");
+    if (!routeWanted && tunnel.connected) tunnel.close("routing was turned off", 4403);
     try {
       if (routeWanted && !routeProxy) { const p = makeRouteProxy({ tunnel, uid: webUid }); await p.listen(); routeProxy = p; }
       await browserHub().setRoute(routeWanted && routeProxy ? routeProxy.info : null);
@@ -2263,7 +2263,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // owner has control), so new pages go straight out; the browser drops its proxy at its next start. Not counted as
       // use (it never keeps this machine awake).
       if (url.pathname === "/gloopy/route" && req.method === "POST") {
-        if (body.on === false) { routeWanted = false; if (tunnel.connected) tunnel.close("routing was turned off"); }
+        if (body.on === false) { routeWanted = false; if (tunnel.connected) tunnel.close("routing was turned off", 4403); }
         return send(200, { ok: true, route: routeWanted, ...routeNow() });
       }
       lastAsked = Date.now();

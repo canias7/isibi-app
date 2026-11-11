@@ -58,6 +58,8 @@ Tried live on the test copy with Grok, recorded:
 - **The two small things left, fixed** (your words: "Finish the browser"):
   - **Turned off from another device:** the app kept asking for its link every 20 seconds, and said "asleep or out of reach". It couldn't tell a refusal from sleep, because the app's WebSocket can't read why a link was refused. Now Go Farther opens a refused link and closes it at once with its own reason. Turned off: the app stops asking and says so. Ticket ran out, or no Gloopy: it stops until its page gives it a new ticket. Asleep: it asks again in 20 seconds, as before. Tests D13 and GL114.
   - Tried live with the real app: with Gloopy's computer asleep, it said "Gloopy's computer is asleep: the link comes when Gloopy starts work or you take over" and kept trying. Turned off on the website, its next try heard "turned off": it stopped and said so.
+  - Woken with the app open: Gloopy's computer took about 80 seconds to start. The app's first try gave up after 45 seconds and the next try linked, before the take-over finished. The app now says "didn't answer yet (it may be starting)" for that wait, not "did not answer".
+  - Turned off while linked: Gloopy's computer let the app go at once, and the app's next try heard "turned off". Now the link is closed with "turned off" right away, so the app stops without that extra try. Test GL117.
   - Seen on the way: a refused link opens and closes again at once, so while Gloopy slept the app's status said "linked" for a moment every 20 seconds. A link now counts as up only once it has lasted 1.5 seconds or heard from Gloopy's computer. Test D15.
   - **The first link after Gloopy's computer woke closed within seconds:** most likely the app gave up waiting after 15 seconds while Gloopy's computer was still starting, and the next try, 20 seconds later, worked. It now waits 45 seconds for the link. Test D13.
 
@@ -77,7 +79,9 @@ Tried live on the test copy with Grok, recorded:
   - I pressed it. The app's window signed with the key, and the page showed the signature.
   - Handed back, Gloopy read it: "Authentication succeeded… origin https://www.webauthn.me, type webauthn.get… user present and user verified."
 - **Found in the live test:**
-  - Gloopy's instructions still said a passkey is the owner's to do by hand, so it handed off a key step instead of pressing the button. Now it does the step, and you're asked on the card.
+  - Gloopy's instructions still said a passkey is the owner's to do by hand, so it handed off a key step instead of pressing the button. Now it does the step, and you're asked on the card. The hand-off tool's own description says so too.
+  - Asked plainly to press the button, Gloopy tried, but its safety check (the second AI) blocked the click as "only you can do this". Its instructions listed "confirming with a passkey" as yours. Now pressing a site's own button to sign in with a key is fine, since you're asked on the card. Registering a passkey or changing security settings is still yours.
+  - **Turning routing off left Gloopy's next step on a blank page.** A routing or time-zone change restarts the browser, signed in as before, but on a blank page. It now opens the page that was open again. Test GL113.
   - In the app's window, a site that doesn't say which key it wants (passkey-style, with no key named) is refused at once here: the app can't pick a key. A key the site names (the usual YubiKey case, as with GitHub or Google) signs fine. When this happens, the card now says so in plain words. On Windows, Windows picks the key itself, so it may work there; not tried.
 - **Not tried with a real key yet.** Keys that need a PIN may not work in the app on a Mac. On Windows, Windows asks for the PIN itself.
 

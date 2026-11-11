@@ -1058,7 +1058,7 @@ export async function serve(dir) {
         let out, ask = null;
         try {
           const x = req.url === "/ping" ? null : JSON.parse(body || "{}");
-          if (!x) out = { ok: true, zone, route: proxy ? proxy.server : "" };
+          if (!x) out = { ok: true, zone, route: proxy ? proxy.server : "", url: page.url() };
           else if (x.action === "describe") out = await describe(x);
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
@@ -1296,6 +1296,9 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
   let want = okZone(zone) ? zone : "";
   // The proxy it is started with while its traffic goes through the owner's computer (2026-11-11), or null.
   let wantRoute = null;
+  // THE PAGE THAT WAS OPEN when the browser was stopped for a new time zone or route, opened again at its next start
+  // (found in the live test, 2026-11-11: routing turned off left Gloopy's next step on a blank page).
+  let reopen = "";
   const start = async () => {
     if (!hasBrowser()) throw new Error(NO_BROWSER);
     mkdirSync(dir, { recursive: true, mode: 0o700 });
@@ -1306,7 +1309,11 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     child.unref();
     closeSync(log);
     const until = Date.now() + startMs;
-    while (Date.now() < until) { await new Promise((ok) => setTimeout(ok, 300)); const p = await ask(sock, "/ping", {}, 2000); if (p && p.ok) return; }
+    while (Date.now() < until) {
+      await new Promise((ok) => setTimeout(ok, 300));
+      const p = await ask(sock, "/ping", {}, 2000);
+      if (p && p.ok) { if (reopen) { const u = reopen; reopen = ""; await ask(sock, "/act", { action: "open", url: u }, timeoutMs); } return; }
+    }
     throw new Error("the browser could not be started (" + join(dir, "browser.log") + " says why)");
   };
   const call = async (body) => {
@@ -1337,6 +1344,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       want = z;
       const p = await ask(sock, "/ping", {}, 2000);
       if (!p || !p.ok || String(p.zone || "") === want) return { zone: want };
+      if (/^https?:\/\//.test(String(p.url || ""))) reopen = String(p.url);
       await ask(sock, "/quit", {}, 20_000);
       for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
       return { zone: want, restarted: true };
@@ -1348,6 +1356,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       wantRoute = routeProxyOf(r ? JSON.stringify(r) : "");
       const p = await ask(sock, "/ping", {}, 2000);
       if (!p || !p.ok || String(p.route || "") === (wantRoute ? wantRoute.server : "")) return { route: !!wantRoute };
+      if (/^https?:\/\//.test(String(p.url || ""))) reopen = String(p.url);
       await ask(sock, "/quit", {}, 20_000);
       for (let i = 0; i < 50 && (await ask(sock, "/ping", {}, 1000)).ok; i++) await new Promise((ok) => setTimeout(ok, 200));
       return { route: !!wantRoute, restarted: true };

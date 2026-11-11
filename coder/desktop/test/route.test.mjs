@@ -200,7 +200,7 @@ test("D13 live test (2026-11-11): a link Go Farther refuses says why (its own cl
   const src = readFileSync(new URL("../route.js", import.meta.url), "utf8");
   assert.match(src, /const RETRY_MS = 20_000, CONNECT_MS = 15_000;/);
   assert.match(src, /const LINK_MS = 45_000;/);
-  assert.match(src, /const guard = later\(\(\) => \{ if \(!up\) failed\("Gloopy's computer did not answer"\); \}, LINK_MS\);/);
+  assert.match(src, /const guard = later\(\(\) => \{ if \(!up\) failed\("Gloopy's computer didn't answer yet \(it may be starting\): trying again"\); \}, LINK_MS\);/, "said for what it most likely is (live test: a start took 80 seconds)");
   // A new ticket from the page starts it again.
   const made = [];
   class OkWS { constructor(url) { this.url = url; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); } send() {} close() {} }

@@ -206,7 +206,7 @@ function makeRoute(deps = {}) {
       if (again === null) want = null;
       else schedule(again);
     };
-    const guard = later(() => { if (!up) failed("Gloopy's computer did not answer"); }, LINK_MS);
+    const guard = later(() => { if (!up) failed("Gloopy's computer didn't answer yet (it may be starting): trying again"); }, LINK_MS);
     sock.onopen = () => {
       clearTimeout(guard);
       if (trying === sock) trying = null;
