@@ -349,8 +349,8 @@ test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents ge
   assert.ok(routes.indexOf('parts[1] === "client.json"') < routes.indexOf("const user = await deps.authUser(request);"), "served before sign-in");
   // Sign-in only (owner, 2026-11-11): no connector in Discover takes a key; Render (key only) waits; the page asks for no key.
   assert.ok(CATALOG.every((k) => !k.key));
-  assert.ok(CATALOG.find((k) => k.name === "MongoDB"));
-  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Vercel", "Render", "Postmark", "Aikido", "Redis"]);
+  assert.ok(!CATALOG.some((k) => k.name === "MongoDB" || k.name === "Vercel"));
+  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Render", "Postmark", "Aikido", "Redis"]);
   assert.ok(!readFileSync(new URL("../public/coder.js", import.meta.url), "utf8").includes('placeholder="API key (only if'));
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /addConnector\(env, bucket, uid, \{ name: body\.name, url: body\.url, key: "", id: cid/);
 });

@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: MongoDB and Vercel taken off (your word: "delete mongo db and vercel")
+
+- Both are gone from Discover and from "coming later".
+- **Discover now:** Neon, Supabase, Cloudflare, Cloudflare Logs, Railway, Resend, Sentry, Linear, Stripe, Clerk, and Cloudflare Docs (no sign-in).
+- **Coming later:** Render, Postmark, Aikido and Redis.
+- More apps are coming from your next list.
+- **Tests:** all 402 pass, 4 skipped as before.
+
 ## 2026-11-11: Each app's sign-in tried (your question: "are you sure we dont need to make the app, for the authentication?")
 
 I registered Go Farther with each app's sign-in server the way Connect does, using the jessica.gofarther.dev return address. This stops before your login, so no account of yours was involved.
