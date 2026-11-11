@@ -2664,7 +2664,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // run inside the admin sandbox could not see the job's process: "[not running]" while it ran, and stop_job
         // missed it). Without the service's help (a machine made in a test), the commands of before.
         const svc = deps.bg && typeof deps.bg.alive === "function" && typeof deps.bg.stop === "function" ? deps.bg : null;
-        let r;
+        let r, stoppedNow = false;
         const stoppedJson = () => JSON.stringify({ message: "Successfully stopped task: " + name + " (" + scrub(String(j.command || "").split("\n")[0]).slice(0, 200) + ")", task_id: name, task_type: "local_bash", command: scrub(String(j.command || "")).slice(0, 2000) });
         if (svc) {
           const was = await svc.alive(j.pid).catch(() => false);
@@ -2673,6 +2673,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!was && typeof svc.status === "function") { const st = await svc.status(j.pid).catch(() => null); status = st && st.why && st.why !== "exit" ? "killed" : st && Number.isInteger(st.code) && st.code !== 0 ? "failed" : "completed"; }
           r = { code: gone && was ? 0 : 1, output: !was ? "Task " + name + " is not running (status: " + status + ")" : gone ? stoppedJson() : "[" + name + " could not be stopped]" };
           if (gone) j.done = true;
+          stoppedNow = !!(gone && was);
         } else {
           const cmd = "kill -TERM -- -" + j.pid + " 2>/dev/null; sleep 1; kill -KILL -- -" + j.pid + " 2>/dev/null; echo '[stopped " + name + "]'";
           try { r = await deps.exec({ command: cmd, timeoutS: 15, tool: true }); }
@@ -2680,11 +2681,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // A command that went on in the background printed its folder line into its log when it ended: never shown.
         let out = capOutput(noCwdMarks(String((r && r.output) || "")));
-        if (!svc && r && r.code === 0 && /\[stopped /.test(out)) out = stoppedJson();
+        if (!svc && r && r.code === 0 && /\[stopped /.test(out)) { out = stoppedJson(); stoppedNow = true; }
         // (The page shows the message; Coder reads Claude Code's JSON.)
         let shown = out;
         try { const o = JSON.parse(out); if (o && typeof o.message === "string") shown = o.message; } catch { /* not JSON */ }
-        emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: shown });
+        // (A job Coder stopped gets no end notice, as Coder already knows: the page learns it here, so the step that started it
+        // says "stopped", not "running"; live test after deploy 123.)
+        emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: shown, ...(stoppedNow ? { stoppedJob: name } : {}) });
         reply(out || "(nothing yet)");
       } else if (c.name === "request_secret") {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner; the turn ends here.
