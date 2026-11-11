@@ -939,6 +939,94 @@ this environment").
   can never work for it (that list wins over anything allowed); Coder is told
   that only the owner can take it off the list.
 
+**Bash docs pass 8** (owner, 2026-11-11: "go back to Claude Code docs and see if
+we're missing anything", then "Yes pls" to building all of it, the safety holes
+first). Tests: `test/pass8.test.mjs` (CD408 on).
+- *The wrappers Claude Code looks past* (`coder-shell.mjs`'s `unwrapSteps` and
+  `progName`, from its tables in 2.1.322): deny and ask rules, and the risky-rm
+  check, try every form of a command: as written, without its assignments,
+  without each wrapper (`time -p`, `nohup`, `timeout` and its options, `nice
+  -n`, `stdbuf`, `watch`, `flock`, `setsid`, `exec -a`, `chrt`, `taskset`,
+  `ionice`, `strace`, `ltrace`, `unshare`, `nsenter`, `env -S`, `sudo`, `doas`,
+  `pkexec`, `command`, `builtin`, `noglob`, `nocorrect`, bare `xargs`), and the
+  program without its path (`/usr/bin/git`). `command -v` is itself. (CD408)
+- *Variables and brackets for deny and ask rules* (`readCommand`'s `vars`;
+  Claude Code 2.1.290 and 2.1.309): a plain value set earlier at the top level
+  (`NAME=value`, `export`, `declare`, `typeset`, `readonly`, `local`) is put in
+  where a later part names it; a `cd` in brackets moves only its group, and git
+  after one asks. `cp` and `mv` into a folder count the files they write there;
+  a wildcard in grep's pattern place counts as a path. Only stricter: the allow
+  path reads a command as before. (CD409)
+- *Local addresses at the gate* (`coder-proxy.mjs`'s `localKind` and
+  `LOCAL_REFUSED`): in every network setting, Full too, a name that resolves to
+  a loopback, link-local or private address, or such an address written as
+  numbers, gets a 403 in Claude Code's words ("Connection to … blocked: resolved
+  to a loopback address"), recorded for the command's note. A command still
+  reaches its own localhost directly. (CD410)
+- *Accept edits is Claude Code's cloud "default" for commands* (`byCommand` in
+  `bashDecision` and `psDecision`; its permission-modes docs: "Accept edits
+  corresponds to `default` mode: cloud sessions pre-approve file edits
+  regardless of mode"): file tools change files without asking; a command that
+  changes files asks. A repository's `.claude/settings.json`
+  `permissions.defaultMode` `"acceptEdits"` lets commands change files again
+  (`fileEdits`); `"plan"` starts its new chats in Plan (`startMode`); `"auto"`
+  is not taken from a project. (CD411)
+- *Background commands keep the chat's keys* (`coder-egress.mjs`'s `bgAlive`):
+  the chat's last job's pass works while its background commands run, so a dev
+  server or a monitor keeps the environment's keys and `gh` (never for a job
+  from GitHub); GitHub Actions logs follow their redirect (`LOG_PATH`,
+  `LOG_HOSTS`) without the login; a network change reaches a chat whose
+  background commands run. (CD412)
+- *The wake* (`coder-watch.mjs`'s `WAKE_PATH`, `handleWake` and
+  `backgroundCheck`; `server.mjs`'s `noteWake` and `wakeIdle`): when a chat with
+  no job has a background command end or a monitor print, its machine asks the
+  Worker to look now (within `JOB_CHECK_MS`, 5 s), with the chat's last job's
+  pass: once for each new piece of news, and, while the Worker says the job is
+  still being saved, again every `WAKE_GAP_MS` up to `WAKE_TRIES` times. The
+  Worker runs the every-minute look's own check for that chat. (CD413)
+- *A repository's own command settings* (`server.mjs`'s `REPO_OWN_ENV`,
+  `REPO_OWN_KEYS` and `withRepoOwn`): Claude Code's names in its `env`
+  (`BASH_DEFAULT_TIMEOUT_MS`, `BASH_MAX_TIMEOUT_MS`, `BASH_MAX_OUTPUT_LENGTH`,
+  `CLAUDE_CODE_USE_POWERSHELL_TOOL`, `CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR`,
+  `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS`, `CLAUDE_CODE_TOOL_MEMORY_LIMIT`,
+  `CLAUDE_ENV_FILE`, `CLAUDE_CODE_SHELL`) and its `bashOutputMaxChars`,
+  `defaultShell` and `respondToBashCommands` keys set Coder's settings of the
+  same meaning, under the owner's environment (Claude Code: the launch
+  environment "takes precedence instead"). What Coder is told names the file.
+  Never in a job from GitHub. (CD414)
+- *SessionStart on "resume"* (`server.mjs`'s `SEEN_CHATS`; `coder-agent.mjs`'s
+  `resumeCost`): the first message after the machine started again, in a chat
+  with messages, runs its SessionStart hooks as `resume` (Claude Code's cloud
+  runs them "on every session including resumed"), with Claude Code 2.1.251's
+  four fields once Coder has answered: `seconds_since_last_response` (the
+  Worker's `lastAt`), `context_tokens` (about 4 characters each),
+  `prompt_cache_likely_expired` (after 5 minutes) and
+  `estimated_cache_write_usd` (at Grok 4.7's $2.00 a million input tokens). The
+  hook env file is kept. A summary's SessionStart sets no title. (CD415)
+- *Auto mode's details* (CD416): a command whose every part is allowed by a
+  kept rule or read-only needs no check (`partsAllowedOrReadOnly`; Claude Code:
+  "All pipeline commands are individually allowed, some only by the read-only
+  allowlist"). Plan's checker runs only while Auto mode is available
+  (`planChecks`), and a dangerous removal there is handled as in Auto
+  (`rmAuto`); a job from GitHub with Auto mode off refuses what would need the
+  checker. A command's protected-path writes go to the checker in Auto and in
+  Plan with the checker, the paths named (`protToChecker`); one reached only
+  through a link still asks (`viaLink`). Before a command that can discard
+  uncommitted work (`discardsWork`), the checker is shown `git status`
+  (`gitStatusLine`, untracked files always). A mode switched while a check ran
+  drops its verdict and asks the owner (`MODE_SWITCHED`). No verdict
+  (`checkAction`'s `kind`): "hard" (the checker declined: "retrying won't
+  help", not checked again in the job), "transient" (an unreadable answer) or
+  "unavailable" (no answer), each waited out longer before the next check
+  (`noVerdictWait`, 1 s doubling to 30 s), the turn stopping after
+  `NO_VERDICT_STOP` (10) responses in a row, a PermissionDenied hook's retry not
+  passed on, and the page's dim "Not run · auto mode's check had no usable
+  answer" row. The block counts are kept in a file of root's beside the memory
+  folders (`checksKeep`), so they outlive the machine's sleep. The checker has
+  the default rules of Claude Code's `claude auto-mode defaults` (2.1.322) that
+  Coder's machine can meet: 60 block rules and 12 allow rules (28 and 9 before),
+  about 7,200 more characters per check.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

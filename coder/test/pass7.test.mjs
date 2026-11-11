@@ -243,10 +243,12 @@ test("CD403 a risky rm under the owner's own Ask rule in Auto (Claude Code: \"If
   assert.equal(t.cards.length, 1, "asked instead");
   assert.match(t.cards[0].why, /Dangerous rm operation detected: '~'/);
   // The switch: the checker decides (with the checker on); without it, refused all the same.
+  // (The git status Coder runs first for the checker, Bash docs pass 8, is not the command.)
+  const own = (t0) => t0.ran.filter((x) => !/--porcelain=v1/.test(x));
   t = await job(rm, { checker: true, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"allow"}' });
-  assert.deepEqual([t.checks.length, t.ran.length], [1, 1]);
+  assert.deepEqual([t.checks.length, own(t).length], [1, 1]);
   t = await job(rm, { checker: true, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"block","rule":"Irreversible Local Destruction","reason":"home folder"}' });
-  assert.deepEqual([t.checks.length, t.ran.length], [1, 0]);
+  assert.deepEqual([t.checks.length, own(t).length], [1, 0]);
   t = await job(rm, { extra: { rmChecksOff: { timeout: true } } });
   assert.deepEqual([t.ran.length, /Dangerous rm/.test(t.told("b1"))], [0, true], "no checker: refused");
   // The three others.

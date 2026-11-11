@@ -270,7 +270,8 @@ test("CD107 network and key changes reach jobs that are running, like Claude Cod
   // The machine: no running job, nothing to change; a running one has its proxy and firewall set and a note in the chat.
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(src, /if \(url\.pathname === "\/network" && req\.method === "POST"\) \{\n\s+if \(!t \|\| !t\.running\) return send\(200, \{ ok: true, applied: false \}\);/);
+  // (A chat whose background commands still run after its job gets the change too: Bash docs pass 8, CD412.)
+  assert.match(src, /if \(url\.pathname === "\/network" && req\.method === "POST"\) \{\n[\s\S]{0,300}?const bgRunning = \[\.\.\.JOBS\.values\(\)\]\.some\(\(j\) => j\.project === project && !j\.end\);\n\s+if \(!t \|\| \(!t\.running && !bgRunning\)\) return send\(200, \{ ok: true, applied: false \}\);/);
   assert.match(src, /px\.setNetwork\(net\); px\.setSecrets\(list\); px\.setEgress\(body\.egress \|\| null\);\n\s+if \(t\.extraEnv\) \{ Object\.assign\(t\.extraEnv, px\.env\(\)\);/);
   assert.match(src, /if \(net\.limited\) fwOn = firewall\(true, RUN_UID\);\n\s+\}\n\s+if \(!net\.limited && fwOn\) fwOn = !firewall\(false, RUN_UID\);/);
 });

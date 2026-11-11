@@ -215,7 +215,7 @@ test("CD295 (docs check: Claude Code's Output limits, its bashOutputMaxChars set
   // Coder's bash says the size, and Coder is told when the environment sets one.
   const A = await import("../container/coder-agent.mjs");
   assert.match(A.toolsFor(A.CODER_TOOLS, { inlineMax: 100000 }).find((t) => t.function.name === "bash").function.description, /Output past 100,000 characters is saved to a file/);
-  assert.match(serverSrc(), /"\\n\\nCOMMAND OUTPUT SIZES \(this chat's environment sets " \+ \(t\.outLimits\.inlineMax !== OUT_INLINE \? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH"\) \+ "\): output of a command that worked comes back inline up to "/);
+  assert.match(serverSrc(), /"\\n\\nCOMMAND OUTPUT SIZES \(" \+ setBy\(t\.outLimits\.inlineMax !== OUT_INLINE \? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH"\) \+ "\): output of a command that worked comes back inline up to "/);
   // The agent passes the chat's sizes to the result.
   const s = scripted([say("", [call("bash", { command: "cat big.txt" })]), say("ok", [])]);
   await A.runCoder({ send: s.send, exec: async () => ({ code: 0, output: fifty }) }, { text: "go", outLimits: { inlineMax: 100000, readBack: 100000 } });
@@ -245,7 +245,8 @@ test("CD296 (docs check: Claude Code's CLAUDE_CODE_DISABLE_BACKGROUND_TASKS, \"r
   assert.match(src, /t\.noBg = varOn\(rawVars\.CODER_DISABLE_BACKGROUND_TASKS\);/);
   assert.match(src, /stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\)/, "(a monitor still runs: Claude Code's Monitor does, CD381)");
   assert.match(src, /if \(t && t\.noBg\) return send\(200, \{ ok: false, why: "background commands are off in this chat's environment \(CODER_DISABLE_BACKGROUND_TASKS\)" \}\);/);
-  assert.match(src, /BACKGROUND COMMANDS ARE OFF \(this chat's environment sets CODER_DISABLE_BACKGROUND_TASKS\)/);
+  assert.match(src, /BACKGROUND COMMANDS ARE OFF \(" \+ setBy\("CODER_DISABLE_BACKGROUND_TASKS"\) \+ "\)/);
+  assert.match(src, /const setBy = \(n\) => \(fromRepo\(n\) \? "this repository's \.claude\/settings\.json sets " \+ REPO_OWN_FROM\[n\] : "this chat's environment sets " \+ n\);/);
   const S = await import("../container/server.mjs");
   for (const v of ["1", "true", "YES", "on"]) assert.equal(S.varOn(v), true, v);
   for (const v of ["", "0", "false", undefined]) assert.equal(S.varOn(v), false, String(v));

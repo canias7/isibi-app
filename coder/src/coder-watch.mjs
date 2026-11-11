@@ -11,6 +11,8 @@
 // so a tab and this run never save a job twice: the machine hands its end out
 // once). A job leaves the list when it has ended, or after WATCH_MAX_MS.
 
+import { egressPass } from "./coder-egress.mjs";
+
 /** Where the watch list lives in Coder's storage: one small record per running job. */
 export const WATCH_PREFIX = "coder/running-jobs/";
 /** A job may work for 45 minutes after a setup of up to 5; after 2 hours it is no longer kept awake. */
@@ -164,24 +166,58 @@ export async function runBackgroundJobs(env, deps, now = Date.now()) {
   } while (cursor);
   let checked = 0, woken = 0, left = 0;
   const one = async (key) => {
-    const rec = await readJson(bucket, key);
-    if (!rec || typeof rec.uid !== "string" || typeof rec.id !== "string" || !(now - Number(rec.at) < (typeof rec.max === "number" ? Math.min(rec.max, bgWatchFor(BG_MAX_CAP_MS)) : BG_WATCH_MAX_MS))) { await bucket.delete(key); left++; return; }
-    const user = { id: rec.uid, email: rec.email };
-    const base = "https://gofarther.dev/api/coder/projects/" + encodeURIComponent(rec.id);
-    const res = await deps.coder(new Request(base + "/background"), user).catch(() => null);
-    const st = res ? await res.json().catch(() => null) : null;
-    checked++;
-    if (res && res.status === 404) { await bucket.delete(key); left++; return; }
-    if (!st || st.ok !== true) return;
-    const running = st.running === true || (st.project && st.project.status === "running");
-    if (Number(st.untold) > 0 && !running) {
-      const r = await deps.coder(new Request(base + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fromBackground: true }) }), user).catch(() => null);
-      if (r && r.status === 200) woken++;
-      return;
-    }
-    // (A chat stays while an asyncRewake hook of its runs: it may wake it.)
-    if (!(Array.isArray(st.background) && st.background.length) && !(Number(st.untold) > 0) && !(Number(st.hooks) > 0)) { await bucket.delete(key); left++; }
+    const r = await backgroundCheck(env, deps, key, now);
+    checked += r.checked; woken += r.woken; left += r.left;
   };
   for (let i = 0; i < keys.length; i += AT_ONCE) await Promise.all(keys.slice(i, i + AT_ONCE).map((k) => one(k).catch(() => {})));
   return { checked, woken, left };
+}
+/** ONE CHAT ON THE LIST (the every-minute look, and its machine's wake): `{ checked, woken, left }`, each 0 or 1. */
+export async function backgroundCheck(env, deps, key, now = Date.now()) {
+  const bucket = env.CODER_BUCKET;
+  const out = { checked: 0, woken: 0, left: 0 };
+  const rec = await readJson(bucket, key);
+  if (!rec || typeof rec.uid !== "string" || typeof rec.id !== "string" || !(now - Number(rec.at) < (typeof rec.max === "number" ? Math.min(rec.max, bgWatchFor(BG_MAX_CAP_MS)) : BG_WATCH_MAX_MS))) { await bucket.delete(key); out.left = 1; return out; }
+  const user = { id: rec.uid, email: rec.email };
+  const base = "https://gofarther.dev/api/coder/projects/" + encodeURIComponent(rec.id);
+  const res = await deps.coder(new Request(base + "/background"), user).catch(() => null);
+  const st = res ? await res.json().catch(() => null) : null;
+  out.checked = 1;
+  if (res && res.status === 404) { await bucket.delete(key); out.left = 1; return out; }
+  if (!st || st.ok !== true) return out;
+  const running = st.running === true || (st.project && st.project.status === "running");
+  if (Number(st.untold) > 0 && !running) {
+    const r = await deps.coder(new Request(base + "/message", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ fromBackground: true }) }), user).catch(() => null);
+    if (r && r.status === 200) out.woken = 1;
+    return out;
+  }
+  // (A chat stays while an asyncRewake hook of its runs: it may wake it.)
+  if (!(Array.isArray(st.background) && st.background.length) && !(Number(st.untold) > 0) && !(Number(st.hooks) > 0)) { await bucket.delete(key); out.left = 1; }
+  return out;
+}
+
+/**
+ * THE MACHINE'S WAKE (Bash docs pass 8; Claude Code's tools reference: "You keep working in the same session and Claude
+ * interjects when an event arrives"): a chat with no job whose machine says one of its background commands ended, or a
+ * monitor of its printed, is looked at now, not at the next minute. Only with the chat's last job's pass (egressPass, as
+ * the machine's keyed requests), and it does no more than the every-minute look would.
+ */
+export const WAKE_PATH = "/api/coder/wake";
+const sameText = (a, b) => { a = String(a); b = String(b); if (a.length !== b.length) return false; let r = 0; for (let i = 0; i < a.length; i++) r |= a.charCodeAt(i) ^ b.charCodeAt(i); return r === 0; };
+export async function handleWake(request, env, deps, { now = Date.now(), pass } = {}) {
+  const say = (t, status) => new Response(JSON.stringify({ ok: false, error: t }), { status, headers: { "content-type": "application/json" } });
+  if (request.method !== "POST") return say("POST only", 405);
+  const bucket = env && env.CODER_BUCKET;
+  if (!bucket) return say("storage is not available", 503);
+  const h = request.headers;
+  const chat = String(h.get("x-coder-chat") || ""), turn = String(h.get("x-coder-turn") || "");
+  const m = /^([\w-]{1,100})\/([a-z0-9][a-z0-9-]{2,40})$/.exec(chat);
+  if (!m || !/^\d{1,9}$/.test(turn)) return say("not a job", 403);
+  const want = await (pass || egressPass)(env, chat, turn);
+  if (!want || !sameText(want, h.get("x-coder-egress") || "")) return say("not this job's pass", 403);
+  const meta = await readJson(bucket, "coder/" + m[1] + "/" + m[2] + "/meta.json");
+  if (!meta || String(meta.turn) !== turn) return say("not the chat's last job", 403);
+  if (meta.status === "running") return say("a job is running", 409);
+  const r = await backgroundCheck(env, deps, bgKey(m[1], m[2]), now);
+  return new Response(JSON.stringify({ ok: true, ...r }), { status: 200, headers: { "content-type": "application/json" } });
 }

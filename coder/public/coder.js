@@ -935,6 +935,8 @@
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
+      // (Not run because auto mode's check had no usable answer: dim, not an error, as Claude Code shows it; Bash docs pass 8.)
+      : state === 'bad' && r && typeof r.notRun === 'string' && r.notRun ? '<span class="cd-st cd-st-notrun">not run</span>'
       : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
@@ -953,6 +955,9 @@
       (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
       // A STEP AUTO MODE'S CHECKER BLOCKED: why, under the step, without opening it (like Claude Code's).
       stepAutoBlock(r) +
+      // A STEP NOT RUN BECAUSE AUTO MODE'S CHECK HAD NO USABLE ANSWER: Claude Code's dim row ("Not run · auto mode's check had
+      // no usable answer"), the full message when the step is opened.
+      (r && typeof r.notRun === 'string' && r.notRun ? '<div class="cd-notrun">Not run · ' + esc(r.notRun) + '</div>' : '') +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).

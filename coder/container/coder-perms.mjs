@@ -529,9 +529,22 @@ export function fileCommandTargets(cmd, cwd) {
  */
 export function wholeReadOnly(command) {
   const r = readCommand(command);
-  // (git after a cd that went elsewhere, in brackets too, is no read-only command: Claude Code asks, 2.1.309.)
-  const gitElsewhere = (c) => { const w = readWords(c.words) || []; return !!w[0] && basename(w[0].text) === "git" && (r.cdAway || c.dir !== "/"); };
-  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c) && !gitElsewhere(c));
+  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c) && !gitAfterCd(r, c));
+}
+// (git after a cd that went elsewhere, in brackets too, is no read-only command: Claude Code asks, 2.1.309.)
+const gitAfterCd = (r, c) => { const w = readWords(c.words) || []; return !!w[0] && basename(w[0].text) === "git" && (r.cdAway || c.dir !== "/"); };
+/**
+ * EVERY PART ALLOWED BY A RULE OR READ-ONLY (Bash docs pass 8; Claude Code 2.1.322: "All pipeline commands are individually
+ * allowed, some only by the read-only allowlist", so no auto mode check): `rules` the allow rules auto mode keeps. A
+ * command that writes a file by a redirection or tee needs every part allowed by a rule (a rule allows the command, and
+ * the redirection is the command's).
+ */
+export function partsAllowedOrReadOnly(command, rules) {
+  const r = readCommand(command);
+  if (!r.ok || !r.cmds.length) return false;
+  const byRule = (c) => allowRuleCovers(c, rules);
+  if (r.writes.length) return r.cmds.every(byRule);
+  return r.cmds.every((c) => byRule(c) || (commandReadOnly(c) && !gitAfterCd(r, c)));
 }
 /**
  * GIT COMMANDS THAT MOVE THE WORK TREE (Claude Code 2.1.319's own list; its hooks reference: "Set for a Git command that moves
@@ -549,6 +562,37 @@ export function movesWorkTree(command) {
     let k = 1;
     while (k < w.length && w[k].startsWith("-") && w[k] !== "--") { if (GIT_TAKES_VALUE.has(w[k])) k++; k++; }
     return GIT_MOVES.includes(w[k] || "");
+  });
+}
+
+/**
+ * A COMMAND THAT CAN DISCARD UNCOMMITTED WORK (Bash docs pass 8; Claude Code "runs `git status` itself before a command that
+ * would discard uncommitted work, such as `git reset --hard` or `rm -rf`, and shows the classifier whether staged, modified, or
+ * untracked work is present"; its list: "git reset --hard, git checkout -- ., git restore ., git clean -fd, git stash drop, or
+ * git stash clear"): anywhere in it (after sudo, time and the rest; git's own options such as -C skipped).
+ */
+export function discardsWork(command) {
+  const text = String(command || "");
+  const r = parseShell(text);
+  if (!r.ok) return /\bgit\b[^\n;&|]*\b(reset\s+[^\n;&|]*--hard|checkout\s+(--|\.)|restore\b|clean\s+[^\n;&|]*-[a-z]*f|stash\s+(drop|clear))|\brm\s+[^\n;&|]*(-[a-z]*r[a-z]*f|-[a-z]*f[a-z]*r)/i.test(text);
+  return r.commands.some((c) => {
+    const w = unwrapped(c.words).map((x) => x.text);
+    const prog = basename(w[0] || "");
+    if (prog === "rm") {
+      const flags = w.slice(1).filter((x) => x.startsWith("-") && x !== "-" && x !== "--");
+      const short = flags.filter((x) => !x.startsWith("--")).join("");
+      return (/[rR]/.test(short) || flags.includes("--recursive")) && (/f/.test(short) || flags.includes("--force"));
+    }
+    if (prog !== "git") return false;
+    let k = 1;
+    while (k < w.length && w[k].startsWith("-") && w[k] !== "--") { if (GIT_TAKES_VALUE.has(w[k])) k++; k++; }
+    const sub = w[k] || "", rest = w.slice(k + 1);
+    if (sub === "reset") return rest.includes("--hard");
+    if (sub === "checkout") return rest.includes("--") || rest.includes(".") || rest.includes("-f") || rest.includes("--force");
+    if (sub === "restore") return !(rest.includes("--staged") || rest.includes("-S")) || rest.includes("--worktree") || rest.includes("-W");
+    if (sub === "clean") return rest.some((x) => /^-[a-zA-Z]*f/.test(x) || x === "--force");
+    if (sub === "stash") return rest[0] === "drop" || rest[0] === "clear";
+    return false;
   });
 }
 
@@ -1097,7 +1141,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [] } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1130,7 +1174,10 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // Accept edits, for the files it writes: "the check covers your Edit allow and deny rules"): never a protected file.
   const readOk = (p, dir = false) => !!p && (dir ? folderReadAllowed(rules.allow, p, fctx) : !!fileRuleHit(rules.allow, "Read", p, "allow", fctx));
   const editOk = (p) => !!p && !!fileRuleHit(rules.allow, "Edit", p, "allow", fctx);
-  const editsOk = normMode(mode) === "acceptEdits";
+  // (Accept edits lets commands change files only as Claude Code's real acceptEdits: in its cloud sessions the mode is
+  // "default" for commands, unless the repository's settings say acceptEdits: `byCommand`, Bash docs pass 8.)
+  const editsOk = normMode(mode) === "acceptEdits" && byCommand !== false;
+  const cloudDefault = normMode(mode) === "acceptEdits" && byCommand === false;
   if (!read.ok) return { verdict: "ask", why: PARSE_ERROR, suggest: null };
   // ONE THAT CAN'T BE CHECKED EITHER (Bash docs pass 3): an operator with nothing after it (Claude Code: "When && or || has
   // nothing after it, such as in npm test &&, Claude Code treats the command as unparseable and doesn't split it into
@@ -1177,7 +1224,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // EACH FILE IT WRITES (redirections, tee): in Accept edits, a file inside the project that is not protected, not named
   // with a wildcard (Claude Code: a target that "contains a glob character needs your approval"), and no link out of the
   // project or to a protected file; in Plan, none.
+  const cloudWrites = [];
   for (const x of read.writes) {
+    if (cloudDefault) { cloudWrites.push(x.cmd); continue; }
     if (!editsOk) { needFor(x.cmd, "This command writes " + x.raw + ", and Plan mode changes no files."); continue; }
     if (x.glob) { needFor(x.cmd, SHELL_EXPANSION); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
@@ -1260,6 +1309,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     }
     parts.push(c);
   }
+  // (A file a command writes, in Accept edits as Claude Code's cloud "default": asked unless a rule covers the command.)
+  for (const c of cloudWrites) if (!parts.includes(c)) parts.push(c);
   // THE PARTS LEFT: each allowed by one of the owner's rules (allowRuleCovers), or the command is asked about.
   const left = parts.filter((c) => !allowTexts(c).some((t) => allow.some((x) => ruleApproves(c, x, t))));
   // (A wrapper or a find action that a prefix rule matched but can't approve: Claude Code's own reason.)
@@ -1864,7 +1915,7 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
  * readOnly, covered }: `readOnly`, nothing for the checker to judge; `covered`, the owner's allow rules cover it all.
  * `pathAbs(p)` is a path as the machine resolves it (null when it cannot be told); `inside(p)`, inside the working folders.
  */
-export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "" } = {}) {
+export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "", byCommand = true } = {}) {
   const cmd = String(command ?? "").trim();
   const m = normMode(mode), auto = m === "auto";
   if (!cmd) return { verdict: "allow", why: "", suggest: null, readOnly: true };
@@ -1910,7 +1961,7 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (!needs) return { verdict: "allow", why: "", suggest: null, readOnly, covered };
   // ACCEPT EDITS: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) run there, with
   // the reading ones beside them, when every path they are given is inside the working folders.
-  if (m === "acceptEdits" && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
+  if (m === "acceptEdits" && byCommand !== false && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
   return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks("", [...new Set(need.flatMap(psExactRule))]);
 }
 /** Claude Code's questions about a command made of several: git next to a cd or an archive, a write into .git. */

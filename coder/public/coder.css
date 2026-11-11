@@ -535,6 +535,9 @@
 .cd-autoblock { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; }
 .cd-autoblock-head { color: #b3261e; font-weight: 600; }
 .cd-autoblock-why { color: #6b7280; overflow-wrap: anywhere; }
+/* A step auto mode's check gave no usable answer for: a dim row, not an error (Claude Code's "Not run"). */
+.cd-notrun { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; color: #9ca3af; }
+.cd-st-notrun { color: #9ca3af; font-weight: 500; }
 .cd-progress { margin: 0 0 8px 30px; padding: 6px 10px; background: #f7f5f1; border: 1px solid #eee9e1; border-radius: 8px; font: 12px "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; color: #374151; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 8.5em; overflow: hidden; }
 
 /* MESSAGES WAITING FOR CODER (Claude Code's queue): grey, at the end of the chat, each with ✕ to take it back. */

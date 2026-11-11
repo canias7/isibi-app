@@ -1012,6 +1012,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
     // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
     const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
+    // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
+    const lastAtOn = messages.length && Number(meta.at) > 0 ? { lastAt: Number(meta.at) } : {};
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -1033,7 +1035,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, ...lastAtOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1252,7 +1254,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const background = bgListOf(s.result.background);
       // THE MODE A CARD SWITCHED TO (Auto from a command's card; Auto or Accept edits from an approved plan), unless the owner
       // picked one since; and the rules "Yes, and don't ask again" added for this repository.
-      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff")).at(-1);
+      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
@@ -1568,7 +1570,9 @@ export async function handleCoder(request, env, ctx, deps) {
         const mm = /^coder\/[^/]+\/([^/]+)\/meta\.json$/.exec(o.key);
         if (!mm || !PROJECT_ID.test(mm[1])) continue;
         const m = mm[1] === id ? meta : await getJson(bucket, o.key, null);
-        if (!m || m.status !== "running" || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
+        // (A running job, or a chat whose background commands still run: Bash docs pass 8.)
+        const bgOn = !!m && Array.isArray(m.background) && m.background.length > 0;
+        if (!m || (m.status !== "running" && !bgOn) || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
         try {
           const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineKeyRules(cur.secrets), egress: { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + mm[1], turn: m.turn, pass: await egressPass(env, uid + "/" + mm[1], m.turn) } }) }));
           if (r.ok) reached++;

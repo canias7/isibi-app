@@ -33,8 +33,8 @@ import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitMeaning, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
-import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
-import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait } from "./coder-checker.mjs";
+import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -111,6 +111,20 @@ export const NEEDS_ROOT_RE = /(?:^|[\s;&|(`])(?:sudo|su|doas|apt-get|apt|aptitud
 const fn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
 /** A job's conversation past this many characters has its older steps summarized (owner item 3). */
 export const COMPACT_AT = 450_000;
+/**
+ * WHAT RESUMING A CHAT COSTS (Bash docs pass 8; Claude Code 2.1.251: SessionStart hooks get four more fields "when
+ * `source` is "resume" or "fork" and the transcript contains at least one response"): from what the first request sends
+ * (`chars`: its system text and the chat so far, about 4 characters a token) and the chat's last activity as Coder's
+ * server saved it (`lastAt`): whether Grok's cache of it has likely lapsed (past RESUME_CACHE_MS), and what sending it
+ * uncached costs at Grok 4.7's input price ($2.00 a million tokens; xAI charges nothing more to cache it).
+ */
+export const RESUME_CACHE_MS = 5 * 60 * 1000, INPUT_USD_PER_MTOK = 2;
+export function resumeCost({ chars = 0, lastAt = 0, now = Date.now() } = {}) {
+  const at = Number(lastAt);
+  const secs = Number.isFinite(at) && at > 0 && at <= now ? Math.round((now - at) / 1000) : null;
+  const tokens = Math.ceil(Math.max(0, Number(chars) || 0) / 4);
+  return { ...(secs !== null ? { seconds_since_last_response: secs } : {}), context_tokens: tokens, prompt_cache_likely_expired: secs === null || secs * 1000 > RESUME_CACHE_MS, estimated_cache_write_usd: Math.round((tokens * INPUT_USD_PER_MTOK) / 100) / 10000 };
+}
 /** A job summarizes its own steps at most this many times (3, then 10, before the reviews of 2026-11-08). */
 export const COMPACT_JOB_MAX = 30;
 /**
@@ -252,11 +266,40 @@ export const allowRunText = (command) => "I allowed Coder to run command " + cre
  * protected paths, and the working directories"; tee "including in a pipeline"). A file is named as write names it, so the
  * owner's Allow on either card covers the other. Null when it needs no one.
  */
+/**
+ * WHAT UNCOMMITTED WORK THERE IS, for the auto mode checker (Bash docs pass 8; Claude Code "runs `git status` itself before
+ * a command that would discard uncommitted work … and shows the classifier whether staged, modified, or untracked work is
+ * present", untracked files "even when the repository's git configuration sets status.showUntrackedFiles=no"): one line,
+ * from the folder the command starts in; "" when git could not be asked.
+ */
+/** A card after the mode changed while the checker judged the step (Claude Code: "You're prompted for approval instead"). */
+export const MODE_SWITCHED = "The permission mode changed while auto mode was checking this, so it needs your approval.";
+export const GIT_SEEN = "GIT STATUS (Coder's app ran it before this command, which can discard uncommitted work): ";
+export async function gitStatusLine(deps) {
+  let r = null;
+  try { r = await deps.exec({ command: "__s=$(git -c core.quotepath=off status --porcelain=v1 --untracked-files=all 2>/dev/null); __rc=$?; printf '%s\\n' \"$__s\" | head -n 20000; echo \"__git_rc=$__rc\"", timeoutS: 15, tool: true, here: true }); } catch { r = null; }
+  const out = String((r && r.output) || "");
+  const rc = /__git_rc=(\d+)/.exec(out);
+  if (!rc) return "";
+  if (rc[1] !== "0") return GIT_SEEN + "this folder is not in a git repository, so nothing tells what is uncommitted.";
+  let staged = 0, modified = 0, untracked = 0;
+  for (const line of out.split("\n")) {
+    if (line.length < 4 || line.startsWith("__git_rc=")) continue;
+    const x = line[0], y = line[1];
+    if (x === "?" && y === "?") { untracked++; continue; }
+    if (x !== " " && x !== "!") staged++;
+    if (y !== " " && y !== "!") modified++;
+  }
+  const files = (n) => n + " file" + (n === 1 ? "" : "s");
+  const parts = [staged && files(staged) + " staged", modified && files(modified) + " modified", untracked && files(untracked) + " untracked"].filter(Boolean);
+  return GIT_SEEN + (parts.length ? parts.join(", ") + "." : "no uncommitted work (nothing staged, modified or untracked).");
+}
 export function commandAsk(command, deps, where0 = "", { real = null, allowed = null } = {}) {
   if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "This command is over 10,000 characters, more than Coder's checks read through", note: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
   // (`says`: each one in Claude Code's words, for the card: "Claude requested permissions to edit … which is a sensitive
   // file.", with the link it was reached through.)
   const names = [], says = [];
+  let viaLink = false;
   const add = (name, say) => { if (!names.includes(name)) { names.push(name); says.push(say); } };
   for (const x of writeTargets(command).targets) {
     // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known).
@@ -298,7 +341,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     const to = leadsTo(full, workdirs, real);
     if (to === full) return;
     const rel = to ? relIn(to) : "";
-    if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { add(name + " (which leads to " + rel + ")", sensitiveWhy(to, full)); return; }
+    if (rel && (protectedFile(rel) || protectedFile(rel + "/x"))) { viaLink = true; add(name + " (which leads to " + rel + ")", sensitiveWhy(to, full)); return; }
     if (relIn(full) && !rel && !(part && typeof allowed === "function" && allowed(part)) && !outs.some((o) => o.name === name)) outs.push({ name, to, full });
   };
   for (const x of read.writes) if (x.path) through(x.path, projectPath(deps, x.path), null);
@@ -326,7 +369,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   // Each name as the chat shows it (a line break written out, never sent as one): the card's Allow becomes the owner's own
   // message, so a file's name can never add words of its own to it; write's card names a file the same way.
   const list = names.map((n) => scrub(visibleChars(n)).slice(0, 300));
-  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
+  return { kind: "protected", ...(viaLink ? { viaLink: true } : {}), paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
 }
 /** What a card shows of a command: its first 40 lines, a long line cut with "…". */
 export function cardLines(command) {
@@ -885,8 +928,9 @@ export const PLAN_ASKS = Object.freeze({
   undo_last_job: () => "Undo the last job that changed files",
 });
 /** What Grok is told of the chat's permission mode, with the system's words (not saved with the chat). */
-export function modeSystem(mode) {
+export function modeSystem(mode, { fileEdits = true } = {}) {
   const m = normMode(mode);
+  if (m === "acceptEdits" && fileEdits === false) return "PERMISSION MODE: Accept edits (the owner's pick): your file edits in the project run without asking; a command that changes files (mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like), any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, wait for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
   if (m === "plan") return "PERMISSION MODE: Plan (the owner's pick).\n" + PLAN_NOTE;
   if (m === "acceptEdits") return "PERMISSION MODE: Accept edits (the owner's pick): your file edits and file commands in the project (mkdir, touch, rm, mv, cp, sed -i) run without asking; any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, waits for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
   return "PERMISSION MODE: Auto (the owner's pick).\n" + AUTO_NOTE;
@@ -1078,7 +1122,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null} = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0} = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1101,6 +1145,10 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const setMode = (m, by) => { modeHere = offAuto(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's allow, ask and deny), and those "don't ask again" added in this job.
   // (A chat in Auto when Auto mode is off: the switch to Accept edits is said, and saved with the chat as a card's is.)
+  // THE REPOSITORY'S STARTING MODE (its .claude/settings.json permissions.defaultMode; Claude Code's cloud sessions honor
+  // "only acceptEdits, plan, default, and auto from this key", and auto not from a project's file): "plan" starts a new
+  // chat in Plan.
+  if (startMode === "plan" && !github && !(Array.isArray(messages) && messages.length) && normMode(mode) !== "plan") { setMode("plan", "settings"); emit({ type: "note", text: "This repository's settings (.claude/settings.json, defaultMode) start chats in Plan mode." }); }
   if (autoOff === true && !github && normMode(mode) === "auto") { setMode("acceptEdits", "autoOff"); emit({ type: "note", text: "Auto mode is turned off, so this chat works in Accept edits." }); }
   const ownRules = { allow: [], ask: [], deny: [] };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
@@ -1110,7 +1158,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // such as Bash or Bash(python *), are dropped in Auto: droppedInAuto.)
   // (The owner's classifyAllShell, Claude Code's autoMode.classifyAllShell: "suspend every Bash and PowerShell allow rule while
   // auto mode is active, so the classifier evaluates every shell command regardless of your allow list".)
-  const autoRulesCover = (command) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; const r = readCommand(command); return r.ok && r.cmds.length > 0 && r.cmds.every((part) => allowRuleCovers(part, keep)); };
+  const autoRulesCover = (command) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; return partsAllowedOrReadOnly(command, keep); };
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
   // POWERSHELL'S OWN READING OF A COMMAND (coder-psparse.mjs), for its checks: pwsh parses it on the machine as the AI
@@ -1327,7 +1375,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     for (const n of o.notices) emit({ type: "note", text: scrub(n).slice(0, 600), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
     if (o.watchPaths) { watchDyn = o.watchPaths.slice(0, 200); keepWatch(); }
-    if (o.sessionTitle) sessionTitle = scrub(o.sessionTitle).slice(0, 200);
+    // (A SessionStart hook's title applies "when `source` is "startup", "resume", or "fork"", not after a summary.)
+    if (o.sessionTitle && !(event === "SessionStart" && value === "compact")) sessionTitle = scrub(o.sessionTitle).slice(0, 200);
     // (A prompt hook's "ok": false that ends the turn: "the reason appears in the chat as a warning line".)
     if (o.endTurn) emit({ type: "note", text: scrub(event + " hook: " + o.endTurn).slice(0, 2000), hook: event, warn: true });
     return o;
@@ -1422,14 +1471,18 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     if (dec.verdict === "check") {
       if (!checker) dec = { verdict: "allow" };
       else {
-        const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        const checkSt = checkerState(...checkKey());
         if (checkSt.paused) {
           if (canAsk()) dec = { verdict: "ask", why: pausedWhy(checkSt.byRow), paused: checkSt };
           else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
         } else {
+          const wsKey = "monitor\n" + url;
+          if (declinedAgain(c, wsKey, "this WebSocket watch", reply)) return null;
+          await pauseMs(noVerdictWait(noVerdictRow));
           const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
           if (v.usage) usage.push(v.usage);
-          if (v.error) { refuse(checkUnavailable(model || "The classifier", "this WebSocket watch") + await deniedHooks(c, "Classifier unavailable")); return null; }
+          if (v.error) { if (await noVerdict(c, v, "this WebSocket watch", wsKey, reply)) return { end: stopNoVerdict(i) }; return null; }
+          noVerdictRow = 0;
           if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
           countAllowed(checkSt);
           dec = { verdict: "allow" };
@@ -1483,13 +1536,51 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
    * reason; one that says "retry": true lets Coder try again ("The PermissionDenied hook indicated you may retry this tool
    * call."). Their other output is not used.
    */
-  const deniedHooks = async (c, reason) => {
+  const deniedHooks = async (c, reason, { retry = true } = {}) => {
     if (!hookList.length) return "";
     const tool = ccTool(c.monitor ? "monitor" : c.name, !!c.monitor);
     const input = hookToolInput(c.name, c.args);
     const o = await runHooks("PermissionDenied", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id, reason: String(reason || "") }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
-    return o && o.retry ? "\n\nThe PermissionDenied hook indicated you may retry this tool call." : "";
+    return o && o.retry && retry ? "\n\nThe PermissionDenied hook indicated you may retry this tool call." : "";
   };
+  // PLAN'S CHECKER (Claude Code: in plan mode the classifier reviews commands when "Auto mode available and the
+  // useAutoModeDuringPlan setting on"; with auto mode turned off it is not available, Bash docs pass 8). Never from GitHub.
+  const planChecks = !!checker && checkerInPlan !== false && autoOff !== true && !github;
+  /** Whether a mode asks the checker about what it would otherwise question (for a mode switched while a check ran). */
+  const modeChecks = (m) => m === "auto" || github || (m === "plan" && planChecks);
+  // NO VERDICT FROM THE CHECKER (Bash docs pass 8; Claude Code 2.1.322: an action a check declined to judge is "denied once,
+  // noting that retrying won't help"; when a check "gave no answer", "retries now back off, and the turn stops with a message
+  // after ten in a row"): `noVerdictRow` counts Coder's responses in a row that got none; an action declined once is not
+  // sent to the checker again in this job.
+  let noVerdictRow = 0, noVerdictAt = -1;
+  const declined = new Set();
+  const pauseMs = (ms) => (ms > 0 ? (typeof deps.sleep === "function" ? deps.sleep(ms) : new Promise((ok) => setTimeout(ok, ms))) : Promise.resolve());
+  /** Step `c` refused with no verdict, said in Claude Code's words (`what`: "this bash command"): true when the turn stops. */
+  const noVerdict = async (c, v, what, key, reply) => {
+    const kind = v.kind === "hard" ? "hard" : v.kind === "transient" ? "transient" : "unavailable";
+    if (kind === "hard") declined.add(key);
+    else if (noVerdictAt !== rounds) { noVerdictRow++; noVerdictAt = rounds; }
+    const told = kind === "unavailable" ? checkUnavailable(model || "The classifier", what) : noVerdictTold(model || "The classifier", kind, v.error);
+    emit({ type: "result", id: c.id, code: -1, output: told, notRun: NOT_RUN_ROW });
+    reply(told + await deniedHooks(c, kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" }));
+    return kind !== "hard" && noVerdictRow >= NO_VERDICT_STOP;
+  };
+  /** The turn stopped after too many responses in a row with no verdict (Claude Code: "Auto mode unavailable — stopped after …"). */
+  const stopNoVerdict = (i) => {
+    for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + STOPPED_NO_VERDICT });
+    emit({ type: "error", text: STOPPED_NO_VERDICT + ". Try again in a moment, or switch out of Auto mode and approve the steps yourself." });
+    return end("done", { summary: lastSaid || STOPPED_NO_VERDICT });
+  };
+  /** A step the checker declined to judge before: refused again in the same words, with no new check. */
+  const declinedAgain = (c, key, what, reply) => {
+    if (!declined.has(key)) return false;
+    const told = noVerdictTold(model || "The classifier", "hard", "it declined to judge this action");
+    emit({ type: "result", id: c.id, code: -1, output: told, notRun: NOT_RUN_ROW });
+    reply(told);
+    return true;
+  };
+  /** Where a chat's count of blocks is kept between its machine's sleeps (Coder's machine gives it). */
+  const checkKey = () => [(checkWhere && checkWhere.key) || deps.root || "", deps.checkerKeep || null];
   // STOP HOOKS (Claude Code: "Runs when Claude finishes responding"): how many times in a row they kept Coder going.
   let stopRun = 0, stopHookActive = false;
   // A hook that said "continue": false: Coder stops after it, its reason shown to the owner and kept for Coder.
@@ -1611,10 +1702,16 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     emit({ type: "result", id: sid, code, output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}), ...(files ? { files } : {}) });
   }
   // SESSIONSTART HOOKS (Claude Code: their context goes "at the start of the conversation, before the first prompt"): on a
-  // chat's first message, as `startup` (and after a summary, as `compact`, below).
-  if (hookList.length && !(Array.isArray(messages) && messages.length)) {
-    if (hookList.some((h) => ENV_FILE_EVENTS.has(h.event))) await resetHookEnv();
-    const o = await runHooks("SessionStart", "startup", { source: "startup", ...(model ? { model } : {}) });
+  // chat's first message, as `startup` (and after a summary, as `compact`, below); on the first message after its machine
+  // started again (it sleeps after 10 quiet minutes; Claude Code's cloud runs them "on every session including resumed"),
+  // as `resume`, with what resuming costs (resumeCost). (The hook env file is kept then: what `startup` hooks wrote stays.)
+  const hadChat = Array.isArray(messages) && messages.length > 0;
+  if (hookList.length && (!hadChat || resumed === true)) {
+    const source = hadChat ? "resume" : "startup";
+    if (!hadChat && hookList.some((h) => ENV_FILE_EVENTS.has(h.event))) await resetHookEnv();
+    const answered = hadChat && messages.some((m) => m && m.role === "assistant");
+    const cost = answered ? resumeCost({ chars: CODER_SYSTEM.length + String(context || "").length + JSON.stringify(messages.map((m) => (m && m.images ? { ...m, images: [] } : m))).length, lastAt, now: now() }) : {};
+    const o = await runHooks("SessionStart", source, { source, ...(model ? { model } : {}), ...cost });
     if (o && o.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", o.context) });
   }
   // USERPROMPTSUBMIT HOOKS (Claude Code: "Runs when you submit a prompt, before Claude processes it"): one that blocks keeps
@@ -1818,7 +1915,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound)) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: CODER_SYSTEM + (github ? "\n\n" + GITHUB_NOTE : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -1990,13 +2087,16 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // Code's auto mode "denies it" away from a terminal); in Accept edits and Plan the owner is asked, each time (Claude
         // Code: "Asks you to approve it"; no rule approves one).
         const modeB = modeNow();
+        // (Plan, where the checker reviews commands, handles one as Auto does: Claude Code, "When the classifier reviews commands
+        // during planning and no bypass permissions are available, handles it as in auto mode", Bash docs pass 8.)
+        const rmAuto = modeB === "auto" || (modeB === "plan" && planChecks);
         const rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} });
         // (In Auto: the owner's own Ask rule on the command asks them instead, with no time limit (Claude Code: "If an
         // explicit ask rule matches the command, Claude Code asks you instead, even in auto mode"); with the environment's
         // CODER_DISABLE_DANGEROUS_RM_TIMEOUT the checker decides (Claude Code: "auto: the classifier decides").)
-        const rmAskRule = !!rmWhy && modeB === "auto" && canAsk() && !github && !!bashDecision(command, { mode: "auto", rules: { allow: [], deny: [], ask: (ownRules && ownRules.ask) || [] }, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "" }).byRule;
-        const rmToChecker = !!rmWhy && modeB === "auto" && !rmAskRule && !!checker && !!(rmChecksOff && rmChecksOff.timeout);
-        if (rmWhy && !rmAskRule && !rmToChecker && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
+        const rmAskRule = !!rmWhy && rmAuto && canAsk() && !github && !!bashDecision(command, { mode: "auto", rules: { allow: [], deny: [], ask: (ownRules && ownRules.ask) || [] }, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "" }).byRule;
+        const rmToChecker = !!rmWhy && rmAuto && !rmAskRule && !!checker && !!(rmChecksOff && rmChecksOff.timeout);
+        if (rmWhy && !rmAskRule && !rmToChecker && (rmAuto || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
         // (A monitor's command: Bash's rules and Monitor's, monitorRules.)
@@ -2006,7 +2106,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "" }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -2047,6 +2147,13 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
+        // PROTECTED-PATH WRITES IN AUTO, AND IN PLAN WHERE THE CHECKER REVIEWS COMMANDS (Bash docs pass 8; Claude Code's
+        // protected paths: auto "Routed to the classifier, which decides"; plan "routed to the classifier when auto mode is
+        // available during planning, and prompted when it isn't"): the checker judges one, told which paths it writes. One
+        // reached only through a link still asks ("prompts you instead when the path Claude requested isn't itself
+        // protected"), and so does one with no checker.
+        let protToChecker = null;
+        if (ask && ask.kind === "protected" && !ask.viaLink && !github && checker && (modeB === "auto" || (modeB === "plan" && planChecks))) { protToChecker = ask.paths; ask = null; }
         if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
         // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
         if (ask && !canAsk()) {
@@ -2061,20 +2168,41 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // (CODER_USE_AUTO_MODE_DURING_PLAN off: asked, as before). Never what asks in every mode (a protected file, the read
         // block, a dangerous removal, an ask rule). After 3 blocks in a row or 20 in all, auto mode pauses: the owner is asked,
         // and their Yes resumes it.
-        let pausedCard = false;
-        const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        let pausedCard = false, switchedCard = false;
+        const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        if (checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && ((!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command))) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))))) {
+        const wantsCheck = !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
+        // Code's session then starts in "default", where a run that can't ask is denied what needs approval.)
+        if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+        const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
+        const cmdWhat = c.ps ? "this PowerShell command" : "this bash command";
+        if (wantsCheck && !checkSt.paused && declinedAgain(c, cmdKey, cmdWhat, reply)) continue;
+        if (wantsCheck) {
           if (checkSt.paused) {
             if (canAsk()) pausedCard = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            // (A command that can throw away uncommitted work: git status first, for the checker, gitStatusLine.)
+            const gitSeen = !c.ps && discardsWork(command) ? await gitStatusLine(deps) : "";
+            await pauseMs(noVerdictWait(noVerdictRow));
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }) + (protToChecker ? "\nIT WRITES PROTECTED PATHS (repository state or Coder's own settings): " + protToChecker.join(", ") : "") + (gitSeen ? "\n" + gitSeen : ""), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
-            if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command") + await deniedHooks(c, "Classifier unavailable")); continue; }
-            if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
-            countAllowed(checkSt);
-            if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
+            // A MODE SWITCH WHILE IT WAS CHECKED (Bash docs pass 8; Claude Code: "Claude Code discards a verdict the new mode
+            // wouldn't have requested. You're prompted for approval instead").
+            const modeAfter = modeNow();
+            if (modeAfter !== modeB && !modeChecks(modeAfter)) {
+              if (!canAsk()) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; }
+              switchedCard = true;
+            } else if (v.error) {
+              if (await noVerdict(c, v, cmdWhat, cmdKey, reply)) return stopNoVerdict(i);
+              continue;
+            } else {
+              noVerdictRow = 0;
+              if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              countAllowed(checkSt);
+              if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
+            }
           }
         }
         // ASKED ON A CARD, AND THIS STEP WAITS (Claude Code's Bash prompt: "Yes", "Yes, and don't ask again for …", "Yes, and
@@ -2082,9 +2210,9 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // or one an ask rule asks about (Claude Code: no "don't ask again" when it can't cover it all, and no switch to auto
         // mode on a prompt one of your ask rules forced).
         let approval = null;
-        if (rmWhy || ask || dec.verdict === "ask" || pausedCard) {
-          const once = !!(rmWhy || ask || dec.byRule || pausedCard);
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
+        if (rmWhy || ask || dec.verdict === "ask" || pausedCard || switchedCard) {
+          const once = !!(rmWhy || ask || dec.byRule || pausedCard || switchedCard);
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
           approval = await askOwner(card);
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -2424,31 +2552,43 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, output: fetchDec.why }); reply(fetchDec.why); continue; }
         // THE AUTO MODE CHECKER FOR A PAGE FETCH (coder-checker.mjs): in Auto, or a job from GitHub, a fetch that no allow rule
         // and none of the pre-approved documentation sites cover is judged before it runs (an address can carry data out).
-        let fetchPaused = false;
-        const checkStF = checkerState((checkWhere && checkWhere.key) || deps.root || "");
+        let fetchPaused = false, fetchSwitched = false;
+        const checkStF = checkerState(...checkKey());
         if (checker && c.name === "web_fetch" && (modeT === "auto" || github) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask") && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
           if (checkStF.paused) {
             if (canAsk()) fetchPaused = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
+            const fetchKey = "web_fetch\n" + String(args.url || "");
+            if (declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
+            await pauseMs(noVerdictWait(noVerdictRow));
             const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
-            if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, "Classifier unavailable")); continue; }
+            const modeAfterF = modeNow();
+            if (modeAfterF !== modeT && !modeChecks(modeAfterF)) {
+              if (!canAsk()) { const m = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"; emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
+              fetchSwitched = true;
+            } else if (v.error) {
+              if (await noVerdict(c, v, "this page fetch", fetchKey, reply)) return stopNoVerdict(i);
+              continue;
+            } else {
+            noVerdictRow = 0;
             if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkStF);
+            }
           }
         }
         const fileAsk = (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || modeT === "plan");
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
         const fetchAsk = !!(fetchDec && fetchDec.verdict === "ask") && !(c.hook && c.hook.decision === "allow" && !fetchDec.byRule);
-        if (fileAsk || ruleAsk || fetchAsk || fetchPaused) {
+        if (fileAsk || ruleAsk || fetchAsk || fetchPaused || fetchSwitched) {
           const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : fileTarget ? scrub(visibleChars(projectPath(deps, fileTarget))).slice(0, 300) : "";
           const card = fileAsk
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? shownPath + " is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built." : "Plan mode is on: files change only after you approve the plan." }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : c.hook.reason || "A PreToolUse hook asks first.", byRule: true }
-            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchDec.why, ...(!fetchPaused && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
+            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchSwitched ? MODE_SWITCHED : fetchDec.why, ...(!fetchPaused && !fetchSwitched && fetchDec && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
           if (!canAsk()) { const m = "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + (fetchDec.host || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m); continue; }
           approval = await askOwner(card);
           const o = answerOutcome(approval);

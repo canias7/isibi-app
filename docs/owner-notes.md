@@ -11,6 +11,33 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 8, parts A and B (your words: "Yes pls", to building the whole list, safety holes first)
+
+Not merged or deployed yet. I'll ask you once parts C, D and E are done too. All 450 tests pass.
+
+**Part A, the safety holes** (pushed earlier today):
+- **Deny and ask rules now see through the same wrappers Claude Code does.** Before, a deny rule on `git push` could be stepped around with `time -p git push`, `watch -d git push`, `flock -n …`, `setsid -w …`, `exec -a …` and others. A path like `/usr/bin/git` counts too. The dangerous-delete check sees through them as well.
+- **Variables and brackets count.** `F=.env; cat $F` now meets a rule on `.env`. A `cd` inside brackets only moves that bracket group, and `git` after it asks, as in Claude Code.
+- **`cp` and `mv` into a folder**, and a wildcard in grep's pattern, are checked against your rules.
+- **Coder's network gate refuses the machine's own and private addresses** in every network setting, Full included, and also when they are written as numbers. Claude Code's words are used: "Connection to … blocked: resolved to a loopback address".
+
+**Part B, how Coder behaves in the cloud:**
+- **Accept edits now works like Claude Code's cloud default.** Coder's own file edits still run without asking. A *command* that changes files (mkdir, rm, a `>` redirect and the like) now asks you first, as Claude Code's cloud does. To get the old behavior for one repository, put `"defaultMode": "acceptEdits"` under `permissions` in its `.claude/settings.json`. `"plan"` there starts that repository's new chats in Plan mode.
+- **Background commands keep their keys after the answer.** A dev server or a monitor left running still gets the environment's saved keys and `gh`. Jobs started from GitHub still never get keys. GitHub Actions logs (`gh run view --log`) now come through.
+- **Woken at once.** When a background command finishes, or a monitor prints a line, an idle chat now wakes up within about 5 seconds. Before, that took up to a minute.
+- **A repository can set the command settings.** Its `.claude/settings.json` can set the command timeouts, output size, shell, PowerShell, background commands and the rest, using Claude Code's names. Your own environment settings still win.
+- **SessionStart hooks run as "resume"** when a chat's machine wakes up again (it sleeps after 10 quiet minutes), as in Claude Code's cloud. They get the time since the last answer, the chat's size, and roughly what re-sending it costs.
+- **Auto mode details, copied from Claude Code:**
+  - A command where every part is either allowed by your rules or only reads no longer goes to the checker. That is one paid check fewer.
+  - With Auto mode turned off, Plan mode stops using the checker and asks you instead. A job started from GitHub then refuses commands that change things, because nobody can approve them there.
+  - A dangerous delete in Plan mode is now refused, as in Auto.
+  - In Auto, writing to a protected folder like `.git` or `.husky` now goes to the checker instead of asking you, as Claude Code does. If the write reaches the protected folder through a link, it still asks you.
+  - Before a command that can throw away unsaved work (`git reset --hard`, `rm -rf` and the like), Coder runs `git status` and shows the checker what would be lost.
+  - If you switch modes while the checker is judging a command, its answer is thrown away and you are asked instead.
+  - When the checker gives no usable answer, the step shows a grey "Not run" line instead of a red error. Coder waits a little longer each time and stops after 10 in a row. If the checker refuses to judge something, Coder is told that retrying won't help.
+  - The counts behind "Auto mode paused after 3 blocks in a row, or 20 in all" now survive the machine's sleep.
+  - The checker now has all of Claude Code's standard rules that fit Coder's machine: 60 block rules and 12 allow rules, up from 28 and 9. Each check sends about 1,800 more tokens. That is about a third of a cent at Grok 4.7's price, and a quarter of that once xAI has it cached.
+
 ## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
 
 Merged to main and deployed (deploy 111): the three entries below, and the two from 2026-11-10 that were still waiting. All tests passed before the deploy.
