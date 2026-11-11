@@ -13,6 +13,7 @@
 // THE READ-ONLY SET is Claude Code 2.1.319's own (its lists, read from it on 2026-11-09): commands that run with any
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
+import { psParts, psRuleMatches, psReadOnly, psSuggest } from "./coder-ps.mjs";
 import { parseShell, unwrapped, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
@@ -600,7 +601,7 @@ export function readCommand(command, { cwd = "/", home = "" } = {}) {
 export function parseRule(text) {
   // (A tool name with a wildcard, `*`, `B*`, `mcp__*`: see toolGlob.)
   if (toolGlob(text)) return { tool: String(text).trim(), spec: null, glob: true };
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|AskUserQuestion|ExitPlanMode|TodoWrite)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   const spec = m[2] === undefined ? null : m[2].trim();
   if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
@@ -614,7 +615,7 @@ export function parseRule(text) {
   }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
   if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
-  return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor") ? null : spec };
+  return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**
  * A RULE ON TOOL NAMES BY WILDCARD (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's "Tool name
@@ -1743,6 +1744,30 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };
   return { verdict: "ask", why: "Coder wants to fetch a page from " + (host || "this site") + ".", suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
+}
+
+/**
+ * WHAT HAPPENS TO A POWERSHELL COMMAND (Bash docs pass 6; coder-ps.mjs, Claude Code's PowerShell rules: "the same shape as
+ * Bash rules", aliases canonicalized, "Every subcommand must be allowed for the compound command to run without a prompt"):
+ * a deny rule on any part refuses it, in Claude Code's words; an ask rule asks; in Auto it runs (the checker judges what
+ * isn't read-only); in Accept edits and Plan a command whose parts all only read, or that allow rules cover, runs, and
+ * anything else asks. `nativeReadOnly(part)`: whether a program's part only reads (Coder's bash check of it).
+ */
+export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false } = {}) {
+  const parts = psParts(command);
+  const hit = (list) => { for (const p of parts) { const r = list.find((x) => psRuleMatches(x.spec, p)); if (r) return r; } return null; };
+  const d = hit(rulesFor(rules.deny, "PowerShell", true));
+  if (d) return { verdict: "deny", rule: d.text, why: "Permission to use PowerShell with command " + String(command).trim() + " has been denied.", suggest: null };
+  const a = hit(rulesFor(rules.ask, "PowerShell", true));
+  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
+  if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
+  if (psAllowCovers(command, rules) || psReadOnly(command, { nativeReadOnly })) return { verdict: "allow", why: "", suggest: null };
+  return { verdict: "ask", why: "", suggest: psSuggest(command) };
+}
+/** Whether the owner's PowerShell allow rules cover every part of a command. */
+export function psAllowCovers(command, rules) {
+  const parts = psParts(command), allow = rulesFor(rules && rules.allow, "PowerShell");
+  return parts.length > 0 && parts.every((p) => allow.some((x) => psRuleMatches(x.spec, p)));
 }
 
 // ── WHAT CODER IS TOLD ───────────────────────────────────────────────────────

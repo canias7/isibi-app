@@ -8,6 +8,7 @@
 // and agent hooks ask Coder's model. Their exit code, stdout and stderr (or answer) say what happens, as in Claude Code. This file
 // is the part with no machine in it: reading the settings, matching, the input, and what a hook's output means. (No node:
 // modules: the Worker checks the owner's hooks with it.)
+import { utf16Base64 } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
@@ -72,7 +73,7 @@ export const HOOK_QUIET_MS = 10_000;
 export const AGENT_HOOK_TURNS = 50;
 
 /** Coder's tools by Claude Code's names (what a matcher and a hook's `tool_name` see); Coder's own tools keep their names. */
-export const CC_TOOL = { bash: "Bash", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
+export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
@@ -110,9 +111,11 @@ export function hooksFrom(settings, source = "settings") {
         const onFailure = h.onFailure === "block" ? { onFailure: "block" } : {};
         if (type === "command") {
           if (typeof h.command !== "string" || !h.command.trim()) { out.problems.push(event + ": a command hook needs its command"); continue; }
-          if (h.shell !== undefined && h.shell !== "bash") { out.problems.push(event + ": Coder runs hooks with bash (not " + String(h.shell) + ")"); continue; }
+          // (`shell`: bash, or powershell, Claude Code's: "runs that hook in PowerShell. Hooks spawn PowerShell directly, so this
+          // works regardless of CLAUDE_CODE_USE_POWERSHELL_TOOL".)
+          if (h.shell !== undefined && h.shell !== "bash" && h.shell !== "powershell") { out.problems.push(event + ": a hook's shell is bash or powershell (not " + String(h.shell) + ")"); continue; }
           const args = Array.isArray(h.args) && h.args.every((x) => typeof x === "string") ? h.args : null;
-          out.list.push({ ...base, command: h.command, ...(args ? { args } : {}), ...(h.async === true ? { async: true } : {}), ...(h.asyncRewake === true ? { asyncRewake: true } : {}), ...onFailure });
+          out.list.push({ ...base, command: h.command, ...(args ? { args } : {}), ...(h.shell === "powershell" && !args ? { shell: "powershell" } : {}), ...(h.async === true ? { async: true } : {}), ...(h.asyncRewake === true ? { asyncRewake: true } : {}), ...onFailure });
         } else if (type === "http") {
           let ok = false;
           try { const u = new URL(String(h.url || "")); ok = u.protocol === "https:" || u.protocol === "http:"; } catch { ok = false; }
@@ -453,7 +456,8 @@ export function stopFailureKind(e) {
  */
 const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
 export function hookShell(h, mark, root) {
-  const cmd = Array.isArray(h.args) ? [h.command, ...h.args].map(shq).join(" ") : String(h.command);
+  // (A PowerShell hook: pwsh with no profile, non-interactive, the command encoded, its stdin the event's JSON.)
+  const cmd = Array.isArray(h.args) ? [h.command, ...h.args].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command)) : String(h.command);
   return "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */

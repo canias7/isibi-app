@@ -316,6 +316,8 @@ export function bashOutputLimits(vars = {}) {
 /** A yes from the environment's variables, as Claude Code reads one ("1", "true", "yes", "on"). */
 export const varOn = (v) => /^(1|true|yes|on)$/i.test(String(v ?? "").trim());
 /** A no, the same way ("0", "false", "no", "off"). */
+/** Where PowerShell 7 is on a machine (Microsoft's package puts pwsh in /usr/bin). */
+export const PWSH_PATHS = ["/usr/bin/pwsh", "/opt/microsoft/powershell/7/pwsh", "/usr/local/bin/pwsh"];
 export const varOff = (v) => /^(0|false|no|off)$/i.test(String(v ?? "").trim());
 /**
  * THE MEMORY CAP FOR THE CHAT'S COMMANDS (tool 4, the owner, 2026-11-09: "Yes do that"; Claude Code's
@@ -2666,6 +2668,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       notes.push(...more.notes);
       later.push(...more.later);
     }
+    // THE POWERSHELL TOOL (coder-ps.mjs; Claude Code's CLAUDE_CODE_USE_POWERSHELL_TOOL, opt-in on Linux), on a machine with pwsh;
+    // without one, the owner is told (Claude Code: "the tool requires PowerShell 7 or later: install pwsh").
+    const psWanted = varOn(rawVars.CODER_USE_POWERSHELL_TOOL);
+    const psOn = psWanted && PWSH_PATHS.some((p) => existsSync(p));
+    if (psWanted && !psOn) t.events.push({ at: Date.now(), type: "note", text: "CODER_USE_POWERSHELL_TOOL is on, but this machine has no PowerShell 7 (pwsh), so Coder has no PowerShell tool here." });
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
     // (And the chat's hook env file, which SessionStart, CwdChanged and FileChanged hooks write: Claude Code's "Persist
@@ -2897,7 +2904,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "" }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2929,7 +2936,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const pass = !tool && Array.isArray(hosts) && hosts.length && px ? randomBytes(16).toString("hex") : "";
           if (pass) px.openFor(pass, hosts);
           const errLog = monitor && !tool && home ? join(home, ".coder-monitors", mark + ".err") : "";
-          const asked = command;
+          // (A PowerShell command runs inside its pwsh wrapper; it is listed as written.)
+          const asked = typeof shown === "string" && shown ? shown : command;
           if (errLog) command = "mkdir -p \"$HOME/.coder-monitors\" 2>/dev/null; exec 2>>\"$HOME/.coder-monitors/" + mark + ".err\"\n" + command;
           // A file or web tool is ended at its time limit, never sent to the background.
           // A HOOK (coder-hooks.mjs) runs as a tool does, with Claude Code's own for hooks: its answer once its own process has
@@ -3086,7 +3094,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell" } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
