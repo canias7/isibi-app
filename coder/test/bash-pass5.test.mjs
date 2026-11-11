@@ -39,7 +39,7 @@ test("CD354 pgrep, pkill and pidwait leave the command's own shells out (Claude 
 test("CD355 git never waits for an editor (Claude Code sets GIT_EDITOR=true for every command, before the session's own variables): the owner's own GIT_EDITOR wins", async () => {
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   // (Pass 6: the repository's own env between them, under the owner's variables.)
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.repoSet\.env, \.\.\.ownerVars,/);
+  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\),/);
   // Why: as Coder's commands run (no terminal, TERM=dumb), git commit --amend failed; with it, the message is kept.
   const base = await mkdtemp(join(tmpdir(), "coder-gited-"));
   try {
@@ -206,5 +206,5 @@ test("CD360 Coder's name for AI-agent traffic in every command (Claude Code 2.1.
   const S = await import("../container/server.mjs");
   assert.deepEqual(S.AGENT_MARK, { AI_AGENT: "gofarther-coder" });
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /Object\.assign\(extraEnv, coderMarks\(project, body\.chatUrl, [^\n]*\), AGENT_MARK\);/);
+  assert.match(server, /Object\.assign\(extraEnv, coderMarks\(project, body\.chatUrl, [^\n]*\), AGENT_MARK, REMOTE_MARK\);/);
 });

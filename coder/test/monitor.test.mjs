@@ -65,7 +65,7 @@ test("CD381b a monitor's lines come to Coder as events at each step (and wake an
     assert.deepEqual(SV.monitorNews("shop-m1"), [], "given once");
     appendFileSync(log, "ne\nGET /api 500\n[finished, exit code 0]\n");
     j.end = { code: 0, why: "", at: Date.now() };
-    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["half a line", "GET /api 500"], dropped: 0, end: { code: 0, why: "" } }], "the rest, and how it ended; never the end line");
+    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["half a line", "GET /api 500"], dropped: 0, end: { code: 0, why: "", events: 4, ...(Number(j.deadline) > Number(j.at) ? { ms: j.deadline - j.at } : {}) } }], "the rest, and how it ended; never the end line");
     assert.equal(j.told, true);
     assert.deepEqual(SV.monitorNews("shop-m1"), []);
     // ONE THAT PRINTS TOO MANY LINES is stopped (its mark kept or not as Settings say).

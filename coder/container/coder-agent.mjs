@@ -412,6 +412,9 @@ export function monitorSaid(n) {
     const why = ws && e.why === "exit" && ws.error ? "ended: the WebSocket could not be opened: " + ws.error + "."
       : ws && e.why === "exit" && ws.tooBig ? "ended: a message was larger than 1 MiB (" + ws.tooBig + " bytes). Subscribe to a filtered feed if the server has one."
       : ws && e.why === "exit" && Number.isInteger(ws.close) ? "ended: the WebSocket closed with code " + ws.close + (ws.reason ? " (" + ws.reason + ")" : "") + "."
+      // (At its deadline, Claude Code 2.1.322's words: "Monitor expired after 30m with 3 events delivered. Re-arm it if you still
+      // need the watch", and with none, "… with no events delivered. … — and widen the filter if silence was unexpected".)
+      : e.why === "limit" && Number.isInteger(e.events) ? "expired" + (Number(e.ms) > 0 ? " after " + durWords(e.ms) : "") + " with " + (e.events > 0 ? e.events + " event" + (e.events === 1 ? "" : "s") + " delivered. Re-arm it if you still need the watch." : "no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.")
       : e.why === "limit" ? "reached its deadline and ended. Start it again if you still need it."
       : e.why === "flood" ? "was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it."
       : e.why === "stopped" || e.why === "coder" ? "was stopped."
@@ -600,6 +603,15 @@ export const diskSize = (b) => (b >= 1024 ** 3 ? (Math.floor(b / 1024 ** 3 * 10)
 export const DISK_LOW = (bytes) => "Disk space is low: " + diskSize(bytes) + " free on the filesystem holding the working directory. If you need room, delete temporary files that you made. Ask the owner before you delete any other file. If that does not free enough, tell the owner.";
 /** Whether the warning was given and the disk has not been back above the line since (per chat, on its machine). */
 export const DISK_TOLD = new Map();
+/**
+ * MEMORY IS LOW (Bash docs pass 8: Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB, "to have Claude Code warn Claude when
+ * available memory falls below that amount. The warning is a system reminder saying how much is available"; set in Settings):
+ * its own words. Both warnings are said once below the line, and again only after the figure was back above 1.25 times it
+ * (Claude Code's own margin).
+ */
+export const MEM_LOW = (bytes) => "Low memory: " + diskSize(bytes) + " is available to this session.";
+export const MEM_TOLD = new Map();
+export const WARN_REARM = 1.25;
 /**
  * ITS BACKGROUND COMMANDS STILL RUNNING, said to Coder at a message's start and after a summary (Claude Code 2.1.271: "Fixed
  * Claude starting a second copy of a background command (such as a watch task or dev server) that was still running after
@@ -963,10 +975,16 @@ export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GI
  * size it gives is the chat's. The list is the same one otherwise.
  */
 export const NO_BG_TIMEOUT = "`timeout` in milliseconds: 120000 by default, at most 600000; a command still running then is stopped (\"Command timed out after Ns\"). Background commands are off in this chat's environment: start a server or a watcher only for a bounded check (for example `timeout 20 npm run dev`), never with &.";
-export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX, bgMaxMs = 7_200_000 } = {}) {
+export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX, bgMaxMs = 7_200_000, defaultMs = 120_000, maxMs = 600_000, bgDefaultMs = 1_800_000, shell = "" } = {}) {
   // (The longest a background command may run is the owner's, from Settings: 2 hours unless raised.)
   const bgMax = Number.isFinite(Number(bgMaxMs)) && Number(bgMaxMs) > 7_200_000 ? Math.round(Number(bgMaxMs)) : 7_200_000;
-  if (!noBg && inlineMax === BASH_INLINE_MAX && bgMax === 7_200_000) return list;
+  // THE REAL TIMEOUTS AND THE REAL SHELL (Bash docs pass 8: Claude Code's description says its own, "up to ${max}ms / … By
+  // default, your command will timeout after ${default}ms", as BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS set them; and
+  // zsh's startup file when CODER_SHELL is zsh).
+  const ms = (v, d) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Math.round(Number(v)) : d);
+  const def = ms(defaultMs, 120_000), max = ms(maxMs, 600_000), bgDef = ms(bgDefaultMs, 1_800_000);
+  const zsh = /(^|\/)zsh$/.test(String(shell || ""));
+  if (!noBg && inlineMax === BASH_INLINE_MAX && bgMax === 7_200_000 && def === 120_000 && max === 600_000 && bgDef === 1_800_000 && !zsh) return list;
   return list.map((t) => {
     if (!t || !t.function || t.function.name !== "bash") return t;
     let d = t.function.description;
@@ -978,6 +996,15 @@ export function toolsFor(list, { noBg = false, inlineMax = BASH_INLINE_MAX, bgMa
       props.timeout = { type: "integer", description: "Optional timeout in milliseconds (default 120000, at most 600000)" };
     }
     if (inlineMax !== BASH_INLINE_MAX) d = d.replace("Output past 30,000 characters", "Output past " + inlineMax.toLocaleString("en-US") + " characters");
+    if (zsh) d = d.replace("Run ONE shell command (bash)", "Run ONE shell command (zsh)").replace("(~/.bashrc, as it was", "(~/.zshrc, as it was");
+    if (def !== 120_000 || max !== 600_000) {
+      d = d.replace("120000 by default, at most 600000", def + " by default, at most " + max);
+      if (props.timeout && typeof props.timeout.description === "string") props.timeout = { ...props.timeout, description: props.timeout.description.replace("(default 120000, at most 600000", "(default " + def + ", at most " + max) };
+    }
+    if (bgDef !== 1_800_000 && !noBg) {
+      d = d.replace("reaches its time limit: 30 minutes,", "reaches its time limit: " + Math.max(1, Math.round(bgDef / 60000)) + " minutes,");
+      if (props.timeout && typeof props.timeout.description === "string") props.timeout = { ...props.timeout, description: props.timeout.description.replace("(default 1800000,", "(default " + bgDef + ",") };
+    }
     if (bgMax !== 7_200_000 && !noBg) {
       const hours = Math.round(bgMax / 3_600_000 * 10) / 10;
       d = d.replace("up to 7200000 (2 hours)", "up to " + bgMax + " (" + hours + " hours)");
@@ -1128,7 +1155,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0} = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0} = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1160,6 +1187,18 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   const rulesAdded = [];
   const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
+  // RULES THE OWNER CHANGES WHILE CODER WORKS (Bash docs pass 8; Claude Code: a change takes effect at the next tool call):
+  // looked at before each tool call; the job's own "don't ask again" rules kept.
+  let rulesSeen = null;
+  const freshRules = () => {
+    if (typeof deps.rulesNow !== "function") return;
+    let nr = null;
+    try { nr = deps.rulesNow(); } catch { nr = null; }
+    if (!nr || typeof nr !== "object" || nr === rulesSeen) return;
+    rulesSeen = nr;
+    for (const k of ["allow", "ask", "deny"]) { ownRules[k] = []; for (const r of Array.isArray(nr[k]) ? nr[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r); }
+    for (const r of rulesAdded) if (!ownRules.allow.includes(r)) ownRules.allow.push(r);
+  };
   // (In Auto, a command every part of which a narrow allow rule of the owner's approves runs without the checker; broad ones,
   // such as Bash or Bash(python *), are dropped in Auto: droppedInAuto.)
   // (The owner's classifyAllShell, Claude Code's autoMode.classifyAllShell: "suspend every Bash and PowerShell allow rule while
@@ -1266,7 +1305,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const saidShown = (a) => (a && a.denied ? "Not run: refused without asking you (Settings: refuse instead of asking)." : "Not run: you said no.");
   const answerOutcome = (a) => (a.choice === "stop" ? "stop" : a.choice === "none" ? (now() - started > maxMs ? "time" : "no") : a.choice === "no" ? (a.comment ? "said" : "no") : "go");
   // The owner's note with a Yes, given to Coder after the step's result (Claude Code: "runs the action, then sends your comment").
-  const yesNote = (a) => (a && a.comment && a.choice !== "no" ? "\n\n(The owner approved this with a note: " + a.comment + ")" : "");
+  // (A note goes with Yes and No only: Claude Code's "don't ask again" and "switch to auto mode" take none. Bash docs pass 8.)
+  const yesNote = (a) => (a && a.comment && a.choice !== "no" && a.choice !== "always" && a.choice !== "auto" ? "\n\n(The owner approved this with a note: " + a.comment + ")" : "");
   // HOOKS (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-hooks.mjs): the owner's and the repository's, given by
   // Coder's machine. Each runs as Coder's commands do (its user, its room, the folder its commands are in), the event's JSON on
   // stdin (a file the machine writes, as for a big tool request), its stderr kept apart from its stdout; at once, the matching
@@ -1696,7 +1736,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const i = list.indexOf(b);
     return [...list.slice(0, i + 1), ps, ...list.slice(i + 1)];
   };
-  const chatTools = withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs })).filter((t) => !(t && t.function && toolDenied(t.function.name))).map(withHosts);
+  const chatTools = withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && toolDenied(t.function.name))).map(withHosts);
   // (Grok's own web search is Claude Code's WebSearch: off under a rule denying it.)
   const searchDenied = toolDenied("web_search");
   // THIS CHAT'S TIMEOUTS (the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS; the machine works them out).
@@ -1965,7 +2005,18 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         const key = (checkWhere && checkWhere.key) || deps.root || "";
         if (free < diskWarnGib * 1024 ** 3) {
           if (!DISK_TOLD.get(key)) { DISK_TOLD.set(key, true); const low = DISK_LOW(free); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + low + ")" }); emit({ type: "note", text: low }); }
-        } else DISK_TOLD.delete(key);
+        } else if (free >= diskWarnGib * 1024 ** 3 * WARN_REARM) DISK_TOLD.delete(key);
+      }
+    }
+    // THE LOW-MEMORY WARNING (Settings; Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB): the same, for the memory available.
+    if (memWarnGib > 0 && typeof deps.memFree === "function") {
+      let avail = null;
+      try { avail = await deps.memFree(); } catch { avail = null; }
+      if (typeof avail === "number" && Number.isFinite(avail) && avail >= 0) {
+        const key = (checkWhere && checkWhere.key) || deps.root || "";
+        if (avail < memWarnGib * 1024 ** 3) {
+          if (!MEM_TOLD.get(key)) { MEM_TOLD.set(key, true); const low = MEM_LOW(avail); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: " + low + ")" }); emit({ type: "note", text: low }); }
+        } else if (avail >= memWarnGib * 1024 ** 3 * WARN_REARM) MEM_TOLD.delete(key);
       }
     }
     const modeRound = modeNow();
@@ -2041,6 +2092,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const runPost = async () => { const pc = postFor; postFor = null; if (pc) await postHooks(pc); };
     stopRun = 0;
     for (let i = 0; i < calls.length; i++) {
+      freshRules();
       await runPost();
       if (hookStop) return stopByHook(hookStop);
       if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + m }); return end("done", { summary: lastSaid || m }); }
@@ -2361,7 +2413,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
               text = "The command printed a picture (" + String(r.pictureType || "image") + "): it is attached right after these results.";
             }
           }
-          if (!text) text = bashResultText({ output: noCwdMarks(String((r && r.output) || "")), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack });
+          if (!text) text = bashResultText({ output: noCwdMarks(String((r && r.output) || "")), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: r && Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0 });
           // A MONITOR WHOSE COMMAND ENDED IN ITS FIRST SECOND: what it printed comes back here, at once, and no events follow.
           if (c.monitor) text = "Monitor \"" + (desc || "monitor") + "\" ended at once: its command exited with code " + code + " in its first second, so no events follow." + (String((r && r.output) || "").trim() ? " What it printed:\n" + text : " It printed nothing.");
         }

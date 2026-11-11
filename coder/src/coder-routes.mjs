@@ -59,7 +59,9 @@ export function savedEffort(saved) {
  * - `endDetached`: whether stopping a background command also ends what it started in the background, under setsid or
  *   timeout (Claude Code's docs say it does; its 2.1.322 leaves them running: off is that);
  * - `diskWarnGib`: tell Coder when the work disk has less than this many GiB free (Claude Code's
- *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off);
+ *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off, as Claude Code's is unless set: Bash docs pass 8);
+ * - `memWarnGib`: tell Coder when the machine has less than this many GiB of memory available (Claude Code's
+ *   CLAUDE_CODE_WARN_MEMORY_FREE_GIB, "a system reminder saying how much is available"; 0 is off, as there);
  * - `hooks`: the owner's own hooks (the owner, 2026-11-10: "yea do all 4"; Claude Code's hooks in its user settings), as the
  *   JSON they typed, in Claude Code's shape, checked when saved (hooksSetting); given to Coder's machine with each message.
  * - `autoMode`: the owner's rules for auto mode's checker (the owner, 2026-11-10: "yea do all of them"; Claude Code's
@@ -69,13 +71,14 @@ export function savedEffort(saved) {
  *   Shift+Tab cycle. Any session that would otherwise start in auto mode … starts in default instead"): chats start in Accept
  *   edits, Coder's nearest to Claude Code's default mode, and Auto is not offered (noAuto).
  */
-export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
 export function prefsOf(saved) {
   const s = saved && typeof saved === "object" ? saved : {};
   return {
     bgHours: BG_HOURS.includes(Number(s.bgHours)) ? Number(s.bgHours) : 2,
     endDetached: s.endDetached !== false,
-    diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 2,
+    diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 0,
+    memWarnGib: MEM_GIB.includes(Number(s.memWarnGib)) ? Number(s.memWarnGib) : 0,
     hooks: typeof s.hooks === "string" && hooksSetting(s.hooks).ok ? s.hooks : "",
     autoMode: typeof s.autoMode === "string" && autoModeSetting(s.autoMode).ok ? s.autoMode : "",
     denyInstead: s.denyInstead === true,
@@ -90,15 +93,16 @@ export function prefsChange(saved, body) {
   if ("bgHours" in b && !BG_HOURS.includes(Number(b.bgHours))) return { error: "The longest time for a background command is one of " + BG_HOURS.join(", ") + " hours." };
   if ("endDetached" in b && typeof b.endDetached !== "boolean") return { error: "Stop's choice is on or off." };
   if ("diskWarnGib" in b && !DISK_GIB.includes(Number(b.diskWarnGib))) return { error: "The low-disk warning is one of " + DISK_GIB.join(", ") + " GB (0 is off)." };
+  if ("memWarnGib" in b && !MEM_GIB.includes(Number(b.memWarnGib))) return { error: "The low-memory warning is one of " + MEM_GIB.join(", ") + " GB (0 is off)." };
   if ("hooks" in b) { if (typeof b.hooks !== "string") return { error: "The hooks are JSON text." }; const h = hooksSetting(b.hooks); if (!h.ok) return { error: h.error }; }
   let warnings = [];
   if ("autoMode" in b) { if (typeof b.autoMode !== "string") return { error: "The auto mode rules are JSON text." }; const a = autoModeSetting(b.autoMode); if (!a.ok) return { error: a.error }; warnings = a.warnings; }
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
@@ -125,7 +129,7 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
-import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
+import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
@@ -741,6 +745,19 @@ export async function handleCoder(request, env, ctx, deps) {
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
   if (parts[0] === "permissions") {
     const repo = request.method === "GET" ? String(url.searchParams.get("repo") || "") : "";
+    // A CHANGE WHILE A JOB RUNS (Bash docs pass 8; Claude Code: rule changes take effect at the next tool call): each running
+    // chat of this repository is given its new rules at once (its machine's /rules), not only its next message.
+    const tellRunning = async (repoName, rules) => {
+      try {
+        const page = await bucket.list({ prefix: WATCH_PREFIX + uid + "__" });
+        const ids = [...new Set((page.objects || []).map((o) => { const rest = String(o.key).slice((WATCH_PREFIX + uid + "__").length); const k = rest.lastIndexOf("__"); return k > 0 ? rest.slice(0, k) : ""; }).filter((x) => PROJECT_ID.test(x)))].slice(0, 20);
+        await Promise.all(ids.map(async (cid) => {
+          const m = await getJson(bucket, keyOf(uid, cid, "meta.json"), null);
+          if (!m || m.repo !== repoName || m.status !== "running") return;
+          await deps.container(uid + "-" + cid).fetch(new Request("http://coder/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: cid, rules }) })).catch(() => null);
+        }));
+      } catch { /* the next message has them */ }
+    };
     // (Claude Code's short warning row for each rule it keeps but warns about, keyed "kind\nrule": Bash docs pass 5.)
     const notices = (rules) => { const out = {}; for (const k of ["allow", "ask", "deny"]) for (const x of (rules && rules[k]) || []) { const w = ruleWarning(k, x); if (w && w.notice) out[k + "\n" + x] = w.notice; } return out; };
     if (request.method === "GET") { if (!REPO.test(repo)) return json({ error: "which repository?" }, 400); const rules = await rulesOf(bucket, uid, repo); return json({ ok: true, repo, rules, notices: notices(rules) }); }
@@ -769,6 +786,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
     if (!ruleSaved(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com), WebFetch, Read(./.env), Edit(src/**), Read, Edit, Write, Grep, Glob or Monitor" }, 400);
     const rules = await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined });
+    await tellRunning(r, rules);
     // A RULE CLAUDE CODE KEEPS BUT WARNS ABOUT (Bash docs pass 5: its error reference, "Has a wildcard before the rest of the
     // command"; its rule check's :* warnings): saved, with the warning in its words.
     const w = body.remove === undefined ? ruleWarning(kind, rule) : null;

@@ -11,9 +11,9 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-11: Bash docs pass 8, parts A, B, C and D (your words: "Yes pls", to building the whole list, safety holes first)
+## 2026-11-11: Bash docs pass 8, all five parts (your words: "Yes pls", to building the whole list, safety holes first)
 
-Not merged or deployed yet. I'll ask you once part E is done too. All 459 tests pass.
+Not merged or deployed yet: say "merge and deploy" when you want it live. All 470 tests pass.
 
 **Part A, the safety holes** (pushed earlier today):
 - **Deny and ask rules now see through the same wrappers Claude Code does.** Before, a deny rule on `git push` could be stepped around with `time -p git push`, `watch -d git push`, `flock -n …`, `setsid -w …`, `exec -a …` and others. A path like `/usr/bin/git` counts too. The dangerous-delete check sees through them as well.
@@ -59,6 +59,25 @@ Not merged or deployed yet. I'll ask you once part E is done too. All 459 tests 
 - **PowerShell cards no longer offer "Yes, and switch to auto mode"**, as in Claude Code.
 - **In Accept edits, a file command with a quote character in a path argument now asks.** For example, `Set-Content .\notes.txt "It's done"`. Claude Code says "Paths containing quote characters cannot be statically validated and require manual approval". Passing the text with `-Value` avoids the card.
 - **Your `CODER_SHELL_PREFIX` no longer wraps PowerShell commands, or hooks written as a program plus its arguments, or PowerShell hooks.** Claude Code's version doesn't wrap them either.
+
+**Part E, the small ones:**
+- **A low-memory warning, in Settings ("Disk and memory").** Coder is told once when memory drops below what you pick, in Claude Code's words: "Low memory: 1.5 GB is available to this session." **Both the disk and the memory warnings are now off unless you turn them on**, as in Claude Code. The disk one used to be on at 2 GB. Each warning comes again only after the number has gone back above 1.25 times your line, as in Claude Code.
+- **Every command now has `CLAUDE_CODE_REMOTE=true`, and so does the setup script.** Claude Code's cloud sets it so scripts can tell they run in the cloud. Hooks already had it.
+- **OpenTelemetry settings (`OTEL_...`) no longer reach commands**, as in Claude Code.
+- **zsh fix.** If your `.zshrc` sets `KSH_OPTION_PRINT`, every command came back empty. I reproduced that with real zsh, then fixed it. Claude Code fixed the same bug in 2.1.321. Every zsh command also turns off a zsh feature that lets a file pattern run code, as Claude Code does.
+- **The bash tool's description now says the real timeouts** (if your environment changes them) and names zsh when you use zsh.
+- **When a command's saved output passes 64 MB**, Coder is told that only the first 64 MB were kept, in Claude Code's words. Before, it said "Full output saved".
+- **A monitor that reaches its time limit now says how many events it delivered.** With none, Coder is told to widen the filter if the silence was unexpected.
+- **Settings in front of a command**, like `GOOS=linux ls`: the list of the ones that keep a command "read-only" is now Claude Code's own. `GOOS`, `CGO_ENABLED`, `DEBIAN_FRONTEND` and `GIT_TERMINAL_PROMPT` now pass. `DEBUG`, `VERBOSE` and most `LC_...` now ask.
+- **"Don't ask again" never saves a rule wider than the command.** Before, `timeout -s KILL 30 npm install` offered `timeout *` (any command at all with a timeout!), and `rm *.log` offered a rule that would match any `rm` ending in `.log`. Now the first saves the exact command, as Claude Code does, and the second offers no rule.
+- **A rule you change while Coder is working counts from its next step**, as in Claude Code. Before, it waited for your next message.
+- **A note you type on a card now goes only with Yes or No**, as in Claude Code. "Don't ask again" and "switch to auto mode" take no note.
+- **In a chat with several repositories, Coder now reads none of their `.claude` settings** (rules, hooks, variables), as Claude Code's cloud does.
+
+**Left alone on purpose:**
+- Claude Code has a switch to always ask about `rm` hidden inside a script. Coder already always asks (you chose to keep that stricter).
+- Typed `/tasks` and `/add-dir`. Buttons already do both, and you had typed commands removed on 2026-11-05.
+- Three small items from my list: a notice for a command stuck waiting for typed input, and two size numbers. I couldn't find any of them in Claude Code 2.1.322, so there was nothing to copy.
 
 ## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
 

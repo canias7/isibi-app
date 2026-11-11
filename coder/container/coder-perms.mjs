@@ -329,13 +329,17 @@ function optionsOk(args, spec, prog) {
 }
 
 // ── ONE COMMAND, READ ONLY? ──────────────────────────────────────────────────
-/** Environment variables a command may be given in front and stay read-only (or match an allow rule). */
-const SAFE_ENV = /^(LANG|LANGUAGE|LC_[A-Z]+|NO_COLOR|FORCE_COLOR|CLICOLOR|CLICOLOR_FORCE|TERM|COLUMNS|LINES|TZ|CI|NODE_ENV|RUST_BACKTRACE|RUST_LOG|PYTHONUNBUFFERED|PYTHONDONTWRITEBYTECODE|DEBUG|VERBOSE)=/;
-/** A command's words past safe `NAME=value` settings in front (null when one is not safe), and past a plain `timeout N`. */
+/**
+ * A command's words past safe `NAME=value` settings in front (null when one is not safe), and past a plain `timeout N`. Safe:
+ * Claude Code 2.1.322's own list and check, the read block's (rbEnvSafe; Bash docs pass 8: before, Coder's own list let DEBUG,
+ * VERBOSE and every LC_ through and asked for GOOS, CGO_ENABLED, DEBIAN_FRONTEND and GIT_TERMINAL_PROMPT): a listed name, a
+ * value that is no path, a locale for LANG, LC_ALL and LC_CTYPE; never one added to (`+=`) or worked out when it runs.
+ */
 export function readWords(words, { wrappers = false } = {}) {
   let k = 0;
   while (k < words.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(words[k].raw) && !words[k].raw.startsWith("=")) {
-    if (!SAFE_ENV.test(words[k].raw) || words[k].expand || words[k].subst) return null;
+    const t = String(words[k].text), eq = t.indexOf("=");
+    if (words[k].expand || words[k].subst || eq < 1 || t[eq - 1] === "+" || !rbEnvSafe(t.slice(0, eq), t.slice(eq + 1))) return null;
     k++;
   }
   let w = words.slice(k);
@@ -1105,6 +1109,13 @@ const INLINE_CODE = new Set(["-c", "-e", "-p", "--eval", "--print", "-E", "-r", 
 const EXEC_WRAPPERS = new Set(["watch", "setsid", "ionice", "flock", "chrt", "taskset", "unbuffer", "sudo", "doas", "su", "env", "exec", "eval", "source", ".", "nsenter", "chroot", "xargs", "parallel", "direnv", "devbox", "mise", "nix-shell"]);
 /** Programs whose prefix rule would allow too much: their rule is the exact command. */
 const EXACT_ONLY = new Set(["rm", "rmdir", "mv", "cp", "chmod", "chown", "chgrp", "dd", "kill", "pkill", "killall", "curl", "wget", "ssh", "scp", "sftp", "rsync", "awk", "gawk", "sed", "tee", "truncate", "shred", "ln", "mount", "umount", "crontab", "nc", "ncat", "socat", "telnet", "ftp", "mkfs", "fdisk", "iptables", "find", "tar", "unzip", "zip", "install", "patch"]);
+/**
+ * NO WIDER RULE THAN THE COMMAND (Bash docs pass 8): a wrapper Coder could not see past (`timeout -s KILL 30 …`, `time -p …`,
+ * `strace -f …`) gets the exact command as its rule, as Claude Code 2.1.322 refuses a prefix rule for its wrappers and shells
+ * (its pve list) and saves the command itself; and an exact rule is never one with a `*` in it, which would match far more.
+ */
+const PREFIX_REFUSED = new Set(["fish", "csh", "tcsh", "cmd", "powershell", "pwsh", "command", "builtin", "noglob", "nice", "stdbuf", "nohup", "timeout", "time", "strace", "ltrace", "script", "unshare", "pkexec", "runuser"]);
+const exactRule = (t) => (t && !t.includes("*") ? t : null);
 /** The rule to save for one simple command, or null when none can be offered. */
 export function suggestFor(cmd) {
   const w = readWords(cmd.words, { wrappers: true });
@@ -1113,6 +1124,7 @@ export function suggestFor(cmd) {
   if (p0.expand || p0.subst || p0.glob) return null;
   const prog = p0.text, name = basename(prog);
   if (EXEC_WRAPPERS.has(name)) return null;
+  if (prog.startsWith("-") || PREFIX_REFUSED.has(name)) return (cmd.words || []).some((x) => x.subst || x.expand) ? null : exactRule((cmd.words || []).map((x) => x.raw).join(" "));
   const rest = w.slice(1);
   if (rest.some((x) => x.subst)) return null;
   const raw = w.map((x) => x.raw).join(" ");
@@ -1125,11 +1137,11 @@ export function suggestFor(cmd) {
     if (rest[k].text === "-m") return rest[k + 1] && !rest[k + 1].expand ? prog + " -m " + rest[k + 1].raw + " *" : null;
     return rest[k].expand ? null : prog + " " + rest[k].raw + " *";
   }
-  if (EXACT_ONLY.has(name)) return raw;
+  if (EXACT_ONLY.has(name)) return exactRule(raw);
   if (SUBCOMMANDS.has(name)) {
     if (name === "git" && rest[0] && rest[0].text.startsWith("-")) return null; // git -C / -c: as written only
     const k = rest.findIndex((x) => !x.text.startsWith("-"));
-    if (k < 0) return raw;
+    if (k < 0) return exactRule(raw);
     if (rest.slice(0, k).length && name !== "npx" && name !== "bunx" && name !== "pnpx") return null;
     const sub = rest[k];
     if (sub.expand) return null;

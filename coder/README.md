@@ -1074,6 +1074,34 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   in Claude Code's words (`PS_QUOTED_WHY`): `Set-Content .\notes.txt "It's
   done"` asks, `-Value "It's done"` does not. `CODER_SHELL_PREFIX` never wraps
   a PowerShell command, an exec-form hook or a PowerShell hook (`noPrefix`).
+- *The small ones* (`test/pass8-small.test.mjs`, CD426 to CD436). A low-memory
+  warning in Settings (`memWarnGib`, Claude Code's
+  `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`: "Low memory: … is available to this
+  session.", from MemAvailable or what is left under the commands' memory cap,
+  `memAvailable`); it and the low-disk warning are off unless chosen, and said
+  again only after the figure was back above 1.25 times the line
+  (`WARN_REARM`). Every command and the setup script have
+  `CLAUDE_CODE_REMOTE=true` (`REMOTE_MARK`); no `OTEL_*` variable reaches a
+  command (`withoutOtel`). zsh: the snapshot lists options with
+  `KSH_OPTION_PRINT` off (with it on, every option was set from the "name
+  on/off" list, `noexec` too, and commands came back empty, as in Claude Code
+  before 2.1.321), and every command turns zsh's bare glob qualifiers off
+  (`*(e:…:)` runs code), Claude Code's own line. The bash tool's description
+  says the real timeouts and the real shell's startup file. An output file cut
+  at 64 MB says so ("Output exceeded the 64MB persist limit; only the first
+  64MB were saved to: …"). A monitor at its deadline says how many events it
+  delivered, and with none, "widen the filter if silence was unexpected". The
+  settings a command may be given in front and still only read are Claude
+  Code's list and check (`rbEnvSafe`). "Don't ask again" never offers a rule
+  wider than the command (`PREFIX_REFUSED`, `exactRule`). A rule the owner
+  changes while Coder works counts from its next tool call (the Worker's
+  `tellRunning`, the machine's `/rules`, the loop's `freshRules`). A note goes
+  with Yes and No only. A chat with several repositories reads none of their
+  `.claude` settings (`several`). Left as they are: Claude Code's
+  `CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT` (Coder already always asks, the
+  owner's choice), typed `/tasks` and `/add-dir` (buttons do both; typed slash
+  commands were removed on 2026-11-05), and a stuck-prompt notice (not found in
+  Claude Code 2.1.322).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

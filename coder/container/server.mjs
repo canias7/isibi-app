@@ -128,6 +128,9 @@ export const SNAPSHOT_READ = '{ if [ -r "$HOME/' + SNAPSHOT_FILE + '" ]; then . 
 export const SNAPSHOT_FILE_ZSH = ".cache/coder/shell-snapshot.zsh";
 const SNAP_ZSH_LINES = [
   'printf "\\n__CODER_SNAP_A__\\n"',
+  // (KSH_OPTION_PRINT makes `setopt` list every option with "on" or "off", which read back would set them all, noexec too:
+  // Claude Code 2.1.321, "Fixed Bash commands coming back empty for zsh users whose .zshrc sets KSH_OPTION_PRINT".)
+  'unsetopt kshoptionprint 2>/dev/null',
   'for o in $(setopt); do case "$o" in interactive|monitor|zle|shinstdin|login|singlecommand|norcs|interactivecomments) ;; *) print -r -- "setopt $o";; esac; done',
   'for n in ${(k)functions}; do case "$n" in _*|which|command_not_found_handler) ;; *) print -r -- "eval ${(q)$(functions -- $n)} >/dev/null 2>&1";; esac; done',
   'alias -L | sed -e "1001,\\$d" -e "/^alias which=/d"',
@@ -136,8 +139,11 @@ const SNAP_ZSH_LINES = [
 ];
 export const SNAPSHOT_TAKE_ZSH = 'd="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.zsh" && zsh -i -c \'\n' + SNAP_ZSH_LINES.join("\n") + '\n\' </dev/null 2>/dev/null | sed -n \'/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p\' | sed \'1d;$d\' | head -c ' + SNAPSHOT_MAX + ' > "$f.new" && mv -f "$f.new" "$f"';
 export const SNAPSHOT_READ_ZSH = '{ if [ -r "$HOME/' + SNAPSHOT_FILE_ZSH + '" ]; then . "$HOME/' + SNAPSHOT_FILE_ZSH + '"; fi; } >/dev/null 2>&1\n';
-/** zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF). */
-export const EXTGLOB_OFF_ZSH = "unsetopt extendedglob kshglob 2>/dev/null || true\n";
+/**
+ * zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF): Claude Code 2.1.322's own line, `setopt
+ * NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL` (a bare glob qualifier such as *(e:…:) runs code), with ksh's patterns off as before.
+ */
+export const EXTGLOB_OFF_ZSH = "setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_KSH_GLOB 2>/dev/null || true\n";
 /**
  * THE SHELL CODER'S COMMANDS RUN IN (Claude Code's CLAUDE_CODE_SHELL, under Coder's name CODER_SHELL: "Override automatic shell
  * detection. Useful when your login shell differs from your preferred working shell (for example, bash vs zsh)"): a bash or a
@@ -169,6 +175,12 @@ export const commandPrefix = (home, envLine = "", shell = "bash") => (home ? (is
  * for subprocesses so `gh` can attribute traffic to Claude Code"), Coder's own: after the owner's variables, like its marks.
  */
 export const AGENT_MARK = { AI_AGENT: "gofarther-coder" };
+/**
+ * A CLOUD SESSION'S MARK (Bash docs pass 8; Claude Code's CLAUDE_CODE_REMOTE: "Set automatically to `true` when Claude Code is
+ * running as a cloud session. Read this from a hook or setup script to detect whether you are in a cloud session"): in every
+ * command's environment and the setup script's, as hooks already have it.
+ */
+export const REMOTE_MARK = { CLAUDE_CODE_REMOTE: "true" };
 /**
  * THE OWNER'S CODER_ENV_FILE (Claude Code's CLAUDE_ENV_FILE: "Path to a shell script whose contents Claude Code runs before
  * each Bash command in the same shell process, so exports in the file are visible to the command. Use to persist virtualenv
@@ -286,11 +298,13 @@ export function bashTimeouts(vars = {}, prefs = {}) {
 export const BG_MAX_CAP_MS = 24 * 60 * 60 * 1000;
 export function prefsIn(p) {
   const x = p && typeof p === "object" ? p : {};
-  const bg = Number(x.bgMaxMs), disk = Number(x.diskWarnGib);
+  const bg = Number(x.bgMaxMs), disk = Number(x.diskWarnGib), mem = Number(x.memWarnGib);
   return {
     bgMaxMs: Number.isFinite(bg) && bg > BG_LIMIT_MAX_MS ? Math.min(BG_MAX_CAP_MS, Math.round(bg)) : BG_LIMIT_MAX_MS,
     endDetached: x.endDetached !== false,
     diskWarnGib: Number.isInteger(disk) && disk > 0 && disk <= 1000 ? disk : 0,
+    // (Settings: the low-memory warning, Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB; 0 is off.)
+    memWarnGib: Number.isInteger(mem) && mem > 0 && mem <= 1000 ? mem : 0,
     // (Settings: refuse a step that would ask, Claude Code's permissions.denyInsteadOfPrompting.)
     denyInstead: x.denyInstead === true,
     // (Settings: Auto mode turned off, Claude Code's disableAutoMode.)
@@ -553,11 +567,13 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
  * settings precedence (its hooks reference: "a "disableAllHooks": false in a project's .claude/settings.json overrides a true
  * in your user settings"): .claude/settings.local.json, then .claude/settings.json, then the owner's own.
  */
-export function hooksForTurn(root, account, { github = false } = {}) {
+export function hooksForTurn(root, account, { github = false, several = false } = {}) {
   const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
   const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
   const offIn = {}; // each file's own disableAllHooks, when it sets one
-  if (!github && root) {
+  // (A chat with several repositories reads none of theirs, as Claude Code's cloud session, which then works from a folder
+  // outside all of them: Bash docs pass 8.)
+  if (!github && !several && root) {
     let inside = false;
     try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
     for (const f of inside ? ["settings.json", "settings.local.json"] : []) {
@@ -648,9 +664,11 @@ export function withRepoOwn(vars, own) {
  * blocks when a file turns one on ("a repository can turn the block on for itself but can't lift yours"), and auto mode off
  * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
  */
-export function repoSettings(root, { trust = false, github = false } = {}) {
+export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
   const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "" };
-  if (github) return out;
+  // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
+  // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
+  if (github || several) return out;
   for (const { file, json: j } of repoSettingsFiles(root)) {
     const p = j.permissions && typeof j.permissions === "object" && !Array.isArray(j.permissions) ? j.permissions : {};
     const list = (k) => (Array.isArray(p[k]) ? p[k] : []).filter((x) => typeof x === "string" && x.trim() && x.length <= 400 && ruleSaved(x.trim())).map((x) => x.trim());
@@ -701,7 +719,9 @@ export function monitorNews(project) {
     readMonitor(j);
     const lines = Array.isArray(j.pending) ? j.pending.splice(0) : [];
     const dropped = j.dropped || 0; j.dropped = 0;
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}) } : null;
+    // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both.)
+    j.events = (j.events || 0) + lines.length;
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events, ...(Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
@@ -790,6 +810,21 @@ export const SCARCE_SHARE = 0.1, SCARCE_KIB = 4 * 1024 * 1024;
 /** The kernel's memory stall so far ("some", in microseconds), from /proc/pressure/memory; null when it can't be read. */
 export function memoryStallUs(read = () => readFileSync("/proc/pressure/memory", "utf8")) {
   try { const m = /^some\b.*\btotal=(\d+)/m.exec(read()); return m ? Number(m[1]) : null; } catch { return null; }
+}
+/**
+ * THE MEMORY AVAILABLE, in bytes, or null (the low-memory warning): /proc/meminfo's MemAvailable, and with the chat's commands'
+ * memory cap (`cg`, its cgroup folder) no more than what is left under it (Claude Code: "limitedByCgroup").
+ */
+export function memAvailable(cg = "", read = (f) => readFileSync(f, "utf8")) {
+  let avail = null;
+  try { const a = Number((/^MemAvailable:\s+(\d+) kB$/m.exec(read("/proc/meminfo")) || [])[1]); if (Number.isFinite(a) && a >= 0) avail = a * 1024; } catch { avail = null; }
+  if (cg) {
+    try {
+      const max = Number(String(read(join(cg, "memory.max"))).trim()), cur = Number(String(read(join(cg, "memory.current"))).trim());
+      if (Number.isFinite(max) && max > 0 && Number.isFinite(cur) && cur >= 0) { const left = Math.max(0, max - cur); avail = avail === null ? left : Math.min(avail, left); }
+    } catch { /* no cap to read: the machine's figure */ }
+  }
+  return avail;
 }
 /** Whether memory is scarce, from /proc/meminfo (as Claude Code reads it): `{ scarce, detail }`. */
 export function memoryScarce(read = () => readFileSync("/proc/meminfo", "utf8")) {
@@ -2452,6 +2487,11 @@ export function coderMarks(project, chatUrl, effort = "") {
  * it off), checked as the commands' GOFARTHER_CODER_CHAT_URL is.
  */
 export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
+/**
+ * NO OPENTELEMETRY SETTINGS IN THE COMMANDS (Bash docs pass 8; Claude Code 2.1.322 deletes every OTEL_* variable, and
+ * CLAUDE_CODE_OTEL_DIAG_STDERR, from the environment of the commands it runs): the environment's and the repository's.
+ */
+export const withoutOtel = (vars) => Object.fromEntries(Object.entries(vars && typeof vars === "object" ? vars : {}).filter(([k]) => !/^OTEL_/i.test(k) && k.toUpperCase() !== "CLAUDE_CODE_OTEL_DIAG_STDERR"));
 /** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
 export function safeVars(vars) {
   const out = {};
@@ -2723,7 +2763,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const ownerVars = safeVars(body.setup && body.setup.vars);
     // THE REPOSITORY'S OWN SETTINGS (repoSettings): its env under the owner's variables; its rules, working folders and
     // blocks below. What waits for the owner's trust is said in the chat, in Claude Code's words.
-    const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true });
+    const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 });
+    // (Kept for rules the owner changes while the job runs, /rules: the repository's own as they were when it started.)
+    t.repoSet = repoSet;
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
     // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
@@ -2741,9 +2783,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command, before the
     // session's own variables): `git commit --amend`, `git rebase --continue` keep the message git prepared, where before they
     // failed ("Terminal is dumb, but EDITOR unset"). An owner's own GIT_EDITOR wins.
-    const extraEnv = { GIT_EDITOR: "true", ...repoSet.env, ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
+    const extraEnv = { GIT_EDITOR: "true", ...withoutOtel(repoSet.env), ...withoutOtel(ownerVars), ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks, AGENT_MARK): after the owner's, so one of theirs cannot hide them.
-    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK);
+    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK, REMOTE_MARK);
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
@@ -2927,7 +2969,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -2993,7 +3035,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
       const { notices, lost } = backgroundNews();
-      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true });
+      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
@@ -3004,6 +3046,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },
+        // THE MEMORY AVAILABLE, for the low-memory warning (Settings; Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB, "when available
+        // memory falls below that amount"): the machine's MemAvailable, or less when the chat's commands have a memory cap.
+        memFree: () => memAvailable(t.memCg),
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
         watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
@@ -3184,6 +3229,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE PERMISSION MODE (the owner's pick; they may change it while Coder works: /mode), and THE OWNER'S ANSWERS TO
         // CODER'S CARDS (/answer): a step that asks waits here for one, for the owner's Stop, or for the job's time limit.
         mode: () => t.mode,
+        // THE OWNER'S RULES CHANGED WHILE IT RUNS (/rules; Claude Code: a rule change takes effect at the next tool call).
+        rulesNow: () => t.rulesNext || null,
         setMode: (m) => { t.mode = normMode(m); },
         ask: async (pid, { until = 0 } = {}) => {
           t.asking = String(pid);
@@ -3207,7 +3254,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -3381,6 +3428,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return send(200, { ok: true });
       }
       // THE OWNER CHANGES THE MODE WHILE CODER WORKS (the page's mode menu, like Claude Code's): from Coder's next step on.
+      // THE OWNER'S RULES, CHANGED WHILE A JOB RUNS (Bash docs pass 8; Claude Code applies a rule change at the next tool call):
+      // the owner's new rules with the repository's own as they were at the job's start (never read again mid-job).
+      if (url.pathname === "/rules" && req.method === "POST") {
+        const r = body.rules && typeof body.rules === "object" && !Array.isArray(body.rules) ? body.rules : null;
+        if (!r) return send(400, { ok: false, why: "bad rules" });
+        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        t.rulesNext = withRepoRules({ allow: r.allow, ask: r.ask, deny: r.deny }, t.repoSet) || { allow: [], ask: [], deny: [] };
+        return send(200, { ok: true });
+      }
       if (url.pathname === "/mode" && req.method === "POST") {
         if (!MODES.includes(body.mode)) return send(400, { ok: false, why: "bad mode" });
         if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });

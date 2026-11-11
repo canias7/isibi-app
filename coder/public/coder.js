@@ -216,11 +216,11 @@
    * own, for all the owner's chats, each saved as soon as it changes (as Notifications' switches are). What each does, and
    * Claude Code's own way of it, is said under it.
    */
-  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
   async function showSettings() {
     const r = await call('/settings');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
-    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 2, ...((r.data && r.data.prefs) || {}) };
+    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 0, memWarnGib: 0, ...((r.data && r.data.prefs) || {}) };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-settings'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Settings');
     wrap.append(box); document.body.append(wrap);
@@ -247,12 +247,14 @@
         '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
           '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
-        '<div class="cd-set-head">Disk</div>' +
+        '<div class="cd-set-head">Disk and memory</div>' +
         '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
-          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' : 'Off (default)', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left. Claude Code’s CLAUDE_CODE_WARN_MEMORY_FREE_GIB.</span>' +
+          '<select id="cdSetMem" aria-label="Low-memory warning">' + MEM_GIB.map((g) => opt(g, g ? g + ' GB available' : 'Off (default)', prefs.memWarnGib === g)).join('') + '</select></label>' +
         // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
         '<div class="cd-set-head">Hooks</div>' +
-        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
+        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too (not in a chat with several repositories, as in Claude Code’s cloud); <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
@@ -272,6 +274,7 @@
       $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
       $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
+      $('cdSetMem').onchange = (e) => save('memWarnGib', Number(e.currentTarget.value));
       $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
@@ -1632,7 +1635,8 @@
   }
   async function answerPerm(pid, choice) {
     if (!S.project || (S.permSent && S.permSent[pid])) return;
-    const comment = String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none.)
+    const comment = choice === 'always' || choice === 'auto' ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();

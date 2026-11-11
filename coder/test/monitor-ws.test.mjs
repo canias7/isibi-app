@@ -187,7 +187,7 @@ test("CD385d the machine reads a WebSocket monitor's file: each JSON line a mess
   try {
     j.end = { code: 0, why: "exit", at: Date.now() };
     const news = S.monitorNews("wsm-1");
-    assert.deepEqual(news.map((n) => [n.lines, n.end]), [[["line one\nline two", "[binary frame, 9 bytes]"], { code: 0, why: "exit", ws: { close: 1001, reason: "going away" } }]]);
+    assert.deepEqual(news.map((n) => [n.lines, n.end]), [[["line one\nline two", "[binary frame, 9 bytes]"], { code: 0, why: "exit", ws: { close: 1001, reason: "going away" }, events: 2, ...(Number(j.deadline) > Number(j.at) ? { ms: j.deadline - j.at } : {}) }]]);
   } finally { S.JOBS.delete(j.pid); }
   assert.match(read("container/server.mjs"), /\.\.\.\(ws \? \{ ws: true \} : \{\}\) \} : \{\}\) \}\);/, "a monitor started with ws is marked");
 });

@@ -177,7 +177,7 @@ export function kbSize(bytes) {
  * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
  * its start, " ... [N lines truncated] ...", as Claude Code 2.1.319 does.
  */
-export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK }) {
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0 }) {
   // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff).
   const text = scrub(output).replace(/\n+$/, "");
   const total = Number.isFinite(size) && size !== null ? size : Buffer.byteLength(text);
@@ -191,8 +191,13 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
       return text.slice(0, back) + " ... [" + rest + " lines truncated] ...";
     }
     const preview = text.slice(0, BASH_PREVIEW);
+    // (A file cut at its limit says so, in Claude Code 2.1.322's words: "Output exceeded the 64MB persist limit; only the
+    // first 64MB were saved to: …"; Bash docs pass 8.)
+    const saved = Number(truncatedAt) > 0
+      ? "Output exceeded the " + kbSize(truncatedAt) + " persist limit; only the first " + kbSize(truncatedAt) + " were saved to: " + file
+      : "Output too large (" + kbSize(total) + "). Full output saved to: " + file;
     return file
-      ? "<persisted-output>\nOutput too large (" + kbSize(total) + "). Full output saved to: " + file + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
+      ? "<persisted-output>\n" + saved + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
       : capOutput(text, inline);
   }
   const full = "Exit code " + code + "\n" + text.slice(0, back);
