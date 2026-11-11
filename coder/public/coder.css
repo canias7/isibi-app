@@ -485,26 +485,70 @@
 .cd-sure-row .cd-notify-done { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
 .cd-notify-hint { flex-basis: 100%; font-size: 12px; color: #6b7280; }
 
-/* CONNECTORS (MCP, 2026-11-10): the panel from the account menu, in the notifications panel's style. */
-.cd-conn { max-width: 480px; max-height: 86vh; overflow-y: auto; }
-.cd-conn-list { margin: 14px 0 4px; display: flex; flex-direction: column; gap: 8px; }
-.cd-conn-row { border: 1px solid #e5e3dd; border-radius: 12px; padding: 10px 12px; }
-.cd-conn-main { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; font-size: 14px; color: #1f1e1d; }
-.cd-conn-host { font-size: 12px; color: #6b7280; }
-.cd-conn-main .cd-notify-on, .cd-conn-bad { margin-left: auto; font-size: 12px; }
-.cd-conn-bad { color: #b42318; font-weight: 600; }
-.cd-conn-acts { display: flex; gap: 6px; margin-top: 8px; }
-.cd-conn-acts button, .cd-conn-add button { font: inherit; font-size: 13px; border-radius: 9px; padding: 6px 12px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; }
-.cd-conn-tools { margin: 8px 0 0; padding-left: 18px; font-size: 12px; color: #4b5563; max-height: 200px; overflow-y: auto; }
-.cd-conn-tools li { margin-bottom: 4px; }
-.cd-conn-tools code { font-size: 12px; background: #f1eee9; border-radius: 4px; padding: 1px 4px; color: #1f1e1d; }
-.cd-conn-ro { font-size: 11px; color: #166534; }
-.cd-conn-empty { margin: 14px 0 4px; font-size: 13px; color: #6b7280; }
-.cd-conn-add { margin-top: 14px; display: flex; flex-direction: column; gap: 8px; }
-.cd-conn-addtitle { font-size: 13px; font-weight: 600; color: #1f1e1d; }
-.cd-conn-add input { font: inherit; font-size: 14px; padding: 8px 10px; border: 1px solid #ddd8d0; border-radius: 9px; background: #fff; color: #1f1e1d; min-width: 0; }
-.cd-conn-add .cd-notify-go { align-self: flex-start; background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
-.cd-conn-add .cd-notify-go[disabled] { opacity: .6; cursor: default; }
+/* CONNECTORS (MCP, 2026-11-10; the look of Claude's connectors page, 2026-11-11): a page over the app. */
+.cx { position: fixed; inset: 0; z-index: 90; background: #faf9f7; overflow-y: auto; font-family: Inter, system-ui, sans-serif; color: #1f1e1d; }
+.cx-in { max-width: 860px; margin: 0 auto; padding: 28px 24px 60px; }
+.cx-top { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.cx-h { font-size: 22px; font-weight: 600; }
+.cx-x { border: 0; background: none; color: #6b6a68; cursor: pointer; padding: 6px; border-radius: 8px; display: flex; }
+.cx-x:hover, .cx-backb:hover { background: #efede8; }
+.cx-sub, .cx-desc { font-size: 14px; color: #6b6a68; line-height: 1.5; margin: 8px 0 0; }
+.cx-bar { display: flex; align-items: center; gap: 10px; margin: 20px 0 14px; flex-wrap: wrap; }
+.cx-seg { display: flex; background: #efede8; border-radius: 10px; padding: 3px; }
+.cx-seg button { font: inherit; font-size: 14px; border: 0; background: none; padding: 6px 14px; border-radius: 8px; cursor: pointer; color: #6b6a68; }
+.cx-seg button.on { background: #fff; color: #1f1e1d; box-shadow: 0 1px 2px rgba(0,0,0,.08); font-weight: 500; }
+.cx-search { flex: 1 1 200px; display: flex; align-items: center; gap: 8px; background: #fff; border: 1px solid #e5e3dd; border-radius: 10px; padding: 0 12px; color: #8b8a86; min-width: 0; }
+.cx-search input { flex: 1; border: 0; outline: 0; font: inherit; font-size: 14px; padding: 8px 0; background: none; color: #1f1e1d; min-width: 0; }
+.cx-btn { font: inherit; font-size: 13px; border-radius: 9px; padding: 6px 12px; cursor: pointer; border: 1px solid #e5e3dd; background: #fff; color: #1f1e1d; white-space: nowrap; }
+.cx-btn:hover { background: #f4f2ee; }
+.cx-btn[disabled] { opacity: .6; cursor: default; }
+.cx-btn-dark, .cx-add { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cx-btn-dark:hover, .cx-add:hover { background: #33322f; }
+.cx-note { margin: 0 0 12px; font-size: 13px; background: #f1eee9; border-radius: 9px; padding: 8px 12px; }
+.cx-table { border-top: 1px solid #e5e3dd; }
+.cx-row { display: grid; grid-template-columns: 1fr 140px 150px; align-items: center; gap: 12px; padding: 12px 6px; border-bottom: 1px solid #e5e3dd; }
+.cx-head { font-size: 13px; color: #8b8a86; font-weight: 500; padding: 10px 6px; }
+.cx-click { cursor: pointer; border-radius: 0; }
+.cx-click:hover, .cx-click:focus-visible { background: #f4f2ee; outline: none; }
+.cx-name { display: flex; align-items: center; gap: 12px; font-size: 15px; min-width: 0; }
+.cx-name > span:last-child { min-width: 0; display: flex; flex-direction: column; }
+.cx-about { font-size: 12.5px; color: #8b8a86; margin-top: 2px; }
+.cx-badge { flex: none; width: 30px; height: 30px; border-radius: 8px; display: inline-flex !important; align-items: center; justify-content: center; font-weight: 600; font-size: 14px; flex-direction: row !important; }
+.cx-tcol { display: flex; align-items: center; gap: 6px; font-size: 13px; color: #6b6a68; }
+.cx-pill { font-size: 11px; border: 1px solid #d9d6cf; border-radius: 999px; padding: 1px 7px; color: #6b6a68; }
+.cx-scol { display: flex; align-items: center; gap: 8px; justify-content: flex-start; }
+.cx-ok { color: #1f1e1d; display: flex; }
+.cx-warn { display: flex; }
+.cx-empty { padding: 24px 6px; font-size: 14px; color: #8b8a86; }
+.cx-backb { font: inherit; font-size: 14px; font-weight: 500; border: 0; background: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 6px 8px; margin-left: -8px; border-radius: 8px; color: #1f1e1d; }
+.cx-dhead { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-top: 18px; flex-wrap: wrap; }
+.cx-dname { font-size: 20px; font-weight: 600; }
+.cx-dacts { display: flex; gap: 8px; }
+.cx-url { font-size: 12.5px; color: #8b8a86; margin: 6px 0 0; overflow-wrap: anywhere; }
+.cx-bad { color: #b42318; }
+.cx-ph { font-size: 16px; font-weight: 600; margin-top: 26px; }
+.cx-group { margin-top: 16px; }
+.cx-ghead { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 0; }
+.cx-gtoggle { font: inherit; font-size: 14px; font-weight: 600; border: 0; background: none; cursor: pointer; display: flex; align-items: center; gap: 8px; padding: 0; color: #1f1e1d; }
+.cx-chev { display: flex; transition: transform .15s; }
+.cx-chev.shut { transform: rotate(-90deg); }
+.cx-count { font-size: 12px; font-weight: 500; border: 1px solid #d9d6cf; border-radius: 999px; padding: 0 7px; color: #6b6a68; }
+.cx-gsel { font: inherit; font-size: 13px; padding: 5px 8px; border: 1px solid #e5e3dd; border-radius: 9px; background: #fff; color: #1f1e1d; }
+.cx-tool { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 0 10px 22px; border-bottom: 1px solid #efede8; }
+.cx-tname { font-size: 14px; display: flex; align-items: center; gap: 8px; min-width: 0; overflow-wrap: anywhere; }
+.cx-info { flex: none; width: 16px; height: 16px; border-radius: 50%; border: 1px solid #b9b6af; color: #8b8a86; font-size: 10px; font-weight: 600; display: inline-flex; align-items: center; justify-content: center; cursor: help; }
+.cx-perms { flex: none; display: flex; background: #efede8; border-radius: 10px; padding: 2px; }
+.cx-perms button { border: 0; background: none; color: #8b8a86; width: 32px; height: 28px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.cx-perms button.on { background: #fff; color: #1f1e1d; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.cx-addbox .cx-addnote { margin-top: 8px; font-size: 13px; color: #b42318; }
+@media (max-width: 600px) {
+  .cx-in { padding: 18px 16px 48px; }
+  .cx-row { grid-template-columns: 1fr auto; }
+  .cx-tcol { display: none; }
+  .cx-head .cx-tcol { display: none; }
+  .cx-scol { justify-content: flex-end; }
+  .cx-about { display: none; }
+}
 
 /* ITS BACKGROUND COMMANDS STILL RUNNING (tool 4, part 2), above the message box, each with a Stop. */
 .cd-bg { border: 1px solid #e6e2db; border-radius: 12px; background: #fff; margin: 0 0 8px; padding: 6px 12px; font: 13px Inter, system-ui, sans-serif; color: #374151; }

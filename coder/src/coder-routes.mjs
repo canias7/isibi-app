@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -587,11 +587,15 @@ export async function handleCoder(request, env, ctx, deps) {
   // sign-in), check again, remove. Never shows a sign-in or key.
   if (parts[0] === "connectors") {
     const cid = parts[1] || "";
-    if (!cid && request.method === "GET") return json({ ok: true, connectors: (await readConnectors(bucket, uid)).map(connectorOut), callback: String(env.CODER_PUBLIC_URL || "").replace(/\/+$/, "") + MCP_CALLBACK });
+    if (!cid && request.method === "GET") return json({ ok: true, connectors: (await readConnectors(bucket, uid)).map(connectorOut), catalog: CATALOG, callback: String(env.CODER_PUBLIC_URL || "").replace(/\/+$/, "") + MCP_CALLBACK });
     if (cid && !/^c[a-z0-9]{6,20}$/.test(cid)) return json({ error: "no such connector" }, 404);
     if (cid && request.method === "DELETE") return (await removeConnector(bucket, uid, cid)) ? json({ ok: true }) : json({ error: "no such connector" }, 404);
     if (request.method !== "POST") return json({ error: "method" }, 405);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
+    if (cid && parts[2] === "perms") {
+      const c = await setPerms(bucket, uid, cid, { tool: String(body.tool || ""), group: String(body.group || ""), perm: body.perm });
+      return c ? json({ ok: true, connector: connectorOut(c) }) : json({ error: "not changed" }, 400);
+    }
     const nonce = newNonce();
     let r;
     try { r = await addConnector(env, bucket, uid, { name: body.name, url: body.url, key: typeof body.key === "string" ? body.key : "", id: cid, nonce, fetchFn }); }

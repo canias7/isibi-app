@@ -184,3 +184,25 @@ test("MC7 (2026-11-10) the machine's caller sends the job's pass to the Worker's
   assert.match(page, /addEventListener\('gf:connectors'/);
   assert.match(page, /call\('\/connectors'/);
 });
+
+test("MC8 (2026-11-11, the look of Claude's connectors page) tool permissions: read-only tools start on Allow, the others on Needs approval; one tool or a whole group can change; Blocked is never offered to Grok; Needs approval asks outside Auto", async () => {
+  const { setPerms, CATALOG } = await import("../src/coder-mcp.mjs");
+  const b = memBucket(), s = fakeServer();
+  const r = await addConnector(env, b, "u1", { name: "Linear", url: "https://mcp.example.com/mcp", fetchFn: s.fetchFn });
+  assert.deepEqual(connectorOut(r.connector).tools.map((t) => [t.name, t.perm]), [["list_issues", "allow"], ["create_issue", "ask"]]);
+  assert.deepEqual(connectorOut(await setPerms(b, "u1", r.connector.id, { tool: "create_issue", perm: "block" })).tools.map((t) => t.perm), ["allow", "block"]);
+  assert.deepEqual(toolsFor(await readConnectors(b, "u1")).tools.map((t) => t.name), ["mcp__linear__list_issues"]);
+  assert.deepEqual(connectorOut(await setPerms(b, "u1", r.connector.id, { group: "write", perm: "allow" })).tools.map((t) => t.perm), ["allow", "allow"]);
+  assert.equal(await setPerms(b, "u1", r.connector.id, { tool: "x", perm: "sometimes" }), null);
+  assert.ok(CATALOG.length >= 5 && CATALOG.every((k) => k.url.startsWith("https://") && k.about));
+  // In Coder's loop: a Needs-approval tool asks in Accept edits, and runs in Auto.
+  const tools = connectorTools([{ name: "mcp__linear__create_issue", label: "Linear: create_issue", perm: "ask", parameters: { type: "object", properties: {} } }, { name: "mcp__linear__gone", perm: "block" }]);
+  assert.deepEqual(tools.map((t) => t.name), ["mcp__linear__create_issue"]);
+  for (const [mode, asks] of [["acceptEdits", 1], ["auto", 0]]) {
+    let i = 0, asked = 0, ran = 0;
+    const replies = [{ message: { role: "assistant", content: "", tool_calls: [{ id: "k1", type: "function", function: { name: "mcp__linear__create_issue", arguments: "{}" } }] }, usage: { in: 1, out: 1 } }, { message: { role: "assistant", content: "ok" }, usage: { in: 1, out: 1 } }];
+    await runCoder({ send: async () => replies[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }), ask: async () => { asked++; return { choice: "yes" }; }, mcp: async () => { ran++; return { text: "done", isError: false }; } }, { text: "x", mode, connectors: tools });
+    assert.equal(asked, asks, mode);
+    assert.equal(ran, 1, mode);
+  }
+});

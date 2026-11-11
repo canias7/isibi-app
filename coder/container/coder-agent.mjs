@@ -772,7 +772,7 @@ export const EXIT_PLAN_TOOL = fn("exit_plan_mode", "Present your plan to the own
  */
 export function connectorTools(list) {
   return (Array.isArray(list) ? list : []).filter((t) => t && typeof t.name === "string" && /^mcp__[a-z0-9_-]{1,59}$/.test(t.name))
-    .slice(0, 80).map((t) => ({ name: t.name, label: String(t.label || t.name).slice(0, 120), readOnly: t.readOnly === true,
+    .filter((t) => t.perm !== "block").slice(0, 80).map((t) => ({ name: t.name, label: String(t.label || t.name).slice(0, 120), readOnly: t.readOnly === true, perm: t.perm === "allow" || t.perm === "ask" ? t.perm : t.readOnly === true ? "allow" : "ask",
       description: String(t.description || t.name).slice(0, 1000),
       parameters: t.parameters && typeof t.parameters === "object" && !Array.isArray(t.parameters) && t.parameters.type === "object" ? t.parameters : { type: "object", properties: {} } }));
 }
@@ -1805,10 +1805,11 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
       } else if (mcpByName.has(c.name)) {
-        // A CONNECTOR'S TOOL (MCP): in Plan mode, one that may change something waits for the owner's Yes, as Coder's own do.
+        // A CONNECTOR'S TOOL (MCP), with the owner's permission for it (like Claude's: Allow, Needs approval, Block; Block is
+        // never offered). Needs approval asks in Accept edits and Plan; in Auto it runs, as Claude's Auto mode does.
         const t = mcpByName.get(c.name);
-        if (!t.readOnly && modeNow() === "plan" && canAsk()) {
-          const a = await askOwner({ tool: "connector", id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: "Plan mode is on: this connector tool may change something." });
+        if (t.perm === "ask" && modeNow() !== "auto" && canAsk()) {
+          const a = await askOwner({ tool: "connector", id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: "You set this connector tool to Needs approval." });
           const o = answerOutcome(a);
           if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }

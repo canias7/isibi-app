@@ -4,6 +4,27 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: The Connectors page now looks like Claude's (your word, with its screenshots: "Like this look")
+
+- **The page:** Connectors opens as a full page, not a small box. It has:
+  - **Yours** and **Discover** tabs, a search box and **+ Add**;
+  - a list with each connector's type ("Web", plus "Custom" for your own addresses) and its status (✓, or ⚠ with Reconnect).
+- **Discover:** well-known MCP servers you can connect with one press: Linear, Notion, Sentry, Stripe, Supabase, Neon, Vercel, Hugging Face and Cloudflare Docs. Each opens its own sign-in.
+- **A connector's own page:** press a row to open it. It has:
+  - **Check again** and **Disconnect**;
+  - its description and address;
+  - **Tool permissions**: each tool set to Always allow, Needs approval or Blocked.
+- **How permissions are grouped and set:**
+  - Tools come in two groups, "Read-only tools" and "Write/delete tools", like Claude's.
+  - Each group has a setting that changes all its tools at once.
+  - Read-only tools start on Always allow, and the others start on Needs approval.
+- **What each permission does in a chat:**
+  - Blocked tools are never offered to Coder.
+  - Needs approval shows you a card in Accept edits and Plan mode. In Auto mode Coder goes ahead, as Claude's Auto mode does.
+- **Icons:** each connector shows its first letter in a colored square. Company logos would need pictures from outside, which the page's safety rules block.
+- **Tests:** MC8 is new. All 397 pass, 4 skipped as before.
+- **Not deployed, not tried live yet.**
+
 ## 2026-11-10: Connectors (MCP): one list per person for the whole platform (your word: "one list for the platform ... per person")
 
 - **Where:** the account menu (the gear at the bottom left) now has **Connectors**. Add a connector with:

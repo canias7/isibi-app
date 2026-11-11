@@ -211,69 +211,136 @@
   }
   // CONNECTORS (MCP), ONE LIST PER PERSON FOR THE WHOLE PLATFORM (owner, 2026-11-10): add an MCP server by its address
   // (then its own sign-in, or a key), see its tools, check it again, remove it. Coder (and Gloopy) can use them all.
+  // THE LOOK OF CLAUDE'S CONNECTORS PAGE (owner, 2026-11-11, its screenshots: "Like this look"): a page with Yours and
+  // Discover, a search, + Add; a list with each one's type and status (✓, Reconnect, Connect); a connector's own page with
+  // Disconnect and its tool permissions (Allow, Needs approval, Block), read-only tools apart from the others.
+  const CX_ICON = {
+    allow: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8 12.5l2.5 2.5L16 9.5"/></svg>',
+    ask: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 11V6a2 2 0 0 0-4 0v5M14 10V4a2 2 0 0 0-4 0v6M10 10.5V6a2 2 0 0 0-4 0v8a8 8 0 0 0 16 0v-4a2 2 0 0 0-4 0"/></svg>',
+    block: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M5.7 5.7l12.6 12.6"/></svg>',
+    warn: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#d97706" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10.3 3.9L1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0zM12 9v4M12 17h.01"/></svg>',
+    ok: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    back: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>',
+    close: '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>',
+    search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>',
+    down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
+  };
+  const PERM_WORDS = { allow: 'Always allow', ask: 'Needs approval', block: 'Blocked' };
+  const cxBadge = (name) => { const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
+  const cxTitle = (t) => t.title || String(t.name || '').replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
   async function showConnectors(note) {
     const r = await call('/connectors');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Connectors could not be opened.'; return draw(); }
     let list = r.data.connectors || [];
-    note = note || '';
-    let busy = false, open = '';
-    const wrap = document.createElement('div'); wrap.className = 'cd-sure';
-    const box = document.createElement('div'); box.className = 'cd-sure-box cd-notify cd-conn'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Connectors');
-    wrap.append(box); document.body.append(wrap);
-    const close = () => { document.removeEventListener('keydown', key); wrap.remove(); };
-    const key = (e) => { if (e.key === 'Escape') close(); };
+    const catalog = r.data.catalog || [];
+    const st = { tab: 'yours', q: '', open: '', note: note || '', busy: '', shut: {} };
+    const page = document.createElement('div'); page.className = 'cx'; page.setAttribute('role', 'dialog'); page.setAttribute('aria-modal', 'true'); page.setAttribute('aria-label', 'Connectors');
+    document.body.append(page);
+    const close = () => { document.removeEventListener('keydown', key); page.remove(); };
+    const key = (e) => { if (e.key === 'Escape' && !document.querySelector('.cd-sure')) { if (st.open) { st.open = ''; paint(); } else close(); } };
     document.addEventListener('keydown', key);
-    wrap.onclick = (e) => { if (e.target === wrap) close(); };
     const host = (u) => { try { return new URL(u).host; } catch (e) { return u; } };
-    const status = (c) => c.status === 'ok' ? '<span class="cd-notify-on">' + c.tools.length + ' tool' + (c.tools.length === 1 ? '' : 's') + '</span>'
-      : c.status === 'auth' ? '<span class="cd-conn-bad">Needs sign-in</span>' : '<span class="cd-conn-bad">' + esc(c.error || 'Not working') + '</span>';
-    const paint = () => {
-      box.innerHTML = '<div class="cd-sure-title">Connectors</div>' +
-        '<div class="cd-sure-text">Connect apps and services through MCP. Your connectors work in every chat, for Coder and Gloopy. Your sign-ins stay on our server, never on Coder’s machine.</div>' +
-        (list.length ? '<div class="cd-conn-list">' + list.map((c) => '<div class="cd-conn-row" data-id="' + esc(c.id) + '">' +
-          '<div class="cd-conn-main"><b>' + esc(c.name) + '</b><span class="cd-conn-host">' + esc(host(c.url)) + '</span>' + status(c) + '</div>' +
-          '<div class="cd-conn-acts">' + (c.tools.length ? '<button type="button" data-act="tools">' + (open === c.id ? 'Hide tools' : 'Tools') + '</button>' : '') +
-          '<button type="button" data-act="check">' + (c.status === 'auth' ? 'Sign in' : 'Check') + '</button><button type="button" data-act="remove">Remove</button></div>' +
-          (open === c.id ? '<ul class="cd-conn-tools">' + c.tools.map((t) => '<li><code>' + esc(t.name) + '</code>' + (t.readOnly ? ' <span class="cd-conn-ro">read-only</span>' : '') + (t.description ? '<br><span>' + esc(t.description) + '</span>' : '') + '</li>').join('') + '</ul>' : '') +
-          '</div>').join('') + '</div>' : '<div class="cd-conn-empty">No connectors yet.</div>') +
-        '<form class="cd-conn-add" id="cdConnAdd"><div class="cd-conn-addtitle">Add a connector</div>' +
-        '<input id="cdConnName" placeholder="Name (e.g. Linear)" maxlength="40" autocomplete="off">' +
-        '<input id="cdConnUrl" placeholder="MCP server address (https://…)" required autocomplete="off" inputmode="url">' +
-        '<input id="cdConnKey" type="password" placeholder="API key (only if the server needs one)" autocomplete="off">' +
-        '<button type="submit" class="cd-notify-go"' + (busy ? ' disabled' : '') + '>' + (busy ? 'Connecting…' : 'Connect') + '</button></form>' +
-        (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
-        '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdConnDone">Done</button></div>';
-      box.querySelector('#cdConnDone').onclick = close;
-      box.querySelectorAll('.cd-conn-row [data-act]').forEach((b) => { b.onclick = () => act(b.closest('.cd-conn-row').getAttribute('data-id'), b.getAttribute('data-act')); });
-      box.querySelector('#cdConnAdd').onsubmit = async (e) => {
-        e.preventDefault();
-        if (busy) return;
-        const body = { name: box.querySelector('#cdConnName').value, url: box.querySelector('#cdConnUrl').value, key: box.querySelector('#cdConnKey').value };
-        busy = true; note = ''; paint();
-        const x = await call('/connectors', { method: 'POST', body: JSON.stringify(body) });
-        busy = false;
-        done(x);
-      };
+    const match = (x) => !st.q || (x.name + ' ' + x.url).toLowerCase().includes(st.q.toLowerCase());
+    const statusCell = (c) => c.status === 'ok' ? '<span class="cx-ok" title="Connected">' + CX_ICON.ok + '</span>'
+      : '<span class="cx-warn" title="' + esc(c.status === 'auth' ? 'Needs sign-in' : (c.error || 'Not working')) + '">' + CX_ICON.warn + '</span><button type="button" class="cx-btn" data-act="check" data-id="' + esc(c.id) + '">Reconnect</button>';
+    const typeCell = (c) => '<span class="cx-type">Web</span>' + (c.custom ? '<span class="cx-pill">Custom</span>' : '');
+    const listView = () => {
+      const added = new Set(list.map((c) => c.url));
+      const rows = st.tab === 'yours'
+        ? list.filter(match).map((c) => '<div class="cx-row cx-click" data-row="' + esc(c.id) + '" tabindex="0"><div class="cx-name">' + cxBadge(c.name) + '<span>' + esc(c.name) + '</span></div><div class="cx-tcol">' + typeCell(c) + '</div><div class="cx-scol">' + statusCell(c) + '</div></div>').join('')
+        : catalog.filter((k) => !added.has(k.url) && match(k)).map((k) => '<div class="cx-row"><div class="cx-name">' + cxBadge(k.name) + '<span><span>' + esc(k.name) + '</span><span class="cx-about">' + esc(k.about) + '</span></span></div><div class="cx-tcol"><span class="cx-type">Web</span></div><div class="cx-scol"><button type="button" class="cx-btn cx-btn-dark" data-act="connect" data-url="' + esc(k.url) + '" data-name="' + esc(k.name) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.busy === k.url ? 'Connecting…' : 'Connect') + '</button></div></div>').join('');
+      const empty = st.tab === 'yours' ? (list.length ? 'No connector matches.' : 'No connectors yet. Pick one in Discover, or press + Add for any MCP server.') : 'Nothing more to add here. + Add takes any MCP server’s address.';
+      return '<div class="cx-top"><div class="cx-h">Connectors</div><button type="button" class="cx-x" data-act="close" aria-label="Close">' + CX_ICON.close + '</button></div>' +
+        '<div class="cx-sub">Connect apps and services through MCP. They work in every chat, for Coder and Gloopy. Your sign-ins stay on our server, never on Coder’s machine.</div>' +
+        '<div class="cx-bar"><div class="cx-seg"><button type="button" data-tab="yours"' + (st.tab === 'yours' ? ' class="on"' : '') + '>Yours</button><button type="button" data-tab="discover"' + (st.tab === 'discover' ? ' class="on"' : '') + '>Discover</button></div>' +
+        '<label class="cx-search">' + CX_ICON.search + '<input id="cxQ" placeholder="Search" value="' + esc(st.q) + '" autocomplete="off"></label>' +
+        '<button type="button" class="cx-btn cx-add" data-act="add">+ Add</button></div>' +
+        (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
+        '<div class="cx-table"><div class="cx-row cx-head"><div class="cx-name">Connector</div><div class="cx-tcol">Type</div><div class="cx-scol">Status</div></div>' + (rows || '<div class="cx-empty">' + esc(empty) + '</div>') + '</div>';
     };
-    const done = (x) => {
-      if (x.status !== 200) { note = (x.data && x.data.error) || 'It could not be connected.'; return paint(); }
-      if (x.data.signIn) { note = 'Opening its sign-in…'; paint(); window.location.href = x.data.signIn; return; }
-      const c = x.data.connector;
-      list = [...list.filter((y) => y.id !== c.id), c];
-      note = c.status === 'ok' ? c.name + ' is connected: ' + c.tools.length + ' tool' + (c.tools.length === 1 ? '' : 's') + '.' : c.name + ': ' + (c.error || 'not working');
+    const permRow = (c, t) => '<div class="cx-tool"><span class="cx-tname">' + esc(cxTitle(t)) + (t.description ? '<span class="cx-info" title="' + esc(t.description) + '">i</span>' : '') + '</span>' +
+      '<span class="cx-perms" role="group" aria-label="' + esc(cxTitle(t)) + '">' + ['allow', 'ask', 'block'].map((p) => '<button type="button" class="' + (t.perm === p ? 'on' : '') + '" data-perm="' + p + '" data-tool="' + esc(t.name) + '" title="' + PERM_WORDS[p] + '" aria-pressed="' + (t.perm === p) + '">' + CX_ICON[p] + '</button>').join('') + '</span></div>';
+    const group = (c, g, label, tools) => {
+      if (!tools.length) return '';
+      const all = ['allow', 'ask', 'block'].find((p) => tools.every((t) => t.perm === p));
+      const shut = !!st.shut[g];
+      return '<div class="cx-group"><div class="cx-ghead"><button type="button" class="cx-gtoggle" data-shut="' + g + '"><span class="cx-chev' + (shut ? ' shut' : '') + '">' + CX_ICON.down + '</span>' + label + '<span class="cx-count">' + tools.length + '</span></button>' +
+        '<select class="cx-gsel" data-group="' + g + '" aria-label="' + label + ': all at once">' + (all ? '' : '<option value="" selected>Custom</option>') + ['allow', 'ask', 'block'].map((p) => '<option value="' + p + '"' + (all === p ? ' selected' : '') + '>' + PERM_WORDS[p] + '</option>').join('') + '</select></div>' +
+        (shut ? '' : tools.map((t) => permRow(c, t)).join('')) + '</div>';
+    };
+    const detailView = (c) => '<div class="cx-top"><button type="button" class="cx-backb" data-act="back">' + CX_ICON.back + 'Your connectors</button><button type="button" class="cx-x" data-act="close" aria-label="Close">' + CX_ICON.close + '</button></div>' +
+      '<div class="cx-dhead"><div class="cx-name cx-dname">' + cxBadge(c.name) + '<span>' + esc(c.name) + '</span></div><div class="cx-dacts">' +
+      '<button type="button" class="cx-btn" data-act="check" data-id="' + esc(c.id) + '">' + (c.status === 'ok' ? 'Check again' : 'Reconnect') + '</button><button type="button" class="cx-btn" data-act="remove" data-id="' + esc(c.id) + '">Disconnect</button></div></div>' +
+      (c.about ? '<p class="cx-desc">' + esc(c.about) + '</p>' : '') +
+      '<p class="cx-url">' + esc(c.url) + (c.auth === 'oauth' ? ' · signed in' : c.auth === 'key' ? ' · with a key' : '') + (c.status !== 'ok' ? ' · <span class="cx-bad">' + esc(c.status === 'auth' ? 'needs sign-in' : (c.error || 'not working')) + '</span>' : '') + '</p>' +
+      (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
+      (c.tools.length ? '<div class="cx-ph">Tool permissions</div><p class="cx-desc">Choose when Coder may use these tools. Always allow: it uses them freely. Needs approval: it asks you first in Accept edits and Plan mode (in Auto mode it goes ahead). Blocked: never offered.</p>' +
+        group(c, 'read', 'Read-only tools', c.tools.filter((t) => t.readOnly)) + group(c, 'write', 'Write/delete tools', c.tools.filter((t) => !t.readOnly))
+        : '<p class="cx-desc">No tools yet: ' + (c.status === 'ok' ? 'this server offers none.' : 'reconnect it to see them.') + '</p>');
+    const paint = () => {
+      const c = st.open && list.find((x) => x.id === st.open);
+      if (st.open && !c) st.open = '';
+      const qFocus = document.activeElement && document.activeElement.id === 'cxQ';
+      page.innerHTML = '<div class="cx-in">' + (c ? detailView(c) : listView()) + '</div>';
+      const q = page.querySelector('#cxQ');
+      if (q) { q.oninput = () => { st.q = q.value; paint(); }; if (qFocus) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
+      page.querySelectorAll('[data-tab]').forEach((b) => { b.onclick = () => { st.tab = b.getAttribute('data-tab'); st.note = ''; paint(); }; });
+      page.querySelectorAll('[data-row]').forEach((b) => { const go = (e) => { if (e.target.closest('button')) return; st.open = b.getAttribute('data-row'); st.note = ''; paint(); page.scrollTop = 0; }; b.onclick = go; b.onkeydown = (e) => { if (e.key === 'Enter') go(e); }; });
+      page.querySelectorAll('[data-shut]').forEach((b) => { b.onclick = () => { const g = b.getAttribute('data-shut'); st.shut[g] = !st.shut[g]; paint(); }; });
+      page.querySelectorAll('[data-perm]').forEach((b) => { b.onclick = () => perm(c, { tool: b.getAttribute('data-tool'), perm: b.getAttribute('data-perm') }); });
+      page.querySelectorAll('.cx-gsel').forEach((sel) => { sel.onchange = () => { if (sel.value) perm(c, { group: sel.getAttribute('data-group'), perm: sel.value }); }; });
+      page.querySelectorAll('[data-act]').forEach((b) => { b.onclick = (e) => { e.stopPropagation(); act(b.getAttribute('data-act'), b); }; });
+    };
+    const perm = async (c, body) => {
+      const x = await call('/connectors/' + encodeURIComponent(c.id) + '/perms', { method: 'POST', body: JSON.stringify(body) });
+      if (x.status === 200) list = list.map((y) => (y.id === c.id ? x.data.connector : y)); else st.note = (x.data && x.data.error) || 'Not saved.';
       paint();
     };
-    const act = async (id, what) => {
-      const c = list.find((y) => y.id === id);
+    const done = (x) => {
+      st.busy = '';
+      if (x.status !== 200) { st.note = (x.data && x.data.error) || 'It could not be connected.'; return paint(); }
+      if (x.data.signIn) { st.note = 'Opening its sign-in…'; paint(); window.location.href = x.data.signIn; return; }
+      const c = x.data.connector;
+      list = [...list.filter((y) => y.id !== c.id), c];
+      st.tab = 'yours';
+      st.note = c.status === 'ok' ? c.name + ' is connected: ' + c.tools.length + ' tool' + (c.tools.length === 1 ? '' : 's') + '.' : c.name + ': ' + (c.error || 'not working');
+      paint();
+    };
+    const addForm = () => {
+      const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+      const box = document.createElement('form'); box.className = 'cd-sure-box cx-addbox'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      box.innerHTML = '<div class="cd-sure-title">Add a custom connector</div><div class="cd-sure-text">Any MCP server reachable over the internet. If it has its own sign-in, it opens next.</div>' +
+        '<input class="cd-sure-in" id="cxName" placeholder="Name (e.g. Linear)" maxlength="40" autocomplete="off">' +
+        '<input class="cd-sure-in" id="cxUrl" placeholder="MCP server address (https://…)" required autocomplete="off" inputmode="url">' +
+        '<input class="cd-sure-in" id="cxKey" type="password" placeholder="API key (only if the server needs one)" autocomplete="off">' +
+        '<div class="cx-addnote"></div><div class="cd-sure-row"><button type="button" class="cd-sure-no">Cancel</button><button type="submit" class="cx-btn cx-btn-dark">Add</button></div>';
+      wrap.append(box); document.body.append(wrap);
+      const end = () => wrap.remove();
+      box.querySelector('.cd-sure-no').onclick = end;
+      wrap.onclick = (e) => { if (e.target === wrap) end(); };
+      box.querySelector('#cxUrl').focus();
+      box.onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = box.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Connecting…';
+        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: box.querySelector('#cxName').value, url: box.querySelector('#cxUrl').value, key: box.querySelector('#cxKey').value }) });
+        if (x.status !== 200) { btn.disabled = false; btn.textContent = 'Add'; box.querySelector('.cx-addnote').textContent = (x.data && x.data.error) || 'It could not be connected.'; return; }
+        end(); done(x);
+      };
+    };
+    const act = async (what, b) => {
+      if (what === 'close') return close();
+      if (what === 'back') { st.open = ''; st.note = ''; return paint(); }
+      if (what === 'add') return addForm();
+      if (what === 'connect') { st.busy = b.getAttribute('data-url'); paint(); return done(await call('/connectors', { method: 'POST', body: JSON.stringify({ name: b.getAttribute('data-name'), url: b.getAttribute('data-url') }) })); }
+      const id = b.getAttribute('data-id'), c = list.find((y) => y.id === id);
       if (!c) return;
-      if (what === 'tools') { open = open === id ? '' : id; return paint(); }
       if (what === 'remove') {
-        if (!(await askSure('Remove ' + c.name + '?', 'Coder and Gloopy can no longer use it. You can add it again later.', 'Remove'))) return;
+        if (!(await askSure('Disconnect ' + c.name + '?', 'Coder and Gloopy can no longer use it, and its sign-in is deleted. You can connect it again later.', 'Disconnect'))) return;
         const x = await call('/connectors/' + encodeURIComponent(id), { method: 'DELETE' });
-        if (x.status === 200) { list = list.filter((y) => y.id !== id); note = c.name + ' was removed.'; } else note = (x.data && x.data.error) || 'Not removed.';
+        if (x.status === 200) { list = list.filter((y) => y.id !== id); st.open = ''; st.note = c.name + ' was disconnected.'; } else st.note = (x.data && x.data.error) || 'Not disconnected.';
         return paint();
       }
-      note = 'Checking ' + c.name + '…'; paint();
+      st.note = 'Checking ' + c.name + '…'; paint();
       done(await call('/connectors/' + encodeURIComponent(id), { method: 'POST', body: '{}' }));
     };
     paint();
@@ -1533,7 +1600,7 @@
   // switch to auto mode", "No"; and its plan approval: "Yes, and use auto mode", the other mode, "No, keep planning").
   // The step waits in Coder's job until the answer comes (this page sends it: /answer); a note can go with it.
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1');
-  const PERM_TITLE = { bash: 'Bash command', write: 'Write file', edit: 'Edit file', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo' };
+  const PERM_TITLE = { bash: 'Bash command', write: 'Write file', edit: 'Edit file', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
   function permOptions(e) {
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']];
     const o = [['yes', 'Yes']];

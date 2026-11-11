@@ -46,9 +46,44 @@ export async function readConnectors(bucket, uid) {
 }
 export const writeConnectors = (bucket, uid, list) => putJson(bucket, listKey(uid), list.slice(0, CONNECTORS_MAX));
 
+// ── TOOL PERMISSIONS, LIKE CLAUDE'S (owner, 2026-11-11, a screenshot of Claude's connector page: "Like this look"): each tool
+// is Allow, Needs approval or Block; read-only tools start on Allow, the others on Needs approval. Block: never offered.
+export const PERMS = ["allow", "ask", "block"];
+export const permOf = (c, t) => { const p = c && c.perms && c.perms[t.name]; return PERMS.includes(p) ? p : t.readOnly ? "allow" : "ask"; };
+
+/** Set one tool's permission, or a whole group's ("read" or "write"). Gives the connector, or null. */
+export async function setPerms(bucket, uid, id, { tool = "", group = "", perm }) {
+  if (!PERMS.includes(perm)) return null;
+  const list = await readConnectors(bucket, uid);
+  const c = list.find((x) => x.id === id);
+  if (!c) return null;
+  const perms = { ...(c.perms || {}) };
+  for (const t of c.tools || []) if (t.name === tool || (group === "read" && t.readOnly) || (group === "write" && !t.readOnly)) perms[t.name] = perm;
+  c.perms = perms;
+  await writeConnectors(bucket, uid, list);
+  return c;
+}
+
+/**
+ * CONNECTORS TO PICK FROM (the Discover tab): well-known MCP servers that sign in on their own (OAuth with the client
+ * registered on the fly) over Streamable HTTP. Adding one is the same as typing its address.
+ */
+export const CATALOG = Object.freeze([
+  { name: "Linear", url: "https://mcp.linear.app/mcp", about: "Find, create and update issues, projects and comments in Linear." },
+  { name: "Notion", url: "https://mcp.notion.com/mcp", about: "Search, read and edit pages and databases in your Notion workspace." },
+  { name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
+  { name: "Stripe", url: "https://mcp.stripe.com", about: "Work with customers, payments, products and invoices in Stripe." },
+  { name: "Supabase", url: "https://mcp.supabase.com/mcp", about: "Manage Supabase projects: run SQL, change tables, read logs and deploy edge functions." },
+  { name: "Neon", url: "https://mcp.neon.tech/mcp", about: "Manage Neon Postgres projects, branches and queries." },
+  { name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
+  { name: "Hugging Face", url: "https://huggingface.co/mcp", about: "Search models, datasets and Spaces on Hugging Face." },
+  { name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", about: "Search Cloudflare's documentation." },
+]);
+const aboutOf = (url) => { const k = CATALOG.find((x) => x.url === url); return k ? k.about : ""; };
+
 /** What the page is shown of a connector: never its sign-in. */
 export function connectorOut(c) {
-  return { id: c.id, name: c.name, url: c.url, auth: c.auth || "none", status: c.status || "ok", error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, description: String(t.description || "").slice(0, 200), readOnly: !!t.readOnly })), at: c.at || 0 };
+  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.status || "ok", error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t) })), at: c.at || 0 };
 }
 
 /** A connector's address: https only (http only for localhost tests), no user name or password in it. */
@@ -83,14 +118,14 @@ export function toolsFor(list, off = []) {
   const used = new Set();
   for (const c of list) {
     if (off.includes(c.id) || c.status === "auth" || !Array.isArray(c.tools)) continue;
-    for (const t of c.tools.slice(0, TOOLS_PER_CONNECTOR)) {
+    for (const t of c.tools.filter((x) => permOf(c, x) !== "block").slice(0, TOOLS_PER_CONNECTOR)) {
       if (tools.length >= TOOLS_MAX) break;
       let name = toolName(c.name, t.name);
       for (let k = 2; used.has(name); k++) name = toolName(c.name + k, t.name);
       used.add(name);
       map[name] = { id: c.id, tool: t.name };
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
-      tools.push({ name, label: c.name + ": " + t.name, readOnly: !!t.readOnly,
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, 1000), parameters: params });
     }
   }
