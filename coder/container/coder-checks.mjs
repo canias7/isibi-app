@@ -202,20 +202,27 @@ export function kbSize(bytes) {
  * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
  * its start, " ... [N lines truncated] ...", as Claude Code 2.1.319 does.
  */
-export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0 }) {
-  // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff).
-  const text = scrub(output).replace(/\n+$/, "");
+/** How far past 10,000 characters a failure goes before it is cut (Claude Code 2.1.322: cut only past 11,024). */
+export const BASH_FAIL_SLACK = 1024;
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0, tool = "Bash" }) {
+  // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff), nor any
+  // white space at its end; and from a command that worked, nor blank lines at its start (Claude Code 2.1.322: its Bash result
+  // drops /^(\s*\n)+/ and trims the end; Bash docs pass 9).
+  const text = isError ? scrub(output).trimEnd() : scrub(output).replace(/^(\s*\n)+/, "").trimEnd();
   const total = Number.isFinite(size) && size !== null ? size : Buffer.byteLength(text);
   const inline = Number.isInteger(inlineMax) && inlineMax > 0 ? inlineMax : BASH_INLINE_MAX;
   const back = Number.isInteger(readBack) && readBack > 0 ? readBack : BASH_READ_BACK;
   if (!isError) {
-    if (!text.length) return "(Bash completed with no output)";
+    // ("(PowerShell completed with no output)" for a PowerShell command: Claude Code names its tool; Bash docs pass 9.)
+    if (!text.length) return "(" + (tool === "PowerShell" ? "PowerShell" : "Bash") + " completed with no output)";
     if (text.length <= inline && !(file && total > inline)) {
       if (text.length <= back) return text;
       const rest = text.slice(back).split("\n").length;
       return text.slice(0, back) + " ... [" + rest + " lines truncated] ...";
     }
-    const preview = text.slice(0, BASH_PREVIEW);
+    // (It ends at the last line break in its first 2,000 characters when that is past the first 1,000: Claude Code 2.1.322.)
+    const lastBreak = text.slice(0, BASH_PREVIEW).lastIndexOf("\n");
+    const preview = text.slice(0, lastBreak > BASH_PREVIEW * 0.5 ? lastBreak : BASH_PREVIEW);
     // (A file cut at its limit says so, in Claude Code 2.1.322's words: "Output exceeded the 64MB persist limit; only the
     // first 64MB were saved to: …"; Bash docs pass 8.)
     const saved = Number(truncatedAt) > 0
@@ -225,9 +232,57 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
       ? "<persisted-output>\n" + saved + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
       : capOutput(text, inline);
   }
-  const full = "Exit code " + code + "\n" + text.slice(0, back);
-  if (full.length <= BASH_FAIL_MAX) return full.replace(/\n$/, "");
+  const full = ("Exit code " + code + "\n" + text.slice(0, back)).trimEnd();
+  if (full.length <= BASH_FAIL_MAX + BASH_FAIL_SLACK) return full;
   return full.slice(0, BASH_FAIL_MAX / 2) + "\n\n... [" + (full.length - BASH_FAIL_MAX) + " characters truncated] ...\n\n" + full.slice(-BASH_FAIL_MAX / 2);
+}
+/**
+ * A TIME AS CLAUDE CODE WRITES IT (2.1.322's own function: "45s", "2m 0s", "1h 0m 0s", "1d 2h 0m"), as in "Command timed out
+ * after 2m 0s" (Bash docs pass 9).
+ */
+export function ccDuration(ms, { hideTrailingZeros = false } = {}) {
+  const e = Number(ms) || 0;
+  if (e < 60000) return e === 0 ? "0s" : e < 1 ? (e / 1000).toFixed(1) + "s" : Math.floor(e / 1000) + "s";
+  let d = Math.floor(e / 86400000), h = Math.floor(e % 86400000 / 3600000), m = Math.floor(e % 3600000 / 60000), s = Math.round(e % 60000 / 1000);
+  if (s === 60) { s = 0; m++; }
+  if (m === 60) { m = 0; h++; }
+  if (h === 24) { h = 0; d++; }
+  // (`hideTrailingZeros`, as Claude Code's own option: "5m", "1h", "1h 30m".)
+  const z = hideTrailingZeros;
+  if (d > 0) return z && h === 0 && m === 0 ? d + "d" : z && m === 0 ? d + "d " + h + "h" : d + "d " + h + "h " + m + "m";
+  if (h > 0) return z && m === 0 && s === 0 ? h + "h" : z && s === 0 ? h + "h " + m + "m" : h + "h " + m + "m " + s + "s";
+  if (m > 0) return z && s === 0 ? m + "m" : m + "m " + s + "s";
+  return s + "s";
+}
+/**
+ * WHAT A COMMAND MOVED TO THE BACKGROUND AT ITS TIMEOUT HAD PRINTED, as Claude Code 2.1.322 shows it (Bash docs pass 9): the
+ * last 2,000 bytes of its output, from the start of a line when earlier output was left out, under "[… earlier output
+ * omitted; full output: <file>]"; no blank lines at the start, no white space at the end. `tail`: the last bytes it printed
+ * (at least 2,000 when it printed that much); `total`: all it printed, in bytes.
+ */
+export const MOVED_TAIL = 2000;
+export function movedSoFar(tail, total, file) {
+  const buf = Buffer.isBuffer(tail) ? tail : Buffer.from(String(tail || ""));
+  const last = buf.length > MOVED_TAIL ? buf.subarray(buf.length - MOVED_TAIL) : buf;
+  const omitted = Math.max(0, (Number(total) || 0) - last.length) > 0;
+  let text = last.toString("utf8");
+  if (omitted) text = text.slice(text.indexOf("\n") + 1) || text;
+  const shown = text.replace(/^\n+/, "").trimEnd();
+  return omitted ? "[… earlier output omitted; full output: " + file + "]\n" + shown : shown;
+}
+/**
+ * HOW MANY BYTES AT THE END OF `buf` BEGIN A LETTER NOT COMPLETE YET (0 to 3): a command's output is read in pieces, and a
+ * letter of several bytes split between two pieces is kept for the next one instead of shown as "��" (Bash docs pass 9).
+ */
+export function utf8Partial(buf) {
+  const n = buf.length;
+  for (let i = 1; i <= Math.min(3, n); i++) {
+    const c = buf[n - i];
+    if ((c & 0xc0) === 0x80) continue;
+    const need = c >= 0xf0 ? 4 : c >= 0xe0 ? 3 : c >= 0xc0 ? 2 : 1;
+    return need > i ? i : 0;
+  }
+  return 0;
 }
 
 /** What a command printed, bounded: the head and the tail, the cut said. */

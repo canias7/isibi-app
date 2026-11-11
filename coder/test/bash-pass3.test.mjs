@@ -165,9 +165,10 @@ test("CD345 a stop ends what the command started outside its process group too (
   // Every stop uses it: the owner's Stop, a time limit, 5 GB, low memory (stopJob), and Coder's own stop_job.
   const server = src("server.mjs");
   // (Unless the owner turned Stop's choice off in Settings, 2026-11-10: then they go on, as in Claude Code 2.1.322; CD380.)
-  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
+  // (Its own process group was just signalled as a whole: those are not signalled twice; Bash docs pass 9, CD477.)
+  assert.match(server, /try \{ process\.kill\(-j\.pid, hard \? "SIGKILL" : "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n  if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM", \{ skipGroup: j\.pid \}\);/);
   assert.match(server, /try \{ process\.kill\(-j\.pid, "SIGKILL"\); \} catch \{ \/\* gone \*\/ \}\n    if \(!keep\) endMarked\(j\.mark, "SIGKILL"\);/);
-  assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM"\);/);
+  assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM", \{ skipGroup: pid \}\);/);
   // Each of the chat's commands carries one (after the owner's own variables), and its background job keeps it.
   assert.match(server, /const mark = tool \? "" : newMark\(\);/);
   assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark \},/);

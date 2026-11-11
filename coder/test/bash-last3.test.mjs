@@ -44,10 +44,11 @@ test("CD328 the 5 GB stop goes on in the background (Claude Code: \"Background t
   assert.equal(n.said, "Background command \"Print forever\" was stopped: its output passed 5 GB");
   assert.ok(n.note.includes("Command killed: output file exceeded 5GB (exit code 137).") && n.note.includes("read only its end (tail)") && n.note.endsWith("Its output is in /srv/coder-bg/bg-1.log (ID: job1)."));
   assert.deepEqual(n.end, { ok: false, label: "over 5 GB" });
-  // In the foreground: stopped the same way, the same words at the end of what Coder reads.
+  // In the foreground: stopped the same way, the same words first in what Coder reads (Claude Code 2.1.322 puts why before
+  // the output; Bash docs pass 9).
   const fg = await S.execIn(dir, "yes coder-output-line", 30, { outputKill: 1_000_000, kill: true });
   assert.equal(fg.code, 137);
-  assert.ok(fg.output.endsWith("\nCommand killed: output file exceeded 5GB"));
+  assert.ok(fg.output.startsWith("Command killed: output file exceeded 5GB\ncoder-output-line"));
   await rm(dir, { recursive: true, force: true });
 });
 

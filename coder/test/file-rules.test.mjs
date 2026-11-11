@@ -106,11 +106,12 @@ test("CD382c the files Coder's commands name go by the owner's Read and Edit rul
   const deny = { deny: ["Read(.env)", "Edit(secrets/**)", "Read(~/.ssh/**)"] };
   // Deny, in auto mode too ("Deny rules block in every mode"), each in Claude Code's words for that path.
   assert.deepEqual([d("cat .env", deny).verdict, d("cat .env", deny).rule], ["deny", "Read(.env)"]);
-  assert.equal(d("cat config/.env", deny).why, "cat in '/work/shop/config/.env' was blocked. For security, Coder may only concatenate files from the allowed working directories for this session: '/work/shop'.");
-  assert.equal(d("grep TOKEN < .env", deny).why, "Input redirection from '/work/shop/.env' was blocked. For security, Coder may only read files in the allowed working directories for this session: '/work/shop'.");
-  assert.equal(d("echo hi > secrets/a.txt", deny).why, "Output redirection to '/work/shop/secrets/a.txt' was blocked. For security, Coder may only write to files in the allowed working directories for this session: '/work/shop'.");
-  assert.equal(d("make | tee secrets/log.txt", deny).verdict, "deny");
-  assert.equal(d("rm secrets/k", deny, "acceptEdits").verdict, "deny");
+  // (Claude Code 2.1.322's own sentence for a deny rule: "<what> from|to '<path>' was blocked by a deny rule."; Bash docs pass 9.)
+  assert.equal(d("cat config/.env", deny).why, "cat from '/work/shop/config/.env' was blocked by a deny rule.");
+  assert.equal(d("grep TOKEN < .env", deny).why, "Input redirection from '/work/shop/.env' was blocked by a deny rule.");
+  assert.equal(d("echo hi > secrets/a.txt", deny).why, "Output redirection to '/work/shop/secrets/a.txt' was blocked by a deny rule.");
+  assert.deepEqual([d("make | tee secrets/log.txt", deny).verdict, d("make | tee secrets/log.txt", deny).why], ["deny", "tee to '/work/shop/secrets/log.txt' was blocked by a deny rule."]);
+  assert.deepEqual([d("rm secrets/k", deny, "acceptEdits").verdict, d("rm secrets/k", deny, "acceptEdits").why], ["deny", "rm to '/work/shop/secrets/k' was blocked by a deny rule."]);
   assert.equal(d("cp .env /tmp/x", deny).rule, "Read(.env)", "cp reads its source");
   assert.equal(d("head -5 ~/.ssh/id_rsa", deny).rule, "Read(~/.ssh/**)");
   assert.equal(d("cat secrets/*", { deny: ["Read(secrets/**)"] }).verdict, "deny", "a wildcard: the folder it reads");

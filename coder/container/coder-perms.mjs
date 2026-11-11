@@ -451,7 +451,9 @@ export function commandReadOnly(cmd) {
   if (prog === "printf") {
     if (args[0] && args[0].startsWith("-") && args[0] !== "--") return false;
     const f = args[args[0] === "--" ? 1 : 0] || "";
-    return !/\\[0-7xXuU]|%[^%]*n/.test(f) && !args.some((x) => x.includes("`"));
+    // (`%n` writes a count into memory: only a real `%…n` conversion, its flags, width, precision and length between; Bash
+    // docs pass 9: `%[^%]*n` also caught the `n` of `\n` in `printf '%s\n' hi`, which Claude Code runs.)
+    return !/\\[0-7xXuU]|%[-+ #0'I]*(?:\d+|\*)?(?:\.(?:\d*|\*))?(?:hh|h|ll|l|L|q|j|z|Z|t)?n/.test(f) && !args.some((x) => x.includes("`"));
   }
   if (prog === "ls") return true;
   if (prog === "cd") return args.length <= 1;
@@ -823,8 +825,10 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
 export function parseRule(text) {
   // (A tool name with a wildcard, `*`, `B*`, `mcp__*`: see toolGlob.)
   if (toolGlob(text)) return { tool: String(text).trim(), spec: null, glob: true };
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
+  // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
+  if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
   const spec = m[2] === undefined ? null : m[2].trim();
   if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
   if (spec === "" ) return null;
@@ -1324,7 +1328,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const ruleFiles = [...files, ...commandFiles(shadow, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
-  if (fd) return { verdict: "deny", rule: fd.rule, why: fileBlockedWhy(fd.f, workdirs), suggest: null };
+  if (fd) return { verdict: "deny", rule: fd.rule, why: fileBlockedWhy(fd.f), suggest: null };
   const a = settingHit(ask) || exactHit(ask) || commandHit(ask);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
   const fa = fileHit("ask");
@@ -1680,12 +1684,14 @@ function fileProbes(f) {
   if (!f.glob) return [{ p: f.path, dir: false }];
   return [{ p: f.path, dir: true }, { p: f.path.replace(/\/+$/, "") + "/coder-any-file", dir: false }, ...(f.raw ? [{ p: f.path.replace(/\/+$/, "") + "/" + String(f.raw).split("/").pop(), dir: false }] : [])];
 }
-/** Claude Code's words when one of the owner's Read or Edit deny rules refuses a file a command names (its path checks'). */
-export function fileBlockedWhy(f, dirs) {
-  if (f.how === "out") return "Output redirection to '" + f.path + "' was blocked. For security, Coder may only write to files in the allowed working directories for this session: " + dirsText(dirs) + ".";
-  if (f.how === "tee") return "tee in '" + f.path + "' was blocked. For security, Coder may only write to files in the allowed working directories for this session: " + dirsText(dirs) + ".";
-  if (f.how === "in") return inputBlockedWhy(f.path, dirs);
-  return blockedWhy(f.name, f.path, dirs);
+/**
+ * Claude Code's words when one of the owner's Read or Edit deny rules refuses a file a command names (2.1.322's own, Bash docs
+ * pass 9: "Output redirection to '…' was blocked by a deny rule.", "Input redirection from '…' …", "cat from '…' …" for a file
+ * it reads, "rm to '…' …" for one it changes).
+ */
+export function fileBlockedWhy(f) {
+  const what = f.how === "out" ? "Output redirection to" : f.how === "in" ? "Input redirection from" : f.how === "tee" ? "tee to" : (f.name || "The command") + (f.tool === "Read" ? " from" : " to");
+  return what + " '" + f.path + "' was blocked by a deny rule.";
 }
 /** One part of a command as written, for Claude Code's list of the parts that need approval. */
 function partText(c) {

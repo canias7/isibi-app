@@ -1280,6 +1280,58 @@ again", from Claude Code 2.1.322's own program. Tests: `test/pass9-c.test.mjs`
   input in every event (`callInput`), never the background bash call Coder
   makes of it.
 
+**Bash docs pass 9, part D** (the same "Yes pls"): `!` commands, background
+commands, monitors and wording, from Claude Code 2.1.322's own program. Tests:
+`test/pass9-d.test.mjs` (CD471 to CD484).
+- *A background command stuck on a typed question* (CD478; `watchStall`,
+  `stallNews`, `stallNotice`; Claude Code's stall watch): every look (5 seconds)
+  notes its output's size; after 45 quiet seconds its last 1,024 bytes are read,
+  and when its last line matches Claude Code's patterns (`(y/n)`, `[y/n]`,
+  `(yes/no)`, "Do you … ?", "Press Enter", "Continue?", "Overwrite?") Coder is
+  told once, after the round or at the next job's start (`stalls`; an idle chat
+  is woken: `untoldOf`): 'Background command "…" appears to be waiting for
+  interactive input', "Last output:", the tail, and Claude Code's advice. Claude
+  Code's code reads the tail and then leaves it out under its heading; Coder
+  puts it there. Never a monitor.
+- *A monitor's limits* (CD476; `readMonitor`): the lines read together are one
+  event (a WebSocket's messages one each), each line cut at 500 characters, the
+  event at 3,000; 10 events at once, then one every 2 seconds; the rest counted
+  and said ("[N events suppressed — …]"); after 30 seconds of that the monitor
+  is stopped ("[Monitor stopped — too much output …]"). A line not ended yet
+  keeps its last 1 MiB.
+- *Stop while a command runs* (CD474, `STOPPED_RUNNING`): Claude Code's
+  rejection and its correction ("this call was stopped while running, not
+  refused before it ran …"); no failure hooks.
+- *The owner's `!` command* (CD475): moved to the background after a command's
+  default time (2 minutes; it waited the most, 10); one that printed past the
+  inline limit reaches Coder as the saved output and its preview.
+- *Small ones*: a background command that ends in its first second still gets an
+  ID and its end notice (CD473); `printf '%s\n'` only prints (CD471); bash's
+  `timeout_ms` is read as `timeout` (CD472).
+- *Wording, Claude Code's* (CD479 to CD484): "Command timed out after 2m 0s"
+  and "Command killed: output file exceeded 5GB" before the output
+  (`ccDuration`, its own time format); a command moved at its timeout shows its
+  last 2,000 bytes from a line start under "[… earlier output omitted; full
+  output: …]" (`movedSoFar`); one the owner moved, no output and no "You will be
+  notified when it completes"; blank lines at an output's start and white space
+  at its end dropped; a failure cut only past 11,024 characters; a saved
+  output's preview ends at a line break; "(PowerShell completed with no
+  output)"; the long `sleep` refusal names the monitor tool; "Monitor started
+  (task …, expires in 5m …)", "stream ended", "ended without producing output
+  (exit 0)", "script failed (exit 4)", "stopped" (`monitorStarted`,
+  `monitorSaid`); a monitor deadline past an hour refused ("timeout_ms must be ≤
+  3600000"); the stop tool's replies (TaskStop's JSON, "Task … is not running
+  (status: …)", "No task found with ID: …"); KillShell and KillBash are its
+  names in rules; the checker's reason when it can't be reached
+  (`unavailableWhy`: rate-limited, overloaded, server error, timed out,
+  connection failed); "cat from '…' was blocked by a deny rule."
+  (`fileBlockedWhy`).
+- *Two bugs fixed on the way*: output was decoded piece by piece, so a letter
+  split between two pieces showed as "��" (`utf8Partial`: each stream's letters
+  decoded whole); and a stopped command's own processes got SIGTERM twice (the
+  sweep for its marked processes now leaves its process group out:
+  `endMarked`'s `skipGroup`).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

@@ -1004,7 +1004,7 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
     const res = (id) => st.events.find((e) => e.type === "result" && e.id === id);
     assert.equal(res("b1").job, "job1");
     assert.equal(res("m1").job, "job2", JSON.stringify(res("m1")));
-    assert.match(res("m1").output, /^Monitor started with ID: job2\. Each line its command prints comes to you as an event while it runs\./);
+    assert.match(res("m1").output, /^Monitor started \(task job2, expires in 5m unless the source ends first; you get one notice at expiry/);
     // One whose command ends in its first second: what it printed comes back at once, and it is no job.
     assert.equal(res("m2").output, "Monitor \"Quick\" ended at once: its command exited with code 0 in its first second, so no events follow. What it printed:\nquick");
     assert.equal(res("m2").job, undefined);
@@ -1012,11 +1012,12 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
     const notes = s.seen.at(-1).messages.filter((m) => m.role === "user" && m.appNote && /Monitor/.test(m.content)).map((m) => m.content).join("\n");
     assert.match(notes, /Monitor event: "Two lines" \(job2\)\nready/);
     assert.match(notes, /done/);
-    assert.match(notes, /Monitor "Two lines" \(job2\) ended: its command exited with code 0\./);
+    // (Claude Code 2.1.322's words for one whose command ended after printing: "stream ended"; Bash docs pass 9.)
+    assert.match(notes, /Monitor "Two lines" \(job2\) stream ended\./);
     assert.doesNotMatch(notes, /\[finished, exit code/);
-    assert.match(res("s1").output, /\[stopped job1\]/);
-    assert.match(res("s2").output, /\[job1 had already ended\]/);
-    assert.match(res("s3").output, /no background job job9 \(jobs: job1, job2\)/);
+    assert.match(res("s1").output, /^Successfully stopped task: job1 \(/, "Claude Code's TaskStop words");
+    assert.equal(res("s2").output, "Task job1 is not running (status: killed)");
+    assert.equal(res("s3").output, "No task found with ID: job9");
     // The page: the monitor's step, its events, and its end on that step (exit 0, a ✓); its end is not told again as a
     // background command's, and stop_job's own stop is no news.
     const notesSeen = st.events.filter((e) => e.type === "note");

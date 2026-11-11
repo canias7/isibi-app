@@ -255,7 +255,7 @@ export async function checkAction(deps, { model = "", convo = [], skipId = "", c
   let a;
   try {
     a = await deps.send({ model, effort: "low", webSearch: false, tools: [], messages: [{ role: "system", content: checkerSystem({ repo, branch, workdir, mode, auto }) }, { role: "user", content: input }] });
-  } catch (e) { const m = String((e && e.message) || e).slice(0, 200); return { error: m, kind: DECLINED.test(m) ? "hard" : "unavailable" }; }
+  } catch (e) { const m = String((e && e.message) || e).slice(0, 200); const why = unavailableWhy(e); return { error: m, kind: DECLINED.test(m) ? "hard" : "unavailable", ...(why ? { why } : {}) }; }
   const said = a && a.message && typeof a.message.content === "string" ? a.message.content : "";
   const v = parseVerdict(said);
   // (Its usage is marked as the checker's, so a chat's record keeps it apart from Coder's own calls.)
@@ -285,8 +285,23 @@ export const noVerdictTold = (model, kind, why) => NO_VERDICT + ": " + (model ||
 export const noVerdictWait = (row) => (row > 0 ? Math.min(30_000, 1000 * 2 ** (row - 1)) : 0);
 /** Words that say the checker declined to judge (a refusal, or a request a safety system turned away). */
 const DECLINED = /\b(content (?:policy|moderation)|usage (?:policies|guidelines)|moderation|safety (?:system|filter|policy)|I can(?:'|\u2019)?t (?:help|assist|evaluate|review|judge)|I cannot (?:help|assist|evaluate|review|judge)|I won(?:'|\u2019)t (?:help|assist|evaluate|review|judge)|unable to (?:help|assist|comply))\b/i;
-/** No verdict (Claude Code's "… is temporarily unavailable, so auto mode cannot determine the safety of …"). */
-export const checkUnavailable = (model, what) => (model || "The classifier") + " is temporarily unavailable, so auto mode cannot determine the safety of " + what + " right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.";
+/**
+ * WHY THE CHECKER COULD NOT BE REACHED, when that is known (Bash docs pass 9; Claude Code's error docs: "it names the category in
+ * parentheses after `temporarily unavailable` … `(rate-limited)`, `(overloaded)`, `(server error)`, `(timed out)`, and
+ * `(connection failed)`"; its program: HTTP 429, 529, other 5xx, a timeout, a connection error). "" when not known.
+ */
+export function unavailableWhy(e) {
+  const status = Number(e && e.status);
+  if (status === 429) return "rate-limited";
+  if (status === 529) return "overloaded";
+  if (status >= 500 && status < 600) return "server error";
+  const name = String((e && e.name) || ""), msg = String((e && e.message) || e || ""), code = String((e && e.cause && e.cause.code) || (e && e.code) || "");
+  if (name === "TimeoutError" || /\btimed? ?out\b|\btimeout\b|ETIMEDOUT/i.test(msg + " " + code)) return "timed out";
+  if (/ECONNREFUSED|ECONNRESET|ENOTFOUND|EAI_AGAIN|EHOSTUNREACH|ENETUNREACH|UND_ERR_SOCKET|socket hang up/i.test(code + " " + msg) || (name === "TypeError" && /fetch failed/i.test(msg))) return "connection failed";
+  return "";
+}
+/** No verdict (Claude Code's "… is temporarily unavailable (rate-limited), so auto mode cannot determine the safety of …"). */
+export const checkUnavailable = (model, what, why = "") => (model || "The classifier") + " is temporarily unavailable" + (why ? " (" + why + ")" : "") + ", so auto mode cannot determine the safety of " + what + " right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.";
 /** What the chat shows under a blocked step (Claude Code: "Blocked by auto mode"). */
 export const blockedShown = (rule, reason) => "Blocked by auto mode · [" + rule + "]" + (reason ? " " + reason : "");
 /** The card when auto mode has paused after repeated blocks (approving it resumes auto mode). */

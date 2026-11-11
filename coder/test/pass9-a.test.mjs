@@ -33,7 +33,7 @@ test("CD438 pass 8's second bug and the ways past a rule: bare nice, nice --, st
   for (const c of ["nice rm x", "nice -- rm x", "nice -n 5 rm x", "nice -5 rm x", "stdbuf -o L rm x", "stdbuf -oL rm x", "A[0]=1 rm -rf /", '$"rm" -rf /', "X=rm export X; $X -rf build"]) assert.equal(v(c, { rules: R("deny", ["Bash(rm *)"]) }), "deny", c);
   assert.equal(v("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), "deny");
   // (Claude Code names the program past its wrappers.)
-  assert.match(why("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), /^cat in '\/work\/shop\/secret\.env' was blocked/);
+  assert.equal(why("stdbuf -o L cat secret.env", { rules: R("deny", ["Read(./secret.env)"]) }), "cat from '/work/shop/secret.env' was blocked by a deny rule.");
   assert.equal(v("git diff --no-index /dev/null .env", { rules: R("deny", ["Read(./.env)"]) }), "deny");
   assert.equal(v('F=.env readonly F; cat "$F"', { rules: R("deny", ["Read(.env)"]) }), "deny");
   // The rm check sees past them too.

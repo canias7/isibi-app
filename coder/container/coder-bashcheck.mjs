@@ -50,7 +50,8 @@ export function sleepBlocked(command) {
   if (!(n >= SLEEP_BLOCK_S)) return "";
   const rest = parts.slice(1).join(" ").trim();
   const what = rest ? "sleep " + n + " followed by: " + rest : "standalone sleep " + n;
-  return "Blocked: " + what + ". To wait for a condition, run an until-loop in the background (run_in_background: true, e.g. `until <check>; do sleep 2; done`): you are told when it ends. To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.";
+  // (Claude Code 2.1.322's words, with Coder's name for its Monitor tool; Bash docs pass 9.)
+  return "Blocked: " + what + ". To wait for a condition, use monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.";
 }
 export function leadsWithSleep(command) {
   const parts = topTexts(command);

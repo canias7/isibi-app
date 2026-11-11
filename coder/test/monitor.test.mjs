@@ -33,7 +33,8 @@ test("CD381 the monitor tool: Claude Code's inputs (command, description, timeou
   assert.deepEqual([runs[0].monitor, runs[0].inBg, runs[0].limitMs, runs[0].desc], [true, true, 600000, "Errors in the build log"]);
   assert.ok(events.some((e) => e.type === "bash" && e.monitor === true && e.desc === "Errors in the build log"), "the chat shows it as a monitor");
   const res = events.find((e) => e.type === "result");
-  assert.match(res.output, /^Monitor started with ID: job1\. Each line its command prints comes to you as an event while it runs\. It ends when its command exits, at its deadline in 10 minutes \(you are told\), or with stop_job\. Its stdout is written to: \/srv\/coder-bg\/bg-1\.log; its stderr to: \/home\/dev\/\.coder-monitors\/abc\.err\./);
+  // (Claude Code 2.1.322's words; where its output and stderr go are no part of them: Bash docs pass 9.)
+  assert.match(res.output, /^Monitor started \(task job1, expires in 10m unless the source ends first; you get one notice at expiry \u2014 re-arm if you still need the watch\)\. You will be notified on each event\. Keep working \u2014 do not poll or sleep\. Events may arrive while you are waiting for the owner \u2014 an event is not their reply\.$/);
   // The same rules as bash: a deny rule for the command stops it.
   const execs2 = [];
   let k2 = 0;
@@ -61,11 +62,13 @@ test("CD381b a monitor's lines come to Coder as events at each step (and wake an
     appendFileSync(log, "listening on 3000\nGET / 200\nhalf a li");
     assert.equal(SV.readMonitor(j), 2);
     assert.deepEqual(SV.untoldOf("shop-m1").map((x) => x.id), ["job7"], "lines waiting: the chat is woken for them");
-    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["listening on 3000", "GET / 200"], dropped: 0 }]);
+    // (The lines read together are one event, as Claude Code's batcher makes one of lines that come close together: Bash
+    // docs pass 9.)
+    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["listening on 3000\nGET / 200"], dropped: 0 }]);
     assert.deepEqual(SV.monitorNews("shop-m1"), [], "given once");
     appendFileSync(log, "ne\nGET /api 500\n[finished, exit code 0]\n");
     j.end = { code: 0, why: "", at: Date.now() };
-    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["half a line", "GET /api 500"], dropped: 0, end: { code: 0, why: "", events: 4, ...(Number(j.deadline) > Number(j.at) ? { ms: j.deadline - j.at } : {}) } }], "the rest, and how it ended; never the end line");
+    assert.deepEqual(SV.monitorNews("shop-m1"), [{ id: "job7", desc: "The server's log", lines: ["half a line\nGET /api 500"], dropped: 0, end: { code: 0, why: "", events: 2, ...(Number(j.deadline) > Number(j.at) ? { ms: j.deadline - j.at } : {}) } }], "the rest, and how it ended; never the end line");
     assert.equal(j.told, true);
     assert.deepEqual(SV.monitorNews("shop-m1"), []);
     // ONE THAT PRINTS TOO MANY LINES is stopped (its mark kept or not as Settings say).
@@ -73,19 +76,31 @@ test("CD381b a monitor's lines come to Coder as events at each step (and wake an
     writeFileSync(log2, Array.from({ length: 450 }, (_, i) => "line " + i).join("\n") + "\n");
     const j2 = { project: "shop-m1", id: "job8", pid: 999972, log: log2, command: "yes", desc: "Too much", mark: "0123456789abcde1", monitor: true, readAt: 0, part: "", pending: [], dropped: 0, end: null, told: false, stopping: "" };
     SV.JOBS.set(j2.pid, j2);
-    SV.readMonitor(j2);
+    // (Claude Code's limits: 10 events at once, then one every 2 seconds; past that they are counted, and after 30 seconds of
+    // that it is stopped. One read of 450 lines is one event, cut at 3,000 characters.)
+    const t0 = 1_000_000;
+    SV.readMonitor(j2, { now: t0 });
+    assert.equal(j2.pending.length, 1);
+    assert.ok(j2.pending[0].endsWith("\n...(truncated)") && j2.pending[0].length <= 3000 + 16);
+    for (let k = 1; k <= 12; k++) { appendFileSync(log2, "more " + k + "\n"); SV.readMonitor(j2, { now: t0 + k }); }
+    assert.equal(j2.pending.length, 10, "ten at once");
+    assert.equal(j2.suppressed, 3);
+    assert.ok(!j2.stopping, "not stopped yet");
+    // Still too fast, two a second, for 30 seconds more: stopped, in Claude Code's words.
+    for (let k = 1; k <= 80 && !j2.stopping; k++) { appendFileSync(log2, "flood " + k + "\n"); SV.readMonitor(j2, { now: t0 + 12 + k * 500 }); }
     assert.equal(j2.stopping, "flood");
+    assert.match(j2.floodNote, /^\[Monitor stopped \u2014 too much output \(\d+ events suppressed over 3\ds\)\. Restart with a more selective source\.\]$/);
     // The wake turn's notices leave monitors out (their news comes at each step).
-    assert.match(read("container/server.mjs"), /const notices = untoldOf\(project\)\.filter\(\(j\) => !j\.monitor && !j\.hook\)\.map/);
+    assert.match(read("container/server.mjs"), /const notices = untoldOf\(project\)\.filter\(\(j\) => j\.end && !j\.monitor && !j\.hook\)\.map/);
     // Its stderr goes to a file of its own, in Coder's home, so its output file holds only its events.
     assert.match(read("container/server.mjs"), /if \(errLog\) command = "mkdir -p \\"\$HOME\/\.coder-monitors\\" 2>\/dev\/null; exec 2>>\\"\$HOME\/\.coder-monitors\/" \+ mark \+ "\.err\\"\\n" \+ command;/);
   } finally { SV.JOBS.delete(999971); SV.JOBS.delete(999972); }
   // CODER'S LOOP: each step, the news first, as a note from Coder's app; the chat shows it.
-  assert.equal(A.monitorSaid({ id: "job7", desc: "The server's log", lines: ["GET /api 500"], dropped: 3, end: { why: "flood" } }), "Monitor event: \"The server's log\" (job7)\nGET /api 500\n(3 more lines were left out: too many at once)\n\nMonitor \"The server's log\" (job7) was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it.");
+  assert.equal(A.monitorSaid({ id: "job7", desc: "The server's log", lines: ["GET /api 500"], dropped: 3, end: { why: "flood" } }), "Monitor event: \"The server's log\" (job7)\nGET /api 500\n\n(3 more lines were left out: too many at once)\n\nMonitor \"The server's log\" (job7) was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it.");
   assert.match(A.monitorSaid({ id: "job1", desc: "Deploy", lines: [], end: { why: "limit" } }), /^Monitor "Deploy" \(job1\) reached its deadline and ended\. Start it again if you still need it\.$/);
-  assert.match(A.monitorSaid({ id: "job1", desc: "Deploy", lines: [], end: { why: "exit", code: 2 } }), /ended: its command exited with code 2\.$/);
+  assert.match(A.monitorSaid({ id: "job1", desc: "Deploy", lines: [], end: { why: "exit", code: 2 } }), /script failed \(exit 2\)\.$/);
   // Every other way it can end, in words (the owner's Stop, too much output, low memory, the machine's own stop).
-  assert.deepEqual(["owner", "size", "memory", "lost", "coder"].map((why) => A.monitorSaid({ id: "job1", desc: "Deploy", lines: [], end: { why } }).replace(/^Monitor "Deploy" \(job1\) /, "")), ["was stopped by the owner.", "was stopped: its output passed 5 GB.", "was stopped: Coder's machine was low on memory.", "was stopped by Coder's machine before it ended. Start it again if you still need it.", "was stopped."]);
+  assert.deepEqual(["owner", "size", "memory", "lost", "coder"].map((why) => A.monitorSaid({ id: "job1", desc: "Deploy", lines: [], end: { why } }).replace(/^Monitor "Deploy" \(job1\) /, "")), ["was stopped by the owner.", "was stopped: its output passed 5 GB.", "was stopped: Coder's machine was low on memory.", "was stopped by Coder's machine before it ended. Start it again if you still need it.", "stopped."], "stopped by Coder: Claude Code's \"Monitor … stopped\"");
   // And on the step that started it, as a background command's end: a ✓ for exit 0, else what ended it.
   assert.deepEqual([{ why: "exit", code: 0 }, { why: "", code: 0 }, { why: "exit", code: 3 }, { why: "limit" }, { why: "flood" }, { why: "owner" }].map(A.monitorEndLabel), [{ ok: true, label: "" }, { ok: true, label: "" }, { ok: false, label: "exit 3" }, { ok: false, label: "deadline" }, { ok: false, label: "too many lines" }, { ok: false, label: "stopped" }]);
   // Its end is told with its lines, never again as a background command's (the round's own check skips monitors), and a

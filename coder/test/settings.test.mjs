@@ -88,7 +88,7 @@ test("CD380b Stop's choice: on (the default), stopping a background command also
   SV.KEPT_MARKS.clear();
   const server = read("container/server.mjs");
   assert.match(server, /const keep = PREFS\.endDetached === false;/);
-  assert.match(server, /if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM"\);/);
+  assert.match(server, /if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM", \{ skipGroup: j\.pid \}\);/);
   assert.match(server, /const kept = keep && PREFS\.endDetached === false \? \[\.\.\.KEPT_MARKS\] : \[\];/);
   assert.match(server, /if \(!live\.length && !kept\.length\) \{/, "with kept ones, the sweep spares their processes instead of ending all");
   // THE LOW-DISK WARNING: Claude Code's reminder, word for word, with "owner".

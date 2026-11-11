@@ -32,8 +32,9 @@ test("CD199 the agent asks Coder's service whether a background job runs, and ha
     emit: (e) => events.push(e),
   }, { text: "serve the folder" });
   const out = (id) => events.find((e) => e.type === "result" && e.id === id).output;
-  assert.equal(out("s1"), "[stopped job1]", "the service says it runs, and stops it");
-  assert.equal(out("s2"), "[job1 had already ended]");
+  // (Claude Code 2.1.322's TaskStop words: the page shows its message, Coder reads its JSON; Bash docs pass 9.)
+  assert.equal(out("s1"), "Successfully stopped task: job1 (python3 -m http.server 8000)", "the service says it runs, and stops it");
+  assert.equal(out("s2"), "Task job1 is not running (status: completed)");
   // The round's end asks too (a background command that ended is told once, like Claude Code's notice); once stopped, no more.
   assert.deepEqual(asked, [["alive", 4242], ["alive", 4242], ["stop", 4242], ["alive", 4242]]);
   assert.deepEqual(sent, ["python3 -m http.server 8000"], "only Coder's own command ran: no kill sent as a command, and no look at its output");
@@ -69,8 +70,8 @@ test("CD200 on Coder's machine: a real background command runs on, is stopped fo
     for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=bg-test1&since=0")).json(); if (st.result) break; await new Promise((r) => setTimeout(r, 100)); }
     const res = (id) => (st.events.find((e) => e.type === "result" && e.id === id) || {}).output || "";
     assert.ok(child > 0, "the child said its number in the job's output file");
-    assert.equal(res("s1"), "[stopped job1]", "it ran until then");
-    assert.equal(res("s2"), "[job1 had already ended]");
+    assert.match(res("s1"), /^Successfully stopped task: job1 \(/, "it ran until then");
+    assert.equal(res("s2"), "Task job1 is not running (status: killed)", "Coder stopped it: Claude Code's \"killed\"");
     assert.equal(alive(child), false, "what it started is gone too");
   } finally { if (child && alive(child)) { try { process.kill(child, "SIGKILL"); } catch { /* gone */ } } srv.close(); }
 });

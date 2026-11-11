@@ -34,7 +34,7 @@ export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isAr
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
@@ -94,6 +94,8 @@ export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 *
  * command's output passes through this service, so here it is counted as it passes.
  */
 export const SIZE_KILLED = "Command killed: output file exceeded 5GB";
+/** No bytes (a stream's letter carried over, none yet); and how many of its last bytes a running command keeps (movedSoFar). */
+const NO_BYTES = Buffer.alloc(0), MOVED_KEEP = 4096;
 /**
  * THE SHELL'S STARTUP FILE, AS CLAUDE CODE TAKES IT (tool 4, docs pass 2; its tools reference: "Aliases and shell functions
  * defined in your shell startup file are available. At session start, Claude Code sources ~/.zshrc, ~/.bashrc, or ~/.profile
@@ -490,8 +492,61 @@ export function hookNews(project) {
 export const rewakeHooksOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.hook && j.hook.rewake && !j.end).length;
 /** What the page, the Worker and Coder see of the running ones: newest last. */
 export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping && !j.hook).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
-/** The ones that ended and Coder was not told of yet. */
-export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length)));
+/** The ones that ended and Coder was not told of yet (and those still running that look stuck on a typed question: watchStall). */
+export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length) || (!j.end && j.stall && !j.stallTold)));
+/**
+ * A BACKGROUND COMMAND STUCK ON A TYPED QUESTION (Bash docs pass 9; Claude Code 2.1.322's stall watch, for every background
+ * command but a monitor): looked at every 5 seconds; once its output has not grown for 45 seconds, the last 1,024 bytes are
+ * read, and when its last line looks like a question waiting for an answer ("(y/n)", "Continue?", "Press Enter", …) Coder is
+ * told, once for that command ("Background command "…" appears to be waiting for interactive input"); otherwise the 45
+ * seconds start again. (Coder's commands have no keyboard, so most such questions end at once; one that waits all the same is
+ * found this way.)
+ */
+export const STALL_QUIET_MS = 45_000, STALL_TAIL_BYTES = 1024;
+export const STALL_PATTERNS = [/\(y\/n\)/i, /\[y\/n\]/i, /\(yes\/no\)/i, /\b(?:Do you|Would you|Shall I|Are you sure|Ready to)\b.*\? *$/i, /Press (any key|Enter)/i, /Continue\?/i, /Overwrite\?/i];
+/** Whether the last line of what a command printed looks like a question waiting for an answer (Claude Code's own test). */
+export const looksLikePrompt = (text) => { const last = String(text || "").trimEnd().split("\n").pop() ?? ""; return STALL_PATTERNS.some((p) => p.test(last)); };
+/** A log's size, never through a link: null when it is not there or not a plain file. */
+const logSize = (file) => { try { const s = lstatSync(file); return s.isFile() ? s.size : null; } catch { return null; } };
+/** The last `n` bytes of a log, never through a link ("" when it can't be read). */
+export function stallTail(file, n = STALL_TAIL_BYTES) {
+  let fd = null;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const st = fstatSync(fd);
+    if (!st.isFile()) return "";
+    const len = Math.min(st.size, n);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, st.size - len);
+    return buf.toString("utf8");
+  } catch { return ""; } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
+}
+/** One look at a running command (`sizeOf`, `tailOf` for the tests): true when it was found stuck now (its `stall` set). */
+export function watchStall(j, now = Date.now(), { sizeOf = logSize, tailOf = stallTail } = {}) {
+  if (!j || j.end || j.stopping || j.monitor || j.hook || j.stallDone || typeof j.log !== "string" || !j.log) return false;
+  const size = sizeOf(j.log);
+  if (size === null) return false;
+  if (!Number.isFinite(j.stallSize)) { j.stallSize = 0; j.stallAt = now; }
+  if (size > j.stallSize) { j.stallSize = size; j.stallAt = now; return false; }
+  if (now - j.stallAt < STALL_QUIET_MS) return false;
+  const tail = tailOf(j.log, STALL_TAIL_BYTES);
+  if (!looksLikePrompt(tail)) { j.stallAt = now; return false; }
+  // (Once for a command, as Claude Code: it stops watching that one.)
+  j.stallDone = true;
+  j.stall = { tail: tail.trimEnd(), at: now };
+  j.stallTold = false;
+  return true;
+}
+/** The chat's commands found stuck that Coder was not told of yet: each once (`{ id, pid, desc, command, log, tail }`). */
+export function stallNews(project) {
+  const out = [];
+  for (const j of JOBS.values()) {
+    if (j.project !== project || j.end || !j.stall || j.stallTold) continue;
+    j.stallTold = true;
+    out.push({ id: j.id, pid: j.pid, desc: j.desc, command: j.command, log: j.log, tail: j.stall.tail });
+  }
+  return out;
+}
 /**
  * THE WAKE (Bash docs pass 8; Claude Code's tools reference: "You keep working in the same session and Claude interjects
  * when an event arrives"): a chat with no job here whose background command ended, or whose monitor printed, has Coder's
@@ -524,7 +579,7 @@ export function wakeIdle(fetchFn, { now = Date.now(), turnsOf = turns } = {}) {
     if ((t && t.running) || w.busy || now - w.at < WAKE_GAP_MS) continue;
     const news = untoldOf(project);
     if (!news.length) continue;
-    const sig = news.map((j) => j.id + ":" + (j.end ? 1 : 0) + ":" + (j.readAt || 0) + ":" + (Array.isArray(j.pending) ? j.pending.length : 0)).join(",");
+    const sig = news.map((j) => j.id + ":" + (j.end ? 1 : 0) + ":" + (j.readAt || 0) + ":" + (Array.isArray(j.pending) ? j.pending.length : 0) + (j.stall ? ":s" : "")).join(",");
     if (sig === w.sig) continue;
     w.busy = true;
     w.at = now;
@@ -545,8 +600,19 @@ export function wakeIdle(fetchFn, { now = Date.now(), turnsOf = turns } = {}) {
  * many events are automatically stopped").
  */
 export const MONITOR_FLOOD = 400, MONITOR_PENDING = 1000, MONITOR_READ = 256 * 1024;
-/** Reads what a monitor printed since the last look into its `pending` lines (the end line the log gets is never one). */
-export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
+/**
+ * CLAUDE CODE'S LIMITS ON A MONITOR'S OUTPUT (Bash docs pass 9; its line batcher and token bucket, 2.1.322; Coder had none, and
+ * a busy monitor could put megabytes into Grok's context): a line cut at 500 characters ("...(truncated)"); the lines read
+ * together, one event, cut at 3,000; 10 events at once, then one every 2 seconds; events past that counted and said when one
+ * goes through ("[N events suppressed — output rate too high. …]"); after 30 seconds of that the monitor is stopped ("[Monitor
+ * stopped — too much output (N events suppressed over Ss). Restart with a more selective source.]"). A line not ended yet
+ * keeps its last 1 MiB. (Claude Code puts lines within 200 ms in one event; Coder reads every few seconds and at each step.)
+ */
+export const MONITOR_LINE_MAX = 500, MONITOR_EVENT_MAX = 3000, MONITOR_BUCKET = 10, MONITOR_REFILL_MS = 2000, MONITOR_FLOOD_MS = 30_000, MONITOR_PART_MAX = 1024 * 1024;
+export const monitorSuppressed = (n) => "[" + n + " events suppressed \u2014 output rate too high. Consider using stop_job to restart this monitor with a more selective filter.]";
+export const monitorFlooded = (n, sec) => "[Monitor stopped \u2014 too much output (" + n + " events suppressed over " + sec + "s). Restart with a more selective source.]";
+/** Reads what a monitor printed since the last look into its `pending` events (the end line the log gets is never one). */
+export function readMonitor(j, { flood = MONITOR_FLOOD, now = Date.now() } = {}) {
   if (!j || !j.monitor || typeof j.log !== "string" || !j.log) return 0;
   let fd = null, got = "";
   try {
@@ -563,6 +629,7 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   const all = (j.part || "") + got;
   const lines = all.split("\n");
   j.part = j.end ? "" : lines.pop();
+  if (j.part.length > MONITOR_PART_MAX) j.part = j.part.slice(-MONITOR_PART_MAX);
   let fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
   // A WEBSOCKET MONITOR (coder-tools.mjs's ws_watch): each line one JSON value, a message (one event, however many lines it
   // has) or, at its end, how the socket ended (`wsEnd`: { close, reason }, { tooBig } or { error }).
@@ -578,8 +645,32 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   }
   if (!fresh.length) return 0;
   j.pending = Array.isArray(j.pending) ? j.pending : [];
-  for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, j.ws ? 20_000 : 2000)); else j.dropped = (j.dropped || 0) + 1; }
-  if (!j.end && !j.stopping && fresh.length > flood) stopJob(j, "flood");
+  // THE EVENTS: a command's lines read together are one, each line cut at 500 characters; a WebSocket's messages one each, as
+  // they came (Claude Code: "Each text frame is an event"); each cut at 3,000.
+  const cut = (ev) => (ev.length > MONITOR_EVENT_MAX ? ev.slice(0, MONITOR_EVENT_MAX) + "\n...(truncated)" : ev);
+  const evs = j.ws ? fresh.map(cut) : [cut(fresh.map((l) => { const t = l.trim(); return t.length > MONITOR_LINE_MAX ? t.slice(0, MONITOR_LINE_MAX) + "...(truncated)" : t; }).join("\n"))];
+  // THE BUCKET: 10 at once, one more every 2 seconds.
+  const b = j.bucket || (j.bucket = { tokens: MONITOR_BUCKET, at: now });
+  const refill = Math.floor((now - b.at) / MONITOR_REFILL_MS);
+  if (refill > 0) { b.tokens = Math.min(MONITOR_BUCKET, b.tokens + refill); b.at += refill * MONITOR_REFILL_MS; }
+  for (const ev of evs) {
+    if (b.tokens > 0) {
+      b.tokens--;
+      if (j.suppressed > 0) {
+        j.pending.push(monitorSuppressed(j.suppressed));
+        j.suppressed = 0;
+        if (j.lastSuppressed !== undefined && now - j.lastSuppressed > MONITOR_REFILL_MS * 3) j.floodAt = undefined;
+      }
+      j.pending.push(ev);
+      j.events = (j.events || 0) + 1;
+    } else {
+      j.suppressed = (j.suppressed || 0) + 1;
+      j.lastSuppressed = now;
+      if (j.floodAt === undefined) j.floodAt = now;
+      if (now - j.floodAt > MONITOR_FLOOD_MS && !j.end && !j.stopping) { j.floodNote = monitorFlooded(j.suppressed, Math.round((now - j.floodAt) / 1000)); stopJob(j, "flood"); }
+    }
+  }
+  if (j.pending.length > MONITOR_PENDING) j.pending.splice(0, j.pending.length - MONITOR_PENDING);
   return fresh.length;
 }
 /**
@@ -758,11 +849,12 @@ export function monitorNews(project) {
   for (const j of JOBS.values()) {
     if (j.project !== project || !j.monitor) continue;
     readMonitor(j);
+    // (Its events since the last look, each a few lines: readMonitor.)
     const lines = Array.isArray(j.pending) ? j.pending.splice(0) : [];
     const dropped = j.dropped || 0; j.dropped = 0;
-    // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both.)
-    j.events = (j.events || 0) + lines.length;
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events, ...(Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}) } : null;
+    // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both; and, when it
+    // was stopped for flooding, Claude Code's words for that.)
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
@@ -785,8 +877,11 @@ export function endMarked(mark, signal = "SIGKILL", deps = {}) {
   const look = deps.look || (() => aiProcesses({ uid: RUN_UID, box: [SBX_BASE, SBX_BASE + SBX_RANGE] }));
   const read = deps.markOf || ((pid) => markOf(pid));
   const kill = deps.kill || ((pid, sig) => { try { process.kill(pid, sig); return true; } catch { return false; } });
+  // (`skipGroup`: the command's own process group, which was just signalled as a whole; its processes are not signalled a
+  // second time, as some take a second SIGTERM as "stop now": Bash docs pass 9.)
+  const skip = Number(deps.skipGroup) || 0;
   let n = 0;
-  for (const pid of look().keys()) if (pid !== process.pid && read(pid) === mark && kill(pid, signal)) n++;
+  for (const [pid, st] of look()) if (pid !== process.pid && !(skip && st && Number(st.pgrp) === skip) && read(pid) === mark && kill(pid, signal)) n++;
   return n;
 }
 export function stopJob(j, why, { hard = false } = {}) {
@@ -797,7 +892,7 @@ export function stopJob(j, why, { hard = false } = {}) {
   const keep = PREFS.endDetached === false;
   if (keep && typeof j.mark === "string" && j.mark) { KEPT_MARKS.add(j.mark); while (KEPT_MARKS.size > 50) KEPT_MARKS.delete(KEPT_MARKS.values().next().value); }
   try { process.kill(-j.pid, hard ? "SIGKILL" : "SIGTERM"); } catch { /* gone */ }
-  if (!keep) endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM");
+  if (!keep) endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM", { skipGroup: j.pid });
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
     if (!keep) endMarked(j.mark, "SIGKILL");
@@ -914,7 +1009,8 @@ export function checkJobs(now = Date.now(), memory = {}) {
     if (j.monitor) readMonitor(j);
     if (j.end) { if ((j.told && !j.hookPending && now - j.end.at > JOB_KEEP_MS) || now - j.end.at > 8 * JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
     if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
-    if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
+    if (!groupAlive(j.pid) && !j.stopping) { jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); continue; }
+    try { watchStall(j, now); } catch { /* next look */ }
   }
   try { checkPressure(now, memory); } catch { /* never costs the look */ }
 }
@@ -974,6 +1070,17 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
   const sh = typeof shell === "string" && (/^(bash|\/(usr\/(local\/)?)?bin\/(bash|zsh))$/.test(shell) || (/^\/[^\s'"`$;&|<>\\]*\/(bash|zsh)[^/\s'"`$;&|<>\\]*$/.test(shell))) ? shell : "bash";
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
+    // (Each stream's letters decoded whole: one split between two reads is joined, never shown as "\ufffd\ufffd"; and the last
+    // bytes it printed, kept for what a command moved to the background shows: Bash docs pass 9.)
+    const carry = { out: NO_BYTES, err: NO_BYTES };
+    const decode = (b, which) => {
+      const all = carry[which].length ? Buffer.concat([carry[which], b]) : b;
+      const k = utf8Partial(all);
+      carry[which] = k ? Buffer.from(all.subarray(all.length - k)) : NO_BYTES;
+      return (k ? all.subarray(0, all.length - k) : all).toString("utf8");
+    };
+    const leftover = () => { const rest = Buffer.concat([carry.out, carry.err]); carry.out = carry.err = NO_BYTES; return rest; };
+    let lastBytes = NO_BYTES;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
     let early = [], earlyBytes = 0, spill = null, spillPath = "", spillBytes = 0, spillDone = Promise.resolve();
     // (The owner's and the repository's variables win over the machine's presets, its JAVA_HOME, GOPATH or DOCKER_HOST
@@ -1032,9 +1139,11 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       spill.write(part);
     };
     // The end of everything printed is kept apart too, so the folder line is found after a cut.
-    const take = (b) => {
-      const str = b.toString("utf8");
+    const take = (b, which = "out") => {
+      const str = decode(b, which);
       bytes += b.length;
+      lastBytes = b.length >= MOVED_KEEP ? Buffer.from(b.subarray(b.length - MOVED_KEEP)) : Buffer.concat([lastBytes, b]).subarray(-MOVED_KEEP);
+      if (feedProgress) feedProgress(str);
       // THE 5 GB STOP (SIZE_KILLED), first: for every command, with an output file or not (the setup script has none).
       if (bytes > outputKill && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
       if (follow) tail = (tail + str).slice(-8192);
@@ -1057,10 +1166,10 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     };
     // ITS LAST LINES WHILE IT RUNS (Claude Code 1.0.48: "progress messages … based on the last 5 lines of command output"), each
     // second while they change; never the folder line.
-    let progTail = "", progSent = "", progTimer = null;
+    let progTail = "", progSent = "", progTimer = null, feedProgress = null;
     if (typeof onProgress === "function") {
-      const feed = (b) => { progTail = (progTail + b.toString("utf8")).slice(-4000); };
-      p.stdout.on("data", feed); p.stderr.on("data", feed);
+      // (Fed from what take decoded, letters whole.)
+      feedProgress = (str) => { progTail = (progTail + str).slice(-4000); };
       progTimer = setInterval(() => {
         if (progTail === progSent) return;
         progSent = progTail;
@@ -1069,7 +1178,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       }, 1000);
       if (typeof progTimer.unref === "function") progTimer.unref();
     }
-    p.stdout.on("data", take); p.stderr.on("data", take);
+    p.stdout.on("data", (b) => take(b, "out")); p.stderr.on("data", (b) => take(b, "err"));
     let answered = false;
     const answer = (r) => { if (progTimer) { clearInterval(progTimer); progTimer = null; } if (!answered) { answered = true; done(r); } };
     // Into the background: at its timeout, or when the owner asks (`byUser`: the page's "Run in background", Claude Code's
@@ -1087,7 +1196,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
           // A new plain file, never through a link someone left there.
           const fd = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
           w = createWriteStream(null, { fd });
-          w.write(spillDir ? Buffer.concat(early) : out);
+          w.write(spillDir ? Buffer.concat(early) : Buffer.concat([Buffer.from(out), leftover()]));
         }
         p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
         // THE 5 GB STOP GOES ON HERE (SIZE_KILLED): its output so far counts, and what it prints from now on.
@@ -1104,7 +1213,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
         p.on("close", (code, signal) => { const c = exitOf(code, signal); w.end((killedForSize ? "\n" + SIZE_KILLED : "") + "\n[finished, exit code " + c + "]\n"); ended(c); jobEnded(p.pid, c, killedForSize ? "size" : ""); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
-      const so = out.length > 4000 ? out.slice(-4000) : out;
+      // (What it printed so far, as Claude Code shows it: its last 2,000 bytes, from a line start; movedSoFar.)
+      const so = movedSoFar(lastBytes, bytes, log);
       answer({ code: -1, background: true, pid: p.pid, log, timedOut: !byUser, ...(byUser ? { byUser: true } : {}), output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
       return true;
     };
@@ -1124,6 +1234,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       clearTimeout(t);
       if (quietTimer) clearTimeout(quietTimer);
       if (answered) return;
+      // (A letter left half-read at the end is shown as it is.)
+      { const rest = leftover(); if (rest.length && out.length < (spillDir ? keep : outMax)) out += rest.toString("utf8"); }
       // The folder line is taken out of what the command printed (its last one, with this command's own random part).
       let ended = null, text = out, markBytes = 0;
       if (follow) {
@@ -1141,8 +1253,10 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       }
       const size = Math.max(0, bytes - markBytes);
       const c = typeof code === "number" ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : -1;
-      if (timedOut && stopAtTimeout) return answer({ code: 143, output: (text ? text.replace(/\n?$/, "\n") : "") + "Command timed out after " + Math.max(1, timeoutS) + "s", timedOut: true, size });
-      answer({ code: c, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : "") + (killedForSize ? "\n" + SIZE_KILLED : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
+      // (Claude Code 2.1.322 says why first, then what it printed: "Command timed out after 2m 0s", "Command killed: output file
+      // exceeded 5GB"; Bash docs pass 9.)
+      if (timedOut && stopAtTimeout) return answer({ code: 143, output: "Command timed out after " + ccDuration(Math.max(1, timeoutS) * 1000) + (text ? "\n" + text : ""), timedOut: true, size });
+      answer({ code: c, output: (killedForSize ? SIZE_KILLED + (text ? "\n" : "") : "") + text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
     });
   });
 }
@@ -3090,9 +3204,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const backgroundNews = () => {
       checkJobs();
       // (A monitor's lines and end come to Coder at each step instead: monitorNews.)
-      const notices = untoldOf(project).filter((j) => !j.monitor && !j.hook).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      const notices = untoldOf(project).filter((j) => j.end && !j.monitor && !j.hook).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
       const lost = (Array.isArray(body.background) ? body.background : []).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || "")) && ![...JOBS.values()].some((j) => j.project === project && j.id === b.id)).slice(0, 20).map((b) => ({ id: String(b.id), desc: String(b.desc || b.command || "").slice(0, 200) }));
-      return { notices, lost };
+      // (Those still running that look stuck on a typed question: watchStall.)
+      return { notices, lost, stalls: stallNews(project) };
     };
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
@@ -3126,7 +3241,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const begin = () => {
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
-      const { notices, lost } = backgroundNews();
+      const { notices, lost, stalls } = backgroundNews();
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
@@ -3238,6 +3353,23 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, ...(pass ? { closePass: () => px.closeFor(pass) } : {}), deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}), ...(ws ? { ws: true } : {}) } : {}) });
             r.jobId = id;
           }
+          // ONE ASKED TO RUN IN THE BACKGROUND THAT ENDED IN ITS FIRST SECOND (Bash docs pass 9; Claude Code answers at once with
+          // its ID, "Command running in background with ID: …", and tells the AI when it ends, never its output in place): listed
+          // as a background command that has ended, its output in a file of its own, so Coder is told after the round as for any
+          // other. (Its key is no process number, so nothing ever signals it.)
+          if (inBg && !tool && !monitor && !ws && r && !r.background && !r.notStarted && typeof r.output === "string") {
+            const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
+            const key = "ended:" + project + ":" + id;
+            const log = join(bgDir, "bg-" + (++bgCount) + ".log");
+            try {
+              let whole = r.output;
+              if (typeof r.file === "string" && r.file && !r.truncatedAt) whole = await readFile(r.file, "utf8").catch(() => whole);
+              const code = Number.isInteger(r.code) ? r.code : -1;
+              await writeFile(log, (whole ? whole.replace(/\n?$/, "\n") : "") + "[finished, exit code " + code + "]\n", { mode: 0o644, flag: "wx" });
+              JOBS.set(key, { project, id, pid: key, log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: false, deadline: Date.now(), box: false, end: { code, why: "exit", at: Date.now() }, told: false, stopping: "", noReap: t.noReap });
+              Object.assign(r, { background: true, pid: key, log, jobId: id, output: "", endedAtStart: true });
+            } catch { /* answered as it was, with its output */ }
+          }
           let told = "";
           if (here && !tool && !keepHome) {
             // In the background (asked to, or still running at its time limit): its cd never carries over, as in Claude Code.
@@ -3295,7 +3427,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (!j || j.project !== project) return false;
             if (!j.stopping) j.stopping = "coder";
             try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
-            endMarked(j.mark, "SIGTERM");
+            endMarked(j.mark, "SIGTERM", { skipGroup: pid });
             for (let i = 0; i < 15 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
             endMarked(j.mark, "SIGKILL");
@@ -3306,6 +3438,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           },
           // Coder was told it ended (in this turn): no turn of its own is started for it.
           told: (pid) => { const j = JOBS.get(pid); if (j && j.project === project) j.told = true; },
+          // Those found stuck on a typed question since the last look (watchStall), each once.
+          stalls: () => stallNews(project),
           // ITS BACKGROUND COMMANDS FROM EARLIER MESSAGES, still running: Coder can look at them, stop them, and is told when they end.
           kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.hook).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd, ...(j.monitor ? { monitor: true } : {}) })),
         },
@@ -3357,7 +3491,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

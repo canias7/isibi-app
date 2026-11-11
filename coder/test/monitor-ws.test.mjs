@@ -126,7 +126,8 @@ test("CD385c a WebSocket watch in Coder's loop: asked about on a card (no \"don'
   assert.deepEqual([x.monitor, x.inBg, x.limitMs, x.desc], [true, true, 600000, "Deploy feed"]);
   const req = JSON.parse(Buffer.from(/coder-tools\.mjs (\S+)$/.exec(x.command)[1], "base64").toString("utf8"));
   assert.deepEqual(req, { tool: "ws_watch", args: { url: "wss://feed.example.com/deploys", protocols: ["v1"] } });
-  assert.match(t.told("m1"), /^Monitor started with ID: job3\. Each message the WebSocket at wss:\/\/feed\.example\.com\/deploys sends comes to you as an event while it runs/);
+  // (Claude Code 2.1.322's words for any monitor; Bash docs pass 9.)
+  assert.match(t.told("m1"), /^Monitor started \(task job3, expires in 10m unless the source ends first; you get one notice at expiry \u2014 re-arm if you still need the watch\)\. You will be notified on each event\. Keep working \u2014 do not poll or sleep\. Events may arrive while you are waiting for the owner \u2014 an event is not their reply\.$/);
   assert.ok(t.events.some((e) => e.type === "bash" && e.id === "m1" && e.command === "WebSocket wss://feed.example.com/deploys" && e.monitor === true && e.ws === true));
   // No: not opened.
   t = await job([say("", [wsCall()]), say("ok")], { answers: [{ choice: "no" }] });

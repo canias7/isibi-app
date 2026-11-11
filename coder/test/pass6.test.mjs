@@ -685,7 +685,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   assert.equal(t.checks.length, 0, "read-only: no check");
   // Start-Sleep blocked in the foreground.
   t = await job([say("", [call("powershell", { command: "Start-Sleep 30", description: "Wait" }, "p1")]), say("ok")], { extra: on });
-  assert.match(t.told("p1"), /^Blocked: standalone Start-Sleep 30\. To wait for a condition, run a loop in the background/);
+  assert.match(t.told("p1"), /^Blocked: standalone Start-Sleep 30\. To wait for a condition, use monitor with an until-loop \(e\.g\. `until <check>; do sleep 2; done` \u2014 monitor runs bash\)\./);
   // Hooks see it as PowerShell.
   t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1")]), say("ok")], { extra: on, hooks: { PreToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "check.sh" }] }] } });
   assert.deepEqual([t.hookCalls[0].input.tool_name, t.hookCalls[0].input.tool_input.command], ["PowerShell", "Get-ChildItem"]);

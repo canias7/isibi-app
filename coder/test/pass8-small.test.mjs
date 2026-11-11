@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync } from "node:fs";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, readFileSync, existsSync, appendFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -115,7 +115,7 @@ test("CD430 an output file cut at its limit says so, in Claude Code's words (\"O
   const big = "x".repeat(40_000);
   assert.match(C.bashResultText({ output: big, size: 40_000, file: "/out/a.txt" }), /^<persisted-output>\nOutput too large \(39\.1KB\)\. Full output saved to: \/out\/a\.txt\n/);
   assert.match(C.bashResultText({ output: big, size: 90 * 1024 * 1024, file: "/out/a.txt", truncatedAt: 64 * 1024 * 1024 }), /^<persisted-output>\nOutput exceeded the 64MB persist limit; only the first 64MB were saved to: \/out\/a\.txt\n\nPreview \(first 2KB\):\n/);
-  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0 \}\);/);
+  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0, \.\.\.\(c\.ps \? \{ tool: "PowerShell" \} : \{\}\) \}\);/);
 });
 
 test("CD431 a monitor at its deadline: how many events it delivered, and with none, Claude Code's \"widen the filter if silence was unexpected\"", () => {
@@ -123,14 +123,19 @@ test("CD431 a monitor at its deadline: how many events it delivered, and with no
   assert.equal(A.monitorSaid({ id: "m2", desc: "errors", lines: [], end: { why: "limit", events: 1, ms: 300_000 } }), "Monitor \"errors\" (m2) expired after 5m with 1 event delivered. Re-arm it if you still need the watch.");
   assert.match(A.monitorSaid({ id: "m3", desc: "x", lines: [], end: { why: "limit", events: 4, ms: 300_000 } }), /with 4 events delivered\./);
   // The machine counts them.
-  S.JOBS.set(999001, { project: "p8e-mon", id: "m9", monitor: true, desc: "d", pending: ["a", "b"], at: 1000, deadline: 1000 + 300_000, end: null, told: false });
+  // (Each look that read lines is one event, as Claude Code counts the events it delivered: Bash docs pass 9.)
+  const dir = mkdtempSync(join(tmpdir(), "p8e-mon-"));
+  const log = join(dir, "bg-9.log");
+  writeFileSync(log, "a\nb\n");
+  S.JOBS.set(999001, { project: "p8e-mon", id: "m9", monitor: true, desc: "d", log, readAt: 0, part: "", pending: [], at: 1000, deadline: 1000 + 300_000, end: null, told: false });
   try {
-    assert.deepEqual(S.monitorNews("p8e-mon").map((n) => n.lines.length), [2]);
-    S.JOBS.get(999001).pending = ["c"];
+    assert.deepEqual(S.monitorNews("p8e-mon").map((n) => n.lines), [["a\nb"]]);
+    appendFileSync(log, "c\n");
+    S.readMonitor(S.JOBS.get(999001));
     S.JOBS.get(999001).end = { code: 143, why: "limit" };
     const n = S.monitorNews("p8e-mon")[0];
-    assert.deepEqual([n.end.events, n.end.ms], [3, 300_000]);
-  } finally { S.JOBS.delete(999001); }
+    assert.deepEqual([n.lines, n.end.events, n.end.ms], [["c"], 2, 300_000]);
+  } finally { S.JOBS.delete(999001); rmSync(dir, { recursive: true, force: true }); }
 });
 
 test("CD432 the settings a command may be given in front and still only read: Claude Code 2.1.322's own list and check (GOOS, CGO_ENABLED, DEBIAN_FRONTEND, GIT_TERMINAL_PROMPT yes; DEBUG, VERBOSE, LC_MESSAGES no; a path as a value no)", () => {

@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 4 built: your `!` commands, background commands, monitors and wording (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 518 automated tests pass (14 of them new).
+
+- **A background command stuck on a typed question** (like "Continue? (y/n)"): after 45 quiet seconds, Grok is told once that it "appears to be waiting for interactive input", with its last lines and how to get past it. Claude Code does the same. One small difference: Claude Code's code writes the heading "Last output:" and then leaves the output out, which looks like a slip on its side; Coder puts the last lines there. Tell me if you want it exactly like Claude Code.
+- **A busy monitor can't flood Grok any more.** Claude Code's limits: lines cut at 500 characters, 10 events at once and then one every 2 seconds; Grok is told how many were skipped; after 30 seconds of that, the monitor is stopped. Before, a busy monitor could put megabytes into Grok's input.
+- **You press Stop while a command runs:** Grok is now told in Claude Code's words that it was stopped while running (it may have run in part), not that it was refused.
+- **Your `!` commands** move to the background after 2 minutes, a command's normal time, as in Claude Code (they waited 10). One that prints a lot reaches Grok as a saved file with a short preview, not the whole text.
+- **A background command that ends in its first second** still gets an ID and an "ended" note, as in Claude Code.
+- `printf '%s\n' hi` no longer asks (my own mistake from before). A `timeout_ms` Grok gives a command now counts as its time limit.
+- **Wording copied from Claude Code, about 15 places:** "Command timed out after 2m 0s" now comes first, before the output; a command moved to the background shows its last 2,000 bytes; one you moved shows nothing extra; the refusal of a long `sleep` points Grok to the monitor tool; a monitor's start and end lines; a monitor deadline over an hour is refused; the stop tool's replies; the reason in brackets when the auto-mode checker can't be reached ("temporarily unavailable (rate-limited)"); "cat from '…' was blocked by a deny rule."; "(PowerShell completed with no output)"; blank lines at the start of an output dropped.
+- **Two bugs fixed on the way:** a letter like "é" or an emoji that fell between two pieces of output showed as "��"; now it shows right. And a stopped command's programs got the stop signal twice (some programs take a second one as "stop now"); now once.
+- **Left as is:** a background `A && grep …` that finds nothing. I couldn't confirm Claude Code calls that failed; Coder says what grep's exit means, as Claude Code does for a single command. Claude Code's long-output preview with both start and end is behind one of its own server switches, so I left it out.
+- **Moved to part 6 (the page, with screenshots for you):** the line over a group of steps counts a refused command as one that ran.
+
+**Next:** part 5, hooks details. Then part 6, the page, with screenshots.
+
 ## 2026-11-11: Bash docs pass 9, part 3 built: the rules and "don't ask again" (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 504 automated tests pass (4 of them new).
