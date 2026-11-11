@@ -27,7 +27,7 @@ import { createHash } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psReadOnly, psSleepWhat } from "./coder-ps.mjs";
@@ -2261,6 +2261,25 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         };
         const qs = raw.slice(0, 4).map(one);
         if (raw.length > 4 || !qs.length || qs.some((q) => !q)) { reply("error: give 1 to 4 questions, each with its text and 2 to 4 options (a label and a one-line description each)"); continue; }
+        // ANSWERED BY A HOOK (Claude Code: "Returning \"allow\" alone is not sufficient for these tools"; "For AskUserQuestion,
+        // echo back the original questions array and add an answers object mapping each question's text to the chosen
+        // answer"): a PreToolUse hook's allow with updatedInput answers the card itself, which is not shown, and Coder goes on
+        // with Claude Code's words for the answers. Its allow alone still shows the card; an ask rule on AskUserQuestion
+        // still shows it too (Claude Code: hook decisions "don't bypass permission rules").
+        if (c.hook && c.hook.decision === "allow" && c.hook.updated && !wholeRule(ownRules, "ask", "AskUserQuestion")) {
+          const got = hookAnswers(c.args);
+          if (got.problem) {
+            emit({ type: "bash", id: c.id, tool: c.name, verb: "Blocked", command: scrub(qs.map((q) => q.text).join(" ")).slice(0, 300) });
+            emit({ type: "result", id: c.id, code: -1, output: scrub(got.problem).slice(0, 2000), hookBlocked: true });
+            reply(scrub(got.problem));
+            continue;
+          }
+          const asked = raw.slice(0, 4).map((q, n) => ({ key: String(q.question ?? ""), text: qs[n].text, labels: qs[n].options.map((o) => o.label), multi: qs[n].multi === true }));
+          const said = answeredText(asked, got.answers, got.annotations);
+          emit({ type: "note", text: said.shown ? scrub("A PreToolUse hook answered Coder's question" + (qs.length > 1 ? "s" : "") + " for you: " + said.shown).slice(0, 2000) : "A PreToolUse hook took Coder's question" + (qs.length > 1 ? "s" : "") + " and gave no answer, so you were not asked.", hook: "PreToolUse" });
+          reply(scrub(said.text));
+          continue;
+        }
         reply("asked the owner; their answer" + (qs.length > 1 ? "s come" : " comes") + " as the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner a question first" });
         // The first question as before (what older readers show), and all of them when there are several.

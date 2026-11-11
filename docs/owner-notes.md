@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: A hook can now answer Coder's question card (your words: "Want it added")
+
+Not merged or deployed yet: on the branch with the 11 items below, waiting for your word. All 432 tests pass.
+
+- **What it does.** When Coder asks you questions on a card, a hook (one of your scripts in the hook settings) can now answer them for you, as in Claude Code. The hook says "allow" and gives the answers. The card is then not shown, and Coder gets the answers and keeps working in the same turn.
+- **What you see:** a line in the chat, for example: A PreToolUse hook answered Coder's question for you: "Which database?"="Postgres".
+- **What Coder is told** is Claude Code's exact wording: "Your questions have been answered: …", or "The user answered: …" when an answer is not one of the choices.
+- **When you still get the card:** when the hook only says "allow" and gives no answers (as in Claude Code), or when you have an Ask rule for AskUserQuestion.
+- **A hook written for Claude Code works unchanged:** it sees Coder's card as Claude Code's AskUserQuestion.
+
 ## 2026-11-11: The last 11 differences from Claude Code's Bash docs (your words: "yea do all of them")
 
 Not merged or deployed yet: on the branch, waiting for your word. All 431 tests pass.

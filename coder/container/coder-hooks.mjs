@@ -202,18 +202,125 @@ export function watchedNames(all) {
   return [...out].slice(0, 200);
 }
 
-/** A tool call's input as a hook sees it: Coder's own, and Claude Code's names beside them (`file_path`). */
+/**
+ * A tool call's input as a hook sees it: Coder's own, and Claude Code's names beside them (`file_path`; for the question
+ * card, AskUserQuestion's `questions` list, each question with `multiSelect`).
+ */
 export function hookToolInput(name, args) {
   const a = args && typeof args === "object" ? { ...args } : {};
   if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
+  if (name === "ask_user") {
+    // (The single question of before, as Claude Code's list of one.)
+    if (!(Array.isArray(a.questions) && a.questions.length) && a.question !== undefined) a.questions = [{ question: a.question, header: a.header, options: a.options, multi_select: a.multi_select }];
+    if (Array.isArray(a.questions)) a.questions = a.questions.map((q) => (q && typeof q === "object" && !Array.isArray(q) && q.multiSelect === undefined ? { ...q, multiSelect: q.multi_select === true } : q));
+  }
   return a;
 }
-/** A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`). */
+/** A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`, `multiSelect` back to `multi_select`). */
 export function toolInputFromHook(name, input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const a = { ...input };
   if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
+  if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => { if (!q || typeof q !== "object" || Array.isArray(q) || q.multiSelect === undefined) return q; const o = { ...q }; if (typeof o.multiSelect === "boolean") o.multi_select = o.multiSelect; delete o.multiSelect; return o; });
   return a;
+}
+
+// A HOOK ANSWERS CODER'S QUESTION CARD (Claude Code's AskUserQuestion with a PreToolUse hook's "allow" and updatedInput:
+// "echo back the original questions array and add an answers object mapping each question's text to the chosen answer";
+// `answers`: "Maps question text to the selected option label. Multi-select answers join labels with commas").
+const NOTES_ONLY = "(notes only)";
+const ownKey = (o, k) => (o && typeof o === "object" && !Array.isArray(o) && Object.hasOwn(o, k) ? o[k] : undefined);
+const kindOf = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
+/** Labels joined as Claude Code joins a multi-select answer: ", " between them, a label with ", " or a quote in quotes. */
+export const joinLabels = (labels) => labels.map((t) => (t.includes(", ") || t.includes('"') ? JSON.stringify(t) : t)).join(", ");
+/** A multi-select answer split back into its labels, as Claude Code splits one (null when it is not a list of labels). */
+export function splitLabels(s) {
+  const out = [];
+  let n = String(s);
+  for (;;) {
+    if (n.startsWith('"')) {
+      let end = -1, esc = false;
+      for (let i = 1; i < n.length; i++) { const ch = n[i]; if (esc) { esc = false; continue; } if (ch === "\\") { esc = true; continue; } if (ch === '"') { end = i; break; } }
+      if (end === -1) return null;
+      try { const v = JSON.parse(n.slice(0, end + 1)); if (typeof v !== "string") return null; out.push(v); } catch { return null; }
+      n = n.slice(end + 1);
+    } else {
+      const at = n.indexOf(", "), part = at === -1 ? n : n.slice(0, at);
+      if (part.includes('"')) return null;
+      out.push(part);
+      n = at === -1 ? "" : n.slice(at);
+    }
+    if (n === "") break;
+    if (!n.startsWith(", ")) return null;
+    n = n.slice(2);
+    if (n === "") return null;
+  }
+  return out;
+}
+/**
+ * A hook's answers (and notes) for the question card, checked as Claude Code checks AskUserQuestion's input: `answers`
+ * maps a question's text to a label (a list of labels is joined with ", "), `annotations` maps it to { notes, preview }.
+ * Returns { answers, annotations }, or { problem }: Claude Code's refusal of a hook's rewrite that fails the tool's schema.
+ */
+export function hookAnswers(input) {
+  const issues = [];
+  const typeIssue = (param, expected, got) => issues.push("The parameter `" + param + "` type is expected as `" + expected + "` but provided as `" + got + "`");
+  let answers, annotations;
+  const a = input && typeof input === "object" ? input : {};
+  if (a.answers !== undefined) {
+    if (kindOf(a.answers) !== "object") typeIssue("answers", "record", kindOf(a.answers));
+    else {
+      answers = {};
+      for (const [k, v] of Object.entries(a.answers)) {
+        const j = Array.isArray(v) && v.every((x) => typeof x === "string") ? v.join(", ") : v;
+        if (typeof j === "string") answers[k] = j; else typeIssue("answers." + k, "string", kindOf(v));
+      }
+    }
+  }
+  if (a.annotations !== undefined) {
+    if (kindOf(a.annotations) !== "object") typeIssue("annotations", "record", kindOf(a.annotations));
+    else {
+      annotations = {};
+      for (const [k, v] of Object.entries(a.annotations)) {
+        if (kindOf(v) !== "object") { typeIssue("annotations." + k, "object", kindOf(v)); continue; }
+        const o = {};
+        for (const f of ["preview", "notes"]) if (v[f] !== undefined) { if (typeof v[f] === "string") o[f] = v[f]; else typeIssue("annotations." + k + "." + f, "string", kindOf(v[f])); }
+        annotations[k] = o;
+      }
+    }
+  }
+  if (issues.length) return { problem: "PreToolUse hook for AskUserQuestion returned updatedInput that failed schema validation: AskUserQuestion failed due to the following " + (issues.length > 1 ? "issues" : "issue") + ": " + issues.join("\n") + " The tool input from the model was valid; the hook's rewrite of it was not." };
+  return { answers, annotations };
+}
+/**
+ * What Coder is told when a hook answered its questions, in Claude Code's words (its AskUserQuestion result): "Your
+ * questions have been answered: …" when each answer is one of the choices; "The user answered: …" when one is not (or
+ * has notes); "The user did not answer the questions." when none was given. `questions`: { key (the text the answers use),
+ * text, labels, multi }. `shown` is the answers alone, for the note on the page.
+ */
+export function answeredText(questions, answers, annotations) {
+  const shown = questions.map((q) => {
+    const w = ownKey(answers, q.key), g = ownKey(annotations, q.key);
+    const given = !!w && w !== NOTES_ONLY;
+    if (!given && !(g && g.notes)) return null;
+    const d = [given ? '"' + q.text + '"="' + w + '"' : '"' + q.text + '"=(no option selected)'];
+    if (g && g.preview) d.push("selected preview: " + g.preview);
+    if (g && g.notes) d.push("notes: " + g.notes);
+    return d.join(" ");
+  }).filter((x) => x !== null).join(", ");
+  if (!shown) return { text: "The user did not answer the questions.", shown: "" };
+  const fits = questions.every((q) => {
+    const g = ownKey(annotations, q.key);
+    if (g && g.notes) return false;
+    const y = ownKey(answers, q.key), k = new Set(q.labels);
+    if (Array.isArray(y)) return q.multi === true && y.length > 0 && y.every((x) => k.has(x));
+    if (!y || y === NOTES_ONLY) return true;
+    if (k.has(y)) return true;
+    if (q.multi !== true) return false;
+    const b = splitLabels(y);
+    return b !== null && b.length >= 1 && joinLabels(b) === y && b.every((x) => k.has(x));
+  });
+  return { text: fits ? "Your questions have been answered: " + shown + ". You can now continue with these answers in mind." : "The user answered: " + shown + ". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say.", shown };
 }
 
 /**

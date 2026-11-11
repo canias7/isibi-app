@@ -280,7 +280,8 @@ code in **each user's own GitHub**.
    sends just the choice, as before. The event keeps the first question where
    older readers look (`text`, `options`) and all of them in `questions`; older
    one-question cards still show. The notification says how many more; on GitHub
-   (@coder) they are numbered and answered in one comment.
+   (@coder) they are numbered and answered in one comment. A PreToolUse hook can
+   answer the card instead (Claude Code's way; pass 6 below).
 
    **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
    the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits
@@ -788,7 +789,19 @@ folder on the machine joins the chat's working directories (`extraDirsOf`), and
 Coder is told of them. Tests: `test/auto-rules.test.mjs`.
 
 **Bash docs pass 6: the last differences** (owner, 2026-11-10: "yea do all of
-them"). Tests: `test/pass6.test.mjs` (CD387 to CD397).
+them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
+- *A hook answers the question card* (owner, 2026-11-11: "Want it added";
+  Claude Code's AskUserQuestion with a PreToolUse hook: "echo back the original
+  questions array and add an answers object"): a hook sees `ask_user` as
+  AskUserQuestion (`questions`, each with `multiSelect`); its `allow` with
+  `updatedInput` answers the card itself (`hookAnswers`, `answeredText`), which
+  is not shown, and Coder goes on in the same turn, told in Claude Code's words
+  ("Your questions have been answered: …"; "The user answered: …" when an answer
+  is not one of the choices or has notes; "The user did not answer the
+  questions." when none was given). Several choices are joined with ", " as
+  Claude Code joins them (`joinLabels`, `splitLabels`). Its `allow` alone, or an
+  ask rule on AskUserQuestion, still shows the card; answers of the wrong type
+  are refused in Claude Code's words. The chat shows a note with the answers.
 - *A hook's allow in Plan mode* (Claude Code's "Hook approvals in plan mode"):
   a PreToolUse hook's `allow` no longer runs a command or a WebSocket watch that
   isn't read-only in Plan mode (the card, or the checker, as with no hook); its
