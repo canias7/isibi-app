@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -523,6 +523,8 @@ export async function handleCoder(request, env, ctx, deps) {
 
   // ── A CONNECTOR'S SIGN-IN RETURNS (coder-mcp.mjs): a plain visit from its sign-in server; the state and this
   // browser's cookie say whose it is. ──
+  // Go Farther's client document, read by sign-in servers (coder-mcp.mjs, CLIENT_DOC_PATH): public, no sign-in.
+  if (parts[0] === "connectors" && parts[1] === "client.json" && request.method === "GET") return new Response(JSON.stringify(clientDoc(env)), { headers: { "content-type": "application/json", "cache-control": "public, max-age=3600", "access-control-allow-origin": "*" } });
   if (parts[0] === "connectors" && parts[1] === "callback") {
     const back = String(env.APP_ORIGIN || "https://gofarther.dev") + "/";
     const cookie = String(request.headers.get("cookie") || "").split(/;\s*/).find((c) => c.startsWith(MCP_COOKIE + "="));

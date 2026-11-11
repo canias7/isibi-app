@@ -4,6 +4,22 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: MongoDB and Render in Discover, no app registration needed (your word: "Ok i can register an app, gimme the instructions")
+
+When I checked both sign-in servers, neither needed you to register an app.
+
+- **MongoDB** reads "client ID metadata documents", which Claude Code's MCP also supports.
+  - Go Farther now publishes a small public file about itself at `/api/coder/connectors/client.json`: its name and where sign-ins return.
+  - It uses that address as its app ID, and MongoDB reads it, so nothing is registered.
+  - Connect opens MongoDB's normal login.
+- **Render** doesn't let outside apps sign in. Its MCP server takes a Render **API key** instead.
+  - Render's Connect button opens a box for the key, with where to make it: in Render, Account settings, API keys, Create API key.
+  - The key is kept encrypted on our server and never shown again.
+  - If Render refuses the key later, you're told to remove the connector and connect again with a new key.
+- **Still "coming later":** Postmark, Aikido and Redis, which have no official hosted MCP server.
+- **Tests:** MC13 is new. All 402 pass, 4 skipped as before.
+- **Not tried live yet.** MongoDB's sign-in can only be tried once this is deployed, because MongoDB has to fetch that file from jessica.gofarther.dev.
+
 ## 2026-11-11: Connectors: tool search, older SSE servers, fresh tool lists (items 5, 8 and 10 of `docs/connectors-vs-claude-code.md`; your word: "Yes go ahaed")
 
 - **5. Tool search:**

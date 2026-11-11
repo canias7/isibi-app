@@ -327,3 +327,29 @@ test("MC12 (2026-11-11, from Claude Code's MCP docs) tool lists stay fresh: olde
   assert.equal(out.isError, true);
   assert.equal(lists, 1);
 });
+
+test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents gets Go Farther's own (nothing registered); the document is served; Render connects with a key from its Connect button", async () => {
+  const { startSignIn, clientDoc, CATALOG, CATALOG_LATER } = await import("../src/coder-mcp.mjs");
+  const b = memBucket();
+  const seen = [];
+  const fetchFn = async (u, i = {}) => {
+    seen.push(String(u));
+    const j = (v) => new Response(JSON.stringify(v), { headers: { "content-type": "application/json" } });
+    if (String(u).includes("oauth-protected-resource")) return j({ resource: "https://mcp.mongodb.com/mcp", authorization_servers: ["https://authorize.mongodb.com"] });
+    if (String(u) === "https://authorize.mongodb.com/.well-known/oauth-authorization-server") return j({ authorization_endpoint: "https://cloud.mongodb.com/oauth/authorize", token_endpoint: "https://authorize.mongodb.com/tokens", client_id_metadata_document_supported: true });
+    return new Response("no", { status: 404 });
+  };
+  const url = await startSignIn(env, b, { uid: "u1", connector: { id: "cmongo1", url: "https://mcp.mongodb.com/mcp" }, wwwAuth: "", nonce: "n-1234567890abcdef", fetchFn });
+  assert.equal(new URL(url).searchParams.get("client_id"), "https://jessica.gofarther.dev/api/coder/connectors/client.json");
+  assert.ok(!seen.some((x) => x.includes("register")), "nothing registered");
+  const doc = clientDoc(env);
+  assert.deepEqual([doc.client_id, doc.redirect_uris[0], doc.token_endpoint_auth_method], ["https://jessica.gofarther.dev/api/coder/connectors/client.json", "https://jessica.gofarther.dev/api/coder/connectors/callback", "none"]);
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.ok(routes.indexOf('parts[1] === "client.json"') < routes.indexOf("const user = await deps.authUser(request);"), "served before sign-in");
+  // Render: in Discover, with a key.
+  const render = CATALOG.find((k) => k.name === "Render");
+  assert.equal(render.key, true);
+  assert.ok(CATALOG.find((k) => k.name === "MongoDB"));
+  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Postmark", "Aikido", "Redis"]);
+  assert.match(readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), /if \(k && k\.key\) return keyForm\(k\);/);
+});

@@ -23,7 +23,7 @@ timeouts, some sign-in details) came as a summary, not word for word.
 | 4 | Timeouts | 60-second floor per request; idle limit 5 minutes; a call still running after 2 minutes goes to the background | 60 seconds a request, 5 minutes a tool call (no moving to the background yet) | done 2026-11-11 |
 | 5 | Tool search | only tool names loaded until a search when there are many | over 20 tools (or 40,000 characters of them): names and one connector_search; what it finds is loaded | done 2026-11-11 |
 | 6 | "Always ask" from the server | `_meta["anthropic/requiresUserInteraction"]: true` asks on every call, whatever the mode or rules | read; asks every time, in every mode; not run where nobody can be asked | done 2026-11-11 |
-| 7 | Pre-registered apps | `--client-id` / `--client-secret` for servers without self-registration (GitHub, HubSpot) | not possible; a key instead | owner decides |
+| 7 | Pre-registered apps | `--client-id` / `--client-secret` for servers without self-registration (GitHub, HubSpot) | not needed for your list: MongoDB reads Go Farther's client document (Claude Code supports these too); Render's server takes an API key | done 2026-11-11 |
 | 8 | Old SSE servers | falls back to SSE when HTTP fails (Asana and others) | HTTP first; an address ending in /sse, or a server refusing HTTP with 400/404/405, uses SSE | done 2026-11-11 |
 | 9 | Resources and prompts | `@server:resource`, `/mcp__server__prompt`, elicitation popups | none | later |
 | 10 | Tool list changes | `list_changed` fetches the new list | no open session to hear it, so: lists older than an hour are read again after a job starts; an unknown-tool error re-reads at once | done 2026-11-11 (our way) |

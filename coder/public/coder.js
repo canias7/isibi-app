@@ -329,11 +329,35 @@
         end(); done(x);
       };
     };
+    const keyForm = (k) => {
+      const wrap = document.createElement('div'); wrap.className = 'cd-sure';
+      const box = document.createElement('form'); box.className = 'cd-sure-box cx-addbox'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
+      box.innerHTML = '<div class="cd-sure-title">Connect ' + esc(k.name) + '</div><div class="cd-sure-text">' + esc(k.keyHelp || 'Paste its API key.') + ' It is kept encrypted on our server, never shown again and never on Coder’s machine.</div>' +
+        '<input class="cd-sure-in" id="cxKey" type="password" placeholder="API key" required autocomplete="off">' +
+        '<div class="cx-addnote"></div><div class="cd-sure-row"><button type="button" class="cd-sure-no">Cancel</button><button type="submit" class="cx-btn cx-btn-dark">Connect</button></div>';
+      wrap.append(box); document.body.append(wrap);
+      const end = () => wrap.remove();
+      box.querySelector('.cd-sure-no').onclick = end;
+      wrap.onclick = (e) => { if (e.target === wrap) end(); };
+      box.querySelector('#cxKey').focus();
+      box.onsubmit = async (e) => {
+        e.preventDefault();
+        const btn = box.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Connecting…';
+        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: k.name, url: k.url, key: box.querySelector('#cxKey').value }) });
+        if (x.status !== 200) { btn.disabled = false; btn.textContent = 'Connect'; box.querySelector('.cx-addnote').textContent = (x.data && x.data.error) || 'It could not be connected.'; return; }
+        end(); done(x);
+      };
+    };
     const act = async (what, b) => {
       if (what === 'close') return close();
       if (what === 'back') { st.open = ''; st.note = ''; return paint(); }
       if (what === 'add') return addForm();
-      if (what === 'connect') { st.busy = b.getAttribute('data-url'); paint(); return done(await call('/connectors', { method: 'POST', body: JSON.stringify({ name: b.getAttribute('data-name'), url: b.getAttribute('data-url') }) })); }
+      if (what === 'connect') {
+        const k = catalog.find((y) => y.url === b.getAttribute('data-url'));
+        // A server that takes a key (Render): asked for in a box, never shown again.
+        if (k && k.key) return keyForm(k);
+        st.busy = b.getAttribute('data-url'); paint(); return done(await call('/connectors', { method: 'POST', body: JSON.stringify({ name: b.getAttribute('data-name'), url: b.getAttribute('data-url') }) }));
+      }
       const id = b.getAttribute('data-id'), c = list.find((y) => y.id === id);
       if (!c) return;
       if (what === 'remove') {

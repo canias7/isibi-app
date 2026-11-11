@@ -78,10 +78,12 @@ export async function setPerms(bucket, uid, id, { tool = "", group = "", perm })
 export const CATALOG = Object.freeze([
   // The owner's list (2026-11-11), each address tried live that day: it asks to sign in and lets apps register on the fly.
   { group: "Databases", name: "Neon", url: "https://mcp.neon.tech/mcp", about: "Manage Neon Postgres projects, branches and queries." },
+  { group: "Databases", name: "MongoDB", url: "https://mcp.mongodb.com/mcp", about: "MongoDB Atlas clusters, databases and collections." },
   { group: "Databases", name: "Supabase", url: "https://mcp.supabase.com/mcp", about: "Manage Supabase projects: run SQL, change tables, read logs and deploy edge functions." },
   { group: "Hosting", name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
   { group: "Hosting", name: "Cloudflare", url: "https://bindings.mcp.cloudflare.com/mcp", about: "Workers, KV, R2 and D1 in your Cloudflare account." },
   { group: "Hosting", name: "Cloudflare Logs", url: "https://observability.mcp.cloudflare.com/mcp", about: "Your Cloudflare Workers' logs and analytics, for debugging." },
+  { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", key: true, keyHelp: "In Render: Account settings, API keys, Create API key. Paste it here.", about: "Render services, deploys, logs and Postgres." },
   { group: "Hosting", name: "Railway", url: "https://mcp.railway.com", about: "Railway projects, services, deployments and variables." },
   { group: "Email", name: "Resend", url: "https://mcp.resend.com/mcp", about: "Send email and manage domains, audiences and broadcasts in Resend." },
   { group: "Monitoring and debugging", name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
@@ -91,13 +93,10 @@ export const CATALOG = Object.freeze([
   { group: "Docs", name: "Cloudflare Docs", url: "https://docs.mcp.cloudflare.com/mcp", about: "Search Cloudflare's documentation (no sign-in)." },
 ]);
 /**
- * ON THE OWNER'S LIST BUT NOT CONNECTABLE YET (tried 2026-11-11): Render and MongoDB have official servers whose sign-in
- * does not let apps register on the fly (they need an app registered with them first); Postmark, Aikido and Redis have no
- * official hosted MCP server.
+ * ON THE OWNER'S LIST BUT NOT CONNECTABLE YET (tried 2026-11-11): Postmark, Aikido and Redis have no official hosted MCP
+ * server. (MongoDB signs in with Go Farther's client document; Render's server takes an API key.)
  */
 export const CATALOG_LATER = Object.freeze([
-  { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", why: "needs an app registered with Render first" },
-  { group: "Databases", name: "MongoDB", url: "https://mcp.mongodb.com/mcp", why: "needs an app registered with MongoDB first" },
   { group: "Email", name: "Postmark", why: "no official hosted server yet" },
   { group: "Security", name: "Aikido", why: "no official hosted server yet" },
   { group: "Databases", name: "Redis", why: "no official hosted server yet" },
@@ -340,13 +339,25 @@ export async function discover(url, wwwAuth, { fetchFn = fetch } = {}) {
   if (!as) as = await getMeta(wellKnown(issuer, "openid-configuration"), fetchFn);
   if (!as) as = await getMeta(new URL(issuer).origin + "/.well-known/oauth-authorization-server", fetchFn);
   if (!as || !as.authorization_endpoint || !as.token_endpoint) throw new Error("this MCP server's sign-in could not be found; it may need a key instead");
-  return { resource: prm && prm.resource ? String(prm.resource) : url, authorize: String(as.authorization_endpoint), token: String(as.token_endpoint), register: as.registration_endpoint ? String(as.registration_endpoint) : "", scopes: prm && Array.isArray(prm.scopes_supported) ? prm.scopes_supported.join(" ") : "" };
+  return { resource: prm && prm.resource ? String(prm.resource) : url, authorize: String(as.authorization_endpoint), token: String(as.token_endpoint), register: as.registration_endpoint ? String(as.registration_endpoint) : "", cimd: as.client_id_metadata_document_supported === true, scopes: prm && Array.isArray(prm.scopes_supported) ? prm.scopes_supported.join(" ") : "" };
 }
 
 export function redirectUri(env) { return String((env && env.CODER_PUBLIC_URL) || "https://coder.gofarther.dev").replace(/\/+$/, "") + CALLBACK_PATH; }
 
-/** Coder as a client of that sign-in server (RFC 7591). */
-export async function register(where, redirect, { fetchFn = fetch } = {}) {
+/**
+ * GO FARTHER'S OWN CLIENT DOCUMENT (Claude Code's MCP docs: "Client ID Metadata Documents are discovered automatically"):
+ * a sign-in server that supports them (MongoDB's does) takes this document's address as the app's id and reads it, so
+ * nothing has to be registered.
+ */
+export const CLIENT_DOC_PATH = "/api/coder/connectors/client.json";
+export function clientDocUrl(env) { return String((env && env.CODER_PUBLIC_URL) || "https://coder.gofarther.dev").replace(/\/+$/, "") + CLIENT_DOC_PATH; }
+export function clientDoc(env) {
+  return { client_id: clientDocUrl(env), client_name: CLIENT.name, client_uri: String((env && env.APP_ORIGIN) || "https://gofarther.dev"), redirect_uris: [redirectUri(env)], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" };
+}
+
+/** Coder as a client of that sign-in server: its client document where supported, else registered on the fly (RFC 7591). */
+export async function register(where, redirect, { fetchFn = fetch, env = null } = {}) {
+  if (where.cimd && env) return { id: clientDocUrl(env), secret: "" };
   if (!where.register) throw new Error("this MCP server's sign-in does not let new apps register; it may need a key instead");
   let r;
   try { r = await fetchFn(where.register, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify({ client_name: CLIENT.name, redirect_uris: [redirect], grant_types: ["authorization_code", "refresh_token"], response_types: ["code"], token_endpoint_auth_method: "none" }) }); }
@@ -366,7 +377,7 @@ export async function pkce() {
 export async function startSignIn(env, bucket, { uid, connector, wwwAuth, nonce, fetchFn = fetch, now = Date.now() }) {
   const where = await discover(connector.url, wwwAuth, { fetchFn });
   const redirect = redirectUri(env);
-  const client = await register(where, redirect, { fetchFn });
+  const client = await register(where, redirect, { fetchFn, env });
   const { verifier, challenge } = await pkce();
   const state = rand(24);
   await putJson(bucket, pendingKey(state), { box: await seal(env, { uid, id: connector.id, verifier, client, where, redirect, nonce, until: now + PENDING_MS }) });
@@ -473,7 +484,8 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     await writeConnectors(bucket, uid, list);
     return { connector: c };
   } catch (e) {
-    if (e instanceof NeedsSignIn && !k) {
+    // (A connector that signs in with a key, Render's, never opens a sign-in: a new key is asked for instead.)
+    if (e instanceof NeedsSignIn && !k && c.auth !== "key") {
       c.status = "auth"; c.error = "";
       await writeConnectors(bucket, uid, list);
       return { connector: c, signIn: await startSignIn(env, bucket, { uid, connector: c, wwwAuth: e.header, nonce, fetchFn, now }) };
@@ -481,7 +493,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     // A new one that does not work is not kept.
     if (!id) throw e instanceof NeedsSignIn ? new Error("the MCP server refused that key") : e;
     c.status = e instanceof NeedsSignIn ? "auth" : "error";
-    c.error = e instanceof NeedsSignIn ? "the key was refused" : String(e.message || e).slice(0, 200);
+    c.error = e instanceof NeedsSignIn ? (c.auth === "key" ? "the key was refused: remove it and connect again with a new key" : "the key was refused") : String(e.message || e).slice(0, 200);
     await writeConnectors(bucket, uid, list);
     return { connector: c };
   }
