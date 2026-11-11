@@ -216,7 +216,9 @@ function makeRoute(deps = {}) {
     };
     // (The close's own code, said with it: 1006 cut off, 1009 too big, 1002 not WebSocket as expected…)
     sock.onclose = (e) => failed((up ? "the link was cut" : "Gloopy's computer is asleep or out of reach") + (e && e.code && e.code !== 1000 ? " (" + e.code + (e.reason ? ": " + String(e.reason).slice(0, 80) : "") + ")" : ""));
-    sock.onerror = () => failed(up ? "the link was cut" : "Gloopy's computer is asleep or out of reach");
+    // A link that was up says "error" first and then "close" with its code (Node's WebSocket, seen live in the app,
+    // 2026-11-11): the close is waited for a moment, so its code is kept. One that never opened says only "error" (D10).
+    sock.onerror = () => { if (up) later(() => failed("the link was cut"), 1000); else failed("Gloopy's computer is asleep or out of reach"); };
   };
   return {
     start: ({ url, ticket } = {}) => {

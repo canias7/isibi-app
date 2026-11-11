@@ -113,7 +113,7 @@ test("D10 live test (2026-11-11): a link refused while Gloopy's computer is asle
   assert.equal(r.status().connected, false);
 });
 
-test("D11 live test (2026-11-11): when the link closes, the close's own code is said with it (1006 cut off, 1009 too big…), so one cut can be told from another; a plain close says nothing more; the link is asked for again", async () => {
+test("D11 live test (2026-11-11): when the link closes, the close's own code is said with it (1006 cut off, 1009 too big…), so one cut can be told from another, also when Node says \"error\" before \"close\"; a plain close says nothing more; the link is asked for again", async () => {
   const made = [];
   class FakeWS {
     constructor(url) { this.url = url; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); }
@@ -132,5 +132,15 @@ test("D11 live test (2026-11-11): when the link closes, the close's own code is 
     assert.ok(await until(() => r.status().connected, 5000));
     made[made.length - 1].onclose({ code: 1000 });
     assert.equal(r.status().error, "the link was cut");
+    assert.ok(await until(() => r.status().connected, 5000));
+    // Node's own order when a link is cut off: "error", then "close" with the code (seen live in the app): the code is kept.
+    made[made.length - 1].onerror({});
+    made[made.length - 1].onclose({ code: 1006, reason: "" });
+    assert.equal(r.status().error, "the link was cut (1006)");
+    assert.ok(await until(() => r.status().connected, 5000));
+    // An "error" with no "close" after it: the link is still given up, a moment later.
+    made[made.length - 1].onerror({});
+    assert.equal(r.status().connected, true, "a moment to hear the close");
+    assert.ok(await until(() => r.status().error === "the link was cut", 3000));
   } finally { r.stop(); }
 });
