@@ -13,6 +13,7 @@ import { isUtf8 } from "node:buffer";
 import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
+import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
@@ -205,6 +206,35 @@ function runProg(cmd, args, { input = null, timeoutMs = 40_000, max = 30 * 1024 
     p.stdin.on("error", () => { /* it stopped reading */ });
     p.stdin.end(input || undefined);
   });
+}
+
+/**
+ * POWERSHELL'S PARSER, FOR CODER'S CHECKS (Bash docs pass 7; coder-psparse.mjs): Claude Code's parse script, run with
+ * pwsh the way Claude Code runs it, as this machine's AI user (as Claude Code runs it as you, never as the machine's
+ * admin) and never in the project's folder; tried twice, each try timed (Claude Code's CLAUDE_CODE_PWSH_PARSE_TIMEOUT_MS,
+ * 5 s; here CODER_PWSH_PARSE_TIMEOUT_MS). What pwsh did goes back as JSON, for psParseResult.
+ */
+async function toolPsParse({ command = "", timeoutMs = 0 } = {}) {
+  const req = psParseRequest(String(command));
+  if (req.fail) return JSON.stringify({ fail: req.fail });
+  const t = Number(timeoutMs) > 0 ? Math.min(Number(timeoutMs), 60_000) : PS_PARSE_TIMEOUT_MS;
+  let last = {};
+  for (let i = 0; i < PS_PARSE_TRIES; i++) {
+    last = await new Promise((done) => {
+      let p, timedOut = false, size = 0;
+      try { p = spawn("pwsh", req.args, { stdio: ["pipe", "pipe", "pipe"], cwd: tmpdir() }); } catch (e) { return done({ spawnError: String((e && e.message) || e) }); }
+      const out = [], err = [];
+      const timer = setTimeout(() => { timedOut = true; try { p.kill("SIGKILL"); } catch { /* gone */ } }, t);
+      p.stdout.on("data", (b) => { size += b.length; if (size <= 16 * 1024 * 1024) out.push(b); });
+      p.stderr.on("data", (b) => { if (err.length < 20) err.push(b); });
+      p.on("error", (e) => { clearTimeout(timer); done(e && e.code === "ENOENT" ? { noPwsh: true } : { spawnError: String((e && e.message) || e) }); });
+      p.on("close", (code) => { clearTimeout(timer); done({ code: timedOut ? null : code, timedOut, timeoutMs: t, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8").slice(0, 2000) }); });
+      p.stdin.on("error", () => { /* it stopped reading */ });
+      p.stdin.end(req.input);
+    });
+    if (last.noPwsh || last.code === 0) break;
+  }
+  return JSON.stringify(last);
 }
 
 /** A PNG's or JPEG's width and height, from its first bytes (null for anything else). */
@@ -1582,7 +1612,7 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
   });
 }
 
-export const TOOLS = { save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { ps_parse: toolPsParse, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

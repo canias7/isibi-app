@@ -173,7 +173,12 @@ const say = (target, why) => "Dangerous rm operation detected: '" + target + "'\
  * `workdirs`: the project's folder first, then the chat's other repositories (Claude Code's additional working
  * directories).
  */
-export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs = [] } = {}) {
+/**
+ * (`off`: the environment's switches, Claude Code's CLAUDE_CODE_DISABLE_SUBSTITUTION_RM_PROMPT, …_INLINE_SHELL_RM_PROMPT
+ * and …_MOUNTED_DRIVE_RM_PROMPT, here CODER_: `subst`, a target that is only a substitution's output; `inline`, a
+ * critical path typed directly in a -c script; `mounted`, the mounted drive prompt.)
+ */
+export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs = [], off = {} } = {}) {
   const src = String(command || "");
   const r = parseShell(src);
   const mentions = /(^|[\s;&|(`$'"])(rm|rmdir)(\s|$)/.test(src);
@@ -215,14 +220,14 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       args.push(a);
     }
     for (const a of args) {
-      const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned });
+      const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, off: off || {} });
       if (why) return why;
     }
   }
   return "";
 }
 
-function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned }) {
+function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, off = {} }) {
   const raw = a.raw, text = a.text;
   // INSIDE A SHELL -c SCRIPT: a double-quoted script's variables are the outer shell's (empty $1 there); a single-quoted
   // one's are its own, and a $1 the script is given counts as given.
@@ -233,8 +238,10 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
     // "A single-quoted script that binds $1 to a real value, as sh -c 'rm -rf "$1"/*' _ {} does, isn't flagged."
     if (given) return "";
   }
-  // ONLY A SUBSTITUTION'S OUTPUT, when recursive (Claude Code: rm -rf "$(pwd)").
-  if (recursive && a.subst && /^(\$\([^]*\)|`[^`]*`)$/.test(text)) return SUBST_WHY;
+  // A CRITICAL PATH TYPED DIRECTLY IN A -c SCRIPT, with CODER_DISABLE_INLINE_SHELL_RM_PROMPT: not checked.
+  if (off.inline && c.inScript && !/\$|`/.test(text)) return "";
+  // ONLY A SUBSTITUTION'S OUTPUT, when recursive (Claude Code: rm -rf "$(pwd)"); not with CODER_DISABLE_SUBSTITUTION_RM_PROMPT.
+  if (recursive && a.subst && /^(\$\([^]*\)|`[^`]*`)$/.test(text)) return off.subst ? "" : SUBST_WHY;
   // ONLY BACKSLASHES.
   if (/^\\+$/.test(text)) return say(raw, BACKSLASH_WHY);
   // A VARIABLE FROM A FOLDER-PRINTING SUBSTITUTION ("A ${D:?} guard doesn't clear this check, because the variable isn't empty").
@@ -280,7 +287,7 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
   if (primary && (target === primary || primary.startsWith(target + "/"))) return say(raw, WORKSPACE_WHY);
   if (whole) for (const d of work.slice(1)) if (target === d || d.startsWith(target + "/")) return say(raw, WORKSPACE_WHY);
   // MOUNTED DRIVES (a recursive removal, or a /* under one).
-  if ((recursive || whole) && mountShape(target)) return "Dangerous rm operation on mounted drive path: " + target + "\n\n" + MOUNT_WHY + NEEDS;
+  if (!off.mounted && (recursive || whole) && mountShape(target)) return "Dangerous rm operation on mounted drive path: " + target + "\n\n" + MOUNT_WHY + NEEDS;
   return "";
 }
 function mountShape(p) {

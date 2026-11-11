@@ -61,28 +61,7 @@ export function psParts(command) {
 /** A part's first word, as typed. */
 export const psFirst = (part) => (String(part || "").trim().match(/^[^\s]+/) || [""])[0];
 
-/**
- * CMDLETS THAT ONLY READ (Claude Code's own read and search sets, "get-content", "get-item", "test-path", "resolve-path",
- * "get-process", "get-service", "get-childitem", "get-location", "get-filehash", "get-acl", "format-hex", "select-string",
- * "write-output", "write-host", with the cmdlets that only shape what they are given).
- */
-export const PS_READ_ONLY = new Set(["get-childitem", "get-item", "get-itemproperty", "get-content", "test-path", "resolve-path", "convert-path", "get-location", "get-filehash", "get-acl", "format-hex", "select-string", "get-process", "get-service", "write-output", "write-host", "get-command", "get-date", "get-help", "get-member", "get-module", "get-psdrive", "get-host", "measure-object", "select-object", "where-object", "sort-object", "group-object", "format-table", "format-list", "format-wide", "out-string", "convertto-json", "convertfrom-json"]);
-/** Whether a whole command only reads: every part a reading cmdlet (or, for a program, what `nativeReadOnly` says), no redirection, no code run another way. */
-export function psReadOnly(command, { nativeReadOnly = () => false } = {}) {
-  const s = String(command ?? "");
-  // (Redirection writes; script blocks, sub-expressions, the call and dot operators and Invoke-Expression run more code.)
-  if (/[>{]|\$\(|@\(/.test(s.replace(/'[^']*'/g, "''").replace(/"(?:[^"`]|`.)*"/g, '""'))) return false;
-  const parts = psParts(s);
-  if (!parts.length) return false;
-  return parts.every((p) => {
-    const w = psFirst(p);
-    if (!w || w === "&" || w === "." || w.startsWith("$")) return false;
-    const c = psCanon(w);
-    if (PS_READ_ONLY.has(c)) return true;
-    if (/-/.test(w) && /^[a-z]+-[a-z]+$/i.test(w)) return false;
-    return nativeReadOnly(p) === true;
-  });
-}
+// (What only reads is decided from PowerShell's own parse of a command: coder-psparse.mjs, Bash docs pass 7.)
 /** A glob of a rule's command (`*` any text; a trailing " *" also matches the bare command), its first word canonicalized. */
 function ruleRegex(spec) {
   const t = String(spec).trim();

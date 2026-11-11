@@ -864,6 +864,66 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   policy bypassed unless `CODER_POWERSHELL_RESPECT_EXECUTION_POLICY`, and its
   folder kept between commands (`psCommand`). `CODER_DEFAULT_SHELL=powershell`
   runs the owner's `!` commands in it; hooks take `shell: "powershell"`.
+  (What only reads, and the rest of its checks, moved to pass 7.)
+
+**Bash docs pass 7: the rest, cloud only** (owner, 2026-11-11: "Yea we need to
+build the rest of the batch tool, remember we are not doing local rn with only
+doing cloud"). Tests: `test/pass7.test.mjs` (CD399 to CD406). Left out as
+terminal-only: Ctrl+Enter's "send now" and the `/permissions` "Recently
+blocked" tab (Claude Code's apps answer `/permissions` with "isn't available in
+this environment").
+- *PowerShell read by PowerShell itself* (`coder-psparse.mjs`): Claude Code's
+  parse script, word for word, runs with pwsh on the machine as the AI's user,
+  never in the project's folder (`coder-tools.mjs`'s `ps_parse`; two tries,
+  `CODER_PWSH_PARSE_TIMEOUT_MS`, 5 s each; once a job per command); its answer
+  is read Claude Code's way into the commands at every depth (`psTransform`,
+  `psCommands`). Pass 6's check read the text, so a command hidden in brackets
+  or a string (`Write-Output "$(Remove-Item x)"`) passed for read-only and got
+  past deny rules: closed.
+- *Claude Code's 24 safety checks* (`psSafetyWhy`), in its order and words
+  (Invoke-Expression, a dynamic name, a nested pwsh, encoded parameters,
+  download and run, Add-Type, New-Object outside ConstrainedLanguage's types,
+  -FilePath scripts, Invoke-Item, scheduled tasks, ForEach-Object -MemberName,
+  elevation, script blocks, sub-expressions, expandable strings, splatting,
+  `--%`, .NET calls and types, environment writes, module loading, alias and
+  variable writes, WMI), then `using`, `#Requires` and the background `&`;
+  provider and network paths (`psProviderWhy`), file redirections, git beside
+  a cd or an archive, writes into .git (`psCompoundWhy`). A command it cannot
+  parse is asked about ("Command contains malformed syntax that cannot be
+  parsed: …"), its pieces still meeting deny rules.
+- *The decision* (`psDecision`): deny rules on the command or any command in
+  it; then removals Claude Code never allows; ask rules; the safety checks;
+  each command allowed by a rule (read ahead in full) or only reading, by Claude
+  Code's table of cmdlets and their own settings (`PS_READ_TABLE`,
+  `psCommandReadOnly`: no shortened setting, no variable-writing setting, no
+  unusual error mode) with its paths inside the working folders; a chain or any
+  statement that is not a plain pipeline asks; in Accept edits, Claude Code's
+  file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) inside the
+  working folders run (`psEditsOnly`). In Auto, the checker judges what would ask
+  (`readOnly` and `covered` say when it is not needed).
+- *Remove-Item* (`psRemovals`, with rm, del, erase, rd, ri, rmdir): a system
+  path (the root, a top-level folder, the home folder) or a wildcard target is
+  refused in every mode, in Claude Code's words; a variable reads as empty
+  (`$dir/*`); a recursive removal of the working folder or a folder above it
+  asks (the checker in Auto).
+- *PowerShell's own exit codes* (`psExitMeaning`): exit 1 is a normal result
+  from grep, rg, egrep, fgrep, findstr, git grep and git diff, and from a search
+  piped into a formatting cmdlet. *Its env files* (`psEnvLine`): the owner's
+  `CODER_ENV_FILE` and the hooks' env file reach PowerShell only when every line
+  is a plain assignment, then all of them (`t.psPrefix`, the exec's `ps`).
+- *A risky `rm` under the owner's own Ask rule* asks in Auto instead of being
+  refused; `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` lets the checker decide (with
+  the checker on), and `CODER_DISABLE_SUBSTITUTION_RM_PROMPT`,
+  `CODER_DISABLE_INLINE_SHELL_RM_PROMPT` and
+  `CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT` loosen `dangerousRm` (`off`). From the
+  environment's own variables only (`rmChecksOff`).
+- *Hook notes for the checker* (Claude Code's `classifierContext`): a
+  PostToolUse hook's note about a result goes to the Auto mode checker, never to
+  Grok (`checkerNotes`, `checkerTranscript`'s `notes`), at most 2,000
+  characters a call, dropped with a refused or replaced rewrite of its own, and
+  marked as unverified context from the application.
+- *`duration_ms`* in PostToolUse input: the tool's own running time, without
+  its card or its PreToolUse hooks (`ranAt`, `doneAt`).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

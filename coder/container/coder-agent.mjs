@@ -30,9 +30,11 @@ import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
-import { psDescription, psCommand, psReadOnly, psSleepWhat } from "./coder-ps.mjs";
+import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
+import { psParseResult, psParseFail, psExitMeaning, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
+import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
-import { psDecision, psAllowCovers, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -1076,13 +1078,15 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null} = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
-  const emit = (e) => { if (e && e.type === "result" && typeof e.id === "string") resultsSeen.set(e.id, e); try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
+  // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
+  const ranAt = new Map(), doneAt = new Map();
+  const emit = (e) => { if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
@@ -1109,6 +1113,24 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   const autoRulesCover = (command) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; const r = readCommand(command); return r.ok && r.cmds.length > 0 && r.cmds.every((part) => allowRuleCovers(part, keep)); };
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  // POWERSHELL'S OWN READING OF A COMMAND (coder-psparse.mjs), for its checks: pwsh parses it on the machine as the AI
+  // user (deps.psParse in tests); a command is parsed once a job (Claude Code keeps 256), a failure worth retrying not kept.
+  const psParsed = new Map();
+  const psParse = async (command) => {
+    if (psParsed.has(command)) return psParsed.get(command);
+    let p = null;
+    if (typeof deps.psParse === "function") { try { p = await deps.psParse(command); } catch { p = null; } }
+    else {
+      const r = await appTool(deps, "ps_parse", { command, timeoutMs: (powershell && powershell.parseMs) || 0 });
+      let run = null;
+      try { run = JSON.parse(r.output); } catch { run = null; }
+      p = run && run.fail ? run.fail : run ? psParseResult(command, run) : null;
+    }
+    if (!p || typeof p !== "object") p = psParseFail(command, "PowerShell parser failed unexpectedly", "UnexpectedError");
+    const id = p.errors && p.errors[0] && p.errors[0].errorId;
+    if (p.valid || !PS_PARSE_RETRYABLE.has(id)) { if (psParsed.size >= 256) psParsed.delete(psParsed.keys().next().value); psParsed.set(command, p); }
+    return p;
+  };
   const isProt = (full) => { const d = workdirs.find((w) => full === w || full.startsWith(w + "/")); if (!d) return ""; const rel = full === d ? "." : full.slice(d.length + 1); return protectedFile(rel) || protectedFile(rel + "/x"); };
   // ASKING THE OWNER WHILE CODER WORKS (Claude Code's permission prompt): the card shows in the chat and this step waits for
   // their answer (deps.ask, from Coder's machine), for the Stop button, or for the job's time limit. Answers: yes, always
@@ -1345,6 +1367,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
    * block adds the reason next to the tool result. Claude still sees the original output; to replace it, use updatedToolOutput"),
    * with a PreToolUse hook's added context.
    */
+  // (Notes the PostToolUse hooks left for the Auto mode checker about each call's result: Claude Code's classifierContext.)
+  const checkerNotes = new Map();
   const postHooks = async (c) => {
     let at = -1;
     for (let k = convo.length - 1; k >= 0; k--) if (convo[k].role === "tool" && convo[k].tool_call_id === c.id) { at = k; break; }
@@ -1358,7 +1382,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     const ev = failed ? "PostToolUseFailure" : "PostToolUse";
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
     const diff = c.name === "bash" && !c.monitor ? editDiffFor(res.files) : null;
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false } : { tool_name: tool, tool_input: input, tool_use_id: c.id, tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
     let text = content;
     if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
     const more = [...(o ? o.blocks : []), ...(c.hook && c.hook.context && c.hook.context.length ? [hookNote("PreToolUse", c.hook.context)] : []), ...(o && o.context.length ? [hookNote(ev, o.context)] : [])];
@@ -1402,7 +1427,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (canAsk()) dec = { verdict: "ask", why: pausedWhy(checkSt.byRow), paused: checkSt };
           else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
         } else {
-          const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+          const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
           if (v.usage) usage.push(v.usage);
           if (v.error) { refuse(checkUnavailable(model || "The classifier", "this WebSocket watch") + await deniedHooks(c, "Classifier unavailable")); return null; }
           if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
@@ -1568,7 +1593,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     // (In PowerShell when the environment's CODER_DEFAULT_SHELL says so, Claude Code's defaultShell "powershell": "routes
     // interactive ! commands through PowerShell. Requires the PowerShell tool to be enabled".)
     const psOwn = !!(powershell && powershell.defaultShell === true);
-    try { r = await deps.exec({ command: psOwn ? psCommand(command, { bypass: powershell.bypass !== false }) : command, ...(psOwn ? { shown: command } : {}), timeoutS: fgMaxS, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
+    try { r = await deps.exec({ command: psOwn ? psCommand(command, { bypass: powershell.bypass !== false }) : command, ...(psOwn ? { shown: command, ps: true } : {}), timeoutS: fgMaxS, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
     catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
     const code = r && Number.isInteger(r.code) ? r.code : -1;
     const bg = !!(r && r.background);
@@ -1892,6 +1917,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context, ...(pre.updatedInput ? { updated: true } : {}) };
         postFor = c;
       }
+      ranAt.set(c.id, now());
       // A MONITOR goes the bash way, in the background and marked (Claude Code: "When Monitor runs a command, it uses the same
       // permission rules as Bash"); its lines come back as events at each step (deps.monitorNews, below).
       // A WEBSOCKET MONITOR (Claude Code's Monitor `ws` source): its own way, never a shell command's (wsWatch).
@@ -1964,15 +1990,23 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // Code's auto mode "denies it" away from a terminal); in Accept edits and Plan the owner is asked, each time (Claude
         // Code: "Asks you to approve it"; no rule approves one).
         const modeB = modeNow();
-        const rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs });
-        if (rmWhy && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
+        const rmWhy = c.ps ? "" : dangerousRm(command, { cwd: where0 || deps.root || "/", home: deps.home || undefined, workdirs, off: rmChecksOff || {} });
+        // (In Auto: the owner's own Ask rule on the command asks them instead, with no time limit (Claude Code: "If an
+        // explicit ask rule matches the command, Claude Code asks you instead, even in auto mode"); with the environment's
+        // CODER_DISABLE_DANGEROUS_RM_TIMEOUT the checker decides (Claude Code: "auto: the classifier decides").)
+        const rmAskRule = !!rmWhy && modeB === "auto" && canAsk() && !github && !!bashDecision(command, { mode: "auto", rules: { allow: [], deny: [], ask: (ownRules && ownRules.ask) || [] }, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "" }).byRule;
+        const rmToChecker = !!rmWhy && modeB === "auto" && !rmAskRule && !!checker && !!(rmChecksOff && rmChecksOff.timeout);
+        if (rmWhy && !rmAskRule && !rmToChecker && (modeB === "auto" || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
         // (A monitor's command: Bash's rules and Monitor's, monitorRules.)
         const rulesB = c.monitor ? monitorRules(ownRules, modeB) : ownRules;
         // (A program's part of a PowerShell command only reads when Plan mode's bash check would run it.)
         const nativeRO = (part) => bashDecision(part, { mode: "plan", rules: {}, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "" }).verdict === "allow";
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: rulesB, nativeReadOnly: nativeRO }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
+        // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
+        const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
+        const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "" }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [] });
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow
@@ -2030,12 +2064,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let pausedCard = false;
         const checkSt = checkerState((checkWhere && checkWhere.key) || deps.root || "");
         const autoLike = modeB === "auto" || github;
-        if (checker && !rmWhy && !ask && !dec.byRule && ((!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? psReadOnly(command, { nativeReadOnly: nativeRO }) : wholeReadOnly(command)) && !(c.ps ? psAllowCovers(command, rulesB) : autoRulesCover(command))) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))))) {
+        if (checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && ((!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command))) || (modeB === "plan" && checkerInPlan && dec.verdict === "ask"))))) {
           if (checkSt.paused) {
             if (canAsk()) pausedCard = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             if (v.error) { refuse(checkUnavailable(model || "The classifier", "this bash command") + await deniedHooks(c, "Classifier unavailable")); continue; }
             if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -2084,7 +2118,8 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         // else 30 minutes): the machine stops it then, and Coder is told.
         const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
         const snapId = inBg ? "" : await snapBefore(command);
-        try { r = await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
+        ranAt.set(c.id, now());
+        try { r = await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command, ps: true } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const files = await snapAfter(snapId, !(r && (r.background || r.notStarted)));
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
@@ -2111,7 +2146,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
           if (!byUser && !c.monitor) parts.push("To check interim output, use read on that file path.");
           text = sofar + parts.join(" ");
         } else {
-          const em = exitMeaning(command, code);
+          const em = c.ps ? psExitMeaning(await psParse(command), code) : exitMeaning(command, code);
           isError = em.isError;
           // A PICTURE PRINTED AS A DATA URL comes back as a picture (Claude Code: `isImage`; 2.1.72 "Fixed oversized and
           // truncated images from Bash data-URL output"): Coder's machine saved it, and read makes it fit, as for any picture.
@@ -2396,7 +2431,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
             if (canAsk()) fetchPaused = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             if (v.error) { const m = checkUnavailable(model || "The classifier", "this page fetch"); emit({ type: "result", id: c.id, code: -1, output: m }); reply(m + await deniedHooks(c, "Classifier unavailable")); continue; }
             if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
@@ -2434,6 +2469,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
+        ranAt.set(c.id, now());
         try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.

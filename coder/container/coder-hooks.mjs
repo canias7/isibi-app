@@ -417,10 +417,15 @@ export function hookResult(event, run, hook = {}) {
  *   watchPaths  absolute paths FileChanged hooks watch from now on (SessionStart, CwdChanged, FileChanged), or null
  *   sessionTitle  the chat's new title (SessionStart, UserPromptSubmit), or ""
  *   retry       PermissionDenied: Coder may try the call again
+ *   classifierContext  PostToolUse: the hooks' notes for the Auto mode checker about this result (Claude Code's
+ *               classifierContext: at most 2,000 characters for the call, shared by its hooks; a note whose own rewrite of
+ *               the output was refused, or replaced by another hook's, is dropped), or ""
  */
 export function hooksOutcome(event, runs, { tool = "" } = {}) {
   const label = event + (tool && TOOL_EVENTS.has(event) ? ":" + tool : "");
-  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false };
+  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
+  const notes = [];
+  let rewrites = 0, lastRewrite = 0;
   // (StopFailure and SessionEnd: "Claude Code ignores the hook's output and exit code"; "discards their JSON output fields".)
   if (event === "StopFailure" || event === "SessionEnd") return out;
   const rank = { deny: 4, ask: 2, allow: 1, "": 0 };
@@ -473,11 +478,16 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       else if (dec.behavior === "allow" && out.decision !== "deny") { out.decision = "allow"; if (dec.updatedInput && typeof dec.updatedInput === "object") out.updatedInput = dec.updatedInput; }
       continue;
     }
+    let rewrite = 0;
     if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) {
       const u = spec.updatedToolOutput;
-      if (typeof u === "string") out.updatedOutput = u;
-      else if (u && typeof u === "object" && typeof u.stdout === "string") out.updatedOutput = u.stdout + (typeof u.stderr === "string" && u.stderr ? "\n" + u.stderr : "");
+      rewrite = -1;
+      if (typeof u === "string") { out.updatedOutput = u; rewrite = lastRewrite = ++rewrites; }
+      else if (u && typeof u === "object" && typeof u.stdout === "string") { out.updatedOutput = u.stdout + (typeof u.stderr === "string" && u.stderr ? "\n" + u.stderr : ""); rewrite = lastRewrite = ++rewrites; }
     }
+    // A NOTE FOR THE AUTO MODE CHECKER (Claude Code: "Return classifierContext to send a short note about the tool call's
+    // result to the auto mode classifier rather than to Claude").
+    if (event === "PostToolUse" && typeof spec.classifierContext === "string" && spec.classifierContext.trim()) notes.push({ text: spec.classifierContext.trim(), rewrite });
     // A BLOCK: exit 2, or decision "block" (UserPromptSubmit, PostToolUse, PostToolUseFailure, PostToolBatch, Stop, PreCompact).
     if (result.kind === "block" || j.decision === "block") {
       const why = typeof j.reason === "string" && j.reason.trim() ? cap(j.reason) : result.reason;
@@ -488,6 +498,7 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       out.reason = out.reason || why;
     }
   }
+  if (notes.length) out.classifierContext = notes.filter((n) => n.rewrite === 0 || n.rewrite === lastRewrite).map((n) => n.text).join("\n").slice(0, 2000);
   return out;
 }
 

@@ -188,6 +188,31 @@ export function envFileLine(value, project) {
  */
 export const hookEnvLine = (project) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + ".sh"); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; };
 /**
+ * THE ENV FILES FOR A POWERSHELL COMMAND (Bash docs pass 7; Claude Code: "PowerShell commands receive the variables from
+ * CLAUDE_ENV_FILE too … but PowerShell never runs the file. Claude Code reads the assignments out of it and copies them
+ * into the PowerShell command's environment instead. It does so only when every line is" a blank line, a # comment or
+ * one plain assignment (export NAME=value, declare -x NAME=value or NAME=value, its value plain text of letters, digits
+ * and _ @ % + = : , . / -, single-quoted text, or double-quoted text with any $, backtick or " escaped), "across what
+ * every hook in this session wrote and any script you set CLAUDE_ENV_FILE to"; otherwise "PowerShell commands receive
+ * none of the variables"): the owner's CODER_ENV_FILE and the chat's hook env file, each line checked, then all of them
+ * exported or none. `paths`: shell words, as envFileLine and hookEnvLine name them.
+ */
+export const PS_ENV_PLAIN = "^[[:space:]]*$|^[[:space:]]*#|^(export[[:space:]]+|declare[[:space:]]+-x[[:space:]]+)?[A-Za-z_][A-Za-z0-9_]*=([A-Za-z0-9_@%+=:,./-]|'[^']*'|\"([^\"\\\\$`]|\\\\.)*\")*[[:space:]]*$";
+export function psEnvLine(paths) {
+  const list = (Array.isArray(paths) ? paths : []).filter(Boolean);
+  if (!list.length) return "";
+  const q = "'" + PS_ENV_PLAIN.replace(/'/g, "'\\''") + "'";
+  return "__coderPsEnv=1; for __coderF in " + list.join(" ") + "; do if [ -r \"$__coderF\" ] && LC_ALL=C grep -qvE " + q + " \"$__coderF\"; then __coderPsEnv=0; fi; done; " +
+    "if [ \"$__coderPsEnv\" = 1 ]; then set -a; for __coderF in " + list.join(" ") + "; do if [ -r \"$__coderF\" ]; then . \"$__coderF\"; fi; done; set +a; fi; unset __coderPsEnv __coderF\n";
+}
+/** The shell words of the env files, for psEnvLine (the owner's CODER_ENV_FILE, then the chat's hook env file). */
+export function envFilePaths(value, project, hookProject) {
+  const out = [], v = String(value ?? "").trim();
+  if (v && v.length <= 1000 && !/[\0\n\r]/.test(v)) out.push(v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v)));
+  if (hookProject) out.push('"$HOME"/.coder-hook-env/' + shellWord(String(hookProject) + ".sh"));
+  return out;
+}
+/**
  * WHICH OF CODER'S OTHER PROCESSES THE MEMORY CAP COVERS (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's
  * name CODER_TOOL_MEMORY_CGROUP_EXCLUDE: "a comma-separated list of the kinds to exempt from the cap; Claude Code applies the
  * cap to every kind not on your list. Set it to none to cap every kind, or to all-new to cap only Bash, PowerShell, and Monitor
@@ -2680,6 +2705,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (In the owner's CODER_SHELL: shellOf.)
     t.shell = shellOf(rawVars.CODER_SHELL);
     t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell);
+    // (A PowerShell command's: the same, its env files read Claude Code's way, psEnvLine.)
+    t.psPrefix = commandPrefix(home, psEnvLine(envFilePaths(rawVars.CODER_ENV_FILE, home0, home ? project : "")), t.shell);
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
     t.tmo = bashTimeouts(rawVars, usePrefs(body.prefs));
     // HOW MUCH OF A COMMAND'S OUTPUT CODER GETS (see bashOutputLimits); BACKGROUND COMMANDS OFF with CODER_DISABLE_BACKGROUND_TASKS
@@ -2904,7 +2931,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "" }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2963,7 +2990,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -3094,7 +3121,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell" } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

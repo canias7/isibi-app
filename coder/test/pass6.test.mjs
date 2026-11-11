@@ -4,6 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 
 const H = await import("../container/coder-hooks.mjs");
+const { fakeParse: psFake } = await import("./ps-fake.mjs");
 const ROOT = "/work/shop";
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -43,6 +44,8 @@ async function job(steps, { hooks = null, hookRun = () => ({}), mode = "auto", t
     emit: (e) => events.push(e),
     here: () => ROOT, root: ROOT, chatId: "shop-p6", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
     ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "yes" }; },
+    // (PowerShell's parse of a command, as pwsh would give it on the machine: test/ps-fake.mjs.)
+    psParse: async (cmd) => psFake(cmd),
     ...deps,
   }, { text, mode, rules, checker, checkWhere: { key: "chat-" + Math.random().toString(36).slice(2), repo: "ana/shop", branch: "coder/shop-1" }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), ...extra });
   const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
@@ -608,20 +611,17 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   assert.deepEqual(PS.psParts("Get-ChildItem | Select-Object -First 5; git status && npm test || echo 'a;b|c'"), ["Get-ChildItem", "Select-Object -First 5", "git status", "npm test", "echo 'a;b|c'"]);
   assert.deepEqual(PS.psParts("Get-ChildItem | ForEach-Object { Remove-Item $_; Write-Host x }"), ["Get-ChildItem", "ForEach-Object { Remove-Item $_; Write-Host x }"]);
   assert.deepEqual([PS.psCanon("gci"), PS.psCanon("LS"), PS.psCanon("rm"), PS.psCanon("Get-Content")], ["get-childitem", "get-childitem", "remove-item", "get-content"]);
-  // Read-only: reading cmdlets, programs Coder's bash check calls read-only; never a redirection, a script block or a sub-expression.
+  // Read-only: decided from PowerShell's own parse since Bash docs pass 7 (test/pass7.test.mjs); programs as Coder's bash check says.
+  const { fakeParse } = await import("./ps-fake.mjs");
   const nro = (p) => /^git (status|log)\b/.test(p);
-  assert.deepEqual([
-    PS.psReadOnly("Get-ChildItem -Recurse | Select-Object -First 5"), PS.psReadOnly("gci; cat README.md"), PS.psReadOnly("git status", { nativeReadOnly: nro }),
-    PS.psReadOnly("Remove-Item build"), PS.psReadOnly("Get-Content a > b"), PS.psReadOnly("Get-ChildItem | ForEach-Object { Remove-Item $_ }"), PS.psReadOnly("Write-Output $(Remove-Item x)"), PS.psReadOnly("git push", { nativeReadOnly: nro }), PS.psReadOnly("Invoke-Expression 'x'"),
-  ], [true, true, true, false, false, false, false, false, false]);
   // Rules: case-insensitive, aliases as their cmdlets, a trailing " *" also the bare command.
   assert.deepEqual([PS.psRuleMatches("Get-ChildItem *", "gci -Recurse"), PS.psRuleMatches("get-childitem *", "dir"), PS.psRuleMatches("Remove-Item *", "rm -r build"), PS.psRuleMatches("git commit *", "git commit -m x"), PS.psRuleMatches("git commit *", "git push"), PS.psRuleMatches(null, "anything")], [true, true, true, true, false, true]);
   assert.deepEqual(P.parseRule("PowerShell(Get-ChildItem *)"), { tool: "PowerShell", spec: "Get-ChildItem *" });
   assert.deepEqual([P.parseRule("PowerShell"), P.parseRule("PowerShell(*)")], [{ tool: "PowerShell", spec: null }, { tool: "PowerShell", spec: null }]);
   // The decision.
-  const dec = (cmd, mode, rules = {}) => P.psDecision(cmd, { mode, rules, nativeReadOnly: nro });
+  const dec = (cmd, mode, rules = {}) => P.psDecision(cmd, { mode, rules, nativeReadOnly: nro, parsed: fakeParse(cmd), cwd: "/work/shop", pathAbs: (x) => "/work/shop/" + x, inside: () => true });
   assert.equal(dec("Get-ChildItem", "acceptEdits").verdict, "allow");
-  assert.deepEqual([dec("Remove-Item build", "acceptEdits").verdict, dec("Remove-Item build", "acceptEdits").suggest], ["ask", ["PowerShell(Remove-Item *)"]]);
+  assert.deepEqual([dec("Remove-Item build", "plan").verdict, dec("Remove-Item build", "plan").suggest], ["ask", ["PowerShell(Remove-Item *)"]]);
   assert.deepEqual(dec("git commit -m x; npm test", "plan").suggest, ["PowerShell(git commit *)", "PowerShell(npm test *)"]);
   assert.equal(dec("rm -r build", "auto", { deny: ["PowerShell(Remove-Item *)"] }).why, "Permission to use PowerShell with command rm -r build has been denied.");
   assert.equal(dec("Get-ChildItem", "auto", { deny: ["*"] }).verdict, "deny");
@@ -670,8 +670,9 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   const ex = t.execs.find((x) => x.shown === "Get-ChildItem");
   assert.ok(ex && /pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand /.test(ex.command));
   assert.ok(t.events.some((e) => e.type === "bash" && e.id === "p1" && e.shell === "powershell" && e.command === "Get-ChildItem"));
-  // One that changes things: a PowerShell card; denied by a rule: refused.
-  t = await job([say("", [call("powershell", { command: "Remove-Item build -Recurse", description: "Clean" }, "p1")]), say("ok")], { mode: "acceptEdits", extra: on, answers: [{ choice: "no" }] });
+  // One that changes things, in Plan mode: a PowerShell card (in Accept edits, Claude Code runs a removal inside the
+  // project: test/pass7.test.mjs); denied by a rule: refused.
+  t = await job([say("", [call("powershell", { command: "Remove-Item build -Recurse", description: "Clean" }, "p1")]), say("ok")], { mode: "plan", extra: on, answers: [{ choice: "no" }] });
   assert.deepEqual([t.cards[0].tool, t.cards[0].rules], ["powershell", ["PowerShell(Remove-Item *)"]]);
   assert.deepEqual(t.ran, []);
   t = await job([say("", [call("powershell", { command: "rm build", description: "Clean" }, "p1")]), say("ok")], { extra: on, rules: { allow: [], ask: [], deny: ["PowerShell(Remove-Item *)"] } });
@@ -698,7 +699,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   const { readFileSync } = await import("node:fs");
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /const psOn = psWanted && PWSH_PATHS\.some\(\(p\) => existsSync\(p\)\);/);
-  assert.match(server, /powershell: psOn \? \{ bypass: !varOn\(rawVars\.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY\), defaultShell: String\(rawVars\.CODER_DEFAULT_SHELL \|\| ""\)\.trim\(\)\.toLowerCase\(\) === "powershell" \} : null, /);
+  assert.match(server, /powershell: psOn \? \{ bypass: !varOn\(rawVars\.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY\), defaultShell: String\(rawVars\.CODER_DEFAULT_SHELL \|\| ""\)\.trim\(\)\.toLowerCase\(\) === "powershell", parseMs: Number\(rawVars\.CODER_PWSH_PARSE_TIMEOUT_MS\) > 0 \? Math\.min\(Number\(rawVars\.CODER_PWSH_PARSE_TIMEOUT_MS\), 60000\) : 0 \} : null, /);
   const docker = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
   assert.match(docker, /apt-get install -y --no-install-recommends powershell; /);
   assert.match(docker, / coder-ps\.mjs /);

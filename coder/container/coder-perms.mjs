@@ -13,7 +13,8 @@
 // THE READ-ONLY SET is Claude Code 2.1.319's own (its lists, read from it on 2026-11-09): commands that run with any
 // arguments, commands with a list of safe options each (git log, grep, sed …), and a few exact ones; an unquoted glob is
 // allowed only for the commands whose every option only reads.
-import { psParts, psRuleMatches, psReadOnly, psSuggest } from "./coder-ps.mjs";
+import { psRuleMatches, psSuggest } from "./coder-ps.mjs";
+import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, leadWords, basename } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
@@ -1753,21 +1754,116 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
  * isn't read-only); in Accept edits and Plan a command whose parts all only read, or that allow rules cover, runs, and
  * anything else asks. `nativeReadOnly(part)`: whether a program's part only reads (Coder's bash check of it).
  */
-export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false } = {}) {
-  const parts = psParts(command);
-  const hit = (list) => { for (const p of parts) { const r = list.find((x) => psRuleMatches(x.spec, p)); if (r) return r; } return null; };
-  const d = hit(rulesFor(rules.deny, "PowerShell", true));
-  if (d) return { verdict: "deny", rule: d.text, why: "Permission to use PowerShell with command " + String(command).trim() + " has been denied.", suggest: null };
-  const a = hit(rulesFor(rules.ask, "PowerShell", true));
+/**
+ * A POWERSHELL COMMAND'S DECISION (Bash docs pass 7: Claude Code's PowerShell permission check, read from PowerShell's
+ * own parse of the command, coder-psparse.mjs; the owner, 2026-11-11: "we need to build the rest of the batch tool").
+ * In Claude Code's order: a deny rule on the command, or on any command in it at any depth, refuses it; so does a
+ * removal it never allows (a system path, a wildcard). An ask rule asks, in every mode. Its safety checks (a command it
+ * could not parse, a sub-expression, a script block, .NET calls, Invoke-Expression and the rest, in its own words), a
+ * provider or network path, a file redirection, git next to a cd or an archive, a write into .git, and a recursive
+ * removal of the working folder ask; so does any command that neither a rule allows nor only reads (its table; its paths
+ * inside the working folders) and, in Accept edits, is none of the file commands Claude Code runs there. In Auto, the
+ * checker judges what would ask (a rule's question and a refusal stay). Returns { verdict, why, rule?, byRule?, suggest,
+ * readOnly, covered }: `readOnly`, nothing for the checker to judge; `covered`, the owner's allow rules cover it all.
+ * `pathAbs(p)` is a path as the machine resolves it (null when it cannot be told); `inside(p)`, inside the working folders.
+ */
+export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "" } = {}) {
+  const cmd = String(command ?? "").trim();
+  const m = normMode(mode), auto = m === "auto";
+  if (!cmd) return { verdict: "allow", why: "", suggest: null, readOnly: true };
+  const p = parsed && typeof parsed === "object" && Array.isArray(parsed.statements) ? parsed : psParseFail(cmd, "PowerShell is not available", "NoPowerShell");
+  const all = psCommands(p).filter((c) => c.elementType === "CommandAst");
+  const hit = (list, texts) => { for (const t of texts) { const r = list.find((x) => psRuleMatches(x.spec, t)); if (r) return r; } return null; };
+  const texts = [cmd, ...all.flatMap((c) => [c.text, [c.name, ...c.args].join(" ")])];
+  // (A command PowerShell could not read: its pieces, split where a command could start, as Claude Code does.)
+  const pieces = p.valid ? [] : cmd.replace(/<#[\s\S]*?#>/g, " ").replace(/`[\r\n]+\s*/g, "").split(/[;|\n\r{}()&]+/).map((x) => x.trim()).filter(Boolean);
+  const d = hit(rulesFor(rules.deny, "PowerShell", true), [...texts, ...pieces]);
+  if (d) return { verdict: "deny", rule: d.text, why: "Permission to use PowerShell with command " + cmd + " has been denied.", suggest: null };
+  const gone = psRemovals(p, pieces, { pathAbs, cwd, home });
+  if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
+  const a = hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
-  if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
-  if (psAllowCovers(command, rules) || psReadOnly(command, { nativeReadOnly })) return { verdict: "allow", why: "", suggest: null };
-  return { verdict: "ask", why: "", suggest: psSuggest(command) };
+  const suggest = psSuggest(cmd);
+  const asks = (why) => (auto ? { verdict: "allow", why, suggest: null, readOnly: false, covered: false } : { verdict: "ask", why, suggest });
+  if (!p.valid) return asks("Command contains malformed syntax that cannot be parsed: " + ((p.errors[0] && p.errors[0].message) || "unknown error"));
+  const safety = psSafetyWhy(p) || psProviderWhy(p) || psCompoundWhy(p) || (psFileRedirections(p).length ? "Command contains file redirections that could write to arbitrary paths" : "") || gone.ask;
+  if (safety) return asks(safety);
+  // EACH COMMAND: one an allow rule covers (read ahead in full), or one that only reads, inside the working folders.
+  const allow = rulesFor(rules.allow, "PowerShell");
+  let covered = all.length > 0, readOnly = true, needs = false;
+  for (const c of all) {
+    const byRule = !psDynamicArgs(c) && c.nameType !== "application" && !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]);
+    const reads = psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x));
+    if (!byRule) covered = false;
+    if (!reads) readOnly = false;
+    if (!byRule && !reads) needs = true;
+  }
+  // (A statement that is not a plain pipeline of commands, such as an assignment or an if: approval.)
+  if (p.statements.some((s) => s.statementType !== "PipelineAst" || !s.commands.length || s.commands.some((c) => c.elementType !== "CommandAst"))) { needs = true; readOnly = false; covered = false; }
+  if (!needs) return { verdict: "allow", why: "", suggest: null, readOnly, covered };
+  // ACCEPT EDITS: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) run there, with
+  // the reading ones beside them, when every path they are given is inside the working folders.
+  if (m === "acceptEdits" && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
+  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : { verdict: "ask", why: "", suggest };
 }
-/** Whether the owner's PowerShell allow rules cover every part of a command. */
-export function psAllowCovers(command, rules) {
-  const parts = psParts(command), allow = rulesFor(rules && rules.allow, "PowerShell");
-  return parts.length > 0 && parts.every((p) => allow.some((x) => psRuleMatches(x.spec, p)));
+/** Claude Code's questions about a command made of several: git next to a cd or an archive, a write into .git. */
+function psCompoundWhy(p) {
+  const all = psCommands(p).filter((c) => c.elementType === "CommandAst");
+  const cdish = (n) => { const t = String(n).toLowerCase(); if (t === "cd.." || t === "cd\\" || t === "cd/" || t === "cd~" || /^[a-z]:$/.test(t)) return true; const c = psCmdlet(n); return c === "set-location" || c === "push-location" || c === "pop-location" || c === "new-psdrive"; };
+  const git = all.some((c) => psCmdlet(c.name) === "git");
+  if (all.length > 1 && all.some((c) => cdish(c.name)) && git) return "Compound commands with cd/Set-Location and git require approval to prevent bare repository attacks";
+  const WRITERS = new Set(["new-item", "set-content", "add-content", "out-file", "copy-item", "move-item", "rename-item", "expand-archive", "invoke-webrequest", "invoke-restmethod", "tee-object", "export-csv", "export-clixml"]);
+  const targets = [...psRedirections(p).filter((r) => !r.isMerging).map((r) => r.target), ...all.filter((c) => WRITERS.has(psCmdlet(c.name))).flatMap((c) => c.args)];
+  const norm = (t) => String(t).replace(/^['"]|['"]$/g, "").replace(/\\/g, "/").toLowerCase();
+  if (git && targets.some((t) => /(^|\/)(\.git(\/|$)|head$|objects(\/|$)|refs(\/|$)|hooks(\/|$))/.test(norm(t)))) return "Command writes to a git-internal path (HEAD, objects/, refs/, hooks/, .git/) and runs git. This could plant a malicious hook that git then executes.";
+  const ARCHIVES = new Set(["tar", "bsdtar", "unzip", "7z", "7za", "gzip", "gunzip", "expand-archive"]);
+  if (all.length > 1 && all.some((c) => { const n = String(c.name).toLowerCase(), b = n.slice(Math.max(n.lastIndexOf("\\"), n.lastIndexOf("/")) + 1).replace(/\.exe$/, ""); return ARCHIVES.has(b); })) return git ? "Compound command extracts an archive and runs git. Archive contents may plant bare-repository indicators (HEAD, hooks/, refs/) that git then treats as the repository root." : "Compound command extracts an archive followed by other commands. Archive contents (symlinks, config files) cannot be validated and may redirect subsequent path operations.";
+  if (targets.some((t) => /(^|\/)\.git(\/|$)/.test(norm(t)))) return "Command writes to .git/ \u2014 hooks or config planted there execute on the next git operation.";
+  return "";
+}
+/**
+ * REMOVE-ITEM (Claude Code's "Remove-Item in PowerShell", with rm, del, erase, rd, ri and rmdir): a system path (the
+ * root, a folder at the top level, the home folder) or a wildcard target is refused in every mode; a recursive removal
+ * of the working folder or a folder above it asks. A variable in a target counts as empty ($dir/* reaches the root).
+ */
+export function psRemovals(p, pieces = [], { pathAbs = () => null, cwd = "", home = "" } = {}) {
+  const out = { deny: "", ask: "" };
+  const known = (t) => String(t).replace(/^\$(env:)?(HOME|USERPROFILE)\b|^\$\{(env:)?(HOME|USERPROFILE)\}/i, home || "~").replace(/^\$PWD\b|^\$\{PWD\}/i, cwd || ".");
+  const bare = (t) => known(t).replace(/\$\{[^}]*\}|\$(env:)?[A-Za-z_][\w]*(:[\w]+)?/g, "");
+  const system = (abs) => !!abs && (abs === "/" || /^\/[^/]+\/?$/.test(abs) || (!!home && (abs === home || abs === home + "/")));
+  const removals = p && p.valid
+    ? psCommands(p).filter((c) => c.elementType === "CommandAst" && psCmdlet(c.name) === "remove-item")
+    : pieces.map((t) => { const w = t.split(/\s+/).filter(Boolean); return { name: w[0] || "", args: w.slice(1), elementType: "CommandAst" }; }).filter((c) => psCmdlet(c.name) === "remove-item");
+  for (const c of removals) {
+    for (const t0 of psPathArgs(c)) {
+      const t = String(t0).replace(/^['"]|['"]$/g, ""), b = bare(t).replace(/\\/g, "/");
+      if (b === "*" || /\/\*$/.test(b)) { out.deny = psRemovalDenied(t0); return out; }
+      for (const v of new Set([known(t).replace(/\\/g, "/"), b])) { if (v && system(pathAbs(v))) { out.deny = psRemovalDenied(t0); return out; } }
+      if (!out.ask && psRecurse(c) && cwd) { const abs = pathAbs(b || "."); if (abs && (abs === cwd || cwd.startsWith(abs.endsWith("/") ? abs : abs + "/"))) out.ask = psRemovalWorkdir(t0); }
+    }
+  }
+  return out;
+}
+/** Claude Code's Accept edits rule for PowerShell: only its file commands, and readers, all of it read ahead, paths inside. */
+function psEditsOnly(p, all, { nativeReadOnly, inside }) {
+  const f = psPatterns(p);
+  if (f.hasSubExpressions || f.hasScriptBlocks || f.hasMemberInvocations || f.hasSplatting || f.hasAssignments || f.hasStopParsing || f.hasExpandableStrings) return false;
+  const EDITS = new Set(["set-content", "add-content", "remove-item", "clear-content"]);
+  const link = (c) => psCmdlet(c.name) === "new-item" && c.args.some((a, i) => /^[-\u2013\u2014\u2015/]it/i.test(a) && /^(symboliclink|junction|hardlink)/i.test(String(a.includes(":") ? a.slice(a.indexOf(":") + 1) : c.args[i + 1] || "").replace(/^['"]/, "")));
+  if (all.some(link)) return false;
+  const cdish = (c) => ["set-location", "push-location", "pop-location", "new-psdrive"].includes(psCmdlet(c.name));
+  if (all.length > 1 && all.some(cdish) && all.some((c) => EDITS.has(psCmdlet(c.name)))) return false;
+  for (const c of all) {
+    if (c.nameType === "application") return false;
+    if (psDynamicArgs(c) || psWritesState(c)) return false;
+    const n = psCmdlet(c.name);
+    if (n === "out-null" && c.args.length === 0) continue;
+    if (PS_FORMATTERS.has(n) || n === "measure-object" || n === "out-string" || n === "out-host") { if (psCommandReadOnly(c, { nativeReadOnly })) continue; return false; }
+    if (psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x))) continue;
+    if (!EDITS.has(n)) return false;
+    if (!psPathArgs(c).every((x) => inside(x))) return false;
+  }
+  return true;
 }
 
 // ── WHAT CODER IS TOLD ───────────────────────────────────────────────────────

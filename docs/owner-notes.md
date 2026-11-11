@@ -11,6 +11,19 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: The rest of the Bash docs, cloud only (your words: "Yea we need to build the rest of the batch tool, remember we are not doing local rn with only doing cloud")
+
+Not merged or deployed yet: on the branch with everything below, waiting for your word. All 440 tests pass.
+
+- **A safety hole in last batch's PowerShell, closed.** Coder's PowerShell check read the command as text, so a delete hidden inside brackets or quotes (for example `Write-Output "$(Remove-Item notes.txt)"`) could run without asking, even in Plan mode. Now PowerShell itself reads each command on Coder's machine, the way Claude Code does it, and Claude Code's 24 safety checks run on that, in its own words. PowerShell is still off unless you turn it on.
+- **PowerShell delete protection.** Deleting the whole disk, a top-level folder, or your home folder is refused in every mode, and so is a delete with a wildcard like `*`. Deleting the project folder itself asks first.
+- **PowerShell details:** which searches may "fail" with exit code 1 without it being an error, which settings-file variables reach PowerShell, and Claude Code's list of PowerShell commands that only read.
+- **Risky `rm` with your own Ask rule:** in Auto mode, Coder now asks you instead of refusing.
+- **Four new switches** for the environment's variables, to loosen the risky-`rm` check: `CODER_DISABLE_SUBSTITUTION_RM_PROMPT`, `CODER_DISABLE_INLINE_SHELL_RM_PROMPT`, `CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT`, and `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` (in Auto, the checker decides instead of a flat refusal).
+- **Hooks can leave a note for the Auto mode checker** about a step's result (for example "this ran on staging, not production"). Coder itself never sees the note.
+- **Hooks now get how long a step ran** (`duration_ms`).
+- **Left out on purpose (terminal-only):** Claude Code's "send now" key and its "Recently blocked" list. Claude Code's own apps don't have them either.
+
 ## 2026-11-11: A hook can now answer Coder's question card (your words: "Want it added")
 
 Not merged or deployed yet: on the branch with the 11 items below, waiting for your word. All 432 tests pass.
