@@ -498,3 +498,105 @@ test("CD395 the subprocess environment scrub and the script caps (Claude Code's 
   assert.match(server, /const capsGiven = scrubOn \? scriptCapsIn\(/);
   assert.doesNotMatch(readFileSync(new URL("../container/coder-scrub.mjs", import.meta.url), "utf8"), /from "node:/);
 });
+
+test("CD396 a command's own hosts in Auto mode (Claude Code's allowed_domains): checked in its words; reviewed by the checker with the command, even one an allow rule or a hook would approve; listed on a card a rule asks with; opened by the gate for that command alone while it runs; refused where nothing can be added; ignored in other modes", async () => {
+  const N = await import("../container/coder-secrets.mjs");
+  // The entries, as Claude Code checks them.
+  assert.equal(N.listProblem(["registry.npmjs.org", "*.pythonhosted.org", "10.0.0.5:8080", "[2001:db8::1]:443"]), "");
+  assert.equal(N.listProblem(["a b"]), '"a b": ' + N.LIST_FORMAT);
+  assert.equal(N.listProblem(["0.0.0.0"]), '"0.0.0.0": ' + N.LIST_LOOPBACK);
+  assert.equal(N.listProblem(["[::ffff:127.0.0.1]"]), '"[::ffff:127.0.0.1]": ' + N.LIST_LOOPBACK);
+  assert.equal(N.listProblem(["Example.com"]), '"Example.com": ' + N.LIST_SPELLING);
+  assert.equal(N.listProblem(Array.from({ length: 101 }, (_, i) => "h" + i + ".example")), "allowed_domains has at most 100 entries");
+  const list = ["registry.npmjs.org", "*.pythonhosted.org", "api.example.com:8443"];
+  assert.deepEqual([N.listCovers(list, "registry.npmjs.org", 443), N.listCovers(list, "files.pythonhosted.org", 443), N.listCovers(list, "api.example.com", 8443), N.listCovers(list, "api.example.com", 443), N.listCovers(list, "example.org", 443)], [true, true, true, false, false]);
+
+  // THE GATE: a listed host opens only for requests carrying that command's pass, until it is closed; blocked sites stay blocked.
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const net = await import("node:net");
+  const { startProxy, UNLISTED, DENIED, passOf } = await import("../container/coder-proxy.mjs");
+  const px = await startProxy({ dir: join(await mkdtemp(join(tmpdir(), "coder-p6hl-")), "px") });
+  try {
+    px.setNetwork({ mode: "custom", hosts: ["github.com"], defaults: false, denied: ["evil.example"] });
+    const pass = "a".repeat(32);
+    px.openFor(pass, ["registry.npmjs.org", "evil.example"]);
+    assert.match(px.env(pass).HTTPS_PROXY, new RegExp("^http://cmd:" + pass + "@127\\.0\\.0\\.1:\\d+$"));
+    assert.doesNotMatch(px.env().HTTPS_PROXY, /cmd:/);
+    const auth = (p) => "Proxy-Authorization: Basic " + Buffer.from("cmd:" + p).toString("base64") + "\r\n";
+    assert.equal(passOf({ "proxy-authorization": "Basic " + Buffer.from("cmd:" + pass).toString("base64") }), pass);
+    const ask = (text) => new Promise((ok) => { let b = ""; const s = net.connect(px.port, "127.0.0.1", () => s.write(text)); const done = () => { clearTimeout(tm); s.destroy(); ok(b); }; const tm = setTimeout(done, 3000); s.on("data", (x) => { b += x; if (/^HTTP\/1\.1 \d{3}/.test(b) && b.includes("\r\n\r\n")) setTimeout(done, 50); }); s.on("close", done); s.on("error", done); });
+    const before = px.blockedSince(0).length;
+    // With the pass: the listed host is not refused by the list.
+    const ok = await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n" + auth(pass) + "\r\n");
+    assert.doesNotMatch(ok, /^HTTP\/1\.1 403/);
+    assert.equal(px.blockedSince(0).length, before, "not blocked");
+    // With the pass, a host it doesn't list: told so, in Claude Code's words.
+    const un = await ask("CONNECT example.org:443 HTTP/1.1\r\nHost: example.org:443\r\n" + auth(pass) + "\r\n");
+    assert.match(un, /^HTTP\/1\.1 403/);
+    assert.ok(un.endsWith(UNLISTED("example.org")));
+    assert.equal(UNLISTED("example.org"), "Blocked: example.org is not in this command's allowed_domains — re-run the command with this host listed if it needs it.");
+    // A blocked site stays blocked, listed or not.
+    assert.ok((await ask("CONNECT evil.example:443 HTTP/1.1\r\nHost: evil.example:443\r\n" + auth(pass) + "\r\n")).endsWith(DENIED("evil.example")));
+    // Without a pass, or after the command ended: the network list's refusal.
+    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n"), /Blocked by this repo's network list: registry\.npmjs\.org/);
+    px.closeFor(pass);
+    assert.equal(px.openLists(), 0);
+    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n" + auth(pass) + "\r\n"), /Blocked by this repo's network list: registry\.npmjs\.org/);
+  } finally { await px.close(); }
+
+  // CODER'S LOOP.
+  const A = await import("../container/coder-agent.mjs");
+  const hostsOf = (t, cmd) => (t.execs.find((x) => String(x.command).split("\n").pop() === cmd) || {}).hosts;
+  const npm = (extra = {}) => say("", [call("bash", { command: "npm install left-pad", description: "Install", allowed_domains: ["registry.npmjs.org"], ...extra }, "b1")]);
+  // Offered on bash and monitor where the gate can open hosts; not elsewhere.
+  let t = await job([say("ok")], { extra: { hostLists: "on" } });
+  const tool = (n) => t.seen[0].tools.find((x) => x.function.name === n).function.parameters.properties;
+  assert.equal(tool("bash").allowed_domains.description, A.HOSTS_DESC);
+  assert.ok(tool("monitor").allowed_domains);
+  t = await job([say("ok")], { extra: { hostLists: null } });
+  assert.equal(t.seen[0].tools.find((x) => x.function.name === "bash").function.parameters.properties.allowed_domains, undefined);
+  // Auto: the checker sees the hosts with the command; approved, the command runs with them.
+  t = await job([npm(), say("ok")], { extra: { hostLists: "on" }, checker: true });
+  assert.equal(t.checks.length, 1);
+  assert.match(t.checks[0].messages[1].content, /\(allowed_domains: the hosts this command asks to reach beyond the chat's network list, for this command alone: registry\.npmjs\.org\)/);
+  assert.deepEqual(hostsOf(t, "npm install left-pad"), ["registry.npmjs.org"]);
+  // A read-only command, and one an allow rule covers, are still reviewed for their hosts.
+  t = await job([say("", [call("bash", { command: "curl -sI https://registry.npmjs.org/", description: "Check", allowed_domains: ["registry.npmjs.org"] }, "b1")]), say("ok")], { extra: { hostLists: "on" }, checker: true, rules: { allow: ["Bash(curl *)"], ask: [], deny: [] } });
+  assert.equal(t.checks.length, 1, "allow rules approve the command, not the hosts");
+  // Blocked by the checker: not run.
+  t = await job([npm(), say("ok")], { extra: { hostLists: "on" }, checker: true, verdict: () => '{"decision":"block","rule":"Untrusted host","reason":"not needed"}' });
+  assert.deepEqual(t.ran, []);
+  // An ask rule: the card lists them; approving runs with them.
+  t = await job([npm(), say("ok")], { extra: { hostLists: "on" }, checker: true, rules: { allow: [], ask: ["Bash(npm install *)"], deny: [] } });
+  assert.deepEqual(t.cards[0].hosts, ["registry.npmjs.org"]);
+  assert.deepEqual(hostsOf(t, "npm install left-pad"), ["registry.npmjs.org"]);
+  // No checker to review them: run without them, and told so.
+  t = await job([npm(), say("ok")], { extra: { hostLists: "on" }, checker: false });
+  assert.equal(hostsOf(t, "npm install left-pad"), undefined);
+  assert.ok(t.told("b1").endsWith(A.HOSTS_UNCHECKED));
+  // Another mode: ignored.
+  t = await job([npm(), say("ok")], { mode: "acceptEdits", extra: { hostLists: "on" }, checker: true, answers: [{ choice: "yes" }] });
+  assert.equal(hostsOf(t, "npm install left-pad"), undefined);
+  assert.equal(t.cards[0].hosts, undefined);
+  // Nothing can be added (None), nothing can enforce them, or a bad entry: refused, in Claude Code's words.
+  t = await job([npm(), say("ok")], { extra: { hostLists: "none" }, checker: true });
+  assert.deepEqual([t.ran.length, t.told("b1")], [0, A.HOSTS_LOCKED]);
+  t = await job([npm(), say("ok")], { extra: { hostLists: "off" }, checker: true });
+  assert.equal(t.told("b1"), A.HOSTS_UNWALLED);
+  t = await job([npm({ allowed_domains: ["Registry.npmjs.org"] }), say("ok")], { extra: { hostLists: "on" }, checker: true });
+  assert.equal(t.told("b1"), 'error: "Registry.npmjs.org": ' + N.LIST_SPELLING);
+  // A WebSocket watch takes none.
+  t = await job([say("", [call("monitor", { description: "Feed", ws: { url: "wss://feed.example.com/x" }, allowed_domains: ["feed.example.com"] }, "m1")]), say("ok")], { extra: { hostLists: "on" }, checker: true });
+  assert.equal(t.told("m1"), "error: " + A.HOSTS_ONLY_COMMAND);
+  // The machine: the gate's pass for the command, closed when it ends (a background one with its job); Coder told in Auto.
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /hostLists: nn\.mode === "full" \? null : nn\.mode === "none" \? "none" : walled \? "on" : "off", /);
+  assert.match(server, /const pass = !tool && Array\.isArray\(hosts\) && hosts\.length && px \? randomBytes\(16\)\.toString\("hex"\) : "";\n\s+if \(pass\) px\.openFor\(pass, hosts\);/);
+  assert.match(server, /\.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark/);
+  assert.match(server, /if \(pass && !\(r && r\.background && r\.pid\)\) px\.closeFor\(pass\);/);
+  assert.match(server, /if \(typeof j\.closePass === "function"\) \{ try \{ j\.closePass\(\); \}/);
+  assert.match(server, /In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains/);
+});

@@ -161,7 +161,7 @@ test("CD345 a stop ends what the command started outside its process group too (
   assert.match(server, /process\.kill\(-pid, "SIGTERM"\); \} catch \{ \/\* gone \*\/ \}\n            endMarked\(j\.mark, "SIGTERM"\);/);
   // Each of the chat's commands carries one (after the owner's own variables), and its background job keeps it.
   assert.match(server, /const mark = tool \? "" : newMark\(\);/);
-  assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \[TASK_MARK\]: mark \},/);
+  assert.match(server, /: \{ \.\.\.\(extraEnv \|\| \{\}\), \.\.\.\(pass \? px\.env\(pass\) : \{\}\), \[TASK_MARK\]: mark \},/);
   assert.match(server, /cwd: startedIn, at: startedAt, mark, moved: !inBg,/);
 });
 

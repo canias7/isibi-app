@@ -23,7 +23,7 @@ import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS } from "./coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS, listCovers } from "./coder-secrets.mjs";
 import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { privateAddress } from "./coder-tools.mjs";
@@ -39,6 +39,16 @@ function publicLookup(hostname, opts, cb) {
   });
 }
 const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ". Ask the owner to allow it with propose_env (allow_host), unless network access is None.";
+/** A host a command's own list doesn't name (Claude Code's words: "not in this command's allowed_domains — re-run the command with this host listed if it needs it"). */
+export const UNLISTED = (host) => "Blocked: " + host + " is not in this command's allowed_domains \u2014 re-run the command with this host listed if it needs it.";
+/** The command a request comes from, by the pass in its proxy address (Proxy-Authorization: Basic cmd:<token>), or "". */
+export function passOf(headers) {
+  const v = headers && (headers["proxy-authorization"] || headers["Proxy-Authorization"]);
+  const m = /^Basic\s+([A-Za-z0-9+/=]{1,200})$/.exec(String(v || "").trim());
+  if (!m) return "";
+  const t = Buffer.from(m[1], "base64").toString("utf8");
+  return /^cmd:[0-9a-f]{32}$/.test(t) ? t.slice(4) : "";
+}
 /** A site on the environment's blocked list (Claude Code's words: "<host> is in sandbox.network.deniedDomains"), in Coder's. */
 export const DENIED = (host) => "Blocked: " + host + " is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.";
 
@@ -198,6 +208,11 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // WHAT THE LIST BLOCKED, AND WHEN (tool 4: Claude Code's command results name the host and the reason when the network
   // proxy stops a connection, 2.1.224 and 2.1.251): the last 50, for the result of the command that tried.
   const blocks = [];
+  // EACH COMMAND'S OWN HOSTS (Claude Code's allowed_domains: "An approved list opens those hosts for that one command alone,
+  // for as long as it runs"): its pass → its list, opened when it starts, closed when it ends.
+  const lists = new Map();
+  /** What a request's command may also reach: its list, or null. */
+  const listOf = (headers) => { const p = passOf(headers); return p && lists.has(p) ? lists.get(p) : null; };
   const blocked = (host, why) => { blocks.push({ host: String(host).replace(/[^a-z0-9.:-]/gi, "").slice(0, 253), why, at: Date.now() }); if (blocks.length > 50) blocks.shift(); };
   // THE TLS SIDE: requests for a secret's site, with its key added the way its type says.
   const inner = http.createServer(async (req, res) => {
@@ -259,7 +274,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const host = proxyHost(u.hostname), port = u.port ? Number(u.port) : 80;
     if (!host || !(port >= 1 && port <= 65535)) { res.writeHead(400); return res.end("bad request"); }
     if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(DENIED(host)); }
-    if (!allowed(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host)); }
+    const own = listOf(req.headers);
+    if (!allowed(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(own ? UNLISTED(host) : BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
     try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
@@ -279,7 +295,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     if (!t) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const { host, port } = t;
     if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); const b = DENIED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
-    if (!allowed(host) && !githubHere(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); const b = BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
+    const own = listOf(req.headers);
+    if (!allowed(host) && !githubHere(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); const b = own ? UNLISTED(host) : BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
     if (port === 443 && (ruleFor(host) || githubHere(host))) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
@@ -335,9 +352,14 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     setGithub(on) { github = on === true; },
     /** The repo's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
-    /** What the AI's commands get, so their HTTPS goes through here and trusts it. */
-    env() {
-      const p = "http://127.0.0.1:" + port;
+    /** A command's own hosts, for as long as it runs (its pass: 32 hex characters). */
+    openFor(pass, hosts) { if (/^[0-9a-f]{32}$/.test(String(pass)) && Array.isArray(hosts)) lists.set(String(pass), hosts.slice(0, 100).map(String)); },
+    closeFor(pass) { lists.delete(String(pass)); },
+    /** How many commands have a list open (for the tests). */
+    openLists: () => lists.size,
+    /** What the AI's commands get, so their HTTPS goes through here and trusts it (`pass`: a command's own, in its proxy address). */
+    env(pass = "") {
+      const p = "http://" + (/^[0-9a-f]{32}$/.test(String(pass)) ? "cmd:" + pass + "@" : "") + "127.0.0.1:" + port;
       return { HTTPS_PROXY: p, https_proxy: p, HTTP_PROXY: p, http_proxy: p, NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1", NODE_USE_ENV_PROXY: "1",
         NODE_EXTRA_CA_CERTS: caFile, SSL_CERT_FILE: bundleFile, CURL_CA_BUNDLE: bundleFile, REQUESTS_CA_BUNDLE: bundleFile, GIT_SSL_CAINFO: bundleFile };
     },
