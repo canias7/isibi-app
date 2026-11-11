@@ -1612,6 +1612,13 @@ export async function handleCoder(request, env, ctx, deps) {
       for (const h of [...(Array.isArray(nb.hosts) ? nb.hosts : []), ...(Array.isArray(nb.add) ? nb.add : [])]) { const ok = okPattern(h); if (!ok) return json({ error: "not a site like api.example.com or *.example.com: " + String(h).slice(0, 60) }, 400); if (!n.hosts.includes(ok)) n.hosts.push(ok); }
       for (const h of Array.isArray(nb.remove) ? nb.remove : []) n.hosts = n.hosts.filter((x) => x !== String(h).toLowerCase());
       if (n.hosts.length > 100) return json({ error: "at most 100 allowed sites" }, 400);
+      // THE BLOCKED SITES (Claude Code's sandbox.network.deniedDomains), the whole list each time.
+      if (Array.isArray(nb.denied)) {
+        const denied = [];
+        for (const h of nb.denied) { const ok = okPattern(h); if (!ok) return json({ error: "not a site like api.example.com or *.example.com: " + String(h).slice(0, 60) }, 400); if (!denied.includes(ok)) denied.push(ok); }
+        if (denied.length > 100) return json({ error: "at most 100 blocked sites" }, 400);
+        if (denied.length) n.denied = denied; else delete n.denied;
+      }
       // Allowing a site on the default list (Trusted) makes it Custom: the default list plus that site.
       if (Array.isArray(nb.add) && nb.add.length && n.mode === "trusted") { n.mode = "custom"; n.defaults = true; }
       cur.network = n;

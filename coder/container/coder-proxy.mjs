@@ -23,7 +23,7 @@ import { createHash, generateKeyPairSync } from "node:crypto";
 import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 
-import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS } from "./coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS } from "./coder-secrets.mjs";
 import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { privateAddress } from "./coder-tools.mjs";
@@ -39,6 +39,8 @@ function publicLookup(hostname, opts, cb) {
   });
 }
 const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ". Ask the owner to allow it with propose_env (allow_host), unless network access is None.";
+/** A site on the environment's blocked list (Claude Code's words: "<host> is in sandbox.network.deniedDomains"), in Coder's. */
+export const DENIED = (host) => "Blocked: " + host + " is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.";
 
 // THE HOST A COMMAND ASKS FOR, checked before the network list, the secrets or
 // any file (the audit, 2026-11-06): "../../x.example.com" passed as a subdomain
@@ -256,6 +258,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // URL reader lets "a_b.example.com", "x..example.com" and port 0 through.
     const host = proxyHost(u.hostname), port = u.port ? Number(u.port) : 80;
     if (!host || !(port >= 1 && port <= 65535)) { res.writeHead(400); return res.end("bad request"); }
+    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(DENIED(host)); }
     if (!allowed(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
@@ -275,6 +278,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const t = connectTarget(req.url);
     if (!t) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const { host, port } = t;
+    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); const b = DENIED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     if (!allowed(host) && !githubHere(host)) { blocked(host, network.mode === "none" ? "network access is None" : "not on the network list"); const b = BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
     if (port === 443 && (ruleFor(host) || githubHere(host))) {

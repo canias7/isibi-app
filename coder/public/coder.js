@@ -551,7 +551,7 @@
     else if (page === 'main') {
       const n = e.network || { mode: 'trusted', hosts: [], defaults: true };
       const rows = [
-        ['network', 'Network access', (NET[n.mode] || NET.trusted)[0] + (n.mode === 'custom' ? ' · ' + n.hosts.length + ' site' + (n.hosts.length === 1 ? '' : 's') + (n.defaults ? ' + default list' : '') : '')],
+        ['network', 'Network access', (NET[n.mode] || NET.trusted)[0] + (n.mode === 'custom' ? ' · ' + n.hosts.length + ' site' + (n.hosts.length === 1 ? '' : 's') + (n.defaults ? ' + default list' : '') : '') + ((n.denied || []).length ? ' · ' + n.denied.length + ' blocked' : '')],
         ['secrets', 'Network secrets', (e.secrets || []).length ? e.secrets.length + ' secret' + (e.secrets.length > 1 ? 's' : '') : 'None'],
         ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
         ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') : 'None for this repo'],
@@ -569,6 +569,9 @@
         (f.mode === 'trusted' ? '<p class="cd-em-help">The default list is Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</p>' : '') +
         (f.mode === 'custom' ? '<label class="cd-envnet"><input type="checkbox" id="envDefaults"' + (f.defaults ? ' checked' : '') + '> Also include the default list of common package managers</label><label class="cd-em-l">Allowed sites</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No sites yet. Coder asks before adding one.</p>') + '</div>' +
           '<div class="cd-em-addrow"><input id="envHostIn" placeholder="api.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envHostAdd">Add</button></div>' : '') +
+        // BLOCKED SITES (Claude Code's sandbox.network.deniedDomains): in every setting.
+        '<label class="cd-em-l">Blocked sites</label><p class="cd-em-help">Never reached, whatever the setting above allows, and even with a saved secret (Claude Code’s deniedDomains).</p><div class="cd-em-list">' + ((f.denied || []).length ? f.denied.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-netdenydel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">None.</p>') + '</div>' +
+        '<div class="cd-em-addrow"><input id="envDenyIn" placeholder="tracker.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envDenyAdd">Block</button></div>' +
         foot('Save changes');
     } else if (page === 'secrets') {
       body = head('Network secrets', 'main') + '<div class="cd-em-list">' + ((e.secrets || []).length ? e.secrets.map((x) => '<div class="cd-em-li"><span><b>' + esc(x.name || x.hosts.join(', ')) + '</b><small>' + esc(x.hosts.join(', ') + (x.paths && x.paths.length ? ' · ' + x.paths.join(', ') : '') + ' · ' + x.headers.map((h) => h.name).join(', ')) + '</small></span><button type="button" data-secid="' + esc(x.id) + '" data-secname="' + esc(x.name || x.hosts.join(', ')) + '" aria-label="Remove">×</button></div>').join('') : '<p class="cd-muted">No secrets yet.</p>') + '</div>' +
@@ -606,14 +609,14 @@
   }
   function envGo(page) {
     const e = S.env || {}; S.envMsg = ''; S.envPage = page;
-    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false }
+    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false, denied: [...((e.network && e.network.denied) || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
       : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : null;
     draw();
   }
   async function envYes() {
     const page = S.envPage, f = S.envForm;
-    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults } });
+    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults, denied: f.denied || [] } });
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
@@ -1922,6 +1925,9 @@
     on('#envHostAdd', 'click', () => { const i = root.querySelector('#envHostIn'); const v = (i.value || '').trim().toLowerCase(); if (v && !S.envForm.hosts.includes(v)) S.envForm.hosts.push(v); draw(); });
     on('#envHostIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envHostAdd').click(); } });
     on('[data-nethostdel]', 'click', (e) => { S.envForm.hosts = S.envForm.hosts.filter((h) => h !== e.currentTarget.dataset.nethostdel); draw(); });
+    on('#envDenyAdd', 'click', () => { const i = root.querySelector('#envDenyIn'); const v = (i.value || '').trim().toLowerCase(); if (!S.envForm.denied) S.envForm.denied = []; if (v && !S.envForm.denied.includes(v)) S.envForm.denied.push(v); draw(); });
+    on('#envDenyIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envDenyAdd').click(); } });
+    on('[data-netdenydel]', 'click', (e) => { S.envForm.denied = (S.envForm.denied || []).filter((h) => h !== e.currentTarget.dataset.netdenydel); draw(); });
     on('[data-secid]', 'click', async (e) => {
       const { secid, secname } = e.currentTarget.dataset;
       if (!(await askSure('Remove “' + secname + '”?', 'Coder\'s commands will no longer get this key.', 'Remove'))) return;

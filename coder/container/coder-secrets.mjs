@@ -89,12 +89,28 @@ export const NET_MODES = ["none", "trusted", "full", "custom"];
 export function normNetwork(n) {
   let mode = n && NET_MODES.includes(n.mode) ? n.mode : n && (n.mode === "limited" || n.limited) ? "custom" : n && n.limited === false && !n.mode ? "full" : "trusted";
   const defaults = n && typeof n.defaults === "boolean" ? n.defaults : true;
-  return { mode, hosts: (n && Array.isArray(n.hosts) ? n.hosts : []).map(okPattern).filter(Boolean).slice(0, 100), defaults };
+  // (Its blocked sites, only when it has some: an environment without them is as it was, its setup copy too.)
+  const denied = [...new Set((n && Array.isArray(n.denied) ? n.denied : []).map(okPattern).filter(Boolean))].slice(0, 100);
+  return { mode, hosts: (n && Array.isArray(n.hosts) ? n.hosts : []).map(okPattern).filter(Boolean).slice(0, 100), defaults, ...(denied.length ? { denied } : {}) };
 }
+/**
+ * A SITE ON THE ENVIRONMENT'S BLOCKED LIST (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
+ * sandbox.network.deniedDomains: "Domains that are always blocked, even if matched by allowedDomains"; "A connection to a
+ * host in deniedDomains is refused in every permission mode"): refused in every network setting, Full included, and for a
+ * site with a saved key too.
+ */
+export function hostDenied(host, network) {
+  const n = normNetwork(network);
+  const h = String(host || "").toLowerCase();
+  return !!n.denied && n.denied.some((p) => hostMatches(h, p));
+}
+/** Whether a network setting needs the gate in the way: anything but Full, or Full with blocked sites. */
+export const netWalled = (network) => { const n = normNetwork(network); return n.mode !== "full" || !!(n.denied && n.denied.length); };
 /** Is `host` reachable under this setting? Sites with a saved key always are (Claude Code's docs: "even when the network level would not otherwise allow them"). */
 export function hostAllowed(host, network, keyed = []) {
   const n = normNetwork(network);
   const h = String(host || "").toLowerCase();
+  if (hostDenied(h, n)) return false;
   if (keyed.some((p) => hostMatches(h, p))) return true;
   if (n.mode === "full") return true;
   if (n.mode === "none") return false;

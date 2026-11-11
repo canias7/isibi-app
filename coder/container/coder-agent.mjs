@@ -29,6 +29,7 @@ import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE,
 import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookName, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
+import { capHit } from "./coder-scrub.mjs";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto } from "./coder-checker.mjs";
 import { toolGlob, MODES, MODE_NAMES, normMode, bashDecision, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
@@ -2010,6 +2011,13 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit).
         if (now() - started > maxMs) { reply("not run: Coder ran out of time"); emit({ type: "error", text: "Coder ran out of time." }); return end("time"); }
+        // THE SCRIPT CAPS (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS with the
+        // scrub on): a command naming a capped script once too often is not run, in Claude Code's words; the count is kept.
+        if (deps.scriptCaps && deps.scriptCaps.caps && deps.scriptCaps.counts) {
+          const hit = capHit(command, deps.scriptCaps.caps, deps.scriptCaps.counts);
+          try { if (typeof deps.scriptCaps.save === "function") deps.scriptCaps.save(deps.scriptCaps.counts); } catch { /* counted in memory still */ }
+          if (hit) { refuse(hit); continue; }
+        }
         // WHILE A BACKGROUND COMMAND OF THIS JOB MAY BE RUNNING, what it changed before this command gets no note (as in
         // Claude Code) and is not put down to this command; nothing else changes the files during a job.
         if (jobs.size && watching()) { const ch = await changedFiles(deps); if (ch) followed = ch.followed > 0; }

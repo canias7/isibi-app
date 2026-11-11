@@ -32,6 +32,7 @@ import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
+import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
@@ -41,7 +42,7 @@ import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./
 import { globMatch } from "./coder-globs.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
-import { normNetwork, okPattern } from "./coder-secrets.mjs";
+import { normNetwork, okPattern, netWalled } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
@@ -2618,6 +2619,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // blocks below. What waits for the owner's trust is said in the chat, in Claude Code's words.
     const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true });
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
+    // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
+    // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
+    // in GitHub Actions unless the variable says otherwise), credentials leave the variables the commands and hooks get.
+    const varsGiven = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    const scrubOn = varOn(varsGiven.CODER_SUBPROCESS_ENV_SCRUB) || (body.github === true && !varOff(varsGiven.CODER_SUBPROCESS_ENV_SCRUB));
+    if (scrubOn) { scrubVars(repoSet.env); scrubVars(ownerVars); }
+    // THE SCRIPT CAPS, with the scrub on (Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS): each one's count kept
+    // for the chat in a file of root's beside the memory folders, across its messages.
+    const capsGiven = scrubOn ? scriptCapsIn(typeof varsGiven.CODER_SCRIPT_CAPS === "string" ? varsGiven.CODER_SCRIPT_CAPS : "") : null;
+    const capsFile = join(memRoot, project + ".caps.json");
+    let capCounts = {};
+    if (capsGiven) { try { const c = JSON.parse(readFileSync(capsFile, "utf8")); if (c && typeof c === "object" && !Array.isArray(c)) capCounts = c; } catch { capCounts = {}; } }
+    const scriptCaps = capsGiven ? { caps: capsGiven, counts: capCounts, save: (c) => { try { writeFileSync(capsFile, JSON.stringify(c), { mode: 0o600 }); } catch { /* counted in memory still */ } } } : null;
     // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command, before the
     // session's own variables): `git commit --amend`, `git rebase --continue` keep the message git prepared, where before they
     // failed ("Terminal is dumb, but EDITOR unset"). An owner's own GIT_EDITOR wins.
@@ -2702,7 +2716,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const githubOn = !!body.repo && !!(body.egress && typeof body.egress.pass === "string" && body.egress.pass);
     if (githubOn && !ownerVars.GH_TOKEN && !ownerVars.GITHUB_TOKEN) Object.assign(extraEnv, { GH_TOKEN: "proxy-injected", GITHUB_TOKEN: "proxy-injected" });
     const nn = normNetwork(body.setup && body.setup.network);
-    const net = { ...nn, limited: nn.mode !== "full" };
+    // (Full with blocked sites goes through the gate too, which lets anything else through: netWalled.)
+    const net = { ...nn, limited: netWalled(nn) };
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
     t.room = false;
     if (secretList.length || net.limited || githubOn) {
@@ -2717,9 +2732,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           fwOn = firewall(true, RUN_UID);
           // A WALL, NOT A GUARD (step 3): in the sealed room the gate is the only way out.
           t.room = walled = await enterRoom(px, true);
-          netNote = (net.mode === "none"
+          netNote = (net.mode === "full"
+            ? "\n\nNETWORK: FULL, but for the environment's blocked sites: " + (net.denied || []).join(", ") + ". Any other site on the internet works; a request to a blocked one fails with \"Blocked: … is on this environment's blocked sites\" (curl: \"CONNECT tunnel failed, response 403\"), whatever else allows it. Don't retry those; only the owner can change that list."
+            : net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
     }
@@ -2989,6 +3006,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         memFile,
         // THE WORKING FOLDERS ONLY THE REPOSITORY'S SETTINGS ADD (the write block refuses them).
         repoDirs: repoOnlyDirs,
+        // THE SCRIPT CAPS (CODER_SCRIPT_CAPS with the scrub on), or null.
+        scriptCaps,
         bg: {
           alive: async (pid) => { const j = JOBS.get(pid); return !!j && j.project === project && !j.end && groupAlive(pid); },
           // Whether it still runs; once it ended, its exit code and why (its time limit, the owner's Stop, …).
@@ -3184,7 +3203,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t || !t.running) return send(200, { ok: true, applied: false });
         const list = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
         const nn = normNetwork(body.setup && body.setup.network);
-        const net = { ...nn, limited: nn.mode !== "full" };
+        const net = { ...nn, limited: netWalled(nn) };
         try {
           if (list.length || net.limited) {
             const px = await proxyFor();

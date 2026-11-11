@@ -420,3 +420,81 @@ test("CD393 Auto mode turned off (Claude Code's disableAutoMode \"disable\": \"A
   assert.match(page, /if \(e\.toAuto && !S\.autoOff\) o\.push\(\['auto', 'Yes, and switch to auto mode'\]\);/);
   assert.match(page, /\$\('cdSetAutoOff'\)\.onchange = \(e\) => save\('autoOff', e\.currentTarget\.checked\);/);
 });
+
+test("CD394 an environment's blocked sites (Claude Code's sandbox.network.deniedDomains: \"always blocked, even if matched by allowedDomains\", \"refused in every permission mode\"): never reached in any network setting, Full included and with a saved key; Full with blocked sites goes through the gate; the gate refuses them in Coder's words; kept and edited in Environment", async () => {
+  const N = await import("../container/coder-secrets.mjs");
+  // Kept, checked; none: the setting as it was (its setup copy too).
+  assert.deepEqual(N.normNetwork({ mode: "full", denied: ["Tracker.example.com", "*.ads.example", "bad host!", "tracker.example.com"] }).denied, ["tracker.example.com", "*.ads.example"]);
+  assert.equal("denied" in N.normNetwork({ mode: "full" }), false);
+  // Refused in every setting, a keyed site too; the rest as before.
+  const full = { mode: "full", denied: ["tracker.example.com", "*.ads.example"] };
+  assert.deepEqual([N.hostAllowed("tracker.example.com", full), N.hostAllowed("x.ads.example", full), N.hostAllowed("example.org", full)], [false, false, true]);
+  assert.equal(N.hostAllowed("tracker.example.com", full, ["tracker.example.com"]), false, "a saved key doesn't open a blocked site");
+  assert.equal(N.hostAllowed("registry.npmjs.org", { mode: "trusted", denied: ["registry.npmjs.org"] }), false);
+  assert.deepEqual([N.netWalled({ mode: "full" }), N.netWalled(full), N.netWalled({ mode: "trusted" })], [false, true, true]);
+  // The gate: a blocked site refused at once, in Coder's words; any other site in Full not refused by the list.
+  const { mkdtemp } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const net = await import("node:net");
+  const { startProxy, DENIED } = await import("../container/coder-proxy.mjs");
+  const px = await startProxy({ dir: join(await mkdtemp(join(tmpdir(), "coder-p6px-")), "px") });
+  try {
+    px.setNetwork(full);
+    const ask = (text) => new Promise((ok) => { let b = ""; const s = net.connect(px.port, "127.0.0.1", () => s.write(text)); const done = () => { clearTimeout(tm); s.destroy(); ok(b); }; const tm = setTimeout(done, 4000); s.on("data", (x) => { b += x; if (/\r\n\r\n/.test(b) && /^HTTP\/1\.1 (200|403)/.test(b) && (/^HTTP\/1\.1 200/.test(b) || b.includes("is on this environment"))) done(); }); s.on("close", done); s.on("error", done); });
+    const c = await ask("CONNECT tracker.example.com:443 HTTP/1.1\r\nHost: tracker.example.com:443\r\n\r\n");
+    assert.match(c, /^HTTP\/1\.1 403 Forbidden\r\nX-Coder-Blocked: tracker\.example\.com\r\n/);
+    assert.ok(c.endsWith(DENIED("tracker.example.com")));
+    assert.equal(DENIED("tracker.example.com"), "Blocked: tracker.example.com is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.");
+    const h = await ask("GET http://x.ads.example/a HTTP/1.1\r\nHost: x.ads.example\r\n\r\n");
+    assert.match(h, /^HTTP\/1\.1 403 /);
+    assert.ok(h.includes("x.ads.example is on this environment's blocked sites"));
+    assert.deepEqual(px.blockedSince(0).map((b) => [b.host, b.why]), [["tracker.example.com", "on the blocked sites list"], ["x.ads.example", "on the blocked sites list"]]);
+  } finally { await px.close(); }
+  // The machine: Full with blocked sites is walled like a limited setting, and Coder is told which.
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.equal((server.match(/const net = \{ \.\.\.nn, limited: netWalled\(nn\) \};/g) || []).length, 2);
+  assert.match(server, /NETWORK: FULL, but for the environment's blocked sites: /);
+  // The Worker keeps the list (checked); the page edits it under Network access.
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /if \(denied\.length > 100\) return json\(\{ error: "at most 100 blocked sites" \}, 400\);/);
+  const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(page, /network: \{ mode: f\.mode, hosts: f\.hosts, defaults: f\.defaults, denied: f\.denied \|\| \[\] \}/);
+  assert.match(page, /<label class="cd-em-l">Blocked sites<\/label>/);
+});
+
+test("CD395 the subprocess environment scrub and the script caps (Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB and CLAUDE_CODE_SCRIPT_CAPS, here CODER_SUBPROCESS_ENV_SCRUB and CODER_SCRIPT_CAPS): credentials by name or value leave the commands' variables, GitHub tokens and the proxy stay, an index address loses its password; a capped script runs only so many times a chat, in Claude Code's words", async () => {
+  const X = await import("../container/coder-scrub.mjs");
+  // Names, by Claude Code's own pattern.
+  for (const n of ["NPM_TOKEN", "DB_PASSWORD", "AWS_SECRET_ACCESS_KEY", "MY_API_KEY", "SLACK_WEBHOOK", "SENTRY_DSN", "API_KEYS", "MYTOKEN", "DB_PASS", "DATABASE_CONNECTION_STRING", "mongoConnString", "INPUT_NPM_TOKEN"]) assert.equal(X.credentialName(n), true, n);
+  for (const n of ["GITHUB_TOKEN", "GH_TOKEN", "GH_ENTERPRISE_TOKEN", "HTTPS_PROXY", "no_proxy", "GIT_CONFIG_KEY_0", "GIT_CONFIG_COUNT", "PWD", "OLDPWD", "PATH", "KEYBOARD_LAYOUT", "AUTHOR", "NODE_ENV", "PATCH_LEVEL"]) assert.equal(X.credentialName(n), false, n);
+  // Values, by their shape.
+  for (const v of ["postgres://app:hunter2@db:5432/shop", "https://ghp_abcdefghijklmnopqrstuv@github.com/x", "app:hunter2@db.internal", "-----BEGIN RSA PRIVATE KEY-----\nMII", "Authorization: Bearer abcdef123456", "Bearer abc123def456", "sk-abcdefghijklmnopqrstu"]) assert.equal(X.credentialValue(v), true, v);
+  for (const v of ["https://example.com/a", "hello world", "node:20@sha256:" + "a".repeat(64), "C:\\tools", "mailto:x@y.z", "npm:left-pad@1.3.0", "production"]) assert.equal(X.credentialValue(v), false, v);
+  // A set of variables, in place: the names removed are answered, never the values.
+  const vars = { NPM_TOKEN: "x", DATABASE_URL: "postgres://app:hunter2@db/shop", PIP_INDEX_URL: "https://me:pw@pypi.corp.example/simple", GITHUB_TOKEN: "ghp_abcdefghijklmnopqrstuv", HTTPS_PROXY: "http://u:p@proxy:3128", NODE_ENV: "test" };
+  assert.deepEqual(X.scrubVars(vars), ["NPM_TOKEN", "DATABASE_URL"]);
+  assert.deepEqual(vars, { PIP_INDEX_URL: "https://pypi.corp.example/simple", GITHUB_TOKEN: "ghp_abcdefghijklmnopqrstuv", HTTPS_PROXY: "http://u:p@proxy:3128", NODE_ENV: "test" });
+  // The caps, as Claude Code reads them and counts.
+  assert.deepEqual(X.scriptCapsIn('{"deploy.sh": 2, "x": "3", " ": 1}'), { "deploy.sh": 2 });
+  assert.deepEqual([X.scriptCapsIn("nope"), X.scriptCapsIn("[]"), X.scriptCapsIn("")], [null, null, null]);
+  const counts = {};
+  assert.deepEqual([X.capHit("./scripts/deploy.sh", { "deploy.sh": 2 }, counts), X.capHit("./scripts/deploy.sh $(evil)", { "deploy.sh": 2 }, counts)], ["", ""]);
+  assert.equal(X.capHit("./scripts/deploy.sh && ./scripts/deploy.sh", { "deploy.sh": 2 }, counts), "Script call limit exceeded: deploy.sh has been called 4 times (cap: 2). This limit prevents data exfiltration via repeated write operations in untrusted-input workflows.");
+  assert.equal(counts["deploy.sh"], 4, "counted even when refused");
+  assert.equal(X.capHit("ls", { "deploy.sh": 2 }, counts), "");
+  // In the loop: the third deploy is not run.
+  const saved = [];
+  const caps = { caps: { "deploy.sh": 2 }, counts: {}, save: (c) => saved.push({ ...c }) };
+  const t = await job([say("", [call("bash", { command: "./deploy.sh", description: "Deploy" }, "b1"), call("bash", { command: "./deploy.sh", description: "Deploy" }, "b2"), call("bash", { command: "./deploy.sh", description: "Deploy" }, "b3")]), say("ok")], { deps: { scriptCaps: caps }, mode: "auto", extra: {} });
+  assert.deepEqual(t.ran.map((c) => c.split("\n").pop()), ["./deploy.sh", "./deploy.sh"]);
+  assert.match(t.told("b3"), /^Script call limit exceeded: deploy\.sh has been called 3 times \(cap: 2\)\./);
+  assert.deepEqual(saved.at(-1), { "deploy.sh": 3 }, "kept for the chat's next messages");
+  // The machine: the scrub on the owner's and the repository's variables (on by default from GitHub), the caps only with it.
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /const scrubOn = varOn\(varsGiven\.CODER_SUBPROCESS_ENV_SCRUB\) \|\| \(body\.github === true && !varOff\(varsGiven\.CODER_SUBPROCESS_ENV_SCRUB\)\);\n\s+if \(scrubOn\) \{ scrubVars\(repoSet\.env\); scrubVars\(ownerVars\); \}/);
+  assert.match(server, /const capsGiven = scrubOn \? scriptCapsIn\(/);
+  assert.doesNotMatch(readFileSync(new URL("../container/coder-scrub.mjs", import.meta.url), "utf8"), /from "node:/);
+});
