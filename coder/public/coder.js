@@ -318,17 +318,21 @@
   // outside the redrawn chat (as Notifications does), so typing in it isn't lost while Gloopy works. A change that
   // closes a card waiting now shows in the chat behind it.
   const GSET_PERM_WORDS = { ask: 'Ask', allow: 'Always allow', deny: 'Never' };
+  const GSET_SIGNED_HOW = { form: 'You signed in on the card', saved: 'With your saved login', code: 'With a code', 'took over': 'You signed in yourself' };
+  const gsetWhen = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   async function showGloopySettings() {
     if (!S.project) return;
     const base = '/projects/' + encodeURIComponent(S.project.id);
-    const [pr, rr, sr, or] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites'), call(base + '/options')]);
+    const [pr, rr, sr, or, gr] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites'), call(base + '/options'), call(base + '/signins')]);
     if (pr.status !== 200 || rr.status !== 200 || sr.status !== 200 || or.status !== 200) { note(((pr.data || rr.data || sr.data || or.data || {}).error) || 'Gloopy’s settings could not be opened.'); return; }
     const st = {
       perms: pr.data.permissions || {}, permList: pr.data.list || [], permModes: pr.data.modes || ['ask', 'allow', 'deny'],
       rules: rr.data.rules || [], ruleModes: rr.data.modes || [], ruleWords: rr.data.words || {}, ruleMax: rr.data.max || 20,
       sites: sr.data.sites || [], siteModes: sr.data.modes || [], siteWords: sr.data.words || {}, siteMax: sr.data.max || 50,
       options: or.data.options || { monitor: true },
-      edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', note: '', busy: false,
+      // Where its browser is signed in, and your saved logins (the /signins card's), when they could be had.
+      signins: gr.status === 200 && gr.data ? { sites: gr.data.sites || [], saved: gr.data.saved || [] } : null,
+      edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', outHost: '', note: '', busy: false,
     };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-gset-wrap';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-gset'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Gloopy’s settings');
@@ -357,6 +361,14 @@
         '<section><h3>Sites</h3><p class="cd-gset-hint">What Gloopy’s browser may do on a site and its subdomains. Never: it doesn’t open the site or do anything there. Ask first: it asks before opening it, and before each step there that would change something. Hand off to me: those steps are yours. Always allow: they go ahead unless the check finds another reason to stop.</p>' +
         '<form class="cd-gset-add cd-gset-siteadd" data-gs="add-site"><input id="gsSiteHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="shop.example" value="' + esc(st.siteHost) + '" aria-label="Site"><select id="gsSiteMode" class="cd-gset-sel" aria-label="Choice for this site">' + opts(st.siteModes, st.siteWords, st.siteMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add site</button></form>' +
         (st.sites.length ? '<ul class="cd-gset-list">' + st.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text cd-gset-host">' + esc(x.host) + '</span><select class="cd-gset-sel" data-site="' + esc(x.host) + '" aria-label="Choice for ' + esc(x.host) + '">' + opts(st.siteModes, st.siteWords, x.mode) + '</select><span class="cd-gset-btns"><button type="button" data-gs-unsite="' + esc(x.host) + '" aria-label="Remove ' + esc(x.host) + '">Remove</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No sites yet.</p>') + '</section>' +
+        // THE BROWSER'S SIGN-INS (the docs check, 2026-11-11: both apps keep them in their settings, dots' "Browser data";
+        // Gloopy had them only by typing /signins): where it is signed in, Sign out for each site or any other, and the
+        // logins you saved for it, to forget.
+        '<section><h3>Browser</h3><p class="cd-gset-hint">Where Gloopy’s browser is signed in. Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it.</p>' +
+        (!st.signins ? '<p class="cd-gset-none">Gloopy’s sign-ins couldn’t be loaded. Close this and try again.</p>'
+          : (st.signins.sites.length ? '<ul class="cd-gset-list">' + st.signins.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(x.site) + '</b><small>' + esc(GSET_SIGNED_HOW[x.how] || 'Signed in') + (x.at ? ' · ' + esc(gsetWhen(x.at)) : '') + '</small></span><span class="cd-gset-btns"><button type="button" data-gs-signout="' + esc(x.site) + '"' + (st.busy ? ' disabled' : '') + '>Sign out</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet.</p>') +
+          '<form class="cd-gset-add cd-gset-siteadd" data-gs="signout-site"><input id="gsOutHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Another site, like shop.example" value="' + esc(st.outHost) + '" aria-label="Sign out of another site"><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Sign out</button></form>' +
+          (st.signins.saved.length ? '<h4 class="cd-gset-sub">Saved logins</h4><ul class="cd-gset-list">' + st.signins.saved.map((l) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(l.site) + '</b>' + (l.username ? '<small>' + esc(l.username) + '</small>' : '') + '</span><span class="cd-gset-btns"><button type="button" data-gs-forget="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>Forget</button></span></li>').join('') + '</ul>' : '')) + '</section>' +
         // The monitor (dots' safety monitoring).
         '<section><h3>Watch over each run</h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"' + (st.options.monitor ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>A second AI looks over what Gloopy does as it works, every few steps and right after anything is refused, and pauses the run if Gloopy seems to get around a safeguard or do what you didn’t ask. It uses a little more Grok.</span></label></section>' +
         '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '');
@@ -374,7 +386,7 @@
     };
     box.addEventListener('input', (e) => {
       const t = e.target;
-      if (t.id === 'gsRuleText') st.ruleText = t.value; else if (t.id === 'gsEditText') st.editText = t.value; else if (t.id === 'gsSiteHost') st.siteHost = t.value;
+      if (t.id === 'gsRuleText') st.ruleText = t.value; else if (t.id === 'gsEditText') st.editText = t.value; else if (t.id === 'gsSiteHost') st.siteHost = t.value; else if (t.id === 'gsOutHost') st.outHost = t.value;
     });
     box.addEventListener('change', (e) => {
       const t = e.target;
@@ -388,6 +400,7 @@
       if (what === 'add-rule') { const text = st.ruleText.trim(); if (!text) { st.note = 'Write the rule first.'; return paint(); } if (await save('/rules', { add: { text, mode: st.ruleMode } }, (d) => { st.rules = d.rules; })) { st.ruleText = ''; paint(); } }
       else if (what === 'save-rule') { if (await save('/rules', { change: { id: f.dataset.id, text: st.editText, mode: st.editMode } }, (d) => { st.rules = d.rules; })) { st.edit = ''; paint(); } }
       else if (what === 'add-site') { const host = st.siteHost.trim(); if (!host) { st.note = 'Write the site’s address first.'; return paint(); } if (await save('/sites', { set: { host, mode: st.siteMode } }, (d) => { st.sites = d.sites; })) { st.siteHost = ''; paint(); } }
+      else if (what === 'signout-site') { const site = st.outHost.trim(); if (!site) { st.note = 'Write the site’s address first.'; return paint(); } if (await signOut(site)) { st.outHost = ''; paint(); } }
     });
     box.addEventListener('click', (e) => {
       const t = e.target.closest('button');
@@ -399,7 +412,21 @@
       else if (d.gsEdit) { const r = st.rules.find((x) => x.id === d.gsEdit); if (r) { st.edit = r.id; st.editText = r.text; st.editMode = r.mode; paint(); const i = box.querySelector('#gsEditText'); if (i) i.focus(); } }
       else if (d.gsDel) save('/rules', { remove: d.gsDel }, (x) => { st.rules = x.rules; });
       else if (d.gsUnsite) save('/sites', { remove: d.gsUnsite }, (x) => { st.sites = x.sites; });
+      else if (d.gsSignout) signOut(d.gsSignout);
+      else if (d.gsForget) save('/logins', { remove: d.gsForget }, () => {}).then((ok) => (ok ? signinsAgain() : null));
     });
+    // Signing out (it can take a moment: Gloopy's computer is woken for it): its words, and the list as it is now.
+    const signinsAgain = async () => { const l = await call(base + '/signins'); if (l.status === 200 && l.data) st.signins = { sites: l.data.sites || [], saved: l.data.saved || [] }; paint(); };
+    const signOut = async (site) => {
+      st.busy = true; st.note = 'Signing Gloopy out of ' + site + '…'; paint();
+      const r = await call(base + '/signout', { method: 'POST', body: JSON.stringify({ site }) });
+      st.busy = false;
+      if (r.status !== 200 || !r.data || r.data.error) { st.note = (r.data && r.data.error) || 'That could not be done.'; paint(); return false; }
+      if (st.signins && Array.isArray(r.data.sites)) st.signins.sites = r.data.sites;
+      if (r.data.project) S.project = r.data.project;
+      st.note = r.data.said || 'Signed out.'; paint();
+      return true;
+    };
     paint();
     const first = box.querySelector('.cd-gset-seg button'); if (first) first.focus();
   }

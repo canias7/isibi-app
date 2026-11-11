@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Finishing the browser from the docs (your words: "Lets finish the browser" and "Yes do that")
+
+**The check:** I re-read both apps' docs: Grok Bot's 26 pages, Cursor's copy and help center, and dots' docs and security pages. Since the check the morning before, they had changed only wording, nothing about the browser. OpenAI's two help-center articles about the cloud browser block automated readers, so dots was checked from its docs site. What was left for the browser: the two small things below, then sending the browser's traffic through your own computer.
+
+- **Where Gloopy is signed in, in Settings.** A new "Browser" section in Gloopy's Settings lists each site its browser is signed in to, how and when (on the card, with a saved login, with a code, or by you), with Sign out. You can also sign it out of any other site and forget a saved login. Before, this was only in the chat, by typing /signins. Both apps keep it in their settings; dots calls it "Browser data".
+- **Screenshot times in your time zone.** When Gloopy saves a screenshot as proof, it's now told the time in your time zone, with UTC beside it ("Tue, Nov 10, 2026, 10:30:12 AM EST"). Before, it had only UTC, so it told you UTC times. Grok Bot's docs ask for screenshots with "timestamps and time zones". Its helpers' screenshots too.
+
+Tests GL111 and GL112; GL105 updated.
+
 ## 2026-11-10: The new browser pieces tried live, and four fixes
 
 Tried on test.gofarther.dev with Grok, recorded. What worked:

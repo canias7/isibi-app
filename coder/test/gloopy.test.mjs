@@ -5125,7 +5125,7 @@ test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Al
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /\(S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' \+ ICON\.sliders \+ 'Settings<\/button>' : ''\)/);
   assert.match(ui, /on\('#cdGset', 'click', \(\) => \{ showGloopySettings\(\); \}\);/);
-  assert.match(ui, /const \[pr, rr, sr, or\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\), call\(base \+ '\/options'\)\]\);/);
+  assert.match(ui, /const \[pr, rr, sr, or, gr\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\), call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/);
   for (const words of ["What Gloopy may do on its own", "Your rules", "When Gloopy wants to", "It should", "Add rule", "Save rule", "Sites", "Add site", "No rules yet.", "No sites yet."]) assert.ok(ui.includes(words), words);
   assert.match(ui, /else if \(t\.dataset\.site\) save\('\/sites', \{ set: \{ host: t\.dataset\.site, mode: t\.value \} \}/);
   assert.match(ui, /if \(r\.data\.closed && S\.project\) \{ reloadChat\(S\.project\.id\);/);
@@ -5483,4 +5483,50 @@ test("GL110 (2026-11-10) live test: the live view is a stream: one request carri
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]);
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + hubDir]);
   }
+});
+
+test("GL111 (2026-11-11) the docs check: a screenshot's time is given in the owner's own time zone (Grok Bot's docs: screenshots with \"timestamps and time zones\"), with UTC beside it, for Gloopy and its helpers; UTC alone when their zone isn't known", async () => {
+  const { ownerTime } = await import("../container/coder-agent.mjs");
+  const at = Date.UTC(2026, 10, 10, 15, 30, 12);
+  assert.equal(ownerTime(at, "America/New_York"), "Tue, Nov 10, 2026, 10:30:12 AM EST (the owner's time; 2026-11-10 15:30:12 UTC)");
+  assert.equal(ownerTime(at, "Europe/Bucharest"), "Tue, Nov 10, 2026, 5:30:12 PM GMT+2 (the owner's time; 2026-11-10 15:30:12 UTC)");
+  for (const z of ["", "Not/AZone", "x".repeat(65), null]) assert.equal(ownerTime(at, z), "2026-11-10 15:30:12 UTC");
+  // In a job: the note Gloopy gets says the owner's time.
+  const PNG = Buffer.from("png").toString("base64");
+  const hub = { describe: async () => ({ element: null, url: "https://jobs.example/", host: "jobs.example", frameHost: "jobs.example", title: "Jobs" }), act: async () => ({ text: "Did: Took a screenshot of what is in view\nPage: Jobs\nAddress: https://jobs.example/\n\n", shot: "", picture: { type: "png", data: PNG } }), collect: async () => null };
+  const exec = async ({ command }) => { const req = JSON.parse(Buffer.from(command.split(" ").pop(), "base64").toString("utf8")); return req.tool === "save_file" ? { code: 0, output: "files/" + req.args.name } : { code: 0, output: "" }; };
+  const c = scripted([say("", [call("browser", { action: "screenshot" }, "s1")]), say("Done.")]);
+  const out = await runCoder({ send: c.send, exec, browser: hub, now: () => at }, { text: "Take a screenshot", ...GLOOPY, zone: "America/New_York" });
+  assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /Saved the screenshot in your work folder: files\/screenshot-jobs\.example-2026-11-10T15-30-12Z\.png \(taken Tue, Nov 10, 2026, 10:30:12 AM EST \(the owner's time; 2026-11-10 15:30:12 UTC\); send it with files when the owner wants it\)\./);
+  // Its machine passes the owner's zone in, and on to the helpers.
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /\.\.\.\(gloopy \? \{ system: GLOOPY_SYSTEM, zone: typeof body\.ownerZone === "string" \? body\.ownerZone\.slice\(0, 64\) : "",/);
+  const agent = await readFile(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(agent, /asHelper: true, ownerSaid: said, rules, permissions: perms, sites, background, monitor, model, effort, zone, github: false/);
+});
+
+test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section (both apps keep the browser's sign-ins in their settings; Gloopy had them only by typing /signins): where its browser is signed in, how and when, Sign out for each site or any other, and the saved logins to forget, through the Worker's own routes", async () => {
+  const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/, "the sign-ins are asked for with the rest");
+  assert.match(ui, /signins: gr\.status === 200 && gr\.data \? \{ sites: gr\.data\.sites \|\| \[\], saved: gr\.data\.saved \|\| \[\] \} : null,/);
+  assert.match(ui, /'<section><h3>Browser<\/h3><p class="cd-gset-hint">Where Gloopy’s browser is signed in\. Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it\.<\/p>'/);
+  assert.match(ui, /data-gs-signout="' \+ esc\(x\.site\) \+ '"/);
+  assert.match(ui, /esc\(GSET_SIGNED_HOW\[x\.how\] \|\| 'Signed in'\) \+ \(x\.at \? ' · ' \+ esc\(gsetWhen\(x\.at\)\) : ''\)/);
+  assert.match(ui, /<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet\.<\/p>/);
+  assert.match(ui, /data-gs="signout-site"><input id="gsOutHost"/, "any other site too");
+  assert.match(ui, /'<h4 class="cd-gset-sub">Saved logins<\/h4>/);
+  assert.match(ui, /data-gs-forget="' \+ esc\(l\.id\) \+ '"/);
+  // Each through the Worker's routes, the same as the /signins card's; the list as it is after.
+  assert.match(ui, /else if \(d\.gsSignout\) signOut\(d\.gsSignout\);/);
+  assert.match(ui, /const r = await call\(base \+ '\/signout', \{ method: 'POST', body: JSON\.stringify\(\{ site \}\) \}\);/);
+  assert.match(ui, /if \(st\.signins && Array\.isArray\(r\.data\.sites\)\) st\.signins\.sites = r\.data\.sites;/);
+  assert.match(ui, /st\.note = r\.data\.said \|\| 'Signed out\.';/);
+  assert.match(ui, /else if \(d\.gsForget\) save\('\/logins', \{ remove: d\.gsForget \}, \(\) => \{\}\)\.then\(\(ok\) => \(ok \? signinsAgain\(\) : null\)\);/);
+  assert.match(ui, /else if \(what === 'signout-site'\) \{ const site = st\.outHost\.trim\(\); if \(!site\) \{ st\.note = 'Write the site’s address first\.'; return paint\(\); \}/);
+  // The Worker's routes it uses.
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(routes, /if \(action === "signins" && request\.method === "GET"\) return json\(\{ ok: true, sites: await readSignins\(bucket, uid\), saved: loginList\(await readLogins\(env, bucket, uid\)\) \}\);/);
+  assert.match(routes, /if \(action === "signout" && request\.method === "POST"\)/);
+  const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /\.cd-gset-text small\{display:block;margin-top:2px;font-size:12px;color:#8a857d\}/);
 });

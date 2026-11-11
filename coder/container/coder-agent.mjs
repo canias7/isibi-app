@@ -198,18 +198,28 @@ async function readOwnFile(deps, path) {
   return { name: String(file.name || ""), size: Number(file.size) || 0, data: file.data };
 }
 /**
+ * A MOMENT IN THE OWNER'S TIME (the docs check, 2026-11-11: Grok Bot's docs ask for screenshots with "timestamps and time
+ * zones"; Gloopy said "10:39 UTC"): "Tue, Nov 10, 2026, 5:39:12 AM EST (the owner's time; 2026-11-10 10:39:12 UTC)", or the
+ * UTC time alone when their time zone isn't known.
+ */
+export function ownerTime(at, zone = "") {
+  const utc = new Date(at).toISOString().slice(0, 19).replace("T", " ") + " UTC";
+  if (typeof zone !== "string" || !zone || zone.length > 64) return utc;
+  try { return new Intl.DateTimeFormat("en-US", { timeZone: zone, weekday: "short", year: "numeric", month: "short", day: "numeric", hour: "numeric", minute: "2-digit", second: "2-digit", timeZoneName: "short" }).format(new Date(at)) + " (the owner's time; " + utc + ")"; } catch { return utc; }
+}
+/**
  * WHAT GLOOPY'S BROWSER HANDED OVER (owner, 2026-11-10: "yes go ahead", fixes 1 and 2), put in files/ in its work folder
  * by a step run as `dev` (save_file: never over another file): a screenshot it asked for, as evidence (Grok Bot's docs:
  * "screenshots with the relevant state visible, timestamps"), and downloads. A line for Gloopy about each.
  */
-async function keepFromBrowser(deps, r, at) {
+async function keepFromBrowser(deps, r, at, zone = "") {
   const lines = [];
   const put = async (name, data) => { const s = await appTool(deps, "save_file", { name, data }); const path = s.code === 0 ? s.output.trim() : ""; return path && !path.includes("\n") ? path : ""; };
   if (r && r.picture && typeof r.picture.data === "string") {
     const host = ((/^Address: https?:\/\/([^/\s:?#]+)/m.exec(String(r.text || "")) || [])[1] || "page").replace(/[^a-z0-9.-]/gi, "").slice(0, 60) || "page";
     const stamp = new Date(at).toISOString().replace(/:/g, "-").replace(/\.\d+Z$/, "Z");
     const path = await put("screenshot-" + host + "-" + stamp + (r.picture.type === "jpeg" ? ".jpg" : ".png"), r.picture.data);
-    lines.push(path ? "Saved the screenshot in your work folder: " + path + " (taken " + new Date(at).toISOString().slice(0, 19).replace("T", " ") + " UTC; send it with files when the owner wants it)." : "The screenshot could not be saved in your work folder.");
+    lines.push(path ? "Saved the screenshot in your work folder: " + path + " (taken " + ownerTime(at, zone) + "; send it with files when the owner wants it)." : "The screenshot could not be saved in your work folder.");
   }
   for (const f of (r && Array.isArray(r.downloads) ? r.downloads : []).slice(0, 10)) {
     const name = fileNameOf(f && f.name);
@@ -570,7 +580,7 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [] } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -662,7 +672,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // started, or one the owner started while they had the browser; put in files/ the same way, and said here.
   if (deps.browser && typeof deps.browser.collect === "function" && convo[jobStart] && convo[jobStart].role === "user") {
     const got = await deps.browser.collect().catch(() => null);
-    const lines = got ? await keepFromBrowser(deps, got, now()) : [];
+    const lines = got ? await keepFromBrowser(deps, got, now(), zone) : [];
     if (lines.length) convo[jobStart] = { ...convo[jobStart], content: convo[jobStart].content + "\n\n(Note from Gloopy's app, about your browser: " + lines.join(" ") + ")" };
   }
   // A PART OF YOUR PAGE THE OWNER MARKED, or A TASK THEY SHOWED YOU in your browser (the second docs check, 2026-11-10).
@@ -1139,7 +1149,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         try { r = await hub.act(act); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         const did = scrub((/^Did: (.{1,300})$/m.exec(r.text) || [])[1] || "");
         // A screenshot asked for, and downloads, put in the work folder (fixes 1 and 2).
-        const kept = await keepFromBrowser(deps, r, now());
+        const kept = await keepFromBrowser(deps, r, now(), zone);
         const out = capOutput(String(r.text || ""));
         const told = kept.length ? "\n\n" + kept.join("\n") : "";
         if (r.shot) roundPics.push({ path: "the browser", urls: ["data:image/jpeg;base64," + r.shot] });
@@ -1310,7 +1320,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           // A done step's own words keep its helper's name too (live test, 2026-11-10: "Opened …" said not whose step it was).
           const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}), ...(e.type === "result" && typeof e.label === "string" && e.label ? { label: "“" + t.name + "” · " + e.label } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
           const lane = lanes ? lanes.lane((k % HELPERS_MAX) + 1) : null;
-          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}) }, { text: t.task, system: helper.system, tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, rules, permissions: perms, sites, background, monitor, model, effort, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
+          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}) }, { text: t.task, system: helper.system, tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, rules, permissions: perms, sites, background, monitor, model, effort, zone, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
             .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));
         }));
         for (const r of runs) for (const u of r.usage || []) usage.push(u);
