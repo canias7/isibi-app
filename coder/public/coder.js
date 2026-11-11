@@ -1111,6 +1111,22 @@
     return { line: line.charAt(0).toUpperCase() + line.slice(1), failed };
   }
 
+  /**
+   * HOW EACH BACKGROUND COMMAND ENDED, by its id: from the notes Coder was given (an end, or the machine's restart), and from
+   * Coder's own stop (live test after deploy 123: a job Coder stopped gets no end notice, so its step kept saying "running").
+   * A chat from before the stop's mark is read by Claude Code's words for it ("Successfully stopped task: <id> …").
+   */
+  function bgEndsOf(events) {
+    const ends = {};
+    for (const e of events || []) {
+      if (e.type === 'note') { if (e.job && e.end) ends[e.job] = e.end; if (Array.isArray(e.jobs)) for (const j of e.jobs) ends[j] = { ok: false, label: 'stopped' }; }
+      else if (e.type === 'result') {
+        const m = typeof e.stoppedJob === 'string' && e.stoppedJob ? [0, e.stoppedJob] : e.code === 0 ? /^Successfully stopped task: (\S+) \(/.exec(String(e.output || '')) : null;
+        if (m && !ends[m[1]]) ends[m[1]] = { ok: false, label: 'stopped' };
+      }
+    }
+    return ends;
+  }
   function stepsHTML() {
     const out = [];
     const results = {};
@@ -1119,8 +1135,7 @@
     S.events.forEach((e, i) => { if (e.type === 'user') lastUser = i; });
     // `ok`: an exit code Claude Code counts as no failure (grep's 1, "No matches found"), so neither a red mark nor a failure.
     // A BACKGROUND COMMAND THAT ENDED (Coder was told: its line names its id) shows how: ✓, a failure, or stopped.
-    S.bgEnded = {};
-    for (const e of S.events) if (e.type === 'note') { if (e.job && e.end) S.bgEnded[e.job] = e.end; if (Array.isArray(e.jobs)) for (const j of e.jobs) S.bgEnded[j] = { ok: false, label: 'stopped' }; }
+    S.bgEnded = bgEndsOf(S.events);
     // A STEP WAITING ON THE OWNER'S YES (a permission card): "waiting for you", not running.
     const answered = new Set(S.events.filter((x) => x.type === 'permanswer').map((x) => x.pid));
     const waitingIds = new Set(S.events.filter((x) => x.type === 'permission' && x.id && !answered.has(x.pid)).map((x) => x.id));

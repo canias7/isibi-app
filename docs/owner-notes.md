@@ -11,6 +11,29 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Deploy 123: passes 8 and 9 live, and tested live with Grok (recordings 33 and 33b) (your words: "merge and deploy")
+
+Merged into main and deployed (deploy 123, live at 09:59 UTC). All 538 tests passed first, here and on GitHub.
+
+Tested live on gofarther.dev with Grok and filmed, in a new chat on canias7/testingforclaude ("Live test 10 Nov" environment, Accept edits). All passed:
+- **The machine:** zsh 5.9, `TERM=linux`, `CLAUDE_CODE_REMOTE=true`, `GIT_EDITOR=true`, git's `origin` set, the scratch folder `/tmp/coder-scratch` there, and a command's output and errors in the order they were printed.
+- **A refused step:** `sleep 30` (refused by Coder's own check) stood on its own row with "✕ not run". The groups around it said "Ran 2 commands" and "Ran 2 commands".
+- **Two commands that now ask**, each with Claude Code's reason: `[[ -n $(ls) ]] && echo has-files` ("[[ ]] test contains expansion / command / process substitution") and `ls & echo started` ("This command uses the `&` background operator, which defers execution past approval-time safety checks. Approve only if you trust it."). `echo $ZSH_VERSION` asked too: "A variable in this command can't be checked before it runs", also Claude Code's.
+- **"Yes, and don't ask again"** for `mkdir -p live-test-dir` saved `Bash(mkdir -p live-test-dir)`, the exact command, as Claude Code does.
+- **A 5-second time limit** on `tail -f /dev/null`: moved to the background, in Claude Code's words ("Command did not complete within its 5s timeout and was moved to the background (ID: job1).").
+- **A background command stuck on "Continue? (y/n)"** (it printed the question, then sat quiet): about 45 seconds later Coder was told it "appears to be waiting for interactive input". It woke up by itself and stopped it.
+- **The page:** Network access shows None, Limited and Full, with "Allow package managers" and "Allowed domains". The variables page named PATH as "not given to commands", and your own `!` command showed the machine's PATH, without the one I added. A stand-in key for registry.npmjs.org (not a real key) showed "Not sent", with its note.
+
+**Found in the test, fixed on the branch (not live yet):** after Coder stopped a background command itself, that command's step still said "running", even after a reload. This dates from 2026-11-09: a command Coder stops gets no end notice (Coder already knows), and the page only learned a command had ended from those notices. Now Coder's stop names the command, and its step says "stopped". Older chats are read by Claude Code's words for a stop. Test CD505. It needs your "merge and deploy" to go live.
+
+**My test script's own slip:** in the first run, the key step looked before the save had finished, so the clean-up missed the stand-in key. The second run (33b) found it, showed it, and removed it.
+
+**Afterwards your test settings are as they were:** no saved keys, the same two variables, Limited with package managers, no rules, nothing running.
+
+**Not tried live this time** (the automated tests cover them): the hooks details (part 5), a monitor's limits, the PowerShell details (pass 8), the other safety items of pass 8 and pass 9 part 1, rules typed like commands, each tool's proxy setting, read-only commands run at the same time.
+
+Grok cost: 7 messages and one wake-up, at Low effort; my estimate is well under $1.
+
 ## 2026-11-11: Bash docs pass 9, part 6 built: the page (your words: "Yes pls", to building the list in order)
 
 Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 538 automated tests pass (7 of them new). Screenshots are in the chat; you direct the design.

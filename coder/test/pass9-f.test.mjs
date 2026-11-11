@@ -181,3 +181,30 @@ test("CD504 the variable names commands never get are named on the page (they we
   assert.match(ui, /\(\(e\.varsDropped \|\| \[\]\)\.length \? '<p class="cd-em-help cd-em-warnnote">Not given to commands: ' \+ esc\(e\.varsDropped\.join\(', '\)\) \+ '\. Coder\\'s machine keeps its own PATH, HOME, SHELL and USER/);
   assert.match(ui, /' · ' \+ e\.varsDropped\.length \+ ' not given to commands'/);
 });
+
+test("CD505 a background command Coder stops itself shows \"stopped\" on its own step (live test after deploy 123: it said \"running\" after Coder's stop, because a job Coder stops gets no end notice); a chat from before is read by Claude Code's words", async () => {
+  // The agent: its stop's result names the job it stopped; a stop that found nothing running names none.
+  const steps = [say("", [call("bash", { command: "python3 -m http.server 8000", run_in_background: true }, "b1")]), say("", [call("stop_job", { job: "job1" }, "s1")]), say("", [call("stop_job", { job: "job1" }, "s2")]), say("Done.")];
+  let n = 0, running = true;
+  const events = [];
+  await A.runCoder({
+    send: async () => steps[Math.min(n++, steps.length - 1)],
+    exec: async ({ command }) => (command.startsWith("python3") ? { code: -1, background: true, pid: 4242, log: "/srv/bg/bg-1.log", output: "" } : { code: 0, output: "" }),
+    bg: { alive: async () => running, stop: async () => { running = false; return true; } },
+    emit: (e) => events.push(e),
+  }, { text: "serve the folder" });
+  const res = (id) => events.find((e) => e.type === "result" && e.id === id);
+  assert.equal(res("s1").stoppedJob, "job1");
+  assert.equal(res("s2").stoppedJob, undefined, "it was not running: nothing stopped");
+  // The page: how each background command ended, from notes and from Coder's stops.
+  const bgEndsOf = new Function("return " + pageFn("  function bgEndsOf(events) {").trim())();
+  const ends = bgEndsOf([
+    { type: "note", job: "job1", end: { ok: true, label: "ended" } },
+    { type: "note", jobs: ["job2"] },
+    { type: "result", id: "s1", code: 0, output: "Successfully stopped task: job3 (sleep 300)", stoppedJob: "job3" },
+    { type: "result", id: "s2", code: 0, output: "Successfully stopped task: job4 (tail -f /dev/null)" },
+    { type: "result", id: "s3", code: 1, output: "Task job5 is not running (status: completed)" },
+  ]);
+  assert.deepEqual(ends, { job1: { ok: true, label: "ended" }, job2: { ok: false, label: "stopped" }, job3: { ok: false, label: "stopped" }, job4: { ok: false, label: "stopped" } });
+  assert.match(ui, /S\.bgEnded = bgEndsOf\(S\.events\);/);
+});

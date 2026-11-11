@@ -316,7 +316,9 @@ test("CD299 (found in the screenshots) a background command's step shows how it 
   assert.deepEqual(notes.find((e) => e.job === "job3").end, { ok: true, label: "" });
   assert.deepEqual(notes.find((e) => Array.isArray(e.jobs)).jobs, ["job4"]);
   const ui = page();
-  assert.match(ui, /for \(const e of S\.events\) if \(e\.type === 'note'\) \{ if \(e\.job && e\.end\) S\.bgEnded\[e\.job\] = e\.end; if \(Array\.isArray\(e\.jobs\)\) for \(const j of e\.jobs\) S\.bgEnded\[j\] = \{ ok: false, label: 'stopped' \}; \}/);
+  // (Since the live test after deploy 123, one function, bgEndsOf, which also reads Coder's own stops: CD505.)
+  assert.match(ui, /if \(e\.type === 'note'\) \{ if \(e\.job && e\.end\) ends\[e\.job\] = e\.end; if \(Array\.isArray\(e\.jobs\)\) for \(const j of e\.jobs\) ends\[j\] = \{ ok: false, label: 'stopped' \}; \}/);
+  assert.match(ui, /S\.bgEnded = bgEndsOf\(S\.events\);/);
   assert.match(ui, /end \? \(end\.ok \? 'ok' : 'bgend'\) : r\.background \? 'bg'/);
   assert.match(ui, /state === 'bgend' \? \(\/\^\(exit\|ended\)\/\.test/);
 });

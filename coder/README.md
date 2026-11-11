@@ -1370,7 +1370,7 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   machine; Coder keeps the conversation on its server).
 
 **Bash docs pass 9, part F** (the same "Yes pls"): the page. Tests:
-`test/pass9-f.test.mjs` (CD498 to CD504).
+`test/pass9-f.test.mjs` (CD498 to CD505).
 - *A step that never ran*: refused by a rule, auto mode's checker, a hook,
   Coder's own checks or the owner's answer, its result is marked `ran: false`.
   The page takes it out of its group and out of the group's count, so "Ran 2
@@ -1395,6 +1395,11 @@ Claude Code's hooks reference and 2.1.322's own program. Tests:
   NODE_OPTIONS, BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH and OTEL_… (one
   list, `VAR_DROPPED_RE`, for the machine's `safeVars` and the page) are named
   on the variables page and its row ("2 not given to commands").
+- *Found in the live test after deploy 123*: a background command Coder
+  stopped itself kept "running" on its step (a job Coder stops gets no end
+  notice). Coder's stop now names it (`stoppedJob` on the result) and the page
+  shows "stopped" (`bgEndsOf`; older chats by Claude Code's "Successfully
+  stopped task: …"). Test CD505.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
