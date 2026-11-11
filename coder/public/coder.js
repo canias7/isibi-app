@@ -444,8 +444,9 @@
     });
     // The switch: on gives the app its link's ticket; off stops the link (and every ticket given before stops working).
     const routeSwitch = async (on) => {
-      if (!(await save('/route', { on }, (x) => { st.options = x.options || st.options; if (DESKTOP_ROUTE) { if (on && x.ticket) DESKTOP_ROUTE.start({ url: x.url, ticket: x.ticket }).catch(() => {}); else if (!on) DESKTOP_ROUTE.stop().catch(() => {}); } }))) return;
+      if (!(await save('/route', { on }, (x) => { st.options = x.options || st.options; st.offNow = x.now; if (DESKTOP_ROUTE) { if (on && x.ticket) DESKTOP_ROUTE.start({ url: x.url, ticket: x.ticket }).catch(() => {}); else if (!on) DESKTOP_ROUTE.stop().catch(() => {}); } }))) return;
       if (on) { st.note = 'On. Gloopy’s browser goes through this computer from its next run or take-over.'; paint(); }
+      else { st.note = st.offNow === false ? 'Off. Gloopy’s browser goes straight out from its next run or take-over.' : 'Off. Gloopy’s browser goes straight out now.'; paint(); }
       routeLook();
     };
     // While Settings is open, how the link is doing, every 2 seconds.

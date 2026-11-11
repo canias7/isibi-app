@@ -144,3 +144,29 @@ test("D11 live test (2026-11-11): when the link closes, the close's own code is 
     assert.ok(await until(() => r.status().error === "the link was cut", 3000));
   } finally { r.stop(); }
 });
+
+test("D12 live test (2026-11-11): nothing at all from Gloopy's computer for a while (this computer slept, or its network changed: no goodbye comes) ends the link, and a new one is asked for; a link that hears from it stays", async () => {
+  const made = [];
+  class FakeWS {
+    constructor(url) { this.url = url; this.sent = 0; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); }
+    send() { this.sent++; }
+    close() { this.closed = true; }
+  }
+  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, keepMs: 30, deadMs: 120, device: "Test Mac" });
+  try {
+    r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+    assert.ok(await until(() => r.status().connected), "linked");
+    // Hearing from it (its keepalives): it stays.
+    const keep = Buffer.from([9, 0, 0, 0, 0]);
+    const beat = setInterval(() => made[0].onmessage && made[0].onmessage({ data: keep.buffer.slice(keep.byteOffset, keep.byteOffset + 5) }), 25);
+    await new Promise((ok) => setTimeout(ok, 400));
+    clearInterval(beat);
+    assert.equal(r.status().connected, true, "a link that hears from Gloopy's computer stays");
+    assert.ok(made[0].sent >= 5, "and sends its own keepalives");
+    // Nothing more from it: given up, and asked for again.
+    assert.ok(await until(() => !r.status().connected, 2000), "a quiet link is given up");
+    assert.equal(r.status().error, "Gloopy's computer stopped answering");
+    assert.equal(made[0].closed, true);
+    assert.ok(await until(() => made.length === 2 && r.status().connected, 5000), "a new link is asked for");
+  } finally { r.stop(); }
+});

@@ -109,6 +109,12 @@ export const ROUTE = Object.freeze({ OPEN: 1, OK: 2, FAIL: 3, DATA: 4, END: 5, R
 export const ROUTE_CHUNK = 32 * 1024, ROUTE_WINDOW = 1024 * 1024, ROUTE_ACK = 128 * 1024;
 /** Something goes each way every ROUTE_KEEP_MS (Cloudflare closes a quiet WebSocket); a stream not answered in ROUTE_OPEN_MS fails. */
 export const ROUTE_KEEP_MS = 25_000, ROUTE_OPEN_MS = 20_000;
+/**
+ * Nothing at all from the other end for this long (more than two of its keepalives): the link is dead, though no one
+ * said so (a laptop gone to sleep, a network gone: no goodbye comes), and it is let go, so new connections go straight
+ * out instead of into it (the live test, 2026-11-11).
+ */
+export const ROUTE_DEAD_MS = 60_000;
 export const routeFrame = (type, id, payload) => {
   const p = payload == null ? Buffer.alloc(0) : typeof payload === "string" ? Buffer.from(payload) : payload;
   const b = Buffer.alloc(5 + p.length);
@@ -164,10 +170,11 @@ const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(Math.min(n, 0xff
  * a connection through it: a stream once the desktop app has connected, or an error saying why not (it refused a
  * private address, or it could not reach the site). `connected`, `status()`.
  */
-export function makeTunnel({ now = Date.now } = {}) {
+export function makeTunnel({ now = Date.now, keepMs = ROUTE_KEEP_MS, deadMs = ROUTE_DEAD_MS } = {}) {
   // `got`/`sent`: messages each way on this link (to see it work: live test, 2026-11-11).
   // `cut`: when the last link ended without a newer one taking its place, and why ({ at, why }).
-  let ws = null, nextId = 1, keep = null, since = 0, device = "", got = 0, sent = 0, cut = null;
+  // `heard`: when anything last came from the owner's computer.
+  let ws = null, nextId = 1, keep = null, since = 0, device = "", got = 0, sent = 0, cut = null, heard = 0;
   const streams = new Map(), opening = new Map();
   const drop = (why) => {
     for (const [, o] of opening) o.reject(new Error(why));
@@ -177,14 +184,24 @@ export function makeTunnel({ now = Date.now } = {}) {
   };
   const attach = (sock) => {
     if (ws) { const old = ws; ws = null; drop("the link to the owner's computer changed"); try { old.close(); } catch { /* gone */ } }
-    ws = sock; since = now(); device = ""; got = 0; sent = 0;
+    ws = sock; since = now(); heard = now(); device = ""; got = 0; sent = 0;
     const send = (b) => { if (ws === sock) { sent++; sock.send(b); } };
     if (keep) clearInterval(keep);
-    keep = setInterval(() => send(routeFrame(ROUTE.KEEP, 0)), ROUTE_KEEP_MS);
+    keep = setInterval(() => {
+      if (ws !== sock) return;
+      if (now() - heard > deadMs) {
+        ws = null; cut = { at: now(), why: "the owner's computer stopped answering" };
+        clearInterval(keep); keep = null;
+        drop("the owner's computer stopped answering");
+        try { sock.close(); } catch { /* gone */ }
+        return;
+      }
+      send(routeFrame(ROUTE.KEEP, 0));
+    }, keepMs);
     keep.unref?.();
     sock.on("message", (m) => {
       if (ws !== sock || typeof m === "string") return;
-      got++;
+      got++; heard = now();
       const f = routeRead(m);
       if (!f) return;
       if (f.type === ROUTE.HELLO) { try { device = String(JSON.parse(f.payload.toString("utf8")).device || "").replace(/[^\w .()-]/g, "").slice(0, 60); } catch { /* none */ } return; }

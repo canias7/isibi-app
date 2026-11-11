@@ -2259,6 +2259,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
       // Asked before this machine is put to sleep (busyState), with how long the Worker has not asked it for anything.
       if (url.pathname === "/busy" && req.method === "GET") return send(200, { ...busyState(turns), idleMs: Math.max(0, Date.now() - lastAsked) });
+      // ROUTING TURNED OFF, told by the Worker at once (2026-11-11): the owner's computer is let go now (also while the
+      // owner has control), so new pages go straight out; the browser drops its proxy at its next start. Not counted as
+      // use (it never keeps this machine awake).
+      if (url.pathname === "/gloopy/route" && req.method === "POST") {
+        if (body.on === false) { routeWanted = false; if (tunnel.connected) tunnel.close("routing was turned off"); }
+        return send(200, { ok: true, route: routeWanted, ...routeNow() });
+      }
       lastAsked = Date.now();
       // x-coder-copy: what became of the environment's saved copy (Coder's Worker sets it, with this machine's key).
       if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body, { copy: String(req.headers["x-coder-copy"] || "") }); return send(st, o); }

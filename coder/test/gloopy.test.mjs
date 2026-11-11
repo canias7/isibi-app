@@ -5691,11 +5691,19 @@ test("GL114 (2026-11-11) Gloopy's browser through the owner's own computer, in t
   assert.deepEqual(machine.at(-1), { path: "/gloopy/control", body: { project: GLOOPY_ID, take: true, route: true } });
   const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /monitor: \(await readOptions\(bucket, uid\)\)\.monitor, route: \(await readOptions\(bucket, uid\)\)\.route, grant:/);
-  // Off: every ticket given before stops working.
+  // Off: every ticket given before stops working; an awake Gloopy's computer is told at once (it lets the link go, so
+  // new pages go straight out: live test, 2026-11-11).
+  machine.length = 0;
   [st, d] = await route({ on: false });
-  assert.deepEqual([st, d.options.route, d.options.routeVer], [200, false, 1]);
+  assert.deepEqual([st, d.options.route, d.options.routeVer, d.now], [200, false, 1, true]);
+  assert.deepEqual(machine, [{ path: "/gloopy/route", body: { on: false } }], "told at once");
   r = await link(t1);
   assert.deepEqual([r.status, (await r.json()).error], [403, "Sending Gloopy's browser through your computer was turned off."]);
+  // Asleep: never woken to be told (it wakes without the link: every ticket is worthless by now).
+  awake = false; machine.length = 0;
+  [st, d] = await route({ on: false });
+  assert.deepEqual([st, d.now, machine], [200, true, []], "not woken");
+  awake = true;
   // On again: a new ticket works, an old one doesn't.
   [st, d] = await route({ on: true });
   assert.equal((await link(d.ticket)).status, 200);
@@ -5743,6 +5751,9 @@ test("GL115 (2026-11-11) Gloopy's browser through the owner's own computer, on t
   assert.match(ui, /On: Gloopy’s browser goes through your computer while the Go Farther app is open on it\.<\/p><button type="button" class="cd-gset-go" data-gs-route-off="1"/);
   assert.match(ui, /In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection\./);
   assert.match(ui, /else if \(t\.id === 'gsRoute'\) routeSwitch\(t\.checked\);/);
+  // Off says when it takes effect: now (Gloopy's computer was told, or was asleep), else from its next step.
+  assert.match(ui, /save\('\/route', \{ on \}, \(x\) => \{ st\.options = x\.options \|\| st\.options; st\.offNow = x\.now;/);
+  assert.match(ui, /else \{ st\.note = st\.offNow === false \? 'Off\. Gloopy’s browser goes straight out from its next run or take-over\.' : 'Off\. Gloopy’s browser goes straight out now\.'; paint\(\); \}/);
   assert.match(ui, /if \(DESKTOP_ROUTE\) \{ if \(on && x\.ticket\) DESKTOP_ROUTE\.start\(\{ url: x\.url, ticket: x\.ticket \}\)\.catch\(\(\) => \{\}\); else if \(!on\) DESKTOP_ROUTE\.stop\(\)\.catch\(\(\) => \{\}\); \}/);
   assert.match(ui, /clearTimeout\(st\.routeTimer\); st\.routeTimer = setTimeout\(routeLook, 2000\);/);
   // How it is doing, in words.
@@ -5792,7 +5803,7 @@ test("GL116 (2026-11-11) live test: a secure site refused for its certificate wh
   assert.match(agent, /try \{ r = await hub\.act\(act\); \} catch \(e\) \{ no\("error: " \+ String\(\(e && e\.message\) \|\| e\)\.slice\(0, 700\)\); continue; \}/);
 });
 
-test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, Gloopy's computer notes why (cut off, closed by the app with its code, a message too big, not a WebSocket message, or turned off here) and the live view's data carries it; the link never keeps Gloopy's computer awake; turning routing off lets the owner's computer go, not only leaves it unused", async () => {
+test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, Gloopy's computer notes why (cut off, closed by the app with its code, a message too big, not a WebSocket message, gone quiet, or turned off here) and the live view's data carries it; a link gone quiet with no goodbye (a laptop asleep) is let go; the link never keeps Gloopy's computer awake; turning routing off lets the owner's computer go, not only leaves it unused", async () => {
   const { makeTunnel, wsAccept, wsOver } = await import("../container/gloopy-route.mjs");
   const net = await import("node:net");
   const tunnel = makeTunnel({ now: () => 1234 });
@@ -5844,6 +5855,38 @@ test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, 
     assert.equal(tunnel.status().cut.why, "routing was turned off");
     a.destroy();
   } finally { tunnel.close(); machine.close(); }
+  // A link that goes quiet with no goodbye (a laptop gone to sleep): let go after a while of nothing, so new connections
+  // go straight out rather than into it; one that keeps talking stays.
+  {
+    const { ROUTE_DEAD_MS, ROUTE_KEEP_MS } = await import("../container/gloopy-route.mjs");
+    assert.ok(ROUTE_DEAD_MS > 2 * ROUTE_KEEP_MS, "more than two keepalives");
+    const quiet = makeTunnel({ keepMs: 40, deadMs: 150 });
+    const m2 = http.createServer((q, r) => r.end());
+    m2.on("upgrade", (req, socket, head) => { const ws = wsAccept(req, socket, head); if (ws) quiet.attach(ws); });
+    const P2 = Number(new URL(await listen(m2)).port);
+    const linkQuiet = () => new Promise((ok) => {
+      const c = net.connect(P2, "127.0.0.1", () => c.write("GET /gloopy/route HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"));
+      let got = "";
+      const onData = (d) => { got += d; if (got.includes("\r\n\r\n")) { c.removeListener("data", onData); ok(c); } };
+      c.on("data", onData);
+    });
+    const keepFrame = Buffer.concat([Buffer.from([0x82, 0x80 | 5]), mask, Buffer.from([9, 0, 0, 0, 0]).map((b, i) => b ^ mask[i & 3])]);
+    try {
+      // Talking (a keepalive every 30 ms): it stays.
+      const talker = await linkQuiet();
+      const beat = setInterval(() => talker.write(keepFrame), 30);
+      assert.ok(await until(() => quiet.connected));
+      await new Promise((ok) => setTimeout(ok, 400));
+      assert.equal(quiet.connected, true, "a link that keeps talking stays");
+      clearInterval(beat);
+      // Silent from now on: let go, and why.
+      const t0 = Date.now();
+      assert.ok(await until(() => !quiet.connected, 2000), "a quiet link is let go");
+      assert.ok(Date.now() - t0 >= 100, "not before its time");
+      assert.equal(quiet.status().cut.why, "the owner's computer stopped answering");
+      talker.destroy();
+    } finally { quiet.close(); m2.close(); }
+  }
   // The link (and each time it comes again) is no use of Gloopy's computer: the clock that puts it to sleep after 10
   // quiet minutes is not started over by it (found live: with the app open, the machine never slept).
   {
@@ -5872,6 +5915,23 @@ test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, 
       assert.ok(await until(() => !app.tunnel.connected));
     }
     assert.ok((await idle()) >= before, "linking twice did not count as use");
+    // Turned off, told by the Worker: the link is let go at once (not counted as use either); asked by anyone else: no.
+    const s3 = await new Promise((ok) => {
+      const c = net.connect(Number(new URL(base).port), "127.0.0.1", () => c.write("GET /gloopy/route HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\nx-coder-key: " + KEY + "\r\n\r\n"));
+      let got = "";
+      const onData = (d) => { got += d; if (got.includes("\r\n\r\n")) { c.removeListener("data", onData); ok(c); } };
+      c.on("data", onData);
+    });
+    socks.push(s3);
+    assert.ok(await until(() => app.tunnel.connected), "linked");
+    const off = (key) => fetch(base + "/gloopy/route", { method: "POST", headers: { "content-type": "application/json", "x-coder-key": key }, body: JSON.stringify({ on: false }) });
+    assert.equal((await off("wrong")).status, 403);
+    assert.equal(app.tunnel.connected, true, "only the Worker may");
+    const told = await off(KEY);
+    assert.deepEqual([told.status, await told.json()], [200, { ok: true, route: false }]);
+    assert.equal(app.tunnel.connected, false, "let go at once");
+    assert.equal(app.tunnel.status().cut.why, "routing was turned off");
+    assert.ok((await idle()) >= before, "and that is no use of it either");
     } finally { for (const x of socks) x.destroy(); app.tunnel.close(); srv.closeAllConnections?.(); srv.close(); }
   }
   // Coder's service: turning routing off lets the link go; the live view's data says why the last one ended.

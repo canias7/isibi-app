@@ -2112,7 +2112,13 @@ async function gloopyRoute(g) {
   if (body.on === false) {
     const next = { ...o, route: false, routeVer: o.routeVer + 1 };
     await putJson(bucket, gloopyOptionsKey(uid), next);
-    return json({ ok: true, options: next });
+    // AT ONCE (a switch about the owner's own computer; live test, 2026-11-11: turned off on the website, the link stayed
+    // in use until Gloopy's next step): an awake Gloopy's computer is told now and lets the link go, so new pages go
+    // straight out; a sleeping one is never woken for it (it wakes without the link: every ticket is worthless now).
+    // `now`: off has taken effect already (false only when an awake one could not be told: from its next step, then).
+    let now = true;
+    try { if (g.awake && (await g.awake())) { const r = await g.post("/gloopy/route", { on: false }); now = !!(r && r.ok); } } catch { now = false; }
+    return json({ ok: true, options: next, now });
   }
   if (body.on !== true && body.ticket !== true) return json({ error: "Give on: true or false, or ticket: true." }, 400);
   if (body.on !== true && !o.route) return json({ error: "Sending Gloopy's browser through your computer is off." }, 409);

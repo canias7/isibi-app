@@ -18,6 +18,9 @@ const ROUTE = Object.freeze({ OPEN: 1, OK: 2, FAIL: 3, DATA: 4, END: 5, RESET: 6
 const ROUTE_CHUNK = 32 * 1024, ROUTE_WINDOW = 1024 * 1024, ROUTE_ACK = 128 * 1024, ROUTE_KEEP_MS = 25_000;
 /** Asleep or cut off: asked again after this long (sooner when the page says Gloopy just started). */
 const RETRY_MS = 20_000, CONNECT_MS = 15_000;
+// Nothing at all from Gloopy's computer for this long (more than two of its keepalives): the link is dead though no one
+// said so (this computer slept, or its network changed), and a new one is asked for (the live test, 2026-11-11).
+const DEAD_MS = 60_000;
 
 const frame = (type, id, payload) => {
   const p = payload == null ? Buffer.alloc(0) : typeof payload === "string" ? Buffer.from(payload) : payload;
@@ -104,6 +107,7 @@ function makeRoute(deps = {}) {
   const connectTcp = deps.connect || ((o) => net.connect(o));
   const later = deps.setTimeout || setTimeout;
   const retryMs = Number.isFinite(deps.retryMs) ? deps.retryMs : RETRY_MS;
+  const keepMs = Number.isFinite(deps.keepMs) ? deps.keepMs : ROUTE_KEEP_MS, deadMs = Number.isFinite(deps.deadMs) ? deps.deadMs : DEAD_MS;
   const device = String(deps.device || os.hostname() || "this computer").slice(0, 60);
   // `trying`: a link being opened (never two at once).
   let want = null, ws = null, trying = null, retry = null, keep = null, since = 0, lastError = "";
@@ -178,7 +182,7 @@ function makeRoute(deps = {}) {
     try { sock = new WS(want.url + (want.url.includes("?") ? "&" : "?") + "t=" + encodeURIComponent(want.ticket)); } catch (e) { lastError = String((e && e.message) || e); return schedule(RETRY_MS); }
     trying = sock;
     sock.binaryType = "arraybuffer";
-    let up = false, over = false;
+    let up = false, over = false, heard = 0;
     const send = (b) => { if (ws === sock) { counts.sent++; try { sock.send(b); } catch { /* closing */ } } };
     // A link that failed or ended, whichever way it says so (live test, 2026-11-11: Node's WebSocket says only "error",
     // never "close", when Gloopy's computer is asleep and the handshake is refused): asked again in a while.
@@ -200,11 +204,13 @@ function makeRoute(deps = {}) {
       ws = sock; up = true; since = Date.now(); lastError = "";
       send(frame(ROUTE.HELLO, 0, JSON.stringify({ v: 1, device })));
       if (keep) clearInterval(keep);
-      keep = setInterval(() => send(frame(ROUTE.KEEP, 0)), ROUTE_KEEP_MS);
+      heard = Date.now();
+      keep = setInterval(() => { if (Date.now() - heard > deadMs) return failed("Gloopy's computer stopped answering"); send(frame(ROUTE.KEEP, 0)); }, keepMs);
       if (keep.unref) keep.unref();
     };
     sock.onmessage = (m) => {
       counts.got++;
+      heard = Date.now();
       if (typeof m.data === "string") return;
       const b = Buffer.from(m.data);
       if (b.length < 5) return;
