@@ -153,7 +153,7 @@ test("D12 live test (2026-11-11): nothing at all from Gloopy's computer for a wh
     send() { this.sent++; }
     close() { this.closed = true; }
   }
-  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, keepMs: 30, deadMs: 120, device: "Test Mac" });
+  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, keepMs: 30, deadMs: 120, sureMs: 0, device: "Test Mac" });
   try {
     r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
     assert.ok(await until(() => r.status().connected), "linked");
@@ -259,4 +259,24 @@ test("D14 your security key for Gloopy's browser (2026-11-11; Grok Bot's \"Use h
   assert.deepEqual(await keys2.get({ origin: "https://github.com", request: { challenge: ch } }), { error: "InvalidStateError", message: "Your key is in use for another sign-in." });
   release({ error: "NotAllowedError", message: "" });
   assert.deepEqual(await first, { error: "NotAllowedError", message: "" });
+});
+
+test("D15 live test (2026-11-11): a link is said to be up only once it has lasted a moment or heard from Gloopy's computer, so a refused one (opened and closed again at once) never shows as linked", async () => {
+  const made = [];
+  class FakeWS { constructor(url) { this.url = url; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); } send() {} close() {} }
+  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, sureMs: 300, device: "Test Mac" });
+  try {
+    r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+    assert.ok(await until(() => made.length === 1 && r.status().since > 0), "open");
+    assert.equal(r.status().connected, false, "not yet: it may be a refusal");
+    assert.ok(await until(() => r.status().connected, 2000), "after a moment");
+    // Hearing from it says so at once.
+    const r2 = makeRoute({ WebSocket: FakeWS, anyUrl: true, sureMs: 60_000, device: "Test Mac" });
+    r2.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+    assert.ok(await until(() => made.length === 2 && r2.status().since > 0));
+    assert.equal(r2.status().connected, false);
+    made[1].onmessage({ data: new Uint8Array([9, 0, 0, 0, 0]).buffer });
+    assert.equal(r2.status().connected, true);
+    r2.stop();
+  } finally { r.stop(); }
 });

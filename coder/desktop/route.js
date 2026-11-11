@@ -112,6 +112,10 @@ function makeRoute(deps = {}) {
   const later = deps.setTimeout || setTimeout;
   const retryMs = Number.isFinite(deps.retryMs) ? deps.retryMs : RETRY_MS;
   const keepMs = Number.isFinite(deps.keepMs) ? deps.keepMs : ROUTE_KEEP_MS, deadMs = Number.isFinite(deps.deadMs) ? deps.deadMs : DEAD_MS;
+  // A LINK IS SAID TO BE UP once it has lasted SURE_MS or heard from Gloopy's computer (live test, 2026-11-11: a refused
+  // link is opened and closed again at once, so while Gloopy slept the status said "linked" for a moment every 20 s).
+  const sureMs = Number.isFinite(deps.sureMs) ? deps.sureMs : 1500;
+  let sure = false;
   const device = String(deps.device || os.hostname() || "this computer").slice(0, 60);
   // `trying`: a link being opened (never two at once).
   let want = null, ws = null, trying = null, retry = null, keep = null, since = 0, lastError = "";
@@ -207,7 +211,7 @@ function makeRoute(deps = {}) {
       clearTimeout(guard);
       if (trying === sock) trying = null;
       if (!want || over) { over = true; try { sock.close(); } catch { /* gone */ } return; }
-      ws = sock; up = true; since = Date.now(); lastError = "";
+      ws = sock; up = true; since = Date.now(); lastError = ""; sure = false;
       send(frame(ROUTE.HELLO, 0, JSON.stringify({ v: 1, device })));
       if (keep) clearInterval(keep);
       heard = Date.now();
@@ -217,6 +221,7 @@ function makeRoute(deps = {}) {
     sock.onmessage = (m) => {
       counts.got++;
       heard = Date.now();
+      if (ws === sock) sure = true;
       if (typeof m.data === "string") return;
       const b = Buffer.from(m.data);
       if (b.length < 5) return;
@@ -260,7 +265,7 @@ function makeRoute(deps = {}) {
       return true;
     },
     kick: () => { if (want && !ws) { if (retry) { clearTimeout(retry); retry = null; } connect(); } return true; },
-    status: () => ({ on: !!want, connected: !!ws, since: ws ? since : 0, ...counts, lastBlocked, error: ws ? "" : lastError, streams: streams.size, viaProxy: !!proxy }),
+    status: () => ({ on: !!want, connected: !!ws && (sure || Date.now() - since >= sureMs), since: ws ? since : 0, ...counts, lastBlocked, error: ws ? "" : lastError, streams: streams.size, viaProxy: !!proxy }),
   };
 }
 
