@@ -50,7 +50,8 @@ export function sleepBlocked(command) {
   if (!(n >= SLEEP_BLOCK_S)) return "";
   const rest = parts.slice(1).join(" ").trim();
   const what = rest ? "sleep " + n + " followed by: " + rest : "standalone sleep " + n;
-  return "Blocked: " + what + ". To wait for a condition, run an until-loop in the background (run_in_background: true, e.g. `until <check>; do sleep 2; done`): you are told when it ends. To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.";
+  // (Claude Code 2.1.322's words, with Coder's name for its Monitor tool; Bash docs pass 9.)
+  return "Blocked: " + what + ". To wait for a condition, use monitor with an until-loop (e.g. `until <check>; do sleep 2; done`). To wait for a command you started, use run_in_background: true. Do not chain shorter sleeps to work around this block.";
 }
 export function leadsWithSleep(command) {
   const parts = topTexts(command);
@@ -181,8 +182,9 @@ const say = (target, why) => "Dangerous rm operation detected: '" + target + "'\
 export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs = [], off = {} } = {}) {
   const src = String(command || "");
   const r = parseShell(src);
-  const mentions = /(^|[\s;&|(`$'"])(rm|rmdir)(\s|$)/.test(src);
-  if (!r.ok) return mentions ? RM_UNCHECKED : "";
+  // (Any command the shell may read differently, rm in it or not: Claude Code's docs, "a removal could sit in an unchecked
+  // part, even with no rm present". Bash docs pass 9: Coder said so only when the text named rm.)
+  if (!r.ok) return RM_UNCHECKED;
   const work = workdirs.filter((d) => typeof d === "string" && d.startsWith("/")).map((d) => posix.normalize(d).replace(/\/$/, "") || "/");
   const primary = work[0] || "";
   // Variables the command itself sets: to a folder-printing substitution (never safe), or to something else.
@@ -190,14 +192,23 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
   // Where the command's own `cd`s take it: a literal folder, or unknown.
   let here = posix.normalize(cwd || "/"), hereKnown = true, cdSeen = false;
   const homeDir = posix.normalize(home || "/home/dev");
+  // (Bash docs pass 9, Claude Code 2.1.281: "a variable derived from the working directory" too: one set from $PWD, after
+  // export, local, declare, typeset or readonly, or a copy of one: `D=$PWD; rm -rf "$D"` was not caught.)
+  const derived = (v) => { const x = v.replace(/^"|"$/g, ""); const copy = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?\/?$/.exec(x); return DIR_SUBST.test(x) || /^\$\{?PWD\}?\/?$/.test(x) || (!!copy && fromDirSubst.has(copy[1])); };
   for (const c of r.commands) {
-    for (const w of c.words) {
+    const lw = leadWords(c.words);
+    const decl = !!lw[0] && !lw[0].quoted && /^(export|local|declare|typeset|readonly)$/.test(lw[0].text);
+    const words = decl ? [...c.words.slice(0, c.words.length - lw.length), ...lw.slice(1).filter((x) => !/^[-+]/.test(x.text))] : c.words;
+    for (const w of words) {
       const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w.raw);
-      if (!m) break;
+      if (!m) { if (decl) continue; break; }
       assigned.add(m[1]);
-      if (DIR_SUBST.test(m[2].replace(/^"|"$/g, ""))) fromDirSubst.add(m[1]);
+      if (derived(m[2])) fromDirSubst.add(m[1]); else fromDirSubst.delete(m[1]);
     }
   }
+  // (A positional parameter the command gives a value itself, with `set -- …` or in a function it defines: Claude Code
+  // flags `$1` only when nothing does.)
+  const positionalGiven = /(^|[;&|\n({]\s*)set\s+--\s+[^\s;&|$`]/.test(src) || /(^|[\s;&|({])[A-Za-z_][A-Za-z0-9_]*\s*\(\s*\)\s*\{|(^|[\s;&|({])function\s+[A-Za-z_]/.test(src);
   for (const c of r.commands) {
     const w = unwrapped(c.words);
     const prog = w[0] ? basename(w[0].text) : "";
@@ -220,14 +231,14 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       args.push(a);
     }
     for (const a of args) {
-      const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, off: off || {} });
+      const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
       if (why) return why;
     }
   }
   return "";
 }
 
-function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, off = {} }) {
+function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven = false, off = {} }) {
   const raw = a.raw, text = a.text;
   // INSIDE A SHELL -c SCRIPT: a double-quoted script's variables are the outer shell's (empty $1 there); a single-quoted
   // one's are its own, and a $1 the script is given counts as given.
@@ -245,12 +256,13 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
   // ONLY BACKSLASHES.
   if (/^\\+$/.test(text)) return say(raw, BACKSLASH_WHY);
   // A VARIABLE FROM A FOLDER-PRINTING SUBSTITUTION ("A ${D:?} guard doesn't clear this check, because the variable isn't empty").
+  // (Only the folder itself, `$D`, `$D/` or `$D/*`, as Claude Code's: `"$ROOT/dist"` is a folder inside it.)
   const v = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)(:\?[^}]*)?\}?(.*)$/s.exec(text);
-  if (v && fromDirSubst.has(v[1])) return say(raw, "The variable $" + v[1] + " is set from a command that prints a folder, so it can name your working directory or repository root: a ${" + v[1] + ":?} guard does not help, because $" + v[1] + " is not empty.");
+  if (v && fromDirSubst.has(v[1]) && /^(\/|\/\*)?$/.test(v[3])) return say(raw, "The variable $" + v[1] + " is set from a command that prints a folder, so it can name your working directory or repository root: a ${" + v[1] + ":?} guard does not help, because $" + v[1] + " is not empty.");
   // A GLOB OR TRAILING SLASH DIRECTLY UNDER A VARIABLE, unguarded ("rm -rf "$DIR"/*": "The command becomes a removal from
   // the filesystem root when the variable is empty"); positional parameters the same, when nothing gives them a value.
   const under = /^\$\{?([A-Za-z_][A-Za-z0-9_]*|[0-9@*])(:\?[^}]*)?\}?\/(\*\/?|\.\*|)$/s.exec(text);
-  if (under && !under[2]) return say(raw, "If $" + under[1] + " is unset or empty, this removes from the filesystem root. Guard it as \"${" + under[1] + ":?}\"" + text.slice(text.indexOf("/")) + ", which makes the shell stop with an error instead, or use a literal path.");
+  if (under && !under[2] && !(positionalGiven && !c.inScript && /^[0-9@*]$/.test(under[1]))) return say(raw, "If $" + under[1] + " is unset or empty, this removes from the filesystem root. Guard it as \"${" + under[1] + ":?}\"" + text.slice(text.indexOf("/")) + ", which makes the shell stop with an error instead, or use a literal path.");
   // A VARIABLE FOLLOWED BY A TOP-LEVEL FOLDER'S NAME ("rm -rf "$TMPDIR/mnt"": when it is empty, /mnt goes).
   const top = /^\$\{?([A-Za-z_][A-Za-z0-9_]*|[0-9@*])(:\?[^}]*)?\}?\/([^/]+)\/?$/s.exec(text);
   if (top && !top[2] && TOP_NAMES.has(top[3]) && top[1] !== "HOME") return say(raw, "The target starts with a shell expansion this check cannot read and ends in a top-level directory name: if the expansion is empty, this removes '/" + top[3] + "'.");

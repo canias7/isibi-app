@@ -34,15 +34,15 @@ export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isAr
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
-import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS } from "./coder-checks.mjs";
-import { startProxy, okHost, firewall } from "./coder-proxy.mjs";
+import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial } from "./coder-checks.mjs";
+import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
-import { normNetwork, okPattern, netWalled } from "./coder-secrets.mjs";
+import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
@@ -94,6 +94,8 @@ export const SPILL_AT = 30_000, SPILL_KEEP = 64 * 1024 * 1024, OUTPUT_KILL = 5 *
  * command's output passes through this service, so here it is counted as it passes.
  */
 export const SIZE_KILLED = "Command killed: output file exceeded 5GB";
+/** No bytes (a stream's letter carried over, none yet); and how many of its last bytes a running command keeps (movedSoFar). */
+const NO_BYTES = Buffer.alloc(0), MOVED_KEEP = 4096;
 /**
  * THE SHELL'S STARTUP FILE, AS CLAUDE CODE TAKES IT (tool 4, docs pass 2; its tools reference: "Aliases and shell functions
  * defined in your shell startup file are available. At session start, Claude Code sources ~/.zshrc, ~/.bashrc, or ~/.profile
@@ -128,6 +130,9 @@ export const SNAPSHOT_READ = '{ if [ -r "$HOME/' + SNAPSHOT_FILE + '" ]; then . 
 export const SNAPSHOT_FILE_ZSH = ".cache/coder/shell-snapshot.zsh";
 const SNAP_ZSH_LINES = [
   'printf "\\n__CODER_SNAP_A__\\n"',
+  // (KSH_OPTION_PRINT makes `setopt` list every option with "on" or "off", which read back would set them all, noexec too:
+  // Claude Code 2.1.321, "Fixed Bash commands coming back empty for zsh users whose .zshrc sets KSH_OPTION_PRINT".)
+  'unsetopt kshoptionprint 2>/dev/null',
   'for o in $(setopt); do case "$o" in interactive|monitor|zle|shinstdin|login|singlecommand|norcs|interactivecomments) ;; *) print -r -- "setopt $o";; esac; done',
   'for n in ${(k)functions}; do case "$n" in _*|which|command_not_found_handler) ;; *) print -r -- "eval ${(q)$(functions -- $n)} >/dev/null 2>&1";; esac; done',
   'alias -L | sed -e "1001,\\$d" -e "/^alias which=/d"',
@@ -136,18 +141,27 @@ const SNAP_ZSH_LINES = [
 ];
 export const SNAPSHOT_TAKE_ZSH = 'd="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.zsh" && zsh -i -c \'\n' + SNAP_ZSH_LINES.join("\n") + '\n\' </dev/null 2>/dev/null | sed -n \'/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p\' | sed \'1d;$d\' | head -c ' + SNAPSHOT_MAX + ' > "$f.new" && mv -f "$f.new" "$f"';
 export const SNAPSHOT_READ_ZSH = '{ if [ -r "$HOME/' + SNAPSHOT_FILE_ZSH + '" ]; then . "$HOME/' + SNAPSHOT_FILE_ZSH + '"; fi; } >/dev/null 2>&1\n';
-/** zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF). */
-export const EXTGLOB_OFF_ZSH = "unsetopt extendedglob kshglob 2>/dev/null || true\n";
+/**
+ * zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF): Claude Code 2.1.322's own line, `setopt
+ * NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL` (a bare glob qualifier such as *(e:…:) runs code), with ksh's patterns off as before.
+ */
+export const EXTGLOB_OFF_ZSH = "setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_KSH_GLOB 2>/dev/null || true\n";
 /**
  * THE SHELL CODER'S COMMANDS RUN IN (Claude Code's CLAUDE_CODE_SHELL, under Coder's name CODER_SHELL: "Override automatic shell
  * detection. Useful when your login shell differs from your preferred working shell (for example, bash vs zsh)"): a bash or a
- * zsh of this machine's own, by its name or its full path in /bin, /usr/bin or /usr/local/bin; anything else, bash (what
- * Coder's machine finds). Its hooks always run in bash, as Claude Code's do ("Defaults to bash").
+ * zsh of this machine's own, by its name or its full path in /bin, /usr/bin or /usr/local/bin; unset, the machine's zsh, as
+ * in Claude Code's cloud; anything else, bash. Its hooks always run in bash, as Claude Code's do ("Defaults to bash").
  */
 export function shellOf(value, { exists = (p) => existsSync(p) } = {}) {
   const v = String(value ?? "").trim();
   const name = v.split("/").pop();
-  if (!v || (name !== "bash" && name !== "zsh")) return "bash";
+  // (Unset: zsh first, then bash, as Claude Code's cloud sessions do, `["zsh","bash"]`, its commands seen in /usr/bin/zsh:
+  // Bash docs pass 9.)
+  if (!v) { for (const d of ["/usr/bin", "/bin", "/usr/local/bin"]) if (exists(d + "/zsh")) return d + "/zsh"; return "bash"; }
+  // (A full path anywhere naming bash or zsh, as Claude Code takes one that is there: Bash docs pass 9, Coder had taken only
+  // /bin, /usr/bin and /usr/local/bin. It runs as the AI's user, as any shell of Coder's commands does.)
+  if (v.startsWith("/") && /bash|zsh/.test(v) && /^(bash|zsh)/.test(name) && !/[\s'"`$;&|<>\\]/.test(v)) return exists(v) ? v : "bash";
+  if (name !== "bash" && name !== "zsh") return "bash";
   if (v.includes("/")) return /^\/(usr\/(local\/)?)?bin\/(bash|zsh)$/.test(v) && exists(v) ? v : "bash";
   for (const d of ["/usr/bin", "/bin", "/usr/local/bin"]) if (exists(d + "/" + name)) return name === "bash" ? "bash" : d + "/" + name;
   return "bash";
@@ -163,12 +177,23 @@ export const EXTGLOB_OFF = "shopt -u extglob 2>/dev/null || true\n";
  * WHAT EVERY COMMAND OF CODER'S (and the owner's own with !) READS FIRST: the shell startup file's snapshot (only where the
  * AI has a home of its own), Claude Code's extended patterns off and its pgrep/pkill/pidwait, then the owner's CODER_ENV_FILE.
  */
-export const commandPrefix = (home, envLine = "", shell = "bash") => (home ? (isZsh(shell) ? SNAPSHOT_READ_ZSH : SNAPSHOT_READ) : "") + (isZsh(shell) ? EXTGLOB_OFF_ZSH : EXTGLOB_OFF) + PROC_WRAPPERS + envLine;
+export const commandPrefix = (home, envLine = "", shell = "bash") => (home ? (isZsh(shell) ? SNAPSHOT_READ_ZSH : SNAPSHOT_READ) : "") + (isZsh(shell) ? EXTGLOB_OFF_ZSH : EXTGLOB_OFF) + PROC_WRAPPERS + SCRATCH_MAKE + envLine;
+/**
+ * THE CHAT'S SCRATCH FOLDER, there for every command (Bash docs pass 9; Claude Code's scratchpad, "a per-session directory
+ * … for temporary files"): made private to the AI's user the first time; a test, no program, when it is there.
+ */
+export const SCRATCH_MAKE = "[ -d /tmp/coder-scratch ] || mkdir -m 700 -p /tmp/coder-scratch 2>/dev/null\n";
 /**
  * AN AI AGENT'S NAME FOR THE PROGRAMS IT RUNS (Bash docs pass 5; Claude Code 2.1.120: "Set `AI_AGENT` environment variable
  * for subprocesses so `gh` can attribute traffic to Claude Code"), Coder's own: after the owner's variables, like its marks.
  */
 export const AGENT_MARK = { AI_AGENT: "gofarther-coder" };
+/**
+ * A CLOUD SESSION'S MARK (Bash docs pass 8; Claude Code's CLAUDE_CODE_REMOTE: "Set automatically to `true` when Claude Code is
+ * running as a cloud session. Read this from a hook or setup script to detect whether you are in a cloud session"): in every
+ * command's environment and the setup script's, as hooks already have it.
+ */
+export const REMOTE_MARK = { CLAUDE_CODE_REMOTE: "true" };
 /**
  * THE OWNER'S CODER_ENV_FILE (Claude Code's CLAUDE_ENV_FILE: "Path to a shell script whose contents Claude Code runs before
  * each Bash command in the same shell process, so exports in the file are visible to the command. Use to persist virtualenv
@@ -186,7 +211,9 @@ export function envFileLine(value, project) {
  * CLAUDE_ENV_FILE environment variable, which provides a file path where you can persist environment variables for the shell
  * commands Claude runs later in the session"): in the AI's home, one per chat; the line every command starts with.
  */
-export const hookEnvLine = (project) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + ".sh"); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; };
+// (Two files, Bash docs pass 8: SessionStart's, kept for the chat; CwdChanged's and FileChanged's, emptied at each CwdChanged
+// as Claude Code clears theirs. The first is read first.)
+export const hookEnvLine = (project) => [".sh", ".cwd.sh"].map((x) => { const f = '"$HOME"/.coder-hook-env/' + shellWord(String(project) + x); return "if [ -r " + f + " ]; then . " + f + "; fi\n"; }).join("");
 /**
  * THE ENV FILES FOR A POWERSHELL COMMAND (Bash docs pass 7; Claude Code: "PowerShell commands receive the variables from
  * CLAUDE_ENV_FILE too … but PowerShell never runs the file. Claude Code reads the assignments out of it and copies them
@@ -209,7 +236,7 @@ export function psEnvLine(paths) {
 export function envFilePaths(value, project, hookProject) {
   const out = [], v = String(value ?? "").trim();
   if (v && v.length <= 1000 && !/[\0\n\r]/.test(v)) out.push(v.startsWith("~/") ? '"$HOME"/' + shellWord(v.slice(2)) : v.startsWith("/") ? shellWord(v) : shellWord(join(project, v)));
-  if (hookProject) out.push('"$HOME"/.coder-hook-env/' + shellWord(String(hookProject) + ".sh"));
+  if (hookProject) for (const x of [".sh", ".cwd.sh"]) out.push('"$HOME"/.coder-hook-env/' + shellWord(String(hookProject) + x));
   return out;
 }
 /**
@@ -266,8 +293,20 @@ const JOB_CHECK_MS = 5000;
  * hours (Claude Code raises that past 2 hours; Coder's machine stays awake, on the owner's bill, while one runs).
  */
 export const FG_CAP_MS = 40 * 60 * 1000;
+/**
+ * A NUMBER AS CLAUDE CODE READS ONE FROM A VARIABLE (its mp, 2.1.322; Bash docs pass 9): `300_000`, `300,000` or `300 000`
+ * grouped by threes, `2e3`, or the digits it starts with; NaN for none.
+ */
+export function envNumber(v) {
+  const n = String(v ?? "").trim();
+  if (n.length <= 32) {
+    if (/^[+-]?(\d+(\.\d*)?|\.\d+)[eE][+-]?\d+$/.test(n)) { const x = Number(n); return Number.isInteger(x) ? x : NaN; }
+    if (/^[+-]?\d{1,3}([_,\u00A0\u202F ])\d{3}(?:\1\d{3})*$/.test(n)) return parseInt(n.replace(/[_,\u00A0\u202F ]/g, ""), 10);
+  }
+  return parseInt(n, 10);
+}
 export function bashTimeouts(vars = {}, prefs = {}) {
-  const num = (v) => { const n = Number(String(v ?? "").trim()); return Number.isFinite(n) && n > 0 ? Math.round(n) : 0; };
+  const num = (v) => { const n = envNumber(v); return !Number.isNaN(n) && n > 0 ? n : 0; };
   const d = num(vars && vars.BASH_DEFAULT_TIMEOUT_MS), m = num(vars && vars.BASH_MAX_TIMEOUT_MS);
   const defaultMs = Math.max(1000, Math.min(FG_CAP_MS, d || 120_000));
   const maxMs = Math.max(defaultMs, Math.min(FG_CAP_MS, m || 600_000));
@@ -284,11 +323,13 @@ export function bashTimeouts(vars = {}, prefs = {}) {
 export const BG_MAX_CAP_MS = 24 * 60 * 60 * 1000;
 export function prefsIn(p) {
   const x = p && typeof p === "object" ? p : {};
-  const bg = Number(x.bgMaxMs), disk = Number(x.diskWarnGib);
+  const bg = Number(x.bgMaxMs), disk = Number(x.diskWarnGib), mem = Number(x.memWarnGib);
   return {
     bgMaxMs: Number.isFinite(bg) && bg > BG_LIMIT_MAX_MS ? Math.min(BG_MAX_CAP_MS, Math.round(bg)) : BG_LIMIT_MAX_MS,
     endDetached: x.endDetached !== false,
     diskWarnGib: Number.isInteger(disk) && disk > 0 && disk <= 1000 ? disk : 0,
+    // (Settings: the low-memory warning, Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB; 0 is off.)
+    memWarnGib: Number.isInteger(mem) && mem > 0 && mem <= 1000 ? mem : 0,
     // (Settings: refuse a step that would ask, Claude Code's permissions.denyInsteadOfPrompting.)
     denyInstead: x.denyInstead === true,
     // (Settings: Auto mode turned off, Claude Code's disableAutoMode.)
@@ -451,8 +492,104 @@ export function hookNews(project) {
 export const rewakeHooksOf = (project) => [...JOBS.values()].filter((j) => j.project === project && j.hook && j.hook.rewake && !j.end).length;
 /** What the page, the Worker and Coder see of the running ones: newest last. */
 export const jobsOf = (project) => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.stopping && !j.hook).map((j) => ({ id: j.id, desc: j.desc, command: String(j.command || "").split("\n")[0].slice(0, 200), at: j.at, deadline: j.deadline }));
-/** The ones that ended and Coder was not told of yet. */
-export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length)));
+/** The ones that ended and Coder was not told of yet (and those still running that look stuck on a typed question: watchStall). */
+export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project === project && ((j.end && !j.told) || (j.monitor && j.pending && j.pending.length) || (!j.end && j.stall && !j.stallTold)));
+/**
+ * A BACKGROUND COMMAND STUCK ON A TYPED QUESTION (Bash docs pass 9; Claude Code 2.1.322's stall watch, for every background
+ * command but a monitor): looked at every 5 seconds; once its output has not grown for 45 seconds, the last 1,024 bytes are
+ * read, and when its last line looks like a question waiting for an answer ("(y/n)", "Continue?", "Press Enter", …) Coder is
+ * told, once for that command ("Background command "…" appears to be waiting for interactive input"); otherwise the 45
+ * seconds start again. (Coder's commands have no keyboard, so most such questions end at once; one that waits all the same is
+ * found this way.)
+ */
+export const STALL_QUIET_MS = 45_000, STALL_TAIL_BYTES = 1024;
+export const STALL_PATTERNS = [/\(y\/n\)/i, /\[y\/n\]/i, /\(yes\/no\)/i, /\b(?:Do you|Would you|Shall I|Are you sure|Ready to)\b.*\? *$/i, /Press (any key|Enter)/i, /Continue\?/i, /Overwrite\?/i];
+/** Whether the last line of what a command printed looks like a question waiting for an answer (Claude Code's own test). */
+export const looksLikePrompt = (text) => { const last = String(text || "").trimEnd().split("\n").pop() ?? ""; return STALL_PATTERNS.some((p) => p.test(last)); };
+/** A log's size, never through a link: null when it is not there or not a plain file. */
+const logSize = (file) => { try { const s = lstatSync(file); return s.isFile() ? s.size : null; } catch { return null; } };
+/** The last `n` bytes of a log, never through a link ("" when it can't be read). */
+export function stallTail(file, n = STALL_TAIL_BYTES) {
+  let fd = null;
+  try {
+    fd = openSync(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const st = fstatSync(fd);
+    if (!st.isFile()) return "";
+    const len = Math.min(st.size, n);
+    const buf = Buffer.alloc(len);
+    readSync(fd, buf, 0, len, st.size - len);
+    return buf.toString("utf8");
+  } catch { return ""; } finally { if (fd !== null) { try { closeSync(fd); } catch { /* closed */ } } }
+}
+/** One look at a running command (`sizeOf`, `tailOf` for the tests): true when it was found stuck now (its `stall` set). */
+export function watchStall(j, now = Date.now(), { sizeOf = logSize, tailOf = stallTail } = {}) {
+  if (!j || j.end || j.stopping || j.monitor || j.hook || j.stallDone || typeof j.log !== "string" || !j.log) return false;
+  const size = sizeOf(j.log);
+  if (size === null) return false;
+  if (!Number.isFinite(j.stallSize)) { j.stallSize = 0; j.stallAt = now; }
+  if (size > j.stallSize) { j.stallSize = size; j.stallAt = now; return false; }
+  if (now - j.stallAt < STALL_QUIET_MS) return false;
+  const tail = tailOf(j.log, STALL_TAIL_BYTES);
+  if (!looksLikePrompt(tail)) { j.stallAt = now; return false; }
+  // (Once for a command, as Claude Code: it stops watching that one.)
+  j.stallDone = true;
+  j.stall = { tail: tail.trimEnd(), at: now };
+  j.stallTold = false;
+  return true;
+}
+/** The chat's commands found stuck that Coder was not told of yet: each once (`{ id, pid, desc, command, log, tail }`). */
+export function stallNews(project) {
+  const out = [];
+  for (const j of JOBS.values()) {
+    if (j.project !== project || j.end || !j.stall || j.stallTold) continue;
+    j.stallTold = true;
+    out.push({ id: j.id, pid: j.pid, desc: j.desc, command: j.command, log: j.log, tail: j.stall.tail });
+  }
+  return out;
+}
+/**
+ * THE WAKE (Bash docs pass 8; Claude Code's tools reference: "You keep working in the same session and Claude interjects
+ * when an event arrives"): a chat with no job here whose background command ended, or whose monitor printed, has Coder's
+ * server asked to look now (WAKE_PATH, with the pass of the chat's last job, as its keyed requests carry), not at the next
+ * every-minute look. Once for each new piece of news; while the server answers otherwise (its job not saved as ended yet),
+ * again every WAKE_GAP_MS, WAKE_TRIES times at most. Per chat: { egress, sig, at, tries, busy }.
+ */
+export const WAKE_PATH = "/api/coder/wake", WAKE_GAP_MS = 5000, WAKE_TRIES = 12;
+export const WAKES = new Map();
+/** The chats this machine has started a job for since it started (a chat not in it, with messages, is resumed). */
+export const SEEN_CHATS = new Set();
+/** A chat's auto mode counts in a file (`{ load, save }` for coder-checker.mjs's checkerState). */
+export function checksKeep(file) {
+  return {
+    load: () => { try { const o = JSON.parse(readFileSync(file, "utf8")); return o && typeof o === "object" && !Array.isArray(o) ? o : null; } catch { return null; } },
+    save: (o) => { try { writeFileSync(file, JSON.stringify(o), { mode: 0o600 }); } catch { /* counted in memory still */ } },
+  };
+}
+/** A job started: its pass is the one the chat's wake carries from now on. */
+export function noteWake(project, egress) {
+  if (!egress || typeof egress.url !== "string" || !/^https?:\/\//.test(egress.url) || typeof egress.pass !== "string" || !egress.pass) return;
+  const was = WAKES.get(project);
+  WAKES.set(project, { egress: { url: egress.url, chat: String(egress.chat || ""), turn: String(egress.turn ?? ""), pass: egress.pass }, sig: was ? was.sig : "", at: 0, tries: 0, busy: false });
+}
+/** The every-few-seconds look's wakes (`turnsOf`: the chats' turns here): the requests sent, as promises. */
+export function wakeIdle(fetchFn, { now = Date.now(), turnsOf = turns } = {}) {
+  const sent = [];
+  for (const [project, w] of WAKES) {
+    const t = turnsOf.get(project);
+    if ((t && t.running) || w.busy || now - w.at < WAKE_GAP_MS) continue;
+    const news = untoldOf(project);
+    if (!news.length) continue;
+    const sig = news.map((j) => j.id + ":" + (j.end ? 1 : 0) + ":" + (j.readAt || 0) + ":" + (Array.isArray(j.pending) ? j.pending.length : 0) + (j.stall ? ":s" : "")).join(",");
+    if (sig === w.sig) continue;
+    w.busy = true;
+    w.at = now;
+    const done = (status) => { w.busy = false; if (status === 200 || ++w.tries >= WAKE_TRIES) { w.sig = sig; w.tries = 0; } };
+    sent.push(Promise.resolve()
+      .then(() => fetchFn(new URL(WAKE_PATH, w.egress.url).toString(), { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": w.egress.chat, "x-coder-turn": w.egress.turn, "x-coder-egress": w.egress.pass }, body: "{}", signal: AbortSignal.timeout(20_000) }))
+      .then((r) => done(r && r.status), () => done(0)));
+  }
+  return sent;
+}
 /**
  * CLAUDE CODE'S MONITOR (Bash docs, the owner, 2026-11-10: "yea do all 4"; its tools reference: "Runs a command in the
  * background and feeds each output line back to Claude, so it can react to log entries, file changes, or polled status
@@ -463,8 +600,19 @@ export const untoldOf = (project) => [...JOBS.values()].filter((j) => j.project 
  * many events are automatically stopped").
  */
 export const MONITOR_FLOOD = 400, MONITOR_PENDING = 1000, MONITOR_READ = 256 * 1024;
-/** Reads what a monitor printed since the last look into its `pending` lines (the end line the log gets is never one). */
-export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
+/**
+ * CLAUDE CODE'S LIMITS ON A MONITOR'S OUTPUT (Bash docs pass 9; its line batcher and token bucket, 2.1.322; Coder had none, and
+ * a busy monitor could put megabytes into Grok's context): a line cut at 500 characters ("...(truncated)"); the lines read
+ * together, one event, cut at 3,000; 10 events at once, then one every 2 seconds; events past that counted and said when one
+ * goes through ("[N events suppressed — output rate too high. …]"); after 30 seconds of that the monitor is stopped ("[Monitor
+ * stopped — too much output (N events suppressed over Ss). Restart with a more selective source.]"). A line not ended yet
+ * keeps its last 1 MiB. (Claude Code puts lines within 200 ms in one event; Coder reads every few seconds and at each step.)
+ */
+export const MONITOR_LINE_MAX = 500, MONITOR_EVENT_MAX = 3000, MONITOR_BUCKET = 10, MONITOR_REFILL_MS = 2000, MONITOR_FLOOD_MS = 30_000, MONITOR_PART_MAX = 1024 * 1024;
+export const monitorSuppressed = (n) => "[" + n + " events suppressed \u2014 output rate too high. Consider using stop_job to restart this monitor with a more selective filter.]";
+export const monitorFlooded = (n, sec) => "[Monitor stopped \u2014 too much output (" + n + " events suppressed over " + sec + "s). Restart with a more selective source.]";
+/** Reads what a monitor printed since the last look into its `pending` events (the end line the log gets is never one). */
+export function readMonitor(j, { flood = MONITOR_FLOOD, now = Date.now() } = {}) {
   if (!j || !j.monitor || typeof j.log !== "string" || !j.log) return 0;
   let fd = null, got = "";
   try {
@@ -481,6 +629,7 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   const all = (j.part || "") + got;
   const lines = all.split("\n");
   j.part = j.end ? "" : lines.pop();
+  if (j.part.length > MONITOR_PART_MAX) j.part = j.part.slice(-MONITOR_PART_MAX);
   let fresh = lines.map((l) => l.replace(/\r$/, "")).filter((l) => l.trim() && !l.includes(CWD_MARK) && !/^\[finished, exit code -?\d+\]$/.test(l.trim()) && l.trim() !== SIZE_KILLED.trim());
   // A WEBSOCKET MONITOR (coder-tools.mjs's ws_watch): each line one JSON value, a message (one event, however many lines it
   // has) or, at its end, how the socket ended (`wsEnd`: { close, reason }, { tooBig } or { error }).
@@ -496,8 +645,32 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
   }
   if (!fresh.length) return 0;
   j.pending = Array.isArray(j.pending) ? j.pending : [];
-  for (const l of fresh) { if (j.pending.length < MONITOR_PENDING) j.pending.push(l.slice(0, j.ws ? 20_000 : 2000)); else j.dropped = (j.dropped || 0) + 1; }
-  if (!j.end && !j.stopping && fresh.length > flood) stopJob(j, "flood");
+  // THE EVENTS: a command's lines read together are one, each line cut at 500 characters; a WebSocket's messages one each, as
+  // they came (Claude Code: "Each text frame is an event"); each cut at 3,000.
+  const cut = (ev) => (ev.length > MONITOR_EVENT_MAX ? ev.slice(0, MONITOR_EVENT_MAX) + "\n...(truncated)" : ev);
+  const evs = j.ws ? fresh.map(cut) : [cut(fresh.map((l) => { const t = l.trim(); return t.length > MONITOR_LINE_MAX ? t.slice(0, MONITOR_LINE_MAX) + "...(truncated)" : t; }).join("\n"))];
+  // THE BUCKET: 10 at once, one more every 2 seconds.
+  const b = j.bucket || (j.bucket = { tokens: MONITOR_BUCKET, at: now });
+  const refill = Math.floor((now - b.at) / MONITOR_REFILL_MS);
+  if (refill > 0) { b.tokens = Math.min(MONITOR_BUCKET, b.tokens + refill); b.at += refill * MONITOR_REFILL_MS; }
+  for (const ev of evs) {
+    if (b.tokens > 0) {
+      b.tokens--;
+      if (j.suppressed > 0) {
+        j.pending.push(monitorSuppressed(j.suppressed));
+        j.suppressed = 0;
+        if (j.lastSuppressed !== undefined && now - j.lastSuppressed > MONITOR_REFILL_MS * 3) j.floodAt = undefined;
+      }
+      j.pending.push(ev);
+      j.events = (j.events || 0) + 1;
+    } else {
+      j.suppressed = (j.suppressed || 0) + 1;
+      j.lastSuppressed = now;
+      if (j.floodAt === undefined) j.floodAt = now;
+      if (now - j.floodAt > MONITOR_FLOOD_MS && !j.end && !j.stopping) { j.floodNote = monitorFlooded(j.suppressed, Math.round((now - j.floodAt) / 1000)); stopJob(j, "flood"); }
+    }
+  }
+  if (j.pending.length > MONITOR_PENDING) j.pending.splice(0, j.pending.length - MONITOR_PENDING);
   return fresh.length;
 }
 /**
@@ -508,11 +681,13 @@ export function readMonitor(j, { flood = MONITOR_FLOOD } = {}) {
  * settings precedence (its hooks reference: "a "disableAllHooks": false in a project's .claude/settings.json overrides a true
  * in your user settings"): .claude/settings.local.json, then .claude/settings.json, then the owner's own.
  */
-export function hooksForTurn(root, account, { github = false } = {}) {
+export function hooksForTurn(root, account, { github = false, several = false } = {}) {
   const mine = hooksFrom(account && typeof account === "object" ? account : null, "settings");
   const repo = { list: [], disabled: false, httpUrls: null, httpEnvVars: null };
   const offIn = {}; // each file's own disableAllHooks, when it sets one
-  if (!github && root) {
+  // (A chat with several repositories reads none of theirs, as Claude Code's cloud session, which then works from a folder
+  // outside all of them: Bash docs pass 8.)
+  if (!github && !several && root) {
     let inside = false;
     try { const rr = realpathSync(root), cd = realpathSync(join(root, ".claude")); inside = cd.startsWith(rr + "/"); } catch { inside = false; }
     for (const f of inside ? ["settings.json", "settings.local.json"] : []) {
@@ -545,6 +720,16 @@ export function hooksForTurn(root, account, { github = false } = {}) {
  * A REPOSITORY'S OWN SETTINGS FILES, as Claude Code's project settings (.claude/settings.json, then .claude/settings.local.json):
  * read as plain files inside the project, never through a link, at most 1 MB each, as the hooks are (hooksForTurn): [{ file, json }].
  */
+/**
+ * THE REPOSITORY'S TWO SETTINGS FILES, AS THEY ARE NOW (Bash docs pass 9; Claude Code "watches your settings files and reloads
+ * them when they change, so it applies most edits to the running session without a restart, including edits to `permissions`,
+ * `hooks`"; it "also loads a settings file you create mid-session", even in a `.claude/` folder made in the same session): each
+ * file's inode, size and time of change, never read or followed, so a job looks before each step for almost nothing.
+ */
+export function repoFilesStamp(root) {
+  if (!root) return "";
+  return ["settings.json", "settings.local.json"].map((f) => { try { const st = lstatSync(join(root, ".claude", f)); return st.ino + ":" + st.size + ":" + st.mtimeMs + ":" + st.ctimeMs; } catch { return "-"; } }).join("|");
+}
 export function repoSettingsFiles(root) {
   const out = [];
   if (!root) return out;
@@ -569,9 +754,34 @@ export function repoSettingsFiles(root) {
  * repository shouldn't control": "where Claude Code stores or writes its own files" (HOME, TMPDIR, TMP, TEMP, XDG_*,
  * CLAUDE_CONFIG_DIR, CLAUDE_CODE_TMPDIR), telemetry that exports session content, how it starts, its sign-in, and the
  * hosting environment's identity), with Coder's own: the names the owner's variables can't set either (safeVars), Coder's
- * settings (CODER_…, which the owner sets in Environment), and the network gate's proxy and certificates.
+ * settings (CODER_…, which the owner sets in Environment), and the network gate's proxy and certificates. (Bash docs pass
+ * 9, from Claude Code 2.1.322's own list and its network-config docs: CDPATH and PWD too, which steer where `cd name`
+ * lands; GITHUB_ACTIONS and RUNNER_ENVIRONMENT; and, as "In cloud sessions … Claude Code ignores the following variables
+ * when they come from a settings file env block", NODE_TLS_REJECT_UNAUTHORIZED and the client-certificate ones.)
  */
-export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
+export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPATH|PWD|GITHUB_ACTIONS|RUNNER_ENVIRONMENT|NODE_TLS_REJECT_UNAUTHORIZED|CLAUDE_CODE_CLIENT_CERT|CLAUDE_CODE_CLIENT_KEY|CLAUDE_CODE_CLIENT_KEY_PASSPHRASE|ANTHROPIC_CONFIG_DIR|CLAUDE_TMPDIR|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
+/**
+ * CLAUDE CODE'S OWN COMMAND SETTINGS IN A REPOSITORY'S FILE (Bash docs pass 8; Claude Code reads its variables from a
+ * project's `env` as well, "timeouts and limits, and feature toggles: at startup from every settings file, apart from the
+ * variables project and local settings can't set", and its bashOutputMaxChars, defaultShell and respondToBashCommands keys
+ * from "Any file"): Coder's setting of the same meaning, by Claude Code's name. The owner's environment wins (Claude Code:
+ * the launch environment "takes precedence instead: Claude Code ignores an `env` value from any settings file for a variable
+ * the launch environment already sets"): withRepoOwn.
+ */
+export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS", BASH_MAX_TIMEOUT_MS: "BASH_MAX_TIMEOUT_MS", BASH_MAX_OUTPUT_LENGTH: "BASH_MAX_OUTPUT_LENGTH", CLAUDE_CODE_USE_POWERSHELL_TOOL: "CODER_USE_POWERSHELL_TOOL", CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR", CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "CODER_DISABLE_BACKGROUND_TASKS", CLAUDE_CODE_TOOL_MEMORY_LIMIT: "CODER_TOOL_MEMORY_LIMIT", CLAUDE_ENV_FILE: "CODER_ENV_FILE", CLAUDE_CODE_SHELL: "CODER_SHELL",
+  // (Bash docs pass 9: four more that Claude Code 2.1.322 lets a project's settings set, none of them on its list of names
+  // project settings can't set.)
+  CLAUDE_CODE_SHELL_PREFIX: "CODER_SHELL_PREFIX", CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE: "CODER_TOOL_MEMORY_CGROUP_EXCLUDE", CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "CODER_DISABLE_BG_SHELL_PRESSURE_REAP", CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: "CODER_SESSIONEND_HOOKS_TIMEOUT_MS" };
+export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
+/** Coder's name → the name the repository's file gives it (for what Coder is told). */
+export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
+/** The owner's variables, with the repository's own command settings (repoSettings' `own`) under them. */
+export function withRepoOwn(vars, own) {
+  const v = vars && typeof vars === "object" ? vars : {};
+  const out = { ...v };
+  for (const [k, x] of Object.entries(own && typeof own === "object" ? own : {})) if (!Object.hasOwn(v, k)) out[k] = x;
+  return out;
+}
 /**
  * WHAT A REPOSITORY'S OWN SETTINGS GIVE A MESSAGE (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
  * permissions docs, "Project allow rules and workspace trust": "permissions.allow rules and permissions.additionalDirectories
@@ -584,9 +794,11 @@ export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|XDG_
  * blocks when a file turns one on ("a repository can turn the block on for itself but can't lift yours"), and auto mode off
  * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
  */
-export function repoSettings(root, { trust = false, github = false } = {}) {
-  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, held: [], blockReads: false, blockWrites: false, autoOff: false };
-  if (github) return out;
+export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "" };
+  // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
+  // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
+  if (github || several) return out;
   for (const { file, json: j } of repoSettingsFiles(root)) {
     const p = j.permissions && typeof j.permissions === "object" && !Array.isArray(j.permissions) ? j.permissions : {};
     const list = (k) => (Array.isArray(p[k]) ? p[k] : []).filter((x) => typeof x === "string" && x.trim() && x.length <= 400 && ruleSaved(x.trim())).map((x) => x.trim());
@@ -600,13 +812,20 @@ export function repoSettings(root, { trust = false, github = false } = {}) {
     }
     if (j.env && typeof j.env === "object" && !Array.isArray(j.env)) {
       for (const [k, v] of Object.entries(j.env).slice(0, 50)) {
-        if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || REPO_ENV_OFF.test(k) || !["string", "number", "boolean"].includes(typeof v)) continue;
+        if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || !["string", "number", "boolean"].includes(typeof v)) continue;
+        // (One of Claude Code's own command settings: Coder's of the same meaning too, REPO_OWN_ENV.)
+        if (Object.hasOwn(REPO_OWN_ENV, k)) out.own[REPO_OWN_ENV[k]] = String(v).slice(0, 4000);
+        if (REPO_ENV_OFF.test(k)) continue;
         out.env[k] = String(v).slice(0, 4000);
       }
     }
+    for (const [k, name] of Object.entries(REPO_OWN_KEYS)) if (["string", "number", "boolean"].includes(typeof j[k])) out.own[name] = String(j[k]).slice(0, 100);
     if (p.blockReadsOutsideWorkingDirectories === true) out.blockReads = true;
     if (p.blockWritesOutsideWorkingDirectories === true) out.blockWrites = true;
     if (p.disableAutoMode === "disable" || j.disableAutoMode === "disable") out.autoOff = true;
+    // (Claude Code's cloud sessions: "honors only acceptEdits, plan, default, and auto from this key"; auto "doesn't apply
+    // from project files".)
+    if (typeof p.defaultMode === "string" && ["acceptEdits", "plan", "default"].includes(p.defaultMode)) out.defaultMode = p.defaultMode;
   }
   const cap = (a, n) => [...new Set(a)].slice(0, n);
   out.deny = cap(out.deny, 200); out.ask = cap(out.ask, 200); out.allow = cap(out.allow, 200); out.dirs = cap(out.dirs, 20);
@@ -619,7 +838,9 @@ export function withRepoRules(rules, repoSet) {
   const arr = (x) => (Array.isArray(x) ? x : []);
   const s = repoSet || { allow: [], ask: [], deny: [] };
   if (!s.allow.length && !s.ask.length && !s.deny.length) return rules && typeof rules === "object" ? rules : null;
-  return { ...r, allow: [...arr(r.allow), ...s.allow], ask: [...arr(r.ask), ...s.ask], deny: [...arr(r.deny), ...s.deny] };
+  // (Which list each came from, for a `!` file rule: Claude Code's "The carve-out reaches only rules from the same source".)
+  const sources = { own: { ask: arr(r.ask).slice(), deny: arr(r.deny).slice() }, repo: { ask: s.ask.slice(), deny: s.deny.slice() } };
+  return { ...r, allow: [...arr(r.allow), ...s.allow], ask: [...arr(r.ask), ...s.ask], deny: [...arr(r.deny), ...s.deny], sources };
 }
 export const heldNote = (h) => "Ignoring " + h.n + " " + h.key + " " + (h.n === 1 ? "entry" : "entries") + " from " + h.file + ": this repository has not been trusted. Turn on \"Trust this repository's settings\" in its permission rules to use them.";
 /** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
@@ -628,9 +849,12 @@ export function monitorNews(project) {
   for (const j of JOBS.values()) {
     if (j.project !== project || !j.monitor) continue;
     readMonitor(j);
+    // (Its events since the last look, each a few lines: readMonitor.)
     const lines = Array.isArray(j.pending) ? j.pending.splice(0) : [];
     const dropped = j.dropped || 0; j.dropped = 0;
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}) } : null;
+    // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both; and, when it
+    // was stopped for flooding, Claude Code's words for that.)
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
@@ -653,8 +877,11 @@ export function endMarked(mark, signal = "SIGKILL", deps = {}) {
   const look = deps.look || (() => aiProcesses({ uid: RUN_UID, box: [SBX_BASE, SBX_BASE + SBX_RANGE] }));
   const read = deps.markOf || ((pid) => markOf(pid));
   const kill = deps.kill || ((pid, sig) => { try { process.kill(pid, sig); return true; } catch { return false; } });
+  // (`skipGroup`: the command's own process group, which was just signalled as a whole; its processes are not signalled a
+  // second time, as some take a second SIGTERM as "stop now": Bash docs pass 9.)
+  const skip = Number(deps.skipGroup) || 0;
   let n = 0;
-  for (const pid of look().keys()) if (pid !== process.pid && read(pid) === mark && kill(pid, signal)) n++;
+  for (const [pid, st] of look()) if (pid !== process.pid && !(skip && st && Number(st.pgrp) === skip) && read(pid) === mark && kill(pid, signal)) n++;
   return n;
 }
 export function stopJob(j, why, { hard = false } = {}) {
@@ -665,7 +892,7 @@ export function stopJob(j, why, { hard = false } = {}) {
   const keep = PREFS.endDetached === false;
   if (keep && typeof j.mark === "string" && j.mark) { KEPT_MARKS.add(j.mark); while (KEPT_MARKS.size > 50) KEPT_MARKS.delete(KEPT_MARKS.values().next().value); }
   try { process.kill(-j.pid, hard ? "SIGKILL" : "SIGTERM"); } catch { /* gone */ }
-  if (!keep) endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM");
+  if (!keep) endMarked(j.mark, hard ? "SIGKILL" : "SIGTERM", { skipGroup: j.pid });
   setTimeout(() => {
     try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ }
     if (!keep) endMarked(j.mark, "SIGKILL");
@@ -720,6 +947,21 @@ export const SCARCE_SHARE = 0.1, SCARCE_KIB = 4 * 1024 * 1024;
 export function memoryStallUs(read = () => readFileSync("/proc/pressure/memory", "utf8")) {
   try { const m = /^some\b.*\btotal=(\d+)/m.exec(read()); return m ? Number(m[1]) : null; } catch { return null; }
 }
+/**
+ * THE MEMORY AVAILABLE, in bytes, or null (the low-memory warning): /proc/meminfo's MemAvailable, and with the chat's commands'
+ * memory cap (`cg`, its cgroup folder) no more than what is left under it (Claude Code: "limitedByCgroup").
+ */
+export function memAvailable(cg = "", read = (f) => readFileSync(f, "utf8")) {
+  let avail = null;
+  try { const a = Number((/^MemAvailable:\s+(\d+) kB$/m.exec(read("/proc/meminfo")) || [])[1]); if (Number.isFinite(a) && a >= 0) avail = a * 1024; } catch { avail = null; }
+  if (cg) {
+    try {
+      const max = Number(String(read(join(cg, "memory.max"))).trim()), cur = Number(String(read(join(cg, "memory.current"))).trim());
+      if (Number.isFinite(max) && max > 0 && Number.isFinite(cur) && cur >= 0) { const left = Math.max(0, max - cur); avail = avail === null ? left : Math.min(avail, left); }
+    } catch { /* no cap to read: the machine's figure */ }
+  }
+  return avail;
+}
 /** Whether memory is scarce, from /proc/meminfo (as Claude Code reads it): `{ scarce, detail }`. */
 export function memoryScarce(read = () => readFileSync("/proc/meminfo", "utf8")) {
   let text;
@@ -767,7 +1009,8 @@ export function checkJobs(now = Date.now(), memory = {}) {
     if (j.monitor) readMonitor(j);
     if (j.end) { if ((j.told && !j.hookPending && now - j.end.at > JOB_KEEP_MS) || now - j.end.at > 8 * JOB_KEEP_MS) JOBS.delete(j.pid); continue; }
     if (now >= j.deadline && !j.stopping) { stopJob(j, "limit"); continue; }
-    if (!groupAlive(j.pid) && !j.stopping) jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null);
+    if (!groupAlive(j.pid) && !j.stopping) { jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); continue; }
+    try { watchStall(j, now); } catch { /* next look */ }
   }
   try { checkPressure(now, memory); } catch { /* never costs the look */ }
 }
@@ -822,14 +1065,28 @@ export function execIn(dir, command, timeoutS = 120, opts = {}) {
   if (PAUSED && !(opts && opts.uid === null)) return PAUSED.done.then(() => execIn(dir, command, timeoutS, opts));
   return execNow(dir, command, timeoutS, opts);
 }
-function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0, shell = "bash" } = {}) {
+function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, kill = false, bgDir = BG_DIR, extraEnv = null, home = null, room = false, box = null, outMax = RAW_OUTPUT_MAX, start = null, follow = false, spillDir = null, spillAt = SPILL_AT, keep = READ_BACK_KEEP, stopAtTimeout = false, onStart = null, prefix = "", onMove = null, onProgress = null, outputKill = OUTPUT_KILL, memCg = "", shellPrefix = "", quietMs = 0, shell = "bash" , merge = false} = {}) {
   // (`shell`: the owner's CODER_SHELL for the AI's commands, shellOf; bash otherwise.)
-  const sh = typeof shell === "string" && /^(bash|\/(usr\/(local\/)?)?bin\/(bash|zsh))$/.test(shell) ? shell : "bash";
+  const sh = typeof shell === "string" && (/^(bash|\/(usr\/(local\/)?)?bin\/(bash|zsh))$/.test(shell) || (/^\/[^\s'"`$;&|<>\\]*\/(bash|zsh)[^/\s'"`$;&|<>\\]*$/.test(shell))) ? shell : "bash";
   return new Promise((done) => {
     let out = "", cut = false, timedOut = false, tail = "", bytes = 0, killedForSize = false;
+    // (Each stream's letters decoded whole: one split between two reads is joined, never shown as "\ufffd\ufffd"; and the last
+    // bytes it printed, kept for what a command moved to the background shows: Bash docs pass 9.)
+    const carry = { out: NO_BYTES, err: NO_BYTES };
+    const decode = (b, which) => {
+      const all = carry[which].length ? Buffer.concat([carry[which], b]) : b;
+      const k = utf8Partial(all);
+      carry[which] = k ? Buffer.from(all.subarray(all.length - k)) : NO_BYTES;
+      return (k ? all.subarray(0, all.length - k) : all).toString("utf8");
+    };
+    const leftover = () => { const rest = Buffer.concat([carry.out, carry.err]); carry.out = carry.err = NO_BYTES; return rest; };
+    let lastBytes = NO_BYTES;
     // THE OUTPUT FILE: the raw bytes so far until it is needed, then everything in it.
     let early = [], earlyBytes = 0, spill = null, spillPath = "", spillBytes = 0, spillDone = Promise.resolve();
-    const env = { ...(extraEnv || {}), ...(uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir)), ...(box ? { CODER_SANDBOX: "1" } : {}) };
+    // (The owner's and the repository's variables win over the machine's presets, its JAVA_HOME, GOPATH or DOCKER_HOST
+    // too, never over its PATH and HOME: Bash docs pass 9. Root's own commands keep root's presets first, as before.)
+    const pre = uid === null ? cleanEnv(null, { root: true }) : cleanEnv(home || dir);
+    const env = uid === null ? { ...(extraEnv || {}), ...pre, ...(box ? { CODER_SANDBOX: "1" } : {}) } : { ...pre, ...(extraEnv || {}), PATH: pre.PATH, HOME: pre.HOME, ...(box ? { CODER_SANDBOX: "1" } : {}) };
     const g = Number.isInteger(gid) ? gid : uid;
     const nonce = follow ? randomUUID().replace(/-/g, "").slice(0, 16) : "";
     // The command's own shell goes to its folder first, and follows where it ends.
@@ -837,6 +1094,9 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     // (In zsh, the command itself through eval, as Claude Code runs it: zsh reads all of a `-c` script before it runs any of
     // it, so the snapshot's aliases would not apply to it otherwise.)
     command = (typeof start === "string" && start && start !== dir ? "cd -- " + shellWord(start) + " || exit 1\n" : "") + (typeof prefix === "string" ? prefix : "") + (follow ? cwdTrap(nonce) : "") + (isZsh(sh) ? "eval " + shellWord(command) : command);
+    // (`merge`: the AI's own commands write their errors where their output goes, so lines stay in the order they were
+    // written, as Claude Code's one output file keeps them: Bash docs pass 9, two pipes had put every error last.)
+    if (merge) command = "exec 2>&1\n" + command;
     // THE OWNER'S COMMAND PREFIX (shellPrefixOf): the whole of it, as one quoted word after the prefix.
     if (typeof shellPrefix === "string" && shellPrefix) command = shellPrefix + " " + shellWord(command);
     // IN THE JOB'S ADMIN SANDBOX (coder-sandbox.mjs: as `dev`, with sudo for anything, in the room),
@@ -879,9 +1139,11 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       spill.write(part);
     };
     // The end of everything printed is kept apart too, so the folder line is found after a cut.
-    const take = (b) => {
-      const str = b.toString("utf8");
+    const take = (b, which = "out") => {
+      const str = decode(b, which);
       bytes += b.length;
+      lastBytes = b.length >= MOVED_KEEP ? Buffer.from(b.subarray(b.length - MOVED_KEEP)) : Buffer.concat([lastBytes, b]).subarray(-MOVED_KEEP);
+      if (feedProgress) feedProgress(str);
       // THE 5 GB STOP (SIZE_KILLED), first: for every command, with an output file or not (the setup script has none).
       if (bytes > outputKill && !killedForSize) { killedForSize = true; try { process.kill(-p.pid, "SIGKILL"); } catch { /* gone */ } }
       if (follow) tail = (tail + str).slice(-8192);
@@ -904,10 +1166,10 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     };
     // ITS LAST LINES WHILE IT RUNS (Claude Code 1.0.48: "progress messages … based on the last 5 lines of command output"), each
     // second while they change; never the folder line.
-    let progTail = "", progSent = "", progTimer = null;
+    let progTail = "", progSent = "", progTimer = null, feedProgress = null;
     if (typeof onProgress === "function") {
-      const feed = (b) => { progTail = (progTail + b.toString("utf8")).slice(-4000); };
-      p.stdout.on("data", feed); p.stderr.on("data", feed);
+      // (Fed from what take decoded, letters whole.)
+      feedProgress = (str) => { progTail = (progTail + str).slice(-4000); };
       progTimer = setInterval(() => {
         if (progTail === progSent) return;
         progSent = progTail;
@@ -916,7 +1178,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       }, 1000);
       if (typeof progTimer.unref === "function") progTimer.unref();
     }
-    p.stdout.on("data", take); p.stderr.on("data", take);
+    p.stdout.on("data", (b) => take(b, "out")); p.stderr.on("data", (b) => take(b, "err"));
     let answered = false;
     const answer = (r) => { if (progTimer) { clearInterval(progTimer); progTimer = null; } if (!answered) { answered = true; done(r); } };
     // Into the background: at its timeout, or when the owner asks (`byUser`: the page's "Run in background", Claude Code's
@@ -934,7 +1196,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
           // A new plain file, never through a link someone left there.
           const fd = openSync(log, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
           w = createWriteStream(null, { fd });
-          w.write(spillDir ? Buffer.concat(early) : out);
+          w.write(spillDir ? Buffer.concat(early) : Buffer.concat([Buffer.from(out), leftover()]));
         }
         p.stdout.pipe(w, { end: false }); p.stderr.pipe(w, { end: false });
         // THE 5 GB STOP GOES ON HERE (SIZE_KILLED): its output so far counts, and what it prints from now on.
@@ -951,7 +1213,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
         p.on("close", (code, signal) => { const c = exitOf(code, signal); w.end((killedForSize ? "\n" + SIZE_KILLED : "") + "\n[finished, exit code " + c + "]\n"); ended(c); jobEnded(p.pid, c, killedForSize ? "size" : ""); });
         p.unref();
       } catch { /* the log could not be made: the note still says it runs */ }
-      const so = out.length > 4000 ? out.slice(-4000) : out;
+      // (What it printed so far, as Claude Code shows it: its last 2,000 bytes, from a line start; movedSoFar.)
+      const so = movedSoFar(lastBytes, bytes, log);
       answer({ code: -1, background: true, pid: p.pid, log, timedOut: !byUser, ...(byUser ? { byUser: true } : {}), output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
       return true;
     };
@@ -971,6 +1234,8 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       clearTimeout(t);
       if (quietTimer) clearTimeout(quietTimer);
       if (answered) return;
+      // (A letter left half-read at the end is shown as it is.)
+      { const rest = leftover(); if (rest.length && out.length < (spillDir ? keep : outMax)) out += rest.toString("utf8"); }
       // The folder line is taken out of what the command printed (its last one, with this command's own random part).
       let ended = null, text = out, markBytes = 0;
       if (follow) {
@@ -988,8 +1253,10 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       }
       const size = Math.max(0, bytes - markBytes);
       const c = typeof code === "number" ? code : signal === "SIGTERM" ? 143 : signal === "SIGKILL" ? 137 : -1;
-      if (timedOut && stopAtTimeout) return answer({ code: 143, output: (text ? text.replace(/\n?$/, "\n") : "") + "Command timed out after " + Math.max(1, timeoutS) + "s", timedOut: true, size });
-      answer({ code: c, output: text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : "") + (killedForSize ? "\n" + SIZE_KILLED : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
+      // (Claude Code 2.1.322 says why first, then what it printed: "Command timed out after 2m 0s", "Command killed: output file
+      // exceeded 5GB"; Bash docs pass 9.)
+      if (timedOut && stopAtTimeout) return answer({ code: 143, output: "Command timed out after " + ccDuration(Math.max(1, timeoutS) * 1000) + (text ? "\n" + text : ""), timedOut: true, size });
+      answer({ code: c, output: (killedForSize ? SIZE_KILLED + (text ? "\n" : "") : "") + text + (cut ? "\n[output cut at " + Math.round(outMax / 1048576) + " MB]" : ""), timedOut, size, ...(file ? { file, ...(spillBytes >= SPILL_KEEP ? { truncatedAt: SPILL_KEEP } : {}) } : {}), ...(ended !== null && code === 0 ? { ended } : {}) });
     });
   });
 }
@@ -1503,6 +1770,13 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     if (g) return { ok: false, why: g };
     await new Promise((r) => spawn("chown", ["-R", "0:0", gitDir]).on("close", r));
     await new Promise((r) => spawn("chmod", ["-R", "u+rwX,go+rX,go-w", gitDir]).on("close", r));
+  }
+  // ITS `origin` (Bash docs pass 9; Claude Code's cloud clone has a normal origin, so `gh pr list` and other tools know which
+  // repository they are in): the repository's address with no login in it, its branches as origin's. Set by root; the AI's
+  // commands read it (the git folder is root's), and Coder itself fetches and pushes by its own address as before.
+  if ((await gitIn(dir, ["config", "--get", "remote.origin.url"], o)).stdout.trim() !== url) {
+    await gitIn(dir, ["config", "remote.origin.url", url], o);
+    await gitIn(dir, ["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], o);
   }
   return { ok: true };
 }
@@ -2123,6 +2397,9 @@ export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } 
   mkdirSync(d.home, { recursive: true, mode: 0o755 });
   if (dev) chownSync(d.home, dev.uid, dev.gid);
   chmodSync(d.home, 0o755);
+  // ITS ~/.claude, as a Claude Code machine has one (Bash docs pass 9: the hooks guide's examples write to ~/.claude/…, which
+  // failed here). Made only when nothing is there (never through a link the AI left), then the AI's.
+  try { mkdirSync(join(d.home, ".claude"), { mode: 0o755 }); if (dev) lchownSync(join(d.home, ".claude"), dev.uid, dev.gid); } catch { /* there already */ }
   return d;
 }
 
@@ -2381,12 +2658,22 @@ export function coderMarks(project, chatUrl, effort = "") {
  * it off), checked as the commands' GOFARTHER_CODER_CHAT_URL is.
  */
 export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER_CHAT_URL ? "Coder-Chat: " + chatUrl : "");
-/** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
+/**
+ * NO OPENTELEMETRY SETTINGS IN THE COMMANDS (Bash docs pass 8; Claude Code 2.1.322 deletes every OTEL_* variable, and
+ * CLAUDE_CODE_OTEL_DIAG_STDERR, from the environment of the commands it runs): the environment's and the repository's.
+ */
+export const withoutOtel = (vars) => Object.fromEntries(Object.entries(vars && typeof vars === "object" ? vars : {}).filter(([k]) => !/^OTEL_/i.test(k) && k.toUpperCase() !== "CLAUDE_CODE_OTEL_DIAG_STDERR"));
+/**
+ * The owner's environment variables, checked: plain names, never the ones that steer the machine. (CDPATH as one of them
+ * since Bash docs pass 9: it moves where `cd name` lands, past what the permission checks see.)
+ */
 export function safeVars(vars) {
   const out = {};
   if (!vars || typeof vars !== "object") return out;
   for (const [k, v] of Object.entries(vars).slice(0, 50)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CODER_)/i.test(k)) continue;
+    // (PATH, HOME, SHELL and USER by their whole names, so USER_POOL_ID or HOMEBREW_PREFIX stay: Bash docs pass 9.)
+    // (The dropped names are one list with the page's note, VAR_DROPPED_RE; CODER_… are Coder's settings, read elsewhere.)
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || VAR_DROPPED_RE.test(k) || /^CODER_/i.test(k)) continue;
     out[k] = String(v ?? "").slice(0, 4000);
   }
   return out;
@@ -2557,6 +2844,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const live = liveFetch ? liveTarget(body.live) : null;
     const sender = live ? liveSender(t, live, liveFetch) : null;
     const fail = (status, why) => { if (sender) sender.stop(); if (t.resume) { t.resume(); t.resume = null; } t.running = false; turns.delete(project); return [status, { error: why }]; };
+    // (This job's pass, for the chat's wake once it has ended: wakeIdle.)
+    noteWake(project, body.egress);
+    // THE FIRST MESSAGE SINCE THIS MACHINE STARTED, of a chat that has some (a resumed session, Bash docs pass 8): its
+    // SessionStart hooks run as `resume` (runCoder).
+    const resumed = !SEEN_CHATS.has(project) && Array.isArray(body.messages) && body.messages.length > 0;
+    SEEN_CHATS.add(project);
     // Nothing left from before may race root while it prepares the files (the audit); if it cannot be stopped, the job
     // does not start (2026-11-06). Its background commands still running are paused meanwhile, not ended (tool 4).
     t.resume = await quietly();
@@ -2646,7 +2939,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const ownerVars = safeVars(body.setup && body.setup.vars);
     // THE REPOSITORY'S OWN SETTINGS (repoSettings): its env under the owner's variables; its rules, working folders and
     // blocks below. What waits for the owner's trust is said in the chat, in Claude Code's words.
-    const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true });
+    const repoSet = repoSettings(dir, { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 });
+    // (Kept for rules the owner changes while the job runs, /rules, and read again when its files change mid-job: repoNow.)
+    t.repoSet = repoSet;
+    t.repoStamp = repoFilesStamp(dir);
+    t.ownerRules = body.rules && typeof body.rules === "object" ? { allow: body.rules.allow, ask: body.rules.ask, deny: body.rules.deny } : null;
+    t.rulesNext = null; t.hooksNext = null; t.blocksNext = null;
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
     // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
@@ -2661,12 +2959,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     let capCounts = {};
     if (capsGiven) { try { const c = JSON.parse(readFileSync(capsFile, "utf8")); if (c && typeof c === "object" && !Array.isArray(c)) capCounts = c; } catch { capCounts = {}; } }
     const scriptCaps = capsGiven ? { caps: capsGiven, counts: capCounts, save: (c) => { try { writeFileSync(capsFile, JSON.stringify(c), { mode: 0o600 }); } catch { /* counted in memory still */ } } } : null;
-    // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command, before the
-    // session's own variables): `git commit --amend`, `git rebase --continue` keep the message git prepared, where before they
-    // failed ("Terminal is dumb, but EDITOR unset"). An owner's own GIT_EDITOR wins.
-    const extraEnv = { GIT_EDITOR: "true", ...repoSet.env, ...ownerVars, ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
+    // GIT NEVER WAITS FOR AN EDITOR (Bash docs pass 5; Claude Code sets GIT_EDITOR=true for every command): `git commit
+    // --amend`, `git rebase --continue` keep the message git prepared, where before they failed ("Terminal is dumb, but EDITOR
+    // unset"). (After the owner's and the repository's variables, as Claude Code puts it after the session's own: its
+    // `{...os(), SHELL, GIT_EDITOR:"true", …}`; Bash docs pass 9.)
+    const extraEnv = { ...withoutOtel(repoSet.env), ...withoutOtel(ownerVars), GIT_EDITOR: "true", ...(extras.length ? { CODER_EXTRA_ROOTS: extras.map((x) => x.dir).join(":") } : {}) };
     // CODER'S OWN MARKS IN EVERY COMMAND (see coderMarks, AGENT_MARK): after the owner's, so one of theirs cannot hide them.
-    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK);
+    Object.assign(extraEnv, coderMarks(project, body.chatUrl, body.model ? pickModel(body.model, body.effort).effort : ""), AGENT_MARK, REMOTE_MARK);
     t.extraEnv = extraEnv; // a network change during the job adds the proxy here (/network)
     // WHERE THE COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): where the chat's last command left
     // them (body.cwd, kept by the Worker), while that is still the project's folder, one of the other repositories', or a
@@ -2686,7 +2985,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const home0 = workRoots[0];
     // (A setting for Coder itself, read from the owner's variables as given: names starting with CODER_ never reach the
     // commands, see safeVars.)
-    const rawVars = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    // (And under them the repository's own command settings, by Claude Code's names: withRepoOwn, Bash docs pass 8.)
+    const ownerRaw = body.setup && body.setup.vars && typeof body.setup.vars === "object" ? body.setup.vars : {};
+    const rawVars = withRepoOwn(ownerRaw, repoSet.own);
+    const fromRepo = (n) => !Object.hasOwn(ownerRaw, n) && Object.hasOwn(repoSet.own, n);
+    const setBy = (n) => (fromRepo(n) ? "this repository's .claude/settings.json sets " + REPO_OWN_FROM[n] : "this chat's environment sets " + n);
     // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions).
     if (addDirs.length && varOn(rawVars.CODER_ADDITIONAL_DIRECTORIES_CODER_MD)) {
       const more = await extraInstructions(addDirs, notes);
@@ -2697,7 +3000,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // without one, the owner is told (Claude Code: "the tool requires PowerShell 7 or later: install pwsh").
     const psWanted = varOn(rawVars.CODER_USE_POWERSHELL_TOOL);
     const psOn = psWanted && PWSH_PATHS.some((p) => existsSync(p));
-    if (psWanted && !psOn) t.events.push({ at: Date.now(), type: "note", text: "CODER_USE_POWERSHELL_TOOL is on, but this machine has no PowerShell 7 (pwsh), so Coder has no PowerShell tool here." });
+    if (psWanted && !psOn) t.events.push({ at: Date.now(), type: "note", text: (fromRepo("CODER_USE_POWERSHELL_TOOL") ? "This repository's .claude/settings.json turns CLAUDE_CODE_USE_POWERSHELL_TOOL on" : "CODER_USE_POWERSHELL_TOOL is on") + ", but this machine has no PowerShell 7 (pwsh), so Coder has no PowerShell tool here." });
     const keepHome = /^(1|true|yes|on)$/i.test(String(rawVars.CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR ?? "").trim());
     // What every command of Coder's reads first (tool 4, docs pass 2 and 5): see commandPrefix.
     // (And the chat's hook env file, which SessionStart, CwdChanged and FileChanged hooks write: Claude Code's "Persist
@@ -2760,6 +3063,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       try {
         px = await proxyFor();
         px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); px.setGithub(githubOn); secretHosts = secretList.length ? px.hosts() : [];
+        // (The chat's repositories, whose source archives may be fetched: Claude Code's repository scope.)
+        if (typeof px.setRepos === "function") px.setRepos([body.repo, ...extras.map((x) => x && x.repo)].filter((x) => typeof x === "string" && x));
         // web_fetch follows the list too: Claude Code's docs name only GitHub,
         // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
@@ -2774,16 +3079,27 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
             : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
-      } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
+      } catch (e) {
+        const why = String((e && e.message) || e).slice(0, 120);
+        if (net.limited) {
+          // FAILS CLOSED (Bash docs pass 9; Claude Code's gate sits outside its machine and can't fail open): with a limited
+          // network and no gate, the wall goes up all the same and the room has no way out, so no command reaches the internet.
+          px = null; proxyEnv = {};
+          try { fwOn = firewall(true, RUN_UID); } catch { /* the room still has no link */ }
+          t.room = await enterRoom(null, true);
+          netNote = "\n\nNETWORK: OFF FOR THIS MESSAGE. The network gate could not start on this machine, so commands have no internet access at all until it does (the owner's limited network setting is kept, not dropped). Work offline; if the task needs the internet, say so in your answer.";
+          t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + why + "); commands have no internet in this message." });
+        } else t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + why + "); commands run without them." });
+      }
     }
     // FULL ACCESS is said too (live test, 2026-11-08: asked which network setting its environment has, Coder
     // could not tell: only the limited ones were described).
     if (!net.limited) netNote = "\n\nNETWORK: FULL. This chat's environment allows any site on the internet (the owner can limit it in Environment, Network access).";
     // THE COMMANDS' TIMEOUTS, when the environment's variables change them (Claude Code: BASH_DEFAULT_TIMEOUT_MS, BASH_MAX_TIMEOUT_MS).
-    if (t.tmo.defaultMs !== 120_000 || t.tmo.maxMs !== 600_000 || t.tmo.bgDefaultMs !== BG_LIMIT_MS) netNote += "\n\nCOMMAND TIMEOUTS (this chat's environment sets BASH_DEFAULT_TIMEOUT_MS or BASH_MAX_TIMEOUT_MS): a command's timeout is " + t.tmo.defaultMs + " ms by default, at most " + t.tmo.maxMs + " ms; a background command's time limit is " + Math.round(t.tmo.bgDefaultMs / 60000) + " minutes by default, at most " + Math.round(t.tmo.bgMaxMs / 60000) + " minutes.";
+    if (t.tmo.defaultMs !== 120_000 || t.tmo.maxMs !== 600_000 || t.tmo.bgDefaultMs !== BG_LIMIT_MS) netNote += "\n\nCOMMAND TIMEOUTS (" + (fromRepo("BASH_DEFAULT_TIMEOUT_MS") || fromRepo("BASH_MAX_TIMEOUT_MS") ? "this repository's .claude/settings.json" : "this chat's environment") + " sets BASH_DEFAULT_TIMEOUT_MS or BASH_MAX_TIMEOUT_MS): a command's timeout is " + t.tmo.defaultMs + " ms by default, at most " + t.tmo.maxMs + " ms; a background command's time limit is " + Math.round(t.tmo.bgDefaultMs / 60000) + " minutes by default, at most " + Math.round(t.tmo.bgMaxMs / 60000) + " minutes.";
     // BACKGROUND COMMANDS OFF, AND OUTPUT SIZES, when the environment sets them (see bashOutputLimits and t.noBg).
-    if (t.noBg) netNote += "\n\nBACKGROUND COMMANDS ARE OFF (this chat's environment sets CODER_DISABLE_BACKGROUND_TASKS): bash has no run_in_background, and a command still running at its timeout is stopped, not moved to the background. Start a server or watcher only for a bounded check (for example `timeout 20 npm run dev`), never to keep it running.";
-    if (t.outLimits.inlineMax !== OUT_INLINE || t.outLimits.readBack !== OUT_INLINE) netNote += "\n\nCOMMAND OUTPUT SIZES (this chat's environment sets " + (t.outLimits.inlineMax !== OUT_INLINE ? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH") + "): output of a command that worked comes back inline up to " + t.outLimits.inlineMax.toLocaleString("en-US") + " characters, past that as a file and a preview; a failure's excerpt is cut from its first " + t.outLimits.readBack.toLocaleString("en-US") + " characters.";
+    if (t.noBg) netNote += "\n\nBACKGROUND COMMANDS ARE OFF (" + setBy("CODER_DISABLE_BACKGROUND_TASKS") + "): bash has no run_in_background, and a command still running at its timeout is stopped, not moved to the background. Start a server or watcher only for a bounded check (for example `timeout 20 npm run dev`), never to keep it running.";
+    if (t.outLimits.inlineMax !== OUT_INLINE || t.outLimits.readBack !== OUT_INLINE) netNote += "\n\nCOMMAND OUTPUT SIZES (" + setBy(t.outLimits.inlineMax !== OUT_INLINE ? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH") + "): output of a command that worked comes back inline up to " + t.outLimits.inlineMax.toLocaleString("en-US") + " characters, past that as a file and a preview; a failure's excerpt is cut from its first " + t.outLimits.readBack.toLocaleString("en-US") + " characters.";
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
@@ -2846,7 +3162,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
+          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -2880,7 +3196,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // WHERE YOUR COMMANDS RUN, as Claude Code tells Claude its working directory: said at the job's start, and again in the
     // context made after a summary, as it is then.
     const workNote = () => (addDirs.length ? "\n\nTHE OWNER'S ADDITIONAL WORKING DIRECTORIES (Claude Code's additionalDirectories): " + addDirs.join(", ") + ". Work in them as in the project: read and change files there as the task needs." : "") + (isZsh(t.shell) ? "\n\nYOUR SHELL: your commands run in zsh (" + t.shell + "), the owner's CODER_SHELL, not bash: write them for zsh (its arrays start at 1)." : "") + "\n\nWHERE YOUR COMMANDS RUN (like Claude Code): the project is in " + home0 + ". " + (keepHome
-      ? "Every command starts there (the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR): a cd lasts for that one command only."
+      ? "Every command starts there (" + (fromRepo("CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR") ? "this repository's .claude/settings.json sets CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR" : "the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR") + "): a cd lasts for that one command only."
       : "Your next command starts in " + saidDir(t.cwd) + (t.cwd !== home0 ? " (where an earlier cd left it)" : t.cwdWas ? " (an earlier cd had left it in " + saidDir(t.cwdWas) + ", which is gone or not inside the project now)" : "") +
         ". A cd carries over to your later commands, in this message and the next ones, when the command succeeds and stays inside the project or this chat's other repositories; if it leaves them, the next command starts back in " + home0 + " (\"Shell cwd was reset to\" says so). A command in the background never moves it.") +
       " Give the file tools full paths, as Claude Code does (a short path counts from where your commands start); grep and glob search from there when given no path.";
@@ -2892,9 +3208,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const backgroundNews = () => {
       checkJobs();
       // (A monitor's lines and end come to Coder at each step instead: monitorNews.)
-      const notices = untoldOf(project).filter((j) => !j.monitor && !j.hook).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
+      const notices = untoldOf(project).filter((j) => j.end && !j.monitor && !j.hook).map((j) => { j.told = true; return { id: j.id, desc: j.desc, command: j.command, log: j.log, code: j.end.code, why: j.end.why }; });
       const lost = (Array.isArray(body.background) ? body.background : []).filter((b) => b && /^job\d{1,6}$/.test(String(b.id || "")) && ![...JOBS.values()].some((j) => j.project === project && j.id === b.id)).slice(0, 20).map((b) => ({ id: String(b.id), desc: String(b.desc || b.command || "").slice(0, 200) }));
-      return { notices, lost };
+      // (Those still running that look stuck on a typed question: watchStall.)
+      return { notices, lost, stalls: stallNews(project) };
     };
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
@@ -2903,6 +3220,23 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
     const lastSend = async () => { if (sender) await sender.flush(); };
+    // (See rulesNow: the repository's files looked at again, and read again only when one changed.)
+    const repoOpts = { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 };
+    const ownWriteBlock = varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES), ownReadBlock = varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES);
+    const repoNow = () => {
+      const stamp = repoFilesStamp(dir);
+      if (stamp === t.repoStamp) return;
+      t.repoStamp = stamp;
+      const was = t.repoSet || {};
+      const rs = repoSettings(dir, repoOpts);
+      t.repoSet = rs;
+      t.rulesNext = withRepoRules(t.ownerRules || { allow: [], ask: [], deny: [] }, rs) || { allow: [], ask: [], deny: [] };
+      t.hooksNext = hooksForTurn(dir, body.hooks, { github: repoOpts.github, several: repoOpts.several });
+      t.readBlockOn = !!(t.readBlockOn || was.blockReads || rs.blockReads);
+      t.blocksNext = { read: ownReadBlock || t.readBlockOn, write: ownWriteBlock || rs.blockWrites };
+      for (const h of rs.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
+    };
+    t.readBlockOn = !!repoSet.blockReads;
     // The real service's AI calls go through the Worker with this job's pass (no key on the machine).
     const via = modelVia && !send ? modelTarget(body.model) : null;
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
@@ -2911,18 +3245,30 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const begin = () => {
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
-      const { notices, lost } = backgroundNews();
-      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true });
+      const { notices, lost, stalls } = backgroundNews();
+      const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
         hookNews: () => hookNews(project),
+        // A HOOK'S TEXT PAST 10,000 CHARACTERS, saved in the chat's output folder (Claude Code: "saves the output to a file in
+        // the session directory"), which Coder's read may open: the file's path. A new plain file, never through a link.
+        saveText: (text) => {
+          mkdirSync(outDir, { recursive: true, mode: 0o755 });
+          const file = join(outDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
+          const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+          try { writeFileSync(fd, String(text)); } finally { closeSync(fd); }
+          return file;
+        },
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
         // (The chat's id: a hook's session_id.)
         chatId: project,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },
+        // THE MEMORY AVAILABLE, for the low-memory warning (Settings; Claude Code's CLAUDE_CODE_WARN_MEMORY_FREE_GIB, "when available
+        // memory falls below that amount"): the machine's MemAvailable, or less when the chat's commands have a memory cap.
+        memFree: () => memAvailable(t.memCg),
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
         watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
@@ -2931,7 +3277,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
-        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false }) => {
+        exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
           // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
           // the volume holding … so the file that captures command output could not be created there and nothing ran").
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
@@ -2945,12 +3291,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // THE FOLDER IT STARTS IN, checked again first: one that is gone (a rewind, a command in the background) or is
           // no longer inside the project sends the command back to the project's folder, and its answer says so.
           const notes = [];
+          // (A hook never moves it: one whose folder is gone runs from the project's, and Coder's next command is still told
+          // its folder was reset, as Claude Code runs a hook from a fallback folder and leaves the session's as it is. Bash
+          // docs pass 9.)
+          let hookHome = false;
           if (here && t.cwd !== home0) {
             const ok = await cwdInside(t.cwd, workRoots);
-            if (ok) t.cwd = ok; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
+            if (ok) t.cwd = ok; else if (hook) hookHome = true; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
           }
-          const moved = here && t.cwd !== home0;
+          const moved = here && t.cwd !== home0 && !hookHome;
           const startedIn = t.cwd, startedAt = Date.now();
+          // (The gate's count of failed connections now, for the note a failed command gets: Claude Code's E0t() at its start.)
+          const fails0 = !tool && px && typeof px.failCount === "function" ? px.failCount() : null;
           // The turn's own commands, while they run (the owner's Stop ends them; its background ones go on).
           let leader = 0;
           const onStart = (pid) => { leader = pid; t.fg.add(pid); };
@@ -2969,19 +3321,21 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // A file or web tool is ended at its time limit, never sent to the background.
           // A HOOK (coder-hooks.mjs) runs as a tool does, with Claude Code's own for hooks: its answer once its own process has
           // been gone 10 seconds (`quietMs`), the owner's command prefix around it (CODER_SHELL_PREFIX, Claude Code's
-          // CLAUDE_CODE_SHELL_PREFIX: "wraps shell commands Claude Code spawns: Bash tool calls, hook commands …"), the folder
+          // CLAUDE_CODE_SHELL_PREFIX: "wraps shell commands Claude Code spawns: Bash tool calls, hook commands …"; "PowerShell
+          // hooks and exec-form hooks run without the prefix", and PowerShell's own commands are none of those: `noPrefix`), the folder
           // Coder's commands are in, and for SessionStart, CwdChanged and FileChanged the chat's hook env file (CLAUDE_ENV_FILE).
           // THE MEMORY CAP FOR CODER'S OTHER PROCESSES (Claude Code's CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE, under Coder's name):
           // hooks, code lookups and Coder's helpers when the owner's variable puts them under it, never a hook that can block.
           const capped = tool && typeof t.memCgNow === "function" && t.memKinds instanceof Set && t.memKinds.has(hook ? "hooks" : kind === "lsp" ? "lsp" : "helper") && !(hook && hookGate);
-          const hookEnvFile = hook && hookEnv && home ? join(home, ".coder-hook-env", project + ".sh") : "";
+          // (Which of the chat's two hook env files: SessionStart's, or CwdChanged's and FileChanged's, Bash docs pass 8.)
+          const hookEnvFile = hook && hookEnv && home ? join(home, ".coder-hook-env", project + (hookEnv === "cwd" ? ".cwd.sh" : ".sh")) : "";
           // A HOOK IN THE BACKGROUND (Claude Code's async and asyncRewake): started as a background command is, so it goes on after
           // Coder's answer, its output in a file; marked a hook, so it is none of the chat's background commands (Coder is not
           // told of it as one, the page does not list it). Its time limit: an asyncRewake hook's timeout; otherwise the
           // background limit (Claude Code "doesn't enforce timeout on it"). One done in its first second answers at once.
           if (hook && hookAsync && typeof hookAsync === "object") {
             const hmark = newMark();
-            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
+            const r = await execIn(dir, command, 1, { bgDir, kill: false, home, room: t.room, box: t.box, onStart, prefix: "", ...(capped ? { memCg: t.memCgNow() } : {}), shellPrefix: noPrefix ? "" : t.shellPrefix || "", extraEnv: { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, [TASK_MARK]: hmark, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) }, ...(moved ? { start: t.cwd } : {}) });
             if (leader) t.fg.delete(leader);
             if (r && r.background && r.pid) {
               const n = 1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project && j.hook).map((j) => Number(String(j.id).slice(4)) || 0));
@@ -2990,7 +3344,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: t.shellPrefix || "", shell: t.shell || "bash" }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -3016,6 +3370,23 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, ...(pass ? { closePass: () => px.closeFor(pass) } : {}), deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}), ...(ws ? { ws: true } : {}) } : {}) });
             r.jobId = id;
           }
+          // ONE ASKED TO RUN IN THE BACKGROUND THAT ENDED IN ITS FIRST SECOND (Bash docs pass 9; Claude Code answers at once with
+          // its ID, "Command running in background with ID: …", and tells the AI when it ends, never its output in place): listed
+          // as a background command that has ended, its output in a file of its own, so Coder is told after the round as for any
+          // other. (Its key is no process number, so nothing ever signals it.)
+          if (inBg && !tool && !monitor && !ws && r && !r.background && !r.notStarted && typeof r.output === "string") {
+            const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
+            const key = "ended:" + project + ":" + id;
+            const log = join(bgDir, "bg-" + (++bgCount) + ".log");
+            try {
+              let whole = r.output;
+              if (typeof r.file === "string" && r.file && !r.truncatedAt) whole = await readFile(r.file, "utf8").catch(() => whole);
+              const code = Number.isInteger(r.code) ? r.code : -1;
+              await writeFile(log, (whole ? whole.replace(/\n?$/, "\n") : "") + "[finished, exit code " + code + "]\n", { mode: 0o644, flag: "wx" });
+              JOBS.set(key, { project, id, pid: key, log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: false, deadline: Date.now(), box: false, end: { code, why: "exit", at: Date.now() }, told: false, stopping: "", noReap: t.noReap });
+              Object.assign(r, { background: true, pid: key, log, jobId: id, output: "", endedAtStart: true });
+            } catch { /* answered as it was, with its output */ }
+          }
           let told = "";
           if (here && !tool && !keepHome) {
             // In the background (asked to, or still running at its time limit): its cd never carries over, as in Claude Code.
@@ -3028,8 +3399,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           // WHAT THE NETWORK LIST BLOCKED WHILE IT RAN, by host and why (Claude Code names them too, 2.1.224 and 2.1.251).
           let netNote = "";
-          if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; if (b.length) netNote = "Blocked by this chat's network list while this command ran: " + b.slice(0, 10).map((x) => x.host + " (" + x.why + ")").join(", ") + ". If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None."; } catch { /* no proxy */ } }
-          return { ...r, ...(errLog && r && r.background ? { errLog } : {}), ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}) };
+          if (!tool && proxyP) { try { const p0 = await proxyP; const b = typeof p0.blockedSince === "function" ? p0.blockedSince(startedAt) : []; netNote = blockedNote(b); } catch { /* no proxy */ } }
+          // CONNECTIONS TO ALLOWED SITES THAT FAILED WHILE IT RAN (Bash docs pass 9; Claude Code's agent-proxy note): handed
+          // back with the result, which adds it only when the command failed, as Claude Code does.
+          let failNote = "";
+          if (fails0 !== null && px && typeof px.failedSince === "function" && !(r && r.background)) { try { failNote = px.failedSince(fails0); } catch { /* none */ } }
+          return { ...r, ...(errLog && r && r.background ? { errLog } : {}), ...(notes.length ? { cwdNote: notes.join("\n") } : {}), ...(told ? { cwdTold: told } : {}), ...(netNote ? { netNote } : {}), ...(failNote ? { failNote } : {}) };
         },
         // A path Grok gave a tool, as a full path (a short one counts from where the commands are); the project's folder.
         where: (p) => (typeof p === "string" && p ? (isAbsolute(p) ? resolve(p) : resolve(t.cwd, p)) : ""),
@@ -3050,6 +3425,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         repoDirs: repoOnlyDirs,
         // THE SCRIPT CAPS (CODER_SCRIPT_CAPS with the scrub on), or null.
         scriptCaps,
+        // THE CHAT'S COUNT OF AUTO MODE BLOCKS, kept in a file of root's beside the memory folders (Bash docs pass 8; Claude
+        // Code: "The total counter persists for the session", and the chat outlives this machine's sleep).
+        checkerKeep: checksKeep(join(memRoot, project + ".checks.json")),
         bg: {
           alive: async (pid) => { const j = JOBS.get(pid); return !!j && j.project === project && !j.end && groupAlive(pid); },
           // Whether it still runs; once it ended, its exit code and why (its time limit, the owner's Stop, …).
@@ -3066,7 +3444,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (!j || j.project !== project) return false;
             if (!j.stopping) j.stopping = "coder";
             try { process.kill(-pid, "SIGTERM"); } catch { /* gone */ }
-            endMarked(j.mark, "SIGTERM");
+            endMarked(j.mark, "SIGTERM", { skipGroup: pid });
             for (let i = 0; i < 15 && groupAlive(pid); i++) await new Promise((ok) => setTimeout(ok, 100));
             try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ }
             endMarked(j.mark, "SIGKILL");
@@ -3077,6 +3455,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           },
           // Coder was told it ended (in this turn): no turn of its own is started for it.
           told: (pid) => { const j = JOBS.get(pid); if (j && j.project === project) j.told = true; },
+          // Those found stuck on a typed question since the last look (watchStall), each once.
+          stalls: () => stallNews(project),
           // ITS BACKGROUND COMMANDS FROM EARLIER MESSAGES, still running: Coder can look at them, stop them, and is told when they end.
           kept: () => [...JOBS.values()].filter((j) => j.project === project && !j.end && !j.hook).map((j) => ({ id: j.id, pid: j.pid, log: j.log, command: j.command, desc: j.desc, at: j.at, moved: j.moved, cwd: j.cwd, ...(j.monitor ? { monitor: true } : {}) })),
         },
@@ -3098,6 +3478,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE PERMISSION MODE (the owner's pick; they may change it while Coder works: /mode), and THE OWNER'S ANSWERS TO
         // CODER'S CARDS (/answer): a step that asks waits here for one, for the owner's Stop, or for the job's time limit.
         mode: () => t.mode,
+        // THE OWNER'S RULES CHANGED WHILE IT RUNS (/rules; Claude Code: a rule change takes effect at the next tool call).
+        // (And THE REPOSITORY'S SETTINGS FILES CHANGED WHILE IT RUNS, Bash docs pass 9: read again before the next step, their
+        // rules, hooks and blocks; a read block they drop stays on, as Claude Code's "the file tools keep the block in the
+        // running session"; the env and working folders wait for the next message.)
+        rulesNow: () => { repoNow(); return t.rulesNext || null; },
+        hooksNow: () => t.hooksNext || null,
+        blocksNow: () => t.blocksNext || null,
         setMode: (m) => { t.mode = normMode(m); },
         ask: async (pid, { until = 0 } = {}) => {
           t.asking = String(pid);
@@ -3121,7 +3508,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
@@ -3163,7 +3550,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // or /health): on Fly.io a machine quiet for 10 minutes is stopped (src/coder-fly.mjs).
   let lastAsked = Date.now();
   // BACKGROUND COMMANDS PAST THEIR TIME LIMIT are stopped, and those that ended are noted, every few seconds (tool 4).
-  const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } }, JOB_CHECK_MS);
+  // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
+  const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
   if (typeof jobTimer.unref === "function") jobTimer.unref();
   /**
    * SESSIONEND HOOKS (Claude Code: "Runs when a session terminates", matched on why: clear, resume, logout,
@@ -3187,7 +3575,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const one = h.type === "http"
           ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
           : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
-        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
+        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
       }
     }
     await Promise.all(runs);
@@ -3242,7 +3630,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // minute"; owner, 2026-11-06: "Finish all this"): the proxy and the firewall
       // take it at once, for the rest of the job; new commands get the proxy.
       if (url.pathname === "/network" && req.method === "POST") {
-        if (!t || !t.running) return send(200, { ok: true, applied: false });
+        // (Also when the chat's background commands still run after its job: Claude Code's sessions "follow the new setting
+        // within about a minute"; Bash docs pass 8.)
+        const bgRunning = [...JOBS.values()].some((j) => j.project === project && !j.end);
+        if (!t || (!t.running && !bgRunning)) return send(200, { ok: true, applied: false });
         const list = (Array.isArray(body.secrets) ? body.secrets : []).filter((s) => s && ((Array.isArray(s.hosts) && s.hosts.some(okPattern)) || okHost(s.host))).slice(0, 20);
         const nn = normNetwork(body.setup && body.setup.network);
         const net = { ...nn, limited: netWalled(nn) };
@@ -3262,7 +3653,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
           }
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
-        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Trusted", full: "Full", custom: "Custom" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
+        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });
       }
       if (url.pathname === "/state") {
@@ -3291,6 +3682,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return send(200, { ok: true });
       }
       // THE OWNER CHANGES THE MODE WHILE CODER WORKS (the page's mode menu, like Claude Code's): from Coder's next step on.
+      // THE OWNER'S RULES, CHANGED WHILE A JOB RUNS (Bash docs pass 8; Claude Code applies a rule change at the next tool call):
+      // the owner's new rules with the repository's own as they are now (read again when its files change: repoNow).
+      if (url.pathname === "/rules" && req.method === "POST") {
+        const r = body.rules && typeof body.rules === "object" && !Array.isArray(body.rules) ? body.rules : null;
+        if (!r) return send(400, { ok: false, why: "bad rules" });
+        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        t.ownerRules = { allow: r.allow, ask: r.ask, deny: r.deny };
+        t.rulesNext = withRepoRules(t.ownerRules, t.repoSet) || { allow: [], ask: [], deny: [] };
+        return send(200, { ok: true });
+      }
       if (url.pathname === "/mode" && req.method === "POST") {
         if (!MODES.includes(body.mode)) return send(400, { ok: false, why: "bad mode" });
         if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });

@@ -58,13 +58,46 @@ export function psParts(command) {
   out.push(cur);
   return out.map((x) => x.trim()).filter(Boolean);
 }
+/**
+ * EVERY PART OF A POWERSHELL COMMAND, those inside $( ), @( ) and { } too (Bash docs pass 8: a hook's `if`, such as Claude
+ * Code's own example "PowerShell(Remove-Item *)", checks each command the input runs, as a Bash `if` does). Single-quoted text
+ * is never looked into (PowerShell never expands it); double-quoted text is, as PowerShell runs a $( ) there.
+ */
+export function psAllParts(command) {
+  const out = [];
+  const walk = (text, depth) => {
+    if (depth > 6 || out.length > 400) return;
+    for (const part of psParts(text)) {
+      out.push(part);
+      const s = String(part);
+      for (let i = 0; i < s.length; i++) {
+        const opens = s[i] === "{" ? "{" : s[i] === "(" && (s[i - 1] === "$" || s[i - 1] === "@") ? "(" : "";
+        if (!opens) { if (s[i] === "'") { const k = s.indexOf("'", i + 1); if (k < 0) break; i = k; } continue; }
+        const shut = opens === "(" ? ")" : "}";
+        let d = 0, j = i;
+        for (; j < s.length; j++) {
+          if (s[j] === "'") { const k = s.indexOf("'", j + 1); if (k < 0) { j = s.length; break; } j = k; continue; }
+          if (s[j] === opens) d++;
+          else if (s[j] === shut && --d === 0) break;
+        }
+        if (j >= s.length) break;
+        walk(s.slice(i + 1, j), depth + 1);
+        i = j;
+      }
+    }
+  };
+  walk(String(command || ""), 0);
+  return out;
+}
 /** A part's first word, as typed. */
 export const psFirst = (part) => (String(part || "").trim().match(/^[^\s]+/) || [""])[0];
 
 // (What only reads is decided from PowerShell's own parse of a command: coder-psparse.mjs, Bash docs pass 7.)
 /** A glob of a rule's command (`*` any text; a trailing " *" also matches the bare command), its first word canonicalized. */
 function ruleRegex(spec) {
-  const t = String(spec).trim();
+  // (The old prefix form `Remove-Item:*` is `Remove-Item *`, as for Bash rules: Bash docs pass 9, a deny rule written so
+  // never matched, and `Remove-Item x.txt` ran.)
+  const t = String(spec).trim().replace(/:\*$/, " *");
   const w = psFirst(t), rest = t.slice(w.length);
   const words = (w === "*" ? "*" : psCanon(w)) + rest;
   const tail = / \*$/.test(words);
@@ -78,19 +111,16 @@ export function psRuleMatches(spec, part) {
   const w = psFirst(part);
   return ruleRegex(spec).test(psCanon(w) + String(part).trim().slice(w.length));
 }
-/** The "don't ask again" rules for a command: one for each part (up to five), its first word, and the next for a program with subcommands. */
-const SUBCOMMANDS = new Set(["git", "npm", "npx", "yarn", "pnpm", "docker", "kubectl", "cargo", "go", "dotnet", "pip", "pip3", "python", "python3", "node", "gh", "make"]);
-export function psSuggest(command) {
-  const out = [];
-  for (const p of psParts(command).slice(0, 5)) {
-    const words = p.split(/\s+/).filter(Boolean);
-    const w = words[0] || "";
-    if (!w || w.startsWith("$") || w === "&" || w === ".") return null;
-    const head = SUBCOMMANDS.has(w.toLowerCase()) && words[1] && !words[1].startsWith("-") ? w + " " + words[1] : w;
-    const r = "PowerShell(" + head + " *)";
-    if (!out.includes(r)) out.push(r);
-  }
-  return out.length ? out : null;
+/**
+ * THE "DON'T ASK AGAIN" RULE FOR A POWERSHELL COMMAND (Claude Code's Le; live test 30, 2026-11-11: Coder offered
+ * PowerShell(Write-Output *), a rule for every Write-Output, where Claude Code offers the command itself): the exact
+ * text, trimmed, as a rule; none when the text has a `*` (a rule would read it as a wildcard) or a line break.
+ */
+export function psExactRule(text) {
+  const raw = String(text ?? "");
+  if (raw.includes("\n") || raw.includes("*")) return [];
+  const t = raw.replace(/^[\s\u0085\u180e]+|[\s\u0085\u180e]+$/g, "");
+  return t ? ["PowerShell(" + t + ")"] : [];
 }
 
 /** Claude Code's Start-Sleep check (its "standalone Start-Sleep N", "Start-Sleep N followed by: …"), with Coder's sleep message. */

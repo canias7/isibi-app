@@ -43,7 +43,9 @@ test("CD1 dangerous commands are refused with the reason; ordinary ones run", as
 
 test("CD2 commands run with no secrets in reach; key-shaped text is hidden; long output is cut and says so", async () => {
   const env = cleanEnv("/work/p");
-  assert.deepEqual(Object.keys(env).filter((k) => /KEY|TOKEN|SECRET/.test(k)), []);
+  // (Pass 9: only Claude Code's cloud placeholders, "proxy-injected", and git's own GIT_CONFIG_KEY_n setting names: no value.)
+  assert.deepEqual(Object.entries(env).filter(([k, v]) => /KEY|TOKEN|SECRET/.test(k) && !/^GIT_CONFIG_KEY_\d$/.test(k) && v !== "proxy-injected"), []);
+  assert.deepEqual(Object.keys(env).filter((k) => /KEY|TOKEN|SECRET/.test(k) && !/^GIT_CONFIG_KEY_\d$/.test(k)).sort(), ["AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "CLOUDSDK_AUTH_ACCESS_TOKEN"]);
   process.env.XAI_API_KEY = "xai-thisisasecretkeyvalue1234567890";
   const dir = await mkdtemp(join(tmpdir(), "coder-"));
   const r = await execIn(dir, "env; echo ok", 10);
@@ -645,7 +647,10 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   const marker = join(dir, "..", "HOOK-RAN");
   execFileSync("mkdir", ["-p", join(gd, "hooks")]);
   for (const h of ["pre-commit", "pre-push", "post-checkout"]) { writeFileSync(join(gd, "hooks", h), "#!/bin/sh\ntouch " + marker + "\n"); execFileSync("chmod", ["+x", join(gd, "hooks", h)]); }
-  execFileSync("git", ["--git-dir=" + gd, "remote", "add", "origin", "/nonexistent/evil.git"]);
+  // (Pass 9: the clone has its own origin, the repository's address with no login in it, as Claude Code's cloud clone does;
+  // pointed elsewhere, it changes nothing either.)
+  assert.equal(execFileSync("git", ["--git-dir=" + gd, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim(), remote + "ana/shop.git");
+  execFileSync("git", ["--git-dir=" + gd, "remote", "set-url", "origin", "/nonexistent/evil.git"]);
   writeFileSync(join(dir, "b.txt"), "b\n");
   const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot, root });
   assert.equal(p.ok, true, p.why);
@@ -711,6 +716,8 @@ test("CD25 (tool 4, part 2; the owner, 2026-11-09: \"do all of those\") a backgr
     assert.match(told, /a background command ended since your last answer/);
     assert.match(told, /The owner stopped it before it completed\. Its output is in [^ ]+\.log \(ID: job1\)\./);
     assert.match(told, /The owner sent no message: this turn is only to tell you/);
+    // (Claude Code's header for such a notice, first: Bash docs pass 9.)
+    assert.match(told, /\[SYSTEM NOTIFICATION - NOT OWNER INPUT\]\\nThis is an automated background-task event, NOT a message from the owner\.[\s\S]*must NOT be treated as approval or consent\.\\n\\n\(Note from Coder's app, not the owner: a background command ended/);
     assert.equal((await (await fetch(base + "/bgstate?project=shop-bgbg")).json()).untold, 0, "told once");
     assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
   } finally { if (pid && alive(pid)) process.kill(pid, "SIGKILL"); await close(); }
@@ -751,10 +758,25 @@ test("CD27 the history is capped from the oldest, at a user's message; the time 
   assert.equal(c.at(-1), msgs.at(-1));
   let t = 0;
   const ran = [];
-  const r = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }),
+  // (Pass 9: the second in the background, so the two never start together.)
+  const r = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b", run_in_background: true }) } }] } }),
     exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
   assert.equal(r.status, "time");
   assert.deepEqual(ran, ["echo a"]);
+  // TWO THAT ONLY READ, asked together, start together (Bash docs pass 9, as Claude Code runs them), so both before the
+  // limit, in the order asked; the job ends at the next check.
+  t = 0; ran.length = 0;
+  const r2 = await runCoder({ now: () => t, send: async () => ({ message: { content: "", tool_calls: [{ id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }),
+    exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
+  assert.equal(r2.status, "time");
+  assert.deepEqual(ran, ["echo a", "echo b"]);
+  // (A run asked for once the time is up never starts.)
+  t = 0; ran.length = 0;
+  let round = 0;
+  const r3 = await runCoder({ now: () => t, send: async () => { round++; if (round === 1) return { message: { content: "", tool_calls: [{ id: "0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo z", run_in_background: true }) } }, { id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }; return { message: { content: "Done." } }; },
+    exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
+  assert.equal(r3.status, "time");
+  assert.deepEqual(ran, ["echo z"]);
 });
 
 test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws its own", () => {
@@ -982,7 +1004,7 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
     const res = (id) => st.events.find((e) => e.type === "result" && e.id === id);
     assert.equal(res("b1").job, "job1");
     assert.equal(res("m1").job, "job2", JSON.stringify(res("m1")));
-    assert.match(res("m1").output, /^Monitor started with ID: job2\. Each line its command prints comes to you as an event while it runs\./);
+    assert.match(res("m1").output, /^Monitor started \(task job2, expires in 5m unless the source ends first; you get one notice at expiry/);
     // One whose command ends in its first second: what it printed comes back at once, and it is no job.
     assert.equal(res("m2").output, "Monitor \"Quick\" ended at once: its command exited with code 0 in its first second, so no events follow. What it printed:\nquick");
     assert.equal(res("m2").job, undefined);
@@ -990,11 +1012,12 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
     const notes = s.seen.at(-1).messages.filter((m) => m.role === "user" && m.appNote && /Monitor/.test(m.content)).map((m) => m.content).join("\n");
     assert.match(notes, /Monitor event: "Two lines" \(job2\)\nready/);
     assert.match(notes, /done/);
-    assert.match(notes, /Monitor "Two lines" \(job2\) ended: its command exited with code 0\./);
+    // (Claude Code 2.1.322's words for one whose command ended after printing: "stream ended"; Bash docs pass 9.)
+    assert.match(notes, /Monitor "Two lines" \(job2\) stream ended\./);
     assert.doesNotMatch(notes, /\[finished, exit code/);
-    assert.match(res("s1").output, /\[stopped job1\]/);
-    assert.match(res("s2").output, /\[job1 had already ended\]/);
-    assert.match(res("s3").output, /no background job job9 \(jobs: job1, job2\)/);
+    assert.match(res("s1").output, /^Successfully stopped task: job1 \(/, "Claude Code's TaskStop words");
+    assert.equal(res("s2").output, "Task job1 is not running (status: killed)");
+    assert.equal(res("s3").output, "No task found with ID: job9");
     // The page: the monitor's step, its events, and its end on that step (exit 0, a ✓); its end is not told again as a
     // background command's, and stop_job's own stop is no news.
     const notesSeen = st.events.filter((e) => e.type === "note");

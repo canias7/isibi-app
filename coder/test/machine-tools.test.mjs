@@ -37,7 +37,8 @@ test("CD133 the AI's commands find every tool and keep what they install in thei
   assert.equal(dev.DOCKER_HOST, "unix:///data/home/.docker-run/docker.sock", "dev's own Docker engine");
   assert.equal(cleanEnv().HOME, DEV_HOME);
   assert.equal(DEV_HOME, "/home/dev");
-  for (const e of [dev, cleanEnv(null, { root: true })]) assert.deepEqual(Object.keys(e).filter((k) => /KEY|TOKEN|SECRET/.test(k)), [], "no secrets in reach");
+  // (Pass 9: Claude Code's cloud placeholders, "proxy-injected", and git's GIT_CONFIG_KEY_n setting names hold no secret.)
+  for (const e of [dev, cleanEnv(null, { root: true })]) assert.deepEqual(Object.entries(e).filter(([k, v]) => /KEY|TOKEN|SECRET/.test(k) && !/^GIT_CONFIG_KEY_\d$/.test(k) && v !== "proxy-injected"), [], "no secrets in reach");
   // ROOT: only root's folders, so a program the AI left in its own folders never runs as root.
   const root = cleanEnv("/data/home", { root: true });
   assert.equal(root.PATH, SYSTEM_PATH);

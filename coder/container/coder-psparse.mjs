@@ -510,25 +510,96 @@ export const psRemovalWorkdir = (p) => `Remove-Item -Recurse targeting '${p}' wo
 /** Whether a removal has -Recurse (any unique start of the name, from -r on, any dash). */
 export const psRecurse = (c) => (c.args || []).some((h) => { const v = (h.length > 0 ? "-" + h.slice(1) : h).toLowerCase(), j = v.indexOf(":"), y = j > 0 ? v.slice(0, j) : v; return y.length >= 2 && "-recurse".startsWith(y); });
 
-// ── EXIT CODE 1 (Claude Code's "Exit code 1 from searches and git diff in PowerShell") ───────────────────────────────
-const PS_SEARCHES = new Map([["grep", "No matches found"], ["rg", "No matches found"], ["egrep", "No matches found"], ["fgrep", "No matches found"], ["findstr", "No matches found"]]);
-const PS_SHAPERS = new Set([...PS_FORMATTERS, "measure-object", "out-string", "out-host", "out-null"]);
+// ── EXIT CODES (Claude Code 2.1.322's own rules, Bash docs pass 8) ───────────────────────────────────────────────────
+// Its docs: "The PowerShell tool can count exit code 1 as a normal result from grep, rg, egrep, fgrep, findstr, git grep, and
+// git diff"; 2.1.302: not an error when "a search that finds nothing (rg, grep, findstr, git grep) is piped into Select-Object or
+// another formatting cmdlet". Read from the command's text and what it printed, as Claude Code reads them, not from its parse.
+const psFailed = (code) => ({ isError: code !== 0, message: code !== 0 ? "Command failed with exit code " + code : "" });
+const psOneIsFine = (said) => (code) => ({ isError: code !== 0 && code !== 1, message: code === 1 ? said : "" });
+const PS_NO_MATCH = psOneIsFine("No matches found"), PS_DIFFER = psOneIsFine("Files differ");
+const PS_EXIT = new Map([["grep", PS_NO_MATCH], ["rg", PS_NO_MATCH], ["egrep", PS_NO_MATCH], ["fgrep", PS_NO_MATCH], ["findstr", PS_NO_MATCH],
+  ["robocopy", (code) => ({ isError: code < 0 || code >= 8, message: code === 0 ? "No files copied (already in sync)" : code >= 1 && code < 8 ? (code & 1 ? "Files copied successfully" : "Robocopy completed (no errors)") : "" })]]);
+/** Only for a program typed with .exe that printed something (`where` alone is Where-Object; `diff`, Compare-Object). */
+const PS_EXIT_EXE = new Map([["where", psOneIsFine("No matching files found")], ["fc", PS_DIFFER], ["diff", PS_DIFFER]]);
+/** The cmdlets a search's result may go through and still count as the search's. */
+const PS_SHAPERS = new Set(["select-object", "sort-object", "group-object", "get-unique", "format-table", "format-list", "format-wide", "out-string", "out-host"]);
+/** A command part's program, as Claude Code names it: `& `/`. ` dropped, quotes and folders dropped, lower case, no .exe/.cmd/.bat. */
+export function psProgram(segment) {
+  const n = String(segment ?? "").trim().replace(/^[&.]\s+/, "");
+  const q = /^"([^"]*)"|^'([^']*)'/.exec(n);
+  const s = q?.[1] ?? q?.[2] ?? (n.split(/\s+/)[0] || "").replace(/^["']|["']$/g, "");
+  const y = (s.split(/[\\/]/).pop() || s).toLowerCase();
+  const ext = ["exe", "cmd", "bat"].find((w) => y.endsWith("." + w)) ?? null;
+  return { base: ext ? y.slice(0, -(ext.length + 1)) : y, hadNativeExt: ext !== null, nativeExt: ext };
+}
+/** git's subcommand in a part (its options skipped; -C and -c take a value). */
+function psGitSub(segment) {
+  let n = String(segment ?? "").trim().replace(/^[&.]\s+/, "");
+  const s = /^"[^"]*"|^'[^']*'/.exec(n)?.[0] ?? n.split(/\s+/)[0] ?? "";
+  if (psProgram(s).base !== "git") return undefined;
+  n = n.slice(s.length);
+  const h = ["git", ...n.trim().split(/\s+/).filter(Boolean)];
+  for (let y = 1; y < h.length; y++) { const w = h[y]; if (w.startsWith("-")) { if (w === "-C" || w === "-c") y++; continue; } return w; }
+  return undefined;
+}
 /**
- * WHAT A POWERSHELL COMMAND'S EXIT CODE MEANS (Claude Code: "The PowerShell tool can count exit code 1 as a normal result
- * from grep, rg, egrep, fgrep, findstr, git grep, and git diff"; 2.1.302, not an error when "a search that finds nothing
- * (rg, grep, findstr, git grep) is piped into Select-Object or another formatting cmdlet"): the last statement's pipeline.
- * The shape of exitMeaning's ({ isError, message }).
+ * THE PART WHOSE EXIT CODE IT IS: the command's last part (split at ;, |, new lines, &&, and an & after a space; a # after a
+ * space ends a line's part), whether it ran only after a && (`andGated`), and, when the parts before it are a search piped
+ * through formatting cmdlets only, that search (`feeder`). Any ( ) { }, a > that is not 2>&1, a && or a || leaves no feeder.
  */
-export function psExitMeaning(p, code) {
-  if (!Number.isInteger(code)) return { isError: true, message: "" };
-  if (code === 0) return { isError: false, message: "" };
-  const last = p && p.valid && p.statements.length ? p.statements[p.statements.length - 1] : null;
-  if (code === 1 && last && last.statementType === "PipelineAst" && last.commands.length && last.commands.every((c) => c.elementType === "CommandAst")) {
-    const head = last.commands[0], name = psCmdlet(head.name);
-    let meaning = PS_SEARCHES.get(name);
-    if (name === "git") { const sub = (head.args.find((a) => !a.startsWith("-")) || "").toLowerCase(); meaning = sub === "diff" ? "Files differ" : sub === "grep" ? "No matches found" : undefined; }
-    const rest = last.commands.slice(1);
-    if (meaning !== undefined && (!rest.length || (meaning === "No matches found" && rest.every((c) => PS_SHAPERS.has(psCmdlet(c.name)))))) return { isError: false, message: meaning };
+export function psLastSegment(command) {
+  const e = String(command ?? ""), n = [];
+  let r = 0, gated = false, piped = false, simple = true, sq = false, dq = false;
+  for (let i = 0; i < e.length; i++) {
+    const ch = e[i];
+    if (sq) { if (ch === "'") sq = false; continue; }
+    if (dq) { if (ch === "`") i++; else if (ch === '"') dq = false; continue; }
+    if (ch === "#" && (i === 0 || e[i - 1] === " " || e[i - 1] === "\t" || e[i - 1] === "\n" || e[i - 1] === "\r")) {
+      n.push({ text: e.slice(r, i), andGated: gated, piped });
+      while (i + 1 < e.length && e[i + 1] !== "\n" && e[i + 1] !== "\r") i++;
+      r = i + 1; piped = false; continue;
+    }
+    if (ch === "'") { sq = true; continue; }
+    if (ch === '"') { dq = true; continue; }
+    if (ch === "(" || ch === ")" || ch === "{" || ch === "}" || (ch === ">" && e.slice(i - 1, i + 3) !== "2>&1")) simple = false;
+    if (ch === ";" || ch === "|" || ch === "\n" || ch === "\r") {
+      if (ch === "|" && e[i + 1] === "|") simple = false;
+      n.push({ text: e.slice(r, i), andGated: gated, piped }); r = i + 1; piped = ch === "|"; if (!piped) gated = false;
+      continue;
+    }
+    if (ch === "&") {
+      if (e[i + 1] === "&") { n.push({ text: e.slice(r, i), andGated: gated, piped }); i++; r = i + 1; gated = true; piped = false; simple = false; continue; }
+      const prev = e[i - 1];
+      if ((prev === " " || prev === "\t") && e.slice(r, i).trim() !== "") { n.push({ text: e.slice(r, i), andGated: gated, piped }); r = i + 1; gated = false; piped = false; }
+    }
   }
-  return { isError: true, message: "Command failed with exit code " + code };
+  n.push({ text: e.slice(r), andGated: gated, piped });
+  const last = n.findLastIndex((x) => x.text.trim()), k = n[last];
+  if (!k) return { segment: e, andGated: false, feeder: undefined };
+  let y = last;
+  while (simple && y > 0 && n[y].piped) {
+    const w = /^\s*([\w-]+)(?=\s|$)/.exec(n[y].text)?.[1]?.toLowerCase() ?? "";
+    if (!PS_SHAPERS.has(PS_CC_ALIASES[w]?.toLowerCase() ?? w)) break;
+    y--;
+  }
+  const feeder = n[y].text;
+  return { segment: k.text, andGated: k.andGated, feeder: y !== last && feeder.trim() ? feeder : undefined };
+}
+/**
+ * WHAT A POWERSHELL COMMAND'S EXIT CODE MEANS, as Claude Code decides it: the last part's program (the search before its
+ * formatting cmdlets when nothing was printed), then: never "normal" after a &&, or when the output says a command was not
+ * found ("is not recognized as …", CommandNotFoundException) or findstr complained ("FINDSTR: "). The shape of exitMeaning's.
+ */
+export function psExitOf(command, code, stdout = "", stderr = "") {
+  if (!Number.isInteger(code)) return { isError: true, message: "" };
+  const out = String(stdout ?? ""), err = String(stderr ?? "");
+  const seg = psLastSegment(command), said = out.trim() !== "" || err.trim() !== "";
+  const part = (said ? undefined : seg.feeder) ?? seg.segment;
+  const { base, nativeExt } = psProgram(part);
+  let h = null;
+  if (base === "git") { const sub = psGitSub(part); if (sub === "grep") h = PS_NO_MATCH(code); else if (sub === "diff") h = PS_DIFFER(code); }
+  if (!h) h = ((nativeExt === "exe" && said ? PS_EXIT_EXE.get(base) : undefined) ?? PS_EXIT.get(base) ?? psFailed)(code);
+  if (code === 0 || h.isError) return h;
+  const both = out + "\n" + err;
+  return seg.andGated || /is not recognized as (a name of a cmdlet|the name of a cmdlet|an? internal)/i.test(both) || /CommandNotFoundException/.test(both) || /^FINDSTR: /m.test(both) ? psFailed(code) : h;
 }

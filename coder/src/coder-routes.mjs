@@ -59,7 +59,9 @@ export function savedEffort(saved) {
  * - `endDetached`: whether stopping a background command also ends what it started in the background, under setsid or
  *   timeout (Claude Code's docs say it does; its 2.1.322 leaves them running: off is that);
  * - `diskWarnGib`: tell Coder when the work disk has less than this many GiB free (Claude Code's
- *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off);
+ *   CLAUDE_CODE_WARN_DISK_FREE_GIB; 0 is off, as Claude Code's is unless set: Bash docs pass 8);
+ * - `memWarnGib`: tell Coder when the machine has less than this many GiB of memory available (Claude Code's
+ *   CLAUDE_CODE_WARN_MEMORY_FREE_GIB, "a system reminder saying how much is available"; 0 is off, as there);
  * - `hooks`: the owner's own hooks (the owner, 2026-11-10: "yea do all 4"; Claude Code's hooks in its user settings), as the
  *   JSON they typed, in Claude Code's shape, checked when saved (hooksSetting); given to Coder's machine with each message.
  * - `autoMode`: the owner's rules for auto mode's checker (the owner, 2026-11-10: "yea do all of them"; Claude Code's
@@ -69,13 +71,14 @@ export function savedEffort(saved) {
  *   Shift+Tab cycle. Any session that would otherwise start in auto mode … starts in default instead"): chats start in Accept
  *   edits, Coder's nearest to Claude Code's default mode, and Auto is not offered (noAuto).
  */
-export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+export const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
 export function prefsOf(saved) {
   const s = saved && typeof saved === "object" ? saved : {};
   return {
     bgHours: BG_HOURS.includes(Number(s.bgHours)) ? Number(s.bgHours) : 2,
     endDetached: s.endDetached !== false,
-    diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 2,
+    diskWarnGib: DISK_GIB.includes(Number(s.diskWarnGib)) ? Number(s.diskWarnGib) : 0,
+    memWarnGib: MEM_GIB.includes(Number(s.memWarnGib)) ? Number(s.memWarnGib) : 0,
     hooks: typeof s.hooks === "string" && hooksSetting(s.hooks).ok ? s.hooks : "",
     autoMode: typeof s.autoMode === "string" && autoModeSetting(s.autoMode).ok ? s.autoMode : "",
     denyInstead: s.denyInstead === true,
@@ -90,15 +93,16 @@ export function prefsChange(saved, body) {
   if ("bgHours" in b && !BG_HOURS.includes(Number(b.bgHours))) return { error: "The longest time for a background command is one of " + BG_HOURS.join(", ") + " hours." };
   if ("endDetached" in b && typeof b.endDetached !== "boolean") return { error: "Stop's choice is on or off." };
   if ("diskWarnGib" in b && !DISK_GIB.includes(Number(b.diskWarnGib))) return { error: "The low-disk warning is one of " + DISK_GIB.join(", ") + " GB (0 is off)." };
+  if ("memWarnGib" in b && !MEM_GIB.includes(Number(b.memWarnGib))) return { error: "The low-memory warning is one of " + MEM_GIB.join(", ") + " GB (0 is off)." };
   if ("hooks" in b) { if (typeof b.hooks !== "string") return { error: "The hooks are JSON text." }; const h = hooksSetting(b.hooks); if (!h.ok) return { error: h.error }; }
   let warnings = [];
   if ("autoMode" in b) { if (typeof b.autoMode !== "string") return { error: "The auto mode rules are JSON text." }; const a = autoModeSetting(b.autoMode); if (!a.ok) return { error: a.error }; warnings = a.warnings; }
   if ("denyInstead" in b && typeof b.denyInstead !== "boolean") return { error: "Refusing instead of asking is on or off." };
   if ("autoOff" in b && typeof b.autoOff !== "boolean") return { error: "Turning Auto mode off is on or off." };
-  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
+  return { prefs: { bgHours: "bgHours" in b ? Number(b.bgHours) : now.bgHours, endDetached: "endDetached" in b ? b.endDetached : now.endDetached, diskWarnGib: "diskWarnGib" in b ? Number(b.diskWarnGib) : now.diskWarnGib, memWarnGib: "memWarnGib" in b ? Number(b.memWarnGib) : now.memWarnGib, hooks: "hooks" in b ? String(b.hooks).trim() : now.hooks, autoMode: "autoMode" in b ? String(b.autoMode).trim() : now.autoMode, denyInstead: "denyInstead" in b ? b.denyInstead : now.denyInstead, autoOff: "autoOff" in b ? b.autoOff : now.autoOff }, ...(warnings.length ? { warnings } : {}) };
 }
 /** What Coder's machine is given of them with each message. */
-export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
+export const machinePrefs = (saved) => { const p = prefsOf(saved); return { bgMaxMs: p.bgHours * 3_600_000, endDetached: p.endDetached, diskWarnGib: p.diskWarnGib, memWarnGib: p.memWarnGib, ...(p.denyInstead ? { denyInstead: true } : {}), ...(p.autoOff ? { autoOff: true } : {}) }; };
 /** The owner's auto mode rules as Coder's machine takes them (Claude Code's autoMode block), or null. */
 export const machineAutoMode = (saved) => { const a = autoModeSetting(prefsOf(saved).autoMode); return a.ok && a.value ? a.value : null; };
 /** The owner's hooks as Coder's machine takes them (`{ hooks, disableAllHooks }`), or null. */
@@ -116,7 +120,7 @@ import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
-import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS } from "../container/coder-secrets.mjs";
+import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
@@ -125,7 +129,7 @@ import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS } from "./coder-fly.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
-import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
+import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
@@ -181,9 +185,10 @@ export const REVIEWS = {
 // owner's own variables, per repository, sealed like the GitHub token.
 /** What the page may see of the saved secrets: never the values. */
 const KIND_LABEL = { headers: "", body: "body parameter", oauth: "OAuth 2.0 client credentials", gcp: "Google Cloud service account", aws: "AWS SigV4" };
-export const secretList = (secrets) => (secrets || []).map(normSecret).filter(Boolean).map((s) => ({ id: s.id, name: s.name, kind: s.kind, hosts: s.hosts, host: s.hosts[0], paths: s.paths,
+// (A key that is never sent says so, and why: notSentWhy, Bash docs pass 9, part F.)
+export const secretList = (secrets) => { const list = (secrets || []).map(normSecret).filter(Boolean); return list.map((s, i) => ({ id: s.id, name: s.name, kind: s.kind, hosts: s.hosts, host: s.hosts[0], paths: s.paths,
   headers: s.kind === "headers" ? s.headers.map((h) => ({ name: h.name, prefix: h.prefix })) : [{ name: KIND_LABEL[s.kind] + (s.kind === "body" ? " " + s.config.param : s.kind === "aws" ? " " + s.config.service + " " + s.config.region : ""), prefix: "" }],
-  header: s.kind === "headers" ? s.headers[0].name : KIND_LABEL[s.kind], at: s.at }));
+  header: s.kind === "headers" ? s.headers[0].name : KIND_LABEL[s.kind], at: s.at, ...(notSentWhy(list, i) ? { notSent: notSentWhy(list, i) } : {}) })); };
 export const envKey = (uid, repo) => "coder/" + uid + "/env/" + String(repo).replace("/", "__") + ".json";
 export async function readEnv(env, bucket, uid, repo) {
   const o = await bucket.get(envKey(uid, repo));
@@ -325,6 +330,15 @@ export async function setTrust(bucket, uid, repo, on) {
   await putJson(bucket, rulesKey(uid, repo), now);
   return now;
 }
+/** A chat's session rules as a job gives them back (`{ allow, ask, deny }`, plain rule texts, 50 each), or null. */
+export function sessionRulesOf(x) {
+  if (!x || typeof x !== "object") return null;
+  const out = {};
+  for (const k of ["allow", "ask", "deny"]) out[k] = (Array.isArray(x[k]) ? x[k] : []).filter((r) => typeof r === "string" && r.length > 0 && r.length <= 400).slice(0, 50);
+  return out;
+}
+/** What a turn's request carries of the chat's session rules (from PermissionRequest hooks): `{ sessionRules }` or nothing. */
+export const sessionRulesOn = (meta) => { const s = sessionRulesOf(meta && meta.sessionRules); return s ? { sessionRules: s } : {}; };
 export async function changeRules(bucket, uid, repo, kind, list, { remove = false } = {}) {
   const now = await rulesOf(bucket, uid, repo);
   if (kind === "dirs") {
@@ -741,6 +755,19 @@ export async function handleCoder(request, env, ctx, deps) {
   // or remove them): GET ?repo=owner/name; POST { repo, kind: allow | ask | deny, add | remove: "Bash(npm test *)" }.
   if (parts[0] === "permissions") {
     const repo = request.method === "GET" ? String(url.searchParams.get("repo") || "") : "";
+    // A CHANGE WHILE A JOB RUNS (Bash docs pass 8; Claude Code: rule changes take effect at the next tool call): each running
+    // chat of this repository is given its new rules at once (its machine's /rules), not only its next message.
+    const tellRunning = async (repoName, rules) => {
+      try {
+        const page = await bucket.list({ prefix: WATCH_PREFIX + uid + "__" });
+        const ids = [...new Set((page.objects || []).map((o) => { const rest = String(o.key).slice((WATCH_PREFIX + uid + "__").length); const k = rest.lastIndexOf("__"); return k > 0 ? rest.slice(0, k) : ""; }).filter((x) => PROJECT_ID.test(x)))].slice(0, 20);
+        await Promise.all(ids.map(async (cid) => {
+          const m = await getJson(bucket, keyOf(uid, cid, "meta.json"), null);
+          if (!m || m.repo !== repoName || m.status !== "running") return;
+          await deps.container(uid + "-" + cid).fetch(new Request("http://coder/rules", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: cid, rules }) })).catch(() => null);
+        }));
+      } catch { /* the next message has them */ }
+    };
     // (Claude Code's short warning row for each rule it keeps but warns about, keyed "kind\nrule": Bash docs pass 5.)
     const notices = (rules) => { const out = {}; for (const k of ["allow", "ask", "deny"]) for (const x of (rules && rules[k]) || []) { const w = ruleWarning(k, x); if (w && w.notice) out[k + "\n" + x] = w.notice; } return out; };
     if (request.method === "GET") { if (!REPO.test(repo)) return json({ error: "which repository?" }, 400); const rules = await rulesOf(bucket, uid, repo); return json({ ok: true, repo, rules, notices: notices(rules) }); }
@@ -769,6 +796,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (ruleProblem(rule)) return json({ error: ruleProblem(rule) }, 400);
     if (!ruleSaved(rule)) return json({ error: "Coder knows rules like Bash(npm test *), Bash(git push *), Bash(run_in_background:true), Bash, WebFetch(domain:example.com), WebFetch, Read(./.env), Edit(src/**), Read, Edit, Write, Grep, Glob or Monitor" }, 400);
     const rules = await changeRules(bucket, uid, r, kind, [rule], { remove: body.remove !== undefined });
+    await tellRunning(r, rules);
     // A RULE CLAUDE CODE KEEPS BUT WARNS ABOUT (Bash docs pass 5: its error reference, "Has a wildcard before the rest of the
     // command"; its rule check's :* warnings): saved, with the warning in its words.
     const w = body.remove === undefined ? ruleWarning(kind, rule) : null;
@@ -1012,6 +1040,8 @@ export async function handleCoder(request, env, ctx, deps) {
     const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
     // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
     const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
+    // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
+    const lastAtOn = messages.length && Number(meta.at) > 0 ? { lastAt: Number(meta.at) } : {};
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
     // the machine sets up first (the clone, the setup script), which can take
     // minutes, and Cloudflare stops a request whose tab has closed; the watch
@@ -1033,7 +1063,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...wakeOn, ...shellOn, ...bgOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...bgOn, ...lastAtOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1252,12 +1282,16 @@ export async function handleCoder(request, env, ctx, deps) {
       const background = bgListOf(s.result.background);
       // THE MODE A CARD SWITCHED TO (Auto from a command's card; Auto or Accept edits from an approved plan), unless the owner
       // picked one since; and the rules "Yes, and don't ask again" added for this repository.
-      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff")).at(-1);
+      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings" || e.by === "hook")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
+      // RULES A PERMISSIONREQUEST HOOK ADDED (Bash docs pass 9): for a settings file, the repository's saved rules; for the
+      // "session", the chat's own, sent with each of its next messages (Claude Code: in memory for the session).
+      for (const kind of ["ask", "deny"]) { const l = s.result.rulesSaved && Array.isArray(s.result.rulesSaved[kind]) ? s.result.rulesSaved[kind].filter((x) => typeof x === "string").slice(0, 20) : []; if (l.length) await changeRules(bucket, uid, meta.repo, kind, l).catch(() => {}); }
+      const sessionRules = sessionRulesOf(s.result.sessionRules);
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
       const hookTitle = typeof s.result.sessionTitle === "string" && s.result.sessionTitle.trim() ? { title: s.result.sessionTitle.trim().replace(/\s+/g, " ").slice(0, 200) } : {};
-      const ended = { ...meta, ...modeNow, ...hookTitle, background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      const ended = { ...meta, ...modeNow, ...hookTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // (And while one of its asyncRewake hooks runs, which may wake it.)
@@ -1552,7 +1586,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const list = await listEnvs(bucket, uid);
     const id = await theEnvId();
     const me = list.find((x) => x.id === id) || { id, name: "Default" };
-    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), secrets: secretList(e.secrets), network: e.network };
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
   };
   const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
   // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within
@@ -1568,7 +1602,9 @@ export async function handleCoder(request, env, ctx, deps) {
         const mm = /^coder\/[^/]+\/([^/]+)\/meta\.json$/.exec(o.key);
         if (!mm || !PROJECT_ID.test(mm[1])) continue;
         const m = mm[1] === id ? meta : await getJson(bucket, o.key, null);
-        if (!m || m.status !== "running" || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
+        // (A running job, or a chat whose background commands still run: Bash docs pass 8.)
+        const bgOn = !!m && Array.isArray(m.background) && m.background.length > 0;
+        if (!m || (m.status !== "running" && !bgOn) || (m.envId || (await envIdOf(bucket, uid, m))) !== envNow) continue;
         try {
           const r = await deps.container(uid + "-" + mm[1]).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: mm[1], setup: { network: cur.network }, secrets: m.jobFromGithub ? [] : machineKeyRules(cur.secrets), egress: { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + mm[1], turn: m.turn, pass: await egressPass(env, uid + "/" + mm[1], m.turn) } }) }));
           if (r.ok) reached++;

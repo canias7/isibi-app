@@ -46,7 +46,8 @@ test("CD268 bash: an exit code as Claude Code reads it (its table, 2.1.319): 1 i
 });
 
 test("CD269 bash: a foreground sleep of 25 seconds or more is refused in Claude Code's words (tried: \"Blocked: standalone sleep 30. …\", \"Blocked: sleep 26 followed by: echo hi. …\"); shorter ones run; a command that starts with sleep is never moved to the background", () => {
-  assert.match(sleepBlocked("sleep 30"), /^Blocked: standalone sleep 30\. To wait for a condition, run an until-loop in the background \(run_in_background: true, e\.g\. `until <check>; do sleep 2; done`\): you are told when it ends\. To wait for a command you started, use run_in_background: true\. Do not chain shorter sleeps to work around this block\.$/);
+  // (Claude Code 2.1.322's own words, with Coder's name for its Monitor tool; Bash docs pass 9.)
+  assert.match(sleepBlocked("sleep 30"), /^Blocked: standalone sleep 30\. To wait for a condition, use monitor with an until-loop \(e\.g\. `until <check>; do sleep 2; done`\)\. To wait for a command you started, use run_in_background: true\. Do not chain shorter sleeps to work around this block\.$/);
   assert.match(sleepBlocked("sleep 26; echo hi"), /^Blocked: sleep 26 followed by: echo hi\./);
   assert.match(sleepBlocked("sleep 30 && npm test"), /^Blocked: sleep 30 followed by: npm test\./);
   for (const c of ["sleep 24", "sleep 2", "echo a; sleep 60", "sleep 1.5"]) assert.equal(sleepBlocked(c), "", c);
@@ -87,7 +88,9 @@ test("CD272 bash: a result in Claude Code's words (tried, 2026-11-09): output as
   assert.equal(seq.length, 38893);
   assert.equal(kbSize(seq.length), "38KB");
   assert.equal(kbSize(30413), "29.7KB");
-  assert.equal(bashResultText({ output: seq, size: seq.length, file: "/data/memory/p.out/bu578qprf.txt" }), "<persisted-output>\nOutput too large (38KB). Full output saved to: /data/memory/p.out/bu578qprf.txt\n\nPreview (first 2KB):\n" + seq.slice(0, 2000) + "\n...\n</persisted-output>");
+  // (The preview ends at the last line break in its first 2,000 characters: Claude Code 2.1.322's iCe; 2.1.319, tried, cut at
+  // 2,000 exactly. Bash docs pass 9.)
+  assert.equal(bashResultText({ output: seq, size: seq.length, file: "/data/memory/p.out/bu578qprf.txt" }), "<persisted-output>\nOutput too large (38KB). Full output saved to: /data/memory/p.out/bu578qprf.txt\n\nPreview (first 2KB):\n" + seq.slice(0, seq.slice(0, 2000).lastIndexOf("\n")) + "\n...\n</persisted-output>");
   // Claude Code's `seq 1 8000; exit 3`: "Exit code 3\n1\n…\n1219\n\n\n... [20012 characters truncated] ...\n\n22\n5223\n…".
   const failed = bashResultText({ output: seq, isError: true, code: 3, size: seq.length });
   const full = "Exit code 3\n" + seq.slice(0, 30000);
@@ -251,7 +254,7 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
     say("Done."),
   ];
   const r = await runCoder({ send: async () => { const s = steps[Math.min(n, steps.length - 1)]; if (n === 2) alive = false; n++; return s; }, exec, emit: (e) => events.push(e), bg, here: () => "/work/p", root: "/work/p" }, { text: "go" });
-  assert.equal(r.messages.find((m) => m.role === "tool" && m.tool_call_id === "m1").content, "error: no background job job9 (jobs: job4)", "the earlier job is known");
+  assert.equal(r.messages.find((m) => m.role === "tool" && m.tool_call_id === "m1").content, "No task found with ID: job9", "Claude Code's TaskStop words");
   assert.match(r.messages.find((m) => m.role === "user" && m.appNote && /still running from earlier/.test(m.content)).content, /a background command is still running from earlier: job4 "Start the dev server", for .*, output in \/out\/bg-4\.log\. Do not start a second copy; read its output file to see what it printed, stop it with stop_job when it is no longer needed\. You are told when one ends\.\)$/, "and Coder is told of it at the start");
   assert.equal(r.messages.find((m) => m.tool_call_id === "b1").content, "Command running in background with ID: job7. Output is being written to: /out/bg-9.log. You will be notified when it completes. To check interim output, use read on that file path.", "the machine's id");
   const b1 = execs.find((x) => x.inBg);
@@ -284,7 +287,8 @@ test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (
   const r = await runCoder({ send: async (req) => { seen.push(req); return say("The test in src/a.test.js expects 2 but gets 3: fix the add function."); }, exec, emit: (e) => events.push(e), here: () => "/work/p", root: "/work/p" }, { shell: "rm -rf build && npm test" });
   // Run as Coder's commands are (its folder carried over), with no check of Coder's: a removal is the owner's to make.
   assert.equal(execs.length, 1);
-  assert.deepEqual([execs[0].command, execs[0].here, execs[0].follow, execs[0].timeoutS], ["rm -rf build && npm test", true, true, 600]);
+  // (Its time before it moves to the background is a command's default, 2 minutes, as Claude Code's: Bash docs pass 9.)
+  assert.deepEqual([execs[0].command, execs[0].here, execs[0].follow, execs[0].timeoutS], ["rm -rf build && npm test", true, true, 120]);
   assert.deepEqual(events.filter((e) => e.type === "user"), [{ at: events.find((e) => e.type === "user").at, type: "user", text: "! rm -rf build && npm test", shell: true }]);
   const step = events.find((e) => e.type === "bash");
   assert.deepEqual([step.verb, step.by, step.command], ["You ran", "owner", "rm -rf build && npm test"]);
@@ -322,11 +326,23 @@ test("CD282 (tool 4, docs pass 2) what persists between commands, as in Claude C
   const base = "http://127.0.0.1:" + srv.address().port;
   try {
     const post = (p, b) => fetch(base + p, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
-    assert.equal((await post("/turn", { project: "shop-snap", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh" } } })).status, 200);
+    // (Bash's startup file under bash: CODER_SHELL=bash. Since pass 9 a machine with zsh runs commands in zsh, as Claude Code's
+    // cloud machine does, and zsh reads ~/.zshrc: below.)
+    assert.equal((await post("/turn", { project: "shop-snap", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh", CODER_SHELL: "bash" } } })).status, 200);
     let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-snap&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     const out = st.events.find((e) => e.type === "result" && e.id === "s1").output;
     assert.equal(out, "hi from an alias\nhello you\nmytool ran\nno-completion\nfrom-env-file", out);
     assert.ok(existsSync(join(home, ".cache", "coder", "shell-snapshot.sh")));
+    // THE SAME IN ZSH, the default where it is installed (Bash docs pass 9): its ~/.zshrc's aliases, functions and PATH.
+    if (existsSync("/usr/bin/zsh") || existsSync("/bin/zsh")) {
+      await writeFile(join(home, ".zshrc"), "echo 'Welcome!'\nalias hi='echo hi from an alias'\ngreet() { echo \"hello $1\"; }\n_comp_x() { :; }\nexport PATH=\"$HOME/tools:$PATH\"\n");
+      n = 0;
+      assert.equal((await post("/turn", { project: "shop-snapz", text: "go", messages: [], setup: { vars: { CODER_ENV_FILE: "~/env.sh" } } })).status, 200);
+      for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-snapz&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+      const outZ = st.events.find((e) => e.type === "result" && e.id === "s1").output;
+      assert.equal(outZ, "hi from an alias\nhello you\nmytool ran\nno-completion\nfrom-env-file", outZ);
+      assert.ok(existsSync(join(home, ".cache", "coder", "shell-snapshot.zsh")));
+    }
   } finally { await new Promise((r) => srv.close(r)); }
 });
 
@@ -353,7 +369,9 @@ test("CD283 (tool 4, docs pass 2) the owner moves a running command to the backg
     let st; for (let i = 0; i < 100; i++) { st = await (await fetch(base + "/state?project=shop-move&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     pid = Number(readFileSync(join(root, "shop-move", "pid.txt"), "utf8"));
     const told = seen[1].messages.find((m) => m.role === "tool").content;
-    assert.match(told, /^started\nCommand was manually backgrounded by user with ID: job1\. Output is being written to: [^ ]+\. You will be notified when it completes\. If it is still running after 30m in the background, it will be stopped and you will be notified\.$/);
+    // (Claude Code 2.1.322: one the owner moved shows no output so far and no "You will be notified when it completes";
+    // Bash docs pass 9.)
+    assert.match(told, /^Command was manually backgrounded by user with ID: job1\. Output is being written to: [^ ]+\. If it is still running after 30m in the background, it will be stopped and you will be notified\.$/);
     assert.ok(st.result.background.some((b) => b.id === "job1"), "it goes on in the background");
   } finally { if (pid) { try { process.kill(-pid, "SIGKILL"); } catch { /* gone */ } try { process.kill(pid, "SIGKILL"); } catch { /* gone */ } } await new Promise((r) => srv.close(r)); }
   // Moved at its timeout having printed nothing.

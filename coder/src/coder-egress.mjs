@@ -37,6 +37,9 @@ export const GRAPHQL_REFUSED = "GitHub GraphQL is not available from Coder's ses
  * to the session" (others: "GitHub access to ... is not enabled for this session"); GraphQL is refused with
  * the REST fallback named. A job started from GitHub (strangers can write there) may only read.
  */
+/** A GitHub Actions log request (a run's, an attempt's, a job's), and where GitHub keeps the logs it redirects to. */
+export const LOG_PATH = /^\/repos\/[^/]+\/[^/]+\/actions\/(runs\/\d+(\/attempts\/\d+)?|jobs\/\d+)\/logs$/;
+export const LOG_HOSTS = /(^|\.)(blob\.core\.windows\.net|actions\.githubusercontent\.com|githubusercontent\.com)$/i;
 export async function githubApi(request, env, bucket, uid, meta, target, { fetchFn = fetch } = {}) {
   const path = target.pathname;
   if (/^\/graphql(\/|$)/.test(path)) return text(GRAPHQL_REFUSED, 403);
@@ -70,6 +73,22 @@ export async function githubApi(request, env, bucket, uid, meta, target, { fetch
   let r;
   try { r = await fetchFn("https://api.github.com" + path + target.search, { method, headers, body, redirect: "manual" }); }
   catch (e) { return text("Coder could not reach GitHub: " + String((e && e.message) || e).slice(0, 200), 502); }
+  // GITHUB ACTIONS LOGS (Claude Code 2.1.318, cloud sessions: "Fixed reading GitHub Actions logs in cloud sessions: `gh run
+  // view --log` and `gh api` log requests now get the log in most environments, not an unreachable redirect"): GitHub answers
+  // a log request with a redirect to its log storage, which the chat's network list may not allow; it is fetched here, with
+  // no login (the address carries its own short-lived signature), and gh gets the log.
+  if (method === "GET" && LOG_PATH.test(path) && [301, 302, 303, 307, 308].includes(r.status)) {
+    let loc = null;
+    try { loc = new URL(r.headers.get("location") || ""); } catch { loc = null; }
+    if (loc && loc.protocol === "https:" && !loc.username && !loc.password && LOG_HOSTS.test(loc.hostname)) {
+      let l;
+      try { l = await fetchFn(loc.toString(), { method: "GET", redirect: "follow" }); }
+      catch (e) { return text("Coder could not fetch the log from GitHub's storage: " + String((e && e.message) || e).slice(0, 200), 502); }
+      const lb = new Headers();
+      for (const k of ["content-type", "content-disposition", "last-modified", "etag"]) { const v = l.headers.get(k); if (v) lb.set(k, v); }
+      return new Response(l.body, { status: l.status, headers: lb });
+    }
+  }
   const back = new Headers();
   r.headers.forEach((v, k) => { if (!v.includes(t.token) && !/^(content-encoding|content-length|transfer-encoding|connection|set-cookie)$/i.test(k)) back.append(k, v); });
   return new Response(r.body, { status: r.status, headers: back });
@@ -171,8 +190,11 @@ export async function handleEgress(request, env, { fetchFn = fetch } = {}) {
   const [, uid, id] = m;
   let meta = null;
   try { const o = await bucket.get("coder/" + uid + "/" + id + "/meta.json"); meta = o ? JSON.parse(await o.text()) : null; } catch { meta = null; }
-  // Only a job that is running now.
-  if (!meta || meta.status !== "running" || String(meta.turn) !== turn) return text("that job is not running", 403);
+  // Only a job that is running now, or the chat's last job while its background commands still run (Bash docs pass 8;
+  // Claude Code's cloud environments: a saved key "applies in every session that runs in the environment … until you delete
+  // it", so a dev server or a monitor left running keeps its keys and `gh` after the answer).
+  const bgAlive = !!meta && Array.isArray(meta.background) && meta.background.length > 0;
+  if (!meta || String(meta.turn) !== turn || (meta.status !== "running" && !bgAlive)) return text("that job is not running", 403);
   let target;
   try { target = new URL(String(h.get("x-coder-url") || "")); } catch { return text("bad address"); }
   const host = target.hostname.toLowerCase();

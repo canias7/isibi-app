@@ -32,10 +32,15 @@ test("CD337 a file command's short paths count from the folder that part runs in
   const P = await import("../container/coder-perms.mjs");
   const d = (cmd) => P.bashDecision(cmd, { mode: "acceptEdits", cwd: W, workdirs: [W], isProtected: prot });
   // Found 2026-11-09: these ran without asking in Accept edits, and each removes .husky/pre-commit.
-  for (const c of ["cd .husky && rm pre-commit", "cd src; cd ../.husky; rm pre-commit", "cd .husky; mv pre-commit x"]) assert.deepEqual([c, d(c).verdict, d(c).why], [c, "ask", "Coder requested permissions to edit " + W + "/.husky/pre-commit which is a sensitive file."]);
+  for (const c of ["cd .husky && rm pre-commit", "cd src; cd ../.husky; rm pre-commit"]) assert.deepEqual([c, d(c).verdict, d(c).why], [c, "ask", "Coder requested permissions to edit " + W + "/.husky/pre-commit which is a sensitive file."]);
+  // (Any other write after a cd that isn't a leading `cd ./DIR &&` asks in Claude Code's words before its paths are looked
+  // at, its JJo: Bash docs pass 9.)
+  assert.deepEqual([d("cd .husky; mv pre-commit x").verdict, d("cd .husky; mv pre-commit x").why], ["ask", P.CD_WRITE_WHY]);
   for (const c of ["(cd .husky; rm pre-commit)", "(cd src && npm test); rm a.txt", "echo $(cd .husky && pwd); rm pre-commit"]) assert.equal(d(c).verdict, "ask", c);
   // Inside the project, as before.
-  for (const c of ["cd src && rm a.txt", "cd src && mv a.js b.js", "rm a.txt"]) assert.equal(d(c).verdict, "allow", c);
+  for (const c of ["cd ./src && rm a.txt", "cd ./src && mv a.js b.js", "rm a.txt"]) assert.equal(d(c).verdict, "allow", c);
+  // (`cd src` with no ./ is a cd Claude Code doesn't place, its w8e: the write after it asks, Bash docs pass 9.)
+  for (const c of ["cd src && rm a.txt", "cd src && mv a.js b.js"]) assert.deepEqual([d(c).verdict, d(c).why], ["ask", P.CD_WRITE_WHY], c);
   // (Two folder changes ask since the live side-by-side of 2026-11-10, as in Claude Code 2.1.322: CD361.)
   assert.deepEqual([d("cd src && cd .. && rm a.txt").verdict, d("cd src && cd .. && rm a.txt").why], ["ask", "Multiple directory changes in one command require approval for clarity"]);
   assert.equal(d("rm .husky/pre-commit").verdict, "ask");
@@ -110,7 +115,7 @@ test("CD339 CODER_SHELL_PREFIX wraps each of the chat's commands (Claude Code's 
   } finally { await rm(dir, { recursive: true, force: true }); }
   const s = serverSrc();
   assert.match(s, /t\.shellPrefix = shellPrefixOf\(rawVars\.CODER_SHELL_PREFIX\);/);
-  assert.match(s, /\.\.\.\(tool \? \{ \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), \.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: t\.shellPrefix \|\| "" \} : \{\}\) \} : \{ onMove, onProgress: [^\n]*shellPrefix: t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the chat's commands and hooks (Claude Code: \"Bash tool calls, hook commands\"), never Coder's tools");
+  assert.match(s, /\.\.\.\(tool \? \{ \.\.\.\(capped \? \{ memCg: t\.memCgNow\(\) \} : \{\}\), \.\.\.\(hook \? \{ quietMs: hookQuietMs, shellPrefix: noPrefix \? "" : t\.shellPrefix \|\| "" \} : \{\}\) \} : \{ onMove, onProgress: [^\n]*shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash", merge: true \}\)/, "the chat's commands and hooks (Claude Code: \"Bash tool calls, hook commands\"), never Coder's tools, PowerShell's commands or exec-form and PowerShell hooks (pass 8, CD425)");
 });
 
 test("CD340 the effort level is in each command's environment (Claude Code's CLAUDE_EFFORT: \"Set automatically in Bash tool subprocesses … to the effort level … Only set when the current model supports the effort parameter\"), as GOFARTHER_CODER_EFFORT beside Coder's other marks", async () => {

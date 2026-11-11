@@ -19,7 +19,7 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   assert.deepEqual(s.list, [{ event: "PreToolUse", matcher: "Bash", type: "command", timeout: 5, ownTimeout: true, source: "project", command: "./no-rm.sh" }, { event: "PreToolUse", matcher: "Bash", type: "prompt", timeout: 30, source: "project", prompt: "x" }]);
   assert.deepEqual(s.problems, ["Bogus is not an event Coder has (it has SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionDenied, Notification, Stop, StopFailure, PreCompact, PostCompact, CwdChanged, FileChanged, SessionEnd)"]);
   // Timeouts: 600 seconds, 30 on UserPromptSubmit.
-  assert.deepEqual([H.timeoutFor("PreToolUse"), H.timeoutFor("UserPromptSubmit"), H.timeoutFor("Stop", 9999)], [600, 30, 600]);
+  assert.deepEqual([H.timeoutFor("PreToolUse"), H.timeoutFor("UserPromptSubmit"), H.timeoutFor("Stop", 9999)], [600, 30, 9999], "a hook's own timeout kept (600 is Claude Code's default, no cap: Bash docs pass 9)");
   assert.equal(H.hooksFrom({ disableAllHooks: true }).disabled, true);
   // The owner's box: Claude Code's settings shape or the hooks object alone; checked.
   assert.deepEqual(H.hooksSetting(""), { ok: true, value: null });
@@ -48,23 +48,23 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   assert.deepEqual(H.hooksFor(all, "Stop", "").map((h) => h.command), ["stop.sh"], "Stop has no matcher; a hook with `if` never runs on it");
   // Claude Code's table of stdout × exit code.
   const r = (code, stdout = "", stderr = "", timedOut = false) => H.hookResult("PreToolUse", { code, stdout, stderr, timedOut });
-  assert.equal(r(0, '{"hookSpecificOutput":{"permissionDecision":"allow"}}').kind, "ok");
-  assert.equal(r(1, '{"hookSpecificOutput":{"permissionDecision":"deny"}}').kind, "ok", "valid JSON with any other code: the fields decide");
+  assert.equal(r(0, '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}').kind, "ok");
+  assert.equal(r(1, '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"deny"}}').kind, "ok", "valid JSON with any other code: the fields decide");
   assert.deepEqual(r(2, "", "Blocked: rm commands are not allowed\n"), { kind: "block", json: null, text: "", reason: "Blocked: rm commands are not allowed", notice: "" });
   assert.deepEqual(r(1, "", "something broke\nmore"), { kind: "error", json: null, text: "", reason: "", notice: "Failed with non-blocking status code: something broke" });
-  assert.match(r(0, "{ not json }").notice, /^Hook output is not valid JSON: /);
+  assert.match(r(0, "{ not json }").notice, /^Hook output looks like a JSON object but is not valid JSON \u2014 .*\. Emit the payload with a JSON encoder \(jq, ConvertTo-Json, json\.dumps\) rather than string concatenation so backslashes and quotes inside strings are escaped\.$/);
   assert.equal(r(0, "[1,2]").kind, "ok", "an array is plain text");
   assert.equal(r(0, "", "", true).notice, "Timed out");
   // Each event's decisions.
   const out = (event, runs, tool) => H.hooksOutcome(event, runs.map(([command, run]) => ({ hook: { command }, result: H.hookResult(event, run) })), { tool });
-  const d1 = out("PreToolUse", [["no-rm.sh", { code: 2, stderr: "Blocked: rm commands are not allowed" }], ["ok.sh", { code: 0, stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }]], "Bash");
+  const d1 = out("PreToolUse", [["no-rm.sh", { code: 2, stderr: "Blocked: rm commands are not allowed" }], ["ok.sh", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}' }]], "Bash");
   assert.deepEqual([d1.decision, d1.reason], ["deny", "PreToolUse:Bash hook error: [no-rm.sh]: Blocked: rm commands are not allowed"], "Claude Code's words; deny > ask > allow");
-  const d2 = out("PreToolUse", [["a", { code: 0, stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }], ["b", { code: 0, stdout: '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"check first","updatedInput":{"command":"npm test -- --ci"},"additionalContext":"CI is red"}}' }]], "Bash");
+  const d2 = out("PreToolUse", [["a", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}' }], ["b", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"check first","updatedInput":{"command":"npm test -- --ci"},"additionalContext":"CI is red"}}' }]], "Bash");
   assert.deepEqual([d2.decision, d2.reason, d2.updatedInput, d2.context], ["ask", "check first", { command: "npm test -- --ci" }, ["CI is red"]]);
   assert.equal(out("PreToolUse", [["old", { code: 0, stdout: '{"decision":"approve"}' }]], "Bash").decision, "allow", "the deprecated approve");
   const p = out("PostToolUse", [["lint.sh", { code: 0, stdout: '{"decision":"block","reason":"2 lint errors","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"fix them first"}}' }]], "Edit");
   assert.deepEqual([p.decision, p.blocks, p.context], ["block", ["PostToolUse:Edit hook blocking error from command: [lint.sh]: 2 lint errors"], ["fix them first"]]);
-  assert.equal(out("PostToolUse", [["r", { code: 0, stdout: '{"hookSpecificOutput":{"updatedToolOutput":{"stdout":"[redacted]","stderr":""}}}' }]], "Bash").updatedOutput, "[redacted]");
+  assert.equal(out("PostToolUse", [["r", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PostToolUse","updatedToolOutput":{"stdout":"[redacted]","stderr":"","interrupted":false}}}' }]], "Bash").updatedOutput, "[redacted]");
   const u = out("UserPromptSubmit", [["ctx", { code: 0, stdout: "Branch: main\n" }], ["gate", { code: 0, stdout: '{"decision":"block","reason":"No secrets in prompts"}' }]]);
   assert.deepEqual([u.decision, u.reason, u.context], ["block", "No secrets in prompts", ["Branch: main"]]);
   assert.deepEqual(out("Stop", [["t", { code: 2, stderr: "run the tests first" }]]).blocks, ["Stop hook error: [t]: run the tests first"]);
@@ -72,7 +72,7 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   assert.deepEqual([st.stop, st.messages], [{ reason: "Build failed" }, ["heads up"]]);
   assert.deepEqual(out("PreToolUse", [["x", { code: 1, stderr: "oops" }]], "Bash").notices, ["PreToolUse:Bash hook error: [x]: Failed with non-blocking status code: oops"]);
   assert.deepEqual(out("SessionStart", [["s", { code: 2, stderr: "nope" }]]).decision, "", "SessionStart can't block");
-  const pr = out("PermissionRequest", [["p", { code: 0, stdout: '{"hookSpecificOutput":{"decision":{"behavior":"deny","message":"not on Fridays"}}}' }]], "Bash");
+  const pr = out("PermissionRequest", [["p", { code: 0, stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"not on Fridays"}}}' }]], "Bash");
   assert.deepEqual([pr.decision, pr.reason], ["deny", "not on Fridays"]);
   // Inputs as Claude Code names them.
   assert.deepEqual(H.hookToolInput("edit", { path: "a.ts", old_string: "a", new_string: "b" }), { path: "a.ts", old_string: "a", new_string: "b", file_path: "a.ts" });
@@ -82,7 +82,7 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
 });
 
 /** Coder's loop with hooks, on a pretend machine: `hookRun(input)` answers each hook ({ code, stdout, stderr }). */
-async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messages = [], answers = [] } = {}) {
+async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messages = [], answers = [], askWait = 0, notifyMs } = {}) {
   const { runCoder } = await import("../container/coder-agent.mjs");
   const events = [], seen = [], ran = [], hookCalls = [], cards = [];
   let n = 0, k = 0;
@@ -101,7 +101,8 @@ async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messa
     },
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-h1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "yes" }; },
+    ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); return answers[k++] || { choice: "yes" }; },
+    ...(notifyMs !== undefined ? { promptNotifyMs: notifyMs } : {}),
   }, { text, mode, messages, hooks: H.hooksFrom({ hooks }, "settings").list });
   return { r, events, seen, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls, cards };
 }
@@ -115,17 +116,17 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // Its input: Claude Code's common fields and the call's.
   const inp = t.hookCalls[0].input;
   assert.deepEqual([inp.hook_event_name, inp.session_id, inp.cwd, inp.permission_mode, inp.tool_name, inp.tool_input.command, inp.tool_use_id], ["PreToolUse", "shop-h1", "/work/shop", "auto", "Bash", "rm -rf build", "b1"]);
-  assert.match(t.hookCalls[0].command, /export CLAUDE_PROJECT_DIR='\/work\/shop' CODER_PROJECT_DIR='\/work\/shop' CLAUDE_CODE_REMOTE=true; \(\n\.\/no-rm\.sh\n\) < "\$__in" 2>"\$__err"/, "its stdin and stderr, apart");
+  assert.match(t.hookCalls[0].command, /export CLAUDE_PROJECT_DIR='\/work\/shop' CODER_PROJECT_DIR='\/work\/shop' CLAUDE_CODE_REMOTE=true; \(\nsh -c '\.\/no-rm\.sh'\n\) < "\$__in" 2>"\$__err"/, "its stdin and stderr, apart; run with sh -c, as Claude Code runs a hook's command");
   // updatedInput: the command that runs is the hook's.
   t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PreToolUse: hk("ci.sh") }, { hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","updatedInput":{"command":"npm test -- --ci","description":"Test"}}}' }) });
   assert.deepEqual(t.ran.map((c) => c.split("\n").pop()), ["npm test -- --ci"]);
   // ask: a card even in Auto, with the hook's reason; allow: none in Accept edits for a command that would ask.
-  t = await hooked([say("", [call("bash", { command: "ls", description: "List" }, "b1")]), say("ok")], { PreToolUse: hk("ask.sh") }, { hookRun: () => ({ stdout: '{"hookSpecificOutput":{"permissionDecision":"ask","permissionDecisionReason":"Listing is watched here"}}' }) });
+  t = await hooked([say("", [call("bash", { command: "ls", description: "List" }, "b1")]), say("ok")], { PreToolUse: hk("ask.sh") }, { hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"ask","permissionDecisionReason":"Listing is watched here"}}' }) });
   assert.deepEqual([t.cards.length, t.cards[0] && t.cards[0].why], [1, "Listing is watched here"]);
-  t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PreToolUse: hk("allow.sh") }, { mode: "acceptEdits", hookRun: () => ({ stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }) });
+  t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PreToolUse: hk("allow.sh") }, { mode: "acceptEdits", hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow"}}' }) });
   assert.deepEqual([t.cards.length, t.ran.length], [0, 1]);
   // POSTTOOLUSE: its block reason and context beside the result; a PreToolUse hook's context too.
-  t = await hooked([say("", [call("bash", { command: "npm run build", description: "Build" }, "b1")]), say("ok")], { PreToolUse: hk("pre.sh"), PostToolUse: hk("post.sh") }, { hookRun: (i) => (i.hook_event_name === "PreToolUse" ? { stdout: '{"hookSpecificOutput":{"additionalContext":"Deploy target: staging"}}' } : { stdout: '{"decision":"block","reason":"bundle over 2 MB","hookSpecificOutput":{"additionalContext":"see size.log"}}' }) });
+  t = await hooked([say("", [call("bash", { command: "npm run build", description: "Build" }, "b1")]), say("ok")], { PreToolUse: hk("pre.sh"), PostToolUse: hk("post.sh") }, { hookRun: (i) => (i.hook_event_name === "PreToolUse" ? { stdout: '{"hookSpecificOutput":{"hookEventName":"PreToolUse","additionalContext":"Deploy target: staging"}}' } : { stdout: '{"decision":"block","reason":"bundle over 2 MB","hookSpecificOutput":{"hookEventName":"PostToolUse","additionalContext":"see size.log"}}' }) });
   const b1 = t.r.messages.find((m) => m.tool_call_id === "b1").content;
   assert.match(b1, /^ok\n\nPostToolUse:Bash hook blocking error from command: \[post\.sh\]: bundle over 2 MB\n\n\(Note from Coder's app, not the owner: PreToolUse hook additional context: Deploy target: staging\)\n\n\(Note from Coder's app, not the owner: PostToolUse hook additional context: see size\.log\)$/);
   const post = t.hookCalls.find((c) => c.input.hook_event_name === "PostToolUse").input;
@@ -158,7 +159,12 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   // PERMISSIONREQUEST: allow answers the card for the owner; the NOTIFICATION hooks run when a card waits.
   t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PermissionRequest: hk("ok.sh") }, { mode: "acceptEdits", hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}' }) });
   assert.deepEqual([t.cards.length, t.ran.length], [0, 1]);
+  // (The Notification hooks of a card that waits: after Claude Code's 6 seconds, never for one answered sooner. Bash docs
+  // pass 9; here the wait made short.)
   t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: "notify.sh" }] }] }, { mode: "acceptEdits", hookRun: () => ({}) });
+  await new Promise((ok) => setTimeout(ok, 20));
+  assert.deepEqual(t.hookCalls, [], "answered at once: no notification");
+  t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: "notify.sh" }] }] }, { mode: "acceptEdits", hookRun: () => ({}), askWait: 80, notifyMs: 10 });
   await new Promise((ok) => setTimeout(ok, 20));
   assert.deepEqual(t.hookCalls.map((c) => [c.input.hook_event_name, c.input.notification_type, c.input.message]), [["Notification", "permission_prompt", "Coder needs your permission to use Bash"]]);
   // A non-blocking error is shown to the owner, and the command runs.

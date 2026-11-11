@@ -11,9 +11,287 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 6 built: the page (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 538 automated tests pass (7 of them new). Screenshots are in the chat; you direct the design.
+
+- **A step that never ran no longer counts as one that ran.** Before, a command your rule refused showed inside "Ran 4 commands" with "a command failed" and "✕ exit -1". Now it stands on its own row with "✕ not run", and the lines over the groups count only what ran ("Ran 1 command, read 1 file", then "Ran 2 commands"). This uses Claude Code's own way of giving a step its own row outside a group (it does that for a command that changed files); I didn't find the exact rule it uses for a refused step, so this part is my choice for you to judge from the screenshots. This covers every kind of refusal: your rules, Auto mode's checker, your hooks, Coder's own checks and your "No".
+- **Saved keys that are never sent are marked "Not sent", with why and what to do** (Claude Code does this too). Three cases: a key for GitHub (Coder already uses your GitHub sign-in), a key for a public package registry or the Anthropic API (these never get a key), and a second key for the same site as an earlier one (only the first is sent).
+- **Network access now uses Claude Code's three names: None, Limited and Full.** Under Limited there is an "Allow package managers" box and your "Allowed domains". Your old "Trusted" opens as Limited with the box checked; "Custom" opens as Limited with your list. Nothing your environments can reach has changed.
+- **Variables Coder never gives to commands are now named** on the variables page (for example PATH and HOME, which you chose to keep dropped), and the row says how many.
+
+**Next:** your "merge and deploy" for passes 8 and 9, then the recorded live test with Grok.
+
+## 2026-11-11: Bash docs pass 9, part 5 built: the hooks details (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 531 automated tests pass (13 of them new).
+
+- **Your hooks now run with plain `sh`, as in Claude Code**, not in the shell Coder's commands use. A hook written for bash only (with `[[ ]]`, for example) should call bash itself, as it must in Claude Code.
+- **Hooks are told the mode as Claude Code's cloud says it:** "default" in your Accept edits.
+- **Folder changes:** CwdChanged hooks now also run when your `!` command does a `cd`. FileChanged watches its files in the folder Coder's commands are in now, not always the project's top folder. What these hooks save for later commands is cleared at every folder change.
+- **What hooks say:**
+  - Extra context from a PreToolUse hook reaches Grok even when the call doesn't run.
+  - Text over 10,000 characters is saved to a file; Grok gets its path and the first 2,000 characters (before, the rest was cut).
+  - A JSON answer must name its event (`hookEventName`), as Claude Code requires. One that names another event, or none, is ignored, with Claude Code's message. Several JSON lines (like a log) count as plain text.
+  - A hook's new output for a command must have Claude Code's shape (stdout, stderr, interrupted); otherwise the original stays and the chat says why.
+- **What hooks are told about a command:** its background ID, its time limit when it was moved to the background, and the meaning of an exit code like grep's 1.
+- **Smaller:** a hook's own time limit is no longer cut at 10 minutes; at most 12 prompt or agent hooks run at once; the same command with two different `if` settings runs for each; the waiting-for-your-approval hook fires after 6 seconds, and not at all if you answer sooner (CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS turns it off); `git checkout` and the like say `bashEditDiff: skipped`; the AI's home has a `~/.claude` folder (the hooks guide writes there); a command that could not start (full disk) fires PostToolUseFailure.
+- **Two bugs found while testing, fixed:** background commands never fired PostToolUse hooks; now they do, as in Claude Code. And a hook that ran while Coder's folder was gone quietly moved Coder back to the project folder, so Coder was never told; now its next command says "Shell cwd was reset to …", as in Claude Code.
+- **Heads-up:** if one of your hooks answers with JSON but leaves out `hookEventName`, it will now be ignored, as in Claude Code.
+- **Not copied, your call:** `transcript_path`. Claude Code gives hooks the path of the conversation file on its machine. Coder keeps the conversation on its server, not as a file on the machine. I can write one in Claude Code's format if you want hooks to read it.
+
+**Next:** part 6, the page, with screenshots for you.
+
+## 2026-11-11: Bash docs pass 9, part 4 built: your `!` commands, background commands, monitors and wording (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 518 automated tests pass (14 of them new).
+
+- **A background command stuck on a typed question** (like "Continue? (y/n)"): after 45 quiet seconds, Grok is told once that it "appears to be waiting for interactive input", with its last lines and how to get past it. Claude Code does the same. One small difference: Claude Code's code writes the heading "Last output:" and then leaves the output out, which looks like a slip on its side; Coder puts the last lines there. Tell me if you want it exactly like Claude Code.
+- **A busy monitor can't flood Grok any more.** Claude Code's limits: lines cut at 500 characters, 10 events at once and then one every 2 seconds; Grok is told how many were skipped; after 30 seconds of that, the monitor is stopped. Before, a busy monitor could put megabytes into Grok's input.
+- **You press Stop while a command runs:** Grok is now told in Claude Code's words that it was stopped while running (it may have run in part), not that it was refused.
+- **Your `!` commands** move to the background after 2 minutes, a command's normal time, as in Claude Code (they waited 10). One that prints a lot reaches Grok as a saved file with a short preview, not the whole text.
+- **A background command that ends in its first second** still gets an ID and an "ended" note, as in Claude Code.
+- `printf '%s\n' hi` no longer asks (my own mistake from before). A `timeout_ms` Grok gives a command now counts as its time limit.
+- **Wording copied from Claude Code, about 15 places:** "Command timed out after 2m 0s" now comes first, before the output; a command moved to the background shows its last 2,000 bytes; one you moved shows nothing extra; the refusal of a long `sleep` points Grok to the monitor tool; a monitor's start and end lines; a monitor deadline over an hour is refused; the stop tool's replies; the reason in brackets when the auto-mode checker can't be reached ("temporarily unavailable (rate-limited)"); "cat from '…' was blocked by a deny rule."; "(PowerShell completed with no output)"; blank lines at the start of an output dropped.
+- **Two bugs fixed on the way:** a letter like "é" or an emoji that fell between two pieces of output showed as "��"; now it shows right. And a stopped command's programs got the stop signal twice (some programs take a second one as "stop now"); now once.
+- **Left as is:** a background `A && grep …` that finds nothing. I couldn't confirm Claude Code calls that failed; Coder says what grep's exit means, as Claude Code does for a single command. Claude Code's long-output preview with both start and end is behind one of its own server switches, so I left it out.
+- **Moved to part 6 (the page, with screenshots for you):** the line over a group of steps counts a refused command as one that ran.
+
+**Next:** part 5, hooks details. Then part 6, the page, with screenshots.
+
+## 2026-11-11: Bash docs pass 9, part 3 built: the rules and "don't ask again" (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 504 automated tests pass (4 of them new).
+
+- **"Yes, and don't ask again" now saves Claude Code's own rule.** Before, Coder often saved a wider one: for `ls -la` it saved `ls *`. Now, like Claude Code: the first two words and a star when the second looks like a sub-command (`npm install *`, `git commit *`, `npm run *`), otherwise the exact command (`ls -la`, `pytest tests/`, `timeout 30 npm test`). I compared 38 commands: before, 16 differed; now all 38 match. Each rule it offers really does approve that command the next time (tested).
+- A few commands that used to get no "don't ask again" at all now get the exact command as their rule, as in Claude Code (inline code like `python3 -c '…'`, `watch ls`, `FOO=1 npm test`). An exact rule only ever approves that same text.
+- **Kept Coder's way in three spots, all stricter:** no rule for a command whose program is only known when it runs (`$CMD x`), none that would contain a `*` (it would allow more than the card shows), and `eval`-like commands get only the exact command.
+- **Rules written the way a command is typed now work**, like `Bash(NODE_ENV=production npm run *)`. And `Bash(npm test *)` now covers `timeout -s KILL 30 npm test` (timeout with its own options).
+- **Monitors and rules on settings:** a rule like `Bash(run_in_background:true)` used to refuse every monitor; now it only applies to ordinary commands, as in Claude Code. Rules on a monitor's own settings, like `Monitor(timeout_ms:*)`, now work. Your hooks now see a monitor's own settings instead of the background command Coder turns it into.
+
+**Next:** part 4: your `!` commands, background commands, monitors, and wording.
+
+## 2026-11-11: Bash docs pass 9, part 2 built: how Claude Code's cloud machine runs commands (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 500 automated tests pass (12 of them new).
+
+**What changed on Coder's machine, to match Claude Code's cloud machine:**
+- Commands now run in **zsh** (bash if zsh isn't there), as Claude Code's cloud does. Your CODER_SHELL can name bash or zsh anywhere on the machine.
+- The places where zsh reads a command differently from bash now ask, in Claude Code's words: an escaped space, a word split across lines, `~[…]`, `=ls`, `<1-5>`, a brace with a quote in it, zsh's own risky commands (`zmodload`, `ztcp` and 42 more), and zsh's `cd OLD NEW`.
+- The machine's settings for commands are Claude Code's: `TERM=linux`, no LANG, CI or NO_COLOR, Python prints at once, apt never asks questions.
+- **Your variables win now.** Your JAVA_HOME, TERM, GOPATH and the like used to be overwritten by the machine's; now yours count (never PATH or HOME). Names like USER_POOL_ID or PATH_PREFIX used to be dropped by mistake; now they reach commands.
+- git never waits for a password and turns `git@github.com:` addresses into https. The project now has a normal `origin`, so `gh pr list` knows which repository it is in. The AWS and Google tools get Claude Code's placeholder login.
+- `GIT_EDITOR=true` always, even if your variables set another editor, as Claude Code does.
+- **Every tool finds the network gate:** Yarn, npm, Docker, gcloud, Electron, Java and others get their own proxy setting, and AWS, Cargo, Deno, pip, uv and others their certificate setting. Java gets a certificate store with the gate's certificate in it, so Maven and Gradle work behind a limited network, saved keys included (I tried a real Java request through the gate).
+- **A scratch folder for each chat** (`/tmp/coder-scratch`). Coder is told to use it instead of `/tmp`, in Claude Code's words. Writing a command's output there doesn't ask. Hooks are told where it is.
+- **Output in the right order:** a command's errors now show where they happened. Before, they all came at the end (200 out of 200 tries).
+- **Commands that only read run at the same time** when Coder asks for several at once (like several `cat` or `git log`), as Claude Code does. Anything that changes something still runs on its own.
+- Numbers like `300_000` work in BASH_DEFAULT_TIMEOUT_MS.
+- When a command fails and a site it tried was allowed but couldn't be reached (no such name, site down), Coder is told, in Claude Code's own words, with the address of a page listing the recent failures. A blocked site still gets Coder's own note, as before.
+- A repository's `.claude/settings.json` can now set four more of Claude Code's command settings (the command prefix, the memory-cap kinds, the memory-pressure stop, the SessionEnd hook time). Yours win.
+- **If the repository's settings file changes while Coder works,** its rules and hooks count from Coder's next step (before, from the next message), as Claude Code does. A read block it turns on stays on for that job even if removed.
+
+**Found while building, and fixed:** my first version of "read at the same time" could start a command after the job's time limit; now the limit is checked before a group starts, and they start in the order Coder asked. And a command caught by zsh's checks that also can't be read now gets Claude Code's reason instead of "Parse error".
+
+**Left for you to decide (not built):** when the same variable is set both in your environment and in the repository's settings file, Claude Code uses the file's; Coder uses yours. And Claude Code gives an open chat an edited variable only after its machine sleeps; Coder gives it at the next message.
+
+**Next:** part 3, the rules and "don't ask again" list, then the `!` commands, background commands and monitors.
+
+## 2026-11-11: Bash docs pass 9, part 1 built: pass 8's two bugs and the safety gaps (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 488 automated tests pass (18 of them new).
+
+**Pass 8's two bugs are fixed.** With the rule `Bash(echo *)`, `echo x > /etc/passwd` asks again. `nice rm x` is caught by a deny rule on rm again, and `nice rm -rf ~` is seen as dangerous again.
+
+**What Coder now stops, as Claude Code does:**
+- A command hidden inside `(( … ))`, `$(( … ))` or a `[[ … ]]` test: Coder reads it, a deny rule catches it, and the whole command asks.
+- A non-breaking space or other odd blank in a command: asks.
+- A command that sends part of itself to the background with `&`: asks, whatever rule you have. In Auto, the checker looks at it.
+- A command Coder can't read at all counts as a possible dangerous delete, even with no `rm` in it.
+- A `cd` followed by a write: asks, unless the command starts `cd ./folder &&` inside the project. `rm` after a `cd` still names a protected file first, as Claude Code does.
+- After such a `cd`, a read by a short path asks while you have a Read deny rule (Claude Code can't tell which file it is).
+- `~dev/…`, `~root`, `~+` and `~-` in a path: ask.
+- No allow rule covers a path outside the project any more: `touch /etc/x` under `Bash(touch *)`, `nohup cat /etc/passwd` under `Bash(cat *)`, and the same in PowerShell. A write through a link that leads out of the project now needs an Edit rule that names both the link and where it leads; a Bash rule is not enough.
+- The four ways past a rule are closed (`A[0]=1 rm …`, `$"rm" …`, `X=rm export X; $X …`, `git diff --no-index /dev/null .env`).
+- A rule written as a whole command, like `Bash(git status && npm test)`, now works as a deny, ask or allow rule. PowerShell rules ending in `:*` work too.
+- `Bash(eval *)`, `Bash(source *)` and the like no longer approve anything; only a rule naming the exact command does.
+- A repository's `!` rule can no longer cancel your own deny rule (and yours can't cancel the repository's).
+- The dangerous-delete check catches `sudo sh -c 'rm -rf /etc'` and `D=$PWD; rm -rf "$D"`. It no longer flags `rm -rf "$ROOT/dist"` when ROOT is a known path.
+- The approval card can't hide text behind a run of spaces: a long run shows as its count ("⟨320 blanks⟩"), and a long line carries on to the next line. (A small change on the card; I'll show it in the screenshots with part 2.)
+- When a background command finishes and you sent no message, Coder is told first, in Claude Code's own words, that this is not you and not an approval.
+- A saved key for `*.github.com` no longer opens github.com when the network is set to None.
+- A repository's settings can't set CDPATH, PWD, GITHUB_ACTIONS, RUNNER_ENVIRONMENT, NODE_TLS_REJECT_UNAUTHORIZED or the client-certificate variables. **One addition to your rule on dropped variables:** your own CDPATH is now dropped too, as one of the "similar" ones (it changes where `cd name` goes, behind the checks' back).
+- With the read block on: a folder only the repository's settings add doesn't count, and `env -C /etc cat passwd` is caught.
+- Downloading the source archive of a repository this chat doesn't have gets Claude Code's refusal: "GitHub access to … is not enabled for this session".
+- If the network gate can't start while the network is limited, commands now have no internet for that message (before, they had open internet).
+- A hook that says "ask" stays your question in Plan mode; the checker can't approve it.
+- A PowerShell hook whose program exits with code 2 now blocks.
+- Rules a hook adds "for the session" now last the whole chat, not one message.
+- PowerShell: a `cd` beside another command asks, and a command with the invisible characters U+FEFF or U+180E is refused.
+
+**Two things I found while building, both copied from Claude Code's program:** a read after `cd` with a Read deny rule asks (above), and in Auto a command writing a file inside the project by `>` still goes to the checker (Claude Code allows that without asking only in Accept edits).
+
+**Next:** part 2, how Claude Code's cloud machine runs commands (proxy settings for each tool, zsh, git's set-up, the scratch folder, output order, read-only commands at the same time).
+
+## 2026-11-11: Bash docs pass 9, the list. Nothing built yet (your words: "i still need what other stuff those claude code docs has for the batch tool that we dont have , remember is all cloud mot local")
+
+What I read: all 203 pages of Claude Code's docs (downloaded today), its whole changelog (1,396 entries) and its program, version 2.1.322. Nine readers each took a slice. I reran the important claims myself on Coder's code, and looked at a real Claude Code cloud machine. "Checked" below means I ran it myself. "Reader" means a reader ran it and I did not repeat it.
+
+About 100 differences. About 35 are safety gaps. Waiting for your word before building any of it.
+
+**First, about pass 8, which is not live yet:**
+- **Two bugs I added in pass 8.** Pass 8 should not go live until both are fixed. I checked each against the live code, which does not have them.
+  - In the new Accept edits, a rule that allows a command also lets that command write anywhere: with the rule `Bash(echo *)`, `echo x > /etc/passwd` runs without asking.
+  - A command with a plain `nice` in front slips past your deny rules and the dangerous-delete check: with a deny rule on rm, `nice rm x` runs, and `nice rm -rf ~` is no longer seen as dangerous. Same for `stdbuf -o L cat secret.env` and a Read deny rule.
+- **One pass 8 change may be the wrong way round.** I made Accept edits ask before a command changes files. One page of Claude Code's docs says its cloud "Accept edits" is really "default" mode. Another says the cloud's standard set-up pre-approves routine tool calls, Bash included, and the quickstart says Accept edits means "Claude makes changes and pushes a branch without stopping for approval". If that holds, Claude Code's cloud asks for almost nothing in Accept edits. The pre-approved list comes from Anthropic's servers, so I can't read it. One try in a real Claude Code cloud chat settles it.
+- **A correction.** In pass 8 I said Claude Code 2.1.322 has no notice for a background command stuck waiting for typed input. It has one. A reader found it.
+
+**1. Safety gaps: Coder lets through what Claude Code stops.** These are in the live Coder today. I ran 16 of them against the live code and got the same results.
+- A command hidden inside `(( … ))`, or inside `<( … )` in a `[[ … ]]` test, is checked by nothing. `(( $(rm -rf ~) )) && ls` runs without asking in Accept edits and Plan, counts as "only reads" so Auto skips its checker, and deny rules and the dangerous-delete check don't see it. Real bash runs the hidden part. Checked.
+- `cd -` fools the folder check: Coder reads it as a folder named "-" in the project, bash goes to the previous folder. `cd - && rm -rf home` runs unasked in Accept edits. Same for a short `cd name` when CDPATH is set. Checked.
+- `~dev/…`, `~root`, `~+` and `~-` are read as names inside the project: `cat ~dev/.ssh/id_rsa` runs unasked, a deny rule on `~/.ssh` doesn't stop it, and `rm -rf ~dev` isn't seen as dangerous. Checked.
+- A non-breaking space is read as a normal space: `cat<that space>./evil` is read as `cat ./evil`; bash reads one program name. Checked.
+- A command Coder can't read counts as dangerous only when it mentions rm. Claude Code treats every unreadable command that way. Checked.
+- A command that backgrounds part of itself with `&` is not asked about. Checked.
+- An allow rule reaches outside the project: with `Bash(touch *)`, `touch /etc/x` runs. Same for mkdir, rm, cp, sed, `nohup cat /etc/passwd` under `Bash(cat *)`, and PowerShell. In Claude Code no command rule covers a path outside the working folders. Checked.
+- Four ways past a deny or ask rule: `A[0]=1 rm -rf /`, `$"rm" -rf /`, `X=rm export X; $X -rf build`, and `git diff --no-index /dev/null .env` past a Read rule. Checked.
+- Deny rules that never fire: one written as a whole command with `>` or `&&` in it, and any PowerShell rule ending in `:*`. Checked.
+- A repository's own `!` rule cancels your deny rule. Checked.
+- Rules like `Bash(eval *)` or `Bash(source *)` approve anything. Claude Code never lets a wildcard rule approve eval, source, exec, trap and 13 more. Checked.
+- The dangerous-delete check misses `sudo sh -c 'rm -rf /etc'` (also behind env or timeout, or after other options) and a variable copied from the working folder (`D=$PWD; rm -rf "$D"`). Checked.
+- The approval card can hide part of a command behind a long run of spaces. Checked.
+- Background notices don't tell the AI that a notice is never your approval. Checked.
+- A saved key for `*.github.com` opens github.com even on "None". A repository's settings can set CDPATH or switch off certificate checks. Checked.
+- With the read block on, a folder the repository adds counts as allowed, and `env -C /etc cat passwd` gets past it. A download of another repository's source archive goes through. Reader.
+- If the network gate can't start, commands run with open internet and Coder only prints a line. (Coder's own design, not from the docs.) Checked.
+- A hook's "ask" is lost in Plan mode when the checker approves. Checked. A PowerShell hook that exits with code 2 doesn't block; deny and ask rules a hook adds last one message. Reader.
+- PowerShell: `cd; Get-Content .ssh/id_rsa` runs unasked; a command holding an invisible character isn't refused. Reader.
+
+**2. How Claude Code's cloud machine runs a command (seen on a real one)**
+- Java can't download on Coder's default network. Claude Code gives each tool its own proxy and certificate settings (Java, Yarn, npm, Docker, gcloud, AWS, pip, cargo, deno and more). Coder sets only the general ones, which Java ignores. Checked.
+- Claude Code's cloud runs every command in zsh. Coder uses bash unless CODER_SHELL is set. Checked.
+- Coder adds `CI=1`, `NO_COLOR=1`, `TERM=dumb` and `LANG=C.UTF-8` to every command. Claude Code adds none. Checked.
+- Your own variables can lose to Coder's (JAVA_HOME, CI, LANG, GOPATH, DOCKER_HOST and about 15 more), and a name that only starts with USER, PATH, HOME or SHELL (like USER_POOL_ID) is dropped. Checked.
+- Claude Code's clone has a normal `origin`, turns `git@github.com:` addresses into https and never waits for a typed password. Coder's clone has no remote, so `gh pr list` can't tell its repository. Claude Code also gives the AWS and Google tools a placeholder login. Checked.
+- A scratchpad folder: a private temp folder for each chat that the AI is told to use instead of `/tmp`, with no asking. In Coder a command writing to its scratch folder asks. Checked.
+- Output order: Claude Code writes output and errors to one file. Coder reads them apart, so errors land last (200 of 200 tries). Checked.
+- Commands that only read run at the same time when the AI asks for several at once. Coder runs them one by one. Checked in Claude Code's program.
+- Smaller (9): the `x-deny-reason: host_not_allowed` reply for a blocked site; a note when an allowed site couldn't be reached; a repository's settings beating the environment for the same variable; settings and hooks read again when the file changes mid-job; `GIT_EDITOR` always `true`; numbers like `300_000`; four more settings from a repository; CODER_SHELL in other folders; when an edited variable reaches an open chat. Reader, three checked.
+
+**3. Rules and "don't ask again"**
+- The rule "don't ask again" saves differs in 16 of 38 commands I compared. Coder is often wider: `ls -la` saves `ls *`; Claude Code saves just `ls -la`. Checked.
+- A rule written the way a command is typed never matches when it starts with timeout or a variable, or holds `>` or `&&`. `timeout` with its own options hides the command from allow rules. Checked. A rule on a monitor's own settings never matches. Reader.
+
+**4. Your `!` commands, background commands, monitors, wording**
+- A long `!` output is cut in the middle and never names the saved file. A `!` command waits 10 minutes where Claude Code moves it to the background after 2. Checked.
+- After Stop on a running command, Coder records an ordinary failure and runs your "it failed" hooks. Claude Code tells the AI it was stopped and may have run in part. Reader.
+- A monitor has no speed limit. Claude Code cuts lines at 500 characters, sends 10 events then one every 2 seconds, and stops a monitor that floods for 30 seconds. In Coder a busy monitor can put megabytes into Grok's context, which costs money. Checked in Claude Code's program.
+- A background command stuck on a typed question: after 45 quiet seconds Claude Code tells the AI it "appears to be waiting for interactive input". Coder says nothing. Checked.
+- `printf '%s\n' hi` asks in Coder (my own pattern mistake). Checked.
+- A background command that ends within a second comes back with no ID; a background `A && grep …` that finds nothing counts as failed in Claude Code; a long output's preview is now its start and its end; `timeout_ms` is ignored; the line over a group of steps counts a refused command as run. Reader.
+- About 12 wording details (the timeout notice, what a moved command shows, the monitor's and the stop tool's lines, why the checker is unavailable, the deny-rule sentence, blank lines, a letter split in two showing as "��"). Reader, two checked.
+
+**5. Hooks (small):** about 18 details. The larger ones: hooks for file changes look in the project folder after a `cd`; hooks get Coder's own result object, not Claude Code's; hooks run in bash where Claude Code uses plain `sh`; hooks are told "acceptEdits" where Claude Code's cloud says "default". Seven checked.
+
+**6. The page (you direct the design):** a saved key for a site that never gets one (github.com, npm, PyPI) is accepted silently, where Claude Code marks it "Not sent"; Claude Code renamed its network levels (Trusted and Custom are now "Limited" with an "Allow package managers" box); dropped variable names vanish without a word.
+
+**7. Your call (cost or design):** Claude Code's cloud checker also reviews commands that only read (one paid check each); rewind's "Restore code" also undoes files only a command changed (Claude Code leaves them); Coder runs more plain `sed` commands unasked than Claude Code (I tried 32 forms that write or run something and Coder asked for every one).
+
+**Outside the Bash tool, not researched:** which model does Auto mode's check; file-tool rules and settings; a "Recently blocked" list on the page; a job cut off by a machine restart being run again; rewind, compaction, memory, scheduled tasks, goals, subagents.
+
+**Ruled out:** the four extra sites on the default list, the setup script and saved keys, `duration_ms` in hooks, the checker's standard rules. The readers confirmed over 200 other points that already match.
+
+## 2026-11-11: Bash docs pass 8, all five parts (your words: "Yes pls", to building the whole list, safety holes first)
+
+Not merged or deployed yet: say "merge and deploy" when you want it live. All 470 tests pass.
+
+**Part A, the safety holes** (pushed earlier today):
+- **Deny and ask rules now see through the same wrappers Claude Code does.** Before, a deny rule on `git push` could be stepped around with `time -p git push`, `watch -d git push`, `flock -n …`, `setsid -w …`, `exec -a …` and others. A path like `/usr/bin/git` counts too. The dangerous-delete check sees through them as well.
+- **Variables and brackets count.** `F=.env; cat $F` now meets a rule on `.env`. A `cd` inside brackets only moves that bracket group, and `git` after it asks, as in Claude Code.
+- **`cp` and `mv` into a folder**, and a wildcard in grep's pattern, are checked against your rules.
+- **Coder's network gate refuses the machine's own and private addresses** in every network setting, Full included, and also when they are written as numbers. Claude Code's words are used: "Connection to … blocked: resolved to a loopback address".
+
+**Part B, how Coder behaves in the cloud:**
+- **Accept edits now works like Claude Code's cloud default.** Coder's own file edits still run without asking. A *command* that changes files (mkdir, rm, a `>` redirect and the like) now asks you first, as Claude Code's cloud does. To get the old behavior for one repository, put `"defaultMode": "acceptEdits"` under `permissions` in its `.claude/settings.json`. `"plan"` there starts that repository's new chats in Plan mode.
+- **Background commands keep their keys after the answer.** A dev server or a monitor left running still gets the environment's saved keys and `gh`. Jobs started from GitHub still never get keys. GitHub Actions logs (`gh run view --log`) now come through.
+- **Woken at once.** When a background command finishes, or a monitor prints a line, an idle chat now wakes up within about 5 seconds. Before, that took up to a minute.
+- **A repository can set the command settings.** Its `.claude/settings.json` can set the command timeouts, output size, shell, PowerShell, background commands and the rest, using Claude Code's names. Your own environment settings still win.
+- **SessionStart hooks run as "resume"** when a chat's machine wakes up again (it sleeps after 10 quiet minutes), as in Claude Code's cloud. They get the time since the last answer, the chat's size, and roughly what re-sending it costs.
+- **Auto mode details, copied from Claude Code:**
+  - A command where every part is either allowed by your rules or only reads no longer goes to the checker. That is one paid check fewer.
+  - With Auto mode turned off, Plan mode stops using the checker and asks you instead. A job started from GitHub then refuses commands that change things, because nobody can approve them there.
+  - A dangerous delete in Plan mode is now refused, as in Auto.
+  - In Auto, writing to a protected folder like `.git` or `.husky` now goes to the checker instead of asking you, as Claude Code does. If the write reaches the protected folder through a link, it still asks you.
+  - Before a command that can throw away unsaved work (`git reset --hard`, `rm -rf` and the like), Coder runs `git status` and shows the checker what would be lost.
+  - If you switch modes while the checker is judging a command, its answer is thrown away and you are asked instead.
+  - When the checker gives no usable answer, the step shows a grey "Not run" line instead of a red error. Coder waits a little longer each time and stops after 10 in a row. If the checker refuses to judge something, Coder is told that retrying won't help.
+  - The counts behind "Auto mode paused after 3 blocks in a row, or 20 in all" now survive the machine's sleep.
+  - The checker now has all of Claude Code's standard rules that fit Coder's machine: 60 block rules and 12 allow rules, up from 28 and 9. Each check sends about 1,800 more tokens. That is about a third of a cent at Grok 4.7's price, and a quarter of that once xAI has it cached.
+
+**Part C, your hooks and Coder's commands:**
+- **A hook can approve a command and change it.** When a "PermissionRequest" hook approves a command and rewrites it, Coder now runs the rewritten command. It checks it against your deny and ask rules first, as Claude Code does. Such a hook can also add rules or switch the mode. In the chat, the step shows the new command.
+- **`${CLAUDE_PROJECT_DIR}` works in more hooks**: those written as a program plus its arguments, and PowerShell hooks.
+- **PowerShell in hooks.** Hooks that run after a PowerShell command now see it as "PowerShell"; before, they saw "Bash". A hook's `if` can now name PowerShell commands, like Claude Code's own example `PowerShell(Remove-Item *)`.
+- **Fewer hooks running when they shouldn't:**
+  - A "tool failed" hook no longer runs for a command that was refused and never ran.
+  - A command with bad input (empty, hidden control characters, a long `sleep`) is turned away before any hook runs.
+- **Hooks made for Bash, on a Monitor's command:** they now see it as a Bash command. They can block it but can't approve or change it, as in Claude Code.
+- **Variables set by hooks:** when Coder changes folders, only variables from folder-change hooks are cleared. Those from start-of-chat hooks now stay.
+- **A hook answering "defer"** is now ignored, as in Claude Code's chats, instead of blocking the command.
+- Hooks now also get the message's ID (`prompt_id`), and "tool failed" hooks get how long the tool ran.
+
+**Part D, the PowerShell tool's details** (each copied from Claude Code 2.1.322's own program):
+- **Error or not, the way Claude Code decides.** For example, a search that finds nothing, piped into `Select-Object`, is not an error. But piped into `Out-Null` it is. `git diff` piped into `Select-Object` counts as "files differ", not an error. A `|` inside quotes no longer counts as a pipe. robocopy's codes 1 to 7 are not errors. Anything after a `&&`, or a command PowerShell can't find, is an error.
+- **Rules can now approve programs named with a dot or a path**, like `dotnet.exe` or `./build.ps1`. The rule has to name that program first, like `PowerShell(dotnet.exe build *)`. A catch-all rule like `PowerShell(*)` still doesn't approve them, as in Claude Code.
+- **A saved rule for a whole command now works.** Before, "don't ask again" on a command made of several parts saved a rule that never matched, so Coder kept asking. A chain like `npm install && npm test` asks twice, as in Claude Code. The first card offers a rule for each part, and the second offers one for the whole chain. After that it runs without asking.
+- **Rules on a command's settings now work for PowerShell too**, like `PowerShell(run_in_background:true)` to refuse background PowerShell commands. A rule like `PowerShell(command:rm *)` is kept but never matches, with Claude Code's warning, as for Bash.
+- **Auto mode now drops broad rules using Claude Code's own list.** `PowerShell(*)`, `PowerShell(pwsh *)`, `PowerShell(iex *)` and the like no longer let a command skip the checker. `classifyAllShell` now covers PowerShell too. The Bash list now matches Claude Code's exactly too. One effect: a rule like `Bash(make *)` now stays in effect in Auto, as it does in Claude Code (Coder used to drop it).
+- **PowerShell cards no longer offer "Yes, and switch to auto mode"**, as in Claude Code.
+- **In Accept edits, a file command with a quote character in a path argument now asks.** For example, `Set-Content .\notes.txt "It's done"`. Claude Code says "Paths containing quote characters cannot be statically validated and require manual approval". Passing the text with `-Value` avoids the card.
+- **Your `CODER_SHELL_PREFIX` no longer wraps PowerShell commands, or hooks written as a program plus its arguments, or PowerShell hooks.** Claude Code's version doesn't wrap them either.
+
+**Part E, the small ones:**
+- **A low-memory warning, in Settings ("Disk and memory").** Coder is told once when memory drops below what you pick, in Claude Code's words: "Low memory: 1.5 GB is available to this session." **Both the disk and the memory warnings are now off unless you turn them on**, as in Claude Code. The disk one used to be on at 2 GB. Each warning comes again only after the number has gone back above 1.25 times your line, as in Claude Code.
+- **Every command now has `CLAUDE_CODE_REMOTE=true`, and so does the setup script.** Claude Code's cloud sets it so scripts can tell they run in the cloud. Hooks already had it.
+- **OpenTelemetry settings (`OTEL_...`) no longer reach commands**, as in Claude Code.
+- **zsh fix.** If your `.zshrc` sets `KSH_OPTION_PRINT`, every command came back empty. I reproduced that with real zsh, then fixed it. Claude Code fixed the same bug in 2.1.321. Every zsh command also turns off a zsh feature that lets a file pattern run code, as Claude Code does.
+- **The bash tool's description now says the real timeouts** (if your environment changes them) and names zsh when you use zsh.
+- **When a command's saved output passes 64 MB**, Coder is told that only the first 64 MB were kept, in Claude Code's words. Before, it said "Full output saved".
+- **A monitor that reaches its time limit now says how many events it delivered.** With none, Coder is told to widen the filter if the silence was unexpected.
+- **Settings in front of a command**, like `GOOS=linux ls`: the list of the ones that keep a command "read-only" is now Claude Code's own. `GOOS`, `CGO_ENABLED`, `DEBIAN_FRONTEND` and `GIT_TERMINAL_PROMPT` now pass. `DEBUG`, `VERBOSE` and most `LC_...` now ask.
+- **"Don't ask again" never saves a rule wider than the command.** Before, `timeout -s KILL 30 npm install` offered `timeout *` (any command at all with a timeout!), and `rm *.log` offered a rule that would match any `rm` ending in `.log`. Now the first saves the exact command, as Claude Code does, and the second offers no rule.
+- **A rule you change while Coder is working counts from its next step**, as in Claude Code. Before, it waited for your next message.
+- **A note you type on a card now goes only with Yes or No**, as in Claude Code. "Don't ask again" and "switch to auto mode" take no note.
+- **In a chat with several repositories, Coder now reads none of their `.claude` settings** (rules, hooks, variables), as Claude Code's cloud does.
+
+**Left alone on purpose:**
+- Claude Code has a switch to always ask about `rm` hidden inside a script. Coder already always asks (you chose to keep that stricter).
+- Typed `/tasks` and `/add-dir`. Buttons already do both, and you had typed commands removed on 2026-11-05.
+- Three small items from my list: a notice for a command stuck waiting for typed input, and two size numbers. I couldn't find any of them in Claude Code 2.1.322, so there was nothing to copy.
+
+## 2026-11-11: Deploy 111, and the new work tested live with Grok (recordings 30, 31 and 32) (your word: "Ok")
+
+Merged to main and deployed (deploy 111): the three entries below, and the two from 2026-11-10 that were still waiting. All tests passed before the deploy.
+
+Tested live on gofarther.dev with Grok and filmed, in test chats on canias7/testingforclaude. Every delete aimed at a folder that does not exist, so nothing could be lost. Afterwards your test settings were put back: the environment's variables and blocked sites, the hooks, the Ask rule and the Auto mode setting.
+
+- **PowerShell's first real run on Coder's machine: passed.** A command that only reads (`Get-ChildItem -Name | Select-Object -First 5`) ran with no card in Accept edits.
+- **A delete hidden in quotes: passed.** `Write-Output "done $(Remove-Item …)"` stopped and asked first, with Claude Code's reason "Command contains subexpressions $()". Answered No.
+- **A search that finds nothing** (`rg`, exit code 1): **passed.** Not reported as an error.
+- **Auto mode, PowerShell deleting a top-level folder: passed.** Refused before anything ran, in Claude Code's words: "Remove-Item on system path '/coder-test-not-real' is blocked. This path is protected from removal."
+- **Auto mode, a risky `rm`: passed both ways.** Without an Ask rule, it is refused. With your Ask rule `Bash(rm *)`, it asks instead ("Dangerous rm operation on mounted drive path … cannot be auto-allowed by permission rules"), with only Yes and No. Answered No.
+- **Writing outside the project folder** (`CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES=1`): **passed.** Refused.
+- **A blocked site** (example.com on the environment's blocked sites): **passed.** Refused, and Coder was told it was "on the blocked sites list".
+- **A hook answering the question card: passed.** No card; the chat showed: A PreToolUse hook answered Coder's question for you: "Which color do you prefer?"="Red".
+- **Settings, Turn off Auto mode: passed.** The mode menu showed only Accept edits and Plan. Turned back on afterwards.
+- **Found by the test, fixed on the branch** (not merged or deployed yet, waiting for your word; all 441 tests pass):
+  - The "don't ask again" choice on a PowerShell card offered a rule for every command of that kind (for example `PowerShell(Write-Output *)`). Claude Code offers the exact command only, and none on some questions. Coder now does the same.
+  - After a blocked site, Coder was told to ask you to allow it, which can never work for a site on the blocked list. Now it is told only you can take it off the list.
+- **My mistakes, redone:** two steps were run again because my messages told Grok what to expect ("it should be refused"), so it answered without trying. My own test machine also restarted once in the middle of a run. Coder was not affected, and the settings were put back.
+
 ## 2026-11-11: The rest of the Bash docs, cloud only (your words: "Yea we need to build the rest of the batch tool, remember we are not doing local rn with only doing cloud")
 
-Not merged or deployed yet: on the branch with everything below, waiting for your word. All 440 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111), and tested live with Grok: see the entry above.
 
 - **A safety hole in last batch's PowerShell, closed.** Coder's PowerShell check read the command as text, so a delete hidden inside brackets or quotes (for example `Write-Output "$(Remove-Item notes.txt)"`) could run without asking, even in Plan mode. Now PowerShell itself reads each command on Coder's machine, the way Claude Code does it, and Claude Code's 24 safety checks run on that, in its own words. PowerShell is still off unless you turn it on.
 - **PowerShell delete protection.** Deleting the whole disk, a top-level folder, or your home folder is refused in every mode, and so is a delete with a wildcard like `*`. Deleting the project folder itself asks first.
@@ -26,7 +304,7 @@ Not merged or deployed yet: on the branch with everything below, waiting for you
 
 ## 2026-11-11: A hook can now answer Coder's question card (your words: "Want it added")
 
-Not merged or deployed yet: on the branch with the 11 items below, waiting for your word. All 432 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111), and tested live with Grok: see the entry at the top.
 
 - **What it does.** When Coder asks you questions on a card, a hook (one of your scripts in the hook settings) can now answer them for you, as in Claude Code. The hook says "allow" and gives the answers. The card is then not shown, and Coder gets the answers and keeps working in the same turn.
 - **What you see:** a line in the chat, for example: A PreToolUse hook answered Coder's question for you: "Which database?"="Postgres".
@@ -36,7 +314,7 @@ Not merged or deployed yet: on the branch with the 11 items below, waiting for y
 
 ## 2026-11-11: The last 11 differences from Claude Code's Bash docs (your words: "yea do all of them")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 431 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111). PowerShell, the blocked sites, the write block and Turn off Auto mode were tested live with Grok: see the entry at the top.
 
 - **A hole in Plan mode, closed.** In Plan mode, a hook that says "allow" no longer lets a command that changes things run. It still asks you, as Claude Code does. A hook can still approve the plan itself.
 - **Rules with wildcards.** A deny or ask rule can now name tools with `*`. For example, `*` in Ask means "ask before every tool". A tool you deny completely is now hidden from Coder, as in Claude Code.
@@ -52,7 +330,7 @@ Not merged or deployed yet: on the branch, waiting for your word. All 431 tests 
 
 ## 2026-11-10: All 11 of the last Bash-docs items (your words: "yea do all of them")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 419 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111).
 
 - **More kinds of hooks.** Besides a command, a hook can now be:
   - a web address Coder's machine sends the details to;
@@ -84,7 +362,7 @@ Not merged or deployed yet: on the branch, waiting for your word. All 419 tests 
 
 ## 2026-11-10: The last 4 from the Bash docs, and the 2 optional ones in Settings (your words: "yea do all 4, plus do the 2 u left out optional, the setting put it in setings")
 
-Not merged or deployed yet: on the branch, waiting for your word. All 405 tests pass.
+Merged and deployed on 2026-11-11 (deploy 111).
 
 - **Settings** (the gear's menu, new). Three choices for all your chats, each saved as soon as you change it:
   - **Longest a background command may run:** 2 hours (Claude Code's limit), or 4, 8, 12 or 24 hours. Coder's machine stays on that long.

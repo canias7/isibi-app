@@ -199,7 +199,7 @@ test("CD116 the machine's /busy is behind its control key like the rest of its p
 
 test("CD117 wiring: before the machine sleeps, Coder's container asks it (with its key, for 5 seconds at most) and stops it only when the decision says so", () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /import \{ runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS \} from "\.\/src\/coder-watch\.mjs";/);
+  assert.match(worker, /import \{ runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS, handleWake, WAKE_PATH \} from "\.\/src\/coder-watch\.mjs";/);
   // Every minute too: background commands that ended get Coder told, in a turn of its own (tool 4, part 2).
   assert.match(worker, /job\(runBackgroundJobs\(env, \{ coder \}\)\.catch\(/);
   assert.match(worker, /async onActivityExpired\(\) \{\n\s+if \(!this\.container\.running\) return;/);

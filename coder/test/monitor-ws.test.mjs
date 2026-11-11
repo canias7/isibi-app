@@ -126,7 +126,8 @@ test("CD385c a WebSocket watch in Coder's loop: asked about on a card (no \"don'
   assert.deepEqual([x.monitor, x.inBg, x.limitMs, x.desc], [true, true, 600000, "Deploy feed"]);
   const req = JSON.parse(Buffer.from(/coder-tools\.mjs (\S+)$/.exec(x.command)[1], "base64").toString("utf8"));
   assert.deepEqual(req, { tool: "ws_watch", args: { url: "wss://feed.example.com/deploys", protocols: ["v1"] } });
-  assert.match(t.told("m1"), /^Monitor started with ID: job3\. Each message the WebSocket at wss:\/\/feed\.example\.com\/deploys sends comes to you as an event while it runs/);
+  // (Claude Code 2.1.322's words for any monitor; Bash docs pass 9.)
+  assert.match(t.told("m1"), /^Monitor started \(task job3, expires in 10m unless the source ends first; you get one notice at expiry \u2014 re-arm if you still need the watch\)\. You will be notified on each event\. Keep working \u2014 do not poll or sleep\. Events may arrive while you are waiting for the owner \u2014 an event is not their reply\.$/);
   assert.ok(t.events.some((e) => e.type === "bash" && e.id === "m1" && e.command === "WebSocket wss://feed.example.com/deploys" && e.monitor === true && e.ws === true));
   // No: not opened.
   t = await job([say("", [wsCall()]), say("ok")], { answers: [{ choice: "no" }] });
@@ -187,7 +188,7 @@ test("CD385d the machine reads a WebSocket monitor's file: each JSON line a mess
   try {
     j.end = { code: 0, why: "exit", at: Date.now() };
     const news = S.monitorNews("wsm-1");
-    assert.deepEqual(news.map((n) => [n.lines, n.end]), [[["line one\nline two", "[binary frame, 9 bytes]"], { code: 0, why: "exit", ws: { close: 1001, reason: "going away" } }]]);
+    assert.deepEqual(news.map((n) => [n.lines, n.end]), [[["line one\nline two", "[binary frame, 9 bytes]"], { code: 0, why: "exit", ws: { close: 1001, reason: "going away" }, events: 2, ...(Number(j.deadline) > Number(j.at) ? { ms: j.deadline - j.at } : {}) }]]);
   } finally { S.JOBS.delete(j.pid); }
   assert.match(read("container/server.mjs"), /\.\.\.\(ws \? \{ ws: true \} : \{\}\) \} : \{\}\) \}\);/, "a monitor started with ws is marked");
 });
@@ -197,8 +198,11 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
   const R = await import("../container/coder-room.mjs");
   const SB = await import("../container/coder-sandbox.mjs");
   const has = (p) => p === "/usr/bin/zsh" || p === "/bin/zsh" || p === "/usr/bin/bash";
-  assert.deepEqual(["", "zsh", "/usr/bin/zsh", "/bin/zsh", "fish", "/home/dev/zsh", "/usr/bin/bash", "bash", "/opt/zsh"].map((v) => S.shellOf(v, { exists: has })), ["bash", "/usr/bin/zsh", "/usr/bin/zsh", "/bin/zsh", "bash", "bash", "/usr/bin/bash", "bash", "bash"]);
+  assert.deepEqual(["", "zsh", "/usr/bin/zsh", "/bin/zsh", "fish", "/home/dev/zsh", "/usr/bin/bash", "bash", "/opt/zsh"].map((v) => S.shellOf(v, { exists: has })), ["/usr/bin/zsh", "/usr/bin/zsh", "/usr/bin/zsh", "/bin/zsh", "bash", "bash", "/usr/bin/bash", "bash", "bash"]);
   assert.equal(S.shellOf("zsh", { exists: () => false }), "bash", "not on this machine: bash");
+  // (Unset: the machine's zsh, as Claude Code's cloud sessions run commands; without one, bash. Bash docs pass 9.)
+  assert.equal(S.shellOf("", { exists: () => false }), "bash");
+  assert.equal(S.shellOf(undefined, { exists: (p) => p === "/bin/zsh" }), "/bin/zsh");
   assert.ok(S.commandPrefix("/h", "", "/usr/bin/zsh").startsWith(S.SNAPSHOT_READ_ZSH + S.EXTGLOB_OFF_ZSH + "unalias pkill"));
   assert.ok(S.commandPrefix("/h").startsWith(S.SNAPSHOT_READ + S.EXTGLOB_OFF), "bash as before");
   assert.match(S.SNAPSHOT_TAKE_ZSH, /zsh -i -c '\n/);
@@ -208,7 +212,7 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
   assert.match(read("container/Dockerfile"), /rbenv git-lfs tmux vim nano file tree wget rsync sqlite3 sudo zsh \\/);
   const server = read("container/server.mjs");
   assert.match(server, /t\.shell = shellOf\(rawVars\.CODER_SHELL\);/);
-  assert.match(server, /shellPrefix: t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash" \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks");
+  assert.match(server, /shellPrefix: ps \|\| noPrefix \? "" : t\.shellPrefix \|\| "", shell: t\.shell \|\| "bash", merge: true \}\)/, "the AI's commands (and the owner's !), never Coder's tools or hooks, nor PowerShell's (pass 8, CD425)");
   if (!ZSH) return;
   // FOR REAL: in zsh, with the prelude, its folder followed.
   const dir = await mkdtemp(join(tmpdir(), "coder-zsh-"));

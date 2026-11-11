@@ -12,7 +12,7 @@ import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
 import { runMentionJobs, installationToken } from "./src/coder-mentions.mjs";
 import { runReviewJobs } from "./src/coder-review.mjs";
-import { runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS } from "./src/coder-watch.mjs";
+import { runWatchedJobs, runBackgroundJobs, holdDecision, BUSY_PROBE_MS, handleWake, WAKE_PATH } from "./src/coder-watch.mjs";
 import { controlKeySync } from "./src/coder-control.mjs";
 import { flyOn, flyBox, runFlyMachines, dropFlyMachine, snapshotChat, cacheUsable, copyState } from "./src/coder-fly.mjs";
 
@@ -98,6 +98,11 @@ export default {
     let res;
     if (url.pathname.startsWith("/api/auth/")) {
       res = await handleSignin(request, env);
+    } else if (url.pathname === WAKE_PATH && env.CODER_ON === "on") {
+      // A CHAT WOKEN AT ONCE (Bash docs pass 8): its machine says a background command ended or a monitor printed.
+      const m = machinesFor(env);
+      const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState });
+      res = await handleWake(request, env, { coder });
     } else if (url.pathname === EGRESS_PATH) {
       // KEYS ADDED HERE, never on the machine (2026-11-06, like Claude Code): a job's pass, not a user.
       res = await handleEgress(request, env);

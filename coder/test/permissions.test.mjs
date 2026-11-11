@@ -39,15 +39,19 @@ test("CD307 Accept edits: file edits and mkdir, touch, rm, rmdir, mv, cp, sed in
   const ask = (c) => decide("acceptEdits", c);
   assert.deepEqual(ask("npm test").suggest, ["Bash(npm test *)"]);
   assert.equal(ask("npm test").why, "This command requires approval");
-  assert.deepEqual(ask("npm run build").suggest, ["Bash(npm run build *)"]);
+  // (Pass 9: Claude Code's own rule shapes, its uPn: two words when the second looks like a subcommand, else the command.)
+  assert.deepEqual(ask("npm run build").suggest, ["Bash(npm run *)"]);
   assert.deepEqual(ask("git commit -m 'fix the cart'").suggest, ["Bash(git commit *)"]);
-  assert.deepEqual(ask("python3 test.py").suggest, ["Bash(python3 test.py *)"]);
-  assert.deepEqual(ask("timeout 60 npm test").suggest, ["Bash(npm test *)"]);
+  assert.deepEqual(ask("python3 test.py").suggest, ["Bash(python3 test.py)"]);
+  assert.deepEqual(ask("timeout 60 npm test").suggest, ["Bash(timeout 60 npm test)"]);
   assert.deepEqual(ask("NODE_ENV=test npm test").suggest, ["Bash(npm test *)"]);
   // A rule for each part that needs asking (Claude Code: "approving git status && npm test saves a rule for npm test").
-  assert.deepEqual(ask("git status && npm test && npm run lint").suggest, ["Bash(npm test *)", "Bash(npm run lint *)"]);
-  // Only a one-time Yes when no rule could cover it: code given inline, an unknown setting in front, a cd out, git after a cd.
-  for (const c of ["python3 -c 'print(1)'", "FOO=1 npm test", "cd src && git status", "echo hi > /tmp/notes.md", "cat < /etc/passwd"]) assert.equal(ask(c).suggest, null, c);
+  assert.deepEqual(ask("git status && npm test && npm run lint").suggest, ["Bash(npm test *)", "Bash(npm run *)"]);
+  // Only a one-time Yes when no rule could cover it: git after a cd, a write or read outside the project.
+  for (const c of ["cd src && git status", "echo hi > /tmp/notes.md", "cat < /etc/passwd"]) assert.equal(ask(c).suggest, null, c);
+  // (Pass 9: code given inline and an unknown setting in front get the command itself, as Claude Code's uPn gives them.)
+  assert.deepEqual(ask("python3 -c 'print(1)'").suggest, ["Bash(python3 -c 'print(1)')"]);
+  assert.deepEqual(ask("FOO=1 npm test").suggest, ["Bash(FOO=1 npm test)"]);
   // A cd out of the project gets its own Read rule for that folder (Claude Code: "Subcommands like cd into a directory outside
   // your working directories generate their own Read rule for that path").
   assert.deepEqual(ask("cd /tmp && ls").suggest, ["Read(//tmp/**)"]);
@@ -112,22 +116,18 @@ test("CD309 rules: deny, then ask, then allow; * is any text, a trailing ' *' al
   assert.equal(decide("auto", "FOO=1 rm -rf x", rules).verdict, "deny"); // (deny matches past any setting)
 });
 
-test("CD310 'don't ask again' suggestions: a prefix rule for the command, the exact command for broad ones, none for code given inline or exec wrappers", () => {
+test("CD310 'don't ask again' suggestions: Claude Code's own (Bash docs pass 9, its uPn): the first two words and * when the second looks like a subcommand, else the command itself; none for a command whose program is worked out when it runs", () => {
   const s = (c) => suggestFor(parseShell(c).commands[0]);
   assert.equal(s("npm test"), "npm test *");
-  assert.equal(s("npm run build -- --watch"), "npm run build *");
+  assert.equal(s("npm run build -- --watch"), "npm run *");
   assert.equal(s("yarn build"), "yarn build *");
   assert.equal(s("git push origin main"), "git push *");
   assert.equal(s("npx prettier --write ."), "npx prettier *");
-  assert.equal(s("python3 -m pytest -q"), "python3 -m pytest *");
-  assert.equal(s("node scripts/build.js"), "node scripts/build.js *");
-  assert.equal(s("pytest tests/"), "pytest *");
-  assert.equal(s("node --test"), "node --test *");
   assert.equal(s("make build"), "make build *");
   assert.equal(s("./gradlew test"), "./gradlew test *");
-  assert.equal(s("curl https://example.com"), "curl https://example.com");
-  assert.equal(s("rm /tmp/x"), "rm /tmp/x");
-  for (const c of ["python3 -c 'print(1)'", "node -e 'x'", "bash -c 'ls'", "watch ls", "sudo apt-get update", "env A=1 npm test", "find . -delete", "$CMD x", "git -C x status", "node"]) assert.equal(s(c), null, c);
+  // The command itself: a second word that is no subcommand, a wrapper or shell first, a single word.
+  for (const c of ["python3 -m pytest -q", "node scripts/build.js", "pytest tests/", "node --test", "curl https://example.com", "rm /tmp/x", "python3 -c 'print(1)'", "node -e 'x'", "bash -c 'ls'", "watch ls", "sudo apt-get update", "env A=1 npm test", "find . -delete", "git -C x status", "node"]) assert.equal(s(c), c, c);
+  for (const c of ["$CMD x", "$HOME/bin/tool x", "rm *.log"]) assert.equal(s(c), null, c);
 });
 
 test("CD311 WebFetch: Claude Code's pre-approved documentation sites and rules; Accept edits and Plan ask for any other site, Auto doesn't", () => {
@@ -167,8 +167,11 @@ test("CD313 the files a command writes and Accept edits' file commands, read lik
   assert.equal(r.cdAway, true);
   const t = (c) => fileCommandTargets(parseShell(c).commands[0], ROOT);
   assert.deepEqual(t("mkdir -p a/b"), { paths: [ROOT + "/a/b"], sure: true });
-  assert.deepEqual(t("cp -r src dist"), { paths: [ROOT + "/src", ROOT + "/dist"], sure: true });
-  assert.deepEqual(t("mv -t out a b"), { paths: [ROOT + "/out", ROOT + "/a", ROOT + "/b"], sure: true });
+  // (dist may be a folder: what cp would write there counts for the owner's rules, Bash docs pass 8, CD409.)
+  assert.deepEqual(t("cp -r src dist"), { paths: [ROOT + "/src", ROOT + "/dist"], sure: true, maybe: [ROOT + "/dist/src"] });
+  assert.deepEqual(t("cp -r src dist/"), { paths: [ROOT + "/src", ROOT + "/dist/src"], sure: true });
+  // (-t names the folder; the files it writes there stand for it: Bash docs pass 8, CD409.)
+  assert.deepEqual(t("mv -t out a b"), { paths: [ROOT + "/a", ROOT + "/b", ROOT + "/out/a", ROOT + "/out/b"], sure: true });
   assert.deepEqual(t("rm src/*.log"), { paths: [ROOT + "/src/*"], sure: true });
   assert.equal(t("rm $X").sure, false);
   assert.equal(t("cp --backup a b").sure, false);

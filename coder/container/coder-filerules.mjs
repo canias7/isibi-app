@@ -126,9 +126,19 @@ function groupCovers(rules, rel, isDir) {
  * the one it leads to matches; an allow rule only when both do.
  */
 export function fileRuleHit(list, tool, path, kind, ctx = {}) {
+  // WHICH SETTINGS EACH RULE CAME FROM (Claude Code: "The carve-out reaches only rules from the same source"; Bash docs pass
+  // 9, a repository's `!` rule had cancelled the owner's own deny rule): `ctx.sources`, the owner's and the repository's
+  // texts per list; a rule in neither (a "don't ask again" one, a hook's) is the chat's own.
+  const S = ctx.sources && typeof ctx.sources === "object" ? ctx.sources : null;
+  const srcsOf = (t) => {
+    if (!S || kind === "allow") return ["own"];
+    const has = (x) => Array.isArray(x && x[kind]) && x[kind].some((y) => String(y || "").trim() === t);
+    const out = [...(has(S.own) ? ["own"] : []), ...(has(S.repo) ? ["repo"] : [])];
+    return out.length ? out : ["session"];
+  };
   const rules = (Array.isArray(list) ? list : []).map((t) => String(t || "").trim()).map((t) => {
     const m = /^([A-Za-z]+)(?:\(([\s\S]*)\))?$/.exec(t);
-    return m && m[1] === tool ? { text: t, spec: m[2] === undefined ? null : m[2].trim() } : null;
+    return m && m[1] === tool ? { text: t, spec: m[2] === undefined ? null : m[2].trim(), srcs: srcsOf(t) } : null;
   }).filter(Boolean);
   if (!rules.length) return "";
   const whole = rules.find((r) => r.spec === null || r.spec === "*" || r.spec === "**");
@@ -151,23 +161,30 @@ function hitOne(rules, p, kind, ctx) {
     // A `!` rule (deny and ask lists only): read from the project's folder whatever follows it (Claude Code: "reads a ! pattern
     // relative to the current directory even when /, ~/, or // follows the !, so the pattern can't reach a rule anchored with
     // one of those prefixes"); it carves out of the plain relative rules before it ("A ! rule listed first carves nothing out").
+    // (Only the rules from its own settings: each source's relative rules are a group of their own. A bare `!` does
+    // nothing: Claude Code 2.1.269, "a bare ! negation is ignored".)
     if (r.spec.startsWith("!")) {
       if (kind === "allow") continue;
-      const g = groups.get("rel");
-      if (!g || !g.list.length) continue;
-      const gp = gitPattern(r.spec.slice(1).replace(/^\.\//, ""));
-      if (gp) add("rel", root, { ...gp, neg: true, text: r.text });
+      const gp = r.spec.slice(1).trim() ? gitPattern(r.spec.slice(1).replace(/^\.\//, "")) : null;
+      for (const src of r.srcs || ["own"]) {
+        const g = groups.get("rel|" + src);
+        if (!g || !g.list.length) continue;
+        if (gp) add("rel|" + src, root, { ...gp, neg: true, text: r.text });
+      }
       continue;
     }
     const a = anchorOf(r.spec, kind, { root, home });
     if (!a) continue;
     const base = plainPath(a.root);
-    const key = a.pattern.startsWith("/") ? "at:" + base : "rel";
     const gp = gitPattern(a.pattern);
-    // ("A deny or ask rule whose path isn't usable as a gitignore pattern still guards that exact path. An allow rule with an
-    // unusable pattern doesn't approve anything.")
-    if (!gp) { if (kind !== "allow") add(key, base, { exact: a.pattern.replace(/^\/+/, ""), neg: false, text: r.text }); continue; }
-    add(key, base, { ...gp, neg: false, text: r.text });
+    for (const src of r.srcs || ["own"]) {
+      const key = (a.pattern.startsWith("/") ? "at:" + base : "rel") + "|" + src;
+      // ("A deny or ask rule whose path isn't usable as a gitignore pattern still guards that exact path. An allow rule with
+      // an unusable pattern doesn't approve anything.")
+      if (!gp) { if (kind !== "allow") add(key, base, { exact: a.pattern.replace(/^\/+/, ""), neg: false, text: r.text }); continue; }
+      add(key, base, { ...gp, neg: false, text: r.text });
+    }
+    if (!gp) continue;
     // A DENY OR ASK RULE WRITTEN THROUGH A LINKED FOLDER (Claude Code: "a deny or ask rule written through a symlinked
     // directory with a //, ~/, or / pattern also applies at the directory's real location"): its fixed start, followed.
     if (kind !== "allow" && typeof ctx.real === "function" && a.pattern.startsWith("/")) {
@@ -180,7 +197,7 @@ function hitOne(rules, p, kind, ctx) {
         const realBase = real ? plainPath(real) : "";
         if (realBase && realBase !== plainPath(join(base, ...fixed))) {
           const gp2 = gitPattern("/" + segs.slice(fixed.length).join("/"));
-          if (gp2) add("at:" + realBase, realBase, { ...gp2, neg: false, text: r.text });
+          if (gp2) add("at:" + realBase + "|" + (r.srcs || ["own"])[0], realBase, { ...gp2, neg: false, text: r.text });
         }
       }
     }

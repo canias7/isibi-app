@@ -20,20 +20,42 @@ import net from "node:net";
 import tls from "node:tls";
 import { spawnSync } from "node:child_process";
 import { createHash, generateKeyPairSync } from "node:crypto";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync, unlinkSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, chmodSync, rmSync, unlinkSync, copyFileSync, renameSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 import { okHost, okPattern, HEADER_RE, HOST_RE, hostAllowed, hostDenied, hostMatches, normNetwork, PATH_RE, keyAllowed, normConfig, SECRET_KINDS, listCovers } from "./coder-secrets.mjs";
 import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
+import { isIP } from "node:net";
 import { privateAddress } from "./coder-tools.mjs";
+/** decodeURIComponent that gives the text back as it is when it isn't valid. */
+function decodeURIComponentSafe(x) { try { return decodeURIComponent(x); } catch { return String(x); } }
 export { okHost, HEADER_RE, PREFIXES, headerValue } from "./coder-secrets.mjs";
 
-/** In limited mode, a lookup that refuses private addresses (the firewall leaves the proxy as the only way out). */
+/**
+ * WHAT KIND OF LOCAL ADDRESS (Claude Code's words: "loopback addresses such as 127.0.0.1, link-local addresses such as the
+ * 169.254.169.254 cloud metadata endpoint, and addresses assigned to your own machine"; Coder's machine also has a
+ * private network, Fly.io's): "" for a public one.
+ */
+export function localKind(address) {
+  const a = String(address || "").toLowerCase().replace(/^\[|\]$/g, "");
+  const v4 = /^::ffff:(\d+\.\d+\.\d+\.\d+)$/.exec(a);
+  const x = v4 ? v4[1] : a;
+  if (/^127\./.test(x) || x === "::1" || x === "0.0.0.0" || x === "::") return "loopback";
+  if (/^169\.254\./.test(x) || /^fe[89ab][0-9a-f]:/.test(x)) return "link-local";
+  return privateAddress(x) ? "private" : "";
+}
+/** Claude Code's words for it (the body of the gate's 403). */
+export const LOCAL_REFUSED = (host, kind) => "Connection to " + host + " blocked: resolved to a " + kind + " address";
+/**
+ * A lookup that refuses local and private addresses, IN EVERY NETWORK SETTING (pass 8: with Full, a command could reach
+ * the machine's own services through the gate; a command still reaches its own localhost directly, NO_PROXY).
+ */
 function publicLookup(hostname, opts, cb) {
   dnsLookup(hostname, { ...(typeof opts === "object" ? opts : {}), all: true }, (err, list) => {
     if (err) return cb(err);
-    if (!list.length || list.some((x) => privateAddress(x.address))) return cb(Object.assign(new Error("a private address"), { code: "EPRIVATE" }));
+    const bad = (list || []).find((x) => privateAddress(x.address));
+    if (!list.length || bad) return cb(Object.assign(new Error("a private address"), { code: "EPRIVATE", kind: bad ? localKind(bad.address) || "private" : "private" }));
     if (opts && opts.all) return cb(null, list);
     cb(null, list[0].address, list[0].family);
   });
@@ -50,7 +72,53 @@ export function passOf(headers) {
   return /^cmd:[0-9a-f]{32}$/.test(t) ? t.slice(4) : "";
 }
 /** A site on the environment's blocked list (Claude Code's words: "<host> is in sandbox.network.deniedDomains"), in Coder's. */
+/**
+ * WHAT A COMMAND IS TOLD AFTER THE GATE REFUSED SITES WHILE IT RAN: each site with its reason, then what can be done
+ * about it (live test 32, 2026-11-11: a site on the blocked sites list was followed by "ask the owner to allow it with
+ * propose_env (allow_host)", which can never work, since that list wins over anything allowed). `list`: blockedSince's.
+ */
+export function blockedNote(list) {
+  const b = (Array.isArray(list) ? list : []).slice(0, 10);
+  if (!b.length) return "";
+  const listed = b.filter((x) => x.why === "on the blocked sites list").length;
+  return "Blocked by this chat's network list while this command ran: " + b.map((x) => x.host + " (" + x.why + ")").join(", ") + ". " +
+    (listed === b.length
+      ? "A site on the blocked sites list is refused whatever the network setting allows: don't retry it or propose allowing it; only the owner can take it off that list."
+      : "If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None" + (listed ? "; one on the blocked sites list stays refused whatever is allowed, and only the owner can take it off that list." : "."));
+}
 export const DENIED = (host) => "Blocked: " + host + " is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.";
+
+/**
+ * A FAILED COMMAND IS TOLD WHICH CONNECTIONS FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude
+ * Code 2.1.322's agent proxy keeps its last 20 failures, and a command that fails gets, after a blank line, its words, seen
+ * in a cloud session on 2026-11-11: "[agent-proxy] While this command ran, 1 connection through the agent proxy failed:" /
+ * "- no-such-host-q8z1.npmjs.org:443 — connect_unreachable (the host is allowed for this session, but …)" / "For details:
+ * curl -sS http://127.0.0.1:38865/__agentproxy/status"). Blocked sites have Coder's own note (blockedNote), as before.
+ * `recent`: the gate's kept failures, oldest first; `count`: how many happened since the command started; `statusUrl`: the
+ * gate's status page. Up to 3 lines, the newest first, one per host and kind ("×N" when repeated), the host cut at 80.
+ */
+export const FAIL_KINDS = {
+  connect_unreachable: "the host is allowed for this session, but the egress proxy could not connect to it, for example because the name has no public DNS record or the host is down or on a private network; changing the allowed domains does not help",
+};
+export function failedNote(recent, count, statusUrl) {
+  const n = Math.floor(Number(count)) || 0;
+  if (!statusUrl || n <= 0) return "";
+  const kept = Array.isArray(recent) ? recent : [];
+  const s = kept.slice(Math.max(0, kept.length - n));
+  const by = new Map();
+  for (let i = s.length - 1; i >= 0; i--) {
+    const { kind, host } = s[i] || {};
+    const k = host + "\u0000" + kind, had = by.get(k);
+    if (had) had.count++; else by.set(k, { host: host || "unknown host", kind, count: 1 });
+  }
+  const cut = (x) => (x.length <= 80 ? x : x.slice(0, 80) + "\u2026 [+" + (x.length - 80) + " chars]");
+  const lines = ["[agent-proxy] While this command ran, " + n + " " + (n === 1 ? "connection" : "connections") + " through the agent proxy failed:",
+    ...[...by.values()].slice(0, 3).map((x) => "- " + cut(String(x.host)) + " \u2014 " + x.kind + " (" + (FAIL_KINDS[x.kind] || x.kind) + ")" + (x.count > 1 ? " \u00d7" + x.count : ""))];
+  if (by.size > 3) lines.push("- and " + (by.size - 3) + " more");
+  if (n > s.length) lines.push("(oldest " + (n - s.length) + " not shown)");
+  lines.push("For details: curl -sS " + statusUrl);
+  return lines.join("\n");
+}
 
 // THE HOST A COMMAND ASKS FOR, checked before the network list, the secrets or
 // any file (the audit, 2026-11-06): "../../x.example.com" passed as a subdomain
@@ -117,11 +185,50 @@ const openssl = (args, input) => {
 };
 
 /**
+ * THE PROXY AND CERTIFICATE SETTINGS OF EACH TOOL THAT READS ITS OWN (Claude Code's cloud machine's, seen 2026-11-11; its
+ * list in 2.1.322): Yarn, npm, global-agent, Electron, Docker, gcloud, fsspec and Java; then the certificate files Python's
+ * requests and httplib2, AWS, Deno, cargo, pip, gRPC, Nix, Hex and uv read. `p` the gate's address (with a command's own
+ * pass in it), `none` the hosts that skip it, `javaStore` the Java trust store ("" for none).
+ */
+export function toolProxyEnv(p, port, none, pass, bundle, javaStore) {
+  const javaOpts = [...(javaStore ? ["-Djavax.net.ssl.trustStore=" + javaStore, "-Djavax.net.ssl.trustStoreType=JKS"] : []), "-Dhttps.proxyHost=127.0.0.1", "-Dhttps.proxyPort=" + port, "-Dhttp.proxyHost=127.0.0.1", "-Dhttp.proxyPort=" + port, "-Dhttp.nonProxyHosts=" + none.split(",").join("|")];
+  return {
+    YARN_HTTPS_PROXY: p, YARN_HTTP_PROXY: p,
+    npm_config_https_proxy: p, npm_config_proxy: p, npm_config_noproxy: none,
+    GLOBAL_AGENT_HTTPS_PROXY: p, GLOBAL_AGENT_HTTP_PROXY: p, GLOBAL_AGENT_NO_PROXY: none,
+    ELECTRON_GET_USE_PROXY: "1",
+    DOCKER_HTTPS_PROXY: p, DOCKER_HTTP_PROXY: p,
+    CLOUDSDK_PROXY_TYPE: "http", CLOUDSDK_PROXY_ADDRESS: "127.0.0.1", CLOUDSDK_PROXY_PORT: String(port),
+    ...(pass ? { CLOUDSDK_PROXY_USERNAME: "cmd", CLOUDSDK_PROXY_PASSWORD: pass } : {}),
+    FSSPEC_GCS: '{"session_kwargs": {"trust_env": true}}',
+    JAVA_TOOL_OPTIONS: javaOpts.join(" "),
+    CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE: bundle, HTTPLIB2_CA_CERTS: bundle, AWS_CA_BUNDLE: bundle, DENO_CERT: bundle, DENO_TLS_CA_STORE: "system,mozilla",
+    CARGO_HTTP_CAINFO: bundle, PIP_CERT: bundle, GRPC_DEFAULT_SSL_ROOTS_FILE_PATH: bundle, NIX_SSL_CERT_FILE: bundle, HEX_CACERTS_PATH: bundle, UV_NATIVE_TLS: "true",
+  };
+}
+/** The gate's Java trust store (see startProxy): its path, or "" when there's no Java store or keytool on this machine. */
+export function javaTrustStore(dir, caFile, javaCa = [], keytool = []) {
+  const store = join(dir, "java-cacerts");
+  try { if (existsSync(store) && statSync(store).mtimeMs >= statSync(caFile).mtimeMs) return store; } catch { /* made again */ }
+  const from = (Array.isArray(javaCa) ? javaCa : []).find((f) => existsSync(f));
+  const kt = (Array.isArray(keytool) ? keytool : []).find((f) => existsSync(f));
+  if (!from || !kt) return "";
+  const tmp = store + ".new";
+  try {
+    copyFileSync(from, tmp);
+    chmodSync(tmp, 0o644);
+    const r = spawnSync(kt, ["-importcert", "-noprompt", "-alias", "coder-gate", "-file", caFile, "-keystore", tmp, "-storepass", "changeit"], { stdio: "ignore", timeout: 30_000 });
+    if (r.status !== 0) { rmSync(tmp, { force: true }); return ""; }
+    renameSync(tmp, store);
+    return store;
+  } catch { try { rmSync(tmp, { force: true }); } catch { /* gone */ } return ""; }
+}
+/**
  * Starts the proxy. `dir` holds the authority (made once). `maxSites`: how many
  * sites' certificates are kept (the most recent). Returns
  * { port, caFile, bundleFile, siteDir, setSecrets(list), env(), close() }.
  */
-export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ssl/certs/ca-certificates.crt", upstream = {}, maxSites = 200 } = {}) {
+export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ssl/certs/ca-certificates.crt", upstream = {}, maxSites = 200, javaCa = ["/etc/ssl/certs/java/cacerts", "/usr/lib/jvm/java-21-openjdk-amd64/lib/security/cacerts"], keytool = ["/usr/bin/keytool", "/usr/lib/jvm/java-21-openjdk-amd64/bin/keytool"] } = {}) {
   mkdirSync(dir, { recursive: true, mode: 0o755 });
   const caKey = join(dir, "ca.key"), caFile = join(dir, "ca.pem"), bundleFile = join(dir, "bundle.pem");
   if (!existsSync(caKey) || !existsSync(caFile)) {
@@ -131,6 +238,10 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   chmodSync(caKey, 0o600); chmodSync(caFile, 0o644);
   let sys = ""; try { sys = readFileSync(systemCa, "utf8"); } catch { /* tests */ }
   writeFileSync(bundleFile, sys + (sys.endsWith("\n") || !sys ? "" : "\n") + readFileSync(caFile, "utf8")); chmodSync(bundleFile, 0o644);
+  // A JAVA TRUST STORE WITH THE GATE'S CERTIFICATE IN IT (Bash docs pass 9; Claude Code's machine points JAVA_TOOL_OPTIONS
+  // at its own, "-Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts", which holds its proxy's): the machine's Java
+  // store copied, with the gate's added, made again when the gate's certificate is newer. "" when there's no Java here.
+  const javaStore = javaTrustStore(dir, caFile, javaCa, keytool);
 
   // EACH SITE'S CERTIFICATE (the audit, 2026-11-06). The file names used to be
   // the site's name, so a name like "../../x.example.com" made root write (and
@@ -202,6 +313,19 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // owner's GitHub login for the chat's own repositories only. Never a saved key's rule.
   let github = false;
   const githubHere = (h) => github && h === "api.github.com";
+  // SOURCE ARCHIVES ONLY OF THE CHAT'S OWN REPOSITORIES (Bash docs pass 9; Claude Code's cloud docs: "A source archive you
+  // fetch over a github.com/{owner}/{repo}/archive/ or codeload.github.com URL gets that same 403 when the repository isn't
+  // attached, even a public one", the message starting "GitHub access to" and containing "is not enabled for this
+  // session"). Every archive github.com gives is a redirect to codeload.github.com, which serves nothing else: that host is
+  // opened here and checked; github.com itself stays a plain tunnel.
+  let repos = [];
+  const archiveHost = (h) => h === "codeload.github.com";
+  const archiveRefused = (target) => {
+    const m = /^\/([^/?#]+)\/([^/?#]+)/.exec(String(target || ""));
+    if (!m) return "";
+    const name = (decodeURIComponentSafe(m[1]) + "/" + decodeURIComponentSafe(m[2]).replace(/\.git$/i, "")).toLowerCase();
+    return repos.includes(name) ? "" : "GitHub access to " + name.replace(/[^a-z0-9._/-]/g, "") + " is not enabled for this session";
+  };
   // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
   const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
   const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts).filter(keyAllowed));
@@ -214,6 +338,16 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   /** What a request's command may also reach: its list, or null. */
   const listOf = (headers) => { const p = passOf(headers); return p && lists.has(p) ? lists.get(p) : null; };
   const blocked = (host, why) => { blocks.push({ host: String(host).replace(/[^a-z0-9.:-]/gi, "").slice(0, 253), why, at: Date.now() }); if (blocks.length > 50) blocks.shift(); };
+  // CONNECTIONS TO ALLOWED SITES THAT FAILED (Bash docs pass 9; Claude Code's agent proxy: its last 20, each with when, the
+  // kind, what happened and "host:port"; failedNote). `failCount` counts them all, so a command knows how many were its own.
+  const fails = [];
+  let failCount = 0;
+  const failed = (host, port, detail) => {
+    failCount++;
+    fails.push({ ts: new Date().toISOString(), kind: "connect_unreachable", detail: String(detail).slice(0, 200), host: String(host).replace(/[^a-z0-9.:\[\]-]/gi, "").slice(0, 253) + ":" + port });
+    if (fails.length > 20) fails.shift();
+  };
+  const cantReach = (e) => "the gate could not connect to it (" + String((e && (e.code || e.message)) || "error").replace(/[^\w .:-]/g, "").slice(0, 60) + ")";
   // THE TLS SIDE: requests for a secret's site, with its key added the way its type says.
   const inner = http.createServer(async (req, res) => {
     const host = req.socket.coderHost;
@@ -224,6 +358,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const target = String(req.url || "");
     if (!target.startsWith("/")) { res.writeHead(400, { "content-type": "text/plain" }); return res.end("Coder's proxy: only a path (starting with /) may be sent to " + host + ", not a full address"); }
     if (githubHere(host)) return toEgress(req, res, host, target);
+    if (archiveHost(host)) { const why = archiveRefused(target); if (why) { blocked(host, "a source archive of a repository this chat doesn't have"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(why); } }
     const rule = ruleFor(host);
     const pathOk = rule && (!rule.paths.length || (plainPath(target) && rule.paths.some((p) => target.startsWith(p))));
     // A path outside the secret's prefixes, or one with a "." or ".." part
@@ -252,7 +387,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     let up;
     try {
-    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: target, headers, ...(network.mode !== "full" && !upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
+    up = (upstream.request || https.request)({ host: upstream.host || host, port: upstream.port || 443, servername: host, method: req.method, path: target, headers, ...(!upstream.host ? { lookup: publicLookup } : {}), ...(upstream.ca ? { ca: upstream.ca } : {}) }, (r) => {
       // A website that copies the key into its answer's headers does not hand it back (the audit, 2026-11-06).
       const back = { ...r.headers };
       if (s) { const keys = [...s.headers.map((h) => h.value), ...s.raws, s.live].filter((x) => x && x.length >= 8); for (const [k, v] of Object.entries(back)) { const one = Array.isArray(v) ? v.join(", ") : String(v); if (keys.some((x) => one.includes(x))) delete back[k]; } }
@@ -261,11 +396,19 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
       r.pipe(res);
     });
     } catch (e) { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); return res.end("Coder's proxy could not send that request (" + String(e.code || "bad request") + ")"); }
-    up.on("error", (e) => { if (!res.headersSent) res.writeHead(502, { "content-type": "text/plain" }); res.end("Coder's proxy could not reach " + host + ": " + String(e.code || e.message)); });
+    up.on("error", (e) => { if (!res.headersSent) { failed(host, 443, cantReach(e)); res.writeHead(502, { "content-type": "text/plain" }); } res.end("Coder's proxy could not reach " + host + ": " + String(e.code || e.message)); });
     if (body) up.end(body); else req.pipe(up);
   });
 
   const server = http.createServer((req, res) => {
+    // THE GATE'S STATUS PAGE (Bash docs pass 9; Claude Code's "$HTTPS_PROXY/__agentproxy/status", named in its note): what the
+    // gate is, its certificates and its recent failures and blocks. No secret, rule or list is on it.
+    if (req.method === "GET" && /^\/__agentproxy\/status\/?(?:\?.*)?$/.test(String(req.url || ""))) {
+      const page = JSON.stringify({ enabled: true, port: server.address().port, caBundlePath: bundleFile, noProxy: "localhost,127.0.0.1,::1", javaTrustStorePath: javaStore || null, javaTrustStoreType: javaStore ? "JKS" : null,
+        recentRelayFailures: fails.map(({ ts, kind, detail, host }) => ({ ts, kind, detail, host })), recentBlocks: blocks.map((b) => ({ ts: new Date(b.at).toISOString(), host: b.host, why: b.why })) }, null, 2) + "\n";
+      res.writeHead(200, { "content-type": "application/json", "content-length": Buffer.byteLength(page) });
+      return res.end(page);
+    }
     // PLAIN http:// THROUGH THE PROXY: passed on as it is, never with a secret.
     let u; try { u = new URL(req.url); } catch { res.writeHead(400); return res.end("bad request"); }
     if (u.protocol !== "http:") { res.writeHead(400); return res.end("bad request"); }
@@ -273,14 +416,15 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     // URL reader lets "a_b.example.com", "x..example.com" and port 0 through.
     const host = proxyHost(u.hostname), port = u.port ? Number(u.port) : 80;
     if (!host || !(port >= 1 && port <= 65535)) { res.writeHead(400); return res.end("bad request"); }
-    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(DENIED(host)); }
+    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "x-deny-reason": "host_not_allowed" }); return res.end(DENIED(host)); }
     const own = listOf(req.headers);
-    if (!allowed(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(own ? UNLISTED(host) : BLOCKED(host)); }
+    if (!allowed(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "x-deny-reason": "host_not_allowed" }); return res.end(own ? UNLISTED(host) : BLOCKED(host)); }
     const headers = { ...req.headers }; for (const k of Object.keys(headers)) if (/^proxy-/i.test(k)) delete headers[k];
     let up;
-    try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
+    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) { const kind = localKind(host) || "private", b = LOCAL_REFUSED(host, kind); blocked(host, "resolved to a " + kind + " address"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); }
+    try { up = http.request({ host, port, method: req.method, path: u.pathname + u.search, headers, lookup: publicLookup }, (r) => { res.writeHead(r.statusCode || 502, r.headers); r.pipe(res); }); }
     catch { res.writeHead(400); return res.end("bad request"); }
-    up.on("error", () => { if (!res.headersSent) res.writeHead(502); res.end(); });
+    up.on("error", (e) => { if (e && e.code === "EPRIVATE") { const b = LOCAL_REFUSED(host, e.kind); blocked(host, "resolved to a " + e.kind + " address"); if (!res.headersSent) res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host, "content-length": Buffer.byteLength(b) }); return res.end(b); } if (!res.headersSent) { failed(host, port, cantReach(e)); res.writeHead(502); } res.end(); });
     req.pipe(up);
   });
   server.on("connect", (req, sock, head) => {
@@ -294,11 +438,11 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const t = connectTarget(req.url);
     if (!t) { sock.end("HTTP/1.1 400 Bad Request\r\n\r\n"); return; }
     const { host, port } = t;
-    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); const b = DENIED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
+    if (hostDenied(host, network)) { blocked(host, "on the blocked sites list"); const b = DENIED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nX-Deny-Reason: host_not_allowed\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     const own = listOf(req.headers);
-    if (!allowed(host) && !githubHere(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); const b = own ? UNLISTED(host) : BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
+    if (!allowed(host) && !githubHere(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); const b = own ? UNLISTED(host) : BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nX-Deny-Reason: host_not_allowed\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
-    if (port === 443 && (ruleFor(host) || githubHere(host))) {
+    if (port === 443 && (ruleFor(host) || githubHere(host) || archiveHost(host))) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
       sock.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head && head.length) sock.unshift(head);
@@ -310,9 +454,17 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     }
     // ANY OTHER HOST: a plain tunnel; nothing is read or added.
     let out;
-    try { out = net.connect({ port, host, ...(network.mode !== "full" ? { lookup: publicLookup } : {}) }, () => { sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
+    const refuse = (kind) => { blocked(host, "resolved to a " + kind + " address"); const b = LOCAL_REFUSED(host, kind); try { sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); } catch { /* gone */ } };
+    if (isIP(host.replace(/^\[|\]$/g, "")) && privateAddress(host)) return refuse(localKind(host) || "private");
+    let open = false;
+    try { out = net.connect({ port, host, lookup: publicLookup }, () => { open = true; sock.write("HTTP/1.1 200 Connection Established\r\n\r\n"); if (head && head.length) out.write(head); out.pipe(sock); sock.pipe(out); });
     } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
-    out.on("error", () => { try { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); } catch { /* gone */ } });
+    out.on("error", (e) => {
+      if (e && e.code === "EPRIVATE") return refuse(e.kind);
+      // (Before the tunnel opened: the site could not be reached. A tunnel that breaks later just closes.)
+      if (!open) failed(host, port, cantReach(e));
+      try { if (!open) sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); else sock.destroy(); } catch { /* gone */ }
+    });
   });
   // Nothing a command sends may crash the service (the audit, 2026-11-06).
   for (const s of [server, inner]) { s.on("clientError", (_e, so) => { try { so.destroy(); } catch { /* gone */ } }); s.on("error", () => {}); }
@@ -323,6 +475,10 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     port, caFile, bundleFile, siteDir,
     /** The hosts the list blocked since `at` (ms), each once, with why. */
     blockedSince: (at) => { const seen = new Map(); for (const b of blocks) if (b.at >= at && !seen.has(b.host)) seen.set(b.host, b.why); return [...seen].map(([host, why]) => ({ host, why })); },
+    /** How many connections to allowed sites have failed so far (a command takes it when it starts). */
+    failCount: () => failCount,
+    /** Claude Code's note on the connections that failed since `count0` (failedNote), or "". */
+    failedSince: (count0) => failedNote(fails, failCount - (Math.floor(Number(count0)) || 0), "http://127.0.0.1:" + port + "/__agentproxy/status"),
     /**
      * The owner's secrets for this job: [{ hosts, paths, headers: [{ name, value }], raws }]
      * (header values already have their prefix), or the older [{ host, header, value, raw }].
@@ -350,6 +506,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     setEgress(e) { egress = e && typeof e.url === "string" && /^https?:\/\//.test(e.url) && typeof e.pass === "string" && e.pass ? { url: e.url, chat: String(e.chat || ""), turn: String(e.turn ?? ""), pass: e.pass } : null; },
     /** `gh` for this job's chat (its own repositories), through Coder's server: on or off. */
     setGithub(on) { github = on === true; },
+    /** The chat's own repositories ("owner/name"), whose source archives may be fetched. */
+    setRepos(list) { repos = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && /^[^/\s]+\/[^/\s]+$/.test(x)).map((x) => x.toLowerCase().replace(/\.git$/, "")).slice(0, 50); },
     /** The repo's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
     /** A command's own hosts, for as long as it runs (its pass: 32 hex characters). */
@@ -359,9 +517,15 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     openLists: () => lists.size,
     /** What the AI's commands get, so their HTTPS goes through here and trusts it (`pass`: a command's own, in its proxy address). */
     env(pass = "") {
-      const p = "http://" + (/^[0-9a-f]{32}$/.test(String(pass)) ? "cmd:" + pass + "@" : "") + "127.0.0.1:" + port;
-      return { HTTPS_PROXY: p, https_proxy: p, HTTP_PROXY: p, http_proxy: p, NO_PROXY: "localhost,127.0.0.1,::1", no_proxy: "localhost,127.0.0.1,::1", NODE_USE_ENV_PROXY: "1",
-        NODE_EXTRA_CA_CERTS: caFile, SSL_CERT_FILE: bundleFile, CURL_CA_BUNDLE: bundleFile, REQUESTS_CA_BUNDLE: bundleFile, GIT_SSL_CAINFO: bundleFile };
+      const own = /^[0-9a-f]{32}$/.test(String(pass)) ? String(pass) : "";
+      const p = "http://" + (own ? "cmd:" + own + "@" : "") + "127.0.0.1:" + port;
+      const none = "localhost,127.0.0.1,::1";
+      return { HTTPS_PROXY: p, https_proxy: p, HTTP_PROXY: p, http_proxy: p, NO_PROXY: none, no_proxy: none, NODE_USE_ENV_PROXY: "1",
+        NODE_EXTRA_CA_CERTS: caFile, SSL_CERT_FILE: bundleFile, CURL_CA_BUNDLE: bundleFile, REQUESTS_CA_BUNDLE: bundleFile, GIT_SSL_CAINFO: bundleFile,
+        // EACH TOOL'S OWN PROXY AND CERTIFICATE SETTINGS (Bash docs pass 9: those Claude Code's cloud machine gives its
+        // commands, seen 2026-11-11; Java ignores the general ones, so Maven and Gradle fetched nothing behind the wall).
+        ...toolProxyEnv(p, port, none, own, bundleFile, javaStore),
+      };
     },
     close: () => new Promise((ok) => server.close(() => ok())),
   };

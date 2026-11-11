@@ -74,10 +74,14 @@ test("CD370 Auto: read-only commands, narrow allow rules and Coder's own every-m
   for (const rule of ["Bash(npm test *)", "Bash(git status)", "Bash(npm run build)", "Bash(python3 manage.py test)", "WebFetch(domain:x.com)"]) assert.equal(C.droppedInAuto(rule), false, rule);
   const broad = await job([say("", [call("bash", { command: "npm run build" }, "b1")]), say("ok")], { rules: { allow: ["Bash(npm run *)"] } });
   assert.equal(broad.checks.length, 1, "a broad one is dropped in Auto");
-  // A protected file asks the owner (every mode), as before: no check.
+  // A protected file: in Auto the checker decides (Bash docs pass 8; Claude Code's protected paths, auto: "Routed to the
+  // classifier, which decides"), told which paths; with no checker the owner is asked, as before.
   const prot = await job([say("", [call("bash", { command: "echo x > .husky/pre-commit" }, "b1")]), say("ok")], { answers: [{ choice: "no" }] });
-  assert.equal(prot.checks.length, 0);
-  assert.equal(prot.cards.length, 1);
+  assert.equal(prot.checks.length, 1);
+  assert.equal(prot.cards.length, 0);
+  assert.match(String(prot.checks[0].messages[1].content), /IT WRITES PROTECTED PATHS \(repository state or Coder's own settings\): \.husky\/pre-commit/);
+  const prot0 = await job([say("", [call("bash", { command: "echo x > .husky/pre-commit" }, "b1")]), say("ok")], { answers: [{ choice: "no" }], checker: false });
+  assert.deepEqual([prot0.checks.length, prot0.cards.length], [0, 1]);
   // A dangerous removal is refused in Auto, as before: no check.
   const rm = await job([say("", [call("bash", { command: "rm -rf /" }, "b1")]), say("ok")]);
   assert.equal(rm.checks.length, 0);
@@ -135,10 +139,13 @@ test("CD372 the checker's answer is read leniently, and no verdict blocks (Claud
   const u = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { verdict: () => "I think it is fine", key });
   assert.deepEqual(u.ran, []);
   // (The model's name first, as Claude Code names its classifier's; this test's job names none.)
-  assert.equal(u.told("b1"), "The classifier is temporarily unavailable, so auto mode cannot determine the safety of this bash command right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.");
+  // (An answer with no verdict in it: Claude Code 2.1.322's words for a transient failure of the check, Bash docs pass 8.)
+  assert.equal(u.told("b1"), "Auto mode could not evaluate this action and is blocking it for safety: The classifier gave no verdict (its answer could not be read). This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after 10 responses in a row without a verdict the turn stops.");
   assert.equal(C.checkUnavailable("grok-4.7", "this page fetch").slice(0, 98), "grok-4.7 is temporarily unavailable, so auto mode cannot determine the safety of this page fetch r");
   const f = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { verdict: () => new Error("AI call failed: 503"), key });
   assert.deepEqual(f.ran, []);
+  // (The checker's model unreachable: Claude Code's "temporarily unavailable" words.)
+  assert.equal(f.told("b1"), "The classifier is temporarily unavailable, so auto mode cannot determine the safety of this bash command right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.");
   assert.equal(C.checkerState(key).row, 0, "no verdict is not a block");
 });
 
@@ -230,11 +237,12 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   // Only the checker's blocks: a command's own failure, a refusal, an output that merely says it, or no result at all are not.
   for (const other of [{ code: 1, output: blockedShown("X", "y") }, { code: -1, output: "Not run: you said no." }, { code: -1, output: "error: Blocked by auto mode · [X] y" }, { code: 0, output: "Blocked by auto mode · [X] y" }, null]) assert.equal(stepAutoBlock(other), "", JSON.stringify(other));
   // The step: "✕ blocked" on its right (for web_fetch too), and the reason under it, shown without opening the step.
-  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : hookBlockOf\(r\) \? 'blocked by hook' : r\.denied === true \? 'refused' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
-  assert.match(src, /stepAutoBlock\(r\) \+\n\s+\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
+  assert.match(src, /r\.timedOut \? 'timed out' : autoBlockOf\(r\) \? 'blocked' : hookBlockOf\(r\) \? 'blocked by hook' : r\.denied === true \? 'refused' : r\.ran === false \? 'not run' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
+  assert.match(src, /stepAutoBlock\(r\) \+\n[\s\S]{0,500}?\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-autoblock-head \{ color: #b3261e; font-weight: 600; \}/, "in the red the page uses for a failed step");
   // All of the checker's blocks (bash, web_fetch and a WebSocket watch, CD385c) send it in this shape.
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 3);
+  // (Marked as never run since Bash docs pass 9, part F: `ran: false`.)
+  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 3);
 });

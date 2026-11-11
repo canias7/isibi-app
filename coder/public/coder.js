@@ -216,11 +216,11 @@
    * own, for all the owner's chats, each saved as soon as it changes (as Notifications' switches are). What each does, and
    * Claude Code's own way of it, is said under it.
    */
-  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20];
+  const BG_HOURS = [2, 4, 8, 12, 24], DISK_GIB = [0, 1, 2, 5, 10, 20], MEM_GIB = [0, 1, 2, 4, 8];
   async function showSettings() {
     const r = await call('/settings');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Settings could not be opened.'; return draw(); }
-    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 2, ...((r.data && r.data.prefs) || {}) };
+    const prefs = { bgHours: 2, endDetached: true, diskWarnGib: 0, memWarnGib: 0, ...((r.data && r.data.prefs) || {}) };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-settings'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Settings');
     wrap.append(box); document.body.append(wrap);
@@ -247,12 +247,14 @@
         '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
           '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
-        '<div class="cd-set-head">Disk</div>' +
+        '<div class="cd-set-head">Disk and memory</div>' +
         '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
-          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' + (g === 2 ? ' (default)' : '') : 'Off', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+          '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' : 'Off (default)', prefs.diskWarnGib === g)).join('') + '</select></label>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left. Claude Code’s CLAUDE_CODE_WARN_MEMORY_FREE_GIB.</span>' +
+          '<select id="cdSetMem" aria-label="Low-memory warning">' + MEM_GIB.map((g) => opt(g, g ? g + ' GB available' : 'Off (default)', prefs.memWarnGib === g)).join('') + '</select></label>' +
         // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
         '<div class="cd-set-head">Hooks</div>' +
-        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too; <code>"disableAllHooks": true</code> turns them all off.</div>' +
+        '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too (not in a chat with several repositories, as in Claude Code’s cloud); <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
@@ -272,6 +274,7 @@
       $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
       $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
+      $('cdSetMem').onchange = (e) => save('memWarnGib', Number(e.currentTarget.value));
       $('cdSetHooks').oninput = (e) => { hooksDraft = e.currentTarget.value; };
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
@@ -529,7 +532,20 @@
     else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
     draw();
   }
-  const NET = { none: ['None', 'Coder\'s commands can\'t reach the internet (sites with a saved secret still work).'], trusted: ['Trusted', 'The default list: package registries, GitHub and other code hosts, container registries, cloud SDKs.'], full: ['Full', 'Coder\'s commands can reach any public site.'], custom: ['Custom', 'Your own list of sites, with or without the default list.'] };
+  // THE NETWORK LEVELS, AS CLAUDE CODE NOW NAMES THEM (Bash docs pass 9, part F; its cloud docs: None, Limited — "The default
+  // allowlist of package registries, GitHub, and cloud SDKs while Allow package managers is checked, plus any domains you
+  // list" — and Full; "Saved as Trusted: opens as Limited with Allow package managers checked"; "Saved as Custom: opens as
+  // Limited with its Allowed domains list and Allow package managers as you set them"). The server keeps the saved names
+  // (trusted, custom), so what an environment reaches does not change: netLevel reads them, netSaved writes them.
+  const NET = { none: ['None', 'Coder\'s commands can\'t reach the internet (sites with a saved secret still work).'], limited: ['Limited', 'Package registries, GitHub and cloud tools while Allow package managers is checked, plus the domains you list.'], full: ['Full', 'Coder\'s commands can reach any public site.'] };
+  const netLevel = (mode) => (mode === 'none' || mode === 'full' ? mode : 'limited');
+  const netSaved = (f) => (f.mode !== 'limited' ? f.mode : f.defaults && !f.hosts.length ? 'trusted' : 'custom');
+  /** What a Limited environment allows, in a few words: "package managers + 2 domains". */
+  const limitedWords = (n) => {
+    const hosts = n.mode === 'custom' ? n.hosts || [] : [];
+    const parts = (n.mode === 'trusted' || n.defaults !== false ? ['package managers'] : []).concat(hosts.length ? [hosts.length + ' domain' + (hosts.length === 1 ? '' : 's')] : []);
+    return parts.length ? parts.join(' + ') : 'no domains';
+  };
   const SECRET_TYPES = {
     bearer: ['Bearer', 'headers', [{ name: 'Authorization', prefix: 'Bearer', value: '' }]],
     key: ['API key header', 'headers', [{ name: 'X-Api-Key', prefix: '', value: '' }]],
@@ -551,10 +567,10 @@
     else if (page === 'main') {
       const n = e.network || { mode: 'trusted', hosts: [], defaults: true };
       const rows = [
-        ['network', 'Network access', (NET[n.mode] || NET.trusted)[0] + (n.mode === 'custom' ? ' · ' + n.hosts.length + ' site' + (n.hosts.length === 1 ? '' : 's') + (n.defaults ? ' + default list' : '') : '') + ((n.denied || []).length ? ' · ' + n.denied.length + ' blocked' : '')],
+        ['network', 'Network access', NET[netLevel(n.mode)][0] + (netLevel(n.mode) === 'limited' ? ' · ' + limitedWords(n) : '') + ((n.denied || []).length ? ' · ' + n.denied.length + ' blocked' : '')],
         ['secrets', 'Network secrets', (e.secrets || []).length ? e.secrets.length + ' secret' + (e.secrets.length > 1 ? 's' : '') : 'None'],
         ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
-        ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') : 'None for this repo'],
+        ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') + ((e.varsDropped || []).length ? ' · ' + e.varsDropped.length + ' not given to commands' : '') : 'None for this repo'],
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
       body = head('Environment: ' + (e.name || 'Default')) +
@@ -566,15 +582,17 @@
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
     } else if (page === 'network') {
       body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
-        (f.mode === 'trusted' ? '<p class="cd-em-help">The default list is Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</p>' : '') +
-        (f.mode === 'custom' ? '<label class="cd-envnet"><input type="checkbox" id="envDefaults"' + (f.defaults ? ' checked' : '') + '> Also include the default list of common package managers</label><label class="cd-em-l">Allowed sites</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No sites yet. Coder asks before adding one.</p>') + '</div>' +
+        (f.mode === 'limited' ? '<label class="cd-envnet"><input type="checkbox" id="envDefaults"' + (f.defaults ? ' checked' : '') + '> <span><b>Allow package managers</b><br>The default list, Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</span></label><label class="cd-em-l">Allowed domains</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No domains yet. Coder asks before adding one.</p>') + '</div>' +
           '<div class="cd-em-addrow"><input id="envHostIn" placeholder="api.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envHostAdd">Add</button></div>' : '') +
         // BLOCKED SITES (Claude Code's sandbox.network.deniedDomains): in every setting.
         '<label class="cd-em-l">Blocked sites</label><p class="cd-em-help">Never reached, whatever the setting above allows, and even with a saved secret (Claude Code’s deniedDomains).</p><div class="cd-em-list">' + ((f.denied || []).length ? f.denied.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-netdenydel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">None.</p>') + '</div>' +
         '<div class="cd-em-addrow"><input id="envDenyIn" placeholder="tracker.example.com or *.example.com" autocomplete="off" spellcheck="false"><button type="button" class="cd-em-cancel" id="envDenyAdd">Block</button></div>' +
         foot('Save changes');
     } else if (page === 'secrets') {
-      body = head('Network secrets', 'main') + '<div class="cd-em-list">' + ((e.secrets || []).length ? e.secrets.map((x) => '<div class="cd-em-li"><span><b>' + esc(x.name || x.hosts.join(', ')) + '</b><small>' + esc(x.hosts.join(', ') + (x.paths && x.paths.length ? ' · ' + x.paths.join(', ') : '') + ' · ' + x.headers.map((h) => h.name).join(', ')) + '</small></span><button type="button" data-secid="' + esc(x.id) + '" data-secname="' + esc(x.name || x.hosts.join(', ')) + '" aria-label="Remove">×</button></div>').join('') : '<p class="cd-muted">No secrets yet.</p>') + '</div>' +
+      body = head('Network secrets', 'main') + '<div class="cd-em-list">' + ((e.secrets || []).length ? e.secrets.map((x) => '<div class="cd-em-li' + (x.notSent ? ' is-notsent' : '') + '"><span><b>' + esc(x.name || x.hosts.join(', ')) + (x.notSent ? ' <em class="cd-em-notsent">Not sent</em>' : '') + '</b><small>' + esc(x.hosts.join(', ') + (x.paths && x.paths.length ? ' · ' + x.paths.join(', ') : '') + ' · ' + x.headers.map((h) => h.name).join(', ')) + '</small>' +
+          // A KEY THAT IS NEVER SENT (Claude Code: "If the list marks a secret Not sent instead, the note under it says why and
+          // what to do"; Bash docs pass 9, part F): the server's note, under the key.
+          (x.notSent ? '<small class="cd-em-why">' + esc(x.notSent) + '</small>' : '') + '</span><button type="button" data-secid="' + esc(x.id) + '" data-secname="' + esc(x.name || x.hosts.join(', ')) + '" aria-label="Remove">×</button></div>').join('') : '<p class="cd-muted">No secrets yet.</p>') + '</div>' +
         '<button type="button" class="cd-em-cancel cd-em-plus" data-envgo="add">+ Add secret</button>' +
         '<p class="cd-em-help">Requests to the sites you add go through a proxy that adds the secret, so Coder never sees it. Coder can also ask you for one with a card in the chat.</p>' + foot('');
     } else if (page === 'add') {
@@ -603,20 +621,25 @@
         '<p class="cd-em-help">System packages: put each install on its own line, like <code>apt-get install -y jq</code>. Coder installs those as admin; every other line runs as Coder\'s own user, so other sudo commands don\'t work. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
     } else if (page === 'vars') {
       body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +
-        '<p class="cd-em-help">One KEY=value per line, in .env format. Coder and its commands can see these values, so don\'t add secrets here: use Network secrets.</p>' + foot('Save changes');
+        '<p class="cd-em-help">One KEY=value per line, in .env format. Coder and its commands can see these values, so don\'t add secrets here: use Network secrets.</p>' +
+        // NAMES COMMANDS NEVER GET (Bash docs pass 9, part F: they were dropped without a word): the saved ones, named.
+        ((e.varsDropped || []).length ? '<p class="cd-em-help cd-em-warnnote">Not given to commands: ' + esc(e.varsDropped.join(', ')) + '. Coder\'s machine keeps its own PATH, HOME, SHELL and USER, and never takes LD_…, NODE_OPTIONS, BASH_ENV, ENV, SHELLOPTS, BASHOPTS, CDPATH or OTEL_… names from here.</p>' : '') + foot('Save changes');
     }
     return '<div class="cd-em" id="envWrap"><div class="cd-em-box" role="dialog" aria-modal="true" aria-label="Environment">' + body + '</div></div>';
   }
   function envGo(page) {
     const e = S.env || {}; S.envMsg = ''; S.envPage = page;
-    S.envForm = page === 'network' ? { mode: (e.network && e.network.mode) || 'trusted', hosts: [...((e.network && e.network.hosts) || [])], defaults: !e.network || e.network.defaults !== false, denied: [...((e.network && e.network.denied) || [])] }
+    // (Saved as Trusted: Limited with Allow package managers checked and no domains of its own. Saved as Custom: Limited with
+    // its domains and its box as set.)
+    const n0 = e.network || { mode: 'trusted' };
+    S.envForm = page === 'network' ? { mode: netLevel(n0.mode), hosts: n0.mode === 'trusted' ? [] : [...(n0.hosts || [])], defaults: n0.mode === 'trusted' || n0.defaults !== false, denied: [...(n0.denied || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
       : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : null;
     draw();
   }
   async function envYes() {
     const page = S.envPage, f = S.envForm;
-    if (page === 'network') return envPost({ network: { mode: f.mode, hosts: f.hosts, defaults: f.defaults, denied: f.denied || [] } });
+    if (page === 'network') return envPost({ network: { mode: netSaved(f), hosts: f.hosts, defaults: f.defaults, denied: f.denied || [] } });
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
@@ -924,6 +947,11 @@
     const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\[[\s\S]*)$/.exec(String(r.output || '')) : null;
     return m ? { event: m[1], why: m[2].replace(/\s+/g, ' ').trim().slice(0, 600) } : null;
   }
+  // A STEP THAT NEVER RAN: the server marks its result `ran: false` (Bash docs pass 9, part F); a chat from before is known
+  // by the marks it had then (not run, blocked by a hook, refused, blocked by auto mode).
+  function neverRan(r) {
+    return !!r && (r.ran === false || (typeof r.notRun === 'string' && !!r.notRun) || r.hookBlocked === true || r.denied === true || !!autoBlockOf(r));
+  }
   function stepAutoBlock(r) {
     const why = autoBlockOf(r);
     const hb = why ? null : hookBlockOf(r);
@@ -935,7 +963,9 @@
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
     const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      // (Not run because auto mode's check had no usable answer: dim, not an error, as Claude Code shows it; Bash docs pass 8.)
+      : state === 'bad' && r && typeof r.notRun === 'string' && r.notRun ? '<span class="cd-st cd-st-notrun">not run</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : r.ran === false ? 'not run' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'
@@ -953,6 +983,9 @@
       (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
       // A STEP AUTO MODE'S CHECKER BLOCKED: why, under the step, without opening it (like Claude Code's).
       stepAutoBlock(r) +
+      // A STEP NOT RUN BECAUSE AUTO MODE'S CHECK HAD NO USABLE ANSWER: Claude Code's dim row ("Not run · auto mode's check had
+      // no usable answer"), the full message when the step is opened.
+      (r && typeof r.notRun === 'string' && r.notRun ? '<div class="cd-notrun">Not run · ' + esc(r.notRun) + '</div>' : '') +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
@@ -1109,8 +1142,19 @@
       }
       group = [];
     };
+    // (A step shown again with a changed command, after a PermissionRequest hook changed it: its last showing only.)
+    const lastStep = {};
+    S.events.forEach((e, i) => { if (e.type === 'bash' && e.id) lastStep[e.id] = i; });
     S.events.forEach((e, i) => {
-      if (e.type === 'bash') { group.push([e, i]); return; }
+      if (e.type === 'bash') {
+        if (e.id && lastStep[e.id] !== i) return;
+        // A STEP THAT NEVER RAN (refused by a rule, auto mode's checker, a hook, Coder's own checks or your answer) stands
+        // on its own row, out of the group and out of its count, so "Ran 2 commands" counts only commands that ran: Claude
+        // Code takes a step that needs its own row out of its group the same way (Bash docs pass 9, part F).
+        if (neverRan(results[e.id])) { flush(); group.push([e, i]); flush(); return; }
+        group.push([e, i]);
+        return;
+      }
       if (e.type === 'result') return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
@@ -1180,7 +1224,7 @@
           out.push('<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Create new environment?</b>' +
             (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
             '<div class="cd-ne"><div class="cd-ne-head"><b>' + esc(e.name) + '</b><span>Personal</span></div>' +
-              '<div class="cd-ne-sec"><small>Network access</small><div><span class="cd-ne-plus">+</span>' + esc((NET[e.network] || NET.trusted)[0]) + '</div></div>' +
+              '<div class="cd-ne-sec"><small>Network access</small><div><span class="cd-ne-plus">+</span>' + esc(NET[netLevel(e.network)][0]) + '</div></div>' +
               '<div class="cd-ne-sec"><small>Repositories</small><div><span class="cd-ne-plus">+</span>For <code>' + esc(S.project ? S.project.repo : '') + '</code></div></div>' +
               '<div class="cd-ne-sec"><small>Setup script</small><pre class="cd-envchange-pre">' + String(e.script || '').split('\n').map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l)).join('\n') + '</pre></div></div>' +
             '<p class="cd-secret-p">This chat keeps its environment (picked before its first message). New chats of this repo start with the new one.</p>' +
@@ -1624,7 +1668,8 @@
   }
   async function answerPerm(pid, choice) {
     if (!S.project || (S.permSent && S.permSent[pid])) return;
-    const comment = String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none.)
+    const comment = choice === 'always' || choice === 'auto' ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();
@@ -1902,7 +1947,7 @@
     on('#cdEnvSel', 'change', async (e) => {
       const v = e.currentTarget.value;
       if (v !== '__add') return pickEnv(v);
-      const name = await askText('Add environment', 'Name it after what it is for, like a project. It starts on Trusted network access, with no keys and no setup script.', 'Create', S.project ? S.project.repo.split('/').pop() : '');
+      const name = await askText('Add environment', 'Name it after what it is for, like a project. It starts on Limited network access with package managers allowed, with no keys and no setup script.', 'Create', S.project ? S.project.repo.split('/').pop() : '');
       if (!name) return draw();
       const r = await call('/environments', { method: 'POST', body: JSON.stringify({ name, repos: [S.project.repo] }) });
       if (r.status !== 200 || !r.data || !r.data.environment) { S.error = (r.data && r.data.error) || 'The environment could not be made.'; return draw(); }

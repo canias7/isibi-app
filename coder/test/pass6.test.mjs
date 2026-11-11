@@ -318,13 +318,13 @@ test("CD392 the repository's own .claude/settings.json and .claude/settings.loca
   s = S.repoSettings(d2, { trust: true });
   assert.deepEqual([s.allow, s.env], [[], {}]);
   // The owner's rules first, the repository's after.
-  assert.deepEqual(S.withRepoRules({ allow: ["Bash(make *)"], ask: [], deny: [], dirs: ["~/x"] }, { allow: ["Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] }), { allow: ["Bash(make *)", "Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"], dirs: ["~/x"] });
+  assert.deepEqual(S.withRepoRules({ allow: ["Bash(make *)"], ask: [], deny: [], dirs: ["~/x"] }, { allow: ["Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] }), { allow: ["Bash(make *)", "Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"], dirs: ["~/x"], sources: { own: { ask: [], deny: [] }, repo: { ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] } } }, "with which list each rule came from (Bash docs pass 9)");
   assert.equal(S.withRepoRules(null, { allow: [], ask: [], deny: [] }), null);
   // The machine: the env under the owner's variables, the rules, the working folders (those only the repository adds kept apart
   // for the write block), the blocks; the trust switch from the owner's rules.
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const repoSet = repoSettings\(dir, \{ trust: !!\(body\.rules && body\.rules\.trust === true\), github: body\.github === true \}\);\n\s+for \(const h of repoSet\.held\) t\.events\.push\(\{ at: Date\.now\(\), type: "note", text: heldNote\(h\) \}\);/);
-  assert.match(server, /const extraEnv = \{ GIT_EDITOR: "true", \.\.\.repoSet\.env, \.\.\.ownerVars, /);
+  assert.match(server, /const repoSet = repoSettings\(dir, \{ trust: !!\(body\.rules && body\.rules\.trust === true\), github: body\.github === true, several: extraRepos\(body\)\.length > 0 \}\);\n\s+\/\/ \(Kept for rules[^\n]*\n\s+t\.repoSet = repoSet;\n(?:\s+t\.[^\n]*\n){3}\s+for \(const h of repoSet\.held\) t\.events\.push\(\{ at: Date\.now\(\), type: "note", text: heldNote\(h\) \}\);/);
+  assert.match(server, /const extraEnv = \{ \.\.\.withoutOtel\(repoSet\.env\), \.\.\.withoutOtel\(ownerVars\), GIT_EDITOR: "true", /);
   assert.match(server, /rules: withRepoRules\(body\.rules, repoSet\), /);
   assert.match(server, /readBlock: varOn\(rawVars\.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockReads, writeBlock: varOn\(rawVars\.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES\) \|\| repoSet\.blockWrites, /);
   assert.match(server, /repoDirs: repoOnlyDirs,/);
@@ -463,7 +463,7 @@ test("CD394 an environment's blocked sites (Claude Code's sandbox.network.denied
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /if \(denied\.length > 100\) return json\(\{ error: "at most 100 blocked sites" \}, 400\);/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /network: \{ mode: f\.mode, hosts: f\.hosts, defaults: f\.defaults, denied: f\.denied \|\| \[\] \}/);
+  assert.match(page, /network: \{ mode: netSaved\(f\), hosts: f\.hosts, defaults: f\.defaults, denied: f\.denied \|\| \[\] \}/);
   assert.match(page, /<label class="cd-em-l">Blocked sites<\/label>/);
 });
 
@@ -621,8 +621,9 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // The decision.
   const dec = (cmd, mode, rules = {}) => P.psDecision(cmd, { mode, rules, nativeReadOnly: nro, parsed: fakeParse(cmd), cwd: "/work/shop", pathAbs: (x) => "/work/shop/" + x, inside: () => true });
   assert.equal(dec("Get-ChildItem", "acceptEdits").verdict, "allow");
-  assert.deepEqual([dec("Remove-Item build", "plan").verdict, dec("Remove-Item build", "plan").suggest], ["ask", ["PowerShell(Remove-Item *)"]]);
-  assert.deepEqual(dec("git commit -m x; npm test", "plan").suggest, ["PowerShell(git commit *)", "PowerShell(npm test *)"]);
+  // (The "don't ask again" rules are Claude Code's: each command that needs approval, exactly; see CD407.)
+  assert.deepEqual([dec("Remove-Item build", "plan").verdict, dec("Remove-Item build", "plan").suggest], ["ask", ["PowerShell(Remove-Item build)"]]);
+  assert.deepEqual(dec("git commit -m x; npm test", "plan").suggest, ["PowerShell(git commit -m x)", "PowerShell(npm test)"]);
   assert.equal(dec("rm -r build", "auto", { deny: ["PowerShell(Remove-Item *)"] }).why, "Permission to use PowerShell with command rm -r build has been denied.");
   assert.equal(dec("Get-ChildItem", "auto", { deny: ["*"] }).verdict, "deny");
   assert.deepEqual([dec("npm test", "auto", { ask: ["PowerShell(npm *)"] }).verdict, dec("npm test", "auto", { ask: ["PowerShell(npm *)"] }).byRule], ["ask", true]);
@@ -652,7 +653,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   const hs = H.hooksFrom({ hooks: { Stop: [{ hooks: [{ type: "command", command: "Write-Output 'done'", shell: "powershell" }, { type: "command", command: "x", shell: "fish" }] }] } });
   assert.equal(hs.list[0].shell, "powershell");
   assert.deepEqual(hs.problems, ["Stop: a hook's shell is bash or powershell (not fish)"]);
-  assert.match(H.hookShell(hs.list[0], "<<m>>", "/work/shop"), new RegExp("\\(\\npwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + PS.utf16Base64("Write-Output 'done'").replace(/[+/=]/g, "\\$&") + "\\n\\) < \"\\$__in\""));
+  assert.match(H.hookShell(hs.list[0], "<<m>>", "/work/shop"), new RegExp("\\(\\npwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + PS.utf16Base64("Write-Output 'done'" + H.PS_HOOK_EXIT2).replace(/[+/=]/g, "\\$&") + "\\n\\) < \"\\$__in\""));
   assert.equal(H.ccTool("powershell"), "PowerShell");
 
   // CODER'S LOOP.
@@ -673,7 +674,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // One that changes things, in Plan mode: a PowerShell card (in Accept edits, Claude Code runs a removal inside the
   // project: test/pass7.test.mjs); denied by a rule: refused.
   t = await job([say("", [call("powershell", { command: "Remove-Item build -Recurse", description: "Clean" }, "p1")]), say("ok")], { mode: "plan", extra: on, answers: [{ choice: "no" }] });
-  assert.deepEqual([t.cards[0].tool, t.cards[0].rules], ["powershell", ["PowerShell(Remove-Item *)"]]);
+  assert.deepEqual([t.cards[0].tool, t.cards[0].rules], ["powershell", ["PowerShell(Remove-Item build -Recurse)"]], "Claude Code's rule: the command itself (CD407)");
   assert.deepEqual(t.ran, []);
   t = await job([say("", [call("powershell", { command: "rm build", description: "Clean" }, "p1")]), say("ok")], { extra: on, rules: { allow: [], ask: [], deny: ["PowerShell(Remove-Item *)"] } });
   assert.equal(t.told("p1"), "Permission to use PowerShell with command rm build has been denied.");
@@ -684,7 +685,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   assert.equal(t.checks.length, 0, "read-only: no check");
   // Start-Sleep blocked in the foreground.
   t = await job([say("", [call("powershell", { command: "Start-Sleep 30", description: "Wait" }, "p1")]), say("ok")], { extra: on });
-  assert.match(t.told("p1"), /^Blocked: standalone Start-Sleep 30\. To wait for a condition, run a loop in the background/);
+  assert.match(t.told("p1"), /^Blocked: standalone Start-Sleep 30\. To wait for a condition, use monitor with an until-loop \(e\.g\. `until <check>; do sleep 2; done` \u2014 monitor runs bash\)\./);
   // Hooks see it as PowerShell.
   t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1")]), say("ok")], { extra: on, hooks: { PreToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "check.sh" }] }] } });
   assert.deepEqual([t.hookCalls[0].input.tool_name, t.hookCalls[0].input.tool_input.command], ["PowerShell", "Get-ChildItem"]);

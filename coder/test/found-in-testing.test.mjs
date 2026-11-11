@@ -522,7 +522,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.equal(reply(out.messages, "b4"), "(Bash completed with no output)\n[This command changed 1 file you read before: a.js. Read it again before editing.]");
   assert.equal(reply(out.messages, "b5"), "nothing");
   assert.equal(reply(out.messages, "b7"), "hi", "b.js changed while Coder was thinking: no note, and not put down to echo");
-  assert.equal(reply(out.messages, "m8"), "[stopped job1]");
+  assert.equal(reply(out.messages, "m8"), JSON.stringify({ message: "Successfully stopped task: job1 (sleep 30)", task_id: "job1", task_type: "local_bash", command: "sleep 30" }), "Claude Code's TaskStop answer");
   assert.equal(reply(out.messages, "b9"), "bye", "c.js changed while Coder stopped the background command: the same");
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.

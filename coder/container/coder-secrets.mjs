@@ -151,7 +151,9 @@ export function hostAllowed(host, network, keyed = []) {
   const n = normNetwork(network);
   const h = String(host || "").toLowerCase();
   if (hostDenied(h, n)) return false;
-  if (keyed.some((p) => hostMatches(h, p))) return true;
+  // (Never a host that gets no key, by a wildcard either: Bash docs pass 9, a key saved for *.github.com had opened
+  // github.com, and *.pypi.org pypi.org, on None.)
+  if (keyed.some((p) => hostMatches(h, p)) && !NEVER_KEY.includes(h)) return true;
   if (n.mode === "full") return true;
   if (n.mode === "none") return false;
   const inDefaults = DEFAULT_HOSTS.some((p) => hostMatches(h, p));
@@ -160,6 +162,31 @@ export function hostAllowed(host, network, keyed = []) {
 }
 /** May a key ever be added for this host? */
 export const keyAllowed = (host) => !NEVER_KEY.includes(String(host || "").toLowerCase());
+/**
+ * A SAVED KEY THAT IS NEVER SENT, AND WHY (Bash docs pass 9, part F; Claude Code's cloud docs: "If the list marks a secret
+ * Not sent instead, the note under it says why and what to do. Two secrets whose hosts overlap without matching exactly get
+ * no marker, and the agent proxy sends only one of them."): every site the key lists is one that never gets a key (GitHub,
+ * the Anthropic API, the public package registries), or one a key saved before it lists exactly (Coder's proxy and server
+ * send the first saved key that names a site). "" for a key that is sent. `secrets`: the saved keys, in their saved order.
+ */
+const GITHUB_KEY_HOSTS = ["github.com", "api.github.com"];
+export function notSentWhy(secrets, i) {
+  const list = Array.isArray(secrets) ? secrets : [];
+  const low = (s) => (s && Array.isArray(s.hosts) ? s.hosts.map((h) => String(h).toLowerCase()) : []);
+  const hosts = low(list[i]);
+  if (!hosts.length) return "";
+  const before = new Set(list.slice(0, Math.max(0, i)).flatMap(low));
+  const gh = hosts.filter((h) => GITHUB_KEY_HOSTS.includes(h));
+  const reg = hosts.filter((h) => NEVER_KEY.includes(h) && !GITHUB_KEY_HOSTS.includes(h));
+  const dup = hosts.filter((h) => !NEVER_KEY.includes(h) && before.has(h));
+  if (gh.length + reg.length + dup.length < hosts.length) return "";
+  const why = [];
+  if (gh.length) why.push("GitHub never gets a saved key: Coder reaches GitHub with your GitHub sign-in, so this key isn't needed there.");
+  const anthropic = reg.includes("api.anthropic.com"), registry = reg.some((h) => h !== "api.anthropic.com");
+  if (reg.length) why.push((anthropic && registry ? "The Anthropic API and the public package registries never get" : anthropic ? "The Anthropic API never gets" : "Public package registries never get") + " a saved key (" + reg.join(", ") + ")." + (registry ? " For a private registry, save the key for that registry's own site." : ""));
+  if (dup.length) why.push("A key saved before this one names the same site" + (dup.length > 1 ? "s" : "") + " (" + dup.join(", ") + "), and only the first key for a site is sent. Delete one of the two, or give this one other sites.");
+  return why.join(" ");
+}
 
 // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): a name, the
 // sites it applies to, optional path prefixes, and one or more headers.
@@ -206,6 +233,15 @@ export function normSecret(s) {
 }
 
 // ENVIRONMENT VARIABLES IN .env FORM (owner, 2026-11-06, like Claude Code's box).
+/**
+ * THE VARIABLE NAMES COMMANDS NEVER GET FROM THE OWNER'S LIST (safeVars and withoutOtel on Coder's machine; the owner chose
+ * to keep them dropped): PATH, HOME, SHELL and USER by their whole names, LD_…, NODE_OPTIONS, BASH_ENV, ENV, SHELLOPTS,
+ * BASHOPTS and CDPATH, which steer the machine or where `cd` lands, and OpenTelemetry's (Claude Code deletes every OTEL_*
+ * variable from its commands). The page names them under the variables (Bash docs pass 9, part F). CODER_… names are not
+ * dropped: they are Coder's own settings.
+ */
+export const VAR_DROPPED_RE = /^(PATH$|HOME$|SHELL$|USER$|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CDPATH$|OTEL_|CLAUDE_CODE_OTEL_DIAG_STDERR$)/i;
+export const varsDropped = (vars) => Object.keys(vars && typeof vars === "object" ? vars : {}).filter((k) => VAR_DROPPED_RE.test(k));
 export function parseEnv(text) {
   const out = {}; const src = String(text || "").replace(/\r/g, "");
   const re = /^\s*(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)\s*=\s*("(?:[^"\\]|\\.)*"|'[^']*'|[^\n#]*?)\s*(?:#.*)?$/gm;
