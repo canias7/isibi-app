@@ -43,8 +43,9 @@ export function wsOver(socket, head = null, { mask = false } = {}) {
   const ev = { message: [], close: [], drain: [] };
   const emit = (k, v) => { for (const f of ev[k]) { try { f(v); } catch { /* a listener's own trouble */ } } };
   let buf = head && head.length ? Buffer.from(head) : Buffer.alloc(0), parts = [], partOp = 0, closed = false;
-  const end = () => { if (closed) return; closed = true; try { socket.destroy(); } catch { /* gone */ } emit("close"); };
-  const write = (b) => { if (closed) return false; try { return socket.write(b); } catch { end(); return false; } };
+  // `why` it ended goes with "close" (live test, 2026-11-11: a link cut with no word on either side; now this end says).
+  const end = (why) => { if (closed) return; closed = true; try { socket.destroy(); } catch { /* gone */ } emit("close", String(why || "the connection closed")); };
+  const write = (b) => { if (closed) return false; try { return socket.write(b); } catch { end("it could not be written to"); return false; } };
   socket.on("data", (d) => {
     buf = buf.length ? Buffer.concat([buf, d]) : d;
     for (;;) {
@@ -52,33 +53,36 @@ export function wsOver(socket, head = null, { mask = false } = {}) {
       const fin = (buf[0] & 0x80) !== 0, op = buf[0] & 0x0f, masked = (buf[1] & 0x80) !== 0;
       let n = buf[1] & 0x7f, off = 2;
       if (n === 126) { if (buf.length < 4) return; n = buf.readUInt16BE(2); off = 4; }
-      else if (n === 127) { if (buf.length < 10) return; const big = buf.readBigUInt64BE(2); if (big > BigInt(WS_MAX)) return end(); n = Number(big); off = 10; }
-      if (n > WS_MAX) return end();
+      else if (n === 127) { if (buf.length < 10) return; const big = buf.readBigUInt64BE(2); if (big > BigInt(WS_MAX)) return end("a message too big"); n = Number(big); off = 10; }
+      if (n > WS_MAX) return end("a message too big");
       const key = masked ? buf.subarray(off, off + 4) : null;
       if (masked) off += 4;
       if (buf.length < off + n) return;
       const p = Buffer.from(buf.subarray(off, off + n));
       buf = buf.subarray(off + n);
       if (key) for (let i = 0; i < n; i++) p[i] ^= key[i & 3];
-      if (op === 8) { write(wsFrame(8, p.subarray(0, 2), mask)); return end(); }
+      if (op === 8) { write(wsFrame(8, p.subarray(0, 2), mask)); return end("the other end closed it" + (p.length >= 2 ? " (" + p.readUInt16BE(0) + ")" : "")); }
       if (op === 9) { write(wsFrame(10, p, mask)); continue; }
       if (op === 10) continue;
       if (op === 0) {
         parts.push(p);
-        if (parts.reduce((a, x) => a + x.length, 0) > WS_MAX) return end();
+        if (parts.reduce((a, x) => a + x.length, 0) > WS_MAX) return end("a message too big");
         if (fin) { const all = Buffer.concat(parts); parts = []; emit("message", partOp === 1 ? all.toString("utf8") : all); }
         continue;
       }
       if (op === 1 || op === 2) { if (fin) emit("message", op === 1 ? p.toString("utf8") : p); else { partOp = op; parts = [p]; } continue; }
-      return end();
+      return end("not a WebSocket message (type " + op + ")");
     }
   });
   socket.on("drain", () => emit("drain"));
-  socket.on("close", end);
-  socket.on("error", end);
+  // The other end hanging up is the end too (found by GL117: the machine's sockets wait for both sides to finish, so
+  // without this a link whose app had gone stayed "up" until the next keepalive failed, up to 25 seconds later).
+  socket.on("end", () => end("the connection closed"));
+  socket.on("close", () => end("the connection closed"));
+  socket.on("error", (e) => end("the connection failed" + (e && e.code ? " (" + e.code + ")" : "")));
   return {
     send: (data) => write(wsFrame(typeof data === "string" ? 1 : 2, data, mask)),
-    close: () => { if (closed) return; write(wsFrame(8, Buffer.from([0x03, 0xe8]), mask)); setTimeout(end, 200).unref?.(); },
+    close: () => { if (closed) return; write(wsFrame(8, Buffer.from([0x03, 0xe8]), mask)); setTimeout(() => end("closed here"), 200).unref?.(); },
     on: (k, f) => { if (ev[k]) ev[k].push(f); },
     get open() { return !closed; },
   };
@@ -162,7 +166,8 @@ const u32 = (n) => { const b = Buffer.alloc(4); b.writeUInt32BE(Math.min(n, 0xff
  */
 export function makeTunnel({ now = Date.now } = {}) {
   // `got`/`sent`: messages each way on this link (to see it work: live test, 2026-11-11).
-  let ws = null, nextId = 1, keep = null, since = 0, device = "", got = 0, sent = 0;
+  // `cut`: when the last link ended without a newer one taking its place, and why ({ at, why }).
+  let ws = null, nextId = 1, keep = null, since = 0, device = "", got = 0, sent = 0, cut = null;
   const streams = new Map(), opening = new Map();
   const drop = (why) => {
     for (const [, o] of opening) o.reject(new Error(why));
@@ -193,7 +198,7 @@ export function makeTunnel({ now = Date.now } = {}) {
       const s = streams.get(f.id);
       if (s) s.take(f);
     });
-    sock.on("close", () => { if (ws !== sock) return; ws = null; if (keep) { clearInterval(keep); keep = null; } drop("the link to the owner's computer closed"); });
+    sock.on("close", (why) => { if (ws !== sock) return; ws = null; cut = { at: now(), why: String(why || "the connection closed").slice(0, 120) }; if (keep) { clearInterval(keep); keep = null; } drop("the link to the owner's computer closed"); });
   };
   const open = (host, port) => new Promise((resolve, reject) => {
     if (!ws) return reject(new Error("no link to the owner's computer"));
@@ -207,8 +212,9 @@ export function makeTunnel({ now = Date.now } = {}) {
   return {
     attach, open,
     get connected() { return !!ws; },
-    status: () => ({ connected: !!ws, since: ws ? since : 0, device: ws ? device : "", streams: streams.size, got, sent }),
-    close: () => { if (ws) { const old = ws; ws = null; drop("closed"); try { old.close(); } catch { /* gone */ } } if (keep) { clearInterval(keep); keep = null; } },
+    status: () => ({ connected: !!ws, since: ws ? since : 0, device: ws ? device : "", streams: streams.size, got, sent, cut }),
+    // (`why`: noted as the link's end, as a cut is: "routing was turned off".)
+    close: (why = "closed here") => { if (ws) { const old = ws; ws = null; cut = { at: now(), why: String(why).slice(0, 120) }; drop("closed"); try { old.close(); } catch { /* gone */ } } if (keep) { clearInterval(keep); keep = null; } },
   };
 }
 

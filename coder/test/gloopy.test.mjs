@@ -5606,7 +5606,7 @@ test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on i
   assert.match(server, /if \(routeWanted && !routeProxy\) \{ const p = makeRouteProxy\(\{ tunnel, uid: webUid \}\); await p\.listen\(\); routeProxy = p; \}/);
   assert.match(server, /if \(gloopy\) await browserRoute\(body\.route === true\);/);
   assert.match(server, /try \{ await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/);
-  assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud", link: \(\(\{ device, streams, got, sent \}\) => \(\{ device, streams, got, sent \}\)\)\(tunnel\.status\(\)\) \} : \{\}\);/, "and how the link is doing (messages each way)");
+  assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud", link: \(\(\{ device, streams, got, sent, cut \}\) => \(\{ device, streams, got, sent, \.\.\.\(cut \? \{ cut \} : \{\}\) \}\)\)\(tunnel\.status\(\)\) \} : \{\}\);/, "and how the link is doing (messages each way; why the last one ended: GL117)");
   assert.match(server, /srv\.on\("upgrade", app\.upgrade\);/);
   const { createApp } = await import("../container/server.mjs");
   const app = createApp({ env: { CODER_CONTROL_KEY: "k".repeat(40), CODER_IMAGE: "full" } });
@@ -5790,4 +5790,62 @@ test("GL116 (2026-11-11) live test: a secure site refused for its certificate wh
   assert.ok((CERT + ROUTE_CERT_NOTE).length < 700);
   const agent = await readFile(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.match(agent, /try \{ r = await hub\.act\(act\); \} catch \(e\) \{ no\("error: " \+ String\(\(e && e\.message\) \|\| e\)\.slice\(0, 700\)\); continue; \}/);
+});
+
+test("GL117 (2026-11-11) live test: when the link to the owner's computer ends, Gloopy's computer notes why (cut off, closed by the app with its code, a message too big, not a WebSocket message, or turned off here) and the live view's data carries it; turning routing off lets the owner's computer go, not only leaves it unused", async () => {
+  const { makeTunnel, wsAccept, wsOver } = await import("../container/gloopy-route.mjs");
+  const net = await import("node:net");
+  const tunnel = makeTunnel({ now: () => 1234 });
+  const machine = http.createServer((q, r) => r.end());
+  machine.on("upgrade", (req, socket, head) => { const ws = wsAccept(req, socket, head); if (ws) tunnel.attach(ws); });
+  const M = Number(new URL(await listen(machine)).port);
+  const until = async (f, ms = 3000) => { for (const t0 = Date.now(); Date.now() - t0 < ms; ) { if (f()) return true; await new Promise((ok) => setTimeout(ok, 20)); } return f(); };
+  // The app's side, by hand: the handshake, then frames as a client sends them (masked).
+  const link = async () => {
+    const s = await new Promise((ok) => {
+      const c = net.connect(M, "127.0.0.1", () => c.write("GET /gloopy/route HTTP/1.1\r\nHost: x\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\nSec-WebSocket-Version: 13\r\n\r\n"));
+      let got = "";
+      const onData = (d) => { got += d; if (got.includes("\r\n\r\n")) { c.removeListener("data", onData); ok(c); } };
+      c.on("data", onData);
+    });
+    assert.ok(await until(() => tunnel.connected), "linked");
+    return s;
+  };
+  const mask = Buffer.from([1, 2, 3, 4]);
+  try {
+    assert.equal(tunnel.status().cut, null, "nothing has ended yet");
+    // Cut off: the connection just goes.
+    (await link()).destroy();
+    assert.ok(await until(() => !tunnel.connected));
+    assert.deepEqual(tunnel.status().cut, { at: 1234, why: "the connection closed" });
+    // Closed by the app, with its code.
+    const c = wsOver(await link(), null, { mask: true });
+    c.close();
+    assert.ok(await until(() => !tunnel.connected));
+    assert.equal(tunnel.status().cut.why, "the other end closed it (1000)");
+    // A message bigger than a link's message may be (said to be 2 MB).
+    const big = Buffer.alloc(10); big[0] = 0x82; big[1] = 0x80 | 127; big.writeBigUInt64BE(BigInt(2 * 1024 * 1024), 2);
+    (await link()).write(Buffer.concat([big, mask]));
+    assert.ok(await until(() => !tunnel.connected));
+    assert.equal(tunnel.status().cut.why, "a message too big");
+    // Not a WebSocket message (a type it doesn't have).
+    (await link()).write(Buffer.concat([Buffer.from([0x83, 0x80]), mask]));
+    assert.ok(await until(() => !tunnel.connected));
+    assert.equal(tunnel.status().cut.why, "not a WebSocket message (type 3)");
+    // Let go here (routing turned off): said so, and the app's side is closed.
+    const s = await link();
+    const closedThere = new Promise((ok) => s.on("close", ok));
+    tunnel.close("routing was turned off");
+    assert.equal(tunnel.connected, false);
+    assert.deepEqual(tunnel.status().cut, { at: 1234, why: "routing was turned off" });
+    await closedThere;
+    // A newer link taking the place of an older one is no cut.
+    const a = await link(); await link();
+    assert.equal(tunnel.status().cut.why, "routing was turned off");
+    a.destroy();
+  } finally { tunnel.close(); machine.close(); }
+  // Coder's service: turning routing off lets the link go; the live view's data says why the last one ended.
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /routeWanted = on === true;\n\s+\/\/ Turned off: the owner's computer is let go too, not only left unused \(its app's ticket is worthless by now\)\.\n\s+if \(!routeWanted && tunnel\.connected\) tunnel\.close\("routing was turned off"\);/);
+  assert.match(server, /link: \(\(\{ device, streams, got, sent, cut \}\) => \(\{ device, streams, got, sent, \.\.\.\(cut \? \{ cut \} : \{\}\) \}\)\)\(tunnel\.status\(\)\)/);
 });

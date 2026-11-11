@@ -1663,13 +1663,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const browserRoute = async (on) => {
     if (env.CODER_IMAGE !== "full" || ownerControl) return;
     routeWanted = on === true;
+    // Turned off: the owner's computer is let go too, not only left unused (its app's ticket is worthless by now).
+    if (!routeWanted && tunnel.connected) tunnel.close("routing was turned off");
     try {
       if (routeWanted && !routeProxy) { const p = makeRouteProxy({ tunnel, uid: webUid }); await p.listen(); routeProxy = p; }
       await browserHub().setRoute(routeWanted && routeProxy ? routeProxy.info : null);
     } catch { /* the browser goes its own way */ }
   };
   // Which way the browser's new connections go now, for the live view: through the owner's computer, or Gloopy's own.
-  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud", link: (({ device, streams, got, sent }) => ({ device, streams, got, sent }))(tunnel.status()) } : {});
+  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud", link: (({ device, streams, got, sent, cut }) => ({ device, streams, got, sent, ...(cut ? { cut } : {}) }))(tunnel.status()) } : {});
   // THE LIVE VIEW AS A STREAM (live test, 2026-11-10: each look paid the Worker's sign-in check, about half a second, so
   // the owner saw about two pictures a second): one request, answered with the page's pictures as Chromium sends them
   // (an event each, carrying a look's answer), and with its state when that changes or every SCREEN_BEAT_MS, for up to
