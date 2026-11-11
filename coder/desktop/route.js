@@ -214,7 +214,8 @@ function makeRoute(deps = {}) {
       const s = streams.get(f.id);
       if (s) s.take(f);
     };
-    sock.onclose = () => failed(up ? "the link was cut" : "Gloopy's computer is asleep or out of reach");
+    // (The close's own code, said with it: 1006 cut off, 1009 too big, 1002 not WebSocket as expected…)
+    sock.onclose = (e) => failed((up ? "the link was cut" : "Gloopy's computer is asleep or out of reach") + (e && e.code && e.code !== 1000 ? " (" + e.code + (e.reason ? ": " + String(e.reason).slice(0, 80) : "") + ")" : ""));
     sock.onerror = () => failed(up ? "the link was cut" : "Gloopy's computer is asleep or out of reach");
   };
   return {

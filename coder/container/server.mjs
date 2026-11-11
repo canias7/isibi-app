@@ -1633,7 +1633,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const webUid = env.GLOOPY_WEB_UID && Number.isInteger(Number(env.GLOOPY_WEB_UID)) ? Number(env.GLOOPY_WEB_UID) : null;
   const webGid = env.GLOOPY_WEB_GID && Number.isInteger(Number(env.GLOOPY_WEB_GID)) ? Number(env.GLOOPY_WEB_GID) : webUid;
   let hub = null;
-  const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env }));
+  // (`routed`: its connections go through the owner's computer now: a certificate refused is said to be likelier theirs.)
+  const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env, routed: () => routeWanted && !!routeProxy && tunnel.connected }));
   // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
   const pending = new Map();
   // What of Gloopy's computer was last sent to its copy (the audit, 2026-11-10): "<project>:work" / ":browser" → its hash.
@@ -2356,7 +2357,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!ownerControl) return send(409, { error: "Take over first." });
         if (working) { ownerControl = null; return send(409, { error: "Gloopy is working in its browser." }); }
         try { return send(200, { ...(await browserHub().input(body)), control: true, working: false }); }
-        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: true }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 700), control: true }); }
       }
       if (url.pathname === "/gloopy/signin" && req.method === "POST") {
         const project = String(body.project || ""), p = pending.get(project);

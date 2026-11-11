@@ -40,8 +40,11 @@ Tried live on the test copy with Grok, recorded:
   - The app didn't try the link again after Gloopy's computer said it was asleep. When the handshake is refused, Node's WebSocket says only "error", never "close", and the app was waiting for "close". Now an error counts too, and a link that never answers is given up after 15 seconds. Test D10.
   - Nothing came back from Gloopy's computer through Go Farther's servers to the app. The link is now passed on Cloudflare's own way, and both ends count the messages each way, which shows in the app's status.
   - Settings' "On" note didn't show.
+  - **Secure sites showed a certificate error through the test computer.** The test computer caused it, not Gloopy. Its own network checks secure connections with its own certificate, and ordinary Chrome sent through it gets the same error, so Gloopy's browser is right to refuse. Some office networks and security programs do the same on a real computer. Now, when it happens while Gloopy goes through your computer, Gloopy and the live view say so, and say that turning the switch off sends it straight out. Test GL116.
+  - When the link closes, the app now notes why (the close's code), so one cut can be told from another. Test D11.
+- **Tried live on the test copy.** On my test computer, a stand-in for the Mac app ran the app's own link code. With the switch on, the live view showed "Through your computer". api.ipify.org, a page that shows the address it sees, showed 160.79.106.134, the test computer's own address. I used its plain (http) address, because of the certificate check above. Your router's kind of address, http://192.168.1.1, was blocked: "Gloopy's browser could not reach 192.168.1.1: blocked: 192.168.1.1 is a private or VPN address on this computer's network", and the app counted it.
 
-Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch), GL115 (the page), D7 to D9 (the desktop app: private addresses, the link, what the page may ask); CD119, CD129, CD146, GL25 and GL106 updated.
+Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch), GL115 (the page), GL116 (the certificate note), D7 to D11 (the desktop app: private addresses, the link, what the page may ask, trying again, why a link closed); CD119, CD129, CD146, GL25 and GL106 updated.
 
 ## 2026-11-10: The new browser pieces tried live, and four fixes
 

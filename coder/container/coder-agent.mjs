@@ -1146,7 +1146,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           }
         }
         let r;
-        try { r = await hub.act(act); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+        try { r = await hub.act(act); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 700)); continue; }
         const did = scrub((/^Did: (.{1,300})$/m.exec(r.text) || [])[1] || "");
         // A screenshot asked for, and downloads, put in the work folder (fixes 1 and 2).
         const kept = await keepFromBrowser(deps, r, now(), zone);

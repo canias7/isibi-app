@@ -5757,3 +5757,37 @@ test("GL115 (2026-11-11) Gloopy's browser through the owner's own computer, on t
   const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-web-route\{/);
 });
+
+test("GL116 (2026-11-11) live test: a secure site refused for its certificate while Gloopy's browser goes through the owner's computer is said to be likelier that computer's network (the test computer's own network checks secure connections with its own certificate, as some office networks and security programs do; ordinary Chrome sent the same way was refused the same), with how to go straight out, to Gloopy and in the live view; never while it goes straight out, and never for other errors", async () => {
+  const { makeBrowserHub, routeCertNote, ROUTE_CERT_NOTE } = await import("../container/gloopy-browser.mjs");
+  const CERT = "the page could not be loaded (net::ERR_CERT_AUTHORITY_INVALID).", OTHER = "the page could not be loaded (net::ERR_CONNECTION_REFUSED).";
+  assert.equal(routeCertNote(CERT, true), CERT + ROUTE_CERT_NOTE);
+  assert.equal(routeCertNote(CERT, false), CERT);
+  assert.equal(routeCertNote(OTHER, true), OTHER);
+  assert.match(ROUTE_CERT_NOTE, /^ Gloopy's browser goes through the owner's computer right now\. If every secure site says this, that computer's network is checking secure connections with its own certificate \(some office networks and security programs do\), and Gloopy's browser won't accept that\. Turning off "Through your own computer" in Settings → Browser sends it straight out again\.$/);
+  // Through the hub (as Coder's service drives the browser): a stand-in browser that answers each step with an error.
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-cert-")), "browser");
+  const { mkdirSync } = await import("node:fs");
+  mkdirSync(dir, { recursive: true });
+  let answer = CERT, routed = true;
+  const fake = http.createServer((q, r) => { let b = ""; q.on("data", (d) => (b += d)); q.on("end", () => { r.setHeader("content-type", "application/json"); r.end(JSON.stringify(q.url === "/ping" ? { ok: true } : { error: answer })); }); });
+  await new Promise((ok) => fake.listen(join(dir, "ctl.sock"), ok));
+  try {
+    const hub = makeBrowserHub({ dir, routed: () => routed });
+    await assert.rejects(hub.act({ action: "open", url: "https://api.example/" }), (e) => e.message === CERT + ROUTE_CERT_NOTE, "Gloopy's step");
+    await assert.rejects(hub.input({ kind: "open", url: "https://api.example/" }), (e) => e.message === CERT + ROUTE_CERT_NOTE, "the owner's, in the live view");
+    routed = false;
+    await assert.rejects(hub.act({ action: "open", url: "https://api.example/" }), (e) => e.message === CERT, "straight out: the site's own trouble");
+    routed = true; answer = OTHER;
+    await assert.rejects(hub.act({ action: "open", url: "https://api.example/" }), (e) => e.message === OTHER);
+    await assert.rejects(makeBrowserHub({ dir }).act({ action: "open", url: "https://api.example/" }), (e) => e.message === OTHER, "no route known: as before");
+  } finally { fake.close(); }
+  // Coder's service tells the hub when the browser's connections go through the link, and neither Gloopy's error nor
+  // the live view's cuts the note off.
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /makeBrowserHub\(\{ dir: browserRoot \|\| \(data \? join\(data, "browser"\) : "\/srv\/gloopy-browser"\), uid: webUid, gid: webGid, env, routed: \(\) => routeWanted && !!routeProxy && tunnel\.connected \}\)/);
+  assert.match(server, /send\(200, \{ \.\.\.\(await browserHub\(\)\.input\(body\)\), control: true, working: false \}\); \}\n\s+catch \(e\) \{ return send\(200, \{ error: String\(\(e && e\.message\) \|\| e\)\.slice\(0, 700\), control: true \}\); \}/);
+  assert.ok((CERT + ROUTE_CERT_NOTE).length < 700);
+  const agent = await readFile(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.match(agent, /try \{ r = await hub\.act\(act\); \} catch \(e\) \{ no\("error: " \+ String\(\(e && e\.message\) \|\| e\)\.slice\(0, 700\)\); continue; \}/);
+});

@@ -112,3 +112,25 @@ test("D10 live test (2026-11-11): a link refused while Gloopy's computer is asle
   r.stop();
   assert.equal(r.status().connected, false);
 });
+
+test("D11 live test (2026-11-11): when the link closes, the close's own code is said with it (1006 cut off, 1009 too big…), so one cut can be told from another; a plain close says nothing more; the link is asked for again", async () => {
+  const made = [];
+  class FakeWS {
+    constructor(url) { this.url = url; made.push(this); setTimeout(() => this.onopen && this.onopen(), 5); }
+    send() {}
+    close() { this.closed = true; }
+  }
+  const r = makeRoute({ WebSocket: FakeWS, anyUrl: true, retryMs: 50, device: "Test Mac" });
+  try {
+    r.start({ url: "ws://127.0.0.1:1/api/coder/gloopy-route", ticket: "t" });
+    assert.ok(await until(() => r.status().connected), "linked");
+    made[0].onclose({ code: 1006, reason: "" });
+    assert.equal(r.status().error, "the link was cut (1006)");
+    assert.ok(await until(() => r.status().connected, 5000), "asked for again");
+    made[made.length - 1].onclose({ code: 1009, reason: "message too big" });
+    assert.equal(r.status().error, "the link was cut (1009: message too big)");
+    assert.ok(await until(() => r.status().connected, 5000));
+    made[made.length - 1].onclose({ code: 1000 });
+    assert.equal(r.status().error, "the link was cut");
+  } finally { r.stop(); }
+});

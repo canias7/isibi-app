@@ -1115,6 +1115,15 @@ export function thumbOf(b64) {
   return u.length <= 60_000 ? u : "";
 }
 
+/**
+ * A CERTIFICATE REFUSED WHILE THE BROWSER GOES THROUGH THE OWNER'S COMPUTER (found in the live test, 2026-11-11: the
+ * test computer's own network checks secure connections with its own certificate, as some office networks and security
+ * programs do, and Gloopy's browser rightly refuses it; ordinary Chrome sent the same way is refused the same): said
+ * so, with what to do, to Gloopy and to the owner in the live view. `routed`: the connection went through the link.
+ */
+export const ROUTE_CERT_NOTE = " Gloopy's browser goes through the owner's computer right now. If every secure site says this, that computer's network is checking secure connections with its own certificate (some office networks and security programs do), and Gloopy's browser won't accept that. Turning off \"Through your own computer\" in Settings → Browser sends it straight out again.";
+export const routeCertNote = (msg, routed) => (routed && /net::ERR_CERT_/.test(String(msg)) ? String(msg) + ROUTE_CERT_NOTE : String(msg));
+
 /** The proxy the browser is started with (2026-11-11): only Coder's own, on this machine ({ server: "http://127.0.0.1:port" }); null for none. */
 export function routeProxyOf(raw) {
   let p = null;
@@ -1136,7 +1145,7 @@ export function browserEnv(dir, env = process.env) {
  * `gloopyweb`), in `dir` (made here, only that user's). `act`: one of the AI's actions; `describe` and `fill`: the
  * service's own. Each answers what the browser said, or throws with what went wrong.
  */
-export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env, zone = "" } = {}) {
+export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS, startMs = START_MS, env = process.env, zone = "", routed = () => false } = {}) {
   const sock = join(dir, "ctl.sock");
   // The owner's time zone the browser is started with (fix 7).
   let want = okZone(zone) ? zone : "";
@@ -1159,7 +1168,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     let r = await ask(sock, "/act", body, timeoutMs);
     if (r && r.down) { await start(); r = await ask(sock, "/act", body, timeoutMs); }
     if (!r || r.down) throw new Error("the browser stopped answering");
-    if (r.error) throw new Error(r.error);
+    if (r.error) throw new Error(routeCertNote(r.error, routed()));
     return r;
   };
   return {
