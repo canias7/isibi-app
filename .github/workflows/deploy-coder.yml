@@ -69,14 +69,25 @@ jobs:
           echo "All secrets present."
       # READ'S PICTURES AND PDFs (owner item 1, 2026-11-08) are tested with the programs Coder's machine
       # has for them; without them those tests are skipped, so a failed install never stops a deploy.
-      # (2026-11-11: this step hung for over 20 minutes in two deploys in a row on GitHub's machines, so apt never asks
-      # anything now, waits at most a minute for its lock and 5 minutes in all, and the step gives up after 12.)
+      # (2026-11-11: this step hung for over 20 minutes in two deploys in a row on GitHub's machines, and used up its 12
+      # minutes in a third. So apt never asks anything, waits at most a minute for its lock and 5 minutes a try; the
+      # manual pages' index is not rebuilt after the install (on GitHub's Ubuntu 24.04 machines that alone is known to
+      # take many minutes); only what the programs need is installed, as Coder's machine installs them (its Dockerfile:
+      # --no-install-recommends); and when apt fails, its last lines and the times show here.)
       - name: The picture, PDF and search programs Coder's machine has (for its tests)
         timeout-minutes: 12
         continue-on-error: true
         run: |
-          APT="sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a timeout 300 apt-get -o DPkg::Lock::Timeout=60"
-          $APT install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1 || ($APT update -qq >/dev/null 2>&1 && $APT install -y -qq imagemagick poppler-utils ripgrep >/dev/null 2>&1) || echo "Not installed: those tests are skipped."
+          sudo rm -f /var/lib/man-db/auto-update
+          APT="sudo env DEBIAN_FRONTEND=noninteractive NEEDRESTART_MODE=a timeout 300 apt-get -o DPkg::Lock::Timeout=60 -y -qq --no-install-recommends"
+          PROGRAMS="imagemagick poppler-utils ripgrep"
+          echo "$(date -u +%T) installing $PROGRAMS"
+          if ! $APT install $PROGRAMS > /tmp/apt.log 2>&1; then
+            tail -n 15 /tmp/apt.log
+            echo "$(date -u +%T) updating apt's lists, then installing again"
+            { $APT update && $APT install $PROGRAMS; } > /tmp/apt.log 2>&1 || { tail -n 15 /tmp/apt.log; echo "Not installed: those tests are skipped."; }
+          fi
+          echo "$(date -u +%T) done"
           command -v convert pdftotext rg || true
       - name: Run Coder's tests
         run: node --test test/*.test.mjs
