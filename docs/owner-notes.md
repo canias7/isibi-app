@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: The last 11 differences from Claude Code's Bash docs (your words: "yea do all of them")
+
+Not merged or deployed yet: on the branch, waiting for your word. All 431 tests pass.
+
+- **A hole in Plan mode, closed.** In Plan mode, a hook that says "allow" no longer lets a command that changes things run. It still asks you, as Claude Code does. A hook can still approve the plan itself.
+- **Rules with wildcards.** A deny or ask rule can now name tools with `*`. For example, `*` in Ask means "ask before every tool". A tool you deny completely is now hidden from Coder, as in Claude Code.
+- **The repo's own `.claude/settings.json`.** Its deny and ask rules now always count. Its allow rules and extra folders only count once you tick the new box in the rules dialog: "Trust this repository's settings". Until then, the chat shows Claude Code's warning. Its `env` list now reaches Coder's commands, but your own variables win.
+- **Which file wins for turning hooks off:** the repo's file over yours, as in Claude Code.
+- **Instructions from extra folders.** With `CODER_ADDITIONAL_DIRECTORIES_CODER_MD=1` in the environment, Coder also reads each extra working folder's CODER.md and rules.
+- **Block writes outside the working folders** (outside Bash: the Write and Edit tools). With `CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES=1`, Write and Edit refuse anything outside the working folders, and the repo's settings files too, in Claude Code's words.
+- **Settings: "Turn off Auto mode".** Chats then start in Accept edits, and Auto is not offered anywhere.
+- **Blocked sites.** Environment, then Network access, now has a "Blocked sites" list. Those sites are never reached, even with Full access or a saved key.
+- **Keys kept away from commands.** With `CODER_SUBPROCESS_ENV_SCRUB=1`, variables that look like passwords or keys are removed before commands and hooks run. It uses Claude Code's own rules and is on by default for jobs started from GitHub. With it on, `CODER_SCRIPT_CAPS` (for example `{"deploy.sh": 2}`) limits how many times a script may run in a chat.
+- **Sites for one command, in Auto mode.** Coder can name extra sites a single command needs. The checker looks at them together with the command. If it's fine, only that command can reach them, and only while it runs.
+- **PowerShell.** With `CODER_USE_POWERSHELL_TOOL=1`, Coder gets Claude Code's PowerShell tool, with its own rules like `PowerShell(Get-ChildItem *)`. `CODER_DEFAULT_SHELL=powershell` runs your `!` commands in it, and a hook can say `"shell": "powershell"`. PowerShell 7 is added to the machine image, so the next deploy rebuilds that image once.
+
 ## 2026-11-10: All 11 of the last Bash-docs items (your words: "yea do all of them")
 
 Not merged or deployed yet: on the branch, waiting for your word. All 419 tests pass.

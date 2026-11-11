@@ -767,7 +767,8 @@ aside (`droppedInAuto`). Tests: `test/monitor-ws.test.mjs`.
 by name or by its full path in /bin, /usr/bin or /usr/local/bin; anything else is
 bash (`shellOf`). zsh is in Coder's image; in zsh, the startup file's snapshot is
 zsh's (`SNAPSHOT_TAKE_ZSH`, from `~/.zshrc`), its extended patterns are off, and
-the command runs through `eval`, as Claude Code runs it. Hooks always run in bash.
+the command runs through `eval`, as Claude Code runs it. Hooks always run in bash (or,
+with a hook's `shell: "powershell"`, in PowerShell: pass 6 below).
 Tests: CD385e.
 
 **Auto mode rules, refusing instead of asking, and working folders** (owner,
@@ -785,6 +786,71 @@ end the turn. The rules list keeps a repository's working folders (Claude Code's
 `permissions.additionalDirectories`, `dirs`, `dirProblem`): each one that is a
 folder on the machine joins the chat's working directories (`extraDirsOf`), and
 Coder is told of them. Tests: `test/auto-rules.test.mjs`.
+
+**Bash docs pass 6: the last differences** (owner, 2026-11-10: "yea do all of
+them"). Tests: `test/pass6.test.mjs` (CD387 to CD397).
+- *A hook's allow in Plan mode* (Claude Code's "Hook approvals in plan mode"):
+  a PreToolUse hook's `allow` no longer runs a command or a WebSocket watch that
+  isn't read-only in Plan mode (the card, or the checker, as with no hook); its
+  `updatedInput` still applies; `allow` with `updatedInput` on `exit_plan_mode`
+  approves the plan without the card, back to the owner's start mode
+  (`planExit`, the Worker's `prePlanMode`).
+- *Tool-name wildcards* (`toolGlob`, `toolGlobMatches`): deny and ask rules take
+  `*`, `B*`, `mcp__*`; an allow one is skipped, with Claude Code's point said. A
+  tool a deny rule names bare or by wildcard is no longer offered to Grok
+  (`toolDenied`), Coder's other tools and Grok's web search (`WebSearch`)
+  included; an ask rule on Coder's other tools shows a card first.
+- *The repository's own settings* (`repoSettings`, `withRepoRules`): its
+  `.claude/settings.json` and `.claude/settings.local.json` give their deny and
+  ask rules always; their allow rules and `additionalDirectories` only once the
+  owner turns on "Trust this repository's settings" in the rules dialog (Claude
+  Code's workspace trust; `setTrust`), with Claude Code's warning until then
+  (`heldNote`); their `env` reaches the commands under the owner's own
+  variables, minus what a repository shouldn't set (`REPO_ENV_OFF`); their read
+  and write blocks and `disableAutoMode` turn on. Never in a job from GitHub.
+- *`disableAllHooks`* by Claude Code's settings precedence: the repository's
+  local file, then its shared one, then the owner's.
+- *The working folders' instructions* (`extraInstructions`): with the
+  environment's `CODER_ADDITIONAL_DIRECTORIES_CODER_MD` (Claude Code's
+  `CLAUDE_CODE_ADDITIONAL_DIRECTORIES_CLAUDE_MD`), each working folder's CODER.md,
+  .coder/CODER.md and .coder/rules load as the project's do.
+- *The write block* (outside Bash: the file tools; Claude Code's
+  `permissions.blockWritesOutsideWorkingDirectories`, here
+  `CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES`): write and edit refuse a path
+  outside the working folders, and a repository's settings files anywhere, in
+  Claude Code's words (`WRITE_BLOCKED`, `SETTINGS_WRITE_BLOCKED`); Coder's
+  scratch folder and memory file stay writable.
+- *Turn off Auto mode* (Settings; Claude Code's `disableAutoMode`): chats start
+  in Accept edits, and Auto is offered nowhere (menu, cards, plan approval);
+  the machine keeps every way into Auto out (`offAuto`).
+- *Blocked sites* (an environment's network setting; Claude Code's
+  `sandbox.network.deniedDomains`, `hostDenied`): refused by the gate in every
+  setting, Full and a saved key's sites included, in Coder's words (`DENIED`);
+  Full with blocked sites goes through the gate (`netWalled`).
+- *The subprocess environment scrub and script caps* (`coder-scrub.mjs`; Claude
+  Code's `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB` and `CLAUDE_CODE_SCRIPT_CAPS`, here
+  `CODER_SUBPROCESS_ENV_SCRUB` and `CODER_SCRIPT_CAPS`): credentials by Claude
+  Code's own name and value rules leave the variables commands and hooks get
+  (GitHub tokens, proxies and git's config stay; an index address loses its
+  password); on by default in jobs from GitHub. With the scrub on, a capped
+  script runs only so many times a chat (counts kept on the machine).
+- *Per-command hosts in Auto mode* (Claude Code's `allowed_domains` on Bash and
+  Monitor): a command may name hosts beyond the network list; the checker
+  reviews them with the command (allow rules and hook allows approve the
+  command, not the hosts); a card an ask rule shows lists them; once approved
+  the command gets its own pass to the gate (`openFor`, `passOf`, in its proxy
+  address), which opens them for it alone while it runs; an unlisted host is
+  refused in Claude Code's words (`UNLISTED`). Refused with network None or
+  without the gate; ignored in other modes and from GitHub.
+- *PowerShell* (`coder-ps.mjs`; Claude Code's PowerShell tool, opt-in on Linux):
+  `CODER_USE_POWERSHELL_TOOL` offers it where the machine has pwsh (the full
+  image installs PowerShell 7 from Microsoft's own package list), with Claude
+  Code's description, rules in the shape of Bash's (`PowerShell(...)`, aliases
+  canonicalized, every part must be allowed; `psDecision`), read-only cmdlets,
+  its Start-Sleep check; it runs with no profile, non-interactive, the execution
+  policy bypassed unless `CODER_POWERSHELL_RESPECT_EXECUTION_POLICY`, and its
+  folder kept between commands (`psCommand`). `CODER_DEFAULT_SHELL=powershell`
+  runs the owner's `!` commands in it; hooks take `shell: "powershell"`.
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
