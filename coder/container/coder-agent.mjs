@@ -830,6 +830,11 @@ export const CONNECTOR_PREVIEW = 2_000;
 /** Claude Code: "error results over about 11,000 characters keep the first and last 5,000". */
 export const CONNECTOR_ERROR_MAX = 11_000;
 export const CONNECTOR_ERROR_KEEP = 5_000;
+/**
+ * LONG CONNECTOR CALLS GO TO THE BACKGROUND (Claude Code: "An MCP tool call in the main conversation that is still running
+ * after two minutes moves to a background task"): Coder goes on and is told the answer when it comes.
+ */
+export const CONNECTOR_BG_MS = 2 * 60_000;
 /** Claude Code warns when an MCP answer is over 10,000 tokens: about this many characters. */
 export const CONNECTOR_WARN_CHARS = 40_000;
 /** What Grok is told with a connector's answer: it came from outside, so it is data, not the owner's instructions. */
@@ -1099,6 +1104,20 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
   // The owner's connectors' tools come after Coder's own (never in a job started from GitHub, nor without a way to call them).
   const mcpTools = !github && typeof deps.mcp === "function" ? connectorTools(connectors) : [];
   const mcpByName = new Map(mcpTools.map((t) => [t.name, t]));
+  const mcpBg = new Map();
+  let mcpBgN = 0;
+  /** The background connector calls that have ended: a note for Coder on each, and they leave the list. */
+  const takeBgConnectors = () => {
+    const out = [];
+    for (const [k, b] of mcpBg) {
+      if (!b.done) continue;
+      mcpBg.delete(k);
+      const text = scrub(String((b.r && b.r.text) || ""));
+      emit({ type: "note", text: "Background connector call " + k + " (" + b.label + ") " + (b.r && b.r.isError ? "failed." : "finished.") });
+      out.push(k + " (" + b.label + ") " + (b.r && b.r.isError ? "failed" : "finished") + ":\n" + CONNECTOR_DATA + (text.length > CONNECTOR_INLINE_MAX ? text.slice(0, CONNECTOR_INLINE_MAX) + "\n…(cut: the answer was " + text.length.toLocaleString("en-US") + " characters)" : text));
+    }
+    return out;
+  };
   const asFn = (t, found = false) => ({ type: "function", function: { name: t.name, description: String(t.description).slice(0, found ? CONNECTOR_DESC_FOUND : CONNECTOR_DESC_UPFRONT), parameters: t.parameters } });
   const mcpDeferred = mcpTools.length > 0 && deferConnectors(mcpTools);
   // (A tool its server marks `_meta["anthropic/alwaysLoad"]` is loaded at the start even with tool search.)
@@ -1342,6 +1361,16 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the environment's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
       continue;
     }
+    // A CONNECTOR CALL STILL RUNNING IN THE BACKGROUND: its answer is waited for and given to Coder before the turn ends.
+    if (!calls.length && mcpBg.size) {
+      if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
+      const left = Math.max(1000, maxMs - (now() - started));
+      let waitT;
+      await Promise.race([Promise.race([...mcpBg.values()].map((b) => b.promise)), new Promise((r) => { waitT = setTimeout(r, left); })]);
+      clearTimeout(waitT);
+      const notes = takeBgConnectors();
+      if (notes.length) { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your connector calls in the background:\n" + notes.join("\n\n") + ")" }); continue; }
+    }
     if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
     if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
 
@@ -1350,6 +1379,12 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
     // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
     const roundPics = [];
     const roundNotes = [], roundShown = [];
+    // READ-ONLY CONNECTOR TOOLS SIDE BY SIDE (Claude Code: a readOnlyHint tool "runs in parallel with other read-only
+    // calls"): when Coder asks for several in one round that need no question, they all start now; each answer is taken in
+    // its turn below.
+    const mcpEarly = new Map();
+    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || modeNow() === "auto"); };
+    if (calls.filter(quiet).length > 1) for (const c of calls.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
     for (let i = 0; i < calls.length; i++) {
       const c = calls[i];
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
@@ -1880,7 +1915,21 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
         }
         emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) });
         let r;
-        try { r = await deps.mcp(c.name, c.args || {}); } catch (e) { r = { text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }; }
+        const running = mcpEarly.get(c.id) || Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }));
+        // Still running after two minutes: to the background; Coder goes on and is told the answer when it comes.
+        let timer;
+        const later = await Promise.race([running.then((x) => ({ x })), new Promise((ok) => { timer = setTimeout(() => ok(null), deps.connectorBgMs || CONNECTOR_BG_MS); })]);
+        clearTimeout(timer);
+        if (!later) {
+          const bgId = "connector-" + (++mcpBgN);
+          const b = { label: t.label, done: false, r: null };
+          b.promise = running.then((x) => { b.done = true; b.r = x; });
+          mcpBg.set(bgId, b);
+          emit({ type: "result", id: c.id, code: 0, output: "Still running after 2 minutes: moved to the background (" + bgId + ")." });
+          reply("still running after 2 minutes, so it was moved to the background as " + bgId + ". Go on with other work; you are told its answer when it comes (before your turn ends at the latest).");
+          continue;
+        }
+        r = later.x;
         const out = scrub(String(r.text || ""));
         emit({ type: "result", id: c.id, code: r.isError ? 1 : 0, output: out.slice(0, 4000) });
         // A LONG ANSWER GOES TO A FILE (Claude Code: MCP text over 50,000 characters is saved to a file to read): the start
@@ -1918,6 +1967,7 @@ export async function runCoder(deps, { notices = [], lost = [], timeouts = null,
       // Told now: the machine starts no turn of its own for it.
       try { if (deps.bg && typeof deps.bg.told === "function") await deps.bg.told(j.pid); } catch { /* best effort */ }
     }
+    roundNotes.push(...takeBgConnectors());
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     // Those whose lines the note showed may be written over from now on (toolChanged `shown`), as in Claude Code.
     if (roundShown.length && deps.seen === true) await appTool(deps, "changed", { shown: roundShown });

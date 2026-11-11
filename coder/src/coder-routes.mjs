@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -829,8 +829,13 @@ export async function handleCoder(request, env, ctx, deps) {
     // strangers write), with no pictures or comments. The machine runs it as Coder's commands run.
     const shell = !review && !wake && body.fromGithub !== true && /^!/.test(said) && !commentsText(body.comments) && !(Array.isArray(body.images) && body.images.length) ? said.replace(/^!\s*/, "") : null;
     if (shell === "") return json({ error: "write a command after !" }, 400);
+    // A CONNECTOR'S PROMPT ("/linear:triage …") OR RESOURCE ("@notion:notion://page/…") in the owner's own message (never
+    // from GitHub): the prompt's text, or the resource attached (coder-mcp.mjs, expandConnectorRefs).
+    const ref = shell === null && !review && !wake && body.fromGithub !== true && /^\s*\/[a-z0-9_-]+(?::|__)|@[a-z0-9_-]+:[a-z][a-z0-9+.-]*:\/\//i.test(said) ? await expandConnectorRefs(env, bucket, uid, said, { fetchFn }) : null;
+    if (ref && ref.error) return json({ error: ref.error }, 400);
     const notes = commentsText(body.comments);
-    const text = notes ? notes + (said ? "\n\n" + said : "") : said;
+    const asked = ref ? ref.text : said;
+    const text = notes ? notes + (asked ? "\n\n" + asked : "") : asked;
     const pics = checkImages(body.images);
     if (pics.error) return json({ error: pics.error }, 400);
     if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);

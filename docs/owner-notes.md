@@ -6,6 +6,35 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
 
+## 2026-11-11: Connectors: the rest of Claude Code's MCP list (your word: "Yes, do all of the rest")
+
+Items #22 and #26 to #30 of `docs/connectors-vs-claude-code.md`.
+
+- **Tools side by side (#22):**
+  - When Coder asks for several read-only tools at once, they now run together instead of one after another.
+  - A tool the app marks "safe to repeat" is tried once more after a passing failure. Other tools never are.
+- **Long calls go to the background (#26):**
+  - A connector call still running after 2 minutes moves to the background, and Coder goes on with other work.
+  - When it finishes, Coder is told the answer, and the chat shows "Background connector call … finished".
+  - Coder waits for it before ending its turn.
+- **Resources (#27):** typing `@linear:linear://issue/LIN-1` in a message attaches that item for Coder, marked as data, not your instructions.
+- **Prompts (#28):**
+  - A connector's ready-made prompts can be typed as a message, for example `/linear:triage web login`.
+  - The connector's page lists its prompts and resources, so you can see what to type.
+- **Long app jobs (#30):**
+  - For apps that run long jobs on their side, Coder's server checks every few seconds until the job is done, then gives Coder the result.
+  - After 30 minutes it cancels the job.
+- **Not done: the app asking you something mid-call (#29).**
+  - The app would pause a tool call to ask you, and continue with your answer.
+  - Our server handles each request separately, so it would need a "Durable Object" to hold the paused call. That's a bigger change.
+  - Apps aren't told we can answer, so they don't ask, and nothing breaks.
+- **Two fixes found while testing:**
+  - The "wait for background calls" step left a long timer running after it was done. It is now cleared.
+  - An older test checks the page never mentions slash commands, so I reworded one comment.
+- **Tests:** MC15 is new. All 404 pass, 4 skipped as before.
+- **Not deployed yet.**
+- **Can't be tried live yet:** prompts and resources only show for apps that have them, and each app needs a login first. Cloudflare Docs has neither.
+
 ## 2026-11-11: Connectors: 14 more things from Claude Code's MCP docs (your word: "Start with all of it")
 
 Items #11 to #21 and #23 to #25 of `docs/connectors-vs-claude-code.md`.

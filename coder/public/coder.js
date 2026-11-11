@@ -278,7 +278,10 @@
       (st.note ? '<div class="cx-note">' + esc(st.note) + '</div>' : '') +
       (c.tools.length ? '<div class="cx-ph">Tool permissions</div><p class="cx-desc">Choose when Coder may use these tools. Always allow: it uses them freely. Needs approval: it asks you first in Accept edits and Plan mode (in Auto mode it goes ahead). Blocked: never offered.</p>' +
         group(c, 'read', 'Read-only tools', c.tools.filter((t) => t.readOnly)) + group(c, 'write', 'Write/delete tools', c.tools.filter((t) => !t.readOnly))
-        : '<p class="cx-desc">No tools yet: ' + (c.status === 'ok' ? 'this server offers none.' : 'reconnect it to see them.') + '</p>');
+        : '<p class="cx-desc">No tools yet: ' + (c.status === 'ok' ? 'this server offers none.' : 'reconnect it to see them.') + '</p>') +
+      // ITS PROMPTS AND RESOURCES (Claude Code: prompts typed as /connector:prompt, resources with @): what to type in a message.
+      ((c.prompts || []).length ? '<div class="cx-ph">Prompts</div><p class="cx-desc">Type one as a message, with what it asks for after it.</p><ul class="cx-plist">' + c.prompts.map((x) => '<li><code>' + esc(x.command) + '</code>' + (x.description ? ' <span>' + esc(x.description) + '</span>' : '') + '</li>').join('') + '</ul>' : '') +
+      ((c.resources || []).length ? '<div class="cx-ph">Resources</div><p class="cx-desc">Put one in a message and it is attached for Coder.</p><ul class="cx-plist">' + c.resources.map((x) => '<li><code>' + esc(x.mention) + '</code>' + (x.name ? ' <span>' + esc(x.name) + '</span>' : '') + '</li>').join('') + '</ul>' : '');
     const paint = () => {
       const c = st.open && list.find((x) => x.id === st.open);
       if (st.open && !c) st.open = '';

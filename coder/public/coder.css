@@ -542,6 +542,9 @@
 .cx-perms { flex: none; display: flex; background: #efede8; border-radius: 10px; padding: 2px; }
 .cx-perms button { border: 0; background: none; color: #8b8a86; width: 32px; height: 28px; border-radius: 8px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 .cx-perms button.on { background: #fff; color: #1f1e1d; box-shadow: 0 1px 2px rgba(0,0,0,.1); }
+.cx-plist { margin: 10px 0 0; padding-left: 18px; font-size: 13px; color: #4b5563; }
+.cx-plist li { margin-bottom: 6px; overflow-wrap: anywhere; }
+.cx-plist code { font-size: 12.5px; background: #f1eee9; border-radius: 4px; padding: 1px 5px; color: #1f1e1d; }
 .cx-addbox .cx-addnote { margin-top: 8px; font-size: 13px; color: #b42318; }
 @media (max-width: 600px) {
   .cx-in { padding: 18px 16px 48px; }

@@ -52,14 +52,14 @@ Your word: "go back to the Claude Code docs and look up the MCP tools ... see wh
 | 19 | offline_access | appended to the scopes when the sign-in server offers it, so a refresh token comes back | added when the sign-in server offers it | done 2026-11-11 |
 | 20 | "Needs more permission" | a 403 `insufficient_scope` says the connector needs more permissions | "needs more permissions: reconnect it" | done 2026-11-11 |
 | 21 | Server instructions | a server's instructions (up to 4,096 characters) are given to the model at the start | each working connector's instructions (up to 4,096) given to Grok, marked as the server's, not the owner's | done 2026-11-11 |
-| 22 | Read-only in parallel; safe repeats | `readOnlyHint` tools run side by side; `idempotentHint` tools may be repeated once on a new connection | one by one, never repeated | later |
+| 22 | Read-only in parallel; safe repeats | `readOnlyHint` tools run side by side; `idempotentHint` tools may be repeated once on a new connection | read-only tools that need no question start together; an idempotent tool is repeated once after a passing failure | done 2026-11-11 |
 | 23 | Always load a tool | `_meta["anthropic/alwaysLoad"]` keeps a tool loaded even with tool search | read; such tools load at the start even with tool search | done 2026-11-11 |
 | 24 | Tool schemas | top-level `anyOf`/`oneOf`/`allOf` flattened; tools with odd property names left out | flattened; tools with odd property names left out | done 2026-11-11 |
 | 25 | Same server twice | addresses compared without case, default port or trailing slash | compared without case, default port or trailing slash | done 2026-11-11 |
-| 26 | Long calls to the background | a call still running after 2 minutes moves to the background | waits | later |
-| 27 | Resources | `@server:protocol://path`, fetched and attached | none | later (#9) |
-| 28 | Prompts | `/server:prompt` slash commands | none | later (#9) |
-| 29 | Elicitation | the server asks the user something (a form or a link) | refused | later (#9) |
-| 30 | MCP tasks (beta) | long server jobs polled every 2 seconds (250 ms to 30 s), cancellable | none | later |
+| 26 | Long calls to the background | a call still running after 2 minutes moves to the background | a connector call still running after 2 minutes moves to the background; Coder goes on and is told the answer when it comes (before its turn ends at the latest) | done 2026-11-11 |
+| 27 | Resources | `@server:protocol://path`, fetched and attached | `@connector:uri` in your message is read and attached, marked as data; the connector's page lists its resources | done 2026-11-11 |
+| 28 | Prompts | `/server:prompt` slash commands | `/connector:prompt args` (or `/mcp__connector__prompt`) as your message becomes the prompt's text; the connector's page lists them | done 2026-11-11 |
+| 29 | Elicitation | the server asks the user something (a form or a link) | NOT DONE: the app would pause a tool call to ask you something, across two separate web requests; that needs a Durable Object (a bigger change). Apps aren't told we support it, so they don't ask | not done |
+| 30 | MCP tasks (beta) | long server jobs polled every 2 seconds (250 ms to 30 s), cancellable | a tool that supports tasks is asked to run as one; Coder's server follows it (every 0.25 to 30 seconds, 2 by default) until it ends, up to 30 minutes, then cancels it | done 2026-11-11 |
 
 Not on the page, so not needed to match: sampling, structured content and outputSchema, destructiveHint, title, notifications/cancelled. Ours only: the hourly tool-list refresh (Claude Code relies on list_changed, which a web request can't hear).
