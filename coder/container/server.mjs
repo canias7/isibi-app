@@ -606,9 +606,18 @@ export const MONITOR_FLOOD = 400, MONITOR_PENDING = 1000, MONITOR_READ = 256 * 1
  * together, one event, cut at 3,000; 10 events at once, then one every 2 seconds; events past that counted and said when one
  * goes through ("[N events suppressed — output rate too high. …]"); after 30 seconds of that the monitor is stopped ("[Monitor
  * stopped — too much output (N events suppressed over Ss). Restart with a more selective source.]"). A line not ended yet
- * keeps its last 1 MiB. (Claude Code puts lines within 200 ms in one event; Coder reads every few seconds and at each step.)
+ * keeps its last 1 MiB. LINES WITHIN 200 MS ARE ONE EVENT, as Claude Code batches them: a running monitor is read every 200 ms
+ * (readMonitors; live test after deploy 124: read every 5 seconds, a 10-lines-a-second loop made 17 big events a minute and
+ * never met these limits, where Claude Code's own stopped at 30 seconds).
  */
 export const MONITOR_LINE_MAX = 500, MONITOR_EVENT_MAX = 3000, MONITOR_BUCKET = 10, MONITOR_REFILL_MS = 2000, MONITOR_FLOOD_MS = 30_000, MONITOR_PART_MAX = 1024 * 1024;
+export const MONITOR_BATCH_MS = 200;
+/** Every running monitor, read (each read's new lines one event): every MONITOR_BATCH_MS while the machine runs. */
+export function readMonitors(now = Date.now()) {
+  let n = 0;
+  for (const j of JOBS.values()) if (j.monitor && !j.end && !j.stopping) { readMonitor(j, { now }); n++; }
+  return n;
+}
 export const monitorSuppressed = (n) => "[" + n + " events suppressed \u2014 output rate too high. Consider using stop_job to restart this monitor with a more selective filter.]";
 export const monitorFlooded = (n, sec) => "[Monitor stopped \u2014 too much output (" + n + " events suppressed over " + sec + "s). Restart with a more selective source.]";
 /** Reads what a monitor printed since the last look into its `pending` events (the end line the log gets is never one). */
@@ -3553,6 +3562,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
   if (typeof jobTimer.unref === "function") jobTimer.unref();
+  // (A running monitor's lines, every 200 ms: Claude Code's batching, so its limits meet a busy command as they do there. Only
+  // on the real machine, liveFetch: a machine made in a test reads its monitors on its own clock.)
+  if (liveFetch) {
+    const monitorTimer = setInterval(() => { try { readMonitors(); } catch { /* next time */ } }, MONITOR_BATCH_MS);
+    if (typeof monitorTimer.unref === "function") monitorTimer.unref();
+  }
   /**
    * SESSIONEND HOOKS (Claude Code: "Runs when a session terminates", matched on why: clear, resume, logout,
    * prompt_input_exit, other): when this machine is stopped (Fly.io puts a quiet chat's machine to sleep), as `other`, for

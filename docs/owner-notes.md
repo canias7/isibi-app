@@ -11,6 +11,29 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Round 2 of the live test (recording 35), the same tests in Claude Code, and two fixes (your words: "ok", and "remember to run everything in claude code too, to see the differences")
+
+**Coder, live on gofarther.dev with Grok** (a new chat on canias7/testingforclaude, Accept edits; each test setting put back right after its step):
+- **PowerShell** (switched on for the test): `…; exit 3` reported exit code 3.
+- **A deny rule on `rm`** refused `nice rm`, `timeout 5 rm` and `command rm`, each on its own row marked "not run".
+- **`ls ~root` and `ls -d ~+`** asked first, with Claude Code's reason ("Tilde expansion variants (~user, ~+, ~-) in paths require manual approval").
+- **A rule written the way the command is typed** (`Bash(FOO=1 touch live-*)`) let `FOO=1 touch live-rule-test.txt` run without asking.
+- **Proxy settings:** commands get all 20 of the names Claude Code's cloud gives them, plus 4 for plain http (Coder's gate also carries plain http, for apt's mirrors).
+- **Hooks** run with plain `sh`, as in Claude Code. But this found a bug (below).
+- **A busy monitor** (10 lines a second) also found a difference (below).
+
+**The same tests in Claude Code** (this Claude Code cloud session ran them itself, so you could watch Claude Code's own results; it runs in Auto mode, not Accept edits):
+- **The same:** zsh 5.9, `TERM=linux`, `CLAUDE_CODE_REMOTE=true`, `GIT_EDITOR=true`, a scratch folder, output in the order printed, `sleep 30` refused in the same words, a command past its 5-second limit moved to the background in the same sentences, and the stuck "Continue? (y/n)" notice in the same words.
+- **Correction to an earlier note of mine:** Claude Code's stuck-command notice does include the command's last output ("Last output: Continue? (y/n)"), as Coder's does. I had read its code as leaving it out.
+- **Not like for like:** Claude Code here runs in Auto mode, so `[[ $(ls) ]]`, `ls &`, `ls ~root` and `ls -d ~+` ran after its checker allowed them. In Coder's Accept edits they ask, which is what Claude Code's own code does in its default mode.
+- **Differences:** Claude Code's git `origin` is github.com; Coder's is Coder's own git address (Coder's server adds your GitHub login). Hooks, rules and PowerShell couldn't be changed in this session, so those weren't compared.
+
+**Two fixes from this, on the branch (not live yet):**
+1. **Hooks and the scratch folder:** in a new chat, the very first hook ran before any command had made the scratch folder, so a hook writing there failed ("Directory nonexistent"). Claude Code's scratch folder exists from the session's start. Now every hook makes it first, with the same line Coder's commands use. Test CD506.
+2. **A busy monitor:** Claude Code batches a monitor's lines every 200 ms, so a busy one hits its limits: after 10 events it suppresses ("[7 events suppressed — output rate too high…]") and stops the monitor at 30 seconds. Coder read monitors only every 5 seconds, so the same loop made 17 big events in a minute and was never limited; a long-running one could keep feeding Grok. Coder now reads a running monitor every 200 ms, so the same limits and wording apply. Test CD507.
+
+Grok cost for round 2: 7 messages, plus a few short monitor wake-ups, at Low effort; my estimate is under $1. The Claude Code side cost nothing extra (it ran in this session).
+
 ## 2026-11-11: Deploy 124: the stopped-step fix live, and tested live with Grok (recording 34) (your words: "merge and deploy")
 
 Merged into main and deployed (deploy 124, live at 10:40 UTC). All 539 tests passed first.

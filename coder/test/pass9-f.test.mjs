@@ -208,3 +208,51 @@ test("CD505 a background command Coder stops itself shows \"stopped\" on its own
   assert.deepEqual(ends, { job1: { ok: true, label: "ended" }, job2: { ok: false, label: "stopped" }, job3: { ok: false, label: "stopped" }, job4: { ok: false, label: "stopped" } });
   assert.match(ui, /S\.bgEnded = bgEndsOf\(S\.events\);/);
 });
+
+test("CD506 every hook finds the chat's scratch folder it is told about (live test after deploy 124: in a new chat the first PreToolUse hook ran before any command had made it: \"Directory nonexistent\"); the same line Coder's commands start with", async () => {
+  const H = await import("../container/coder-hooks.mjs");
+  for (const h of [{ type: "command", command: "echo hi" }, { type: "command", command: "/opt/check", args: ["--fast"] }, { type: "command", shell: "powershell", command: "Write-Output hi" }]) {
+    assert.ok(H.hookShell(h, "MARK", "/work/shop").startsWith(H.HOOK_SCRATCH_MAKE), "made first, whatever the hook's kind");
+  }
+  // The same command as the one every command starts with (SCRATCH_MAKE), and it works in plain sh: made once, private.
+  assert.equal(H.HOOK_SCRATCH_MAKE.replace(/; $/, "\n"), S.SCRATCH_MAKE);
+  assert.equal(H.hookInput("PreToolUse", { cwd: "/w" }).scratchpad_dir, "/tmp/coder-scratch", "the folder hooks are told about is that one");
+  const { mkdtempSync, statSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { execFileSync } = await import("node:child_process");
+  const base = mkdtempSync((process.env.TMPDIR || tmpdir()) + "/cd506-");
+  const line = H.HOOK_SCRATCH_MAKE.split("/tmp/coder-scratch").join(base + "/scratch");
+  execFileSync("sh", ["-c", line + line + "echo ok"]);
+  assert.equal(statSync(base + "/scratch").mode & 0o777, 0o700);
+  rmSync(base, { recursive: true, force: true });
+});
+
+test("CD507 a running monitor is read every 200 ms, Claude Code's batching, so a busy command meets its limits as there (live test after deploy 124: read every 5 seconds, a 10-lines-a-second loop made 17 big events a minute and was never limited; Claude Code's own suppressed events after 10 and stopped it at 30 seconds)", async () => {
+  const { mkdtempSync, writeFileSync, appendFileSync, rmSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const dir = mkdtempSync((process.env.TMPDIR || tmpdir()) + "/cd507-");
+  const log = dir + "/bg-1.log";
+  writeFileSync(log, "");
+  const j = { project: "shop-cd507", id: "job1", pid: 999507, log, command: "while true; do echo tick; sleep 0.1; done", desc: "Ticks", mark: "0123456789abcd07", monitor: true, readAt: 0, part: "", pending: [], dropped: 0, end: null, told: false, stopping: "", at: 0, deadline: Infinity };
+  S.JOBS.set(j.pid, j);
+  try {
+    // Two lines every 200 ms (10 a second), each read one event.
+    const t0 = 5_000_000;
+    let k = 0, now = t0;
+    for (; k < 200 && !j.stopping; k++) { now = t0 + k * S.MONITOR_BATCH_MS; appendFileSync(log, "tick\ntick\n"); assert.equal(S.readMonitors(now), 1); }
+    assert.equal(j.stopping, "flood", "stopped for flooding");
+    const secs = (now - t0) / 1000;
+    assert.ok(secs > 30 && secs < 33, "after about 30 seconds of it (" + secs + "s)");
+    const events = j.pending.filter((e) => e === "tick\ntick");
+    const notices = j.pending.filter((e) => /^\[\d+ events suppressed — output rate too high\. Consider using stop_job to restart this monitor with a more selective filter\.\]$/.test(e));
+    assert.ok(events.length >= 10 && events.length <= 30, "10 at once, then one every 2 seconds (" + events.length + ")");
+    assert.ok(notices.length >= 10, "the skipped ones said, as they were in Claude Code (" + notices.length + ")");
+    assert.match(j.floodNote, /^\[Monitor stopped — too much output \(\d+ events suppressed over 3\ds\)\. Restart with a more selective source\.\]$/);
+    // An ended or stopping monitor is not read again.
+    assert.equal(S.readMonitors(now + 200), 0);
+  } finally { S.JOBS.delete(999507); rmSync(dir, { recursive: true, force: true }); }
+  // On the real machine only: a machine made in a test reads its monitors on its own clock.
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /if \(liveFetch\) \{\n\s+const monitorTimer = setInterval\(\(\) => \{ try \{ readMonitors\(\); \} catch \{ \/\* next time \*\/ \} \}, MONITOR_BATCH_MS\);/);
+  assert.equal(S.MONITOR_BATCH_MS, 200);
+});
