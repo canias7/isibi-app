@@ -127,7 +127,9 @@ test("CD411 Accept edits is Claude Code's cloud \"default\" for commands (its pe
   }
   assert.equal(at("echo hi | tee notes.md", { byCommand: false }).verdict, "ask", "tee: asked either way (no file command of acceptEdits)");
   for (const c of ["ls", "git status", "cat README.md", "grep -r TODO ."]) assert.equal(at(c, { byCommand: false }).verdict, "allow", c + ": only reads");
-  assert.equal(at("echo hi > notes.md", { byCommand: false }, R("allow", ["Bash(echo *)"])).verdict, "allow", "an allow rule covers it");
+  // (A redirection inside the project asks in Claude Code's "default" whatever rule matches, its RZt: "… needs approval. The
+  // path is inside the working directories for this session …"; Bash docs pass 9, pass 8 had let Bash(echo *) approve it.)
+  assert.deepEqual([at("echo hi > notes.md", { byCommand: false }, R("allow", ["Bash(echo *)"])).verdict, at("echo hi > notes.md", { byCommand: false }, R("allow", ["Bash(echo *)"])).why], ["ask", "Output redirection to '" + ROOT + "/notes.md' needs approval. The path is inside the working directories for this session ('" + ROOT + "'), and Coder asks before a shell command creates, changes or removes files there."]);
   assert.equal(at("mkdir build", { byCommand: false }, R("allow", ["Bash(mkdir *)"])).verdict, "allow");
   assert.equal(P.bashDecision("mkdir build", { mode: "plan", rules: R("allow", []), cwd: ROOT, workdirs: [ROOT], byCommand: false }).verdict, "ask", "Plan as before");
   // PowerShell's file commands the same.
@@ -607,7 +609,8 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   assert.match(sh, /\n'node' '\/work\/shop\/\.claude\/hooks\/check\.js' '--fix'\n/);
   const pw = H.hookShell({ type: "command", shell: "powershell", command: "& \"${CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" }, "MARK", "/work/shop");
   const enc = /-EncodedCommand (\S+)/.exec(pw)[1];
-  assert.equal(Buffer.from(enc, "base64").toString("utf16le"), "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"");
+  // (With Claude Code's ending after it, so a program's exit 2 blocks: Bash docs pass 9.)
+  assert.equal(Buffer.from(enc, "base64").toString("utf16le"), "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" + H.PS_HOOK_EXIT2);
   assert.match(H.hookShell({ type: "command", command: "bash \"${CLAUDE_PROJECT_DIR}\"/x.sh" }, "MARK", "/work/shop"), /\nbash "\$\{CLAUDE_PROJECT_DIR\}"\/x\.sh\n/, "the shell expands it");
   // A POWERSHELL CALL IS "PowerShell" after its PreToolUse hooks too; `if: PowerShell(…)` matches its commands.
   t = await loop([say("", [call("powershell", { command: "Get-ChildItem" }, "p1")]), say("ok")], { PostToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "post.sh" }] }], PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [{ type: "command", if: "PowerShell(Get-ChildItem *)", command: "pre.sh" }] }] }, { ps: true });

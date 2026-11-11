@@ -55,11 +55,18 @@ const REFUSED = [
  */
 export const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/;
 export const CONTROL_REFUSED = "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'.";
-export function commandProblem(command) {
+/**
+ * TWO INVISIBLE CHARACTERS THE POWERSHELL TOOL REFUSES too (Claude Code's errors reference: "PowerShell tool: also U+FEFF or
+ * U+180E"; Bash docs pass 9), in its words.
+ */
+export const PS_INVISIBLE = /[\uFEFF\u180E]/;
+export const PS_INVISIBLE_REFUSED = "command contains the invisible character U+FEFF (byte order mark) or U+180E (Mongolian vowel separator), and was not run. Remove the character, keep the text that needs it in a file that the command reads, or write it as $([char]0xFEFF) or $([char]0x180E) inside a double-quoted string";
+export function commandProblem(command, { powershell = false } = {}) {
   const c = typeof command === "string" ? command : "";
   if (!c.trim()) return "the command is empty";
   if (c.length > COMMAND_HARD_MAX) return "the command is over " + COMMAND_HARD_MAX.toLocaleString("en-US") + " characters; write long files with the write tool, in several steps";
   if (CONTROL_CHARS.test(c)) return CONTROL_REFUSED;
+  if (powershell && PS_INVISIBLE.test(c)) return PS_INVISIBLE_REFUSED;
   for (const [re, why] of REFUSED) if (re.test(c)) return "refused: " + why;
   return "";
 }

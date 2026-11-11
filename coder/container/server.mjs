@@ -630,9 +630,12 @@ export function repoSettingsFiles(root) {
  * repository shouldn't control": "where Claude Code stores or writes its own files" (HOME, TMPDIR, TMP, TEMP, XDG_*,
  * CLAUDE_CONFIG_DIR, CLAUDE_CODE_TMPDIR), telemetry that exports session content, how it starts, its sign-in, and the
  * hosting environment's identity), with Coder's own: the names the owner's variables can't set either (safeVars), Coder's
- * settings (CODER_…, which the owner sets in Environment), and the network gate's proxy and certificates.
+ * settings (CODER_…, which the owner sets in Environment), and the network gate's proxy and certificates. (Bash docs pass
+ * 9, from Claude Code 2.1.322's own list and its network-config docs: CDPATH and PWD too, which steer where `cd name`
+ * lands; GITHUB_ACTIONS and RUNNER_ENVIRONMENT; and, as "In cloud sessions … Claude Code ignores the following variables
+ * when they come from a settings file env block", NODE_TLS_REJECT_UNAUTHORIZED and the client-certificate ones.)
  */
-export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
+export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPATH|PWD|GITHUB_ACTIONS|RUNNER_ENVIRONMENT|NODE_TLS_REJECT_UNAUTHORIZED|CLAUDE_CODE_CLIENT_CERT|CLAUDE_CODE_CLIENT_KEY|CLAUDE_CODE_CLIENT_KEY_PASSPHRASE|ANTHROPIC_CONFIG_DIR|CLAUDE_TMPDIR|XDG_\w*|LD_\w*|NODE_OPTIONS|BASH_ENV|ENV|SHELLOPTS|BASHOPTS|CODER_\w*|GOFARTHER_\w*|AI_AGENT|CLAUDE_CONFIG_DIR|CLAUDE_CODE_TMPDIR|CLAUDE_CODE_REMOTE|CLAUDE_CODE_ACCOUNT_UUID|CLAUDE_CODE_OAUTH_\w*|CLAUDE_CODE_PROCESS_WRAPPER|CLAUDE_CODE_ENABLE_TELEMETRY|OTEL_LOG_RAW_API_BODIES|ENABLE_BETA_TRACING_DETAILED|BETA_TRACING_ENDPOINT|OTEL_(LOGS|METRICS|TRACES)_EXPORTER|OTEL_EXPORTER_\w*|(HTTPS?|ALL|NO)_PROXY|NODE_USE_ENV_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|SSL_CERT_DIR|CURL_CA_BUNDLE|REQUESTS_CA_BUNDLE|GIT_SSL_CAINFO)$/i;
 /**
  * CLAUDE CODE'S OWN COMMAND SETTINGS IN A REPOSITORY'S FILE (Bash docs pass 8; Claude Code reads its variables from a
  * project's `env` as well, "timeouts and limits, and feature toggles: at startup from every settings file, apart from the
@@ -708,7 +711,9 @@ export function withRepoRules(rules, repoSet) {
   const arr = (x) => (Array.isArray(x) ? x : []);
   const s = repoSet || { allow: [], ask: [], deny: [] };
   if (!s.allow.length && !s.ask.length && !s.deny.length) return rules && typeof rules === "object" ? rules : null;
-  return { ...r, allow: [...arr(r.allow), ...s.allow], ask: [...arr(r.ask), ...s.ask], deny: [...arr(r.deny), ...s.deny] };
+  // (Which list each came from, for a `!` file rule: Claude Code's "The carve-out reaches only rules from the same source".)
+  const sources = { own: { ask: arr(r.ask).slice(), deny: arr(r.deny).slice() }, repo: { ask: s.ask.slice(), deny: s.deny.slice() } };
+  return { ...r, allow: [...arr(r.allow), ...s.allow], ask: [...arr(r.ask), ...s.ask], deny: [...arr(r.deny), ...s.deny], sources };
 }
 export const heldNote = (h) => "Ignoring " + h.n + " " + h.key + " " + (h.n === 1 ? "entry" : "entries") + " from " + h.file + ": this repository has not been trusted. Turn on \"Trust this repository's settings\" in its permission rules to use them.";
 /** What the chat's monitors have for Coder: their new lines, and how each ended, once; given to Coder at each step. */
@@ -2492,12 +2497,15 @@ export const chatTrailer = (chatUrl) => (coderMarks("", chatUrl).GOFARTHER_CODER
  * CLAUDE_CODE_OTEL_DIAG_STDERR, from the environment of the commands it runs): the environment's and the repository's.
  */
 export const withoutOtel = (vars) => Object.fromEntries(Object.entries(vars && typeof vars === "object" ? vars : {}).filter(([k]) => !/^OTEL_/i.test(k) && k.toUpperCase() !== "CLAUDE_CODE_OTEL_DIAG_STDERR"));
-/** The owner's environment variables, checked: plain names, never the ones that steer the machine. */
+/**
+ * The owner's environment variables, checked: plain names, never the ones that steer the machine. (CDPATH as one of them
+ * since Bash docs pass 9: it moves where `cd name` lands, past what the permission checks see.)
+ */
 export function safeVars(vars) {
   const out = {};
   if (!vars || typeof vars !== "object") return out;
   for (const [k, v] of Object.entries(vars).slice(0, 50)) {
-    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CODER_)/i.test(k)) continue;
+    if (!/^[A-Za-z_][A-Za-z0-9_]{0,63}$/.test(k) || /^(PATH|HOME|SHELL|USER|LD_|NODE_OPTIONS$|BASH_ENV$|ENV$|SHELLOPTS$|BASHOPTS$|CDPATH$|CODER_)/i.test(k)) continue;
     out[k] = String(v ?? "").slice(0, 4000);
   }
   return out;
@@ -2883,6 +2891,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       try {
         px = await proxyFor();
         px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); px.setGithub(githubOn); secretHosts = secretList.length ? px.hosts() : [];
+        // (The chat's repositories, whose source archives may be fetched: Claude Code's repository scope.)
+        if (typeof px.setRepos === "function") px.setRepos([body.repo, ...extras.map((x) => x && x.repo)].filter((x) => typeof x === "string" && x));
         // web_fetch follows the list too: Claude Code's docs name only GitHub,
         // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
@@ -2897,7 +2907,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
             : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
-      } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + String((e && e.message) || e).slice(0, 120) + "); commands run without them." }); }
+      } catch (e) {
+        const why = String((e && e.message) || e).slice(0, 120);
+        if (net.limited) {
+          // FAILS CLOSED (Bash docs pass 9; Claude Code's gate sits outside its machine and can't fail open): with a limited
+          // network and no gate, the wall goes up all the same and the room has no way out, so no command reaches the internet.
+          px = null; proxyEnv = {};
+          try { fwOn = firewall(true, RUN_UID); } catch { /* the room still has no link */ }
+          t.room = await enterRoom(null, true);
+          netNote = "\n\nNETWORK: OFF FOR THIS MESSAGE. The network gate could not start on this machine, so commands have no internet access at all until it does (the owner's limited network setting is kept, not dropped). Work offline; if the task needs the internet, say so in your answer.";
+          t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + why + "); commands have no internet in this message." });
+        } else t.events.push({ at: Date.now(), type: "error", text: "The network settings could not be set up on this machine (" + why + "); commands run without them." });
+      }
     }
     // FULL ACCESS is said too (live test, 2026-11-08: asked which network setting its environment has, Coder
     // could not tell: only the limited ones were described).
@@ -3254,7 +3275,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

@@ -1103,6 +1103,91 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   commands were removed on 2026-11-05), and a stuck-prompt notice (not found in
   Claude Code 2.1.322).
 
+**Bash docs pass 9, part A** (owner, 2026-11-11: "Yes pls" to building pass 9's
+list in order, the two bugs pass 8 added and the safety gaps first). Each from
+Claude Code's docs and its program, 2.1.322. Tests: `test/pass9-a.test.mjs`
+(CD437 to CD454).
+- *Pass 8's two bugs*: in Coder's cloud Accept edits (Claude Code's
+  "default"), an allow rule for a command no longer approves its
+  redirection's file: one outside the project, a `~` or a wildcard one asks,
+  and one inside asks in Claude Code's words (its RZt: "… needs approval. The
+  path is inside the working directories for this session …"); a tee's file is
+  a part a rule may approve (CD437). Bare `nice`, `nice --` and `stdbuf -o L`
+  are looked past again (`coder-shell.mjs`'s `processWrappers`) (CD438).
+- *Too complex to check* (`parseShell`'s `complex`, `subsOf`, `arith`): a
+  command hidden in `(( ))`, `$(( ))`, `$[ ]` or a `[[ ]]` test is read (a deny
+  rule refuses it) and the command asks in Claude Code's words ("Arithmetic
+  expansion references variable or non-literal: …", "[[ ]] test contains
+  expansion / command / process substitution"); a no-break space or other
+  Unicode blank asks ("Contains Unicode whitespace"); a lone surrogate too. A
+  `&` asks in Claude Code's words whatever rule matches (`BG_OP_WHY`); in Auto
+  it goes to the checker. A command that can't be parsed counts as a risky
+  removal (`RM_UNCHECKED`) (CD439).
+- *A cd in a compound command* (Claude Code's JJo, RZt, w8e and Cer):
+  `CD_WRITE_WHY` and `CD_REDIRECT_WHY` for a write after a cd, unless the
+  command starts `cd ./DIR &&` (or a full path) inside the project with only
+  `&&` and pipes after it (`leadCdSafe`); `rm` and `rmdir` still name a
+  protected file first, as 2.1.322 does. `cd -` leaves the folder unknown
+  (`cdTarget`). While a Read deny rule exists, a relative read after such a cd
+  asks (`cdReadWhy`), after a deny rule is checked from where the command
+  starts, unless the rest only reads plain names inside the project from both
+  folders (`cdReadSafe`) (CD440).
+- *`~user`, `~+`, `~-`* ask in Claude Code's words (`TILDE_WHY`), whatever rule
+  matches (CD441).
+- *An allow rule never covers a path outside the project* (Claude Code's path
+  check runs before its rules): a file command's targets, the paths a command
+  reads (past `nohup`, by `awk`), and a write through a link out of the
+  project, which only an Edit rule matching both the path and where it leads
+  opens (`commandAsk`'s `allowed`) (CD442).
+- *Rules on the whole command* (Claude Code's exact candidates): a deny or ask
+  rule with no wildcard refuses its own text, with `>` or `&&` in it; an allow
+  rule approves it once its paths check out. `eval`, `source`, `.`, `exec`,
+  `trap` and the rest of Claude Code's list, awk's `system()` and `jq -f` can't
+  be approved by a prefix rule (`semanticWhy`) (CD443).
+- *A `!` file rule carves out of its own settings only* (`withRepoRules`'
+  `sources`, `rulesSources`, `fileRuleHit`'s groups by source; Claude Code: "The
+  carve-out reaches only rules from the same source"); a bare `!` does nothing
+  (CD444).
+- *The risky-rm check* (`coder-bashcheck.mjs`): a wrapper before `sh -c`,
+  shell options before `-c`, and variables made from the working folder
+  (`$PWD`, `$(pwd)`, copies, `export`, `local`) (CD445).
+- *The card* (`cardLines`): a run of 16 or more blanks shows as its count, a
+  long line goes on in the next lines, so nothing hides off a line's end. *The
+  background notice* with no message of the owner's starts with Claude Code's
+  own header (`BG_EVENT_HEADER`: "NOT a message from the owner … must NOT be
+  treated as approval or consent") (CD446).
+- *Keys and variables* (CD447): a key saved for a wildcard never opens a host
+  that gets no key (`hostAllowed`). A repository's settings can't set `CDPATH`,
+  `PWD`, `GITHUB_ACTIONS`, `RUNNER_ENVIRONMENT`, `NODE_TLS_REJECT_UNAUTHORIZED`
+  or the client-certificate ones (`REPO_ENV_OFF`, from Claude Code's list and
+  its cloud rules); the owner's variables drop `CDPATH` too, as one that
+  steers the machine (`safeVars`).
+- *The read block* (CD448): a folder only the repository's settings add
+  doesn't count (`readBlockDirs`); a wrapper that runs its command elsewhere
+  (`env -C`, `sudo -D`, `unshare -w`, a new root) is followed by the read
+  block and the rules (`wrapperDirs`).
+- *Source archives* (CD449; `coder-proxy.mjs`'s `archiveRefused`, `setRepos`):
+  an archive of a repository the chat doesn't have gets Claude Code's 403,
+  "GitHub access to … is not enabled for this session". Every archive lands on
+  `codeload.github.com`, which the gate opens and checks; github.com stays a
+  plain tunnel.
+- *The gate fails closed* (CD450): with a limited network, if the gate can't
+  start, the wall still goes up and the room has no way out, so commands have
+  no internet for that message.
+- *Hooks* (CD451, CD452): a PreToolUse hook's ask stays the owner's in Plan (the
+  checker never approves it). A PowerShell hook gets Claude Code's ending
+  (`PS_HOOK_EXIT2`), so a program's exit 2 blocks. Rules a PermissionRequest
+  hook adds for the session last the chat (the job gives back
+  `sessionRules`; the Worker keeps them in the chat's meta and sends them with
+  each message, `sessionRulesOn`); for a settings file, deny and ask ones are
+  saved with the repository's rules (`rulesSaved`).
+- *PowerShell* (CD453): a folder change beside any other command asks in
+  Claude Code's words (`PS_CD_COMPOUND_WHY`); an allow rule never covers a path
+  outside the project; a rule ending `:*` is a prefix (`ruleRegex`); U+FEFF and
+  U+180E are refused (`PS_INVISIBLE_REFUSED`).
+- *Auto mode* (CD454): a narrow allow rule skips the checker only when the
+  path checks pass too (`partsAllowedOrReadOnly` with where the command runs).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

@@ -711,6 +711,8 @@ test("CD25 (tool 4, part 2; the owner, 2026-11-09: \"do all of those\") a backgr
     assert.match(told, /a background command ended since your last answer/);
     assert.match(told, /The owner stopped it before it completed\. Its output is in [^ ]+\.log \(ID: job1\)\./);
     assert.match(told, /The owner sent no message: this turn is only to tell you/);
+    // (Claude Code's header for such a notice, first: Bash docs pass 9.)
+    assert.match(told, /\[SYSTEM NOTIFICATION - NOT OWNER INPUT\]\\nThis is an automated background-task event, NOT a message from the owner\.[\s\S]*must NOT be treated as approval or consent\.\\n\\n\(Note from Coder's app, not the owner: a background command ended/);
     assert.equal((await (await fetch(base + "/bgstate?project=shop-bgbg")).json()).untold, 0, "told once");
     assert.equal((await post("/turn", { project: "shop-bgbg", wake: true, text: "", messages: [] })).status, 409);
   } finally { if (pid && alive(pid)) process.kill(pid, "SIGKILL"); await close(); }

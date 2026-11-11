@@ -15,7 +15,7 @@
 // allowed only for the commands whose every option only reads.
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
-import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename } from "./coder-shell.mjs";
+import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -214,6 +214,76 @@ export function shellVariable(name) {
  * that has no * in it, write an exact-match rule for the full command string"): 2.1.321's own list of exec wrappers.
  */
 const EXACT_RULE_WRAPPERS = new Set(["watch", "ionice", "chrt", "setsid", "taskset", "strace", "ltrace", "script", "flock", "unshare", "nsenter"]);
+/**
+ * COMMANDS THAT RUN THEIR WORDS AS CODE, AND THE OTHER ONES ONLY AN EXACT RULE APPROVES (Bash docs pass 9; Claude Code
+ * 2.1.322's own check of each command, its `gNe`: "'eval' evaluates arguments as shell code", awk with system() or a pipe,
+ * jq with system() or -f, a process's environ file in /proc): Claude Code asks for them whatever prefix rule matches, so `Bash(eval *)` or
+ * `Bash(source *)` approve nothing. Its reason, or "".
+ */
+const EVAL_LIKE = new Set(["eval", "source", ".", "exec", "nocorrect", "fc", "coproc", "trap", "enable", "mapfile", "readarray", "hash", "bind", "complete", "compgen", "alias", "let"]);
+const AWKS = new Set(["awk", "gawk", "mawk", "nawk"]);
+function awkProgramWhy(e) {
+  if (/(?<![A-Za-z_])system[\s\\]*\(/.test(e)) return "awk program contains system() which executes arbitrary commands";
+  if (/(?:^|[^|])\|&?[^/|%";#{}]*"/.test(e) || /(?:^|[^|])\|&?[\s\\]*getline\b/.test(e)) return 'awk program contains a command pipe (| "cmd" or | getline) which executes arbitrary commands';
+  if (/@[\s\\]*(?:load|include)\b|@[\s\\]*\w+(?:::\w+)?(?:\[[^\]]*\])*[\s\\]*\(/.test(e)) return "awk program contains @load/@include or an @indirect call which can execute arbitrary code";
+  if (/(?<![A-Za-z_])extension[\s\\]*\(/.test(e)) return "awk program contains extension() which loads arbitrary native code (legacy gawk)";
+  if (/"\/inet[46]?\//.test(e)) return "awk program opens a gawk /inet/ network socket which can exfiltrate data";
+  return "";
+}
+export function semanticWhy(c) {
+  let w = readWords(c.words, { wrappers: true }) || leadWords(c.words);
+  // (env with settings or -i, -0, -v and -u NAME in front, as Claude Code's loop takes it away.)
+  if (w[0] && w[0].text === "env" && !w[0].quoted) { let k = 1; while (k < w.length && ((w[k].text.includes("=") && !w[k].text.startsWith("-")) || ["-i", "-0", "-v"].includes(w[k].text) || (w[k].text === "-u" && w[k + 1] && k++))) k++; if (k < w.length) w = w.slice(k); }
+  if (!w[0]) return "";
+  const n = basename(w[0].text), args = w.slice(1).map((x) => x.text);
+  if (n === "find") { const act = args.find((x) => FIND_ACTS.has(x)); if (act) return findActionWhy(act); }
+  if (EVAL_LIKE.has(n) && !(n === "fc" && !args.some((x) => /^[+-].*[es]/.test(x))) && !(n === "compgen" && !args.some((x) => /^[+-].*[CFW]/.test(x)))) return "'" + n + "' evaluates arguments as shell code";
+  if (EXACT_RULE_WRAPPERS.has(n) && args.length) return wrapperWhy(n);
+  if (n === "jq") {
+    for (const a of args) { if (/\bsystem\s*\(/.test(a)) return "jq command contains system() function which executes arbitrary commands"; if (/\b(?:include|import)\b/.test(a)) return 'jq command contains include/import \u2014 modules can load arbitrary .jq files via {search:"."} and call env or other builtins'; }
+    if (args.some((a) => /^(?:-[A-Za-z]*[fL]|--(?:from-file|rawfile|slurpfile|library-path)(?:$|=))/.test(a))) return "jq command contains dangerous flags that could execute code or read arbitrary files";
+  }
+  if (AWKS.has(n)) {
+    if (w.slice(1).some((x) => x.glob && !x.quoted)) return "awk command contains unquoted glob characters \u2014 could glob-expand to a planted program or flag before awk runs";
+    for (const x of w.slice(1)) { const why = awkProgramWhy(x.text); if (why) return why; if (x.expand || x.subst) return "awk is given text that can't be checked before it runs"; }
+    if (args.some((a) => /^-[bcCghIkMnNOPrsStV]*[fEileDW]/.test(a) || /^--(?:fil|e|i|lo|s|de)/.test(a))) return "awk has an option that can't be checked before it runs";
+  }
+  if ([...(c.words || []).map((x) => x.text), ...(c.redirects || []).filter((x) => x.target).map((x) => x.target.text)].some((x) => /\/proc\/.*environ/.test(String(x)))) return "Accesses /proc/*/environ which may expose secrets";
+  return "";
+}
+/** Claude Code's words when a compound command with a cd writes (its JJo and RZt: where the write lands can't be known). */
+export const CD_WRITE_WHY = "Commands that change directories and perform write operations require explicit approval to ensure paths are evaluated correctly. For security, Coder cannot automatically determine the final working directory when 'cd' is used in compound commands.";
+export const CD_REDIRECT_WHY = "Commands that change directories and write via output redirection require explicit approval to ensure paths are evaluated correctly. For security, Coder cannot automatically determine the final working directory when 'cd' is used in compound commands.";
+/** A path written ~user, ~+ or ~- (Claude Code's TU: "Tilde expansion variants (~user, ~+, ~-) in paths require manual approval"). */
+export const TILDE_WHY = "Tilde expansion variants (~user, ~+, ~-) in paths require manual approval";
+/** A word that sets a variable for the command after it (`A=1`, `A[0]=1`, `A+=x`). */
+const ASSIGN_LEAD = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;
+/** Claude Code's words for a relative read after a cd while a Read deny rule exists (its JJo, "cd-compound-read"). */
+export const cdReadWhy = (prog) => prog + " reads a file by a relative path after a cd in a compound command; which file that is cannot be resolved statically while a Read() deny rule is configured, so this needs approval.";
+/** A command that puts part of itself in the background with `&` (Claude Code 2.1.322's safety check). */
+export const BG_OP_WHY = "This command uses the `&` background operator, which defers execution past approval-time safety checks. Approve only if you trust it.";
+/** A write inside the working folders in Claude Code's "default" mode (Coder's cloud Accept edits): its `_en`. */
+export const inWhy = (what, path, dirs) => what + " '" + path + "' needs approval. The path is inside the working directories for this session (" + dirsText(dirs) + "), and Coder asks before a shell command creates, changes or removes files there.";
+/** A write command's target worked out only when it runs (Claude Code's JJo). */
+export const runtimeTargetWhy = (cmd) => cmd + " target contains command-substitution or untracked-variable output \u2014 the path is runtime-determined and cannot be validated";
+/** A word written ~name, ~+ or ~- (bash: another user's home, $PWD, $OLDPWD), not ~ or ~/…: Claude Code can't place it. */
+const tildeOther = (x) => !!x && !!x.tilde && x.text !== "~" && !String(x.text).startsWith("~/");
+/**
+ * WHERE ONE cd GOES, as Claude Code's u8e works it out (Bash docs pass 9): a full path, or "" when it can't be known before it
+ * runs: `cd -` with no earlier cd in the command (bash goes to $OLDPWD, which Coder read as a folder named "-"), `cd +1`, an
+ * option other than -P, -L, -e or -@, ~user, a variable or a wildcard. `cd` alone goes home.
+ */
+function cdTarget(w, from, prev, home) {
+  const args = w.slice(1);
+  const ops = args.filter((x) => x.text !== "--" && (x.text === "-" || !x.text.startsWith("-")));
+  if (args.some((x) => x.text !== "--" && x.text !== "-" && x.text.startsWith("-") && !/^-[PLe@]+$/.test(x.text))) return "";
+  const t = ops.length === 1 ? ops[0] : ops.length === 0 ? { text: "~", raw: "~", tilde: true } : null;
+  if (!t) return "";
+  if (t.text === "-") return prev || "";
+  if (/^[+-]\d+$/.test(t.text) || t.expand || t.subst || t.glob) return "";
+  if (t.tilde) return (t.text === "~" || t.text.startsWith("~/")) && home ? normalPath(home + t.text.slice(1)) : "";
+  return fullPath(t, from);
+}
 /**
  * DOCKER POINTED AT ANOTHER MACHINE (Claude Code's permissions docs, read-only commands: "read-only forms of docker prompt
  * when the command carries a flag that selects a different daemon, such as -H, --context, or Podman's --url and
@@ -533,7 +603,8 @@ export function fileCommandTargets(cmd, cwd) {
  */
 export function wholeReadOnly(command) {
   const r = readCommand(command);
-  return r.ok && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c) && !gitAfterCd(r, c));
+  // (Never one too complex to check, nor one that sends part of itself to the background: Bash docs pass 9.)
+  return r.ok && !r.complex.length && !r.background && !r.writes.length && r.cmds.length > 0 && r.cmds.every((c) => commandReadOnly(c) && !gitAfterCd(r, c) && !semanticWhy(c));
 }
 // (git after a cd that went elsewhere, in brackets too, is no read-only command: Claude Code asks, 2.1.309.)
 const gitAfterCd = (r, c) => { const w = readWords(c.words) || []; return !!w[0] && basename(w[0].text) === "git" && (r.cdAway || c.dir !== "/"); };
@@ -543,9 +614,14 @@ const gitAfterCd = (r, c) => { const w = readWords(c.words) || []; return !!w[0]
  * command that writes a file by a redirection or tee needs every part allowed by a rule (a rule allows the command, and
  * the redirection is the command's).
  */
-export function partsAllowedOrReadOnly(command, rules) {
+export function partsAllowedOrReadOnly(command, rules, ctx = null) {
   const r = readCommand(command);
-  if (!r.ok || !r.cmds.length) return false;
+  if (!r.ok || !r.cmds.length || r.complex.length || r.background) return false;
+  // (With where it runs: every path check Claude Code makes before its rules, so a rule never covers a path outside the
+  // project, a ~user, a write after a cd, eval or a `&`: Bash docs pass 9. A command's write inside the project is judged
+  // as in Claude Code's "default", as its path check lets one through only in acceptEdits (`n.mode==="acceptEdits"`), so
+  // `ls > out.txt` still needs the checker in Auto.)
+  if (ctx) return bashDecision(command, { ...ctx, mode: "acceptEdits", byCommand: false, rules: { allow: (rules && rules.allow) || [], ask: [], deny: [] } }).verdict === "allow";
   const byRule = (c) => allowRuleCovers(c, rules);
   if (r.writes.length) return r.cmds.every(byRule);
   return r.cmds.every((c) => byRule(c) || (commandReadOnly(c) && !gitAfterCd(r, c)));
@@ -651,7 +727,15 @@ function noteVars(c, known, unknown) {
   if (DECLARES.has(prog)) {
     const opts = words.slice(1).filter((x) => /^[-+][A-Za-z]+$/.test(x.text)).map((x) => x.text).join("");
     if (/[nNaA]/.test(opts)) { lose(words.slice(1).map((x) => String(x.text).split("=")[0]).filter((n) => /^[A-Za-z_][A-Za-z0-9_]*$/.test(n))); return; }
-    for (const x of words.slice(1)) if (!/^[-+]/.test(x.text)) set(x);
+    // (A value set in front of it, `X=rm export X`: bash keeps it for a declaring builtin; Claude Code 2.1.290, "a variable
+    // set as a prefix on declare, typeset, export or readonly". Bash docs pass 9.)
+    const before = new Map();
+    for (const x of w) { const m = /^([A-Za-z_][A-Za-z0-9_]*)=([\s\S]*)$/.exec(String(x.text || "")); if (!m) break; before.set(m[1], x); }
+    for (const x of words.slice(1)) {
+      if (/^[-+]/.test(x.text)) continue;
+      if (/^[A-Za-z_][A-Za-z0-9_]*$/.test(x.text) && before.has(x.text)) set(before.get(x.text));
+      else set(x);
+    }
     return;
   }
   if (prog === "unset") { for (const n of names(1)) { known.delete(n); unknown.delete(n); } return; }
@@ -660,7 +744,7 @@ function noteVars(c, known, unknown) {
 export function readCommand(command, { cwd = "/", home = "" , vars = false } = {}) {
   const r = parseShell(String(command || ""));
   const writes = [], reads = [];
-  let dir = cwd, cdAway = false, unsureDir = false, cdSeen = false;
+  let dir = cwd, cdAway = false, unsureDir = false, cdSeen = false, prevDir = "";
   // THE FOLDER IN EACH BRACKET GROUP (a subshell, a $(…), a `…`, a <(…)), for deny and ask rules (`vars`): where it started,
   // then its own cds (Claude Code 2.1.309: "Fixed an Edit(path) deny rule not blocking a Bash redirect to that path in some
   // commands that also held a subshell"; `(cd src && echo x > ../.env)` writes .env). The other reading keeps such a folder
@@ -696,24 +780,31 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
       // an input one too); `afterCd`: an input target given as a short path after a cd in the same command (Claude Code:
       // "a relative path that follows a cd in the same command, needs your approval even when an allow rule covers it").
       // (`cmd`: the part it belongs to, for Claude Code's "The following parts require approval: …".)
-      if (x.op === "<" || x.op === "<&") reads.push({ path, raw: t.raw, glob: !!t.glob, afterCd: cdSeen && !t.text.startsWith("/"), cmd: c, expand: !!(t.expand || t.subst) });
-      else writes.push({ path, raw: t.raw, glob: !!t.glob, cmd: c, expand: !!(t.expand || t.subst) });
+      if (x.op === "<" || x.op === "<&") reads.push({ path, raw: t.raw, glob: !!t.glob, afterCd: cdSeen && !t.text.startsWith("/"), cmd: c, expand: !!(t.expand || t.subst), tildeUser: tildeOther(t) });
+      else writes.push({ path, raw: t.raw, glob: !!t.glob, cmd: c, expand: !!(t.expand || t.subst), tildeUser: tildeOther(t) });
     }
-    if (prog === "tee") for (let k = 1; k < w.length; k++) { const t = w[k].text; if (t === "--" || (t.startsWith("-") && t.length > 1)) continue; writes.push({ via: "tee", cmd: c, expand: !!(w[k].expand || w[k].subst), path: c.dir === false && !t.startsWith("/") ? "" : fullPath(w[k], c.dir === false ? "/" : c.dir), raw: w[k].raw, glob: !!w[k].glob }); }
+    // (A wrapper that runs the command in another folder, `env -C DIR`: its own words count from there; its redirections
+    // above stay where the shell is. One that can't be placed leaves the folder unknown.)
+    const moves = wrapperDirs(c.words);
+    if (moves.length) { let d = c.dir === undefined ? cwd : c.dir; for (const m of moves) { if (d === false || m === false) { d = false; break; } d = fullPath(m, d) || false; } c.dir = d; }
+    if (prog === "tee") for (let k = 1; k < w.length; k++) { const t = w[k].text; if (t === "--" || (t.startsWith("-") && t.length > 1)) continue; writes.push({ via: "tee", cmd: c, tildeUser: tildeOther(w[k]), expand: !!(w[k].expand || w[k].subst), path: c.dir === false && !t.startsWith("/") ? "" : fullPath(w[k], c.dir === false ? "/" : c.dir), raw: w[k].raw, glob: !!w[k].glob }); }
     if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") cdSeen = true;
     const inGroup = !!(c.groups && c.groups.length);
     if ((prog === "cd" || prog === "pushd" || prog === "popd") && inGroup && vars) {
       // (A cd in brackets: that group's folder only.)
-      const to = w[1] ? fullPath(w[1], c.dir) : "";
-      groupDir.set(c.groups[c.groups.length - 1], !to || prog !== "cd" ? false : to);
+      const to = prog === "cd" && c.dir !== false ? cdTarget(w, c.dir, "", home) : "";
+      groupDir.set(c.groups[c.groups.length - 1], !to ? false : to);
     } else if ((prog === "cd" || prog === "pushd" || prog === "popd") && c.top >= 0) {
-      const to = w[1] ? fullPath(w[1], unsureDir ? false : dir) : "";
-      if (!to || prog !== "cd") unsureDir = true; else if (to !== dir) { dir = to; cdAway = true; }
+      // (Claude Code's u8e: `cd -` goes back to where an earlier cd in this command left, or nowhere known.)
+      const to = prog === "cd" ? cdTarget(w, unsureDir ? false : dir, unsureDir ? "" : prevDir, home) : "";
+      if (!to) unsureDir = true; else { if (to !== dir) { prevDir = dir; dir = to; cdAway = true; } }
     } else if (prog === "cd" || prog === "pushd" || prog === "popd" || prog === "chdir") unsureDir = true;
     if (vars && c.top >= 0 && !inGroup) noteVars(c, known, unknown);
   }
   // `loopVars`: each loop's own variable (`for NAME in …`); `dangling`: an operator with nothing after it (coder-shell.mjs).
-  return { ok: r.ok, cmds: r.commands, writes, reads, cdAway, unsureDir, loopVars: r.loopVars || [], dangling: !!r.dangling };
+  // (`complex`: Claude Code's reasons a command is too complex to check, coder-shell.mjs; `background`: a `&` that sends
+  // part of it to the background.)
+  return { ok: r.ok, cmds: r.commands, writes, reads, cdAway, unsureDir, loopVars: r.loopVars || [], dangling: !!r.dangling, complex: r.complex || [], background: !!r.background };
 }
 
 // ── RULES ────────────────────────────────────────────────────────────────────
@@ -767,7 +858,7 @@ const anchoredGlob = (t) => /^mcp__[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*__/.test(Stri
  * written as Bash's (`Monitor` the whole tool, `Monitor(x)` as `Bash(x)`); in Auto, none of Monitor's allow rules.
  */
 export function monitorRules(rules, mode = "auto") {
-  const out = { allow: [], ask: [], deny: [] };
+  const out = { allow: [], ask: [], deny: [], ...(rules && rules.sources ? { sources: rules.sources } : {}) };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k] : []) {
     const x = parseRule(r);
     // (A wildcard naming Monitor but not Bash, `Mon*`, is a rule on all of Monitor; one naming Bash applies to it as it is.)
@@ -1086,7 +1177,7 @@ function allowTexts(cmd) { const w = readWords(cmd.words, { wrappers: true }); r
  * runs, deletes or writes only by an exact rule, one with no * (Claude Code: "A prefix rule like Bash(watch *) or
  * Bash(find *) can't auto-approve" them).
  */
-function exactOnly(c) { const w = readWords(c.words, { wrappers: true }); const n = w && w[0] ? basename(w[0].text) : ""; return EXACT_RULE_WRAPPERS.has(n) || (n === "find" && w.slice(1).some((x) => FIND_ACTS.has(x.text))); }
+function exactOnly(c) { return !!semanticWhy(c); }
 function ruleApproves(c, x, t) { return (x.spec === null || !x.spec.includes("*") || !exactOnly(c)) && bashSpecMatches(x.spec, t); }
 /** Whether one of the owner's allow rules approves this one part of a command (a simple command, coder-shell.mjs's). */
 export function allowRuleCovers(cmd, rules) {
@@ -1172,20 +1263,25 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // substitution, or a control-flow body"). A rule on a setting is no command pattern.
   const onSetting = (x) => { const sp = settingSpec(x.spec); return sp && sp.name !== "command" ? sp : null; };
   const settingHit = (list) => (input && typeof input === "object" ? list.find((x) => { const sp = onSetting(x); return !!sp && settingMatches(sp.value, input[sp.name]); }) || null : null);
-  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of denyTexts(c)) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
-  const d = settingHit(deny) || commandHit(deny);
+  // (Each part also with its redirections, as Claude Code splits a command: `Bash(echo hi > out.txt)` denies that part.)
+  const commandHit = (list) => { const on = list.filter((x) => !settingSpec(x.spec)); for (const c of [...read.cmds, ...shadow.cmds]) for (const t of [...denyTexts(c), partText(c)]) { const r = on.find((x) => bashSpecMatches(x.spec, t)); if (r) return r; } return null; };
+  // THE WHOLE COMMAND AS ONE TEXT, for a rule with no wildcard (Claude Code's exact candidates, its `pXt`; Bash docs pass 9:
+  // `Bash(git status && npm test)` as a deny rule never refused its own text, nor approved it as an allow rule).
+  const whole = String(command ?? "").trim().replace(/[ \t]+/g, " ");
+  const exactHit = (list) => list.find((x) => typeof x.spec === "string" && !x.spec.includes("*") && !settingSpec(x.spec) && x.spec.replace(/[ \t]+/g, " ").trim() === whole) || null;
+  const d = settingHit(deny) || exactHit(deny) || commandHit(deny);
   if (d) return { verdict: "deny", rule: d.text, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   // THE OWNER'S READ AND EDIT RULES ON THE FILES THE COMMAND NAMES (Bash docs, the owner, 2026-11-10: "yea do all 4"; Claude
   // Code: "Read and Edit deny rules apply … to file commands Claude Code recognizes in Bash, such as cat, head, tail, sed, and
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles(read, { cwd, home });
-  const fctx = { root: workdirs[0] || cwd, home, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  const fctx = { root: workdirs[0] || cwd, home, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const ruleFiles = [...files, ...commandFiles(shadow, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
   if (fd) return { verdict: "deny", rule: fd.rule, why: fileBlockedWhy(fd.f, workdirs), suggest: null };
-  const a = settingHit(ask) || commandHit(ask);
+  const a = settingHit(ask) || exactHit(ask) || commandHit(ask);
   if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
   const fa = fileHit("ask");
   if (fa) return { verdict: "ask", rule: fa.rule, why: "Your rule " + fa.rule + " asks first for this command.", suggest: null, byRule: true };
@@ -1200,6 +1296,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const editsOk = normMode(mode) === "acceptEdits" && byCommand !== false;
   const cloudDefault = normMode(mode) === "acceptEdits" && byCommand === false;
   if (!read.ok) return { verdict: "ask", why: PARSE_ERROR, suggest: null };
+  // (An exact rule for the whole command, as Claude Code's: it approves it as written, once its paths check out.)
+  const wholeAllow = exactHit(allow);
+  // TOO COMPLEX TO CHECK (Claude Code's own reasons: a command hidden in arithmetic or a [[ ]] test, a no-break space …;
+  // Bash docs pass 9): asked, unless an exact rule names the whole command.
+  if (read.complex.length && !wholeAllow) return { verdict: "ask", why: read.complex[0], suggest: null };
   // ONE THAT CAN'T BE CHECKED EITHER (Bash docs pass 3): an operator with nothing after it (Claude Code: "When && or || has
   // nothing after it, such as in npm test &&, Claude Code treats the command as unparseable and doesn't split it into
   // subcommands for allow-rule matching"), or a loop over one of the shell's own variables (shellVariable).
@@ -1211,6 +1312,49 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // before). Asked as the last reason: a part's own reason (a protected file, a folder outside) is said first, as Claude
   // Code returns its parts' own results before this one.
   const multiCd = read.cmds.filter((c) => { const w = unwrapped(c.words); const p = w[0] ? basename(w[0].text) : ""; return p === "cd" || p === "pushd" || p === "popd"; }).length > 1;
+  // A WRITE IN A COMMAND THAT ALSO CHANGES FOLDER (Claude Code's JJo and RZt; Bash docs pass 9: after `cd -`, or `cd name`
+  // with CDPATH set, Coder judged a write from a folder the shell was not in): asked, whatever rule matches, unless the
+  // command starts `cd DIR &&` with DIR a full path or ./…, inside the working folders (Claude Code's w8e), so the rest is
+  // judged from there.
+  const cdCmds = read.cmds.filter((c) => { const w = unwrapped(c.words); const p = w[0] ? basename(w[0].text) : ""; return p === "cd" || p === "pushd" || p === "popd" || p === "chdir"; });
+  const leadCdSafe = (() => {
+    if (cdCmds.length !== 1 || read.cmds[0] !== cdCmds[0] || cdCmds[0].top !== 0 || cdCmds[0].redirects.length) return false;
+    const w = cdCmds[0].words;
+    if (w.length !== 2 || w[0].text !== "cd" || w[1].expand || w[1].subst || w[1].glob || w[1].tilde) return false;
+    const x = w[1].text;
+    if (!(x.startsWith("/") || x === "." || x.startsWith("./"))) return false;
+    if (!x.startsWith("/") && x.split("/").includes("..")) return false;
+    if (!/^\s*cd\s+\S+\s*&&/.test(String(command ?? ""))) return false;
+    // (Only when the rest is joined by && and pipes alone, as Claude Code's uve reads the raw text: no ||, ;, newline or a
+    // lone &, quoted or not.)
+    const raw = String(command ?? "");
+    if (raw.includes("||") || raw.includes(";") || raw.includes("\n") || raw.replaceAll("&&", "").includes("&")) return false;
+    return insideWork(fullPath(w[1], cwd), workdirs);
+  })();
+  const cdCompound = cdCmds.length > 0 && read.cmds.length > 1 && !leadCdSafe;
+  // A RELATIVE READ AFTER SUCH A CD while one of the owner's Read deny rules exists (Claude Code's JJo, "cd-compound-read";
+  // Bash docs pass 9): which file it reads can't be settled before it runs, so it asks, unless the command is a plain
+  // `cd DIR` then only read-only commands with plain words whose paths stay inside the working folders from both folders
+  // (Claude Code's Cer).
+  const readDenies = (rules.deny || []).some((x) => /^Read(\(|$)/.test(String(x).trim()));
+  const cdReadSafe = (() => {
+    if (!cdCompound || !readDenies) return true;
+    const [h, ...rest] = read.cmds;
+    if (!h || !rest.length || cdCmds.length !== 1 || cdCmds[0] !== h || h.top !== 0 || h.redirects.length) return false;
+    const w = h.words;
+    if (w.length !== 2 || w[0].text !== "cd" || w[1].expand || w[1].subst || w[1].glob || w[1].tilde) return false;
+    const x = w[1].text;
+    if (x.startsWith("-") || !(x.startsWith("/") || x === "." || x === ".." || x.startsWith("./") || x.startsWith("../"))) return false;
+    if (!x.startsWith("/") && x.split("/").includes("..")) return false;
+    const to = fullPath(w[1], cwd);
+    if (!insideWork(to, workdirs) || typeof real !== "function") return false;
+    const canon = (p) => { try { return real(p) === p; } catch { return false; } };
+    if (!canon(cwd) || !canon(to)) return false;
+    const plain = (x2) => !x2.expand && !x2.subst && !x2.glob && !x2.tilde && !/[{}]/.test(x2.text) && basename(x2.text) !== "xargs";
+    return rest.every((c) => c.top >= 0 && !(c.words[0] && ASSIGN_LEAD.test(c.words[0].text)) && c.words.every(plain) && commandReadOnly(c) && !semanticWhy(c)
+      && c.redirects.every((r) => !r.heredoc && r.target && (r.op === ">&" ? /^\d+$/.test(r.target.text) : (r.op === ">" || r.op === ">>") && r.target.text === "/dev/null"))
+      && pathArgs({ ...c, dir: undefined }, { cwd, home }).every((a) => !/^[/~]/.test(a.p) ? [cwd, to].every((d) => insideWork(normalPath(d + "/" + a.p), workdirs)) : a.full && insideWork(a.full, workdirs)));
+  })();
   // WHERE EACH PATH REALLY LEADS (Bash docs pass 3; Claude Code's permissions docs, Symlinks: "the permission check covers
   // two paths: the one Claude requested and the file it resolves to"; a write that "resolves outside the working
   // directories … isn't auto-approved in acceptEdits mode", and one that resolves to a protected path gets that path's
@@ -1245,11 +1389,15 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // EACH FILE IT WRITES (redirections, tee): in Accept edits, a file inside the project that is not protected, not named
   // with a wildcard (Claude Code: a target that "contains a glob character needs your approval"), and no link out of the
   // project or to a protected file; in Plan, none.
+  // (In Coder's cloud Accept edits, Claude Code's "default", the same checks: Bash docs pass 9, pass 8 had let an allow rule
+  // for the command approve its redirect anywhere, `echo x > /etc/passwd` under Bash(echo *). A redirect inside the project
+  // asks there whatever rule matches, as Claude Code's RZt; a tee's target is a part an allow rule may approve.)
   const cloudWrites = [];
   for (const x of read.writes) {
-    if (cloudDefault) { cloudWrites.push(x.cmd); continue; }
-    if (!editsOk) { needFor(x.cmd, "This command writes " + x.raw + ", and Plan mode changes no files."); continue; }
+    if (!editsOk && !cloudDefault) { needFor(x.cmd, "This command writes " + x.raw + ", and Plan mode changes no files."); continue; }
+    if (cdCompound) { needFor(x.cmd, x.via === "tee" ? CD_WRITE_WHY : CD_REDIRECT_WHY); continue; }
     if (x.glob) { needFor(x.cmd, SHELL_EXPANSION); continue; }
+    if (x.tildeUser) { needFor(x.cmd, TILDE_WHY); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
     const pw = pathWhy(x.path);
     if (pw.why === "protected") needFor(x.cmd, sensitiveWhy(pw.to || x.path, pw.to ? x.path : ""), true);
@@ -1257,6 +1405,10 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     else if (pw.why === "outside") needFor(x.cmd, pw.to ? linkOutWhy(x.path, pw.to) : needsWhy(x.via === "tee" ? "tee in" : "Output redirection to", x.path, workdirs));
     else if (pw.why === "lost") needFor(x.cmd, "This command writes " + x.raw + ", a link that can't be followed.");
     else if (pw.why) needFor(x.cmd, VAR_UNCHECKED);
+    else if (cloudDefault && !editOk(x.path)) {
+      if (x.via === "tee") { cloudWrites.push(x.cmd); if (!partWhy.has(x.cmd)) partWhy.set(x.cmd, inWhy("tee in", x.path, workdirs)); }
+      else needFor(x.cmd, inWhy("Output redirection to", x.path, workdirs));
+    }
   }
   // An input redirection from outside the project (Claude Code 2.1.257: "A target outside the working directories needs
   // your approval unless an allow rule covers it"; "A target that contains a glob pattern, or a relative path that follows
@@ -1277,57 +1429,98 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     if (c.ranBy === "xargs" && commandReadOnly({ words: c.words })) continue;
     const prog = c.words.length ? (readWords(c.words) || [])[0] : null;
     const name = prog ? basename(prog.text) : "";
+    // (The program past every wrapper, for Claude Code's words about its paths: `nohup cat /etc/passwd` is "cat in …".)
+    const uname = basename(((unwrapped(c.words) || [])[0] || {}).text || "");
     const ro = commandReadOnly(c);
+    // (Claude Code's own reason for one a prefix rule can't approve: eval, source, awk with system() …; Bash docs pass 9.)
+    const sem = semanticWhy(c);
+    if (sem) partWhy.set(c, sem);
     // A cd out of the project, or into another folder before git (its hooks), is asked about (Claude Code's docs).
     if (ro && name === "cd") {
-      const to = c.words.length > 1 ? fullPath((readWords(c.words) || [])[1], c.dir === undefined ? cwd : c.dir) : "";
+      const cw = readWords(c.words) || [];
+      // (`cd -` on its own: Claude Code checks a folder named "-", in the project; where it really lands is unknown, so what
+      // asks is a later part's write or a short path going up: Bash docs pass 9.)
+      if (cw.slice(1).some((x) => x.text === "-")) continue;
+      const to = cdTarget(cw, c.dir === undefined ? cwd : c.dir, "", home);
       if (to && !insideWork(to, workdirs) && readOk(to, true)) continue;
-      if (!to || !insideWork(to, workdirs)) { partWhy.set(c, to ? blockedWhy("cd", to, workdirs) : VAR_UNCHECKED); parts.push(c); continue; }
+      if (!to || !insideWork(to, workdirs)) { partWhy.set(c, to ? blockedWhy("cd", to, workdirs) : cw.slice(1).some(tildeOther) ? TILDE_WHY : VAR_UNCHECKED); parts.push(c); continue; }
       continue;
     }
     if (ro && name === "git" && (read.cdAway || c.dir !== cwd)) { gitAfterCd = true; partWhy.set(c, GIT_AFTER_CD); parts.push(c); continue; }
-    if (ro) {
-      // A READ OF A PATH OUTSIDE THE PROJECT ASKS (the live side-by-side, 2026-11-10: Claude Code 2.1.322 asked for
-      // `cat /etc/hostname`, `ls /`, `head -1 /etc/passwd`, `ls ../` and `cat ~/.bashrc` in Accept edits, and in Plan without
-      // its auto-mode checker, which Coder doesn't have; it had run them). Each path by the command's own rule for its
-      // paths (READ_PATHS, Claude Code's); Coder's own folders (background logs, saved outputs) stay readable.
-      // (A short path after a cd out of the project: that cd is asked about, and Claude Code names only it, as for
-      // `cd /tmp && ls`; a full path is still checked: `cd /tmp && ls -d /tmp` names both parts.)
-      // (After a cd that a Read rule opens, its short paths are checked from there.)
-      const movedOut = c.dir !== undefined && c.dir !== false && c.dir !== cwd && !insideWork(c.dir, workdirs) && !readOk(c.dir, true);
-      for (const a of pathArgs(c, { cwd, home })) {
-        if (movedOut && !/^[/~]/.test(a.p) && !/^\$\{?HOME\b/.test(a.p)) continue;
-        if (a.dotdot) { needFor(c, globDotDotWhy(a.p, " against the working directories")); break; }
-        if (a.unknownDir) { if (a.updir) { needFor(c, name + " in '" + a.p + "' requires manual approval: the path it names depends on a directory change in the same command."); break; } continue; }
-        if (a.computed || !a.full) { needFor(c, VAR_UNCHECKED); break; }
-        if (isOwn(a.full)) continue;
-        const inside = insideWork(a.full, workdirs), to = inside ? leads(a.full) : a.full;
-        if (inside && (to === a.full || insideWork(to, workdirs))) continue;
-        // (A folder it lists or searches counts as read when the rule opens what is in it.)
-        if (readOk(a.full, true)) continue;
-        needFor(c, inside && to ? linkOutWhy(a.full, to) : blockedWhy(name, a.full, workdirs));
-        break;
+    // A FILE COMMAND (mkdir, touch, rm, rmdir, mv, cp, sed -i): Claude Code checks each path it changes before any rule (its
+    // JJo), so an allow rule for the command never approves a path outside the project, one worked out when it runs, a
+    // ~user, or a write in a command that also changes folder (Bash docs pass 9: with Bash(touch *), `touch /etc/x` ran).
+    const fc = fileCommandTargets(c, c.dir === undefined || c.dir === false ? cwd : c.dir);
+    if (fc) {
+      if (cdCompound) {
+        // (rm and rmdir: Claude Code's removal check follows the cd and names a protected file first, as seen in 2.1.322
+        // for `cd .husky && rm pre-commit && cd ..`; any other write after such a cd asks in its words, CD_WRITE_WHY.)
+        if ((uname === "rm" || uname === "rmdir") && fc.sure) {
+          const hit = fc.paths.map((p) => p.replace(/\/\*$/, "")).map((p) => ({ p, pw: pathWhy(p) })).find((x) => x.pw.why === "protected");
+          if (hit) { needFor(c, sensitiveWhy(hit.pw.to || hit.p, hit.pw.to ? hit.p : ""), true); parts.push(c); continue; }
+        }
+        needFor(c, CD_WRITE_WHY);
+        continue;
       }
-      continue;
-    }
-    if (editsOk) {
-      // (Its short paths from the folder this part runs in, not the one the command started in.)
-      const fc = fileCommandTargets(c, c.dir === undefined ? cwd : c.dir);
-      if (fc && fc.sure) {
+      const odd = pathArgs(c, { cwd, home }).find((a) => a.computed || a.tildeUser || a.dotdot);
+      if (odd) { needFor(c, odd.tildeUser ? TILDE_WHY : odd.dotdot ? globDotDotWhy(odd.p, " against the working directories") : runtimeTargetWhy(uname || name)); continue; }
+      if (fc.sure) {
         const bare = fc.paths.map((p) => p.replace(/\/\*$/, ""));
         const ways = bare.map((p) => pathWhy(p));
         // A protected file, by name or through a link, is never approved by a rule (Claude Code: "permissions.allow rules
         // … do not pre-approve protected-path writes"): asked each time.
         const prot = ways.findIndex((pw) => pw.why === "protected");
         if (prot >= 0) { needFor(c, sensitiveWhy(ways[prot].to || bare[prot], ways[prot].to ? bare[prot] : ""), true); parts.push(c); continue; }
-        // Not approved by the mode when a path leads out of the project (through a link, or named there); an allow rule still
-        // may: the owner's Edit rule for every such path, or a Bash rule for the command.
+        // Out of the project (named there, or through a link), a link that can't be followed: asked whatever Bash rule
+        // matches; the owner's Edit rule for such a path still opens it (through a link, one matching both the path and
+        // where it leads: Claude Code's "Allow rules: apply only when both the requested path and the file it resolves to
+        // match").
         const k = ways.findIndex((pw, j) => pw.why && !(pw.why === "outside" && editOk(bare[j])));
-        if (k < 0) continue;
-        const pw = ways[k];
-        partWhy.set(c, pw.to ? linkOutWhy(bare[k], pw.to) : pw.why === "outside" ? needsWhy(name + " in", bare[k], workdirs) : pw.why === "lost" ? "This command changes " + bare[k] + ", a link that can't be followed." : VAR_UNCHECKED);
+        if (k >= 0) { const pw = ways[k]; needFor(c, pw.to ? linkOutWhy(bare[k], pw.to) : pw.why === "outside" ? needsWhy((uname || name) + " in", bare[k], workdirs) : pw.why === "lost" ? "This command changes " + bare[k] + ", a link that can't be followed." : VAR_UNCHECKED); continue; }
+        // Inside: Accept edits' own (repository acceptEdits); in Claude Code's "default", asked unless a rule approves it.
+        if (editsOk) continue;
+        if (!partWhy.has(c) && bare.length && !bare.every((p) => editOk(p))) partWhy.set(c, inWhy((uname || name) + " in", bare.find((p) => !editOk(p)), workdirs));
+        else if (bare.length && bare.every((p) => editOk(p))) continue;
+      }
+      parts.push(c);
+      continue;
+    }
+    // THE PATHS IT READS, whatever reads them (read-only or not, past its wrappers: Claude Code's path check runs before the
+    // rules too; Bash docs pass 9: `nohup cat /etc/passwd` and `awk 1 /etc/passwd` ran under Bash(cat *) and Bash(awk *)).
+    // A READ OF A PATH OUTSIDE THE PROJECT ASKS (the live side-by-side, 2026-11-10: Claude Code 2.1.322 asked for
+    // `cat /etc/hostname`, `ls /`, `head -1 /etc/passwd`, `ls ../` and `cat ~/.bashrc` in Accept edits, and in Plan without
+    // its auto-mode checker; it had run them). Each path by the command's own rule for its paths (READ_PATHS, Claude
+    // Code's); Coder's own folders (background logs, saved outputs) stay readable.
+    // (A short path after a cd out of the project: that cd is asked about, and Claude Code names only it, as for
+    // `cd /tmp && ls`; a full path is still checked: `cd /tmp && ls -d /tmp` names both parts.)
+    // (After a cd that a Read rule opens, its short paths are checked from there.)
+    // (A relative read after a cd while a Read deny rule exists, cdReadSafe above: a deny rule is checked from the folder the
+    // command starts in, as Claude Code's REe, then it asks.)
+    const relAfterCd = uname !== "tee" && (uname || name) !== "cd" && !cdReadSafe ? pathArgs(c, { cwd, home }).filter((a) => !/^[/~]/.test(a.p)) : [];
+    for (const a of relAfterCd) {
+      const at = normalPath(cwd + "/" + a.p);
+      const r = fileRuleHit(rules.deny, "Read", at, "deny", fctx);
+      if (r) return { verdict: "deny", rule: r, why: (uname || name) + " in '" + at + "' was blocked by a deny rule", suggest: null };
+    }
+    if (relAfterCd.length) needFor(c, cdReadWhy(uname || name));
+    else if (uname !== "tee") {
+      const movedOut = c.dir !== undefined && c.dir !== false && c.dir !== cwd && !insideWork(c.dir, workdirs) && !readOk(c.dir, true);
+      for (const a of pathArgs(c, { cwd, home })) {
+        if (movedOut && !/^[/~]/.test(a.p) && !/^\$\{?HOME\b/.test(a.p)) continue;
+        if (a.tildeUser) { needFor(c, TILDE_WHY); break; }
+        if (a.dotdot) { needFor(c, globDotDotWhy(a.p, " against the working directories")); break; }
+        if (a.unknownDir) { if (a.updir) { needFor(c, (uname || name) + " in '" + a.p + "' requires manual approval: the path it names depends on a directory change in the same command."); break; } continue; }
+        if (a.computed || !a.full) { needFor(c, VAR_UNCHECKED); break; }
+        if (isOwn(a.full)) continue;
+        const inside = insideWork(a.full, workdirs), to = inside ? leads(a.full) : a.full;
+        if (inside && (to === a.full || insideWork(to, workdirs))) continue;
+        // (A folder it lists or searches counts as read when the rule opens what is in it.)
+        if (readOk(a.full, true)) continue;
+        needFor(c, inside && to ? linkOutWhy(a.full, to) : blockedWhy(uname || name, a.full, workdirs));
+        break;
       }
     }
+    if (ro && !sem) continue;
     parts.push(c);
   }
   // (A file a command writes, in Accept edits as Claude Code's cloud "default": asked unless a rule covers the command.)
@@ -1340,8 +1533,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // (A `$(…)` alone is a command substitution, not a variable.)
   const isVar = (x) => !!x && !!x.expand && /\$(\{|[A-Za-z_@*#?$!0-9-])/.test(String(x.raw || ""));
   const hasVar = (c) => (c.words || []).some(isVar) || (c.redirects || []).some((x) => isVar(x.target));
-  const items = [...needs, ...left.filter((c) => !needs.some((n) => n.c === c)).map((c) => ({ c, why: partWhy.get(c) || (hasVar(c) ? VAR_UNCHECKED : "") }))];
-  if (!items.length) return multiCd ? { verdict: "ask", why: MULTI_CD, suggest: null } : { verdict: "allow", why: "", suggest: null };
+  // (An exact rule for the whole command approves what no other rule did, never what its paths ask about: Claude Code's order.)
+  const leftOver = wholeAllow && !needs.length ? [] : left;
+  const items = [...needs, ...leftOver.filter((c) => !needs.some((n) => n.c === c)).map((c) => ({ c, why: partWhy.get(c) || (hasVar(c) ? VAR_UNCHECKED : "") }))];
+  // (A `&` sending part of it to the background, in a command that would run: Claude Code's safety check asks. Bash docs pass 9.)
+  if (!items.length) return multiCd ? { verdict: "ask", why: MULTI_CD, suggest: null } : read.background ? { verdict: "ask", why: BG_OP_WHY, suggest: null, safety: true } : { verdict: "allow", why: "", suggest: null };
   // WHICH REASON IS SAID, in Claude Code's order: a protected file ("a sensitive file") first, then more than one folder
   // change, then one part's own reason, or, when two or more parts need approval, Claude Code's list of them.
   const order = (c) => read.cmds.indexOf(c);
@@ -1374,7 +1570,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
 export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
-  const ctx = { root, home, isDir, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
@@ -1412,7 +1608,9 @@ export function commandFiles(read, { cwd = "/", home = "" } = {}) {
   const out = [];
   for (const c of read.cmds || []) {
     const w = readWords(c.words) || [];
-    const name = w[0] ? basename(w[0].text) : "";
+    // (The program past its wrappers, as Claude Code names it: `stdbuf -o L cat x` is "cat in …".)
+    const uw = unwrapped(c.words) || [];
+    const name = uw[0] ? basename(uw[0].text) : w[0] ? basename(w[0].text) : "";
     for (const a of pathArgs(c, { cwd, home })) if (a.full) out.push({ tool: "Read", path: a.full, name, how: "cmd", glob: !!a.glob, raw: a.p });
     const fc = c.dir === false ? null : fileCommandTargets(c, c.dir === undefined ? cwd : c.dir);
     // (cp, mv and sed -i read what they change, so a Read rule on one of their files counts too.)
@@ -1441,13 +1639,7 @@ function partText(c) {
   return (w + (r ? " " + r : "")).trim();
 }
 /** Claude Code's reason when a prefix rule matched an exec wrapper or a find that runs, deletes or writes. */
-function exactWhy(c) {
-  const w = readWords(c.words, { wrappers: true }) || [];
-  const n = w[0] ? basename(w[0].text) : "";
-  if (n === "find") { const act = w.slice(1).find((x) => FIND_ACTS.has(x.text)); return findActionWhy(act ? act.text : "-exec"); }
-  const outer = (readWords(c.words) || [])[0];
-  return wrapperWhy(outer ? basename(outer.text) : n);
-}
+function exactWhy(c) { return semanticWhy(c); }
 /**
  * The paths a command names, by its own rule for them (READ_PATHS, Claude Code's): `{ p, full, glob }`, or `{ p, computed }`
  * for one worked out when it runs. `$HOME` and `~` are the AI's home (Claude Code showed `ls -la $HOME/../` as "ls in '/'");
@@ -1467,6 +1659,9 @@ export function pathArgs(c, { cwd = "/", home = "" } = {}) {
   for (const p of listed) {
     if (p === "-" || NOT_FILES.has(p)) continue;
     const word = args.find((x) => x.text === p) || args.find((x) => x.text.endsWith(p)) || {};
+    // (~user, ~+ and ~-: Claude Code can't place them, and asks. Bash docs pass 9: `cat ~dev/.ssh/id_rsa` was read as a file
+    // inside the project, past a deny rule on ~/.ssh.)
+    if (tildeOther(word) && word.text === p) { out.push({ p, tildeUser: true }); continue; }
     let text = p;
     const homeVar = /^\$(HOME|\{HOME\})(?=\/|$)/;
     if ((word.expand || word.subst) && home && homeVar.test(text) && !/[$`]/.test(text.replace(homeVar, ""))) text = home + text.replace(homeVar, "");
@@ -1692,8 +1887,10 @@ const READ_PATHS = {
     const out = base ? [base] : [];
     if (sub === "grep") { const g = patternPaths(rest, new Set(["-e", "--regexp", "-f", "--file", "-A", "--after-context", "-B", "--before-context", "-C", "--context", "-m", "--max-count", "--max-depth", "--threads"])); return [...out, ...(g.length ? g.map(at) : [])]; }
     if (sub !== "diff") return out;
+    // (Every word after diff that is no option, as Claude Code's own rule: `git diff --no-index /dev/null .env` prints .env,
+    // and got past a Read deny rule on it. Bash docs pass 9.)
     let dd = false;
-    for (const x of rest) { if (!dd && x === "--") { dd = true; continue; } if (dd || x.startsWith("/") || x.startsWith("~") || x.startsWith("../")) out.push(at(x)); }
+    for (const x of rest) { if (!dd && x === "--") { dd = true; continue; } if (dd || x === "-" || !x.startsWith("-")) { const y = at(x); if (!NOT_FILES.has(y)) out.push(y); } }
     return out;
   },
 };
@@ -1936,7 +2133,7 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
  * readOnly, covered }: `readOnly`, nothing for the checker to judge; `covered`, the owner's allow rules cover it all.
  * `pathAbs(p)` is a path as the machine resolves it (null when it cannot be told); `inside(p)`, inside the working folders.
  */
-export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "", byCommand = true, input = null } = {}) {
+export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly = () => false, parsed = null, pathAbs = () => null, inside = () => false, cwd = "", home = "", byCommand = true, input = null, dirs = [] } = {}) {
   const cmd = String(command ?? "").trim();
   const m = normMode(mode), auto = m === "auto";
   if (!cmd) return { verdict: "allow", why: "", suggest: null, readOnly: true };
@@ -1973,16 +2170,22 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   if (safety) return asks(safety, exact);
   const compound = psCompoundWhy(p);
   if (compound) return asks(compound);
+  // A FOLDER CHANGE WITH ANY OTHER COMMAND (Claude Code 2.1.322's PowerShell path check, its "Compound command contains cd
+  // with path operation"; Bash docs pass 9: `cd; Get-Content .ssh/id_rsa` ran unasked): asked, whatever rule matches.
+  if (all.length > 1 && all.some((c) => psCdish(c.name))) return asks(PS_CD_COMPOUND_WHY);
   if (psFileRedirections(p).length) return asks("Command contains file redirections that could write to arbitrary paths", exact);
   if (gone.ask) return asks(gone.ask);
   if (ownRule && all.length) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: true };
   // EACH COMMAND: one an allow rule covers (read ahead in full), or one that only reads, inside the working folders. A
   // program by path or with a dot (dotnet.exe, ./build.ps1) only by a rule whose first word names it, as typed (Claude
   // Code 2.1.322: "PowerShell(dotnet.exe build *)" pre-approves it; PowerShell(*) or PowerShell(dot*) never do).
-  let covered = all.length > 0, readOnly = true, needs = false;
+  let covered = all.length > 0, readOnly = true, needs = false, outsideWhy = "";
   const need = [];
   for (const c of all) {
-    const byRule = !psDynamicArgs(c) && (c.nameType !== "application" ? !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]) : psProgramRule(c, allow));
+    // (Never a path outside the working folders, as Claude Code's path check runs before its rules: Bash docs pass 9.)
+    const outside = psPathArgs(c).find((x) => !inside(x));
+    let byRule = !psDynamicArgs(c) && (c.nameType !== "application" ? !!hit(allow, [c.text, [c.name, ...c.args].join(" ")]) : psProgramRule(c, allow));
+    if (byRule && outside !== undefined) { byRule = false; outsideWhy ||= (psCmdlet(c.name) || String(c.name)) + " targeting '" + (pathAbs(String(outside).replace(/^['"]|['"]$/g, "")) || outside) + "' was blocked. For security, Coder may only access files in the allowed working directories for this session" + (dirs && dirs.length ? ": " + dirsText(dirs) : "") + "."; }
     const reads = psCommandReadOnly(c, { nativeReadOnly }) && psPathArgs(c).every((x) => inside(x) && !psQuoted(x));
     if (!byRule) covered = false;
     if (!reads) readOnly = false;
@@ -1995,8 +2198,18 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   // ACCEPT EDITS: Claude Code's file commands (Set-Content, Add-Content, Remove-Item, Clear-Content) run there, with
   // the reading ones beside them, when every path they are given is inside the working folders.
   if (m === "acceptEdits" && byCommand !== false && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
-  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks(all.some((c) => psPathArgs(c).some(psQuoted)) ? PS_QUOTED_WHY : "", [...new Set(need.flatMap(psExactRule))]);
+  return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks(outsideWhy || (all.some((c) => psPathArgs(c).some(psQuoted)) ? PS_QUOTED_WHY : ""), [...new Set(need.flatMap(psExactRule))]);
 }
+/** Claude Code's words for a PowerShell command that changes folder beside another one. */
+export const PS_CD_COMPOUND_WHY = "Compound command changes working directory (Set-Location/Push-Location/Pop-Location/New-PSDrive) \u2014 relative paths cannot be validated against the original cwd and require manual approval";
+/** A PowerShell command that changes the current folder: cd and its forms, Set-Location, Push-Location, Pop-Location, New-PSDrive. */
+function psCdish(n) {
+  const t = String(n).toLowerCase();
+  if (t === "cd.." || t === "cd\\" || t === "cd/" || t === "cd~" || /^[a-z]:$/.test(t)) return true;
+  const c = psCmdlet(n);
+  return c === "set-location" || c === "push-location" || c === "pop-location" || c === "new-psdrive";
+}
+
 /**
  * A PATH WITH A QUOTE CHARACTER IN IT (Claude Code 2.1.322's path check; its docs: "A positional argument that contains a quote
  * character, such as the apostrophe in Set-Content .\notes.txt "It's done", still prompts even on in-scope paths, because Claude
@@ -2025,7 +2238,7 @@ export function psProgramRule(c, allow) {
 /** Claude Code's questions about a command made of several: git next to a cd or an archive, a write into .git. */
 function psCompoundWhy(p) {
   const all = psCommands(p).filter((c) => c.elementType === "CommandAst");
-  const cdish = (n) => { const t = String(n).toLowerCase(); if (t === "cd.." || t === "cd\\" || t === "cd/" || t === "cd~" || /^[a-z]:$/.test(t)) return true; const c = psCmdlet(n); return c === "set-location" || c === "push-location" || c === "pop-location" || c === "new-psdrive"; };
+  const cdish = psCdish;
   const git = all.some((c) => psCmdlet(c.name) === "git");
   if (all.length > 1 && all.some((c) => cdish(c.name)) && git) return "Compound commands with cd/Set-Location and git require approval to prevent bare repository attacks";
   const WRITERS = new Set(["new-item", "set-content", "add-content", "out-file", "copy-item", "move-item", "rename-item", "expand-archive", "invoke-webrequest", "invoke-restmethod", "tee-object", "export-csv", "export-clixml"]);

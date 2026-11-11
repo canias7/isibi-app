@@ -318,7 +318,7 @@ test("CD392 the repository's own .claude/settings.json and .claude/settings.loca
   s = S.repoSettings(d2, { trust: true });
   assert.deepEqual([s.allow, s.env], [[], {}]);
   // The owner's rules first, the repository's after.
-  assert.deepEqual(S.withRepoRules({ allow: ["Bash(make *)"], ask: [], deny: [], dirs: ["~/x"] }, { allow: ["Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] }), { allow: ["Bash(make *)", "Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"], dirs: ["~/x"] });
+  assert.deepEqual(S.withRepoRules({ allow: ["Bash(make *)"], ask: [], deny: [], dirs: ["~/x"] }, { allow: ["Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] }), { allow: ["Bash(make *)", "Bash(ls *)"], ask: ["Bash(git push *)"], deny: ["Bash(rm *)"], dirs: ["~/x"], sources: { own: { ask: [], deny: [] }, repo: { ask: ["Bash(git push *)"], deny: ["Bash(rm *)"] } } }, "with which list each rule came from (Bash docs pass 9)");
   assert.equal(S.withRepoRules(null, { allow: [], ask: [], deny: [] }), null);
   // The machine: the env under the owner's variables, the rules, the working folders (those only the repository adds kept apart
   // for the write block), the blocks; the trust switch from the owner's rules.
@@ -653,7 +653,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   const hs = H.hooksFrom({ hooks: { Stop: [{ hooks: [{ type: "command", command: "Write-Output 'done'", shell: "powershell" }, { type: "command", command: "x", shell: "fish" }] }] } });
   assert.equal(hs.list[0].shell, "powershell");
   assert.deepEqual(hs.problems, ["Stop: a hook's shell is bash or powershell (not fish)"]);
-  assert.match(H.hookShell(hs.list[0], "<<m>>", "/work/shop"), new RegExp("\\(\\npwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + PS.utf16Base64("Write-Output 'done'").replace(/[+/=]/g, "\\$&") + "\\n\\) < \"\\$__in\""));
+  assert.match(H.hookShell(hs.list[0], "<<m>>", "/work/shop"), new RegExp("\\(\\npwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + PS.utf16Base64("Write-Output 'done'" + H.PS_HOOK_EXIT2).replace(/[+/=]/g, "\\$&") + "\\n\\) < \"\\$__in\""));
   assert.equal(H.ccTool("powershell"), "PowerShell");
 
   // CODER'S LOOP.

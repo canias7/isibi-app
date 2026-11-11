@@ -625,13 +625,18 @@ export function stopFailureKind(e) {
  * CLAUDE_ENV_FILE made when the event has one). With `args`, each one a word of its own ("Exec form").
  */
 const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+/**
+ * WHAT CLAUDE CODE ADDS AFTER A POWERSHELL HOOK'S COMMAND (2.1.322, every event but PermissionRequest; Bash docs pass 9): a
+ * program that ends with exit code 2 makes the hook exit 2 as well, so it blocks; pwsh on its own exits 1 for it.
+ */
+export const PS_HOOK_EXIT2 = "\n; if (-not $?) { if ($LASTEXITCODE -eq 2) { exit 2 } }";
 export function hookShell(h, mark, root) {
   // (A PowerShell hook: pwsh with no profile, non-interactive, the command encoded, its stdin the event's JSON.)
   // (THE PATH PLACEHOLDER, Bash docs pass 8: in exec form "the resolved script path as one argument with no quoting", in
   // `command` and each of `args`; in a PowerShell shell-form command "rewrites the ${CLAUDE_PROJECT_DIR} … placeholders … to
   // PowerShell's ${env:NAME} form"; in a Bash shell-form command the shell reads the exported variable itself.)
   const put = (x) => String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
-  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}")) : String(h.command);
+  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : String(h.command);
   return "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */

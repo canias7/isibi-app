@@ -28,6 +28,8 @@ import { bearerFor, sigv4, withBodyParam } from "./coder-auth.mjs";
 import { lookup as dnsLookup } from "node:dns";
 import { isIP } from "node:net";
 import { privateAddress } from "./coder-tools.mjs";
+/** decodeURIComponent that gives the text back as it is when it isn't valid. */
+function decodeURIComponentSafe(x) { try { return decodeURIComponent(x); } catch { return String(x); } }
 export { okHost, HEADER_RE, PREFIXES, headerValue } from "./coder-secrets.mjs";
 
 /**
@@ -236,6 +238,19 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
   // owner's GitHub login for the chat's own repositories only. Never a saved key's rule.
   let github = false;
   const githubHere = (h) => github && h === "api.github.com";
+  // SOURCE ARCHIVES ONLY OF THE CHAT'S OWN REPOSITORIES (Bash docs pass 9; Claude Code's cloud docs: "A source archive you
+  // fetch over a github.com/{owner}/{repo}/archive/ or codeload.github.com URL gets that same 403 when the repository isn't
+  // attached, even a public one", the message starting "GitHub access to" and containing "is not enabled for this
+  // session"). Every archive github.com gives is a redirect to codeload.github.com, which serves nothing else: that host is
+  // opened here and checked; github.com itself stays a plain tunnel.
+  let repos = [];
+  const archiveHost = (h) => h === "codeload.github.com";
+  const archiveRefused = (target) => {
+    const m = /^\/([^/?#]+)\/([^/?#]+)/.exec(String(target || ""));
+    if (!m) return "";
+    const name = (decodeURIComponentSafe(m[1]) + "/" + decodeURIComponentSafe(m[2]).replace(/\.git$/i, "")).toLowerCase();
+    return repos.includes(name) ? "" : "GitHub access to " + name.replace(/[^a-z0-9._/-]/g, "") + " is not enabled for this session";
+  };
   // Never a key for package registries or GitHub (Claude Code's docs), whatever a secret lists.
   const ruleFor = (h) => (keyAllowed(h) ? rules.find((r) => r.hosts.some((p) => hostMatches(h, p))) : undefined);
   const allowed = (h) => hostAllowed(h, network, rules.flatMap((r) => r.hosts).filter(keyAllowed));
@@ -258,6 +273,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const target = String(req.url || "");
     if (!target.startsWith("/")) { res.writeHead(400, { "content-type": "text/plain" }); return res.end("Coder's proxy: only a path (starting with /) may be sent to " + host + ", not a full address"); }
     if (githubHere(host)) return toEgress(req, res, host, target);
+    if (archiveHost(host)) { const why = archiveRefused(target); if (why) { blocked(host, "a source archive of a repository this chat doesn't have"); res.writeHead(403, { "content-type": "text/plain", "x-coder-blocked": host }); return res.end(why); } }
     const rule = ruleFor(host);
     const pathOk = rule && (!rule.paths.length || (plainPath(target) && rule.paths.some((p) => target.startsWith(p))));
     // A path outside the secret's prefixes, or one with a "." or ".." part
@@ -333,7 +349,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     const own = listOf(req.headers);
     if (!allowed(host) && !githubHere(host) && !(own && listCovers(own, host, port))) { blocked(host, own ? "not in this command's allowed_domains" : network.mode === "none" ? "network access is None" : "not on the network list"); const b = own ? UNLISTED(host) : BLOCKED(host); sock.end("HTTP/1.1 403 Forbidden\r\nX-Coder-Blocked: " + host.replace(/[^a-z0-9.:-]/g, "") + "\r\nContent-Length: " + Buffer.byteLength(b) + "\r\n\r\n" + b); return; }
     sock.on("error", () => {});
-    if (port === 443 && (ruleFor(host) || githubHere(host))) {
+    if (port === 443 && (ruleFor(host) || githubHere(host) || archiveHost(host))) {
       let ctx; try { ctx = contextFor(host); } catch { sock.end("HTTP/1.1 502 Bad Gateway\r\n\r\n"); return; }
       sock.write("HTTP/1.1 200 Connection Established\r\n\r\n");
       if (head && head.length) sock.unshift(head);
@@ -387,6 +403,8 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     setEgress(e) { egress = e && typeof e.url === "string" && /^https?:\/\//.test(e.url) && typeof e.pass === "string" && e.pass ? { url: e.url, chat: String(e.chat || ""), turn: String(e.turn ?? ""), pass: e.pass } : null; },
     /** `gh` for this job's chat (its own repositories), through Coder's server: on or off. */
     setGithub(on) { github = on === true; },
+    /** The chat's own repositories ("owner/name"), whose source archives may be fetched. */
+    setRepos(list) { repos = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && /^[^/\s]+\/[^/\s]+$/.test(x)).map((x) => x.toLowerCase().replace(/\.git$/, "")).slice(0, 50); },
     /** The repo's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
     /** A command's own hosts, for as long as it runs (its pass: 32 hex characters). */

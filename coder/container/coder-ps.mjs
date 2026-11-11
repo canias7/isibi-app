@@ -95,7 +95,9 @@ export const psFirst = (part) => (String(part || "").trim().match(/^[^\s]+/) || 
 // (What only reads is decided from PowerShell's own parse of a command: coder-psparse.mjs, Bash docs pass 7.)
 /** A glob of a rule's command (`*` any text; a trailing " *" also matches the bare command), its first word canonicalized. */
 function ruleRegex(spec) {
-  const t = String(spec).trim();
+  // (The old prefix form `Remove-Item:*` is `Remove-Item *`, as for Bash rules: Bash docs pass 9, a deny rule written so
+  // never matched, and `Remove-Item x.txt` ran.)
+  const t = String(spec).trim().replace(/:\*$/, " *");
   const w = psFirst(t), rest = t.slice(w.length);
   const words = (w === "*" ? "*" : psCanon(w)) + rest;
   const tail = / \*$/.test(words);

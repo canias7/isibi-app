@@ -11,6 +11,42 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Bash docs pass 9, part 1 built: pass 8's two bugs and the safety gaps (your words: "Yes pls", to building the list in order)
+
+Not live yet. Waiting for your "merge and deploy", then a recorded test in the browser with Grok. All 488 automated tests pass (18 of them new).
+
+**Pass 8's two bugs are fixed.** With the rule `Bash(echo *)`, `echo x > /etc/passwd` asks again. `nice rm x` is caught by a deny rule on rm again, and `nice rm -rf ~` is seen as dangerous again.
+
+**What Coder now stops, as Claude Code does:**
+- A command hidden inside `(( … ))`, `$(( … ))` or a `[[ … ]]` test: Coder reads it, a deny rule catches it, and the whole command asks.
+- A non-breaking space or other odd blank in a command: asks.
+- A command that sends part of itself to the background with `&`: asks, whatever rule you have. In Auto, the checker looks at it.
+- A command Coder can't read at all counts as a possible dangerous delete, even with no `rm` in it.
+- A `cd` followed by a write: asks, unless the command starts `cd ./folder &&` inside the project. `rm` after a `cd` still names a protected file first, as Claude Code does.
+- After such a `cd`, a read by a short path asks while you have a Read deny rule (Claude Code can't tell which file it is).
+- `~dev/…`, `~root`, `~+` and `~-` in a path: ask.
+- No allow rule covers a path outside the project any more: `touch /etc/x` under `Bash(touch *)`, `nohup cat /etc/passwd` under `Bash(cat *)`, and the same in PowerShell. A write through a link that leads out of the project now needs an Edit rule that names both the link and where it leads; a Bash rule is not enough.
+- The four ways past a rule are closed (`A[0]=1 rm …`, `$"rm" …`, `X=rm export X; $X …`, `git diff --no-index /dev/null .env`).
+- A rule written as a whole command, like `Bash(git status && npm test)`, now works as a deny, ask or allow rule. PowerShell rules ending in `:*` work too.
+- `Bash(eval *)`, `Bash(source *)` and the like no longer approve anything; only a rule naming the exact command does.
+- A repository's `!` rule can no longer cancel your own deny rule (and yours can't cancel the repository's).
+- The dangerous-delete check catches `sudo sh -c 'rm -rf /etc'` and `D=$PWD; rm -rf "$D"`. It no longer flags `rm -rf "$ROOT/dist"` when ROOT is a known path.
+- The approval card can't hide text behind a run of spaces: a long run shows as its count ("⟨320 blanks⟩"), and a long line carries on to the next line. (A small change on the card; I'll show it in the screenshots with part 2.)
+- When a background command finishes and you sent no message, Coder is told first, in Claude Code's own words, that this is not you and not an approval.
+- A saved key for `*.github.com` no longer opens github.com when the network is set to None.
+- A repository's settings can't set CDPATH, PWD, GITHUB_ACTIONS, RUNNER_ENVIRONMENT, NODE_TLS_REJECT_UNAUTHORIZED or the client-certificate variables. **One addition to your rule on dropped variables:** your own CDPATH is now dropped too, as one of the "similar" ones (it changes where `cd name` goes, behind the checks' back).
+- With the read block on: a folder only the repository's settings add doesn't count, and `env -C /etc cat passwd` is caught.
+- Downloading the source archive of a repository this chat doesn't have gets Claude Code's refusal: "GitHub access to … is not enabled for this session".
+- If the network gate can't start while the network is limited, commands now have no internet for that message (before, they had open internet).
+- A hook that says "ask" stays your question in Plan mode; the checker can't approve it.
+- A PowerShell hook whose program exits with code 2 now blocks.
+- Rules a hook adds "for the session" now last the whole chat, not one message.
+- PowerShell: a `cd` beside another command asks, and a command with the invisible characters U+FEFF or U+180E is refused.
+
+**Two things I found while building, both copied from Claude Code's program:** a read after `cd` with a Read deny rule asks (above), and in Auto a command writing a file inside the project by `>` still goes to the checker (Claude Code allows that without asking only in Accept edits).
+
+**Next:** part 2, how Claude Code's cloud machine runs commands (proxy settings for each tool, zsh, git's set-up, the scratch folder, output order, read-only commands at the same time).
+
 ## 2026-11-11: Bash docs pass 9, the list. Nothing built yet (your words: "i still need what other stuff those claude code docs has for the batch tool that we dont have , remember is all cloud mot local")
 
 What I read: all 203 pages of Claude Code's docs (downloaded today), its whole changelog (1,396 entries) and its program, version 2.1.322. Nine readers each took a slice. I reran the important claims myself on Coder's code, and looked at a real Claude Code cloud machine. "Checked" below means I ran it myself. "Reader" means a reader ran it and I did not repeat it.

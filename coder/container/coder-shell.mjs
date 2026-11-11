@@ -14,6 +14,15 @@ const RESERVED_LEAD = new Set(["if", "then", "else", "elif", "do", "while", "unt
 const RESERVED_END = new Set(["fi", "done", "esac", "}"]);
 const SHELLS = new Set(["sh", "bash", "zsh", "dash", "ksh", "ash", "mksh", "busybox"]);
 const NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+/** Claude Code's Unicode spaces (its `lon`): none of them separates words in bash. */
+export const UNICODE_SPACE = /[\u00A0\u1680\u2000-\u200B\u2028\u2029\u202F\u205F\u3000\uFEFF]/;
+/** Claude Code's literal arithmetic piece (its `ir`): a number in any base, or operators. */
+const ARITH_LITERAL = /^(?:[0-9]+|0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z]+|[-+*/%^&|~!<>=?:(),]+|<<|>>|\*\*|&&|\|\||[<>=!]=|\$\(\(|\)\))$/;
+/** The first piece of an arithmetic expression that is no number or operator ("" when there is none). */
+function arithNonLiteral(text) {
+  const pieces = String(text).match(/0[xX][0-9a-fA-F]+|[0-9]+#[0-9a-zA-Z@_]+|[0-9]+[A-Za-z_][A-Za-z0-9_]*|[0-9]+|[A-Za-z_][A-Za-z0-9_]*|\$\{[^}]*\}|\$\(\(|\$\(|\$[A-Za-z_][A-Za-z0-9_]*|\$[0-9@*#?$!-]|`[^`]*`?|\[[^\]]*\]?|[-+*/%^&|~!<>=?:(),]+|\S/g) || [];
+  return pieces.find((x) => !ARITH_LITERAL.test(x)) || "";
+}
 
 /**
  * The command read through: `{ ok, commands }`. Each command: `{ words, redirects, depth, inScript, top }`, where a word
@@ -34,6 +43,17 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // for Claude Code's permission checks (see readCommand in coder-perms.mjs).
   const loopVars = [];
   let dangling = false;
+  // A `&` THAT SENDS A COMMAND TO THE BACKGROUND (Claude Code asks for one in a command it would otherwise allow: "defers
+  // execution past approval-time safety checks"; Bash docs pass 9).
+  let background = false;
+  // WHAT MAKES IT TOO COMPLEX TO CHECK (Bash docs pass 9; Claude Code 2.1.322's own reasons, its parser's "too-complex"):
+  // such a command asks, in every mode but Auto, where it goes to the checker; it is never one that only reads.
+  const complex = [];
+  const noteComplex = (why) => { if (!complex.includes(why)) complex.push(why); };
+  // (Claude Code checks the whole text first: "Contains lone surrogate", "Contains Unicode whitespace". Bash splits words
+  // only at spaces, tabs and new lines, so a no-break space in `cat<U+00A0>./evil` is part of one program's name.)
+  if (/[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/.test(s)) noteComplex("Contains lone surrogate");
+  if (UNICODE_SPACE.test(s)) noteComplex("Contains Unicode whitespace");
 
   const fail = () => { ok = false; };
   const peek = (n = 0) => s[i + n];
@@ -46,9 +66,35 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     const r = parseShell(text, { scriptDepth });
     if (!r.ok) fail();
     loopVars.push(...r.loopVars);
+    for (const why of r.complex) noteComplex(why);
     if (r.dangling) dangling = true;
+    if (r.background) background = true;
     const id = ++groupSeq;
     for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1, groups: [id, ...(c.groups || [])] });
+  }
+  // THE COMMANDS INSIDE SOME TEXT THAT IS NOT ITSELF COMMANDS (an arithmetic expression, a [[ … ]] test): its $( … ), `…`,
+  // <( … ) and >( … ), read as commands of their own (Bash docs pass 9: `(( $(rm -rf ~) ))` was read by nothing, so no
+  // rule and no rm check saw it, and bash runs it). How many there were.
+  function subsOf(text, depth) {
+    const r = parseShell(": " + text, { scriptDepth });
+    if (!r.ok) fail();
+    loopVars.push(...r.loopVars);
+    for (const why of r.complex) noteComplex(why);
+    if (r.background) background = true;
+    const id = ++groupSeq;
+    let n = 0;
+    for (const c of r.commands) if (c.depth > 0) { n++; out.push({ ...c, depth: c.depth + depth, top: -1, groups: [id, ...(c.groups || [])] }); }
+    return n;
+  }
+  // ARITHMETIC, $(( … )), $[ … ], (( … )) and for (( … )) (Bash docs pass 9; Claude Code: "Arithmetic expansion references
+  // variable or non-literal: X" makes a command too complex to check, as bash works out a variable named there as an
+  // expression of its own, which can hold a[$(cmd)] and run cmd): numbers and operators only, or it is too complex.
+  // Whether it held a command.
+  function arith(text, depth) {
+    const subs = /\$\(|`|[<>]\(/.test(text) ? subsOf(text, depth) : 0;
+    const bad = arithNonLiteral(text);
+    if (bad) noteComplex("Arithmetic expansion references variable or non-literal: " + bad);
+    return subs > 0;
   }
 
   // From an opening "(" (already read), the text up to its matching ")", minding quotes and nesting.
@@ -92,9 +138,11 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     if (s[i] === "~") tilde = true;
     while (i < s.length) {
       const ch = s[i];
-      if (/[\s;&|()<>]/.test(ch)) break;
+      if (/[ \t\n;&|()<>]/.test(ch)) break;
       if (ch === "\\") { if (s[i + 1] === "\n") { i += 2; continue; } text += s[i + 1] || ""; i += 2; varOnly = false; parts++; continue; }
       if (ch === "'") { const e = s.indexOf("'", i + 1); if (e < 0) { fail(); text += s.slice(i + 1); i = s.length; break; } text += s.slice(i + 1, e); i = e + 1; quoted = true; varOnly = false; parts++; continue; }
+      // ($"…": bash's translated string, a double-quoted one; Bash docs pass 9: `$"rm" -rf /` got past a deny rule on rm.)
+      if (ch === "$" && s[i + 1] === "\"") { i++; continue; }
       if (ch === "$" && s[i + 1] === "'") { // $'...'
         let j = i + 2, v = "";
         while (j < s.length && s[j] !== "'") { if (s[j] === "\\") { v += s[j + 1] === "n" ? "\n" : s[j + 1] === "t" ? "\t" : s[j + 1] || ""; j += 2; continue; } v += s[j]; j++; }
@@ -134,7 +182,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     const start = i;
     i++; // $
     const ch = s[i];
-    if (ch === "(" && s[i + 1] === "(") { i += 2; readUntilClose("(", ")"); if (s[i] === ")") i++; return { raw: s.slice(start, i), subst: false, variable: false }; }
+    if (ch === "(" && s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; const held = arith(inner.replace(/\)$/, ""), depth); return { raw: s.slice(start, i), subst: held, variable: false }; }
+    if (ch === "[") { i++; const inner = readUntilClose("[", "]"); return { raw: s.slice(start, i), subst: arith(inner, depth), variable: false }; }
     if (ch === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); return { raw: s.slice(start, i), subst: true, variable: false }; }
     if (ch === "{") { const e = s.indexOf("}", i); if (e < 0) { fail(); i = s.length; return { raw: s.slice(start), subst: false, variable: true }; } const inner = s.slice(i + 1, e); i = e + 1; if (/\$\(|`/.test(inner)) { nested(inner.replace(/^[^$`]*/, ""), depth + 1); } return { raw: s.slice(start, i), subst: false, variable: true, inner }; }
     if (/[A-Za-z_]/.test(ch || "")) { while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++; return { raw: s.slice(start, i), subst: false, variable: true }; }
@@ -178,7 +227,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       skipBlanks();
       if (i >= s.length) break;
       const ch = s[i];
-      if (ch === "#" && (i === 0 || /\s/.test(s[i - 1]))) { skipComment(); continue; }
+      if (ch === "#" && (i === 0 || /[ \t\n]/.test(s[i - 1]))) { skipComment(); continue; }
       if (closer && ch === closer) break;
       if (SEPARATORS.some((sep) => startsWith(sep))) {
         // `&>` and `>&` are redirections, not separators.
@@ -188,8 +237,11 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       // A SUBSHELL or a GROUP where a command starts: read on its own.
       if (ch === "(" && !words.length) {
         some = true;
-        if (s[i + 1] === "(") { i += 2; readUntilClose("(", ")"); if (s[i] === ")") i++; continue; } // (( arithmetic ))
+        if (s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); continue; } // (( arithmetic ))
         i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue;
+      }
+      if (ch === "(" && words.length === 1 && s[i + 1] === "(" && (words[0].text === "for") && !words[0].quoted) {
+        i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; arith(inner.replace(/\)$/, ""), depth); return { words: [], redirects, compoundSkip: false, some: true };
       }
       if (ch === "(" && words.length) {
         // A FUNCTION'S DEFINITION, name() { …; }: the name is no command; the body that follows is read like any commands.
@@ -199,7 +251,9 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       }
       if (ch === ")") { fail(); i++; continue; }
       // [[ … ]]: a test, not a command; its words are not run.
-      if (startsWith("[[") && !words.length) { some = true; const e = s.indexOf("]]", i + 2); if (e < 0) { fail(); i = s.length; break; } const inner = s.slice(i + 2, e); if (/\$\(|`/.test(inner)) { const r = parseShell(inner.replace(/^[^$`]*/, ""), { scriptDepth }); for (const c of r.commands) out.push({ ...c, depth: depth + 1, top: -1 }); } i = e + 2; continue; }
+      // (Bash docs pass 9: its $( … ), `…`, <( … ) and >( … ) run; Claude Code: "[[ ]] … contains expansion / command /
+      // process substitution" makes it too complex to check. `[[ -n <(rm -rf ~) ]] && ls` was read as `ls` alone.)
+      if (startsWith("[[") && !words.length) { some = true; const e = s.indexOf("]]", i + 2); if (e < 0) { fail(); i = s.length; break; } const inner = s.slice(i + 2, e); if (/\$\(|`|[<>]\(/.test(inner)) { subsOf(inner, depth); noteComplex("[[ ]] test contains expansion / command / process substitution"); } i = e + 2; continue; }
       // A REDIRECTION, with or without an fd number before it.
       let fd = "";
       const m = /^(\d+|\{[A-Za-z_][A-Za-z0-9_]*\})(?=[<>])/.exec(s.slice(i));
@@ -249,7 +303,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (closer && s[i] === closer) break;
       if (s[i] === "\n") { lastSep = "\n"; i++; if (pendingHeredocs.length) { i--; takeHeredocs(depth); } continue; }
       const sep = SEPARATORS.find((x) => startsWith(x));
-      if (sep && !startsWith("&>")) { if (joining) dangling = true; joining = ["&&", "||", "|", "|&"].includes(sep); lastSep = sep; i += sep.length; continue; }
+      if (sep && !startsWith("&>")) { if (joining) dangling = true; if (sep === "&") background = true; joining = ["&&", "||", "|", "|&"].includes(sep); lastSep = sep; i += sep.length; continue; }
       const before = i;
       const c = readCommand(depth, closer);
       if (pendingHeredocs.length && s[i] === "\n") takeHeredocs(depth);
@@ -324,34 +378,39 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // POSIX shell with -c"); a double-quoted one's variables are the outer shell's, already in its text.
   if (scriptDepth < 3) {
     for (const c of [...out]) {
-      const w = leadWords(c.words);
+      // (Past wrappers too, `sudo sh -c …`, `env bash -c …`, `timeout 5 sh -c …`, and past the shell's other options,
+      // `bash -euo pipefail -c …`, `bash -c -- …`: Claude Code's `Ktn` and `$er`; Bash docs pass 9, its rm check missed them.)
+      const w = unwrapped(c.words);
       const prog = w[0] ? basename(w[0].text) : "";
       if (!SHELLS.has(prog)) continue;
-      let k = 1;
+      let k = 1, wantC = false;
       if (prog === "busybox" && w[1] && SHELLS.has(w[1].text)) k = 2;
       for (; k < w.length; k++) {
         const a = w[k].text;
-        if (a === "-c" || (/^-[A-Za-z]*c[A-Za-z]*$/.test(a) && !a.startsWith("--"))) {
-          const script = w[k + 1];
-          if (!script) break;
-          const r = parseShell(script.text, { scriptDepth: scriptDepth + 1 });
-          if (!r.ok) ok = false;
-          loopVars.push(...r.loopVars);
-          if (r.dangling) dangling = true;
-          for (const sc of r.commands) out.push({ ...sc, depth: c.depth + 1, inScript: true, scriptQuote: script.raw.startsWith("\"") ? "double" : script.raw.startsWith("'") ? "single" : "none", scriptArgs: w.slice(k + 2).map((x) => x.text), top: -1 });
-          break;
-        }
-        if (!a.startsWith("-")) break;
+        if (a === "--" || a === "-") { k++; break; }
+        if (/^--(rcfile|init-file)$/.test(a)) { k++; continue; }
+        if (a.startsWith("--")) continue;
+        if (/^[-+][A-Za-z]+$/.test(a)) { if (a[0] === "-" && a.includes("c")) wantC = true; k += (a.match(/[oO]/g) || []).length; continue; }
+        break;
       }
+      const script = wantC ? w[k] : null;
+      if (!script) continue;
+      const r = parseShell(script.text, { scriptDepth: scriptDepth + 1 });
+      if (!r.ok) ok = false;
+      loopVars.push(...r.loopVars);
+      for (const why of r.complex) noteComplex(why);
+      if (r.dangling) dangling = true;
+      if (r.background) background = true;
+      for (const sc of r.commands) out.push({ ...sc, depth: c.depth + 1, inScript: true, scriptQuote: script.raw.startsWith("\"") ? "double" : script.raw.startsWith("'") ? "single" : "none", scriptArgs: w.slice(k + 1).map((x) => x.text), top: -1 });
     }
   }
-  return { ok, commands: out, loopVars, dangling };
+  return { ok, commands: out, loopVars, dangling, complex, background };
 }
 
 /** The words a command really runs, past leading `NAME=value` assignments. */
 export function leadWords(words) {
   let k = 0;
-  while (k < words.length && /^[A-Za-z_][A-Za-z0-9_]*\+?=/.test(words[k].raw) && !words[k].raw.startsWith("=")) k++;
+  while (k < words.length && /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/.test(words[k].raw) && !words[k].raw.startsWith("=")) k++;
   return words.slice(k);
 }
 export const basename = (p) => String(p || "").replace(/\/+$/, "").split("/").pop();
@@ -384,8 +443,43 @@ const WRAP_VALUE = Object.freeze({
   nsenter: ["-t", "-S", "-G", "--target", "--setuid", "--setgid"], exec: ["-a"], command: [], builtin: [], noglob: [], nocorrect: [],
 });
 const WRAP_COMMAND = Object.freeze({ env: ["-S", "--split-string"], flock: ["-c", "--command"], script: ["-c", "--command"] });
+// THE WRAPPERS THAT RUN THEIR COMMAND IN ANOTHER FOLDER (Bash docs pass 9: `env -C /etc cat passwd` was judged as a read of
+// ./passwd; Claude Code takes a wrapper's -C, -D, --chdir or a new root as a folder it can't place): the folder setting,
+// and the ones that change the root.
+const WRAP_CHDIR = Object.freeze({ env: ["-C", "--chdir"], sudo: ["-D", "--chdir"], unshare: ["-w", "--wd"] });
+const WRAP_ROOT = Object.freeze({ sudo: ["-R", "--chroot"], unshare: ["-R", "--root"] });
+/**
+ * The folders a command's wrappers move it to, outermost first: each the word naming it, or false for one that can't be
+ * placed (a new root). Empty when no wrapper moves it.
+ */
+export function wrapperDirs(words) {
+  const out = [];
+  for (const w of unwrapSteps(words)) {
+    const r = w[0] ? progName(w[0].text) : "";
+    const cd = ownOf(WRAP_CHDIR, r) || [], root = ownOf(WRAP_ROOT, r) || [];
+    if (!cd.length && !root.length) continue;
+    const all = [...cd, ...root], vals = ownOf(WRAP_VALUE, r) || [];
+    const wordOf = (text, base) => ({ ...base, text, raw: text });
+    let k = 1;
+    while (k < w.length) {
+      const K = w[k].text;
+      if (K === "--") break;
+      if (r === "env" && ASSIGN_WORD.test(K)) { k++; continue; }
+      if (!K.startsWith("-") || K === "-") break;
+      const eq = K.indexOf("=");
+      if (K.startsWith("--") && eq > 0 && all.includes(K.slice(0, eq))) { out.push(root.includes(K.slice(0, eq)) ? false : wordOf(K.slice(eq + 1), w[k])); k++; continue; }
+      if (all.includes(K)) { out.push(root.includes(K) || !w[k + 1] ? false : w[k + 1]); k += 2; continue; }
+      const sh = all.find((o) => !o.startsWith("--") && K.startsWith(o) && K.length > o.length);
+      if (sh) { out.push(root.includes(sh) ? false : wordOf(K.slice(sh.length), w[k])); k++; continue; }
+      k += vals.includes(K) && k + 1 < w.length ? 2 : 1;
+    }
+  }
+  return out;
+}
 const WRAP_POSITIONAL = Object.freeze({ chrt: (e) => /^\d+$/.test(e), taskset: (e) => /^(0x[\da-f]+|\d+)$/i.test(e), flock: () => true, script: () => true });
-const ASSIGN_WORD = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
+// (With a subscript too, `A[0]=1 rm -rf /`: Claude Code's `gve` takes `^([A-Za-z_][A-Za-z0-9_]*(?:\[[^\]]*\])?)\+?=…` away; Bash
+// docs pass 9, it got past a deny rule on rm.)
+const ASSIGN_WORD = /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/;
 const ownOf = (o, k) => (Object.hasOwn(o, k) ? o[k] : undefined);
 /** A program's name as Claude Code compares it (its `II`): the last part of a path, without `.exe`. */
 export const progName = (t) => String(t ?? "").replace(/^.*[\\/]/, "").replace(/\.exe$/i, "");
@@ -420,8 +514,30 @@ function processWrappers(w) {
       const s = timeoutAt(w.map((x) => x.text));
       if (s < 0 || !w[s] || !/^\d+(?:\.\d+)?[smhd]?$/.test(w[s].text)) return w;
       w = w.slice(s + 1);
-    } else if (r === "nice" && w[1] && w[1].text === "-n" && w[2] && /^-?\d+$/.test(w[2].text)) w = w.slice(w[3] && w[3].text === "--" ? 4 : 3);
-    else return w;
+    } else if (r === "nice") {
+      // (Bare `nice` too: Claude Code's `CT` takes `^nice(?:[ \t]+-n[ \t]+-?\d+|[ \t]+-\d+)?[ \t]+(?:--[ \t]+)?` away. Bash docs
+      // pass 9: pass 8 left `nice rm x` past a deny rule on rm, and `nice rm -rf ~` past the rm check.)
+      let k = 1;
+      if (w[1] && w[1].text === "-n" && w[2] && /^-?\d+$/.test(w[2].text)) k = 3;
+      else if (w[1] && (/^-\d+$/.test(w[1].text) || /^--adjustment=-?\d+$/.test(w[1].text))) k = 2;
+      if (w[k] && w[k].text === "--") k++;
+      if (!w[k] || w[k].text.startsWith("-")) return w;
+      w = w.slice(k);
+    } else if (r === "stdbuf") {
+      // (Its modes written on, apart, or long: `stdbuf -oL`, `stdbuf -o L`, `stdbuf --output=L`; Claude Code's file rules
+      // take all three away, its `iZo`.)
+      let k = 1, any = false;
+      for (;;) {
+        const a = w[k] ? w[k].text : "";
+        if (/^-[ioe]\S+$/.test(a) || /^--(input|output|error)=\S+$/.test(a)) { k++; any = true; continue; }
+        if ((/^-[ioe]$/.test(a) || /^--(input|output|error)$/.test(a)) && w[k + 1]) { k += 2; any = true; continue; }
+        break;
+      }
+      if (!any) return w;
+      if (w[k] && w[k].text === "--") k++;
+      if (!w[k] || w[k].text.startsWith("-")) return w;
+      w = w.slice(k);
+    } else return w;
   }
 }
 /** A command string given to a wrapper (env -S '…', flock -c '…'), as words. */

@@ -151,7 +151,9 @@ export function hostAllowed(host, network, keyed = []) {
   const n = normNetwork(network);
   const h = String(host || "").toLowerCase();
   if (hostDenied(h, n)) return false;
-  if (keyed.some((p) => hostMatches(h, p))) return true;
+  // (Never a host that gets no key, by a wildcard either: Bash docs pass 9, a key saved for *.github.com had opened
+  // github.com, and *.pypi.org pypi.org, on None.)
+  if (keyed.some((p) => hostMatches(h, p)) && !NEVER_KEY.includes(h)) return true;
   if (n.mode === "full") return true;
   if (n.mode === "none") return false;
   const inDefaults = DEFAULT_HOSTS.some((p) => hostMatches(h, p));
