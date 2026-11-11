@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Deploy 125: the two round 2 fixes live, and tested live with Grok (recordings 36 and 36b) (your words: "merge and deploy")
+
+Merged into main and deployed (deploy 125, live at 11:05 UTC). All 541 tests passed first.
+- **Hooks in a brand-new chat** (recording 36; the same two test hooks and the same message as recording 35): the first hook wrote into the scratch folder, and all four commands ran. The hooks saw `shell=sh` and the mode as "default", and the after-command hook got Claude Code's output fields (stdout, stderr, interrupted, isImage). In recording 35, "Directory nonexistent" blocked every command.
+- **A busy monitor** (10 lines a second; the same message as recording 35): after the first events, Coder skipped some and said so in Claude Code's words: "[9 events suppressed — output rate too high. Consider using stop_job to restart this monitor with a more selective filter.]". Grok then stopped the monitor itself, after about 20 seconds, as that notice suggests. In recording 35 no such notice came.
+- **The same monitor, Grok told to leave it alone** (recording 36b, one more message in the same chat): Coder stopped it at 30 seconds with "[Monitor stopped — too much output (1 events suppressed over 30s). Restart with a more selective source.]", and its step says "too many lines". Grok quoted the notice word for word.
+- **Claude Code, the same command** (run in this Claude Code session in round 2): the same notices and the same stop at 30 seconds ("…(3 events suppressed over 30s)…"). The only differences: Claude Code names its own stop tool (TaskStop) where Coder names stop_job; and the number in the stop notice counts only the events skipped since the last one let through, so it changes from run to run. Claude Code's scratch folder is there from the session's start, so its first hook can always write there; now Coder's can too.
+- Your test settings are as they were: no hooks, no rules, the same two variables, nothing running.
+- Grok cost: 3 messages and a few monitor wake-ups, at Low effort; my estimate is under 50 cents.
+
 ## 2026-11-11: Round 2 of the live test (recording 35), the same tests in Claude Code, and two fixes (your words: "ok", and "remember to run everything in claude code too, to see the differences")
 
 **Coder, live on gofarther.dev with Grok** (a new chat on canias7/testingforclaude, Accept edits; each test setting put back right after its step):
