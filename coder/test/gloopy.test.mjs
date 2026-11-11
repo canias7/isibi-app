@@ -5423,7 +5423,8 @@ test("GL110 (2026-11-10) live test: the live view is a stream: one request carri
   assert.match(ui, /if \(!r\.data\.asleep\) S\.webNoStream = true;/, "a computer from before streams: looks");
   assert.match(ui, /else if \(streamed\) next = WEB_NEXT_MS;/, "the next stream at once");
   // Quiet while you take over or hand back (an old picture could say who had control before); it ends with the view.
-  assert.match(ui, /webQuiet\(true\);\n\s+const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ take: true \}\) \}\);\n\s+webQuiet\(false\);/);
+  // (2026-11-11: the take-over carries the device's time zone too; GL119.)
+  assert.match(ui, /webQuiet\(true\);\n(?:\s+\/\/.*\n)?\s+const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ take: true, tz: deviceZone\(\) \}\) \}\);\n\s+webQuiet\(false\);/);
   assert.match(ui, /const ho = webHandoff\(\);\n\s+webQuiet\(true\);/);
   assert.match(ui, /const r = await call\(webPath\(\), \{ method: 'POST', body: JSON\.stringify\(\{ take: false \}\) \}\);\n\s+webQuiet\(false\);/);
   assert.match(ui, /function webQuiet\(on\) \{ S\.webQuiet = on; if \(on && S\.webAbort\) S\.webAbort\.abort\(\); \}/);
@@ -5608,7 +5609,8 @@ test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on i
   assert.match(server, /if \(ws\) tunnel\.attach\(ws\);/);
   assert.match(server, /if \(routeWanted && !routeProxy\) \{ const p = makeRouteProxy\(\{ tunnel, uid: webUid \}\); await p\.listen\(\); routeProxy = p; \}/);
   assert.match(server, /if \(gloopy\) await browserRoute\(body\.route === true\);/);
-  assert.match(server, /try \{ await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/);
+  // (2026-11-11: the owner's time zone is set first; GL119.)
+  assert.match(server, /try \{ await browserZone\(body\); await browserRoute\(body\.route === true\); const r = await browserHub\(\)\.wake\(\);/);
   assert.match(server, /const routeNow = \(\) => \(routeWanted \? \{ route: tunnel\.connected \? "desktop" : "cloud", link: \(\(\{ device, streams, got, sent, cut \}\) => \(\{ device, streams, got, sent, \.\.\.\(cut \? \{ cut \} : \{\}\) \}\)\)\(tunnel\.status\(\)\) \} : \{\}\);/, "and how the link is doing (messages each way; why the last one ended: GL117)");
   assert.match(server, /srv\.on\("upgrade", app\.upgrade\);/);
   const { createApp } = await import("../container/server.mjs");
@@ -6036,7 +6038,7 @@ test("GL118 (2026-11-11) hardware security keys (Grok Bot's \"Use hardware secur
     assert.match(h.text, /\nThe page asked for a security key \(localhost:\d+\): a helper can't use the owner's key\. Say so in your answer, and Gloopy will do it\./);
     assert.equal(h.keyRequest, undefined);
     assert.match((await hub.act({ action: "look" }, 1)).text, /REFUSED NotAllowedError/);
-  } finally { await hub.closeLanes().catch(() => {}); site.close(); }
+  } finally { await hub.closeLanes().catch(() => {}); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
 });
 
 test("GL119 (2026-11-11) hardware security keys, from Gloopy's step to the card and back: a step after which the page waits for a key ends the turn on a card; the card's answer (what the owner's key signed in the Go Farther app, kept to its own fields) goes to Gloopy's computer for the page, or \"not now\"; while the owner has control, from their live view; the page shows the card and the live view's bar, and only the app can use the key", async () => {
