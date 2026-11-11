@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-11: Deploy 124: the stopped-step fix live, and tested live with Grok (recording 34) (your words: "merge and deploy")
+
+Merged into main and deployed (deploy 124, live at 10:40 UTC). All 539 tests passed first.
+- **Recording 33's chat, reopened:** the two background commands Coder had stopped now say "stopped" on their steps. Before, they said "running".
+- **A new message with Grok:** Coder started `sleep 300` in the background and stopped it. Its step said "stopped" at once ("Ran 1 command, stopped 1 background job"), and still did after a reload. Nothing is left running.
+- Also seen live: the chat's environment notice now says "network Limited" (part 6's new names).
+- My test machine restarted once during this (not Coder's); I started its browser again and ran the test.
+
 ## 2026-11-11: Deploy 123: passes 8 and 9 live, and tested live with Grok (recordings 33 and 33b) (your words: "merge and deploy")
 
 Merged into main and deployed (deploy 123, live at 09:59 UTC). All 538 tests passed first, here and on GitHub.
@@ -24,7 +32,7 @@ Tested live on gofarther.dev with Grok and filmed, in a new chat on canias7/test
 - **A background command stuck on "Continue? (y/n)"** (it printed the question, then sat quiet): about 45 seconds later Coder was told it "appears to be waiting for interactive input". It woke up by itself and stopped it.
 - **The page:** Network access shows None, Limited and Full, with "Allow package managers" and "Allowed domains". The variables page named PATH as "not given to commands", and your own `!` command showed the machine's PATH, without the one I added. A stand-in key for registry.npmjs.org (not a real key) showed "Not sent", with its note.
 
-**Found in the test, fixed on the branch (not live yet):** after Coder stopped a background command itself, that command's step still said "running", even after a reload. This dates from 2026-11-09: a command Coder stops gets no end notice (Coder already knows), and the page only learned a command had ended from those notices. Now Coder's stop names the command, and its step says "stopped". Older chats are read by Claude Code's words for a stop. Test CD505. It needs your "merge and deploy" to go live.
+**Found in the test, fixed on the branch (not live yet):** after Coder stopped a background command itself, that command's step still said "running", even after a reload. This dates from 2026-11-09: a command Coder stops gets no end notice (Coder already knows), and the page only learned a command had ended from those notices. Now Coder's stop names the command, and its step says "stopped". Older chats are read by Claude Code's words for a stop. Test CD505. Live since deploy 124 (see the entry above).
 
 **My test script's own slip:** in the first run, the key step looked before the save had finished, so the clean-up missed the stand-in key. The second run (33b) found it, showed it, and removed it.
 
