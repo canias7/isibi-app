@@ -346,10 +346,10 @@ test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents ge
   assert.deepEqual([doc.client_id, doc.redirect_uris[0], doc.token_endpoint_auth_method], ["https://jessica.gofarther.dev/api/coder/connectors/client.json", "https://jessica.gofarther.dev/api/coder/connectors/callback", "none"]);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.ok(routes.indexOf('parts[1] === "client.json"') < routes.indexOf("const user = await deps.authUser(request);"), "served before sign-in");
-  // Render: in Discover, with a key.
-  const render = CATALOG.find((k) => k.name === "Render");
-  assert.equal(render.key, true);
+  // Sign-in only (owner, 2026-11-11): no connector in Discover takes a key; Render (key only) waits; the page asks for no key.
+  assert.ok(CATALOG.every((k) => !k.key));
   assert.ok(CATALOG.find((k) => k.name === "MongoDB"));
-  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Postmark", "Aikido", "Redis"]);
-  assert.match(readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), /if \(k && k\.key\) return keyForm\(k\);/);
+  assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Render", "Postmark", "Aikido", "Redis"]);
+  assert.ok(!readFileSync(new URL("../public/coder.js", import.meta.url), "utf8").includes('placeholder="API key (only if'));
+  assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /addConnector\(env, bucket, uid, \{ name: body\.name, url: body\.url, key: "", id: cid/);
 });

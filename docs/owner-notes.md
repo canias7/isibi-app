@@ -4,6 +4,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-11: Sign-in only, no API keys (your word: "Lets only do the ones with mcp, tho not api key")
+
+- **Render** moved to "coming later", because its server only takes an API key.
+- **+ Add** (custom connectors) no longer has an API key box. Our server ignores a key even if one is sent.
+- **Discover now:**
+  - Databases: Neon, MongoDB, Supabase.
+  - Hosting: Vercel, Cloudflare, Cloudflare Logs, Railway.
+  - Email: Resend.
+  - Monitoring and debugging: Sentry.
+  - Project management: Linear.
+  - Payments: Stripe.
+  - Authentication: Clerk.
+  - Docs: Cloudflare Docs.
+  - Each one opens its own sign-in, except Cloudflare Docs, which needs none.
+- **Coming later:** Render, Postmark, Aikido and Redis.
+- **Tests:** all 402 pass, 4 skipped as before. Not deployed yet.
+
 ## 2026-11-11: MongoDB and Render in Discover, no app registration needed (your word: "Ok i can register an app, gimme the instructions")
 
 When I checked both sign-in servers, neither needed you to register an app.

@@ -83,7 +83,6 @@ export const CATALOG = Object.freeze([
   { group: "Hosting", name: "Vercel", url: "https://mcp.vercel.com", about: "See Vercel projects, deployments and their logs." },
   { group: "Hosting", name: "Cloudflare", url: "https://bindings.mcp.cloudflare.com/mcp", about: "Workers, KV, R2 and D1 in your Cloudflare account." },
   { group: "Hosting", name: "Cloudflare Logs", url: "https://observability.mcp.cloudflare.com/mcp", about: "Your Cloudflare Workers' logs and analytics, for debugging." },
-  { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", key: true, keyHelp: "In Render: Account settings, API keys, Create API key. Paste it here.", about: "Render services, deploys, logs and Postgres." },
   { group: "Hosting", name: "Railway", url: "https://mcp.railway.com", about: "Railway projects, services, deployments and variables." },
   { group: "Email", name: "Resend", url: "https://mcp.resend.com/mcp", about: "Send email and manage domains, audiences and broadcasts in Resend." },
   { group: "Monitoring and debugging", name: "Sentry", url: "https://mcp.sentry.dev/mcp", about: "Look into errors, issues and releases in Sentry." },
@@ -97,6 +96,8 @@ export const CATALOG = Object.freeze([
  * server. (MongoDB signs in with Go Farther's client document; Render's server takes an API key.)
  */
 export const CATALOG_LATER = Object.freeze([
+  // Sign-in only, no API keys (owner, 2026-11-11: "Lets only do the ones with mcp, tho not api key").
+  { group: "Hosting", name: "Render", url: "https://mcp.render.com/mcp", why: "works only with an API key, not a sign-in" },
   { group: "Email", name: "Postmark", why: "no official hosted server yet" },
   { group: "Security", name: "Aikido", why: "no official hosted server yet" },
   { group: "Databases", name: "Redis", why: "no official hosted server yet" },

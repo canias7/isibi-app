@@ -311,10 +311,10 @@
     const addForm = () => {
       const wrap = document.createElement('div'); wrap.className = 'cd-sure';
       const box = document.createElement('form'); box.className = 'cd-sure-box cx-addbox'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
-      box.innerHTML = '<div class="cd-sure-title">Add a custom connector</div><div class="cd-sure-text">Any MCP server reachable over the internet. If it has its own sign-in, it opens next.</div>' +
+      box.innerHTML = '<div class="cd-sure-title">Add a custom connector</div><div class="cd-sure-text">Any MCP server reachable over the internet. Its own sign-in opens next.</div>' +
         '<input class="cd-sure-in" id="cxName" placeholder="Name (e.g. Linear)" maxlength="40" autocomplete="off">' +
         '<input class="cd-sure-in" id="cxUrl" placeholder="MCP server address (https://…)" required autocomplete="off" inputmode="url">' +
-        '<input class="cd-sure-in" id="cxKey" type="password" placeholder="API key (only if the server needs one)" autocomplete="off">' +
+        // (Sign-in only, no API keys: owner, 2026-11-11.)
         '<div class="cx-addnote"></div><div class="cd-sure-row"><button type="button" class="cd-sure-no">Cancel</button><button type="submit" class="cx-btn cx-btn-dark">Add</button></div>';
       wrap.append(box); document.body.append(wrap);
       const end = () => wrap.remove();
@@ -324,7 +324,7 @@
       box.onsubmit = async (e) => {
         e.preventDefault();
         const btn = box.querySelector('[type=submit]'); btn.disabled = true; btn.textContent = 'Connecting…';
-        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: box.querySelector('#cxName').value, url: box.querySelector('#cxUrl').value, key: box.querySelector('#cxKey').value }) });
+        const x = await call('/connectors', { method: 'POST', body: JSON.stringify({ name: box.querySelector('#cxName').value, url: box.querySelector('#cxUrl').value }) });
         if (x.status !== 200) { btn.disabled = false; btn.textContent = 'Add'; box.querySelector('.cx-addnote').textContent = (x.data && x.data.error) || 'It could not be connected.'; return; }
         end(); done(x);
       };
