@@ -6,9 +6,27 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
 
+## 2026-11-11: Every sign-in app tried up to its login on jessica.gofarther.dev (your word: "test the ones that dont have the verified ur human thing")
+
+On jessica, signed in as the test account, I pressed Connect on each sign-in app in Discover and went as far as each one's own login or approval page.
+
+- **All 12 reached their real page:**
+  - Neon: "Connect Go Farther to Neon. App identity published at jessica.gofarther.dev". Neon reads our client file too.
+  - Sentry: "Go Farther is requesting access to Sentry", with 48 tools.
+  - Cloudflare and Cloudflare Logs: "Go Farther is requesting access".
+  - Supabase, Railway, Resend, Notion, Vanta, Robinhood, Stripe and Clerk: each one's login page.
+- **None showed a "Verify you are human" check before the login.** Linear's appeared after the email was typed in, and others may do the same.
+- **Not done:** logging in to any of them. The test account has no accounts on these services, and each login needs one.
+- **Cleanup:**
+  - Each Connect press leaves a half-finished connector, so I removed those afterwards.
+  - My cleanup read the names from the wrong spot and also removed Cloudflare Docs and Linear.
+  - Cloudflare Docs was added back at once, with its 2 tools. Linear never had a login, so you'll connect it from Discover (it's in Waiting on you).
+
+## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
+
 I used a browser on my side, signed in as the test account. You sent the emailed code. Screenshots are in the chat.
 
-- **Signed in:** with the password without the "@". The one with it was refused.
+- **Signed in:** as the test account, with your code.
 - **Cloudflare Docs** (no sign-in): Discover, then Connect.
   - It said "Cloudflare Docs is connected: 2 tools".
   - Its page shows the two real tools, "Search Cloudflare docs" and "Get Pages migration guide", both read-only and on Always allow.
@@ -220,6 +238,12 @@ This chat's branch (`claude/dazzling-babbage-gh1aiv`) is for trying connectors (
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
 - Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
+- **Connect Linear on jessica.gofarther.dev (added 2026-11-11, "note it for later im not home").** Linear's login has a "Verify you are human" check that only you can do.
+  1. Sign in at jessica.gofarther.dev as the test account.
+  2. Go to Connectors, Discover, Linear, Connect.
+  3. Press Approve, then Continue with email with the test account's address, tick the human check and type Linear's code.
+  4. Tell me, and I'll check it shows ✓ with its tools.
+- **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
 ## 2026-11-10: Grok's prompt cache, and the effort on Low (your words: "I want to do something kind of cache. The model", and "can you do the effort level on low and make sure it's actually on low")
