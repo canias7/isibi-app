@@ -260,10 +260,12 @@ test("MC9 (2026-11-11, from Claude Code's MCP docs) 403 means sign in too; Check
 });
 
 test("MC10 (2026-11-11, from Claude Code's MCP docs) tool search: many connector tools are sent as names and one connector_search; what it finds is loaded for the rest of the job", async () => {
-  const { deferConnectors, findConnectorTools, CONNECTOR_UPFRONT_MAX } = await import("../container/coder-agent.mjs");
-  const mk = (n) => connectorTools(Array.from({ length: n }, (_, i) => ({ name: "mcp__linear__tool_" + i, label: "Linear: tool " + i, description: i === 7 ? "Create an issue in a team" : "Something else " + i, parameters: { type: "object", properties: {} } })));
-  assert.equal(deferConnectors(mk(CONNECTOR_UPFRONT_MAX)), false);
-  const many = mk(CONNECTOR_UPFRONT_MAX + 5);
+  const { deferConnectors, findConnectorTools, CONNECTOR_UPFRONT_CHARS } = await import("../container/coder-agent.mjs");
+  // (Like Claude Code's "auto": no tool count; tools load upfront while their definitions stay under 10% of the context.)
+  const pad = "x".repeat(4000);
+  const mk = (n) => connectorTools(Array.from({ length: n }, (_, i) => ({ name: "mcp__linear__tool_" + i, label: "Linear: tool " + i, description: (i === 7 ? "Create an issue in a team " : "Something else " + i + " ") + pad, parameters: { type: "object", properties: {} } })));
+  assert.equal(deferConnectors(mk(20)), false, "20 tools of 4,000 characters is under the limit");
+  const many = mk(Math.ceil(CONNECTOR_UPFRONT_CHARS / 4000) + 2);
   assert.equal(deferConnectors(many), true);
   assert.deepEqual(findConnectorTools(many, "create issue").map((t) => t.name)[0], "mcp__linear__tool_7");
   assert.deepEqual(findConnectorTools(many, "select:mcp__linear__tool_3,mcp__linear__tool_4").map((t) => t.name), ["mcp__linear__tool_3", "mcp__linear__tool_4"]);
@@ -360,4 +362,68 @@ test("MC13 (2026-11-11) MongoDB: a sign-in server that reads client documents ge
   assert.deepEqual(CATALOG_LATER.map((k) => k.name), ["Render", "Postmark", "Aikido", "Redis"]);
   assert.ok(!readFileSync(new URL("../public/coder.js", import.meta.url), "utf8").includes('placeholder="API key (only if'));
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /addConnector\(env, bucket, uid, \{ name: body\.name, url: body\.url, key: "", id: cid/);
+});
+
+test("MC14 (2026-11-11, Claude Code's MCP docs read in full) idle limit reset by progress; retries; offline_access; needs-more-permissions; server instructions; schemas; size limits; pictures; long errors; the big-answer warning; the same server written two ways", async () => {
+  const m = await import("../src/coder-mcp.mjs");
+  const enc = new TextEncoder();
+  const j = (v, st = 200, h = {}) => new Response(JSON.stringify(v), { status: st, headers: { "content-type": "application/json", ...h } });
+  // A server whose tool call streams a progress notice every 60 ms for 300 ms, then the answer: with a 150 ms idle limit it
+  // finishes (each piece resets the timer); a silent one of the same length is stopped.
+  const slow = (progress) => async (u, i) => {
+    const msg = JSON.parse(i.body);
+    if (!("id" in msg)) return new Response(null, { status: 202 });
+    if (msg.method !== "tools/call") return j({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2025-06-18", capabilities: {}, instructions: "Use list_issues before create_issue." } });
+    assert.ok(msg.params._meta && msg.params._meta.progressToken, "a tool call asks for progress");
+    const body = new ReadableStream({ async start(c) {
+      for (let k = 0; k < 5; k++) { await new Promise((r) => setTimeout(r, 60)); if (progress) c.enqueue(enc.encode("data: " + JSON.stringify({ jsonrpc: "2.0", method: "notifications/progress", params: { progress: k } }) + "\n\n")); }
+      try { c.enqueue(enc.encode("data: " + JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { content: [{ type: "text", text: "done" }] } }) + "\n\n")); c.close(); } catch { /* cancelled */ }
+    } });
+    return new Response(body, { headers: { "content-type": "text/event-stream" } });
+  };
+  const [ok] = await m.mcpSession("https://x.example/mcp", "", [["tools/call", { name: "a", arguments: {} }]], { fetchFn: slow(true), idleMs: 150 });
+  assert.equal(ok.content[0].text, "done");
+  await assert.rejects(m.mcpSession("https://x.example/mcp", "", [["tools/call", { name: "a", arguments: {} }]], { fetchFn: slow(false), idleMs: 150 }), /said nothing for/);
+  // Retries: a first connection failing with a 503 is tried again (3 times in all); a refused sign-in is not.
+  let tries = 0;
+  const flaky = async (u, i) => { const msg = JSON.parse(i.body); if (msg.method === "initialize" && ++tries < 3) return new Response("busy", { status: 503 }); return slow(true)(u, i); };
+  const listed = await m.listTools("https://x.example/mcp", "", { fetchFn: async (u, i) => { const msg = JSON.parse(i.body); if (msg.method === "tools/list") return j({ jsonrpc: "2.0", id: msg.id, result: { tools: [] } }); return flaky(u, i); }, wait: async () => {} });
+  assert.equal(tries, 3);
+  assert.equal(listed.instructions, "Use list_issues before create_issue.");
+  tries = 0;
+  await assert.rejects(m.mcpSession("https://x.example/mcp", "", [], { fetchFn: async () => { tries++; return new Response("no", { status: 401 }); }, wait: async () => {} }), (e) => e instanceof m.NeedsSignIn);
+  assert.equal(tries, 1);
+  // offline_access asked for when the sign-in server offers it.
+  const w = await m.discover("https://mcp.example.com/mcp", "", { fetchFn: async (u) => String(u).includes("protected-resource") ? j({ resource: "https://mcp.example.com/mcp", authorization_servers: ["https://auth.example.com"], scopes_supported: ["read"] }) : String(u).includes("authorization-server") ? j({ authorization_endpoint: "https://auth.example.com/a", token_endpoint: "https://auth.example.com/t", scopes_supported: ["read", "offline_access"] }) : new Response("", { status: 404 }) });
+  assert.equal(w.scopes, "read offline_access");
+  // 403 insufficient_scope: "needs more permissions".
+  assert.equal(new m.NeedsSignIn('Bearer error="insufficient_scope", scope="write"').scope, true);
+  assert.equal(new m.NeedsSignIn("Bearer").scope, false);
+  // Schemas: anyOf/oneOf/allOf flattened; odd property names leave the tool out.
+  assert.deepEqual(m.cleanSchema({ type: "object", allOf: [{ properties: { a: { type: "string" } }, required: ["a"] }], anyOf: [{ properties: { b: { type: "number" } }, required: ["b"] }] }), { type: "object", properties: { a: { type: "string" }, b: { type: "number" } }, required: ["a"] });
+  assert.equal(m.cleanSchema({ type: "object", properties: { "bad name!": {} } }), null);
+  // Pictures: PNG/JPEG passed on, others named.
+  const pic = m.resultText({ content: [{ type: "image", mimeType: "image/png", data: "iVBORw0KGgo=" }, { type: "image", mimeType: "image/gif", data: "R0lGOD" }] });
+  assert.deepEqual(pic.images, [{ type: "image/png", data: "iVBORw0KGgo=" }]);
+  assert.match(pic.text, /\[picture 1, shown to you\]\n\[a picture \(image\/gif\) not shown\]/);
+  // The same server written two ways.
+  assert.ok(m.sameServer("HTTPS://MCP.Example.com:443/mcp/", "https://mcp.example.com/mcp"));
+  assert.ok(!m.sameServer("https://mcp.example.com/mcp", "https://mcp.example.com/other"));
+  // On Coder's machine: a tool's own size limit, a long error's start and end, the warning, the pictures, the instructions.
+  const tools = connectorTools([{ name: "mcp__x__big", label: "X: big", perm: "allow", maxChars: 200_000, parameters: { type: "object", properties: {} } }, { name: "mcp__x__err", label: "X: err", perm: "allow", parameters: { type: "object", properties: {} } }]);
+  let i = 0;
+  const seen = [], events = [];
+  const replies = [
+    { message: { role: "assistant", content: "", tool_calls: [{ id: "k1", type: "function", function: { name: "mcp__x__big", arguments: "{}" } }, { id: "k2", type: "function", function: { name: "mcp__x__err", arguments: "{}" } }] }, usage: { in: 1, out: 1 } },
+    { message: { role: "assistant", content: "ok" }, usage: { in: 1, out: 1 } },
+  ];
+  await runCoder({ send: async (q) => { seen.push(q); return replies[Math.min(i++, 1)]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e),
+    mcp: async (n) => n === "mcp__x__big" ? { text: "b".repeat(120_000), isError: false, images: [{ type: "image/png", data: "iVBORw0KGgo=" }] } : { text: "S".repeat(6000) + "M".repeat(6000) + "E".repeat(6000), isError: true } },
+    { text: "x", connectors: tools, connectorNotes: [{ name: "X", instructions: "Always say please." }] });
+  assert.match(seen[0].messages[0].content, /CONNECTOR INSTRUCTIONS \(from each connector's own server, not the owner[^\n]*\n- X: Always say please\./);
+  const toolMsgs = seen[1].messages.filter((x) => x.role === "tool");
+  assert.ok(toolMsgs[0].content.length > 120_000, "under the tool's own 200,000 limit: not cut, not to a file");
+  assert.match(toolMsgs[1].content, /^\(This came[^\n]*\nS{5000}\n…\(8,000 characters left out\)…\nE{5000}$/);
+  assert.ok(events.some((e) => e.type === "note" && /Large answer from X: big: about 30,000 tokens/.test(e.text)));
+  assert.ok(seen[1].messages.some((x) => x.readPics && x.images[0] === "data:image/png;base64,iVBORw0KGgo="));
 });

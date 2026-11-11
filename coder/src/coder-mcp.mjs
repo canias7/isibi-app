@@ -24,8 +24,25 @@ export const TOOLS_MAX = 80;
  * over INLINE_MAX to a file (container/coder-agent.mjs).
  */
 export const RESULT_MAX = 500_000;
+/**
+ * TIME LIMITS, LIKE CLAUDE CODE'S (its MCP docs, read in full 2026-11-11): a request's timer is at least 60 seconds; a tool
+ * call may run as long as it keeps answering: "idle means no response and no progress notification for the idle window",
+ * five minutes for HTTP servers. Claude Code's total limit is about 28 hours; a web request cannot wait that long, so ours
+ * is CALL_TOTAL_MS.
+ */
 export const REQUEST_TIMEOUT_MS = 60_000;
 export const CALL_TIMEOUT_MS = 5 * 60_000;
+export const CALL_TOTAL_MS = 30 * 60_000;
+/** Claude Code: "the first connection" on a 5xx, a refused connection or a timeout is "retried up to three times". */
+export const CONNECT_TRIES = 3;
+/** Claude Code's description limits: 4,096 characters at the start, 16,384 when found by tool search. */
+export const DESCRIPTION_MAX = 16_384;
+export const INSTRUCTIONS_MAX = 4_096;
+/** `_meta["anthropic/maxResultSizeChars"]`: a tool's own threshold for saving its answer to a file, "ceiling 500,000". */
+export const RESULT_FILE_CEILING = 500_000;
+/** Pictures a tool returns, shown to Grok (Claude Code: "Claude sees the image inline"): at most this many, this big. */
+export const PICS_MAX = 4;
+export const PIC_B64_MAX = 5_000_000;
 export const CALLBACK_PATH = "/api/coder/connectors/callback";
 export const MCP_PATH = "/api/coder/mcp";
 export const STATE_COOKIE = "gf_mcs";
@@ -120,6 +137,11 @@ export function cleanUrl(raw) {
   u.hash = "";
   return u.href;
 }
+/** The same MCP server, written two ways? (case of scheme and host, a default port, a trailing slash) */
+export function sameServer(a, b) {
+  const n = (u) => { try { const x = new URL(u); return x.protocol.toLowerCase() + "//" + x.hostname.toLowerCase() + (x.port && !((x.protocol === "https:" && x.port === "443") || (x.protocol === "http:" && x.port === "80")) ? ":" + x.port : "") + (x.pathname.replace(/\/+$/, "") || "") + x.search; } catch { return String(u); } };
+  return n(a) === n(b);
+}
 export function cleanName(raw, url) {
   const n = String(raw || "").replace(/\s+/g, " ").trim().slice(0, 40);
   if (n) return n;
@@ -152,8 +174,8 @@ export function toolsFor(list, off = []) {
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
       // Real money (Robinhood: CATALOG askWrites): every tool that is not read-only asks the owner each time, even in Auto.
       const always = t.always || (!t.readOnly && CATALOG.some((k) => k.askWrites && k.url === c.url));
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(always ? { always: true } : {}),
-        description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, 1000), parameters: params });
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}),
+        description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, DESCRIPTION_MAX), parameters: params });
     }
   }
   return { tools, map };
@@ -162,13 +184,28 @@ export function toolsFor(list, off = []) {
 // ── THE MCP CONVERSATION ──────────────────────────────────────────────────────────────────────────────────────────
 
 export class NeedsSignIn extends Error {
-  constructor(header) { super("this MCP server asks you to sign in"); this.header = String(header || ""); }
+  constructor(header) {
+    super("this MCP server asks you to sign in");
+    this.header = String(header || "");
+    // Claude Code: a 403 insufficient_scope gives "a needs additional permissions message".
+    this.scope = /error="?insufficient_scope/i.test(this.header);
+  }
 }
+const transient = (e) => Object.assign(e, { transient: true });
 
 /** The JSON-RPC answer with `id` in a response: plain JSON, or the `data:` lines of an event stream. */
-export async function readAnswer(res, id) {
+export async function readAnswer(res, id, { onChunk = null, signal = null } = {}) {
   const type = String(res.headers.get("content-type") || "");
-  const text = await res.text();
+  // Read as it comes, each piece resetting the idle timer (a progress notification is such a piece).
+  let text = "";
+  if (onChunk && res.body && typeof res.body.getReader === "function") {
+    const reader = res.body.getReader(), dec = new TextDecoder();
+    // (Stopped at the time limit even when the server does not notice: the reading is given up here.)
+    const stopped = signal ? new Promise((_, no) => { const go = () => { reader.cancel().catch(() => {}); no(new Error("stopped")); }; if (signal.aborted) go(); else signal.addEventListener("abort", go, { once: true }); }) : null;
+    if (stopped) stopped.catch(() => {});
+    for (;;) { const { value, done } = await (stopped ? Promise.race([reader.read(), stopped]) : reader.read()); if (done) break; onChunk(); text += dec.decode(value, { stream: true }); if (text.length > 20_000_000) throw new Error("the MCP server's answer is too large"); }
+    text += dec.decode();
+  } else text = await res.text();
   const msgs = [];
   if (/text\/event-stream/i.test(type)) {
     for (const block of text.split(/\r?\n\r?\n/)) {
@@ -188,7 +225,7 @@ export async function readAnswer(res, id) {
  * One MCP session: initialize, then the methods asked for, in order. `token`: the sign-in (a Bearer token) or "".
  * Throws NeedsSignIn on 401.
  */
-async function httpSession(url, token, steps, { fetchFn = fetch } = {}) {
+async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0 } = {}) {
   let session = "", id = 0;
   const post = async (method, params, notify = false) => {
     const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
@@ -196,22 +233,35 @@ async function httpSession(url, token, steps, { fetchFn = fetch } = {}) {
     if (token) headers.authorization = "Bearer " + token;
     if (session) headers["mcp-session-id"] = session;
     let res;
-    // TIMEOUTS, LIKE CLAUDE CODE'S: a request gets at least 60 seconds; a tool call up to the 5-minute idle limit.
-    const ms = method === "tools/call" ? CALL_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
-    try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: AbortSignal.timeout(ms) }); }
-    catch (e) { throw new Error(e && (e.name === "TimeoutError" || e.name === "AbortError") ? "the MCP server did not answer within " + Math.round(ms / 1000) + " seconds" : "the MCP server could not be reached"); }
+    // TIMEOUTS, LIKE CLAUDE CODE'S: the timer is reset by every piece of the answer (progress included); a tool call is
+    // idle after CALL_TIMEOUT_MS, anything else after REQUEST_TIMEOUT_MS; a tool call ends at CALL_TOTAL_MS in all.
+    const call = method === "tools/call";
+    const ms = call ? idleMs || CALL_TIMEOUT_MS : requestMs || REQUEST_TIMEOUT_MS;
+    const ctl = new AbortController();
+    let idle, why = "";
+    const arm = () => { clearTimeout(idle); idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
+    const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, CALL_TOTAL_MS) : null;
+    const said = () => why === "total" ? "the MCP server's tool call went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes" : "the MCP server said nothing for " + Math.round(ms / 1000) + " seconds";
+    const done = () => { clearTimeout(idle); clearTimeout(total); };
+    arm();
+    try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: ctl.signal }); }
+    catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize" }); }
     // (Claude Code: a server "needs auth" on 401 Unauthorized or 403 Forbidden.)
-    if (res.status === 401 || res.status === 403) throw new NeedsSignIn(res.headers.get("www-authenticate"));
-    if (!res.ok && !(notify && res.status === 202)) throw Object.assign(new Error("the MCP server answered " + res.status), { status: res.status, first: method === "initialize" });
+    if (res.status === 401 || res.status === 403) { done(); throw new NeedsSignIn(res.headers.get("www-authenticate")); }
+    if (!res.ok && !(notify && res.status === 202)) { done(); const e = Object.assign(new Error("the MCP server answered " + res.status), { status: res.status, first: method === "initialize" }); throw res.status >= 500 ? transient(e) : e; }
     const s = res.headers.get("mcp-session-id");
     if (s) session = s;
-    if (notify) return null;
-    return readAnswer(res, msg.id);
+    if (notify) { done(); return null; }
+    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal }); }
+    catch (e) { throw why ? Object.assign(transient(new Error(said())), { first: method === "initialize" }) : e; }
+    finally { done(); }
   };
-  await post("initialize", { protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: CLIENT });
+  const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: CLIENT });
   await post("notifications/initialized", null, true);
   const out = [];
-  for (const [method, params] of steps) out.push(await post(method, params));
+  // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".)
+  for (const [method, params] of steps) out.push(await post(method, method === "tools/call" ? { ...params, _meta: { progressToken: "gf-" + id } } : params));
+  out.init = init;
   return out;
 }
 
@@ -222,10 +272,17 @@ async function httpSession(url, token, steps, { fetchFn = fetch } = {}) {
  */
 export async function mcpSession(url, token, steps, opts = {}) {
   if (/\/sse\/?$/.test(new URL(url).pathname)) return sseSession(url, token, steps, opts);
-  try { return await httpSession(url, token, steps, opts); }
-  catch (e) {
-    if (!(e && e.first && [400, 404, 405].includes(e.status))) throw e;
-    return sseSession(url, token, steps, opts);
+  // RETRIES, LIKE CLAUDE CODE'S: a first connection that fails for a passing reason (a 5xx, refused, a timeout) is tried up
+  // to CONNECT_TRIES times, a second apart and then two; never a tool call that has started (it could run twice).
+  const wait = opts.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  for (let attempt = 1; ; attempt++) {
+    try { return await httpSession(url, token, steps, opts); }
+    catch (e) {
+      if (e && e.first && [400, 404, 405].includes(e.status)) return sseSession(url, token, steps, opts);
+      const started = steps.some(([m]) => m === "tools/call") && !(e && e.first);
+      if (!(e && e.transient) || started || attempt >= CONNECT_TRIES) throw e;
+      await wait(1000 * attempt);
+    }
   }
 }
 
@@ -294,27 +351,76 @@ export async function sseSession(url, token, steps, { fetchFn = fetch } = {}) {
 }
 
 /** All the server's tools (up to 5 pages), as kept on the list. */
-export async function listTools(url, token, opts) {
+/**
+ * A TOOL'S INPUT SCHEMA AS GROK CAN TAKE IT (Claude Code: "root-level anyOf, oneOf, allOf are flattened"; tools whose
+ * top-level property names are not 1 to 64 letters, digits, _ . or - are left out): null for a tool to leave out.
+ */
+export function cleanSchema(raw) {
+  const s = raw && typeof raw === "object" && !Array.isArray(raw) ? raw : { type: "object", properties: {} };
+  const out = { ...s, type: "object", properties: { ...(s.properties && typeof s.properties === "object" ? s.properties : {}) } };
+  const req = new Set(Array.isArray(s.required) ? s.required : []);
+  for (const k of ["anyOf", "oneOf", "allOf"]) {
+    if (!Array.isArray(s[k])) continue;
+    for (const part of s[k]) {
+      if (!part || typeof part !== "object") continue;
+      Object.assign(out.properties, part.properties || {});
+      // Only allOf's required names stay required (any one of the others may be the one given).
+      if (k === "allOf" && Array.isArray(part.required)) part.required.forEach((r) => req.add(r));
+    }
+    delete out[k];
+  }
+  if (Object.keys(out.properties).some((k) => !/^[A-Za-z0-9_.-]{1,64}$/.test(k))) return null;
+  out.required = [...req].filter((r) => r in out.properties);
+  if (!out.required.length) delete out.required;
+  return out;
+}
+
+/** All the server's tools (up to 5 pages), as kept on the list; `.instructions`: the server's own (up to 4,096). */
+export async function listTools(url, token, opts = {}) {
   const tools = [];
-  let cursor;
+  let cursor, instructions = "";
+  const wait = opts.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
   for (let page = 0; page < 5; page++) {
-    const [r] = await mcpSession(url, token, [["tools/list", cursor ? { cursor } : {}]], opts);
+    // (Claude Code: discovery requests such as tools/list "retry up to three times".)
+    let got;
+    for (let attempt = 1; ; attempt++) {
+      try { got = await mcpSession(url, token, [["tools/list", cursor ? { cursor } : {}]], { ...opts, wait }); break; }
+      catch (e) { if (!(e && e.transient) || attempt >= CONNECT_TRIES) throw e; await wait(1000 * attempt); }
+    }
+    const [r] = got;
+    if (page === 0 && got.init && typeof got.init.instructions === "string") instructions = got.init.instructions.slice(0, INSTRUCTIONS_MAX);
     for (const t of (r && Array.isArray(r.tools) ? r.tools : [])) {
       if (!t || typeof t.name !== "string") continue;
-      tools.push({ name: t.name.slice(0, 100), title: String(t.title || (t.annotations && t.annotations.title) || "").slice(0, 100), description: String(t.description || "").slice(0, 2000), inputSchema: t.inputSchema && typeof t.inputSchema === "object" ? t.inputSchema : { type: "object", properties: {} }, readOnly: !!(t.annotations && t.annotations.readOnlyHint === true), ...(t._meta && t._meta["anthropic/requiresUserInteraction"] === true ? { always: true } : {}) });
+      const schema = cleanSchema(t.inputSchema);
+      if (!schema) continue;
+      const meta = t._meta && typeof t._meta === "object" ? t._meta : {};
+      const maxChars = Number(meta["anthropic/maxResultSizeChars"]);
+      tools.push({ name: t.name.slice(0, 100), title: String(t.title || (t.annotations && t.annotations.title) || "").slice(0, 100), description: String(t.description || "").slice(0, DESCRIPTION_MAX), inputSchema: schema, readOnly: !!(t.annotations && t.annotations.readOnlyHint === true),
+        ...(meta["anthropic/requiresUserInteraction"] === true ? { always: true } : {}),
+        ...(meta["anthropic/alwaysLoad"] === true ? { alwaysLoad: true } : {}),
+        ...(Number.isFinite(maxChars) && maxChars > 0 ? { maxChars: Math.min(Math.floor(maxChars), RESULT_FILE_CEILING) } : {}) });
     }
     cursor = r && r.nextCursor;
     if (!cursor) break;
   }
-  return tools.slice(0, 200);
+  const list = tools.slice(0, 200);
+  list.instructions = instructions;
+  return list;
 }
 
 /** A tool's answer as text for Grok: its text parts, what else it gave named, at most RESULT_MAX. */
 export function resultText(r) {
-  const parts = [];
+  const parts = [], images = [];
   for (const p of (r && Array.isArray(r.content) ? r.content : [])) {
     if (!p) continue;
     if (p.type === "text") parts.push(String(p.text || ""));
+    // PICTURES (Claude Code: PNG, JPEG, GIF and WebP are seen "inline in the conversation"): PNG and JPEG are passed on
+    // for Grok to see; others are named.
+    else if (p.type === "image" && typeof p.data === "string") {
+      const ok = /^image\/(png|jpeg)$/.test(String(p.mimeType || "")) && p.data.length <= PIC_B64_MAX && /^[A-Za-z0-9+/=\s]+$/.test(p.data.slice(0, 200)) && images.length < PICS_MAX;
+      if (ok) { images.push({ type: p.mimeType, data: p.data.replace(/\s+/g, "") }); parts.push("[picture " + images.length + ", shown to you]"); }
+      else parts.push("[a picture (" + String(p.mimeType || "unknown type").slice(0, 40) + ") not shown]");
+    }
     else if (p.type === "resource" && p.resource) parts.push(typeof p.resource.text === "string" ? p.resource.text : "[a file: " + String(p.resource.uri || "") + "]");
     else if (p.type === "resource_link") parts.push("[a link: " + String(p.uri || "") + "]");
     else parts.push("[" + String(p.type || "something") + " not shown]");
@@ -322,7 +428,7 @@ export function resultText(r) {
   if (!parts.length && r && r.structuredContent) parts.push(JSON.stringify(r.structuredContent));
   let text = parts.join("\n") || "(no output)";
   if (text.length > RESULT_MAX) text = text.slice(0, RESULT_MAX) + "\n…(cut: the answer was " + text.length + " characters)";
-  return { text, isError: !!(r && r.isError) };
+  return { text, isError: !!(r && r.isError), ...(images.length ? { images } : {}) };
 }
 
 // ── SIGN-IN (OAuth 2.1, PKCE, the client registered on the fly) ──────────────────────────────────────────────────
@@ -344,7 +450,11 @@ export async function discover(url, wwwAuth, { fetchFn = fetch } = {}) {
   if (!as) as = await getMeta(wellKnown(issuer, "openid-configuration"), fetchFn);
   if (!as) as = await getMeta(new URL(issuer).origin + "/.well-known/oauth-authorization-server", fetchFn);
   if (!as || !as.authorization_endpoint || !as.token_endpoint) throw new Error("this MCP server's sign-in could not be found; it may need a key instead");
-  return { resource: prm && prm.resource ? String(prm.resource) : url, authorize: String(as.authorization_endpoint), token: String(as.token_endpoint), register: as.registration_endpoint ? String(as.registration_endpoint) : "", cimd: as.client_id_metadata_document_supported === true, scopes: prm && Array.isArray(prm.scopes_supported) ? prm.scopes_supported.join(" ") : "" };
+  // (Claude Code: "If the authorization server advertises offline_access in scopes_supported, Claude Code appends it", so a
+  // refresh token comes back and the connector stays signed in.)
+  const scopes = prm && Array.isArray(prm.scopes_supported) ? prm.scopes_supported.map(String) : [];
+  if (Array.isArray(as.scopes_supported) && as.scopes_supported.includes("offline_access") && scopes.length && !scopes.includes("offline_access")) scopes.push("offline_access");
+  return { resource: prm && prm.resource ? String(prm.resource) : url, authorize: String(as.authorization_endpoint), token: String(as.token_endpoint), register: as.registration_endpoint ? String(as.registration_endpoint) : "", cimd: as.client_id_metadata_document_supported === true, scopes: scopes.join(" ") };
 }
 
 export function redirectUri(env) { return String((env && env.CODER_PUBLIC_URL) || "https://coder.gofarther.dev").replace(/\/+$/, "") + CALLBACK_PATH; }
@@ -427,7 +537,7 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.auth = "oauth";
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
-  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
+  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
   await writeConnectors(bucket, p.uid, list);
   return { uid: p.uid, id: c.id };
 }
@@ -464,7 +574,8 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     const clean = cleanUrl(url);
     if (!clean) throw new Error("give the MCP server's address, starting with https://");
     if (list.length >= CONNECTORS_MAX) throw new Error("at most " + CONNECTORS_MAX + " connectors");
-    if (list.some((x) => x.url === clean)) throw new Error("that MCP server is already on your list");
+    // (Claude Code: duplicate addresses are compared without the case of the scheme and host, a default port or a trailing slash.)
+    if (list.some((x) => sameServer(x.url, clean))) throw new Error("that MCP server is already on your list");
     c = { id: "c" + rand(9).replace(/[^A-Za-z0-9]/g, "x").toLowerCase(), name: cleanName(name, clean), url: clean, auth: "none", tools: [], status: "auth", at: now };
     list.push(c);
   }
@@ -473,7 +584,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { c.tools = await listTools(c.url, token, { fetchFn }); c.toolsAt = now; }
+    try { c.tools = await listTools(c.url, token, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -483,7 +594,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
       const again = await readConnectors(bucket, uid);
       const mine = again.find((x) => x.id === c.id);
       if (mine) c.box = mine.box;
-      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now;
+      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || "";
     }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
@@ -498,7 +609,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
     // A new one that does not work is not kept.
     if (!id) throw e instanceof NeedsSignIn ? new Error("the MCP server refused that key") : e;
     c.status = e instanceof NeedsSignIn ? "auth" : "error";
-    c.error = e instanceof NeedsSignIn ? (c.auth === "key" ? "the key was refused: remove it and connect again with a new key" : "the key was refused") : String(e.message || e).slice(0, 200);
+    c.error = e instanceof NeedsSignIn ? (e.scope ? "needs more permissions: reconnect it to give them" : c.auth === "key" ? "the key was refused: remove it and connect again with a new key" : "the key was refused") : String(e.message || e).slice(0, 200);
     await writeConnectors(bucket, uid, list);
     return { connector: c };
   }
@@ -516,13 +627,13 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
   for (const c of list) {
     if (only && c.id !== only) continue;
     if (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS)) continue;
-    try { c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); c.toolsAt = now; changed = true; }
+    try { c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.instructions = mine.instructions || ""; } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -559,10 +670,32 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
     }
     if (e instanceof NeedsSignIn) {
       c.status = "auth"; await writeConnectors(bucket, uid, list);
-      return { text: "error: the " + c.name + " connector needs the owner to sign in again (Settings, Connectors)", isError: true };
+      return { text: "error: the " + c.name + " connector " + (e.scope ? "needs more permissions for that: the owner reconnects it (Connectors, " + c.name + ", Reconnect) to give them" : "needs the owner to sign in again (Settings, Connectors)"), isError: true };
     }
     return { text: "error: " + String(e.message || e).slice(0, 300), isError: true };
   }
+}
+
+/** SERVER INSTRUCTIONS (Claude Code: given to the model at the start, up to 4,096 characters): each working connector's. */
+export function connectorNotes(list, off = []) {
+  return list.filter((c) => c.status === "ok" && !off.includes(c.id) && typeof c.instructions === "string" && c.instructions.trim()).slice(0, 10).map((c) => ({ name: c.name, instructions: c.instructions.slice(0, INSTRUCTIONS_MAX) }));
+}
+
+/**
+ * A JOB'S CONNECTORS: their tools' names and descriptions, and their servers' instructions; each call goes through the
+ * Worker with the job's pass, and only these names (kept for the turn). Never in a job started from GitHub (strangers write
+ * there). Gives { connectors, connectorNotes } for the machine, or {} when there are none.
+ */
+export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
+  if (fromGithub) return {};
+  try {
+    const mine = await readConnectors(bucket, uid), off = Array.isArray(meta && meta.connectorsOff) ? meta.connectorsOff : [];
+    const ct = toolsFor(mine, off);
+    if (!ct.tools.length) return {};
+    await keepJobTools(bucket, uid, id, turn, ct.map);
+    const notes = connectorNotes(mine, off);
+    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}) };
+  } catch { return {}; }
 }
 
 /** What a job may call, kept for its turn (`coder/<uid>/<chat>/mcp.json`): the tool names and what each one is. */

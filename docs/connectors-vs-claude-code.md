@@ -41,21 +41,21 @@ Your word: "go back to the Claude Code docs and look up the MCP tools ... see wh
 
 | # | What | Claude Code | Coder now | Status |
 |---|------|-------------|-----------|--------|
-| 11 | Idle limit, not a total limit | the 5 minutes is an idle window, reset by progress notifications; the total limit is about 28 hours | 5 minutes in all | to do |
-| 12 | Tool search threshold | while the tools' definitions are under 10% of the context they load at once ("no fixed per-server tool cap") | over 20 tools, or 40,000 characters | to do |
-| 13 | Description length | 4,096 characters at the start; 16,384 when found by tool search | 1,000 | to do |
-| 14 | A tool's own size limit | `_meta["anthropic/maxResultSizeChars"]` raises the 50,000-character file threshold, up to 500,000 | not read | to do |
-| 15 | Long errors | an error over about 11,000 characters keeps its first and last 5,000 | same as other answers | to do |
-| 16 | Big-answer warning | a warning shows when an answer is over 10,000 tokens | none | to do |
-| 17 | Pictures from a tool | PNG, JPEG, GIF and WebP shown to the model in the chat | "[image not shown]" | to do |
-| 18 | Retries | a first connection failing with a 5xx, refusal or timeout is tried 3 times; listing tools is tried 3 times | once | to do |
-| 19 | offline_access | appended to the scopes when the sign-in server offers it, so a refresh token comes back | not added | to do |
-| 20 | "Needs more permission" | a 403 `insufficient_scope` says the connector needs more permissions | treated as signed out | to do |
-| 21 | Server instructions | a server's instructions (up to 4,096 characters) are given to the model at the start | not read | to do |
+| 11 | Idle limit, not a total limit | the 5 minutes is an idle window, reset by progress notifications; the total limit is about 28 hours | idle 5 minutes, reset by every piece of the answer (a tool call asks for progress); 30 minutes in all (a web request can't wait 28 hours) | done 2026-11-11 |
+| 12 | Tool search threshold | while the tools' definitions are under 10% of the context they load at once ("no fixed per-server tool cap") | loaded upfront while their definitions are under 100,000 characters (10% of Grok's context); no tool count | done 2026-11-11 |
+| 13 | Description length | 4,096 characters at the start; 16,384 when found by tool search | 4,096 characters upfront, 16,384 when found by search | done 2026-11-11 |
+| 14 | A tool's own size limit | `_meta["anthropic/maxResultSizeChars"]` raises the 50,000-character file threshold, up to 500,000 | read, up to 500,000 | done 2026-11-11 |
+| 15 | Long errors | an error over about 11,000 characters keeps its first and last 5,000 | first and last 5,000 kept | done 2026-11-11 |
+| 16 | Big-answer warning | a warning shows when an answer is over 10,000 tokens | a note in the chat over about 10,000 tokens | done 2026-11-11 |
+| 17 | Pictures from a tool | PNG, JPEG, GIF and WebP shown to the model in the chat | PNG and JPEG shown to Grok (up to 4, as read's pictures are); GIF and WebP named | done 2026-11-11 |
+| 18 | Retries | a first connection failing with a 5xx, refusal or timeout is tried 3 times; listing tools is tried 3 times | a first connection failing with a 5xx, refused or a timeout is tried 3 times, 1 and 2 seconds apart; tools/list too; never a tool call already started | done 2026-11-11 |
+| 19 | offline_access | appended to the scopes when the sign-in server offers it, so a refresh token comes back | added when the sign-in server offers it | done 2026-11-11 |
+| 20 | "Needs more permission" | a 403 `insufficient_scope` says the connector needs more permissions | "needs more permissions: reconnect it" | done 2026-11-11 |
+| 21 | Server instructions | a server's instructions (up to 4,096 characters) are given to the model at the start | each working connector's instructions (up to 4,096) given to Grok, marked as the server's, not the owner's | done 2026-11-11 |
 | 22 | Read-only in parallel; safe repeats | `readOnlyHint` tools run side by side; `idempotentHint` tools may be repeated once on a new connection | one by one, never repeated | later |
-| 23 | Always load a tool | `_meta["anthropic/alwaysLoad"]` keeps a tool loaded even with tool search | not read | to do with #12 |
-| 24 | Tool schemas | top-level `anyOf`/`oneOf`/`allOf` flattened; tools with odd property names left out | passed as they are | to do |
-| 25 | Same server twice | addresses compared without case, default port or trailing slash | exact text | to do |
+| 23 | Always load a tool | `_meta["anthropic/alwaysLoad"]` keeps a tool loaded even with tool search | read; such tools load at the start even with tool search | done 2026-11-11 |
+| 24 | Tool schemas | top-level `anyOf`/`oneOf`/`allOf` flattened; tools with odd property names left out | flattened; tools with odd property names left out | done 2026-11-11 |
+| 25 | Same server twice | addresses compared without case, default port or trailing slash | compared without case, default port or trailing slash | done 2026-11-11 |
 | 26 | Long calls to the background | a call still running after 2 minutes moves to the background | waits | later |
 | 27 | Resources | `@server:protocol://path`, fetched and attached | none | later (#9) |
 | 28 | Prompts | `/server:prompt` slash commands | none | later (#9) |

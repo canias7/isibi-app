@@ -74,7 +74,7 @@ import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { watchJob, watchKey, watchBackground } from "./coder-watch.mjs";
 import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
-import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
+import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
 
 const MAX_PROJECTS = 50;
@@ -942,13 +942,9 @@ export async function handleCoder(request, env, ctx, deps) {
     const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
     // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
     const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
-    // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs): their names and descriptions only; each call goes through the
-    // Worker with this job's pass, and only these names. Never in a job started from GitHub (strangers write there).
-    let connectors = [];
-    if (body.fromGithub !== true) {
-      try { const ct = connectorTools(await readConnectors(bucket, uid), Array.isArray(meta.connectorsOff) ? meta.connectorsOff : []); connectors = ct.tools; if (connectors.length) await keepJobTools(bucket, uid, id, next.turn, ct.map); } catch { connectors = []; }
-    }
-    const connOn = connectors.length ? { connectors } : {};
+    // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs, jobConnectors): names and descriptions only, never in a job from GitHub.
+    const connOn = await jobConnectors(bucket, uid, id, next.turn, meta, body.fromGithub === true);
+    const connectors = connOn.connectors || [];
     // Lists older than an hour are read again in the background, for the next job (coder-mcp.mjs, refreshTools).
     if (connectors.length && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshTools(env, bucket, uid, { fetchFn }).catch(() => {}));
     // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):

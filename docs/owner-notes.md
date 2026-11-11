@@ -6,6 +6,36 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-11: Connectors tried live on jessica.gofarther.dev (your word: "You go ahead and sign in using the browser")
 
+## 2026-11-11: Connectors: 14 more things from Claude Code's MCP docs (your word: "Start with all of it")
+
+Items #11 to #21 and #23 to #25 of `docs/connectors-vs-claude-code.md`.
+
+- **Time limit (#11):**
+  - A tool call can now run as long as the app keeps sending progress.
+  - It stops after 5 minutes of silence, or 30 minutes in all. Before, it stopped at 5 minutes even while still working.
+- **When Coder searches for tools (#12):** only when the tools' descriptions would take more than about a tenth of Grok's memory, as Claude Code does. Before, it was more than 20 tools.
+- **Longer descriptions (#13):** up to 4,096 characters, and 16,384 once Coder finds a tool by searching. Before, 1,000.
+- **A tool's own size limit (#14):** a tool can ask for answers of up to 500,000 characters before they're saved to a file.
+- **Long errors (#15):** Coder keeps the start and the end, 5,000 characters each.
+- **Big answers (#16):** the chat shows "Large answer from …: about N tokens".
+- **Pictures (#17):** PNG and JPEG pictures a tool sends are shown to Coder, as pictures from read are.
+- **Retries (#18):**
+  - A first connection that fails for a passing reason (the app busy or not answering) is tried 3 times. The same goes for listing its tools.
+  - A tool call that has started is never repeated, so nothing happens twice.
+- **Staying signed in (#19):** Coder asks for "offline_access" when the app offers it, so the app gives a refresh token.
+- **Clearer message (#20):** when an app wants more permission, it says "needs more permissions: reconnect it" instead of "sign in again".
+- **Apps' own instructions (#21):**
+  - An app's tips on using its tools are given to Coder at the start.
+  - They're marked as the app's words, not yours, and only for using that app.
+- **Always-loaded tools (#23):** an app can mark tools that stay loaded even when Coder searches for tools.
+- **Unusual tool layouts (#24):** they're cleaned up for Grok. A tool with oddly named settings is left out.
+- **The same app twice (#25):** it's caught even when the address is written differently.
+- **A fix found while testing:** at the time limit, Coder now stops reading the answer itself, even if the app doesn't notice.
+- **A test kept as it is:** an older check limits how far apart two lines may sit, and my additions went past it. I moved the connector code into its own helper rather than change that check.
+- **Tests:** MC14 is new and MC10 was updated for the new rule. All 403 pass, 4 skipped as before.
+- **Not deployed yet.**
+- **Left for later:** #22 (tools side by side), #26 (long calls in the background), #27 to #29 (resources, prompts, the app asking you something) and #30 (long app jobs).
+
 ## 2026-11-11: Every sign-in app tried up to its login on jessica.gofarther.dev (your word: "test the ones that dont have the verified ur human thing")
 
 On jessica, signed in as the test account, I pressed Connect on each sign-in app in Discover and went as far as each one's own login or approval page.
