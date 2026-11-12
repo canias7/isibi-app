@@ -3464,6 +3464,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
           // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
           if (typeof payload === "string" && command.includes("@REQUEST")) {
+            // (The folder is made again when it is gone: a job's end removes it when no background command keeps it (tidyBg), and
+            // the chat's SessionEnd hooks run after that, when its machine is stopped. Round 6's retest, 2026-11-12: the hook
+            // failed at once, "ENOENT: no such file or directory, open '…/req-….json'", and never ran.)
+            await mkdir(bgDir, { recursive: true });
             const f = join(bgDir, "req-" + randomUUID() + ".json");
             const fh = await open(f, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
             try { await fh.writeFile(payload); } finally { await fh.close(); }

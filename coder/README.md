@@ -1544,7 +1544,7 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   variable, which Claude Code doesn't have) (CD536).
 
 **Round 6 of the live test: the 6 fixes** (owner, 2026-11-12: "Ok yes"). Tests:
-`test/round6.test.mjs` (CD537 to CD541) and CD542 in `test/pass7.test.mjs`.
+`test/round6.test.mjs` (CD537 to CD541, CD543, CD544) and CD542 in `test/pass7.test.mjs`.
 - *A starting branch late in the alphabet* is asked for by name (`git
   ls-remote --heads <url> refs/heads/<base>`, `headListed`): the list of all
   branches is cut at 4,000 characters, about 50 branches, so a branch past them
@@ -1563,7 +1563,12 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   (CD540). Each stop leaves a record (`noteSessionEnd`): when it began, with the
   stop signal, then what each hook did, the newest 20 lines in
   `.session-end.log` in root's own git folder (`/data/git` on Fly.io), which the
-  AI's commands may read and never write (CD543, CD384c).
+  AI's commands may read and never write (CD543, CD384c). The record found the
+  real cause after deploy 145: the hook started on Fly.io's SIGINT and failed in
+  1 ms, "ENOENT … req-….json", because a job's end removes the chat's work folder
+  (`/srv/coder-bg/<chat>`, `tidyBg`) when nothing in the background keeps it, and
+  the hook's input file is written there. That folder is now made again before
+  the file is written (CD544).
 - *`@coder` on a pull request whose chat was deleted* drops the stale branch
   record and opens a new chat on the pull request's branch, as for anyone
   else's pull request; deleting a chat drops its own branch records

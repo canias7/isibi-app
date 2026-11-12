@@ -4,7 +4,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
-import { readFileSync } from "node:fs";
+import { readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { generateKeyPairSync } from "node:crypto";
@@ -111,6 +111,33 @@ test("CD543 a record of each stop's SessionEnd hooks, in root's own git folder (
   assert.equal(await S.noteSessionEnd("", { n: 1 }), false, "nowhere to write");
   // The stop signal's name goes with it.
   assert.match(read("container/server.mjs"), /app\.sessionEnd\("other", \{ signal: sig \}\)/);
+});
+
+test("CD544 a chat's SessionEnd hook runs when its machine stops after a message that left nothing in the background (round 6's retest, after the record: the job's end had removed the chat's work folder, and the hook failed in 1 ms, \"ENOENT: no such file or directory, open '/srv/coder-bg/…/req-….json'\")", async () => {
+  const http = (await import("node:http")).default;
+  const r = { ...(await roots()), memRoot: await mkdtemp(join(tmpdir(), "coder-mem6e-")), bgRoot: await mkdtemp(join(tmpdir(), "coder-bg6e-")), home: await mkdtemp(join(tmpdir(), "coder-home6e-")) };
+  const project = "r6-end-" + process.pid;
+  const say = (content) => ({ message: { role: "assistant", content }, usage: { in: 1, out: 1 } });
+  const app = S.createApp({ ...r, send: async () => say("ready") });
+  const srv = http.createServer(app);
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    // The live test's hook, writing in the project's folder here (live: "$HOME/r43-end.log").
+    const hooks = { hooks: { SessionEnd: [{ hooks: [{ type: "command", command: "cat >> \"$CLAUDE_PROJECT_DIR/r43-end.log\"; echo >> \"$CLAUDE_PROJECT_DIR/r43-end.log\"" }] }] } };
+    const sent = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "Reply with the single word ready, nothing else.", messages: [], hooks }) });
+    assert.equal(sent.status, 200);
+    let st;
+    for (let i = 0; i < 400; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.ok(st && st.result, "the message ended");
+    assert.equal(existsSync(join(r.bgRoot, project)), false, "the job's end removed the chat's work folder: nothing in the background kept it (as live)");
+    // The machine stops (Fly.io's SIGINT): the hook runs, and its file is written.
+    assert.equal(await app.sessionEnd("other", { signal: "SIGINT" }), 1);
+    const wrote = JSON.parse(readFileSync(join(r.root, project, "r43-end.log"), "utf8").trim());
+    assert.deepEqual([wrote.hook_event_name, wrote.reason, wrote.session_id], ["SessionEnd", "other", project]);
+    const recs = readFileSync(join(r.gitRoot, ".session-end.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual([recs[0].signal, recs[0].hooks, recs[1].said[0].code, recs[1].said[0].error], ["SIGINT", 1, 0, undefined]);
+  } finally { srv.close(); }
 });
 
 // ── `@coder` ON A PULL REQUEST WHOSE CHAT WAS DELETED ─────────────────────────────────────────────────────────────────────
