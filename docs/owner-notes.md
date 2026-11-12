@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The email check, tried live and side by side with Claude Code (your words: "Ok yes")
+
+No video. One throwaway chat on canias7/testingforclaude, with your throwaway test account's own address (only that address went to Grok). Every command pointed at 127.0.0.1 port 9 on Coder's machine, where nothing listens, so nothing could leave the machine even if a check failed.
+- **Live in Coder, Auto:** 8 calls. The 6 with the address next to a User-Agent were refused without asking: curl's `-A`, wget's `-U`, a `User-Agent:` header with the address written as `%40` and in capitals, `echo "User-Agent: …"`, and a monitor. The 2 without ran: curl with a plain client name (connection refused, as expected) and `echo` of the address alone.
+- **Live in Coder, Accept edits and Plan:** one call each, both refused, no question card.
+- **Claude Code (its command-line version, Haiku),** set up with a made-up account email, so your real address never came into it: the same 6 refused and the same 2 ran. Also refused in default, Accept edits, Plan and Auto, even with no rule allowing commands (the refusal comes before any question).
+- **Two differences, fixed on the branch (not live yet):**
+  1. Claude Code tells its model "Permission to use Bash denied by plugin cc-plugin-privacy:" before the refusal sentence ("Monitor" or "PowerShell" for those tools). Coder sent the sentence alone. Now the same (test CD548).
+  2. From Claude Code's code: it also looks for the address with any quote marks taken out, so o'brien@… is caught when written obrien@…. Coder now does the same: the Worker sends a second fingerprint when the address has a quote mark, still never the address itself (test CD549).
+- **Checks:** the two new tests pass, the old one is updated, and the full suite on my side passes: 583 of 583. The test chat is deleted. Cost: about 11 cents of Grok and 5 cents of Haiku.
+- **Next, with your word:** merge and deploy, then one quick live check of the new wording.
+
 ## 2026-11-12: The full-disk and memory fixes, live (your words: "yes merge and deploy, then retest")
 
 Merged and deployed (deploy 156). No video. One fresh throwaway chat, filled to its 50 GB limit (5 MB left):

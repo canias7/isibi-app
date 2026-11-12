@@ -1627,6 +1627,25 @@ counted. Now it reads the stall every half second (`samplePressure`,
 within 2 seconds (`stallTriggered`), then starts the readings again, as the
 kernel fires once a window.
 
+**The account's email with a User-Agent, live and side by side** (owner,
+2026-11-12: "Ok yes"). On gofarther.dev, with the throwaway test account's own
+address and every command pointed at 127.0.0.1 port 9 (nothing listens, so
+nothing leaves the machine): of 8 calls in Auto, Coder refused the same 6 as
+Claude Code 2.1.323 (curl's `-A`, wget's `-U`, a `User-Agent:` header with the
+address %40-encoded and in capitals, `echo "User-Agent: …"`, and a monitor) and
+ran the 2 without the address next to a User-Agent; one call each in Accept edits
+and Plan was refused too; never a question card. Claude Code (Haiku), with its own
+settings folder whose account email was made up, did the same in default, Accept
+edits, Plan and Auto, also with no allow rule (the refusal comes before the ask).
+Two differences, from its run and its code (`cc-plugin-privacy`), fixed: Grok is
+now told Claude Code's words, "Permission to use Bash denied by plugin
+cc-plugin-privacy: " before the refusal (and Monitor, PowerShell:
+`accountEmailRefused`, CD548), and the address is also looked for without its
+quote marks and backslashes, as Claude Code's QUOTING does (o'brien@… as
+obrien@…): the Worker then sends a second length and SHA-256 after a comma
+(`emailMark`), and the machine takes one or two (CD549). A monitor's own input
+is what is read for it.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
