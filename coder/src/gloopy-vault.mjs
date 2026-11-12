@@ -17,7 +17,7 @@
 import { seal, unseal } from "./coder-github.mjs";
 
 /** At most this many saved logins per person (a password manager's whole export fits); a hint's and a password's most. */
-export const LOGINS_MAX = 1000, HINT_MAX = 200, PASSWORD_MAX = 1000, USERNAME_MAX = 500;
+export const LOGINS_MAX = 1000, HINT_MAX = 200, NICKNAME_MAX = 60, PASSWORD_MAX = 1000, USERNAME_MAX = 500;
 const key = (uid) => ["coder", uid, "gloopy", "vault.json"].join("/");
 const SITE = /^[a-z0-9.-]{1,253}(:\d{1,5})?$/;
 const newId = () => "l" + crypto.randomUUID().replace(/-/g, "").slice(0, 10);
@@ -38,8 +38,10 @@ export function loginSite(raw) {
 }
 /** A hint as kept: plain words on one line, at most HINT_MAX characters. */
 export const cleanHint = (t) => String(t == null ? "" : t).replace(/[\p{Cf}\p{Cc}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, HINT_MAX);
+/** A login's nickname (2026-11-12, Grok Bot's "an entry's nickname"), as a hint is kept: at most NICKNAME_MAX characters. */
+export const cleanNickname = (t) => cleanHint(t).slice(0, NICKNAME_MAX);
 
-/** The saved logins, unsealed: [{ id, site, username, password, hint?, made?, at }]. */
+/** The saved logins, unsealed: [{ id, site, username, password, nickname?, hint?, made?, at }]. */
 export async function readLogins(env, bucket, uid) {
   const o = await bucket.get(key(uid));
   if (!o) return [];
@@ -53,28 +55,30 @@ async function writeLogins(env, bucket, uid, list) {
 }
 
 /** What the page and Gloopy may know of them: never a password. */
-export const loginList = (list) => list.map((x) => ({ id: x.id, site: x.site, username: x.username, ...(x.hint ? { hint: x.hint } : {}), ...(x.made ? { made: true } : {}), at: x.at }));
+export const loginList = (list) => list.map((x) => ({ id: x.id, site: x.site, username: x.username, ...(x.nickname ? { nickname: x.nickname } : {}), ...(x.hint ? { hint: x.hint } : {}), ...(x.made ? { made: true } : {}), at: x.at }));
 
 /**
  * A login kept for a site (one per site and username: saving again replaces it, keeping its id and, unless a new one is
  * given, its hint); the oldest goes past LOGINS_MAX. `made`: a password Gloopy's computer made for a new account.
  */
-export async function saveLogin(env, bucket, uid, { site, username = "", password, hint, made = false }, now = Date.now()) {
+export async function saveLogin(env, bucket, uid, { site, username = "", password, hint, nickname, made = false }, now = Date.now()) {
   const s = loginSite(site);
   if (!s || typeof password !== "string" || !password || password.length > PASSWORD_MAX) return null;
   const u = String(username == null ? "" : username).trim().slice(0, USERNAME_MAX);
   const all = await readLogins(env, bucket, uid);
   const old = all.find((x) => loginSite(x.site) === s && x.username === u);
   const h = typeof hint === "string" ? cleanHint(hint) : old && old.hint ? old.hint : "";
-  const item = { id: old ? old.id : newId(), site: s, username: u, password, ...(h ? { hint: h } : {}), ...(made ? { made: true } : {}), at: now };
+  const nick = typeof nickname === "string" ? cleanNickname(nickname) : old && old.nickname ? old.nickname : "";
+  const item = { id: old ? old.id : newId(), site: s, username: u, password, ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), ...(made ? { made: true } : {}), at: now };
   await writeLogins(env, bucket, uid, [...all.filter((x) => x !== old), item].slice(-LOGINS_MAX));
   return item;
 }
 
 /**
  * A SAVED LOGIN CHANGED IN SETTINGS (Grok Bot's Vault: "select it in Settings → Vault and edit it"): its website,
- * username, hint, and its password when a new one is typed (an empty one keeps it). Another login for the same site and
- * username gives way to it. { item } or { error } in the owner's words.
+ * username, nickname, hint, and its password when a new one is typed (an empty one keeps it). Another login for the same
+ * site and username gives way to it. { item } or { error } in the owner's words. (Gloopy changes only a nickname and
+ * hints, when the owner asks: Grok Bot's "A Bot can change ... an entry's nickname and hints, when you ask".)
  */
 export async function editLogin(env, bucket, uid, id, change = {}, now = Date.now()) {
   const all = await readLogins(env, bucket, uid);
@@ -87,7 +91,8 @@ export async function editLogin(env, bucket, uid, id, change = {}, now = Date.no
   const typed = typeof c.password === "string" && c.password !== "";
   if (typed && c.password.length > PASSWORD_MAX) return { error: "That password is too long (at most " + PASSWORD_MAX + " characters)." };
   const h = c.hint !== undefined ? cleanHint(c.hint) : it.hint || "";
-  const next = { id: it.id, site: s, username: u, password: typed ? c.password : it.password, ...(h ? { hint: h } : {}), ...(it.made && !typed ? { made: true } : {}), at: now };
+  const nick = c.nickname !== undefined ? cleanNickname(c.nickname) : it.nickname || "";
+  const next = { id: it.id, site: s, username: u, password: typed ? c.password : it.password, ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), ...(it.made && !typed ? { made: true } : {}), at: now };
   await writeLogins(env, bucket, uid, [...all.filter((x) => x.id !== id && !(loginSite(x.site) === s && x.username === u)), next]);
   return { item: next };
 }

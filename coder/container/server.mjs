@@ -49,7 +49,7 @@ export const TERM_S = 60;
  */
 export function savedLoginsOf(body) {
   const raw = Array.isArray(body && body.savedLogins) ? body.savedLogins.slice(0, 1000) : [];
-  return raw.map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x && typeof x === "object" && typeof x.site === "string" ? { id: typeof x.id === "string" ? x.id.slice(0, 40) : "", site: x.site.slice(0, 260), username: typeof x.username === "string" ? x.username.slice(0, 500) : "", ...(typeof x.hint === "string" && x.hint ? { hint: x.hint.slice(0, 200) } : {}), ...(x.made === true ? { made: true } : {}) } : null)).filter(Boolean);
+  return raw.map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x && typeof x === "object" && typeof x.site === "string" ? { id: typeof x.id === "string" ? x.id.slice(0, 40) : "", site: x.site.slice(0, 260), username: typeof x.username === "string" ? x.username.slice(0, 500) : "", ...(typeof x.nickname === "string" && x.nickname ? { nickname: x.nickname.slice(0, 60) } : {}), ...(typeof x.hint === "string" && x.hint ? { hint: x.hint.slice(0, 200) } : {}), ...(x.made === true ? { made: true } : {}) } : null)).filter(Boolean);
 }
 /**
  * A STRONG PASSWORD FOR A NEW ACCOUNT (2026-11-12): `length` letters, digits (and symbols, unless the site takes none),
@@ -2034,6 +2034,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password });
       return { ok: true, still: done.still === true, title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
     };
+    // A LOGIN'S NICKNAME OR HINTS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's "A Bot can change ... an entry's
+    // nickname and hints, when you ask"): changed in the owner's Vault by Coder's Worker; nothing else of it.
+    const vaultEdit = async ({ site, username = "", nickname, hint }) => {
+      let r;
+      try { r = await vaultAsk({ edit: { site, ...(username ? { username } : {}), ...(nickname !== undefined ? { nickname } : {}), ...(hint !== undefined ? { hint } : {}) } }); } catch { return { ok: false, why: "the owner's Vault can't be reached from this computer" }; }
+      const d = await r.json().catch(() => null);
+      return r.ok && d && d.ok ? { ok: true, login: d.login } : { ok: false, why: String((d && d.error) || "the owner's Vault didn't take it").slice(0, 300) };
+    };
     // A PASSWORD MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's "Vault generates the password and
     // saves the login, and the Bot never sees it"): made here, kept in the owner's Vault first (so it is never lost),
     // then typed into the page's new-password field (and its confirm field). Nothing of it reaches the AI.
@@ -2198,6 +2206,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
         ...(files ? { files } : {}),
         ...(gloopy ? { writes: t.writes } : {}),
+        // THE OWNER'S VAULT (owner, 2026-11-12: "yes do 1 and 2"): a login's nickname or hints changed when they ask.
+        ...(gloopy && eg && typeof eg.url === "string" && /^https?:\/\//.test(eg.url) ? { vault: { edit: vaultEdit } } : {}),
         // A file to upload made ready (fix 3, 2026-11-10), and downloads finished since the last step (fix 2): only from a
         // browser already running (none is started to be asked).
         ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); }, makeLogin: (x) => { notWhileOwner(); return makeLogin(x); }, stage: (x) => { notWhileOwner(); return browserHub().stage(x); }, collect: async () => ((await browserHub().running().catch(() => false)) ? browserHub().collect() : null),

@@ -2288,6 +2288,20 @@ async function gloopyVaultAsk(request, env, bucket) {
     const item = await saveLogin(env, bucket, uid, { site: body.site, username: body.username, password: body.password, made: true });
     return item ? json({ ok: true, id: item.id }) : json({ error: "that login could not be kept" }, 400);
   }
+  // A LOGIN'S NICKNAME OR HINTS, CHANGED BY GLOOPY WHEN THE OWNER ASKS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's
+  // "A Bot can change ... an entry's nickname and hints, when you ask. Passwords, usernames, websites ... change only in
+  // Settings → Vault"): only those two, of the one login of that site (and username) it names; never a password back.
+  if (body.edit && typeof body.edit === "object") {
+    const e = body.edit;
+    const list = await readLogins(env, bucket, uid), s0 = loginSite(e.site);
+    const mine = s0 ? list.filter((x) => loginSite(x.site) === s0) : [];
+    const want = typeof e.username === "string" ? e.username.trim() : "";
+    const it = want ? mine.find((x) => x.username === want) : mine.length === 1 ? mine[0] : null;
+    if (!it) return json({ error: !mine.length ? "the owner has no saved login for " + (s0 || "that site") : want ? "no saved login for " + s0 + " has that username" : "the owner saved " + mine.length + " logins for " + s0 + ": give the username of the one to change" }, 404);
+    if (e.nickname === undefined && e.hint === undefined) return json({ error: "give a new nickname or hint" }, 400);
+    const r = await editLogin(env, bucket, uid, it.id, { ...(e.nickname !== undefined ? { nickname: String(e.nickname) } : {}), ...(e.hint !== undefined ? { hint: String(e.hint) } : {}) });
+    return r.error ? json({ error: r.error }, 400) : json({ ok: true, login: loginList([r.item])[0] });
+  }
   if (perms.login !== "allow") return no();
   const pick = typeof body.id === "string" && body.id ? { id: body.id } : typeof body.username === "string" && body.username ? { username: body.username } : {};
   const it = loginFor(await readLogins(env, bucket, uid), body.site, pick);
@@ -2297,8 +2311,9 @@ async function gloopyVaultAsk(request, env, bucket) {
 /**
  * GLOOPY'S SAVED LOGINS, FOR THE SETTINGS SCREEN (2026-11-09): GET lists them (site, username and hint, never a
  * password); POST { remove: id } takes one away. THE VAULT (owner, 2026-11-12: "do all 5 make sure you do similar
- * frontend compare to grok bot"; Grok Bot's Settings → Vault): POST { add: { site, username, password, hint } } (its
- * "New item → Login"), { edit: { id, site?, username?, password?, hint? } } (an empty password keeps the saved one), and
+ * frontend compare to grok bot"; Grok Bot's Settings → Vault): POST { add: { site, username, password, nickname, hint } }
+ * (its "New item → Login"), { edit: { id, site?, username?, password?, nickname?, hint? } } (an empty password keeps the
+ * saved one), and
  * { import: [{ site, username, password }] } (its "Import from CSV…": the file is read on the owner's device).
  */
 async function gloopyLogins(g) {
@@ -2315,7 +2330,7 @@ async function gloopyLogins(g) {
     // Full: a login that would replace one (the same site and username) still goes in; a new one doesn't push one out.
     const all = await readLogins(env, bucket, uid), s0 = loginSite(a.site), u0 = String(a.username == null ? "" : a.username).trim();
     if (all.length >= LOGINS_MAX && !all.some((x) => loginSite(x.site) === s0 && x.username === u0)) return json({ error: "The Vault is full (" + LOGINS_MAX + " logins). Remove one first." }, 400);
-    const item = await saveLogin(env, bucket, uid, { site: a.site, username: a.username, password: a.password, hint: typeof a.hint === "string" ? a.hint : "" });
+    const item = await saveLogin(env, bucket, uid, { site: a.site, username: a.username, password: a.password, hint: typeof a.hint === "string" ? a.hint : "", nickname: typeof a.nickname === "string" ? a.nickname : "" });
     return item ? list({ id: item.id }) : json({ error: "That login could not be saved." }, 400);
   }
   if (body.edit && typeof body.edit === "object" && typeof body.edit.id === "string") {

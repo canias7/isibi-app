@@ -1260,7 +1260,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // (2026-11-12, Grok Bot's hints): the one Gloopy names (login: its username), or the only one; else the card asks.
         const mine = savedFor(savedLogins, site);
         const want = String(args.login || "").trim();
-        const chosen = want ? mine.find((x) => x.username === want || (x.id && x.id === want)) || null : mine.length === 1 ? mine[0] : null;
+        const chosen = want ? mine.find((x) => x.username === want || (x.id && x.id === want)) || mine.find((x) => x.nickname && x.nickname.toLowerCase() === want.toLowerCase()) || null : mine.length === 1 ? mine[0] : null;
         if (want && !chosen) { no("error: no saved login for " + site + " has the username “" + plain(want).slice(0, 200) + "”" + (mine.length ? ": the owner saved " + mine.map((x) => "“" + (x.username || "no username") + "”").join(", ") : ": the owner saved none for this site") + ". Leave login out, and the card lets the owner choose."); continue; }
         let savedFailed = false;
         if (chosen && perms.login === "allow" && typeof hub.signInSaved === "function") {
@@ -1283,9 +1283,27 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "result", id: c.id, code: 0, output: "Asked you to sign in to " + site, label: "Asked you to sign in to " + site });
         reply("asked the owner to sign in to " + site + " through the private form" + (offer.length === 1 ? " (or to use the login they saved for it)" : offer.length ? " (or to use one of the " + offer.length + " logins they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + said);
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to sign in first" });
-        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer.length ? { saved: offer.map((x) => ({ id: x.id || "", username: x.username || "", ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}) })) } : {}), ...(warn ? { warn } : {}) });
+        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer.length ? { saved: offer.map((x) => ({ id: x.id || "", username: x.username || "", ...(x.nickname ? { nickname: String(x.nickname).slice(0, 60) } : {}), ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}) })) } : {}), ...(warn ? { warn } : {}) });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "vault") {
+        // A SAVED LOGIN'S NICKNAME OR HINTS, WHEN THE OWNER ASKS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's "A Bot can
+        // change ... an entry's nickname and hints, when you ask"): changed in their Vault by Coder's Worker; nothing else.
+        const args = c.args || {};
+        const site = plain(scrub(String(args.site || ""))).slice(0, 260);
+        const what = [args.nickname !== undefined ? "nickname" : "", args.hint !== undefined ? "hints" : ""].filter(Boolean).join(" and ");
+        emit({ type: "bash", id: c.id, tool: "vault", verb: "Changed", command: (what ? "the " + what + " of " : "") + "your " + (site || "saved") + " login" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!deps.vault || typeof deps.vault.edit !== "function") { no("error: the owner's Vault can't be changed from this computer: tell them to change it in Settings → Vault"); continue; }
+        if (!site) { no("error: give site: the login's website, as SAVED LOGINS lists it"); continue; }
+        if (!what) { no("error: give nickname, hint, or both: only those change here (passwords, usernames and websites change only in the owner's Settings → Vault)"); continue; }
+        let r;
+        try { r = await deps.vault.edit({ site, username: plain(String(args.username || "")).slice(0, 500), ...(args.nickname !== undefined ? { nickname: plain(scrub(String(args.nickname))).slice(0, 60) } : {}), ...(args.hint !== undefined ? { hint: plain(scrub(String(args.hint))).slice(0, 200) } : {}) }); } catch (e) { r = { ok: false, why: String((e && e.message) || e).slice(0, 300) }; }
+        if (!r || !r.ok) { no("not done: " + String((r && r.why) || "the owner's Vault didn't take it")); continue; }
+        const l = r.login || {};
+        const now = (l.nickname ? "nickname “" + l.nickname + "”" : "no nickname") + ", " + (l.hint ? "hints “" + l.hint + "”" : "no hints");
+        emit({ type: "result", id: c.id, code: 0, output: "Changed your " + l.site + " login (" + (l.username || "no username") + "): " + now, label: "Changed the " + what + " of your " + l.site + " login" });
+        reply("changed the owner's saved login for " + l.site + " (" + (l.username || "no username") + "): it now has " + now + ". Tell them in a few words.");
       } else if (c.name === "pay") {
         // PAYING AT A CHECKOUT (owner, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before
         // a payment): a private card form in the chat; the owner's card (typed, or saved and only its security code typed)

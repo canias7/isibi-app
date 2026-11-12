@@ -726,7 +726,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(ui, /<button type="button" class="cd-card-no" data-approve="deny" data-card="' \+ esc\(e\.id\) \+ '">' \+ nay \+ '<\/button>' \+ \(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' \+ esc\(e\.id\) \+ '"[^>]*>Always allow<\/button>'\) \+ '<button type="button" class="cd-card-yes" data-approve="once" data-card="' \+ esc\(e\.id\) \+ '">' \+ yes \+ '<\/button>/);
   // (Since 2026-11-12, GL131: a field the owner's own browser leaves alone, with an eye; "saved to your Vault".)
   assert.match(ui, /'<label class="cd-secret-l" for="cdSignPass">Password<\/label>' \+ secretField\('cdSignPass'\)/);
-  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved to your Vault only if you tick the box below\./);
+  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved to your Vault unless you untick the box below\./);
   assert.match(ui, /<button type="button" class="cd-card-no" data-signin-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button>' \+ take \+ '<button type="button" class="cd-card-yes" data-signin="' \+ esc\(e\.id\) \+ '" disabled>Sign in<\/button>/);
   // Found while writing these: the secret card's handlers are bound by its button classes, so the cards' buttons have
   // their own (a Deny would also have sent "I declined the secret for undefined.").
@@ -2044,7 +2044,7 @@ test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key 
   assert.match(ui, /const box = \(S\.root \|\| document\)\.querySelector\('#cdSecretIn'\)/, "the box in this screen, not Coder's");
   assert.doesNotMatch(ui, /getElementById\('cdSecretIn'\)/);
   assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
-  assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save to your Vault, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/, "since 2026-11-12: to your Vault");
+  assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave" checked> Save to your Vault, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/, "since 2026-11-12: to your Vault");
   assert.match(ui, /save: !!\(keep && keep\.checked\)/);
 });
 
@@ -3227,7 +3227,7 @@ test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goe
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /<b class="cd-secret-t">Enter the code for ' \+ site \+ '<\/b>' \+ warn/);
   assert.match(ui, /<input id="cdSignCode" class="cd-secret-in cd-sign-code" type="text" autocomplete="one-time-code"/);
-  assert.match(ui, /data-signin-saved="' \+ esc\(e\.id\) \+ '" data-login="' \+ esc\(l\.id \|\| ''\) \+ '">Use your saved login' \+ \(l\.username \? ' · ' \+ esc\(l\.username\) : ''\) \+ \(l\.hint \? '<small>' \+ esc\(l\.hint\) \+ '<\/small>' : ''\) \+ '<\/button>'/, "since 2026-11-12: one for each saved login, with its hint");
+  assert.ok(ui.includes(`data-signin-saved="' + esc(e.id) + '" data-login="' + esc(l.id || '') + '">Use your saved login' + (l.nickname ? ' · ' + esc(l.nickname) + (l.username ? ' (' + esc(l.username) + ')' : '') : l.username ? ' · ' + esc(l.username) : '') + (l.hint ? '<small>' + esc(l.hint) + '</small>' : '') + '</button>'`), "since 2026-11-12: one for each saved login, with its nickname and hint");
   assert.match(ui, /data-signin-take="' \+ esc\(e\.id\) \+ '"' \+ \(S\.webOK \? '' : ' disabled'\)/);
   assert.match(ui, /if \(box\) box\.value = '';\n      cardAnswer\(id, 'signin', \{ code \}, 'The code could not be sent\.'\);/, "the code leaves its box as it is sent");
   assert.match(ui, /p\.kind === 'signin' && S\.signTake === p\.id \? \{ \.\.\.p, task:/);
@@ -6711,7 +6711,7 @@ test("GL130 (2026-11-12) on the page: the sign-in card offers each saved login w
   assert.match(css, /\.cd-secret-in\.is-masked\{-webkit-text-security:disc\}/);
   assert.doesNotMatch(ui, /id="cdSignPass"[^>]*type="password"/, "not a password box where browsers can mask text");
   // The Vault: its parts, as Grok Bot's.
-  for (const bit of ["<h3>Vault</h3>", ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import logins from a file…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
+  for (const bit of ["<h3>Vault</h3>", ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import from CSV…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
   assert.ok(ui.includes("// The password leaves the box as it is sent: it is never kept in this page's state.\n        if (box2) box2.value = '';"));
   assert.ok(ui.includes("// The export's passwords leave this page's memory.\n        st.vault.imp = null;"));
   assert.match(css, /\.cd-gset button\.cd-vault-newbtn\{[^}]*background:#1f1e1d;color:#fff;border-radius:999px/);
@@ -6768,4 +6768,68 @@ test("GL131 (2026-11-12) a password this service typed (the owner's, or one made
     assert.ok(!a.text.includes(pw), "shown as text, still blanked");
     assert.match(a.text, /••••••/);
   } finally { await hub.closeLanes().catch(() => {}); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL132 (2026-11-12) nicknames, and Gloopy changing a login's nickname or hints when the owner asks (owner: \"yes do 1 and 2, tick the box too\"; Grok Bot's \"A Bot can change ... an entry's nickname and hints, when you ask. Passwords, usernames, websites ... change only in Settings → Vault\"); Grok Bot's \"Import from CSV…\"; the card's save box ticked, as Grok Bot's", async () => {
+  const V = await import("../src/gloopy-vault.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { egressPass } = await import("../src/coder-egress.mjs");
+  const { savedLoginsLine } = await import("../container/gloopy-agent.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => ({ fetch: async () => Response.json({ ok: true }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  const logins = (body) => go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify(body) });
+  // In Settings: a nickname with the login.
+  let r = await (await logins({ add: { site: "github.com", username: "ana@x.com", password: "gh-1", nickname: "  Personal   GitHub ", hint: "Mine" } })).json();
+  assert.deepEqual([r.logins[0].nickname, r.logins[0].hint], ["Personal GitHub", "Mine"]);
+  await logins({ add: { site: "github.com", username: "ana@work.com", password: "gh-2" } });
+  await logins({ add: { site: "shop.example", username: "ana", password: "s-1" } });
+  // Gloopy's machine changes a nickname or hints only, of the login it names; on a site with several, by its username.
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "rename my logins" }) });
+  const meta = JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json"));
+  const pass = await egressPass(env, "u1/" + GLOOPY_ID, meta.turn);
+  const ask = async (body) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(meta.turn), "x-coder-egress": pass }, body: JSON.stringify(body) }), env, {}, { ...deps, authUser: async () => null });
+  r = await (await ask({ edit: { site: "www.shop.example", nickname: "Shop" } })).json();
+  assert.deepEqual({ ...r.login, id: "", at: 0 }, { id: "", site: "shop.example", username: "ana", nickname: "Shop", at: 0 });
+  assert.equal("password" in r.login, false);
+  assert.deepEqual(await (await ask({ edit: { site: "github.com", hint: "Use for work" } })).json(), { error: "the owner saved 2 logins for github.com: give the username of the one to change" });
+  r = await (await ask({ edit: { site: "github.com", username: "ana@work.com", nickname: "Work GitHub", hint: "Use for work", password: "stolen", username2: "x" } })).json();
+  assert.deepEqual([r.login.nickname, r.login.hint], ["Work GitHub", "Use for work"]);
+  let all = await V.readLogins(env, bucket, "u1");
+  assert.equal(V.loginFor(all, "github.com", { username: "ana@work.com" }).password, "gh-2", "never a password");
+  assert.equal((await ask({ edit: { site: "github.com", username: "ana@x.com" } })).status, 400, "nothing to change");
+  assert.equal((await ask({ edit: { site: "nowhere.example", nickname: "x" } })).status, 404);
+  r = await (await ask({ edit: { site: "github.com", username: "ana@x.com", hint: "" } })).json();
+  assert.equal(r.login.hint, undefined, "an empty hint takes it away");
+  // In the job loop: the vault tool.
+  const edits = [];
+  const run = async (args, vault = { edit: async (x) => { edits.push(x); return { ok: true, login: { site: "github.com", username: "ana@work.com", nickname: x.nickname || "Work GitHub", hint: x.hint } }; } }) => {
+    const ev = [];
+    const g = scripted([say("", [call("vault", args, "v1")]), say("Done.")]);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), ...(vault ? { vault } : {}), emit: (e) => ev.push(e) }, { text: "call my work GitHub login Work GitHub", ...GLOOPY });
+    return { said: out.messages.find((m) => m.tool_call_id === "v1").content, ev };
+  };
+  let j = await run({ site: "github.com", username: "ana@work.com", nickname: "Work GitHub" });
+  assert.deepEqual(edits.at(-1), { site: "github.com", username: "ana@work.com", nickname: "Work GitHub" });
+  assert.equal(j.said, "changed the owner's saved login for github.com (ana@work.com): it now has nickname “Work GitHub”, no hints. Tell them in a few words.");
+  assert.equal(j.ev.find((e) => e.type === "result" && e.id === "v1").label, "Changed the nickname of your github.com login");
+  assert.equal((await run({ site: "github.com" })).said, "error: give nickname, hint, or both: only those change here (passwords, usernames and websites change only in the owner's Settings → Vault)");
+  assert.equal((await run({ nickname: "x" })).said, "error: give site: the login's website, as SAVED LOGINS lists it");
+  assert.match((await run({ site: "github.com", hint: "x" }, null)).said, /^error: the owner's Vault can't be changed from this computer/);
+  assert.equal((await run({ site: "github.com", hint: "x" }, { edit: async () => ({ ok: false, why: "the owner saved 2 logins for github.com: give the username of the one to change" }) })).said, "not done: the owner saved 2 logins for github.com: give the username of the one to change");
+  assert.match(GLOOPY_TOOLS.find((t) => t.function.name === "vault").function.description, /Passwords, usernames and websites change only in the owner's Settings → Vault, and logins are removed only there/);
+  // Gloopy is told nicknames; it may name a login by one.
+  assert.equal(savedLoginsLine([{ site: "github.com", username: "a@x.com", nickname: "Personal GitHub" }, { site: "github.com", username: "b@w.com", nickname: "Work GitHub", hint: "Use for work" }]), "github.com (a@x.com “Personal GitHub”; b@w.com “Work GitHub”: “Use for work”).");
+  const calls = [];
+  const b = { ...fakeBrowser(ELS), signInSaved: async (x) => { calls.push(x); return { ok: true, still: false, title: "Home", url: "https://shop.example/" }; } };
+  const g = scripted([say("", [call("sign_in", { password_ref: "e7", login: "work github", reason: "x" }, "s1")]), say("ok")]);
+  await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: () => {} }, { text: "sign in", ...GLOOPY, savedLogins: [{ id: "l1", site: "shop.example", username: "a" }, { id: "l2", site: "shop.example", username: "b", nickname: "Work GitHub" }] });
+  assert.equal(calls.at(-1).id, "l2", "by its nickname, in any case");
+  // The page: the nickname in Settings and on the card; Grok Bot's words; the box ticked.
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  for (const bit of ['for="gsVaultNick">Nickname <small>(optional)</small></label>', "A short name, like “Work GitHub”", "'<b class=\"cd-vault-nick\">' + esc(l.nickname) + '</b>", "(l.nickname ? ' · ' + esc(l.nickname) + (l.username ? ' (' + esc(l.username) + ')' : '')", "'Import from CSV…</button>", "Import from CSV</b>", 'id="cdSignSave" checked>', "it’s saved to your Vault unless you untick the box below."]) assert.ok(ui.includes(bit), bit);
+  assert.doesNotMatch(ui, /Import logins from a file/);
 });

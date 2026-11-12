@@ -362,7 +362,7 @@
       // The Vault (2026-11-12): its search, what is open (`new`, `import`, or a login's id to change), the New item menu,
       // the form's words (never its password: that is read from the box when saved), a removal to confirm, and an
       // export read on this device (its rows, passwords and all, only until they are imported or cancelled).
-      vault: { q: '', open: '', menu: false, site: '', user: '', hint: '', sure: '', imp: null },
+      vault: { q: '', open: '', menu: false, site: '', user: '', nick: '', hint: '', sure: '', imp: null },
     };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-gset-wrap';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-gset'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Gloopy’s settings');
@@ -380,12 +380,13 @@
       '<label class="cd-gset-l" for="gsVaultSite">Website</label><input id="gsVaultSite" class="cd-gset-in" type="text" inputmode="url" placeholder="github.com" value="' + esc(st.vault.site) + '"' + PM_OFF + '>' +
       '<label class="cd-gset-l" for="gsVaultUser">Username or email</label><input id="gsVaultUser" class="cd-gset-in" type="text" name="gf-private-vault-user" value="' + esc(st.vault.user) + '"' + PM_OFF + '>' +
       '<label class="cd-gset-l" for="gsVaultPass">Password' + (l ? ' <small>(leave it empty to keep the saved one)</small>' : '') + '</label>' + secretField('gsVaultPass') +
+      '<label class="cd-gset-l" for="gsVaultNick">Nickname <small>(optional)</small></label><input id="gsVaultNick" class="cd-gset-in" type="text" maxlength="60" placeholder="A short name, like “Work GitHub”" value="' + esc(st.vault.nick) + '" autocomplete="off">' +
       '<label class="cd-gset-l" for="gsVaultHint">Hints <small>(optional)</small></label><input id="gsVaultHint" class="cd-gset-in" type="text" maxlength="200" placeholder="When Gloopy should use it, like “Use for work”" value="' + esc(st.vault.hint) + '" autocomplete="off">' +
       '<div class="cd-gset-addrow cd-vault-btns">' + (l ? '<button type="button" class="cd-vault-rm" data-vault-remove="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.vault.sure === l.id ? 'Remove for good?' : 'Remove') + '</button>' : '') +
       '<span class="cd-vault-sp"></span><button type="button" data-vault="cancel">Cancel</button><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Save login</button></div></form>';
     const vaultImport = () => {
       const imp = st.vault.imp;
-      const intro = '<div class="cd-vault-form cd-vault-imp"><b class="cd-vault-impt">Import logins from a file</b><p class="cd-gset-hint">Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.</p>';
+      const intro = '<div class="cd-vault-form cd-vault-imp"><b class="cd-vault-impt">Import from CSV</b><p class="cd-gset-hint">Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.</p>';
       if (!imp) return intro + '<label class="cd-gset-go cd-vault-file"><input type="file" id="gsVaultFile" accept=".csv,text/csv"> Choose CSV file</label><div class="cd-gset-addrow cd-vault-btns"><span class="cd-vault-sp"></span><button type="button" data-vault="cancel">Cancel</button></div></div>';
       const ready = imp.rows.filter((r) => r.status === 'Ready'), have = imp.rows.filter((r) => r.status === 'Already in your Vault').length, bad = imp.rows.length - ready.length - have;
       return intro + '<p class="cd-vault-sum"><b>' + esc(imp.name) + '</b>: ' + ready.length + ' ready' + (have ? ' · ' + have + ' already in your Vault (skipped)' : '') + (bad ? ' · ' + bad + ' can’t be imported' : '') + '</p>' +
@@ -395,12 +396,12 @@
     const vaultHTML = () => {
       const v = st.vault, all = st.signins ? st.signins.saved : null;
       const head = '<div class="cd-vault-head"><h3>Vault</h3><span class="cd-vault-new"><button type="button" class="cd-vault-newbtn" data-vault="menu" aria-haspopup="menu" aria-expanded="' + (v.menu ? 'true' : 'false') + '"' + (st.busy || !all ? ' disabled' : '') + '>New item ' + ICON.chev + '</button>' +
-        (v.menu ? '<span class="cd-vault-menu" role="menu"><button type="button" role="menuitem" data-vault="new">' + ICON.key + 'Login</button><button type="button" role="menuitem" data-vault="import">' + ICON.doc + 'Import logins from a file…</button></span>' : '') + '</span></div>';
+        (v.menu ? '<span class="cd-vault-menu" role="menu"><button type="button" role="menuitem" data-vault="new">' + ICON.key + 'Login</button><button type="button" role="menuitem" data-vault="import">' + ICON.doc + 'Import from CSV…</button></span>' : '') + '</span></div>';
       if (!all) return '<section class="cd-vault">' + head + '<p class="cd-gset-none">Your Vault couldn’t be loaded. Close this and try again.</p></section>';
       const q = v.q.trim().toLowerCase();
-      const shown = all.filter((l) => !q || [l.site, l.username, l.hint].some((x) => String(x || '').toLowerCase().includes(q))).slice().reverse();
+      const shown = all.filter((l) => !q || [l.site, l.username, l.nickname, l.hint].some((x) => String(x || '').toLowerCase().includes(q))).slice().reverse();
       const row = (l) => v.open === l.id ? '<li class="cd-vault-item is-open">' + vaultForm(l) + '</li>'
-        : '<li class="cd-vault-item"><span class="cd-vault-ic">' + ICON.key + '</span><span class="cd-gset-text"><b class="cd-gset-host">' + esc(l.site) + '</b><small>' + esc(l.username || 'No username') + (l.made ? ' · <span class="cd-vault-made">Password made by Gloopy</span>' : '') + '</small>' + (l.hint ? '<small class="cd-vault-hint">' + esc(l.hint) + '</small>' : '') + '</span>' +
+        : '<li class="cd-vault-item"><span class="cd-vault-ic">' + ICON.key + '</span><span class="cd-gset-text">' + (l.nickname ? '<b class="cd-vault-nick">' + esc(l.nickname) + '</b><small><span class="cd-gset-host">' + esc(l.site) + '</span> · ' : '<b class="cd-gset-host">' + esc(l.site) + '</b><small>') + esc(l.username || 'No username') + (l.made ? ' · <span class="cd-vault-made">Password made by Gloopy</span>' : '') + '</small>' + (l.hint ? '<small class="cd-vault-hint">' + esc(l.hint) + '</small>' : '') + '</span>' +
           '<span class="cd-gset-btns"><button type="button" data-vault-edit="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>Edit</button><button type="button" data-vault-remove="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (v.sure === l.id ? 'Remove for good?' : 'Remove') + '</button></span></li>';
       return '<section class="cd-vault">' + head +
         '<div class="cd-vault-bar"><span class="cd-vault-tab is-on">Logins <i>' + all.length + '</i></span><input id="gsVaultQ" class="cd-vault-q" type="search" placeholder="Search Vault" value="' + esc(v.q) + '" aria-label="Search Vault" autocomplete="off"></div>' +
@@ -464,7 +465,7 @@
     box.addEventListener('input', (e) => {
       const t = e.target;
       if (t.id === 'gsRuleText') st.ruleText = t.value; else if (t.id === 'gsEditText') st.editText = t.value; else if (t.id === 'gsSiteHost') st.siteHost = t.value; else if (t.id === 'gsOutHost') st.outHost = t.value;
-      else if (t.id === 'gsVaultSite') st.vault.site = t.value; else if (t.id === 'gsVaultUser') st.vault.user = t.value; else if (t.id === 'gsVaultHint') st.vault.hint = t.value;
+      else if (t.id === 'gsVaultSite') st.vault.site = t.value; else if (t.id === 'gsVaultUser') st.vault.user = t.value; else if (t.id === 'gsVaultNick') st.vault.nick = t.value; else if (t.id === 'gsVaultHint') st.vault.hint = t.value;
       else if (t.id === 'gsVaultQ') { st.vault.q = t.value; paint(); }
     });
     box.addEventListener('change', (e) => {
@@ -488,8 +489,8 @@
         if (!id && !password) { st.note = 'Type the password.'; return paint(); }
         // The password leaves the box as it is sent: it is never kept in this page's state.
         if (box2) box2.value = '';
-        const body = id ? { edit: { id, site, username: st.vault.user.trim(), hint: st.vault.hint, ...(password ? { password } : {}) } } : { add: { site, username: st.vault.user.trim(), password, hint: st.vault.hint } };
-        if (await save('/logins', body, (d) => { if (st.signins) st.signins.saved = d.logins || st.signins.saved; })) { st.vault.open = ''; st.vault.site = st.vault.user = st.vault.hint = ''; st.note = id ? 'Saved.' : 'Saved to your Vault.'; paint(); }
+        const body = id ? { edit: { id, site, username: st.vault.user.trim(), nickname: st.vault.nick, hint: st.vault.hint, ...(password ? { password } : {}) } } : { add: { site, username: st.vault.user.trim(), password, nickname: st.vault.nick, hint: st.vault.hint } };
+        if (await save('/logins', body, (d) => { if (st.signins) st.signins.saved = d.logins || st.signins.saved; })) { st.vault.open = ''; st.vault.site = st.vault.user = st.vault.nick = st.vault.hint = ''; st.note = id ? 'Saved.' : 'Saved to your Vault.'; paint(); }
       }
       else if (what === 'signout-site') { const site = st.outHost.trim(); if (!site) { st.note = 'Write the site’s address first.'; return paint(); } if (await signOut(site)) { st.outHost = ''; paint(); } }
     });
@@ -508,11 +509,11 @@
       else if (d.gsForget) save('/logins', { remove: d.gsForget }, () => {}).then((ok) => (ok ? signinsAgain() : null));
       else if (d.eye) { const f = box.querySelector('#' + d.eye); if (f) { const show = t.getAttribute('aria-pressed') !== 'true'; if (MASKS) f.classList.toggle('is-masked', !show); else f.type = show ? 'text' : 'password'; t.setAttribute('aria-pressed', show ? 'true' : 'false'); t.setAttribute('aria-label', show ? 'Hide what you typed' : 'Show what you typed'); f.focus(); } }
       else if (d.vault === 'menu') { st.vault.menu = !st.vault.menu; paint(); }
-      else if (d.vault === 'new') { Object.assign(st.vault, { menu: false, open: 'new', site: '', user: '', hint: '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultSite'); if (i) i.focus(); }
+      else if (d.vault === 'new') { Object.assign(st.vault, { menu: false, open: 'new', site: '', user: '', nick: '', hint: '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultSite'); if (i) i.focus(); }
       else if (d.vault === 'import') { Object.assign(st.vault, { menu: false, open: 'import', sure: '', imp: null }); paint(); }
       else if (d.vault === 'cancel') { Object.assign(st.vault, { open: '', sure: '', imp: null }); paint(); }
       else if (d.vault === 'do-import') vaultImportNow();
-      else if (d.vaultEdit) { const l = (st.signins ? st.signins.saved : []).find((x) => x.id === d.vaultEdit); if (l) { Object.assign(st.vault, { menu: false, open: l.id, site: l.site, user: l.username || '', hint: l.hint || '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultPass'); if (i) i.focus(); } }
+      else if (d.vaultEdit) { const l = (st.signins ? st.signins.saved : []).find((x) => x.id === d.vaultEdit); if (l) { Object.assign(st.vault, { menu: false, open: l.id, site: l.site, user: l.username || '', nick: l.nickname || '', hint: l.hint || '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultPass'); if (i) i.focus(); } }
       else if (d.vaultRemove) {
         // Asked once more first (Remove for good?): a removed login's password is gone.
         if (st.vault.sure !== d.vaultRemove) { st.vault.sure = d.vaultRemove; return paint(); }
@@ -1116,7 +1117,7 @@
     read: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6', edit: 'M12 20h9M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z',
     write: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM12 18v-6M9 15h6', grep: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     glob: 'M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z', lsp: 'M16 18l6-6-6-6M8 6l-6 6 6 6',
-    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', pay: 'M2.5 7.5a2.5 2.5 0 0 1 2.5-2.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H5a2.5 2.5 0 0 1-2.5-2.5zM2.5 10h19M6.5 15h4', webhook: 'M13 2L4 14h8l-1 8 9-12h-8l1-8z', files: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15l3 3 3-3', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2', helpers: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M22 21v-1a6 6 0 0 0-4-5.7', page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
+    web_fetch: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM2 12h20M12 2a15 15 0 0 1 0 20M12 2a15 15 0 0 0 0 20', browser: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M7 6h.01M10 6h.01', sign_in: 'M5 11h14v10H5zM8 11V7a4 4 0 0 1 8 0v4', vault: 'M7.5 20a4.5 4.5 0 1 0 0-9 4.5 4.5 0 0 0 0 9zM10.7 12.3L21 2M16 7l3 3M14 9l2 2', pay: 'M2.5 7.5a2.5 2.5 0 0 1 2.5-2.5h14a2.5 2.5 0 0 1 2.5 2.5v9a2.5 2.5 0 0 1-2.5 2.5H5a2.5 2.5 0 0 1-2.5-2.5zM2.5 10h19M6.5 15h4', webhook: 'M13 2L4 14h8l-1 8 9-12h-8l1-8z', files: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M12 18v-6M9 15l3 3 3-3', handoff: 'M3 5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2zM3 9h18M9 14l2 2 4-4', schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2', helpers: 'M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM2 21v-1a6 6 0 0 1 12 0v1M16 3.1a4 4 0 0 1 0 7.8M22 21v-1a6 6 0 0 0-4-5.7', page: 'M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8zM14 2v6h6M8 13h8M8 17h5', web_search: 'M11 19a8 8 0 1 0 0-16 8 8 0 0 0 0 16zM21 21l-4.3-4.3',
     setup: 'M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6zM12 2v3M12 19v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M2 12h3M19 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1',
   };
   function stepIcon(e) {
@@ -1406,12 +1407,12 @@
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin-code="' + esc(e.id) + '" disabled>Enter code</button></div>' : '') + '</div>');
         else out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + site + '</b>' + warn +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved to your Vault only if you tick the box below.</p>' + until(i, e) + gone(i, e) +
-          (live ? (choices.length ? choices.map((l) => '<button type="button" class="cd-card-yes cd-sign-saved" data-signin-saved="' + esc(e.id) + '" data-login="' + esc(l.id || '') + '">Use your saved login' + (l.username ? ' · ' + esc(l.username) : '') + (l.hint ? '<small>' + esc(l.hint) + '</small>' : '') + '</button>').join('') + '<p class="cd-sign-or">or type it</p>' : '') +
+          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved to your Vault unless you untick the box below.</p>' + until(i, e) + gone(i, e) +
+          (live ? (choices.length ? choices.map((l) => '<button type="button" class="cd-card-yes cd-sign-saved" data-signin-saved="' + esc(e.id) + '" data-login="' + esc(l.id || '') + '">Use your saved login' + (l.nickname ? ' · ' + esc(l.nickname) + (l.username ? ' (' + esc(l.username) + ')' : '') : l.username ? ' · ' + esc(l.username) : '') + (l.hint ? '<small>' + esc(l.hint) + '</small>' : '') + '</button>').join('') + '<p class="cd-sign-or">or type it</p>' : '') +
             (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" name="gf-private-user"' + PM_OFF + '>' : '') +
             '<label class="cd-secret-l" for="cdSignPass">Password</label>' + secretField('cdSignPass') +
             // SAVE FOR NEXT TIME (2026-11-09; Grok Bot's Vault, dots' "Save to Passwords"): kept sealed only if signing in works.
-            '<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save to your Vault, so Gloopy can sign in to ' + esc(e.site || 'the site') + ' for you next time</label>' +
+            '<label class="cd-sign-save"><input type="checkbox" id="cdSignSave" checked> Save to your Vault, so Gloopy can sign in to ' + esc(e.site || 'the site') + ' for you next time</label>' +
             msg +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
