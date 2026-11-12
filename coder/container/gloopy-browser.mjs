@@ -487,19 +487,22 @@ export async function serve(dir) {
         passwords.push(...v.p); cards.push(...v.c);
       } catch { /* a frame that went away */ }
     }
-    return { passwords, cards };
+    return { passwords, cards, typed: [...typedPasswords] };
   };
   // MASKED IN EACH SCREENSHOT THE AI GETS (the owner's live view shows the page as it is): the card fields of every frame,
-  // and any text that shows what is in them (a card picture beside the fields; a number however it is spaced).
-  const cardMasks = (values, L = L0) => {
+  // and any text that shows what is in them (a card picture beside the fields; a number however it is spaced). And a
+  // PASSWORD THIS SERVICE TYPED (found live, 2026-11-12: after the page's Show button, Gloopy read the owner's password
+  // off its screenshot, though its outline had it blanked): the field it went into, and any text that repeats it.
+  const cardMasks = (values, L = L0, typed = []) => {
     const nums = [], shorts = new Set();
     for (const v of new Set(values)) { const d = v.replace(/\D/g, ""); if (d.length >= 12) nums.push(new RegExp(d.split("").join("[\\s-]?"))); else if (v.trim()) shorts.add(v.trim()); }
     const out = [];
     for (const f of L.page.frames()) {
       if (f.isDetached()) continue;
-      out.push(f.locator(CARD_FIELDS));
+      out.push(f.locator(CARD_FIELDS), f.locator("[data-gloopy-secret]"));
       for (const re of nums) out.push(f.getByText(re));
       for (const t of shorts) out.push(f.getByText(t, { exact: true }));
+      for (const t of typed) out.push(f.getByText(t));
     }
     return out;
   };
@@ -519,7 +522,7 @@ export async function serve(dir) {
     outline = redactCards(redactPasswords(outline, hide.passwords), hide.cards);
     let cut = "";
     if (outline.length > OUTLINE_MAX) { outline = outline.slice(0, OUTLINE_MAX); cut = "\n[the outline goes on past " + OUTLINE_MAX.toLocaleString("en-US") + " characters; the screenshot shows what is in view: scroll and look to see more]"; }
-    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards, L), maskColor: "#9ca3af" }).catch(() => null);
+    const shot = await page.screenshot({ type: "jpeg", quality: 55, timeout: 10000, mask: cardMasks(hide.cards, L, hide.typed), maskColor: "#9ca3af" }).catch(() => null);
     const said = asked(L).map((x) => "\n" + x).join("") + (L.fileAsked ? "\nThe page asked for a file: to give it one from your work folder, use upload (path, and ref: its file field or upload button)." : "")
       + (L.key ? "\nThe page asks for a security key, to sign in to " + L.key.site + ". It waits for the owner: their key is plugged into their own computer." : "")
       + (L.keyNote ? "\nThe page asked for a security key (" + L.keyNote + "): a helper can't use the owner's key. Say so in your answer, and Gloopy will do it." : "");
@@ -533,7 +536,7 @@ export async function serve(dir) {
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
     let file = null;
     if (picture) {
-      const take = (o) => page.screenshot({ fullPage: !!picture.full, timeout: 20000, mask: cardMasks(hide.cards, L), maskColor: "#9ca3af", ...o });
+      const take = (o) => page.screenshot({ fullPage: !!picture.full, timeout: 20000, mask: cardMasks(hide.cards, L, hide.typed), maskColor: "#9ca3af", ...o });
       let buf = await take({ type: "png" }), type = "png";
       if (buf.length > SHOT_FILE_MAX) { buf = await take({ type: "jpeg", quality: 80 }); type = "jpeg"; }
       if (buf.length > SHOT_FILE_MAX) throw new Error("the whole page is too long for one screenshot: take one of what is in view (without full), scrolling between them");
@@ -844,26 +847,67 @@ export async function serve(dir) {
     const fields = el && (el.form || ref) ? await formOf(ref, L) : [];
     return { element: el, url: page.url(), host, frameHost: el && ref ? siteOf(el.origin) : host, title: await page.title().catch(() => ""), ...(fields.length ? { fields } : {}) };
   };
+  // THE SIGN-IN FORM FOUND AGAIN (found live, 2026-11-12: a saved login that didn't work made the site load its form
+  // again, so the card the owner was then shown had nowhere to type: "the password field moved"; it asked them again and
+  // again): on the site's own frames, its one password field showing (never a guess between two), the username field
+  // before it in its form, and the form's button. Marked, for this service's own locators.
+  const signinAgain = async (site) => {
+    if (!site) return null;
+    const found = [];
+    for (const f of page.frames()) {
+      if (f.isDetached()) continue;
+      let at = "";
+      try { at = siteOf(new URL(f.url()).origin); } catch { at = ""; }
+      if (at !== site) continue;
+      const n = await f.evaluate(() => {
+        for (const el of document.querySelectorAll("[data-gloopy-signin]")) el.removeAttribute("data-gloopy-signin");
+        const shown = (el) => !!(el.offsetParent || el.getClientRects().length) && getComputedStyle(el).visibility !== "hidden";
+        const pw = [...document.querySelectorAll("input[type=password]")].filter(shown);
+        if (pw.length !== 1) return pw.length;
+        const p = pw[0], box = p.form || p.closest("form");
+        const ins = [...(box || document).querySelectorAll("input")].filter(shown);
+        const u = ins.slice(0, ins.indexOf(p)).filter((i) => /^(text|email|tel|)$/i.test(i.getAttribute("type") || "")).pop();
+        const b = box ? [...box.querySelectorAll("button, input[type=submit], input[type=image]")].filter(shown).find((el) => el.tagName === "INPUT" || !/^(button|reset)$/i.test(el.getAttribute("type") || "")) : null;
+        p.setAttribute("data-gloopy-signin", "password");
+        if (u) u.setAttribute("data-gloopy-signin", "username");
+        if (b) b.setAttribute("data-gloopy-signin", "submit");
+        return 1;
+      }).catch(() => 0);
+      if (n) found.push({ f, n });
+    }
+    if (found.length !== 1 || found[0].n !== 1) return null;
+    const f = found[0].f, mark = (k) => f.locator('[data-gloopy-signin="' + k + '"]');
+    return { pass: mark("password"), user: (await mark("username").count()) ? mark("username") : null, submit: (await mark("submit").count()) ? mark("submit") : null };
+  };
   // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
   const fill = async (x) => {
     const passRef = needRef(x, "passRef"), userRef = x.userRef ? needRef(x, "userRef") : "", submitRef = x.submitRef ? needRef(x, "submitRef") : "";
     if (typeof x.password !== "string" || !x.password) throw new Error("no password was given");
-    const pw = await about(passRef);
-    if (!pw.password) throw new Error("the field asked for is not a password field");
-    // ONLY ON THE SITE THE LOGIN IS FOR (2026-11-09; as a browser's password manager): the password field itself must be
-    // on that site, not in a box from another site framed in the page; the username field too.
-    const on = siteOf(pw.origin);
-    if (!x.site || on !== String(x.site)) throw new Error("the password field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
-    if (userRef && (await about(userRef)).origin !== pw.origin) throw new Error("the username field is not on the same site as the password field, so nothing was typed");
-    if (userRef) await target(userRef).fill(String(x.username || ""), { timeout: 8000 });
+    // The page loaded its form again since it was asked about: that form, found again on the same site.
+    const again = (await target(passRef).count().catch(() => 0)) ? null : await signinAgain(String(x.site || ""));
+    if (!again) {
+      const pw = await about(passRef);
+      if (!pw.password) throw new Error("the field asked for is not a password field");
+      // ONLY ON THE SITE THE LOGIN IS FOR (2026-11-09; as a browser's password manager): the password field itself must be
+      // on that site, not in a box from another site framed in the page; the username field too.
+      const on = siteOf(pw.origin);
+      if (!x.site || on !== String(x.site)) throw new Error("the password field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
+      if (userRef && (await about(userRef)).origin !== pw.origin) throw new Error("the username field is not on the same site as the password field, so nothing was typed");
+    }
+    const P = again ? again.pass : target(passRef);
+    const U = again ? again.user : userRef ? target(userRef) : null;
+    const B = again ? again.submit : submitRef ? target(submitRef) : null;
+    // A username box left empty on the card leaves the page's as it is (found live, 2026-11-12: Gloopy had typed it).
+    if (U && x.username) await U.fill(String(x.username), { timeout: 8000 });
     if (x.password.length >= 6) typedPasswords.add(x.password);
-    await target(passRef).fill(x.password, { timeout: 8000 });
-    if (submitRef) await target(submitRef).click({ timeout: 8000 }); else await target(passRef).press("Enter", { timeout: 8000 });
+    await P.fill(x.password, { timeout: 8000 });
+    await P.evaluate((n) => n.setAttribute("data-gloopy-secret", "password")).catch(() => {});
+    if (B) await B.click({ timeout: 8000 }); else await P.press("Enter", { timeout: 8000 });
     await settle();
     // Still showing a password field (the site's form again, or the same one): the sign-in most likely did not go through.
     let still = false;
     for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
-    return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
+    return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still, ...(again ? { again: true } : {}) };
   };
   // A PASSWORD MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's Vault makes it): typed by this service
   // into the page's new-password field, and its confirm field when it has one; nothing is sent (Gloopy presses the form's
@@ -884,6 +928,7 @@ export async function serve(dir) {
     typedPasswords.add(x.password);
     await target(passRef).fill(x.password, { timeout: 8000 });
     if (confirmRef) await target(confirmRef).fill(x.password, { timeout: 8000 });
+    for (const r of [passRef, confirmRef].filter(Boolean)) await target(r).evaluate((n) => n.setAttribute("data-gloopy-secret", "password")).catch(() => {});
     await settle();
     return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
   };

@@ -11,6 +11,32 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Signing in, the rest tested live, and what it found fixed (your words: "test everything")
+
+**Tried live on test.gofarther.dev, with Grok, and recorded:**
+- **The red warning:** on the practice login page over plain http, the card said "This page isn't secure (its address starts with http://): what you type could be seen by others." After **Not now**, Gloopy said it couldn't sign in because I chose not to, and didn't try another way.
+- **Grok's look at the page warned too:** on the GOV.UK design system's password demo, the card said "this is a password-box demo, not a sign-in page, so do not type your password there".
+- **Take over on the card:** it opened Gloopy's browser with control ("Do only this: Sign in to the-internet.herokuapp.com"). I signed in myself with the site's public demo login and pressed **Done, hand it back**. The card said "Signed in … myself", Gloopy checked the page ("You logged into a secure area!"), and Settings → Computer said "You signed in yourself".
+- **Saved logins on Never:** the card had no "Use your saved login" button, and nothing was signed in for me.
+- **A saved login that no longer works:** the card came back saying "Your saved login … didn't work". **This found a bug, below.**
+- **The password after a page's Show button:** **this found a bug, below.**
+- **Not tried, stopped by my own safety check** (it calls them real-world transactions, and I didn't work around it):
+  - a password Gloopy makes for a new account (practice.expandtesting.com's sign-up page);
+  - the code box (that site's demo sign-in emails a code).
+  - Automated tests do both in a real browser: GL129 and GL71. You could try them yourself, or allow them for me in this session's settings.
+- **Your real security key** still needs the Mac or Windows app rebuilt (you said not now).
+
+**Found live and fixed:**
+1. **A saved login that didn't work made the card useless, again and again.** Each card first tried the saved login again. Each failed try made the site load its sign-in form again, so the password I typed on the card had nowhere to go ("the password field moved"). Gloopy asked a third time, and would have kept on. On a real site, repeated failed tries can also lock your account.
+   - A saved login that didn't work is now not tried again for half an hour, or until you sign in on the card.
+   - The card finds the site's sign-in form again if the page reloaded it. It only does this on the same site, and only when there's exactly one password box; it never guesses.
+2. **The password showed in Gloopy's screenshots.** After I typed a dummy password on the card, Gloopy pressed the page's Show button and told me the password. What Gloopy reads as text had it blanked, but every step also gives Gloopy a picture of the page, and only card fields were covered in it. Now a box a password was typed into is covered in every picture Gloopy gets, and so is any text on the page that repeats it. Your own live view still shows the page as it is.
+3. **An empty username box on the card no longer clears the username Gloopy already typed** on the page.
+4. **Asking for a saved login where none is saved** now just brings the card. Before, the chat showed a failed step ("a sign-in failed") first.
+5. **With saved logins on Never, Gloopy is told they're off.** The card's reason no longer says "with the saved practice account".
+
+Tests GL134 (in a real browser: the form found again, the username kept, the password covered in the picture) and GL135 (end to end through the Worker and Gloopy's computer: one card, signed in at the first try, the saved login replaced, and a failed saved login not tried again). I checked that both fail without the fixes.
+
 ## 2026-11-12: Gloopy's Settings laid out like Grok Bot's (your words: "yes make the menu like grok bot , very similar")
 
 - **A menu down the left**, as Grok Bot's Settings: **Permissions**, **Sites**, **Vault** and **Computer**, each with an icon, the open one on a grey pill. It opens on the page you had open last (Permissions the first time).

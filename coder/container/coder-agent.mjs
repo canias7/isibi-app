@@ -1261,7 +1261,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const mine = savedFor(savedLogins, site);
         const want = String(args.login || "").trim();
         const chosen = want ? mine.find((x) => x.username === want || (x.id && x.id === want)) || mine.find((x) => x.nickname && x.nickname.toLowerCase() === want.toLowerCase()) || null : mine.length === 1 ? mine[0] : null;
-        if (want && !chosen) { no("error: no saved login for " + site + " has the username “" + plain(want).slice(0, 200) + "”" + (mine.length ? ": the owner saved " + mine.map((x) => "“" + (x.username || "no username") + "”").join(", ") : ": the owner saved none for this site") + ". Leave login out, and the card lets the owner choose."); continue; }
+        // A login named where the owner saved none for this site: the card, as if none was named (found live, 2026-11-12:
+        // Gloopy named one from earlier in the chat, and the chat showed a failed step before the card).
+        if (want && !chosen && mine.length) { no("error: no saved login for " + site + " has the username “" + plain(want).slice(0, 200) + "”: the owner saved " + mine.map((x) => "“" + (x.username || "no username") + "”").join(", ") + ". Leave login out, and the card lets the owner choose."); continue; }
         let savedFailed = false;
         if (chosen && perms.login === "allow" && typeof hub.signInSaved === "function") {
           let s = null;

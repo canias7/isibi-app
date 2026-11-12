@@ -55,6 +55,8 @@ export function savedLoginsOf(body) {
  * A STRONG PASSWORD FOR A NEW ACCOUNT (2026-11-12): `length` letters, digits (and symbols, unless the site takes none),
  * at least one of each kind, from the machine's own random source. 20 by default; 12 to 64.
  */
+/** How long a saved login that didn't work is left alone (found live, 2026-11-12). */
+export const SAVED_FAILED_MS = 30 * 60 * 1000;
 export const PASSWORD_SYMBOLS = "!@#$%^&*-_=+?";
 export function makePassword({ length = 20, symbols = true } = {}) {
   const n = Math.max(12, Math.min(64, Math.round(Number(length) || 20)));
@@ -1662,6 +1664,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env, routed: () => routeWanted && !!routeProxy && tunnel.connected }));
   // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
   const pending = new Map();
+  // A SITE WHOSE SAVED LOGIN JUST DIDN'T WORK (2026-11-12): site → when (signInSaved, below, waits SAVED_FAILED_MS).
+  const savedFailed = new Map();
   // What of Gloopy's computer was last sent to its copy (the audit, 2026-11-10): "<project>:work" / ":browser" → its hash.
   const backups = new Map();
   // Files left out of the copy of each chat's work folder (too big), for its next turn's note (said once for each set).
@@ -2027,11 +2031,17 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const vaultAsk = (body2) => (vaultFetch || fetch)(new URL(eg.url).origin + "/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": String(eg.chat || ""), "x-coder-turn": String(eg.turn || ""), "x-coder-egress": String(eg.pass || "") }, body: JSON.stringify(body2) });
     const signInSaved = async ({ site, userRef = "", passRef, submitRef = "", id = "" }) => {
       if (!eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return { ok: false };
+      // A SAVED LOGIN THAT JUST DIDN'T WORK is not tried again for a while (found live, 2026-11-12: each new card tried it
+      // again first, and each failed try made the site load its form again; on a real site, failed tries can lock an
+      // account). Until the owner signs in on the card, or half an hour has gone.
+      const tried = savedFailed.get(site);
+      if (tried && Date.now() - tried < SAVED_FAILED_MS) return { ok: false, again: true };
       let r;
       try { r = await vaultAsk({ site, ...(id ? { id } : {}) }); } catch { return { ok: false }; }
       const login = r && r.ok ? await r.json().catch(() => null) : null;
       if (!login || typeof login.password !== "string" || !login.password) return { ok: false };
       const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password });
+      if (done.still === true) savedFailed.set(site, Date.now()); else savedFailed.delete(site);
       return { ok: true, still: done.still === true, title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
     };
     // A LOGIN'S NICKNAME OR HINTS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's "A Bot can change ... an entry's
@@ -2450,6 +2460,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         }
         try {
           const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
+          // Signed in on the card: the site's saved login may be tried again (the card may have just saved a new one).
+          if (r.still !== true) savedFailed.delete(p.site);
           return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
         } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
       }

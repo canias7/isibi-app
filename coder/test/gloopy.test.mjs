@@ -6932,3 +6932,161 @@ test("GL133 (2026-11-12) Gloopy's Settings laid out as Grok Bot's (owner: \"yes 
     assert.ok(v.x[1] < v.nav[1] + v.nav[3] && v.x[0] > 330, "× still in the corner, clear of the tabs");
   } finally { await browser.close(); }
 });
+
+test("GL134 (2026-11-12) found in the live test of signing in (owner: \"test everything\"): a saved login that didn't work is not tried again for half an hour (each new card tried it first, and its failed try made the site load its form again, so the owner's card had nowhere to type: they were asked again and again); the card finds the site's form again after a reload; an empty username box leaves the page's; a password typed by the service is covered in every picture Gloopy gets (after a page's Show button, Gloopy read it off the screenshot); a login named where none is saved goes to the card; saved logins turned off are said to be off", async (t) => {
+  // In the job loop: a login named where the owner saved none for the site: the card, with no failed step.
+  let ev = [];
+  let g = scripted([say("", [call("sign_in", { password_ref: "e7", username_ref: "e8", reason: "To see your orders", login: "tomsmith" }, "s1")]), say("Waiting.")]);
+  let out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: { ...fakeBrowser(ELS), signInSaved: async () => { throw new Error("not used"); } }, emit: (e) => ev.push(e) }, { text: "check my orders", ...GLOOPY, savedLogins: [] });
+  assert.ok(out.signinRequest, "the card");
+  assert.ok(!ev.some((e) => e.type === "result" && e.id === "s1" && e.code === 1), "no failed step in the chat");
+  // A name that isn't one of the site's saved logins is still an error (Gloopy picks from the list it was given).
+  g = scripted([say("", [call("sign_in", { password_ref: "e7", username_ref: "e8", reason: "x", login: "nobody" }, "s1")]), say("ok")]);
+  out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: { ...fakeBrowser(ELS), signInSaved: async () => { throw new Error("not used"); } }, emit: () => {} }, { text: "x", ...GLOOPY, savedLogins: [{ site: "shop.example", username: "ana" }] });
+  assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /^error: no saved login for shop\.example has the username “nobody”: the owner saved “ana”/);
+  // Saved logins turned off: Gloopy is told so, and not which sites have one.
+  const off = gloopyContext({ memFile: "/m.md", savedLogins: ["shop.example"], permissions: { login: "deny" } });
+  assert.match(off, /SAVED LOGINS: turned off in the owner's settings \(Sign in with saved logins: Never\)\. sign_in always shows the owner the card to type their login: don't mention saved logins, and don't give login\./);
+  assert.doesNotMatch(off, /shop\.example/);
+  assert.match(gloopyContext({ memFile: "/m.md", savedLogins: ["shop.example"], permissions: { login: "allow" } }), /SAVED LOGINS \(in the owner's Vault; [^)]*\): shop\.example\./);
+  const { SAVED_FAILED_MS } = await import("../container/server.mjs");
+  assert.equal(SAVED_FAILED_MS, 30 * 60 * 1000);
+  // For real (where Chromium is installed).
+  const { makeBrowserHub, hasBrowser, BLANKED } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const posts = [];
+  const RIGHT = "right-PASSWORD-1";
+  const site = http.createServer((req, res) => {
+    if (req.method === "POST" && req.url === "/session") { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { const f = new URLSearchParams(b); posts.push([f.get("u"), f.get("p")]); res.writeHead(302, { location: f.get("p") === RIGHT ? "/account" : "/login" }); res.end(); }); return; }
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end({
+      "/login": '<title>Sign in</title><h1>Sign in</h1><form method=post action=/session><label>Email <input name=u></label><label>Password <input type=password name=p></label><button>Sign in</button></form>',
+      "/account": "<title>Your account</title><h1>Hello</h1>",
+      "/two": '<title>New password</title><form method=post action=/session><label>Email <input name=u></label><label>New password <input type=password name=p></label><label>Again <input type=password name=c></label><button>Save</button></form>',
+      "/show": '<title>Demo</title><body style="margin:0"><input type=password id=pw aria-label=Password style="position:absolute;left:100px;top:100px;width:400px;height:60px;font-size:36px"><button id=show style="position:absolute;left:560px;top:110px" onclick="pw.type=pw.type===\'password\'?\'text\':\'password\';echo.textContent=pw.type===\'text\'?\'You typed: \'+pw.value:\'\'">Show</button><p id=echo style="position:absolute;left:100px;top:220px;margin:0;font-size:36px"></p></body>',
+    }[req.url] || "nope");
+  });
+  const base = await listen(site), here = new URL(base).host;
+  const dir = join(await mkdtemp(join(tmpdir(), "gl134-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const viewer = await chromium.launch();
+  try {
+    // The card's numbers are from before the page loaded its form again: the form is found again, on the same site.
+    let l = await hub.act({ action: "open", url: base + "/login" });
+    const refs = { userRef: refOf(l.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(l.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), submitRef: refOf(l.text, /button "Sign in" \[ref=([a-z0-9]+)\]/) };
+    assert.equal((await hub.fill({ site: here, ...refs, username: "ana@example.com", password: "wrong-PASSWORD" })).still, true, "as a saved login that didn't work: the form again");
+    const again = await hub.fill({ site: here, ...refs, username: "ana@example.com", password: RIGHT });
+    assert.deepEqual([again.again, again.still, new URL(again.url).pathname], [true, false, "/account"]);
+    assert.deepEqual(posts, [["ana@example.com", "wrong-PASSWORD"], ["ana@example.com", RIGHT]]);
+    // Not on another site, and never a guess between two password fields.
+    await assert.rejects(hub.fill({ site: "elsewhere.example", ...refs, username: "a", password: RIGHT }), /no element for that number/);
+    await hub.act({ action: "open", url: base + "/two" });
+    await assert.rejects(hub.fill({ site: here, ...refs, username: "a", password: RIGHT }), /no element for that number/);
+    assert.equal(posts.length, 2, "nothing sent");
+    // A username box left empty on the card: the page's own (typed by Gloopy) is kept.
+    l = await hub.act({ action: "open", url: base + "/login" });
+    const email = refOf(l.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/);
+    await hub.act({ action: "type", ref: email, text: "kept@example.com" });
+    l = await hub.act({ action: "look" });
+    await hub.fill({ site: here, userRef: refOf(l.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), passRef: refOf(l.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), username: "", password: RIGHT });
+    assert.deepEqual(posts.at(-1), ["kept@example.com", RIGHT]);
+    // A page's Show button: the password is blanked in the outline and covered in the screenshot (its field, and the text
+    // that repeats it), though the page shows it.
+    const SHOWN = "Shown-Pass-2468";
+    let s = await hub.act({ action: "open", url: base + "/show" });
+    await hub.fill({ site: here, passRef: refOf(s.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), password: SHOWN });
+    s = await hub.act({ action: "look" });
+    s = await hub.act({ action: "click", ref: refOf(s.text, /button "Show" \[ref=([a-z0-9]+)\]/) });
+    assert.ok(!s.text.includes(SHOWN), "not in the outline");
+    assert.ok(s.text.includes(BLANKED));
+    const page = await viewer.newPage();
+    const px = await page.evaluate(async (src) => {
+      const img = new Image(); img.src = src; await img.decode();
+      const c = document.createElement("canvas"); c.width = img.naturalWidth; c.height = img.naturalHeight;
+      const x = c.getContext("2d"); x.drawImage(img, 0, 0);
+      const k = img.naturalWidth / 1280, at = (a, b) => [...x.getImageData(Math.round(a * k), Math.round(b * k), 1, 1).data].slice(0, 3);
+      return { field: at(300, 130), echo: at(130, 240), page: at(900, 600) };
+    }, "data:image/jpeg;base64," + s.shot);
+    const grey = (p) => Math.abs(p[0] - 156) < 30 && Math.abs(p[1] - 163) < 30 && Math.abs(p[2] - 175) < 30;
+    assert.ok(grey(px.field), "the field is covered: " + px.field);
+    assert.ok(grey(px.echo), "the text repeating it is covered: " + px.echo);
+    assert.ok(!grey(px.page), "the rest of the page is not: " + px.page);
+  } finally { await viewer.close(); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL135 (2026-11-12) end to end, as found live: a saved login that didn't work brings the card once, and the owner's sign-in on it goes through at the first try though the site loaded its form again; the card's login replaces the saved one; a saved login that failed again isn't tried on the next card", async (t) => {
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const V = await import("../src/gloopy-vault.mjs");
+  const C = await import("../container/gloopy-check.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  const RIGHT = "right-PASSWORD-1", posts = [];
+  const site = http.createServer((req, res) => {
+    if (req.method === "POST") { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { const f = new URLSearchParams(b); posts.push([f.get("u"), f.get("p")]); res.writeHead(302, { location: f.get("p") === RIGHT ? "/account" : "/login" }); res.end(); }); return; }
+    res.setHeader("content-type", "text/html");
+    res.end(req.url === "/account" ? "<title>Your account</title><h1>Hello</h1>" : '<title>Sign in</title><h1>Sign in</h1><form method=post action=/session><label>Email <input name=u></label><label>Password <input type=password name=p></label><button>Sign in</button></form>');
+  });
+  const siteBase = await listen(site), host = new URL(siteBase).host;
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl135-")), "browser");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl135w-")), gitRoot: await mkdtemp(join(tmpdir(), "gl135g-")), memRoot: await mkdtemp(join(tmpdir(), "gl135m-")), bgRoot: await mkdtemp(join(tmpdir(), "gl135b-")) };
+  const lastTool = (req) => String(req.messages.filter((m) => m.role === "tool").at(-1).content);
+  // Each sign-in: open the page, then the card (the numbers from that look).
+  const signIn = [
+    () => say("", [call("browser", { action: "open", url: siteBase + "/login" })]),
+    (req) => { const o = lastTool(req); return say("", [call("sign_in", { password_ref: refOf(o, /textbox "Password" \[ref=([a-z0-9]+)\]/), username_ref: refOf(o, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), submit_ref: refOf(o, /button "Sign in" \[ref=([a-z0-9]+)\]/), reason: "To see your account" })]); },
+  ];
+  const steps = [...signIn, () => say("Signed in."), ...signIn, () => say("Not now, then."), ...signIn, () => say("Not now, then.")];
+  let n = 0;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  let deps;
+  const vaultFetch = (url, init) => handleCoder(new Request(url, init), env, {}, { ...deps, authUser: async () => null });
+  const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, vaultFetch, send: async (req) => {
+    const sys = String(req.messages[0].content);
+    if (sys.startsWith(C.CHECK_SYSTEM)) return { message: { role: "assistant", content: '{"kind":"other","decision":"allow","rule":"","asked":true,"why":"ok"}' }, usage: { in: 1, out: 1 } };
+    if (sys === C.MONITOR_SYSTEM) return { message: { role: "assistant", content: '{"verdict":"ok"}' }, usage: { in: 1, out: 1 } };
+    if (isSigninCheck(req)) return SIGNIN_REAL;
+    return steps[Math.min(n++, steps.length - 1)](req);
+  } }));
+  await new Promise((r2) => srv.listen(0, r2));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const settle = async () => { let st; for (let i = 0; i < 900; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) break; await new Promise((ok) => setTimeout(ok, 50)); } return st; };
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+  const card = () => events().filter((e) => e.type === "signin").at(-1);
+  // As the page does: the card's answer, then its words as the next message, which Gloopy's turn goes on from.
+  const answer = async (body) => {
+    const r = await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: card().id, ...body }) });
+    assert.equal(r.status, 200, await r.clone().text());
+    assert.equal((await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: (await r.json()).said, card: true }) })).status, 200);
+    await settle();
+  };
+  try {
+    await go("gloopy");
+    await V.saveLogin(env, bucket, "u1", { site: host, username: "ana@example.com", password: "wrong-PASSWORD" });
+    // The saved login doesn't work: the card, once, saying so.
+    assert.equal((await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Sign in to the shop" }) })).status, 200);
+    await settle();
+    assert.deepEqual(posts, [["ana@example.com", "wrong-PASSWORD"]]);
+    assert.equal(card().reason, "Your saved login for " + host + " didn't work. To see your account");
+    // The owner's login on the card goes in at the first try (the site had loaded its form again), and replaces the saved one.
+    await answer({ username: "ana@example.com", password: RIGHT, save: true });
+    assert.deepEqual(posts.at(-1), ["ana@example.com", RIGHT]);
+    assert.equal(posts.length, 2);
+    assert.deepEqual((await V.readLogins(env, bucket, "u1")).map((l) => [l.username, l.password]), [["ana@example.com", RIGHT]]);
+    // The saved login goes wrong again: tried once, then the card; not tried again on the next card.
+    await V.saveLogin(env, bucket, "u1", { site: host, username: "ana@example.com", password: "wrong-AGAIN" });
+    await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Sign in again" }) });
+    await settle();
+    assert.deepEqual(posts.slice(2), [["ana@example.com", "wrong-AGAIN"]]);
+    await answer({ skip: true });
+    await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Try once more" }) });
+    await settle();
+    assert.equal(posts.length, 3, "not tried again: on a real site, failed tries can lock the account");
+    assert.equal(card().reason, "Your saved login for " + host + " didn't work. To see your account");
+  } finally { srv.close(); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]); }
+});
