@@ -27,11 +27,9 @@ All ten are fixed, each with its own test (CD524 to CD534 in `coder/test/round5.
 
 **Checks:** the full test suite on my side: 568 of 568 pass. Merged to main.
 
-**Deploy: on hold, waiting for your word.** Deploy 136 (from main) changed nothing on the site. It stopped at an old PowerShell test that gives PowerShell 3 seconds to start. GitHub's machine took longer, twice. That test now allows 30 seconds (a test change only). While checking, I found something you need to decide:
-- Another of your Claude sessions, the one building Gloopy, deploys from its own branch (`claude/keen-goodall-8ghmph`): deploys 133 and 134, with 135 waiting.
-- That branch split from main on 2026-11-08 and doesn't have Coder's work since then: Bash passes 3 to 9, the fixes from rounds 2 to 5, Auto mode's second checker, Grok's prompt cache.
-- So since deploy 133 (06:11 UTC today), gofarther.dev runs Coder as it was on 11-08, plus Gloopy's new work.
-- A deploy from main would bring Coder back and take Gloopy's new work off the site again. The two lines of work clash in 15 files (57 places), so they can't simply be put together without care.
+**Deploy:** deploy 136 (from main) changed nothing on the site. It stopped at an old PowerShell test that gives PowerShell 3 seconds to start, and GitHub's machine took longer, twice. That test now allows 30 seconds (a test change only).
+
+**A false alarm, corrected:** I first told you the Gloopy session's deploys (133 to 137, from its own branch) had replaced Coder on gofarther.dev. They hadn't. Its deploy button has a "test" choice that deploys a separate copy to test.gofarther.dev, with its own storage and its own Fly.io machines, and it refuses to put any branch but main on gofarther.dev. Its runs skipped the live deploy (deploy 133's log shows "Deploy Coder: skipped" and "Test copy: deploy it to test.gofarther.dev"). So gofarther.dev was still on deploy 132, and deploying main touches only the live site, never Gloopy's test copy. Your answer, "Deploy Coder only", is what happens now. Nothing of Gloopy's leaves anything.
 
 ## 2026-11-12: Round 5: the rest of the bash tool tried live with Grok (your words: "Ok yes")
 
