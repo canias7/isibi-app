@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The last bash-tool item, tried live: hooks around the automatic summary (your words: "1 do the test")
+
+No video. One new chat on canias7/testingforclaude, with three hooks set in Settings: PreCompact (for "auto"), PostCompact (for "auto") and SessionStart (for "compact"). One message made Coder write a big file, read it whole and print three long texts, so the job passed 450,000 characters.
+- **Coder summarized the job in the middle**, as it should: "Compacted: the earlier steps of this job are now a summary for Coder, to make room (like Claude Code's auto-compact)."
+- **The PreCompact hook ran first**, with `"trigger":"auto"`. What it printed reached the summary: it asked for the words "r44-pre-ok", and the summary had them.
+- **The PostCompact hook ran after**, with `"trigger":"auto"` and the summary itself.
+- **The SessionStart hook ran** with `"source":"compact"`, and Coder was given its note: "r44-ss-context: a SessionStart hook ran after the summary."
+- **Cost:** 8 Grok calls, $0.43.
+
+So every part of the bash tool that can be tried safely from a chat has now been tried live. I did not add Claude Code's auto-compact window setting: its smallest value (100,000 tokens) is about where Coder already summarizes, so it would not have made this test cheaper (your choice: "1 do the test").
+
+**Noticed, not changed (your call):** hooks are told the chat's mode (`permission_mode`). During a message, Accept edits is given as "default", as in Claude Code's cloud. But the SessionEnd hook that runs when the machine sleeps is given "acceptEdits" (seen in this morning's retest). A one-line fix would make it say "default" too.
+
+**Also:** Coder saved the test's big file to the branch `coder/testingforclaude-hkmrty9i`. The test chat is still there.
+
 ## 2026-11-12: Round 6's fixes tried live with Grok: all 6 work
 
 No video. Deploy 144 carried the 6 fixes, deploy 145 the stop record, deploy 147 the last fix. I tried each one live in a new chat on canias7/testingforclaude, starting from `r42-live` and with octocat/Hello-World added:
