@@ -7000,6 +7000,8 @@ test("GL134 (2026-11-12) found in the live test of signing in (owner: \"test eve
     s = await hub.act({ action: "click", ref: refOf(s.text, /button "Show" \[ref=([a-z0-9]+)\]/) });
     assert.ok(!s.text.includes(SHOWN), "not in the outline");
     assert.ok(s.text.includes(BLANKED));
+    // Gloopy is told what the blank means (found live: it told the owner a password from earlier in the chat instead).
+    assert.ok(s.text.endsWith("\n(" + BLANKED + " stands for a password, a code or a card number: it is hidden from you, even when the page shows it, and a grey box covers it in your screenshot. Never guess it; if the owner asks what it says, tell them it is hidden from you.)"));
     const page = await viewer.newPage();
     const px = await page.evaluate(async (src) => {
       const img = new Image(); img.src = src; await img.decode();

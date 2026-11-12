@@ -532,7 +532,10 @@ export async function serve(dir) {
     const others = L === L0 ? mainTabs().filter((p) => p !== page).slice(0, 8) : [];
     const tabsLine = others.length ? "\nYour other tabs (the owner can switch to one in the live view; open its address to go there yourself): " + (await Promise.all(others.map(async (p) => JSON.stringify((await p.title().catch(() => "")) || "(no title)") + " " + p.url().slice(0, 300)))).join("; ") : "";
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
-    const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + tabsLine + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
+    const bare = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + tabsLine + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
+    // WHAT A BLANK MEANS (found live, 2026-11-12: with the password blanked and covered after the page's Show button,
+    // Gloopy told the owner the box showed a password from earlier in the chat).
+    const text = bare.includes(BLANKED) ? bare + "\n(" + BLANKED + " stands for a password, a code or a card number: it is hidden from you, even when the page shows it, and a grey box covers it in your screenshot. Never guess it; if the owner asks what it says, tell them it is hidden from you.)" : bare;
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
     let file = null;
     if (picture) {

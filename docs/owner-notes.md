@@ -37,6 +37,11 @@ log (81,000 lines) is in git history.
 
 Tests GL134 (in a real browser: the form found again, the username kept, the password covered in the picture) and GL135 (end to end through the Worker and Gloopy's computer: one card, signed in at the first try, the saved login replaced, and a failed saved login not tried again). I checked that both fail without the fixes.
 
+**Tried again live after the fixes:**
+- **The broken saved login:** one card ("Your saved login … didn't work"). My sign-in on it went through at the first try ("You logged into a secure area!"). Then I signed Gloopy out and asked again, and it signed in by itself with the saved login, with no card: the card had replaced the wrong password in the Vault.
+- **The Show button:** Gloopy now gets "••••••" for the box, and a grey box over it in its picture. It couldn't read the new password, but it answered with the old one from earlier in the chat. So Gloopy is now also told what "••••••" means: hidden from it even when the page shows it, never to be guessed, and to say so if you ask.
+- **Saved logins on Never:** asked "can you use my saved login right now?", Gloopy said "No. Signing in with saved logins is turned off in Gloopy's settings". The card offered no saved login. Its reason line still said "with the saved practice account" once, copied from the earlier chat.
+
 ## 2026-11-12: Gloopy's Settings laid out like Grok Bot's (your words: "yes make the menu like grok bot , very similar")
 
 - **A menu down the left**, as Grok Bot's Settings: **Permissions**, **Sites**, **Vault** and **Computer**, each with an icon, the open one on a grey pill. It opens on the page you had open last (Permissions the first time).
