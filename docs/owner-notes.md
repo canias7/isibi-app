@@ -27,6 +27,8 @@ No video. Two throwaway chats on canias7/testingforclaude.
 - **One real difference found and fixed (on the branch):** Claude Code asks Linux to signal it when stalls reach 150 ms within any 2 seconds. Coder averaged readings over 5 seconds, so a 160 ms burst never counted. Now Coder takes a reading every half second and checks each 2-second stretch, like Claude Code. Test CD338 updated (that burst now counts); the full suite: 581 of 581 pass.
 - **Not tried in Claude Code itself:** starving memory here would starve the machine I work on.
 
+**Also:** your settings are back exactly as they were (for the test I had turned off your 2G memory cap and Coder's reply to `!` commands). Both throwaway chats are deleted, with their disks. Cost: about 30 cents of Grok and a quarter of a cent of Haiku. The two fixes are on the branch, not live yet.
+
 ## 2026-11-12: The hook at machine sleep is told the mode the same way (your words: "yes fix it, then merge and deploy")
 
 Hooks are told which mode the chat is in. During a message, Accept edits is given as "default", as in Claude Code's cloud. The SessionEnd hook that runs when the machine goes to sleep was given "acceptEdits". Now both use the same rule, so both say "default". If the repository's own settings start chats in Accept edits, both say "acceptEdits", as before.
