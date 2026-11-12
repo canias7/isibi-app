@@ -438,3 +438,27 @@ test("CD534 only the owner's variables that look secret are hidden in the chat (
   const evs = R.hideIn([{ type: "done", text: "Set it to false; the key rk_9988776655 is in place." }], vals);
   assert.equal(evs[0].text, "Set it to false; the key [hidden] is in place.");
 });
+
+test("CD535 a monitor's end says its own time limit, not the time from just before its command started to its deadline (the live check after deploy 138: a 20-second monitor \"expired after 21 seconds\")", async () => {
+  const S = await import("../container/server.mjs");
+  const A = await import("../container/coder-agent.mjs");
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const log = join(mkdtempSync(join(tmpdir(), "mon535-")), "bg-1.log");
+  writeFileSync(log, "");
+  const at = Date.now() - 22_000;
+  // Its command started at `at`; its deadline was set 1.3 seconds later, once it ran: 21.3 seconds in all.
+  const j = { project: "shop-m535", id: "job1", pid: 999535, log, command: "sleep 300", desc: "r41 watch", mark: "0123456789abc535", monitor: true, readAt: 0, part: "", pending: [], dropped: 0, end: { code: null, why: "limit", at: Date.now() }, told: false, stopping: "limit", at, deadline: at + 21_300, limitMs: 20_000 };
+  S.JOBS.set(j.pid, j);
+  try {
+    const news = S.monitorNews("shop-m535");
+    assert.equal(news.length, 1);
+    assert.equal(news[0].end.ms, 20_000);
+    assert.match(A.monitorSaid(news[0]), /expired after 20s with no events delivered/);
+  } finally { S.JOBS.delete(j.pid); }
+  // Where a monitor is started, its own limit goes with it.
+  const { readFile } = await import("node:fs/promises");
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /\.\.\.\(monitor \? \{ limitMs: monitorMs\(limitMs\) \} : \{\}\)/);
+});
