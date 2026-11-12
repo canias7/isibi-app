@@ -1580,6 +1580,16 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   removals then go to the classifier in auto mode"; "auto: the classifier
   decides"). Its block is a block, and an Ask rule still asks (CD542).
 
+**The hooks around the automatic summary, tried live** (owner, 2026-11-12: "1
+do the test"): one message passed 450,000 characters; PreCompact and PostCompact
+ran as `auto` (what PreCompact printed reached the summary) and SessionStart as
+`compact`. It showed one difference, fixed (owner: "yes fix it, then merge and
+deploy"): hooks are told the chat's mode as Claude Code's cloud names it,
+Accept edits as `default` while commands that change files ask
+(`hookModeName`), and the SessionEnd hooks of a machine that stops now use the
+same rule with what the message's hooks were given (`t.fileEdits`); they said
+`acceptEdits` (CD545).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
