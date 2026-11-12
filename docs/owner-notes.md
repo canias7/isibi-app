@@ -17,6 +17,8 @@ Hooks are told which mode the chat is in. During a message, Accept edits is give
 
 **Checks:** new test CD545 runs a real machine with a hook during the message and a SessionEnd hook, and both must be told the same. With the machine's old code back, it failed exactly as the live chat did ("default" and "acceptEdits"). The full suite on my side: 579 of 579 pass.
 
+**Live, after deploy 152:** a new chat in Accept edits with a hook during the message and a SessionEnd hook. I sent one message and let the machine go to sleep. When it woke for my check (13:08), both hooks had been told `"permission_mode":"default"`. About 5 cents of Grok.
+
 ## 2026-11-12: The last bash-tool item, tried live: hooks around the automatic summary (your words: "1 do the test")
 
 No video. One new chat on canias7/testingforclaude, with three hooks set in Settings: PreCompact (for "auto"), PostCompact (for "auto") and SessionStart (for "compact"). One message made Coder write a big file, read it whole and print three long texts, so the job passed 450,000 characters.
