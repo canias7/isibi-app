@@ -23,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
+import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName } from "./coder-agent.mjs";
@@ -1003,6 +1003,10 @@ export async function logTail(file, n = BG_OUT_LINES) {
  * CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables, kept with each command when it started.
  */
 export const PRESSURE_STALL = 150_000 / 2_000_000, PRESSURE_IDLE_MS = 30 * 60 * 1000, PRESSURE_AGAIN_MS = 30 * 60 * 1000;
+// THE KERNEL'S TRIGGER, AS CLAUDE CODE 2.1.322 ARMS IT ("some 150000 2000000": 150 ms of memory stall within any 2 seconds),
+// read every half second (the live test, 2026-11-12: Coder read it every 5 seconds, so a burst of 150 ms inside 5 seconds,
+// 3% of them, never counted, where the kernel's trigger fires).
+export const PRESSURE_TRIGGER_US = 150_000, PRESSURE_WINDOW_MS = 2_000, PRESSURE_SAMPLE_MS = 500;
 export const SCARCE_SHARE = 0.1, SCARCE_KIB = 4 * 1024 * 1024;
 /** The kernel's memory stall so far ("some", in microseconds), from /proc/pressure/memory; null when it can't be read. */
 export function memoryStallUs(read = () => readFileSync("/proc/pressure/memory", "utf8")) {
@@ -1037,7 +1041,13 @@ export function memoryScarce(read = () => readFileSync("/proc/meminfo", "utf8"))
   if (!(total > 0) || Number.isNaN(avail)) return { scarce: false, detail: "/proc/meminfo unparseable" };
   return { scarce: avail / total < SCARCE_SHARE && avail < SCARCE_KIB, detail: "MemAvailable " + avail + " kB of " + total + " kB; scarce is under 10% and under 4 GiB" };
 }
-const PRESSURE = { at: 0, us: null, reaped: new Map(), said: new Map() };
+const PRESSURE = { samples: [], reaped: new Map(), said: new Map() };
+/** Whether the newest reading is at least 150 ms of stall past one taken at most 2 seconds before it (the kernel's trigger). */
+export function stallTriggered(samples, { thresholdUs = PRESSURE_TRIGGER_US, windowMs = PRESSURE_WINDOW_MS } = {}) {
+  const last = samples[samples.length - 1];
+  if (!last) return false;
+  return samples.some((s) => s.at < last.at && last.at - s.at <= windowMs && last.us - s.us >= thresholdUs);
+}
 /** Why this background command is not stopped for memory now ("" when it is). `idleMs`: how long its chat has had no turn. */
 export function pressureSkip(j, { critical, idleMs, running, lastReap = 0, lastInput = 0, scarce = () => ({ scarce: false }) }) {
   if (j.noReap) return "turned off (CODER_DISABLE_BG_SHELL_PRESSURE_REAP)";
@@ -1049,12 +1059,24 @@ export function pressureSkip(j, { critical, idleMs, running, lastReap = 0, lastI
   if (!m.scarce) return "host memory is not scarce" + (m.detail ? " (" + m.detail + ")" : "");
   return "";
 }
-function checkPressure(now, { stall = memoryStallUs, scarce = memoryScarce } = {}) {
+/**
+ * A MEMORY-STALL READING (every half second on the machine, and with each look at the jobs): while a background command runs,
+ * the kernel's stall total is kept for the last 2 seconds; when the trigger fires (stallTriggered), each background command is
+ * looked at, as Claude Code does on its trigger's event, and the readings start again (the kernel fires at most once a window).
+ */
+export function samplePressure(now = Date.now(), { stall = memoryStallUs, scarce = memoryScarce } = {}) {
   const live = [...JOBS.values()].filter((j) => !j.end && !j.stopping);
-  const us = live.length ? stall() : null;
-  const critical = us !== null && PRESSURE.us !== null && now > PRESSURE.at && (us - PRESSURE.us) / ((now - PRESSURE.at) * 1000) >= PRESSURE_STALL;
-  PRESSURE.at = now; PRESSURE.us = us;
-  if (!critical) return;
+  if (!live.length) { PRESSURE.samples = []; return false; }
+  const us = stall();
+  if (us === null) return false;
+  PRESSURE.samples = PRESSURE.samples.filter((s) => s.at <= now && now - s.at <= PRESSURE_WINDOW_MS + PRESSURE_SAMPLE_MS).concat({ at: now, us });
+  if (!stallTriggered(PRESSURE.samples)) return false;
+  PRESSURE.samples = [{ at: now, us }];
+  reapUnderPressure(now, live, scarce);
+  return true;
+}
+function reapUnderPressure(now, live, scarce) {
+  const critical = true;
   let mem = null;
   for (const j of live) {
     const t = turns.get(j.project);
@@ -1079,7 +1101,7 @@ export function checkJobs(now = Date.now(), memory = {}) {
     if (!groupAlive(j.pid) && !j.stopping) { jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); continue; }
     try { watchStall(j, now); } catch { /* next look */ }
   }
-  try { checkPressure(now, memory); } catch { /* never costs the look */ }
+  try { samplePressure(now, memory); } catch { /* never costs the look */ }
 }
 /**
  * A PICTURE A COMMAND PRINTED AS A DATA URL (Claude Code: "data:image/…;base64," output comes back as a picture), saved
@@ -1101,19 +1123,40 @@ export function savePrinted(text, outDir) {
 }
 /** How many saved outputs a chat keeps (the oldest go first). */
 export const OUT_FILES_KEEP = 100;
-export const FREE_SPACE = "Free space on that volume (delete build output, caches or files you made that are no longer needed), then retry. Never delete the owner's own files to make room without asking them.";
-/** The first of these folders whose volume has under `mb` MB free, or under 1,000 free inodes: `{ dir, mb }` or `{ dir, inodes }`; null when none. */
-export function diskFull(dirs, mb, { statfs = statfsSync } = {}) {
-  for (const d of dirs) {
-    if (typeof d !== "string" || !d) continue;
-    try {
-      const f = statfs(d, { bigint: true });
-      if (!(f.blocks > 0n)) continue;
-      const free = f.bavail * f.bsize / (1024n * 1024n);
-      if (free < BigInt(mb)) return { dir: d, mb: Number(free) };
-      if (f.files > 0n && f.ffree < 1000n) return { dir: d, inodes: Number(f.ffree) };
-    } catch { /* not there */ }
-  }
+// (Claude Code 2.1.322's own words, without "or restart Claude Code with CLAUDE_CODE_TMPDIR set to a directory on another
+// one", which Coder has no setting for, and with the owner for its user.)
+export const FREE_SPACE = "Free space on that volume, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
+/** A small file written beside the output folder and removed: its error's code ("ENOSPC", "EDQUOT"), or "" when it could be written. */
+export function probeWrite(dirPath) {
+  const f = join(dirPath, ".coder-space-" + randomBytes(4).toString("hex"));
+  try { writeFileSync(f, "x", { flag: "wx" }); } catch (e) { return String((e && e.code) || "error"); }
+  try { unlinkSync(f); } catch { /* gone */ }
+  return "";
+}
+/**
+ * A FULL DISK, AFTER A COMMAND THAT FAILED (Claude Code 2.1.322, read in its code and tried on a full 8 MB disk side by side,
+ * 2026-11-12; the owner: "remember to run claude code to compare and fix"): only the volume of Coder's folder for command
+ * output is looked at, as Claude Code looks only at its temporary directory (where it captures command output): under 10 MB
+ * free, or under 1,000 free inodes. When that look can't be made, or the command printed nothing, a test write beside the
+ * folder says whether it is full (ENOSPC) or the quota used up (EDQUOT). `lost`: the command printed nothing ("whatever this
+ * command printed was lost"). The note, or null.
+ */
+export function diskNoteAfter(outDir, lost, { statfs = statfsSync, probe = probeWrite } = {}) {
+  const where = outDir + " (Coder's folder for command output)";
+  const said = lost ? "whatever this command printed was lost" : "this command's output may be cut short";
+  const so = "so " + said + " and its own writes may have failed with \"No space left on device\".";
+  let looked = false;
+  try {
+    const f = statfs(outDir, { bigint: true });
+    const free = f.bavail * f.bsize / (1024n * 1024n);
+    looked = free >= 0n && f.blocks > 0n;
+    if (looked && free < 10n) return "Disk full: this computer's volume holding " + where + " has " + free + " MB free, " + so + " " + FREE_SPACE;
+    if (looked && f.files > 0n && f.ffree < 1000n) return "Nearly out of inodes: this computer's volume holding " + where + " has " + f.ffree + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE;
+  } catch { /* the test write says */ }
+  if (looked && !lost) return null;
+  const code = probe(outDir);
+  if (code === "EDQUOT") return "Disk quota used up: a test write beside this command's output file, on the volume holding " + where + ", failed with EDQUOT, so " + said + " and its own writes may have failed with \"Disk quota exceeded\". Delete files there that are no longer needed, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
+  if (code === "ENOSPC") return "Disk full: a test write beside this command's output file, on the volume holding " + where + ", failed with ENOSPC (the volume, or the user's quota on it, has no space left), " + so + " " + FREE_SPACE;
   return null;
 }
 /** Only the newest `n` files of a folder are kept. */
@@ -3459,9 +3502,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
         exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
-          // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
-          // the volume holding … so the file that captures command output could not be created there and nothing ran").
-          if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
+          // A FULL DISK DOES NOT STOP A COMMAND FROM STARTING (Claude Code 2.1.322 says "The command was not started: …" only
+          // when its output file can't be created; side by side on a full disk, 2026-11-12, it ran `echo hello` and said the
+          // output was lost). Coder needs no file to start one (it keeps the output itself, and writes a file only past 30,000
+          // characters), so a command that frees space can still run: diskNoteAfter says the rest.
           // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
           if (typeof payload === "string" && command.includes("@REQUEST")) {
             // (The folder is made again when it is gone: a job's end removes it when no background command keeps it (tidyBg), and
@@ -3536,12 +3580,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (typeof r.file === "string" && r.file && !r.truncatedAt) whole = await readFile(r.file, "utf8").catch(() => whole);
             Object.assign(r, savePrinted(whole, outDir));
           }
-          // A FULL DISK AFTER IT RAN (Claude Code: "Disk full: this computer's volume holding … has N MB free, so this
-          // command's output may be cut short and its own writes may have failed with "No space left on device""): the
-          // project's folder, the AI's home and the output folder, when the command failed or said so.
-          if (!tool && r && (r.code !== 0 || /No space left on device|Disk quota exceeded/.test(String(r.output || "")))) {
-            const full = diskFull([t.cwd || dir, home || dir, outDir], 10);
-            if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
+          // A FULL DISK AFTER IT RAN: as Claude Code, only after a command that failed (not one stopped at its time limit), and
+          // only about the volume of Coder's folder for command output (diskNoteAfter); the note goes before its output.
+          if (!tool && r && !r.background && r.code !== 0 && !r.timedOut) {
+            const note = diskNoteAfter(outDir, !String(r.output || "").trim());
+            if (note) r.diskNote = note;
           }
           if (leader) t.fg.delete(leader);
           t.movable = null; t.progress = null;
@@ -3738,6 +3781,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
   if (typeof jobTimer.unref === "function") jobTimer.unref();
+  // (The kernel's memory-stall trigger, read every half second while a background command runs: samplePressure. Only on the
+  // real machine, liveFetch: a test's machine is given its readings.)
+  if (liveFetch) {
+    const pressureTimer = setInterval(() => { try { samplePressure(); } catch { /* next time */ } }, PRESSURE_SAMPLE_MS);
+    if (typeof pressureTimer.unref === "function") pressureTimer.unref();
+  }
   // (A running monitor's lines, every 200 ms: Claude Code's batching, so its limits meet a busy command as they do there. Only
   // on the real machine, liveFetch: a machine made in a test reads its monitors on its own clock.)
   if (liveFetch) {

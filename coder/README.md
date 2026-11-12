@@ -1590,6 +1590,43 @@ Accept edits as `default` while commands that change files ask
 same rule with what the message's hooks were given (`t.fileEdits`); they said
 `acceptEdits` (CD545).
 
+**A full disk, side by side with Claude Code** (owner, 2026-11-12: "yes do the
+disk and memory test", "remember to run claude code to compare and fix"). Live
+on Fly.io a chat's disk grows by 10 GB once 80% full, up to 50 GB, so it is
+full only at that limit. Filled to it, Coder refused to start `echo hello`
+("The command was not started: … ENOSPC …"). Claude Code 2.1.322 (Haiku), with
+its project and temporary directory on one full 8 MB disk as on its cloud
+machine, ran it and said what it printed was lost; with only the project's disk
+full it said nothing. From its code: the note is only about the volume of its
+temporary directory, only after a command that failed (not one stopped at its
+time limit), before the command's output. Now the same (CD546, CD547): no check
+before a command (Coder needs no file to start one, so a command that frees
+space can run); after one that failed, only the volume of Coder's folder for
+command output (`diskNoteAfter`): under 10 MB free or 1,000 free inodes, and a
+test write beside it (`probeWrite`) when it can't be looked at or the command
+printed nothing (Claude Code's ENOSPC and EDQUOT wordings); "whatever this
+command printed was lost" when it printed nothing; the note before the output
+(`withDiskNote`), for the owner's own commands (!) too; Claude Code's advice
+(`FREE_SPACE`) without "or restart Claude Code with CLAUDE_CODE_TMPDIR …", which
+Coder has no setting for.
+
+**Low memory, the same day.** The memory-pressure stop's rules match Claude
+Code 2.1.322's code (critical, idle 30 minutes, no turn running, not soon after
+an earlier stop, MemAvailable under 10% and 4 GiB; its "delegated agents"
+condition has nothing to match in Coder). Live, memory was made scarce (1.2 to
+1.4 GB of 16 GB left, under a cap just above what a test program held), but
+critical stall could not be held: reclaiming clean cache costs almost nothing,
+Linux keeps a running program's code in memory, and re-reading a file stalls
+only at first (8–15% of 5-second readings, then 0.4–1.2%); with no swap on
+Coder's machines, sustained critical pressure comes only near running out of
+memory. One difference was found and fixed (CD338): Claude Code arms the
+kernel's trigger, "some 150000 2000000" (150 ms of stall within any 2 seconds);
+Coder averaged 5-second readings, so a 160 ms burst inside 5 seconds never
+counted. Now it reads the stall every half second (`samplePressure`,
+`PRESSURE_SAMPLE_MS`) and looks at each background command when 150 ms falls
+within 2 seconds (`stallTriggered`), then starts the readings again, as the
+kernel fires once a window.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

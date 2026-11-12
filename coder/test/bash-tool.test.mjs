@@ -102,7 +102,7 @@ test("CD272 bash: a result in Claude Code's words (tried, 2026-11-09): output as
 });
 
 test("CD273 bash on Coder's machine: output past 30,000 characters goes on in a file (Claude Code: \"streams a command's output to a working file\"), whole, without Coder's folder line; a command that starts with sleep is stopped at its timeout, \"Command timed out after Ns\" with exit code 143 (Claude Code, tried); a picture printed as a data URL is saved for read; a full disk is said in Claude Code's words", async () => {
-  const { execIn, diskFull, savePrinted, keepNewest } = await import("../container/server.mjs");
+  const { execIn, savePrinted, keepNewest } = await import("../container/server.mjs");
   const dir = await mkdtemp(join(tmpdir(), "coder-bash-"));
   const out = join(dir, "out");
   const big = await execIn(dir, "seq 1 8000", 30, { spillDir: out, follow: true });
@@ -125,19 +125,12 @@ test("CD273 bash on Coder's machine: output past 30,000 characters goes on in a 
   assert.equal(saved.pictureType, "image/png");
   assert.deepEqual(await readFile(saved.picture), png);
   assert.deepEqual(savePrinted("not a picture", out), {});
-  // A full disk: under 10 MB free, or under 1,000 free inodes.
-  const fs = (mb, ffree = 50000n) => () => ({ blocks: 1000n, bavail: BigInt(mb) * 256n, bsize: 4096n, files: 100000n, ffree });
-  assert.deepEqual(diskFull(["/x"], 10, { statfs: fs(3) }), { dir: "/x", mb: 3 });
-  assert.equal(diskFull(["/x"], 10, { statfs: fs(500) }), null);
-  assert.deepEqual(diskFull(["/x"], 10, { statfs: fs(500, 12n) }), { dir: "/x", inodes: 12 });
+  // (A full disk: CD546 and CD547, as Claude Code 2.1.322 says it, side by side on 2026-11-12.)
   // The output folder keeps the newest files only.
   // (Each a second newer than anything before it: files written in the same millisecond would tie.)
   for (let k = 0; k < 5; k++) { await writeFile(join(out, "f" + k + ".txt"), "x"); const at = new Date(Date.now() + (k + 1) * 1000); await utimes(join(out, "f" + k + ".txt"), at, at); }
   await keepNewest(out, 3);
   assert.equal((await readdir(out)).filter((x) => x.endsWith(".txt")).length, 3);
-  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /"Disk full: this computer's volume holding " \+ full\.dir \+ " has " \+ full\.mb \+ " MB free, so this command's output may be cut short and its own writes may have failed with \\"No space left on device\\"\. "/);
-  assert.match(server, /"The command was not started: this computer's disk is full \(ENOSPC\) on the volume holding " \+ full\.dir \+ " \(Coder's folder for command output\), so the file that captures command output could not be created there and nothing ran\. "/);
 });
 
 test("CD274 bash in the agent: Claude Code's inputs (description shown in place of the command, command_description too, timeout in milliseconds cut to the most), its refusals (a long sleep, a dangerous rm in its own words, the same command still running in the background), its cards (a protected file written by > or tee; a command over 10,000 characters), its result words, and a background command's notice when it ends", async () => {
