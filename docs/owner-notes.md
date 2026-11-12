@@ -22,6 +22,15 @@ log (81,000 lines) is in git history.
 - **On a phone** it slides up from the bottom, and the menu is one row of tabs along the top, beside ×.
 - Gloopy's note about secure sites while its browser goes through your computer now says "Settings → Computer" (that switch moved there).
 - Test GL133 opens the real Settings in a browser and clicks through it: the four pages, a drop-down saving its choice, Add rule under Never, ×, reopening on the last page, and the phone layout. GL105, GL106, GL112, GL115, GL116 and GL130 were updated for the new layout.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - All four pages opened from the menu, each with its title, and × closed Settings.
+  - **The drop-downs saved:** "Delete or cancel" set to Ask, and "Share your personal details" to Never, which showed in red.
+  - **Add rule** under Never opened its form with the example "delete anything in my email". The rule saved under Never, and the form closed.
+  - **Add site:** example.com set to Never on the Sites page. Then I asked Gloopy (Grok) "Open example.com in your browser and tell me the page's title". It answered "example.com is turned off in Gloopy's settings, so I can't open it or get the title another way."
+  - Settings opened again on the last page I had open (Sites).
+  - **At a phone's size:** the four tabs fit in one row next to ×. Nothing scrolled sideways on any page.
+  - **Put back afterwards:** example.com and the test rule are removed, and every kind of step is Always allow again. I checked after reopening Settings.
+  - **Found live and fixed:** the grey scrollbar ran up beside × (now thin and light, as on a Mac). Rules sat level with their kind (now indented under it). On a phone, the line under the tabs stopped short of × (now it runs the full width).
 
 ## 2026-11-12: Signing in, all five built, with Grok Bot's look (your words: "do all 5 make sure you do similar frontend compare to grok bot pls")
 

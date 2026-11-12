@@ -6846,6 +6846,9 @@ test("GL133 (2026-11-12) Gloopy's Settings laid out as Grok Bot's (owner: \"yes 
   assert.match(ui, /page: GSET_PAGES\.some\(\(\[k\]\) => k === S\.gsetPage\) \? S\.gsetPage : 'perms', ruleOpen: '', siteOpen: false,/);
   assert.deepEqual(eval(ui.match(/const GSET_RULE_ORDER = (\[[^\]]*\]);/)[1]), ["ask", "allow", "deny", "handoff", "when_asked"], "Ask first first, as Grok Bot's Always Ask");
   for (const bit of [".cd-gset-navb.is-on{background:#eaeaea}", ".cd-gset-card{background:#fff;border:1px solid #f0f0f0;border-radius:11px;", ".cd-gset-tog:checked{background:#1680f3}", ".cd-gset .cd-gset-pill,", "@media (max-width:640px){\n  .cd-gset-wrap{padding:0;align-items:flex-end}"]) assert.ok(css.includes(bit), bit);
+  // Found live on the test copy: the grey scrollbar ran up beside ×; rules sat level with their kinds; on a phone, the line
+  // under the tabs stopped short of ×.
+  for (const bit of [".cd-gset-body,.cd-gset-nav{scrollbar-width:thin;scrollbar-color:#d6d6d6 transparent}", ".cd-gset-kind .cd-gset-list{margin:0 0 6px 14px}", "  .cd-gset-main{border-top:1px solid #f0f0f0}\n"]) assert.ok(css.includes(bit), bit);
   assert.doesNotMatch(ui, /cd-gset-seg|cd-gset-switch|cd-gset-sub|cd-gset-head/, "the old look is gone");
   // For real: the page's own Settings code, drawn and clicked in Chromium, with the Worker's answers faked.
   const { hasBrowser } = await import("../container/gloopy-browser.mjs");

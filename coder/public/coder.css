@@ -656,6 +656,7 @@
 .cd-gset-navb:focus-visible,.cd-gset-x:focus-visible,.cd-gset-dd:focus-visible{outline:2px solid #1f1f1f;outline-offset:1px}
 .cd-gset-main{flex:1;min-width:0;display:flex;flex-direction:column}
 .cd-gset-body{flex:1;overflow-y:auto;padding:28px 30px 24px}
+.cd-gset-body,.cd-gset-nav{scrollbar-width:thin;scrollbar-color:#d6d6d6 transparent}
 .cd-gset-pt{margin:4px 0 22px 6px;font-size:16px;font-weight:500;color:#1f1f1f}
 .cd-gset-x{position:absolute;top:9px;right:11px;z-index:3;display:grid;place-items:center;width:28px;height:28px;border:0;background:none;border-radius:7px;color:#747474;cursor:pointer}
 .cd-gset-x:hover{background:#efefef;color:#1f1f1f}
@@ -670,6 +671,7 @@ label.cd-gset-row{cursor:pointer}
 .cd-gset-what b{font-size:13px;font-weight:400;color:#1f1f1f}
 .cd-gset-what small{font-size:12px;line-height:1.4;color:#8b8b8b}
 .cd-gset-kind+.cd-gset-kind{border-top:1px solid #f4f4f4}
+.cd-gset-kind .cd-gset-list{margin:0 0 6px 14px}
 /* Grok Bot's drop-down (its "Follow System ⌄"): no box, the choice and a small arrow. */
 .cd-gset-dd{flex:none;field-sizing:content;max-width:170px;font:inherit;font-size:12.5px;color:#1f1f1f;border:0;border-radius:7px;padding:5px 22px 5px 8px;cursor:pointer;-webkit-appearance:none;appearance:none;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center}
 .cd-gset-dd:hover{background-color:#f3f3f3}
@@ -714,7 +716,8 @@ label.cd-gset-row{cursor:pointer}
 @media (max-width:640px){
   .cd-gset-wrap{padding:0;align-items:flex-end}
   .cd-sure-box.cd-gset{flex-direction:column;max-width:none;height:92vh;height:92dvh;border-radius:16px 16px 0 0}
-  .cd-gset-nav{width:auto;flex-direction:row;gap:4px;margin-right:44px;padding:10px 0 10px 12px;border-right:0;border-bottom:1px solid #f0f0f0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .cd-gset-nav{width:auto;flex-direction:row;gap:4px;margin-right:44px;padding:10px 0 10px 12px;border-right:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .cd-gset-main{border-top:1px solid #f0f0f0}
   .cd-gset-nav::-webkit-scrollbar{display:none}
   .cd-gset-navb{flex:none;padding:6px 10px}
   .cd-gset-navb svg{display:none}
