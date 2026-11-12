@@ -80,7 +80,8 @@ test("CD399 PowerShell read by PowerShell itself (Claude Code's parse script, wo
   assert.equal(Q.psParseResult("gci", { code: 1, stderr: "boom" }).errors[0].message, "pwsh exited with code 1: boom");
   // The tool on Coder's machine: pwsh as the AI user; with no pwsh, it says so.
   const { TOOLS } = await import("../container/coder-tools.mjs");
-  const out = JSON.parse(await TOOLS.ps_parse({ command: "Get-ChildItem", timeoutMs: 3000 }));
+  // (30 seconds a try here: deploy 136's test step failed when GitHub's machine took over 3 seconds, twice, to start pwsh.)
+  const out = JSON.parse(await TOOLS.ps_parse({ command: "Get-ChildItem", timeoutMs: 30_000 }));
   assert.ok(out.noPwsh === true || out.code === 0, "no pwsh here, or a real parse");
   assert.match(read("container/coder-tools.mjs"), /spawn\("pwsh", req\.args, \{ stdio: \["pipe", "pipe", "pipe"\], cwd: tmpdir\(\) \}\)/);
   assert.match(read("container/Dockerfile"), / coder-psparse\.mjs /);

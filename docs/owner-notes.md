@@ -25,7 +25,13 @@ All ten are fixed, each with its own test (CD524 to CD534 in `coder/test/round5.
 9. **Your /compact runs its hooks**: it now runs on the chat's machine, like a message that Coder doesn't answer. The order is: PreCompact ("manual", with your words), then the summary, then PostCompact and SessionStart ("compact"). A PreCompact hook can stop it. The chat shows "/compact" and the "Compacted" note as before. It takes a few seconds longer when the machine is asleep.
 10. **Only secret-looking variables are hidden in the chat.** A variable is hidden if its name says key, token, secret, password, auth and so on, or if its value looks like a key, a web address with a login in it, or a long mix of letters and digits. `false`, `production`, `8080` and paths now show as they are.
 
-**Checks:** the full test suite on my side: 568 of 568 pass. Next: merge, deploy, then a short live check with Grok in the browser (no video).
+**Checks:** the full test suite on my side: 568 of 568 pass. Merged to main.
+
+**Deploy: on hold, waiting for your word.** Deploy 136 (from main) changed nothing on the site. It stopped at an old PowerShell test that gives PowerShell 3 seconds to start. GitHub's machine took longer, twice. That test now allows 30 seconds (a test change only). While checking, I found something you need to decide:
+- Another of your Claude sessions, the one building Gloopy, deploys from its own branch (`claude/keen-goodall-8ghmph`): deploys 133 and 134, with 135 waiting.
+- That branch split from main on 2026-11-08 and doesn't have Coder's work since then: Bash passes 3 to 9, the fixes from rounds 2 to 5, Auto mode's second checker, Grok's prompt cache.
+- So since deploy 133 (06:11 UTC today), gofarther.dev runs Coder as it was on 11-08, plus Gloopy's new work.
+- A deploy from main would bring Coder back and take Gloopy's new work off the site again. The two lines of work clash in 15 files (57 places), so they can't simply be put together without care.
 
 ## 2026-11-12: Round 5: the rest of the bash tool tried live with Grok (your words: "Ok yes")
 
