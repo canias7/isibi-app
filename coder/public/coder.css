@@ -698,3 +698,36 @@
 .cd-web-lanes{display:inline-flex;gap:2px;border:1px solid #e1ded7;border-radius:999px;padding:2px;background:#f7f6f2;flex:none}
 .cd-web-lane{font:600 12px Inter,system-ui,sans-serif;border:0;background:transparent;color:#4b4a46;border-radius:999px;padding:3px 9px;cursor:pointer;white-space:nowrap}
 .cd-web-lane[aria-pressed="true"]{background:#1f1e1d;color:#fff}
+/* THE WHOLE COMPUTER in Gloopy's live view (2026-11-12, Grok Bot's): its tabs and terminal as a browser's tab strip, the
+   address row above the page, and the terminal in the page's place. */
+.cd-web-tabs{display:flex;align-items:flex-end;gap:2px;padding:6px 8px 0;background:#f1efea;border-bottom:1px solid #e3dfd7;overflow-x:auto;scrollbar-width:none}
+.cd-web-tabs::-webkit-scrollbar{display:none}
+.cd-web-tabwrap{display:inline-flex;align-items:center;min-width:0;max-width:220px;flex:0 1 auto;border-radius:9px 9px 0 0;background:transparent}
+.cd-web-tabwrap.is-on{background:#fff;box-shadow:0 -1px 0 #e3dfd7,1px 0 0 #e3dfd7,-1px 0 0 #e3dfd7}
+.cd-web-tab{display:inline-flex;align-items:center;gap:7px;min-width:0;border:0;background:transparent;color:#57534e;font:500 12.5px Inter,system-ui,sans-serif;padding:7px 10px 8px;border-radius:9px 9px 0 0;cursor:pointer;white-space:nowrap}
+.cd-web-tab span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cd-web-tab i{flex:none;width:16px;height:16px;border-radius:4px;background:#e7e4dd;color:#57534e;font:700 10px/16px Inter,system-ui,sans-serif;font-style:normal;text-align:center}
+.cd-web-tabwrap.is-on .cd-web-tab{color:#1f1e1d}
+.cd-web-tab[aria-selected="true"]{color:#1f1e1d}
+.cd-web-tabx{flex:none;border:0;background:transparent;color:#78716c;font-size:15px;line-height:1;width:22px;height:22px;border-radius:6px;margin-right:4px;cursor:pointer}
+.cd-web-tabx:hover{background:#ece9e3;color:#1f1e1d}
+.cd-web-tabnew{flex:none;border:0;background:transparent;color:#57534e;font:500 18px/1 Inter,system-ui,sans-serif;width:28px;height:28px;border-radius:8px;margin:0 2px 3px;cursor:pointer}
+.cd-web-tabnew:hover{background:#e7e4dd}
+.cd-web-termtab{margin-left:auto;border-radius:9px 9px 0 0}
+.cd-web-termtab[aria-selected="true"]{background:#111827;color:#e5e7eb}
+.cd-web-termtab i{background:#1f2937;color:#a7f3d0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-web-nav{border-top:0;padding-top:8px;border-bottom:1px solid #efece7;align-items:center}
+.cd-web-ro{align-items:center;gap:8px;color:#57534e;font-size:13px}
+.cd-web-lock{flex:none;font-size:12px}
+.cd-web-full{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f6f4f0;border-radius:999px;padding:6px 12px;color:#44403c;font-size:13px}
+.cd-web-term{background:#0f172a;color:#e2e8f0;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px 14px;height:min(52vh,460px);overflow:auto}
+.cd-term-cmd{white-space:pre-wrap;word-break:break-word;color:#f8fafc}
+.cd-term-who{display:inline-block;min-width:52px;color:#94a3b8}
+.cd-term-p{color:#34d399;font-weight:700}
+.cd-term-out{margin:2px 0 10px 56px;white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font:inherit}
+.cd-term-out.is-bad{color:#fca5a5}
+.cd-term-out.is-run{color:#64748b}
+.cd-term-none{color:#94a3b8;margin:0}
+.cd-web-cmd{align-items:center;background:#0b1220;border-top:1px solid #1e293b}
+.cd-web-cmd .cd-web-in{background:#0f172a;color:#e2e8f0;border-color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-web-cmd .cd-web-in:focus{border-color:#34d399}

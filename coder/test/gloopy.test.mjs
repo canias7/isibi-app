@@ -757,7 +757,8 @@ function robotSite() {
 test("GL21 (2026-11-09) the owner's input is checked: a click inside the page, 1 to 1000 characters typed, one key, a scroll, or Back", async () => {
   const { checkInput, OWNER_INPUTS, VIEW } = await import("../container/gloopy-browser.mjs");
   // (Since the second docs check, 2026-11-10, also Forward, Reload, an address and a file: GL90.)
-  assert.deepEqual(OWNER_INPUTS, ["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file"]);
+  // (2026-11-12: and Gloopy's tabs, GL122.)
+  assert.deepEqual(OWNER_INPUTS, ["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file", "tab", "closetab", "newtab"]);
   assert.deepEqual(checkInput({ kind: "click", x: 210.6, y: 140.2, text: "ignored" }), { kind: "click", x: 211, y: 140 });
   assert.deepEqual(checkInput({ kind: "type", text: "red shoes" }), { kind: "type", text: "red shoes" });
   assert.deepEqual(checkInput({ kind: "key", key: "Control+A" }), { kind: "key", key: "Control+A" });
@@ -4458,7 +4459,7 @@ test("GL89 (2026-11-10) all of it, for real (where Chromium is installed): in th
 test("GL90 (2026-11-10) the parts: the owner's new inputs (an address, Forward, Reload, a file from their device), what a form holds in words for the check, opening checked when there are rules, QR codes handed over, a marked part and a taught task in Gloopy's words, and app notes never counted as the owner's words", async () => {
   const B = await import("../container/gloopy-browser.mjs");
   const C = await import("../container/gloopy-check.mjs");
-  assert.deepEqual(B.OWNER_INPUTS, ["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file"]);
+  assert.deepEqual(B.OWNER_INPUTS, ["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file", "tab", "closetab", "newtab"]);
   assert.deepEqual(B.checkInput({ kind: "open", url: "example.com/a" }), { kind: "open", url: "https://example.com/a" });
   assert.throws(() => B.checkInput({ kind: "open", url: "file:///etc/passwd" }), /only http and https pages open/);
   assert.throws(() => B.checkInput({ kind: "open", url: "http://169.254.169.254/" }), /the machine's own settings service/);
@@ -6192,7 +6193,7 @@ test("GL121 (2026-11-12) the hand-off card shows Gloopy's browser live, as Grok 
   assert.ok(ui.includes("S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '', card: !!card && !take };"));
   assert.ok(ui.includes("if (ho && w.shot && ho.getAttribute('src') !== w.shot) ho.setAttribute('src', w.shot);\n    if (before === shape && !img && ho && w.card) return;"), "the card's picture changes in place, the chat is not redrawn for it");
   assert.ok(ui.includes("(S.running || w.working || Date.now() - w.touched <= (w.control || w.card ? WEB_HOLD_MS : WEB_WATCH_MS));"), "it waits for you as long as taking over does, then pauses");
-  assert.match(ui, /w\.lane \|\| 0, !!w\.card, \(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| '', w\.key \? w\.key\.site : ''\]\.join\('\|'\)/);
+  assert.match(ui, /w\.lane \|\| 0, !!w\.card, \(w\.tabs \|\| \[\]\)\.map\(\(x\) => x\.id \+ \(x\.on \? '\*' : ''\) \+ x\.title\)\.join\('\\n'\), !!S\.webTerm, \(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| '', w\.key \? w\.key\.site : ''\]\.join\('\|'\)/);
   // The screen's own words, run as the page runs them; never the .cd-web class (on a phone it hides the chat, GL27).
   const fn = (name, end) => ui.slice(ui.indexOf("  function " + name + "("), ui.indexOf(end, ui.indexOf("  function " + name + "(")));
   const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -6216,4 +6217,121 @@ test("GL121 (2026-11-12) the hand-off card shows Gloopy's browser live, as Grok 
   assert.deepEqual(did, [["open", false, true], ["close"]], "opened once for the card, closed once answered; never the view you opened, never while Gloopy works");
   assert.ok(ui.includes("    if (GLOOPY) setTimeout(hoSync, 0);\n  }"), "checked after each drawing");
   assert.match(css, /\.cd-ho-screen\{[^}]*aspect-ratio:16\/10/);
+});
+
+test("GL122 (2026-11-12) the whole computer in Gloopy's live view, as Grok Bot's (owner: \"yes build all four\"): its browser's tabs (a site's new tab too), which the owner switches, closes (never the last) and opens while they have control; a tab that closes moves Gloopy to its newest other tab (never a closed one); the address row above the page; and its terminal: Gloopy's commands, and the owner's own, run as Gloopy's are and told to Gloopy at its next message", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const { checkInput, OWNER_INPUTS, TABS_MAX, makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  assert.deepEqual(OWNER_INPUTS.slice(-3), ["tab", "closetab", "newtab"]);
+  assert.equal(TABS_MAX, 12);
+  assert.deepEqual(checkInput({ kind: "tab", id: 3 }), { kind: "tab", id: 3 });
+  assert.throws(() => checkInput({ kind: "closetab", id: 0 }), /which tab/);
+  assert.deepEqual(checkInput({ kind: "newtab" }), { kind: "newtab" });
+  assert.deepEqual(checkInput({ kind: "newtab", url: "example.com" }), { kind: "newtab", url: "https://example.com/" });
+  // The Worker: a tab's number goes to the machine; a command goes to its terminal and is kept for Gloopy's next message.
+  const { handleCoder, GLOOPY_ID, ranNote } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_MACHINES: "fly", FLY_API_TOKEN: "t".repeat(20), CODER_FLY_APP: "gofarther-coder", CODER_FLY_IMAGE: "registry.fly.io/gofarther-coder:v1" };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), awake: async () => true,
+    container: (name, o) => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ name, o, path: u.pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json(u.pathname === "/gloopy/run" ? { code: 0, output: "hi\n", control: true } : { ok: true, control: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  await go("gloopy");
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const act = (body) => go("projects/" + GLOOPY_ID + "/screen", { method: "POST", body: JSON.stringify(body) });
+  await act({ input: { kind: "tab", id: 2 } });
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, kind: "tab", id: 2 });
+  assert.deepEqual(machine.at(-1).o, { gloopy: true }, "Gloopy's own machine (CD248)");
+  const r = await (await act({ command: "  echo hi  " })).json();
+  assert.deepEqual([r.ok, r.code, r.output], [true, 0, "hi\n"]);
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, command: "echo hi" });
+  assert.deepEqual([meta().ran, meta().used], [["echo hi"], true]);
+  assert.equal(ranNote(["echo hi", "ls `x`"]), "(Note from Gloopy's app, not the owner: while they had your computer, the owner ran these commands in your terminal, in your folder: `echo hi`, `ls 'x'`. What they changed may be in your folder.)");
+  assert.equal((await act({ command: "   " })).status, 400);
+  bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "running" }));
+  assert.equal((await act({ command: "ls" })).status, 409, "not while Gloopy works");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.ok(routes.includes("...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : [])];"), "told at its next message");
+  assert.ok(routes.includes("used: false, ran: [], marks,"), "and then forgotten");
+  // The page: the tab strip (Terminal last), the address row above the page (read-only while watching), the terminal.
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(ui.includes("(w.lane ? '' : webTabsHTML(w)) +\n      (w.lane || S.webTerm ? '' : w.control ? webNavHTML() : '<div class=\"cd-web-tools cd-web-nav cd-web-ro\">"));
+  assert.ok(ui.includes("(S.webTerm && !w.lane ? webTermHTML(w) : '<div class=\"cd-web-screen'"));
+  assert.ok(ui.includes("(w.control ? '<button type=\"button\" class=\"cd-web-tabnew\" id=\"cdWebNewTab\" aria-label=\"New tab\" title=\"New tab\">+</button>' : '') +"));
+  assert.ok(ui.includes("(w.control && many && x.id ? '<button type=\"button\" class=\"cd-web-tabx\" data-web-tabx=\"' + x.id + '\" aria-label=\"Close this tab\">×</button>' : '')"));
+  assert.ok(ui.includes("if (w.control && id && t && !t.on) { webInput({ kind: 'tab', id }); return draw(); }"));
+  assert.ok(ui.includes("if (!w.control && id && t && !t.on && !was) { const b = webShape(); w.msg = 'Take over to switch Gloopy’s tabs.'; return webPaint(b); }"));
+  assert.ok(ui.includes("const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ command }) });"));
+  assert.ok(ui.includes("const its = S.events.filter((e) => e.type === 'bash' && (!e.tool || e.tool === 'bash') && typeof e.command === 'string').slice(-30);"), "Gloopy's own commands, not its browser or file steps");
+  assert.ok(ui.includes("['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id)"), "a command being typed keeps its place");
+  assert.ok(ui.includes("if (full && full.textContent !== (w.url || '')) { full.textContent = w.url || ''; full.title = w.url || ''; }"), "the address follows the page in place");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  // A real browser: a site's new tab, listed and switched to; closed (never the last); a new one; one that closes itself.
+  const pages = {
+    "/": "<title>One</title><a href=\"/two\" target=\"_blank\">open two</a>",
+    "/two": "<title>Two</title><button onclick=\"window.open('/three')\">pop three</button>",
+    "/three": "<title>Three</title><button onclick=\"window.close()\">close me</button>",
+  };
+  const site = http.createServer((q, s) => { s.setHeader("content-type", "text/html"); s.end(pages[new URL(q.url, "http://x").pathname] || "<title>?</title>"); });
+  const base = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-tabs-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  const ref = (text, name) => new RegExp('(?:link|button) "' + name + '"(?: \\[[a-z]+\\])* \\[ref=([a-z0-9]+)\\]').exec(text)[1];
+  try {
+    let a = await hub.act({ action: "open", url: base + "/" });
+    assert.equal((await hub.screen({})).tabs, undefined, "one tab: none listed");
+    a = await hub.act({ action: "click", ref: ref(a.text, "open two") });
+    let sc = await hub.screen({});
+    assert.deepEqual(sc.tabs.map((x) => [x.title, !!x.on]), [["One", false], ["Two", true]], "the site's new tab is listed, and Gloopy is on it");
+    const one = sc.tabs[0].id, two = sc.tabs[1].id;
+    sc = await hub.input({ kind: "tab", id: one });
+    assert.equal(sc.title, "One");
+    assert.deepEqual(sc.tabs.map((x) => [x.id, !!x.on]), [[one, true], [two, false]]);
+    sc = await hub.input({ kind: "closetab", id: two });
+    assert.deepEqual([sc.title, sc.tabs], ["One", undefined]);
+    await assert.rejects(hub.input({ kind: "closetab", id: one }), /the last tab stays open/);
+    await assert.rejects(hub.input({ kind: "tab", id: two }), /that tab is closed/);
+    sc = await hub.input({ kind: "newtab", url: base + "/two" });
+    assert.deepEqual([sc.title, sc.tabs.length, sc.tabs.at(-1).on], ["Two", 2, true]);
+    // A tab that closes itself: Gloopy goes on in its newest other tab, never on a closed one.
+    a = await hub.act({ action: "look" });
+    a = await hub.act({ action: "click", ref: ref(a.text, "pop three") });
+    assert.match(a.text, /Page: Three/);
+    a = await hub.act({ action: "click", ref: ref(a.text, "close me") });
+    sc = await hub.screen({});
+    assert.equal(sc.title, "Two", "back on the newest other tab");
+    assert.ok(sc.shot, "with its picture");
+  } finally { await hub.closeLanes().catch(() => {}); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL123 (2026-11-12) the owner's own command in Gloopy's terminal, on its machine: only while they have control and Gloopy isn't working; run in Gloopy's folder as its own commands are; the end of its output, and its exit code; none on the small image", async (t) => {
+  const { createApp, TERM_S } = await import("../container/server.mjs");
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  const { mkdir } = await import("node:fs/promises");
+  assert.equal(TERM_S, 60);
+  const mk = async (p) => ({ root: await mkdtemp(join(tmpdir(), p + "w-")), gitRoot: await mkdtemp(join(tmpdir(), p + "g-")), memRoot: await mkdtemp(join(tmpdir(), p + "m-")), bgRoot: await mkdtemp(join(tmpdir(), p + "b-")) });
+  const on = async (app) => { const srv = http.createServer(app); await new Promise((r) => srv.listen(0, r)); return { srv, base: "http://127.0.0.1:" + srv.address().port }; };
+  const post = (base, path, body) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", ...body }) }).then(async (r) => [r.status, await r.json()]);
+  const small = await on(createApp({ ...(await mk("gl-ts")), send: async () => say("Hi.") }));
+  try { assert.deepEqual(await post(small.base, "/gloopy/run", { command: "ls" }), [200, { none: true }]); } finally { small.srv.close(); }
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const dirs = await mk("gl-tr");
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-tr-")), "browser");
+  const full = await on(createApp({ ...dirs, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, send: async () => say("Hi.") }));
+  try {
+    assert.deepEqual(await post(full.base, "/gloopy/run", { command: "ls" }), [409, { error: "Take over first." }]);
+    assert.equal((await post(full.base, "/gloopy/control", { take: true }))[1].control, true);
+    assert.deepEqual(await post(full.base, "/gloopy/run", { command: "ls" }), [409, { error: "Gloopy's folder isn't on this computer yet: send Gloopy a message first." }]);
+    await mkdir(join(dirs.root, "gloopy-main"), { recursive: true });
+    const [s1, r1] = await post(full.base, "/gloopy/run", { command: "echo hi && pwd" });
+    assert.equal(s1, 200);
+    assert.equal(r1.code, 0);
+    assert.match(r1.output, /^hi\n.*gloopy-main\n?$/, "in Gloopy's own folder");
+    const [, r2] = await post(full.base, "/gloopy/run", { command: "exit 3" });
+    assert.equal(r2.code, 3);
+    assert.equal((await post(full.base, "/gloopy/run", { command: "" }))[0], 400);
+    assert.equal((await post(full.base, "/gloopy/control", { take: false }))[1].control, false);
+    assert.deepEqual(await post(full.base, "/gloopy/run", { command: "ls" }), [409, { error: "Take over first." }], "handed back: no more");
+  } finally { full.srv.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]); }
 });

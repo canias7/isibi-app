@@ -1462,20 +1462,21 @@
         '<span class="cd-web-addr" id="cdWebAddr" title="' + esc(w.url || '') + '">' + esc(w.title || '') + (host ? ' · ' + esc(host) : '') + '</span>' +
         (w.paused ? '<button type="button" class="cd-web-mini" id="cdWebResume">Refresh</button>' : '') +
         // MARK A PART OF THE PAGE (dots' annotations): drag over it, then say what about it.
-        (w.shot && !empty && !w.lane ? (w.marking ? '<button type="button" class="cd-web-mini" id="cdWebMarkOff">Cancel marking</button>' : '<button type="button" class="cd-web-mini" id="cdWebMarkOn">Mark a part</button>') : '') +
+        (w.shot && !empty && !w.lane && !S.webTerm ? (w.marking ? '<button type="button" class="cd-web-mini" id="cdWebMarkOff">Cancel marking</button>' : '<button type="button" class="cd-web-mini" id="cdWebMarkOn">Mark a part</button>') : '') +
         '<button type="button" class="cd-web-x" id="cdWebClose" aria-label="Close the browser view">×</button></div>' +
-      '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + (w.marking ? ' is-marking' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
+      // THE WHOLE COMPUTER (owner, 2026-11-12: "yes build all four"; Grok Bot's live view is a real browser with its tabs
+      // and address bar, and a terminal): Gloopy's tabs and its terminal, then the address row, as a browser has them.
+      (w.lane ? '' : webTabsHTML(w)) +
+      (w.lane || S.webTerm ? '' : w.control ? webNavHTML() : '<div class="cd-web-tools cd-web-nav cd-web-ro"><span class="cd-web-lock" aria-hidden="true">' + (/^https:/.test(w.url || '') ? '🔒' : 'ⓘ') + '</span><span class="cd-web-full" id="cdWebFull" title="' + esc(w.url || '') + '">' + esc(w.url || '') + '</span></div>') +
+      (S.webTerm && !w.lane ? webTermHTML(w) : '<div class="cd-web-screen' + (w.control ? ' is-you' : '') + (w.marking ? ' is-marking' : '') + '" id="cdWebScreen"' + (w.control ? ' tabindex="0" aria-label="Gloopy’s browser: click to use it, type to type into it"' : '') + '>' +
         // WHERE GLOOPY JUST ACTED (the second docs check, 2026-11-10: Grok Bot's preview shows "clicks, typing,
         // navigation"): a mark over the element of its last step, for a while.
-        (empty ? '<p class="cd-web-empty">' + esc(empty) + '</p>' : '<span class="cd-web-pic"><img id="cdWebImg" src="' + esc(w.shot) + '" alt="Gloopy’s browser" draggable="false"><i class="cd-web-mark" id="cdWebMark"' + webMarkStyle(w) + '></i><i class="cd-web-sel" id="cdWebSel"' + webSelStyle(w) + '></i></span>') + '</div>' +
+        (empty ? '<p class="cd-web-empty">' + esc(empty) + '</p>' : '<span class="cd-web-pic"><img id="cdWebImg" src="' + esc(w.shot) + '" alt="Gloopy’s browser" draggable="false"><i class="cd-web-mark" id="cdWebMark"' + webMarkStyle(w) + '></i><i class="cd-web-sel" id="cdWebSel"' + webSelStyle(w) + '></i></span>') + '</div>') +
       // WHAT ABOUT THE PART YOU MARKED: your note, sent to Gloopy with what that part shows.
       (w.marking ? '<div class="cd-web-tools cd-web-note">' + (w.sel ? '<input id="cdWebNote" class="cd-web-in" type="text" placeholder="What about this part?" autocomplete="off" value="' + esc(S.webNote || '') + '"><button type="button" class="cd-web-go" id="cdWebNoteSend">Send to Gloopy</button>' : '<span>Drag over the part of the page you mean.</span>') + '</div>' : '') +
-      (w.control ? '<div class="cd-web-tools"><input id="cdWebType" class="cd-web-in" type="text" placeholder="Type into the page" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webBox || '') + '">' +
+      (w.control && !S.webTerm ? '<div class="cd-web-tools"><input id="cdWebType" class="cd-web-in" type="text" placeholder="Type into the page" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webBox || '') + '">' +
         '<button type="button" id="cdWebSend">Type</button><button type="button" data-web-key="Enter">Enter</button><button type="button" data-web-key="Tab">Tab</button><button type="button" data-web-key="Backspace" aria-label="Backspace">⌫</button>' +
         '<button type="button" data-web-scroll="-600" aria-label="Scroll up">↑</button><button type="button" data-web-scroll="600" aria-label="Scroll down">↓</button></div>' +
-        // YOUR OWN WAY AROUND (dots: Take over gives "its mouse and keyboard"): Back, Forward, Reload and an address.
-        '<div class="cd-web-tools cd-web-nav"><button type="button" id="cdWebBack">Back</button><button type="button" id="cdWebFwd">Forward</button><button type="button" id="cdWebReload">Reload</button>' +
-        '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>' +
         // A FILE FROM YOUR DEVICE, when the page asks for one (its own file box never shows here).
         (w.chooser ? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file.</span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden></label></div>' : '') +
         // YOUR SECURITY KEY (2026-11-11), when the page asks for one: signed in the Go Farther app, or not now.
@@ -1488,6 +1489,41 @@
           // TAKING OVER WHILE GLOOPY WORKS stops it first (one press: Stop, then Take over).
           : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.none ? ' disabled' : '') + '>' + (w.working || S.running ? 'Stop and take over' : 'Take over') + '</button>') +
       '</div></div>');
+  }
+  // YOUR OWN WAY AROUND (dots: Take over gives "its mouse and keyboard"): Back, Forward, Reload and an address; above the
+  // page since 2026-11-12, where a browser has them.
+  function webNavHTML() {
+    return '<div class="cd-web-tools cd-web-nav"><button type="button" id="cdWebBack">Back</button><button type="button" id="cdWebFwd">Forward</button><button type="button" id="cdWebReload">Reload</button>' +
+      '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>';
+  }
+  // GLOOPY'S TABS AND ITS TERMINAL, as tabs (2026-11-12): each tab of its browser (one, with its page's title, until a
+  // second opens); while you have control, switch to one, close one (never the last) or open one (+). Terminal shows its
+  // command line.
+  function webTabsHTML(w) {
+    const list = w.tabs && w.tabs.length ? w.tabs : [{ id: 0, title: w.title || '', url: w.url || '', on: true }];
+    const many = list.length > 1;
+    const host = (u) => { try { return /^https?:/.test(u) ? new URL(u).host.replace(/^www\./, '') : ''; } catch (e) { return ''; } };
+    return '<div class="cd-web-tabs" role="tablist" aria-label="Gloopy’s tabs">' + list.map((x) => {
+      const on = x.on && !S.webTerm;
+      const name = x.title || host(x.url) || 'New tab';
+      return '<span class="cd-web-tabwrap' + (on ? ' is-on' : '') + '"><button type="button" class="cd-web-tab" role="tab" data-web-tab="' + x.id + '" aria-selected="' + (on ? 'true' : 'false') + '" title="' + esc(x.url || name) + '"><i aria-hidden="true">' + esc((host(x.url) || name || '·').slice(0, 1).toUpperCase()) + '</i><span>' + esc(name) + '</span></button>' +
+        (w.control && many && x.id ? '<button type="button" class="cd-web-tabx" data-web-tabx="' + x.id + '" aria-label="Close this tab">×</button>' : '') + '</span>';
+    }).join('') +
+      (w.control ? '<button type="button" class="cd-web-tabnew" id="cdWebNewTab" aria-label="New tab" title="New tab">+</button>' : '') +
+      '<button type="button" class="cd-web-tab cd-web-termtab" role="tab" id="cdWebTermTab" aria-selected="' + (S.webTerm ? 'true' : 'false') + '"><i aria-hidden="true">›_</i><span>Terminal</span></button></div>';
+  }
+  // GLOOPY'S TERMINAL (2026-11-12; Grok Bot's computer has one, and its Bot checked a site from it): the commands Gloopy
+  // ran in this chat, with what they printed, then yours; while you have control, a command of your own, run on its
+  // computer as Gloopy's are (and Gloopy is told at its next message).
+  function webTermHTML(w) {
+    const results = {};
+    for (const e of S.events) if (e.type === 'result' && e.id) results[e.id] = e;
+    const its = S.events.filter((e) => e.type === 'bash' && (!e.tool || e.tool === 'bash') && typeof e.command === 'string').slice(-30);
+    const line = (who, cmd, r) => '<div class="cd-term-cmd"><span class="cd-term-who">' + who + '</span><span class="cd-term-p">$</span> ' + esc(cmd) + '</div>' +
+      (r ? '<pre class="cd-term-out' + (Number(r.code) && Number(r.code) !== 0 ? ' is-bad' : '') + '">' + esc(String(r.output || '').slice(-4000)) + (r.timedOut ? '\n[stopped after a minute]' : '') + '</pre>' : '<pre class="cd-term-out is-run">…</pre>');
+    const body = its.map((e) => line('gloopy', e.command.split('\n').slice(0, 6).join('\n'), results[e.id])).join('') + (S.webRan || []).map((x) => line('you', x.command, x.done ? x : null)).join('');
+    return '<div class="cd-web-term" id="cdWebTerm" role="log" aria-label="Gloopy’s terminal">' + (body || '<p class="cd-term-none">Gloopy hasn’t run a command in this chat yet.' + (w.control ? ' Run one below.' : '') + '</p>') + '</div>' +
+      (w.control ? '<div class="cd-web-tools cd-web-cmd"><span class="cd-term-p" aria-hidden="true">$</span><input id="cdWebCmd" class="cd-web-in" type="text" placeholder="A command for Gloopy’s computer" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webCmd || '') + '"' + (S.webRunning ? ' disabled' : '') + '><button type="button" id="cdWebRun"' + (S.webRunning ? ' disabled' : '') + '>' + (S.webRunning ? 'Running…' : 'Run') + '</button></div>' : '<div class="cd-web-tools cd-web-ro"><span>Take over to run a command of your own.</span></div>');
   }
   // The box you are marking, over the picture.
   function webSelStyle(w) {
@@ -1538,6 +1574,8 @@
     w.route = d.route === 'desktop' || d.route === 'cloud' ? d.route : '';
     // Its helpers' tabs: a helper's that closed returns the view to Gloopy's page.
     w.lanes = Array.isArray(d.lanes) ? d.lanes.filter((x) => x && Number.isInteger(x.id) && x.id > 0).slice(0, 4).map((x) => ({ id: x.id, title: String(x.title || '').slice(0, 120) })) : [];
+    // GLOOPY'S TABS (2026-11-12): all of them while there is more than one (a site's new tab, or one you opened).
+    if (!d.lane && !w.lane) w.tabs = Array.isArray(d.tabs) ? d.tabs.filter((x) => x && Number.isInteger(x.id) && x.id > 0).slice(0, 12).map((x) => ({ id: x.id, title: String(x.title || '').slice(0, 120), url: String(x.url || '').slice(0, 500), on: x.on === true })) : [];
     if (w.lane && !w.lanes.some((x) => x.id === w.lane)) { w.lane = 0; w.hash = ''; }
     w.teaching = d.teaching && typeof d.teaching.steps === 'number' ? { steps: d.teaching.steps, full: d.teaching.full === true } : null;
     if (w.asleep || w.off || w.none) { w.shot = ''; w.hash = ''; }
@@ -1558,13 +1596,15 @@
       if (mk) { const st = webMarkStyle(w); if (st === ' hidden') mk.hidden = true; else { mk.hidden = false; mk.setAttribute('style', st.replace(/^ style="|"$/g, '')); } }
       const did = S.root.querySelector('#cdWebDid');
       if (did) did.textContent = w.last ? 'Gloopy: ' + w.last.did : 'You’re watching Gloopy work.';
+      const full = S.root.querySelector('#cdWebFull');
+      if (full && full.textContent !== (w.url || '')) { full.textContent = w.url || ''; full.title = w.url || ''; }
       const a = S.root.querySelector('#cdWebAddr');
       if (a) { let host = ''; try { host = /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { host = ''; } a.textContent = (w.title || '') + (host ? ' · ' + host : ''); a.title = w.url || ''; }
       return;
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, !!w.card, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, !!w.card, (w.tabs || []).map((x) => x.id + (x.on ? '*' : '') + x.title).join('\n'), !!S.webTerm, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
   // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
   // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
@@ -2026,7 +2066,7 @@
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
-    const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType'].includes(document.activeElement.id) ? document.activeElement.id : '';
+    const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id) ? document.activeElement.id : '';
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
@@ -2035,6 +2075,8 @@
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
+    const term = root.querySelector('#cdWebTerm');
+    if (term) term.scrollTop = term.scrollHeight;
     if (GLOOPY) setTimeout(hoSync, 0);
   }
   // THE HAND-OFF CARD'S LIVE SCREEN (2026-11-12): while a hand-off waits for you, the live view's pictures come for the
@@ -2275,6 +2317,35 @@
     // GLOOPY'S BROWSER, LIVE: open or close the view; take over and hand back; your clicks, typing, keys and scrolling.
     on('#cdWeb', 'click', () => (S.web && S.web.card ? (S.web.card = false, S.web.touched = Date.now(), draw()) : S.web ? webClose() : webOpen(false)));
     on('#cdWebClose', 'click', webClose);
+    // GLOOPY'S TABS AND TERMINAL (2026-11-12). A tab: while you have control, the browser goes to it; otherwise only the
+    // page is shown again (Gloopy's tab is Gloopy's to choose while it works).
+    on('[data-web-tab]', 'click', (e) => {
+      const w = S.web; if (!w) return;
+      const id = Number(e.currentTarget.dataset.webTab);
+      const was = S.webTerm; S.webTerm = false;
+      const t = (w.tabs || []).find((x) => x.id === id);
+      if (w.control && id && t && !t.on) { webInput({ kind: 'tab', id }); return draw(); }
+      if (!w.control && id && t && !t.on && !was) { const b = webShape(); w.msg = 'Take over to switch Gloopy’s tabs.'; return webPaint(b); }
+      draw();
+    });
+    on('[data-web-tabx]', 'click', (e) => { const w = S.web; if (w && w.control) { S.webTerm = false; webInput({ kind: 'closetab', id: Number(e.currentTarget.dataset.webTabx) }); } });
+    on('#cdWebNewTab', 'click', () => { const w = S.web; if (w && w.control) { S.webTerm = false; webInput({ kind: 'newtab' }); draw(); } });
+    on('#cdWebTermTab', 'click', () => { S.webTerm = !S.webTerm; if (S.web) S.web.marking = false; draw(); });
+    const runCmd = async () => {
+      const box = S.root.querySelector('#cdWebCmd');
+      const command = box ? box.value.trim() : '';
+      if (!command || S.webRunning || !S.web || !S.web.control) return;
+      const ran = { command, done: false };
+      S.webRan = [...(S.webRan || []), ran].slice(-30); S.webCmd = ''; S.webRunning = true; draw();
+      const r = await call(webPath(), { method: 'POST', body: JSON.stringify({ command }) });
+      S.webRunning = false;
+      Object.assign(ran, r.status === 200 && r.data ? { done: true, code: r.data.code, output: String(r.data.output || ''), timedOut: r.data.timedOut === true } : { done: true, code: 1, output: (r.data && r.data.error) || 'Gloopy’s computer could not be reached.' });
+      if (r.status === 409 && S.web) S.web.control = false;
+      draw();
+    };
+    on('#cdWebRun', 'click', runCmd);
+    on('#cdWebCmd', 'input', (e) => { S.webCmd = e.currentTarget.value; });
+    on('#cdWebCmd', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); runCmd(); } });
     on('#cdWebResume', 'click', () => { if (S.web) { S.web.paused = false; S.web.touched = Date.now(); webTick(); draw(); } });
     on('#cdWebTake', 'click', webTake);
     on('#cdWebGive', 'click', webGive);

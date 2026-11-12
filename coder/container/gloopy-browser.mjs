@@ -87,13 +87,15 @@ export const BLANKED = "••••••";
  * since the second docs check (2026-11-10: dots' Take over gives "its mouse and keyboard", Grok Bot's "take control"),
  * also an address of their own, Forward, Reload, and a file from their own device when the page asks for one.
  */
-export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file"]);
+export const OWNER_INPUTS = Object.freeze(["click", "type", "key", "scroll", "back", "forward", "reload", "open", "file", "tab", "closetab", "newtab"]);
 /** How long a page's request for a file waits for the owner to pick one. */
 export const CHOOSER_MS = 2 * 60 * 1000;
 /** The live view's frames (2026-11-10): at most one every CAST_GAP_MS; stopped CAST_IDLE_MS after the last look; a look waits at most CAST_WAIT_MS for the next. */
 export const CAST_GAP_MS = 150, CAST_IDLE_MS = 15_000, CAST_WAIT_MS = 8000;
 /** Gloopy's helpers' own tabs (2026-11-10): at most LANES_MAX; one is closed LANE_IDLE_MS after its last step. */
 export const LANES_MAX = 4, LANE_IDLE_MS = 5 * 60 * 1000;
+/** Gloopy's own tabs (2026-11-12): at most this many are listed in the live view, and opened by the owner. */
+export const TABS_MAX = 12;
 /** TEACH A TASK (Grok Bot's: "records visible computer interaction for up to ten minutes"): at most this long, and steps. */
 export const TEACH_MS = 10 * 60 * 1000, TEACH_STEPS = 100;
 
@@ -172,6 +174,9 @@ export function checkInput(a) {
   if (kind === "key") { const key = String(x.key || ""); if (!KEY_RE.test(key)) throw new Error("that key cannot be pressed"); return { kind, key }; }
   if (kind === "scroll") { const dy = Math.round(Number(x.dy)); if (!Number.isFinite(dy) || !dy) throw new Error("scroll up or down"); return { kind, dy: Math.max(-3000, Math.min(3000, dy)) }; }
   if (kind === "open") return { kind, url: pageAddress(x.url) };
+  // GLOOPY'S TABS (2026-11-12): one to show, one to close (each by its number), or a new one (at an address, or blank).
+  if (kind === "tab" || kind === "closetab") { const id = Number(x.id); if (!Number.isInteger(id) || id < 1) throw new Error("which tab"); return { kind, id }; }
+  if (kind === "newtab") return x.url ? { kind, url: pageAddress(x.url) } : { kind };
   if (kind === "file") {
     const name = fileNameOf(x.name, "");
     if (!name || typeof x.data !== "string" || !/^[A-Za-z0-9+/]*=*$/.test(x.data) || !x.data) throw new Error("choose a file");
@@ -326,6 +331,19 @@ export async function serve(dir) {
   Object.defineProperty(L0, "page", { get: () => page, set: (p) => { page = p; } });
   const lanes = new Map();
   const laneOf = (p) => (p === page ? L0 : [...lanes.values()].find((L) => L.page === p) || null);
+  // GLOOPY'S TABS (owner, 2026-11-12: "yes build all four"; Grok Bot's live view is the whole computer, a real browser with
+  // its tabs): every open tab that is not a helper's, each with its own number; Gloopy's is `page`. Listed in the live
+  // view when there is more than one (a site's new tab, or one the owner opened).
+  const tabIds = new WeakMap();
+  let tabSeq = 0;
+  const tabId = (p) => { if (!tabIds.has(p)) tabIds.set(p, ++tabSeq); return tabIds.get(p); };
+  const mainTabs = () => ctx.pages().filter((p) => !p.isClosed() && ![...lanes.values()].some((L) => L.page === p || (L.pages && L.pages.has(p))));
+  const newestTab = (but) => mainTabs().filter((p) => p !== but).sort((a, b) => tabId(b) - tabId(a))[0] || null;
+  const tabsNow = async () => {
+    const list = mainTabs();
+    if (list.length < 2) return null;
+    return Promise.all(list.slice(0, TABS_MAX).map(async (p) => ({ id: tabId(p), title: (await p.title().catch(() => "")).slice(0, 120), url: p.url().slice(0, 500), ...(p === page ? { on: true } : {}) })));
+  };
   const laneOpen = (k) => {
     const L = Object.assign(laneState(), { id: k, page: null, pages: new Set() });
     L.ready = ctx.newPage().then((p) => { watch(p); L.page = p; L.pages.add(p); });
@@ -420,7 +438,13 @@ export async function serve(dir) {
     });
     p.on("download", onDownload);
     // A page waiting for the owner's security key that closed: nothing waits any more.
-    p.on("close", () => { const L = laneOf(p); if (L && L.key && L.key.page === p) { L.key.done({ error: "AbortError" }); L.key = null; } });
+    p.on("close", () => {
+      const L = laneOf(p);
+      if (L && L.key && L.key.page === p) { L.key.done({ error: "AbortError" }); L.key = null; }
+      // GLOOPY'S TAB CLOSED (a site's own tab that closed itself, or the owner's): it goes on in its newest other tab, or a
+      // new blank one (found 2026-11-12: the view stayed on a closed tab's last picture).
+      if (p === page) { const next = newestTab(p); if (next) page = next; else ctx.newPage().then((np) => { if (page === p || page.isClosed()) page = np; }).catch(() => {}); }
+    });
     // A PAGE ASKING FOR A FILE is always caught here (found 2026-11-10: one left to Chromium opens a box no one can see in
     // a headless browser, and blocks the next): the owner's own click gets a file prompt in their live view; Gloopy's
     // upload step gives its file; any other is said in the step's answer.
@@ -671,6 +695,9 @@ export async function serve(dir) {
     else if (i.kind === "reload") line = "Reloaded the page";
     else if (i.kind === "open") line = "Went to " + i.url;
     else if (i.kind === "file") line = "Gave the page a file (" + quote(i.name) + ")";
+    else if (i.kind === "tab") { const p = mainTabs().find((q) => tabId(q) === i.id); line = "Switched to the tab " + quote(p ? await p.title().catch(() => "") || p.url() : "#" + i.id); }
+    else if (i.kind === "closetab") line = "Closed a tab";
+    else if (i.kind === "newtab") line = "Opened a new tab" + (i.url ? " at " + i.url : "");
     if (line) teach.steps.push({ line, url: page.url() });
   };
   const teachOnOff = async (x) => {
@@ -963,7 +990,8 @@ export async function serve(dir) {
     }
     const last = lastAct && Date.now() - lastAct.at < 20_000 ? { did: lastAct.did, ...(lastAct.box ? { box: lastAct.box } : {}), ago: Date.now() - lastAct.at } : null;
     if (chooser && Date.now() - chooser.at > CHOOSER_MS) chooser = null;
-    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...keyNow(), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}), ...(others.length ? { lanes: others } : {}) };
+    const tabs = await tabsNow();
+    const where = { url: page.url(), title: await page.title().catch(() => ""), ...(tabs ? { tabs } : {}), ...(last ? { last } : {}), ...(chooser ? { chooser: { multiple: chooser.multiple } } : {}), ...keyNow(), ...(teach ? { teaching: { steps: teach.steps.length, full: !!teach.full } } : {}), ...(others.length ? { lanes: others } : {}) };
     if (wait && newest.from === "cast" && newest.page === page && newest.hash) return x.since === newest.hash ? { ...where, same: true, hash: newest.hash } : { ...where, hash: newest.hash, shot: newest.shot, w: VIEW.width, h: VIEW.height };
     const shot = await page.screenshot({ type: "jpeg", quality: 60, timeout: 5000 }).catch(() => null);
     if (!shot) return { ...where, same: true };
@@ -990,6 +1018,21 @@ export async function serve(dir) {
       // A page not known to come from a plain address is opened again at its address: a form is never sent twice.
       else if (i.kind === "reload") await (plainPage.get(page) ? page.reload({ waitUntil: "domcontentloaded", timeout: 20000 }) : page.goto(page.url(), { waitUntil: "domcontentloaded", timeout: 20000 })).catch(() => {});
       else if (i.kind === "open") await page.goto(i.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch((e) => { if (!/Download is starting/.test(String((e && e.message) || e))) throw e; });
+      else if (i.kind === "tab") { const p = mainTabs().find((q) => tabId(q) === i.id); if (!p) throw new Error("that tab is closed"); page = p; await p.bringToFront().catch(() => {}); }
+      else if (i.kind === "closetab") {
+        const p = mainTabs().find((q) => tabId(q) === i.id);
+        if (!p) throw new Error("that tab is closed");
+        if (mainTabs().length < 2) throw new Error("the last tab stays open");
+        if (p === page) page = newestTab(p);
+        await p.close().catch(() => {});
+        await page.bringToFront().catch(() => {});
+      }
+      else if (i.kind === "newtab") {
+        if (mainTabs().length >= TABS_MAX) throw new Error("at most " + TABS_MAX + " tabs: close one first");
+        const p = await ctx.newPage();
+        page = p;
+        if (i.url) await p.goto(i.url, { waitUntil: "domcontentloaded", timeout: 30000 }).catch(() => {});
+      }
       else if (i.kind === "file") {
         if (!chooser || Date.now() - chooser.at > CHOOSER_MS) { chooser = null; throw new Error("the page is not asking for a file now: click its file field or upload button first"); }
         const fc = chooser.fc;

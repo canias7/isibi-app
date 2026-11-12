@@ -1478,7 +1478,7 @@ async function gloopyMessage(g) {
   }
   // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), and the owner having taken over
   // Gloopy's browser meanwhile: said to Gloopy just before this message.
-  const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(overtaken ? [unansweredNote(overtaken, "before this run began")] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : [])];
+  const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(overtaken ? [unansweredNote(overtaken, "before this run began")] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : [])];
   if (notes.length) messages = [...(Array.isArray(messages) ? messages : []), ...notes.map((content) => ({ role: "user", appNote: true, content }))];
   // A long chat is summarized, not cut (as Coder's).
   let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
@@ -1511,7 +1511,7 @@ async function gloopyMessage(g) {
   const carried = !sched && (body.card === true || (meta.waiting === "question" && !meta.pending)) ? oldRun : null;
   if (oldRun && !carried) await endRun(bucket, uid, oldRun.id, "failed", sched ? "It was still waiting for you when Gloopy's next run began." : meta.pending ? "Its card closed: you sent a new message instead." : "You sent a new message instead.");
   const run = sched && sched.id ? { id: sched.id } : carried;
-  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, marks, bg: !!sched, denied, run, ...(tz ? { tz } : {}) };
+  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, ran: [], marks, bg: !!sched, denied, run, ...(tz ? { tz } : {}) };
   const rules = await readRules(bucket, uid);
   // GLOOPY'S KEYS (2026-11-09, as Coder's): its machine gets where they apply and this job's pass for the Worker's egress,
   // which adds them; their values are kept sealed here to hide them in its chat.
@@ -2405,6 +2405,8 @@ async function gloopyCards(g) {
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */
 const GLOOPY_USED_NOTE = "(Note from Gloopy's app, not the owner: the owner took over your browser since your last message. The page may have changed: look at it before you go on.)";
+/** The commands the owner ran in Gloopy's terminal while they had control (2026-11-12), told at its next message. */
+export const ranNote = (ran) => "(Note from Gloopy's app, not the owner: while they had your computer, the owner ran these commands in your terminal, in your folder: " + ran.slice(-20).map((c) => "`" + String(c).replace(/`/g, "'").slice(0, 300) + "`").join(", ") + ". What they changed may be in your folder.)";
 
 /**
  * THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's computer preview, dots'
@@ -2465,6 +2467,19 @@ async function gloopyTakeOver(g) {
     const out = r ? await r.json().catch(() => null) : null;
     return out ? json({ ...out, ok: r.ok && out.ok !== false }, r.ok ? 200 : r.status) : json({ error: "Gloopy's computer could not be reached." }, 502);
   }
+  // A COMMAND IN GLOOPY'S TERMINAL (owner, 2026-11-12: "yes build all four"; Grok Bot's computer has a terminal), while
+  // you have control: run on Gloopy's computer as its own commands are, and kept so Gloopy is told at its next message.
+  if (typeof body.command === "string") {
+    if (meta.status === "running") return json({ error: "Gloopy is working. Stop it first." }, 409);
+    const command = body.command.trim().slice(0, 2000);
+    if (!command) return json({ error: "Type a command." }, 400);
+    let r = null;
+    try { r = await post("/gloopy/run", { project: id, command }); } catch { r = null; }
+    const out = r ? await r.json().catch(() => null) : null;
+    if (!out) return json({ error: "Gloopy's computer could not be reached." }, 502);
+    if (r.ok && !out.error) await saveMeta(bucket, uid, { ...meta, used: true, ran: [...(Array.isArray(meta.ran) ? meta.ran : []), command.slice(0, 300)].slice(-20) });
+    return json({ ok: r.ok && !out.error, ...out }, r.ok ? 200 : r.status);
+  }
   // TEACH A TASK (Grok Bot's), while you have control.
   if (typeof body.teach === "boolean") {
     let r = null;
@@ -2475,7 +2490,7 @@ async function gloopyTakeOver(g) {
   if ((body.take === true || input) && meta.status === "running") return json({ error: "Gloopy is working in its browser. Stop it first, then take over." }, 409);
   // Only what each kind needs (a number left out stays out, so the machine refuses a click with no point).
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : undefined);
-  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}), ...(typeof input.url === "string" ? { url: input.url.slice(0, 4000) } : {}), ...(input.kind === "file" && typeof input.name === "string" && typeof input.data === "string" ? { name: input.name.slice(0, 120), data: input.data.slice(0, 7_100_000) } : {}) } : { project: id, take: body.take === true, ...(body.take === true ? { route: (await readOptions(bucket, uid)).route, ...takeZone(body, meta) } : {}) };
+  const ask = input ? { project: id, kind: String(input.kind || "").slice(0, 10), x: num(input.x), y: num(input.y), dy: num(input.dy), ...(typeof input.text === "string" ? { text: input.text.slice(0, 1000) } : {}), ...(typeof input.key === "string" ? { key: input.key.slice(0, 40) } : {}), ...(typeof input.url === "string" ? { url: input.url.slice(0, 4000) } : {}), ...(Number.isInteger(input.id) && input.id > 0 ? { id: input.id } : {}), ...(input.kind === "file" && typeof input.name === "string" && typeof input.data === "string" ? { name: input.name.slice(0, 120), data: input.data.slice(0, 7_100_000) } : {}) } : { project: id, take: body.take === true, ...(body.take === true ? { route: (await readOptions(bucket, uid)).route, ...takeZone(body, meta) } : {}) };
   let r = null;
   try { r = await post(input ? "/gloopy/input" : "/gloopy/control", ask); } catch { r = null; }
   const out = r ? await r.json().catch(() => null) : null;

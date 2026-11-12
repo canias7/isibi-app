@@ -40,6 +40,8 @@ export { globMatch };
 import { normNetwork, okPattern } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
+/** The owner's own command in Gloopy's terminal (2026-11-12) is ended after this many seconds. */
+export const TERM_S = 60;
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
 export const TOOL_OUTPUT_MAX = 8 * 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
@@ -2328,7 +2330,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER, and the owner taking over (2026-11-09): only on a machine with a browser
       // (the full image); a look never starts the browser; the owner's clicks and typing only while they have control and
       // Gloopy is not working.
-      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
+      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach", "/gloopy/run"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
       const working = !!(t && t.running);
       // Asked for a stream (the Worker then asks without the "still working" signal): the pictures as they come.
       if (url.pathname === "/gloopy/screen" && req.method === "GET" && url.searchParams.get("stream") === "1" && !keep) return screenStream(res, url, project);
@@ -2368,6 +2370,21 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (working) { ownerControl = null; return send(409, { error: "Gloopy is working in its browser." }); }
         try { return send(200, { ...(await browserHub().input(body)), control: true, working: false }); }
         catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 700), control: true }); }
+      }
+      // A COMMAND OF THE OWNER'S, in Gloopy's terminal while they have control (owner, 2026-11-12: "yes build all four";
+      // Grok Bot's computer has a terminal): run as Gloopy's own commands are (its unprivileged user, in Gloopy's folder,
+      // its home), ended after TERM_S seconds; the end of its output, as a terminal shows it. Kept for Gloopy to be told.
+      if (url.pathname === "/gloopy/run" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        if (working) return send(409, { error: "Gloopy is working. Stop it first." });
+        const project = String(body.project || "");
+        const command = typeof body.command === "string" ? body.command.trim() : "";
+        if (!PROJECT_ID.test(project) || !command || command.length > 2000) return send(400, { error: "a command of up to 2000 characters" });
+        const dir = join(root, project);
+        if (!existsSync(dir)) return send(409, { error: "Gloopy's folder isn't on this computer yet: send Gloopy a message first." });
+        const r = await execIn(dir, command, TERM_S, { kill: true, home, bgDir: join(bgRoot, project), outMax: 200_000 });
+        ownerControl.ran = [...(ownerControl.ran || []), command.slice(0, 300)].slice(-20);
+        return send(200, { code: r.code, output: String(r.output || "").slice(-20_000), ...(r.timedOut ? { timedOut: true } : {}), control: true });
       }
       if (url.pathname === "/gloopy/signin" && req.method === "POST") {
         const project = String(body.project || ""), p = pending.get(project);
