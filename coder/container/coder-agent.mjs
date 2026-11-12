@@ -580,6 +580,9 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
   return text;
 }
 
+/** Gloopy's lines as it works (2026-11-12): one in the chat at most this often; the others in the status line only. */
+export const SAY_EVERY_MS = 20_000;
+
 export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
@@ -783,6 +786,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // THE RESULT, SHOWN (owner, 2026-11-12: "yes build all four"; Grok Bot attaches screenshots of the result to its
   // answer): the last picture of each page Gloopy's browser was on this turn, in order; the answer carries the last two.
   const turnShots = [];
+  let lastShown = 0;
   // A SETUP SCRIPT THAT FAILED before this job (live test, 2026-11-06: Coder
   // was told in its instructions, yet answered as if nothing had happened).
   // Like the installs above, it is reminded once, before it finishes, to say
@@ -871,7 +875,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       continue;
     }
     if (!calls.length) { emit({ type: "done", text: scrub(said), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
-    if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
+    // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one
+    // in the chat at most every SAY_EVERY_MS; the others only in the status line under the chat (`quiet`).
+    if (said) { const quiet = who === "Gloopy" && lastShown > 0 && now() - lastShown < SAY_EVERY_MS; emit({ type: "text", text: scrub(said), ...(quiet ? { quiet: true } : {}) }); if (!quiet) lastShown = now(); lastSaid = scrub(said).slice(0, 4000); }
 
     for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
     // THE PICTURES THIS ROUND'S READS OPENED (owner item 1): a tool answers in text only (xAI's docs), so

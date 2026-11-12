@@ -6149,6 +6149,16 @@ test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all
   assert.deepEqual(events.filter((e) => e.type === "text").map((e) => e.text), ["On it, opening the shop now."], "its line as it starts, in the chat");
   const done = events.find((e) => e.type === "done");
   assert.deepEqual([done.text, done.shots], ["It's in your cart.", ["data:image/jpeg;base64,T2", "data:image/jpeg;base64,T3"]], "the shop as last seen, then the cart");
+  // (Live test, 2026-11-12: a line on almost every click.) One line in the chat at most every 20 seconds; the ones said
+  // sooner show only in the status line (quiet), and the chat leaves them out.
+  const { SAY_EVERY_MS } = await import("../container/coder-agent.mjs");
+  assert.equal(SAY_EVERY_MS, 20000);
+  let clock = 1000;
+  const slow = { act: async () => { clock += 12000; return { text: "Did: a step\nPage: Shop\nAddress: " + pages.a + "\n\n- button \"Buy\" [ref=e2]", shot: "AAAA", thumb: "data:image/jpeg;base64,S" }; }, describe: async () => ({ site: "shop.example", url: pages.a }) };
+  const lines = [];
+  const l = scripted([say("On it.", [call("browser", { action: "open", url: "shop.example" }, "s1")]), say("Step two.", [call("browser", { action: "look" }, "s2")]), say("Step three.", [call("browser", { action: "look" }, "s3")]), say("Done.")]);
+  await runCoder({ send: l.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => lines.push(e), browser: slow, now: () => clock }, { text: "go", ...GLOOPY });
+  assert.deepEqual(lines.filter((e) => e.type === "text").map((e) => [e.text, !!e.quiet]), [["On it.", false], ["Step two.", true], ["Step three.", false]]);
   // A turn without the browser, and Coder: no pictures.
   const quiet = []; const q = scripted([say("Hello.")]);
   await runCoder({ send: q.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => quiet.push(e), browser }, { text: "hi", ...GLOOPY });
@@ -6163,6 +6173,8 @@ test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all
   assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));"));
   assert.match(ui, /e\.shots\.filter\(\(u\) => typeof u === 'string' && u\.length <= 60000 && \/\^data:image\\\/jpeg;base64,\[A-Za-z0-9\+\/\]\+=\*\$\/\.test\(u\)\)\.slice\(0, 2\)/, "only the machine's own small JPEGs, two at most");
   assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.events"));
+  assert.ok(ui.includes("      if (e.type === 'text' && e.quiet === true) return;\n      flush();"), "a quiet line is left out of the chat");
+  assert.match(GLOOPY_SYSTEM, /Its card shows your browser live, so a QR code can be scanned right from it: hand it off rather than telling the\n  owner to look at your browser\./);
   assert.match(css, /\.cd-result-pics img \{[^}]*width: min\(320px, 100%\)/);
   assert.match(css, /\.cd-status-t \{[^}]*text-overflow: ellipsis/);
   // The status line's words, run as the page runs them.
