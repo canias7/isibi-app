@@ -6715,6 +6715,7 @@ test("GL130 (2026-11-12) on the page: the sign-in card offers each saved login w
   assert.ok(ui.includes("// The password leaves the box as it is sent: it is never kept in this page's state.\n        if (box2) box2.value = '';"));
   assert.ok(ui.includes("// The export's passwords leave this page's memory.\n        st.vault.imp = null;"));
   assert.match(css, /\.cd-gset button\.cd-vault-newbtn\{[^}]*background:#1f1e1d;color:#fff;border-radius:999px/);
+  assert.match(css, /\n\.cd-vault-item\{display:flex;align-items:center;gap:10px;/, "each login one row (found live: they stacked)");
   // An export, read here: each app's layout.
   const part = (from, to) => ui.slice(ui.indexOf(from), ui.indexOf(to, ui.indexOf(from)));
   const loginsFromCsv = new Function(part("  function csvRows(", "  function loginsFromCsv(") + part("  function loginsFromCsv(", "  function hoScreen(") + "return loginsFromCsv;")();

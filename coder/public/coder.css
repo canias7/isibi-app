@@ -696,7 +696,7 @@
   .cd-gset{max-width:none;border-radius:16px 16px 0 0;max-height:92vh}
   .cd-gset-row{flex-direction:column;align-items:stretch;gap:8px}
   .cd-gset-seg{align-self:flex-start}
-  .cd-gset-item{flex-wrap:wrap}
+  .cd-gset-item,.cd-vault-item{flex-wrap:wrap}
 }
 .cd-gset-switch{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.45;color:#4b4a46;cursor:pointer;margin-bottom:12px}
 .cd-gset-switch input{margin-top:3px;width:16px;height:16px;flex:none;accent-color:#1f1e1d}
@@ -763,7 +763,8 @@
 .cd-vault-tab i{font-style:normal;color:#8a857d;font-weight:500}
 .cd-vault-q{margin-left:auto;width:min(220px,50%);box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #e3e0d9;border-radius:999px;padding:7px 12px 7px 32px;color:#1f1e1d;background:#faf9f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a857d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px 50%}
 .cd-vault-q:focus{outline:none;border-color:#1f1e1d;background-color:#fff}
-.cd-vault-list .cd-vault-item{align-items:flex-start}
+/* Each login one row: its key, its names, Edit and Remove (found live, 2026-11-12: without it they stacked). */
+.cd-vault-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f4f2ee}
 .cd-vault-ic{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:#f1efea;color:#4b4a46}
 .cd-vault-hint{font-style:italic}
 .cd-vault-made{color:#0f766e}
