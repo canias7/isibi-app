@@ -1560,7 +1560,10 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
 - *SessionEnd hooks when the machine stops* run outside the job's admin sandbox
   once it has closed (`boxAtEnd`): as the AI's user, in the room, as commands
   ran before the sandbox. A sandbox a background command keeps is still used
-  (CD540).
+  (CD540). Each stop leaves a record (`noteSessionEnd`): when it began, with the
+  stop signal, then what each hook did, the newest 20 lines in
+  `.session-end.log` in root's own git folder (`/data/git` on Fly.io), which the
+  AI's commands may read and never write (CD543, CD384c).
 - *`@coder` on a pull request whose chat was deleted* drops the stale branch
   record and opens a new chat on the pull request's branch, as for anyone
   else's pull request; deleting a chat drops its own branch records

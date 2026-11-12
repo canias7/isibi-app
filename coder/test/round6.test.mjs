@@ -103,6 +103,16 @@ test("CD540 SessionEnd hooks run when the machine stops though the job's sandbox
   assert.match(server, /room: t\.room, box: t\.box, onStart, prefix: tool \? "" :/, "the exec reads t.box when called");
 });
 
+test("CD543 a record of each stop's SessionEnd hooks, in root's own git folder (live: the hook's file was never written, and the machine's own log is not kept): when it began, with the stop signal, then what each hook did; the newest 20", async () => {
+  const gitRoot = await mkdtemp(join(tmpdir(), "coder-git6r-"));
+  for (let i = 1; i <= 25; i++) assert.equal(await S.noteSessionEnd(gitRoot, { n: i }), true);
+  const recs = (await readFile(join(gitRoot, ".session-end.log"), "utf8")).trim().split("\n").map((l) => JSON.parse(l));
+  assert.deepEqual([recs.length, recs[0].n, recs.at(-1).n], [20, 6, 25]);
+  assert.equal(await S.noteSessionEnd("", { n: 1 }), false, "nowhere to write");
+  // The stop signal's name goes with it.
+  assert.match(read("container/server.mjs"), /app\.sessionEnd\("other", \{ signal: sig \}\)/);
+});
+
 // ── `@coder` ON A PULL REQUEST WHOSE CHAT WAS DELETED ─────────────────────────────────────────────────────────────────────
 const M = await import("../src/coder-mentions.mjs");
 const R = await import("../src/coder-routes.mjs");

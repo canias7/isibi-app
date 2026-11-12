@@ -333,6 +333,11 @@ test("CD384c on a real machine: CLAUDE_ENV_FILE carries a SessionStart hook's va
     assert.equal(await app.sessionEnd("other"), 1);
     const endIn = JSON.parse(readFileSync(join(roots.root, project, "ended.json"), "utf8"));
     assert.deepEqual([endIn.hook_event_name, endIn.reason, endIn.session_id], ["SessionEnd", "other", project]);
+    // (Round 6: a record of each stop and of what each hook did, in root's own git folder, noteSessionEnd.)
+    const recs = readFileSync(join(roots.gitRoot, ".session-end.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
+    assert.deepEqual(recs.map((r) => r.hooks), [0, 1, undefined]);
+    assert.deepEqual([recs[0].chats, recs[1].chats, recs[1].reason], [[], [project], "other"]);
+    assert.deepEqual([recs[2].said.length, recs[2].said[0].chat, recs[2].said[0].code, recs[2].said[0].hook], [1, project, 0, "cat > \"$CLAUDE_PROJECT_DIR/ended.json\""]);
   } finally { srv.close(); hookSrv.close(); hookSrv.closeAllConnections?.(); }
 });
 
