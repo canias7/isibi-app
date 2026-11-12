@@ -33,6 +33,10 @@ log (81,000 lines) is in git history.
 
 Test GL136 (in a real browser: a page claiming to be another site; a plain http page refused a saved login, but taking what you type on the card).
 
+**Tried live on test.gofarther.dev after deploying:** with the practice login saved in Gloopy's Vault, "Sign in to http://the-internet.herokuapp.com/login" brought the card with the red "This page isn't secure" warning. The saved login wasn't typed, and the card didn't offer it. Then on https, Gloopy signed in by itself with the saved login ("You logged into a secure area!"). Afterwards I removed the login and signed Gloopy out; every setting is Always allow, with no rules or sites.
+
+**Note:** a deploy of `main` (run 156, started 14:54 from your account by someone else, maybe another session) was running at the same time. It deploys the main site and rebuilds Gloopy's computer from `main`. My check ran before that rebuild finished. If the test copy shares that computer's image, it may now run `main`'s older sign-in code until the branch is deployed again.
+
 ## 2026-11-12: Signing in, the rest tested live, and what it found fixed (your words: "test everything")
 
 **Tried live on test.gofarther.dev, with Grok, and recorded:**
