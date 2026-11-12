@@ -15,6 +15,10 @@ log (81,000 lines) is in git history.
 
 - **Hover.** Gloopy's browser has a new step: hover, which puts the mouse over something without clicking it. It shows what appears only then, such as a menu, a tooltip or a picture's name. Before, Gloopy clicked pictures to read their hover names, and the safety check once asked you first, because you had said hover, not click. Hovering changes nothing on a site, so like scrolling it isn't checked first. The live view marks where Gloopy hovered, and its helpers can hover too. Test GL124; GL10 and GL85 updated.
 - **The live view makes way for the card.** If the big live view is open when Gloopy hands you a step, it now closes by itself, and the hand-off card shows the browser live with Skip / I'm done / Take over, scrolled into view. On a short window the view used to cover those buttons, and on a phone it hid the chat with the card in it. It happens once per hand-off: open the view again and it stays. It never closes while you have control or are marking a part. Once you've answered, the view you had open comes back. Test GL125.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - Asked for the names shown when hovering over each picture on the practice hovers page, Gloopy said it would "check each picture without clicking". It hovered over all three (user1, user2, user3), with no card. The live view marked each picture as it went: "Gloopy: Hovered over “User Avatar”".
+  - With the live view open, Gloopy handed over WhatsApp Web's QR code. The view closed by itself, and the card showed the code live with all three buttons in view. After "I'm done", the view came back by itself.
+  - On the next hand-off, reopening the view with the Browser button kept it open. Closing it again brought the card's live picture back, and Skip worked.
 
 ## 2026-11-12: Grok Bot's four ideas, built into Gloopy (your words: "yes build all four")
 
