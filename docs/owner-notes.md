@@ -11,6 +11,42 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Grok Bot's browser tool, tried hands-on next to Gloopy's (your words: "just test the whole browser tool and see the differences")
+
+**How:** Grok Bot's Linux app ran on my cloud machine. You finished its sign-in on your own computer. I made a test Bot, "Browser test (Claude)", used practice sites only, and signed the app out at the end. Recorded. Your Grok Bot trial read 60% used partway through and 65% at the end.
+
+**The same in both:**
+- Filling and sending a practice order form; reading pages that load late or change on hover.
+- Signing in with a private form that the AI never sees. Grok Bot's form ticks "save to vault" by default; I unticked it.
+- Handing a QR code to you (WhatsApp Web).
+- Ignoring hidden orders on a page and telling you about them.
+- A screenshot's time given in your time zone with UTC.
+- Downloads arriving in the chat with a Save button.
+- After a take-over, seeing what you did.
+
+**Better in Gloopy:**
+- **Routing through your computer.** Grok Bot turned it on by default for the app on my machine, so its browser broke on secure pages here. Its Bot then told me to turn routing *on*, when it already was. Gloopy's is off until you turn it on, and Gloopy is told when routing is the likely cause.
+- **"Are you sure?" pop-ups.** Grok Bot pressed OK by itself. Gloopy answers Cancel unless it meant to say yes.
+- **Sending forms.** Grok Bot sent the form without asking. Gloopy asks on a card unless you've allowed it.
+- **Uploads.** The site got Grok Bot's file under an internal name (a long code), not "upload-test.txt". Gloopy keeps real names.
+- **Saved logins.** Grok Bot's Vault says it "can see logins". Gloopy's computer fills saved passwords without the AI seeing them.
+- **Where it's signed in.** Grok Bot has no list of signed-in sites; Gloopy's is in Settings → Browser, with Sign out.
+- **Live view extras.** Gloopy's live view works on the website with no app, and has Mark a part and Teach Gloopy.
+- **Tidy tabs.** Grok Bot left five tabs open (WhatsApp among them); Gloopy works in one tab.
+
+**Better in Grok Bot (ideas for Gloopy, only with your word):**
+- **Its live view is the whole computer:** a real Chrome with tabs and an address bar, plus a terminal. It double-checked a site from the terminal.
+- **Its hand-off card has the live screen inside it**, with Skip / I'm done / Take over. Gloopy's card opens the live view instead.
+- **Its computer starts in seconds.** It slept within a minute of each task, and tasks still began at once. Gloopy's takes about 80 seconds from cold.
+- **It narrates as it works** ("On it…", "The form's being filled in…") with a status line under the chat, and it attaches screenshots of the result.
+
+**Left in your Grok Bot account:**
+- The test Bot "Browser test (Claude)", with its chat.
+- Five tabs open on the Bots' shared computer.
+- "Route traffic through this computer" switched off for the device "vm" (my machine; it's off since I signed out anyway).
+
+Nothing changed on your other Bots. Settings were only looked at, apart from that switch.
+
 ## 2026-11-11: Finishing the browser from the docs (your words: "Lets finish the browser" and "Yes do that")
 
 **The check:** I re-read both apps' docs: Grok Bot's 26 pages, Cursor's copy and help center, and dots' docs and security pages. Since the check the morning before, they had changed only wording, nothing about the browser. OpenAI's two help-center articles about the cloud browser block automated readers, so dots was checked from its docs site. What was left for the browser: the two small things below, then sending the browser's traffic through your own computer.
