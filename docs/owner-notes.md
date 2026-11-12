@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The full-disk and memory fixes, live (your words: "yes merge and deploy, then retest")
+
+Merged and deployed (deploy 156). No video. One fresh throwaway chat, filled to its 50 GB limit (5 MB left):
+- **Your own `!` write that didn't fit:** the note now comes first: "Disk full: this computer's volume holding … (Coder's folder for command output) has 0 MB free, so this command's output may be cut short …", then what the command printed.
+- **Grok's write that didn't fit:** "Exit code 1", the same note, then the output, the way Claude Code lays it out.
+- **`echo hello` on the full disk:** ran and printed "hello" (before the fix it was refused).
+- **Freeing the space with a command:** `rm` of the fill files ran, and the disk went back to 47 GB free. This is what was blocked before.
+- **A background command** (`sleep 10; echo bg-done`) finished normally with the new half-second memory check running.
+
+The chat and its disk are deleted. Cost: about 13 cents of Grok.
+
 ## 2026-11-12: A full disk and low memory, tried live and side by side with Claude Code (your words: "yes do the disk and memory test", "remember to run claude code to compare and fix")
 
 No video. Two throwaway chats on canias7/testingforclaude.
