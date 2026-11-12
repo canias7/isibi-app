@@ -23,7 +23,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
-import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync } from "node:fs";
+import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName } from "./coder-agent.mjs";
@@ -1101,19 +1101,40 @@ export function savePrinted(text, outDir) {
 }
 /** How many saved outputs a chat keeps (the oldest go first). */
 export const OUT_FILES_KEEP = 100;
-export const FREE_SPACE = "Free space on that volume (delete build output, caches or files you made that are no longer needed), then retry. Never delete the owner's own files to make room without asking them.";
-/** The first of these folders whose volume has under `mb` MB free, or under 1,000 free inodes: `{ dir, mb }` or `{ dir, inodes }`; null when none. */
-export function diskFull(dirs, mb, { statfs = statfsSync } = {}) {
-  for (const d of dirs) {
-    if (typeof d !== "string" || !d) continue;
-    try {
-      const f = statfs(d, { bigint: true });
-      if (!(f.blocks > 0n)) continue;
-      const free = f.bavail * f.bsize / (1024n * 1024n);
-      if (free < BigInt(mb)) return { dir: d, mb: Number(free) };
-      if (f.files > 0n && f.ffree < 1000n) return { dir: d, inodes: Number(f.ffree) };
-    } catch { /* not there */ }
-  }
+// (Claude Code 2.1.322's own words, without "or restart Claude Code with CLAUDE_CODE_TMPDIR set to a directory on another
+// one", which Coder has no setting for, and with the owner for its user.)
+export const FREE_SPACE = "Free space on that volume, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
+/** A small file written beside the output folder and removed: its error's code ("ENOSPC", "EDQUOT"), or "" when it could be written. */
+export function probeWrite(dirPath) {
+  const f = join(dirPath, ".coder-space-" + randomBytes(4).toString("hex"));
+  try { writeFileSync(f, "x", { flag: "wx" }); } catch (e) { return String((e && e.code) || "error"); }
+  try { unlinkSync(f); } catch { /* gone */ }
+  return "";
+}
+/**
+ * A FULL DISK, AFTER A COMMAND THAT FAILED (Claude Code 2.1.322, read in its code and tried on a full 8 MB disk side by side,
+ * 2026-11-12; the owner: "remember to run claude code to compare and fix"): only the volume of Coder's folder for command
+ * output is looked at, as Claude Code looks only at its temporary directory (where it captures command output): under 10 MB
+ * free, or under 1,000 free inodes. When that look can't be made, or the command printed nothing, a test write beside the
+ * folder says whether it is full (ENOSPC) or the quota used up (EDQUOT). `lost`: the command printed nothing ("whatever this
+ * command printed was lost"). The note, or null.
+ */
+export function diskNoteAfter(outDir, lost, { statfs = statfsSync, probe = probeWrite } = {}) {
+  const where = outDir + " (Coder's folder for command output)";
+  const said = lost ? "whatever this command printed was lost" : "this command's output may be cut short";
+  const so = "so " + said + " and its own writes may have failed with \"No space left on device\".";
+  let looked = false;
+  try {
+    const f = statfs(outDir, { bigint: true });
+    const free = f.bavail * f.bsize / (1024n * 1024n);
+    looked = free >= 0n && f.blocks > 0n;
+    if (looked && free < 10n) return "Disk full: this computer's volume holding " + where + " has " + free + " MB free, " + so + " " + FREE_SPACE;
+    if (looked && f.files > 0n && f.ffree < 1000n) return "Nearly out of inodes: this computer's volume holding " + where + " has " + f.ffree + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE;
+  } catch { /* the test write says */ }
+  if (looked && !lost) return null;
+  const code = probe(outDir);
+  if (code === "EDQUOT") return "Disk quota used up: a test write beside this command's output file, on the volume holding " + where + ", failed with EDQUOT, so " + said + " and its own writes may have failed with \"Disk quota exceeded\". Delete files there that are no longer needed, then retry. If this is the owner's own computer, tell them before deleting anything to make room.";
+  if (code === "ENOSPC") return "Disk full: a test write beside this command's output file, on the volume holding " + where + ", failed with ENOSPC (the volume, or the user's quota on it, has no space left), " + so + " " + FREE_SPACE;
   return null;
 }
 /** Only the newest `n` files of a folder are kept. */
@@ -3459,9 +3480,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
         exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
-          // A FULL DISK BEFORE IT STARTS (Claude Code: "The command was not started: this computer's disk is full (ENOSPC) on
-          // the volume holding … so the file that captures command output could not be created there and nothing ran").
-          if (!tool) { const full = diskFull([outDir], 1); if (full) return { code: -1, notStarted: true, output: "The command was not started: this computer's disk is full (ENOSPC) on the volume holding " + full.dir + " (Coder's folder for command output), so the file that captures command output could not be created there and nothing ran. " + FREE_SPACE }; }
+          // A FULL DISK DOES NOT STOP A COMMAND FROM STARTING (Claude Code 2.1.322 says "The command was not started: …" only
+          // when its output file can't be created; side by side on a full disk, 2026-11-12, it ran `echo hello` and said the
+          // output was lost). Coder needs no file to start one (it keeps the output itself, and writes a file only past 30,000
+          // characters), so a command that frees space can still run: diskNoteAfter says the rest.
           // A big tool request is written to a new file in this project's own folder (never through a link), then read by the tool.
           if (typeof payload === "string" && command.includes("@REQUEST")) {
             // (The folder is made again when it is gone: a job's end removes it when no background command keeps it (tidyBg), and
@@ -3536,12 +3558,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             if (typeof r.file === "string" && r.file && !r.truncatedAt) whole = await readFile(r.file, "utf8").catch(() => whole);
             Object.assign(r, savePrinted(whole, outDir));
           }
-          // A FULL DISK AFTER IT RAN (Claude Code: "Disk full: this computer's volume holding … has N MB free, so this
-          // command's output may be cut short and its own writes may have failed with "No space left on device""): the
-          // project's folder, the AI's home and the output folder, when the command failed or said so.
-          if (!tool && r && (r.code !== 0 || /No space left on device|Disk quota exceeded/.test(String(r.output || "")))) {
-            const full = diskFull([t.cwd || dir, home || dir, outDir], 10);
-            if (full) r.diskNote = full.inodes ? "Nearly out of inodes: this computer's volume holding " + full.dir + " has " + full.inodes + " free inodes, so creating files there may fail and the command may have failed for that reason. " + FREE_SPACE : "Disk full: this computer's volume holding " + full.dir + " has " + full.mb + " MB free, so this command's output may be cut short and its own writes may have failed with \"No space left on device\". " + FREE_SPACE;
+          // A FULL DISK AFTER IT RAN: as Claude Code, only after a command that failed (not one stopped at its time limit), and
+          // only about the volume of Coder's folder for command output (diskNoteAfter); the note goes before its output.
+          if (!tool && r && !r.background && r.code !== 0 && !r.timedOut) {
+            const note = diskNoteAfter(outDir, !String(r.output || "").trim());
+            if (note) r.diskNote = note;
           }
           if (leader) t.fg.delete(leader);
           t.movable = null; t.progress = null;

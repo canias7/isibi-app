@@ -582,7 +582,12 @@ export const BG_SIZE_NOTE = "Command killed: output file exceeded 5GB (exit code
  * What Coder is told with one stopped because the machine ran critically low on memory while the chat was idle (Claude Code
  * 2.1.321's words, with Coder's names).
  */
-export const BG_MEMORY_NOTE = "This is not a failure of the command. Coder's machine stopped it because the system was critically low on memory while the chat was idle, which says nothing about the command or its own memory use, so there is nothing in it to debug. Do not start it again on your own, even if the work seems to need it: memory may still be short. Report what was stopped and why, and start it again only when asked. The owner can turn this behavior off with CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables; setting it from a shell command has no effect.";
+/**
+ * THE MACHINE'S FULL-DISK NOTE GOES BEFORE THE OUTPUT (Claude Code 2.1.322: the output, when there is any, after it and a blank
+ * line; seen side by side on a full disk, 2026-11-12), for Coder's commands and the owner's own (!) alike.
+ */
+export const withDiskNote = (out, r) => (r && typeof r.diskNote === "string" && r.diskNote ? (String(out).trim() ? r.diskNote + "\n\n" + out : r.diskNote) : out);
+export const BG_MEMORY_NOTE ="This is not a failure of the command. Coder's machine stopped it because the system was critically low on memory while the chat was idle, which says nothing about the command or its own memory use, so there is nothing in it to debug. Do not start it again on your own, even if the work seems to need it: memory may still be short. Report what was stopped and why, and start it again only when asked. The owner can turn this behavior off with CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables; setting it from a shell command has no effect.";
 /** Claude Code's answer for a call the owner stopped while it ran: its rejection, then its correction (2.1.322). */
 export const STOPPED_RUNNING = REJECTED + " Correction to the text above: this call was stopped while running, not refused before it ran. It may have run in part or in full, and its changes may have been written. No permission prompt was involved. Work it started elsewhere (a remote command, a background process) may still be running, so check before starting the same work again. The instruction to stop and wait still stands.";
 /** The same, with this chat's longest timeout in the background. */
@@ -1975,7 +1980,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A cd in it moves the chat's folder, as Coder's own do: CwdChanged hooks run for it too, as Claude Code's do.)
     if (!bg) await cwdMoved(ownWhere0);
     const said = !bg ? "" : (r.byUser ? "Command was manually backgrounded by user with ID: " + (typeof r.jobId === "string" ? r.jobId : "?") : "Command did not complete within its " + ownS + "s timeout and was moved to the background (ID: " + (typeof r.jobId === "string" ? r.jobId : "?") + ")") + ". Output is being written to: " + r.log + ". You will be notified when it completes.";
-    const printed = scrub(noCwdMarks(String((r && r.output) || "")));
+    const printed = withDiskNote(scrub(noCwdMarks(String((r && r.output) || ""))), r);
     // CODER ANSWERS IT (Claude Code: "Claude responds to the command output automatically"), unless the environment's
     // CODER_RESPOND_TO_BASH_COMMANDS is false (Claude Code's respondToBashCommands: "add the output to context without a
     // reply"), or it was moved to the background, or the owner stopped it (Claude Code answers then neither): then only its note.
@@ -2710,14 +2715,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               text = "The command printed a picture (" + String(r.pictureType || "image") + "): it is attached right after these results.";
             }
           }
-          if (!text) text = bashResultText({ output: noCwdMarks(String((r && r.output) || "")), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: r && Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0, ...(c.ps ? { tool: "PowerShell" } : {}) });
+          if (!text) text = bashResultText({ output: withDiskNote(noCwdMarks(String((r && r.output) || "")), r), isError, code, size: r && Number.isFinite(r.size) ? r.size : null, file: r && typeof r.file === "string" ? r.file : "", inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: r && Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0, ...(c.ps ? { tool: "PowerShell" } : {}) });
           // A MONITOR WHOSE COMMAND ENDED IN ITS FIRST SECOND: what it printed comes back here, at once, and no events follow.
           if (c.monitor) text = "Monitor \"" + (desc || "monitor") + "\" ended at once: its command exited with code " + code + " in its first second, so no events follow." + (String((r && r.output) || "").trim() ? " What it printed:\n" + text : " It printed nothing.");
         }
         // The folder's note goes after the output; alone when the command printed nothing (Claude Code, tried: a `cd /tmp`
         // answers only "Shell cwd was reset to /home/user").
         if (cwdSaid) text = /^\((Bash|PowerShell) completed with no output\)$/.test(text) ? cwdSaid : text + "\n" + cwdSaid;
-        if (r && typeof r.diskNote === "string" && r.diskNote) text += "\n\n" + r.diskNote;
         if (!bg && ghRateLimited(command, r && r.output)) text += "\n\n(Note from Coder's app: " + GH_RATE_HINT + ")";
         if (r && typeof r.netNote === "string" && r.netNote) text += "\n\n" + r.netNote;
         // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its

@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: A full disk and low memory, tried live and side by side with Claude Code (your words: "yes do the disk and memory test", "remember to run claude code to compare and fix")
+
+No video. Two throwaway chats on canias7/testingforclaude.
+
+**A full disk.**
+- **Live on gofarther.dev:** Fly.io grows a chat's disk by 10 GB whenever it is 80% full, up to 50 GB, so a disk is only really full at 50 GB. I filled one to that limit (instant: nothing is written). A 20 MB write then failed, and Coder said "Disk full: … has 0 MB free …". But Coder then refused to run even `echo hello`.
+- **Claude Code (its command-line version, Haiku),** with its project and temp folder on one full 8 MB disk (its cloud machine has one disk too), still ran `echo hello` and said what it printed was lost. So in Claude Code a command that frees space, like deleting a file, still runs on a full disk. In Coder it was blocked.
+- **Fixed, on the branch (not live yet),** with Claude Code 2.1.322's own rules, read in its code: a full disk never stops a command from starting. The note comes only after a command that failed, only about the disk of Coder's output folder, and before the command's output. It says "whatever this command printed was lost" when it printed nothing. Your own `!` commands get it too. Claude Code's advice wording, without its setting Coder doesn't have.
+- **Checks:** new tests CD546 and CD547; the full suite on my side: 581 of 581 pass. The Claude Code side cost about a quarter of a cent.
+
 ## 2026-11-12: The hook at machine sleep is told the mode the same way (your words: "yes fix it, then merge and deploy")
 
 Hooks are told which mode the chat is in. During a message, Accept edits is given as "default", as in Claude Code's cloud. The SessionEnd hook that runs when the machine goes to sleep was given "acceptEdits". Now both use the same rule, so both say "default". If the repository's own settings start chats in Accept edits, both say "acceptEdits", as before.
