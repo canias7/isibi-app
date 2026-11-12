@@ -237,10 +237,19 @@ async function toolPsParse({ command = "", timeoutMs = 0 } = {}) {
   return JSON.stringify(last);
 }
 
-/** A PNG's or JPEG's width and height, from its first bytes (null for anything else). */
+/** A PNG's, JPEG's, GIF's or WebP's width and height, from its first bytes (null for anything else). */
 export function picSize(b) {
   if (!Buffer.isBuffer(b) || b.length < 24) return null;
   if (b.readUInt32BE(0) === 0x89504e47) return { w: b.readUInt32BE(16), h: b.readUInt32BE(20) };
+  // (A GIF and a WebP, round 5's fix: the owner may attach those too.)
+  if (b.toString("latin1", 0, 6) === "GIF87a" || b.toString("latin1", 0, 6) === "GIF89a") return { w: b.readUInt16LE(6), h: b.readUInt16LE(8) };
+  if (b.toString("latin1", 0, 4) === "RIFF" && b.toString("latin1", 8, 12) === "WEBP" && b.length >= 30) {
+    const chunk = b.toString("latin1", 12, 16);
+    if (chunk === "VP8 " && b[23] === 0x9d && b[24] === 0x01 && b[25] === 0x2a) return { w: b.readUInt16LE(26) & 0x3fff, h: b.readUInt16LE(28) & 0x3fff };
+    if (chunk === "VP8L" && b[20] === 0x2f) { const bits = b.readUInt32LE(21); return { w: (bits & 0x3fff) + 1, h: ((bits >>> 14) & 0x3fff) + 1 }; }
+    if (chunk === "VP8X") return { w: 1 + (b[24] | (b[25] << 8) | (b[26] << 16)), h: 1 + (b[27] | (b[28] << 8) | (b[29] << 16)) };
+    return null;
+  }
   if (b[0] !== 0xff || b[1] !== 0xd8) return null;
   for (let i = 2; i + 9 < b.length; ) {
     if (b[i] !== 0xff) { i++; continue; }
@@ -253,22 +262,50 @@ export function picSize(b) {
 }
 
 /**
+ * GROK'S SMALLEST PICTURE (round 5 of the live test, 2026-11-12: xAI refuses a picture under 8 pixels a side, "Image
+ * dimensions 1x1 are too small. Both width and height must be at least 8 pixels.", or under 512 pixels in all, "Image has
+ * 64 total pixels (8x8), which is below the minimum of 512 pixels.", and the whole turn ended, "The AI could not be
+ * reached"). For a smaller one, how to make it fit: each pixel made a block `scale` wide (nothing blurred), then a white
+ * margin up to `w`×`h` where a side is still short; null when it fits as it is.
+ */
+export const PIC_MIN_SIDE = 8, PIC_MIN_PIXELS = 512;
+export function picMinFit(w, h) {
+  if (!(w > 0 && h > 0) || (w >= PIC_MIN_SIDE && h >= PIC_MIN_SIDE && w * h >= PIC_MIN_PIXELS)) return null;
+  let scale = Math.max(Math.ceil(PIC_MIN_SIDE / Math.min(w, h)), Math.ceil(Math.sqrt(PIC_MIN_PIXELS / (w * h))));
+  scale = Math.max(1, Math.min(scale, Math.floor(PIC_SIDES[0] / Math.max(w, h))));
+  const W = Math.max(w * scale, PIC_MIN_SIDE);
+  const H = Math.max(h * scale, PIC_MIN_SIDE, Math.ceil(PIC_MIN_PIXELS / W));
+  return { scale, w: W, h: H };
+}
+
+/**
  * A PICTURE AS GROK TAKES IT: { type, data (base64), w, h, bytes } within `budget` base64 characters, or { why }.
  * Through ImageMagick, from stdin with its kind named (never a file name it could read more into); without
- * ImageMagick, a PNG or JPEG as it is when it fits.
+ * ImageMagick, a PNG or JPEG as it is when it fits. One smaller than Grok takes is enlarged (picMinFit), or, without
+ * ImageMagick, not shown, with why.
  */
 export async function asPicture(buf, kind, budget = PICS_BUDGET) {
   const done = (type, b) => ({ type, data: b.toString("base64"), ...(picSize(b) || {}), bytes: b.length });
+  const tiny = (s) => "it is " + s.w + "×" + s.h + " pixels, smaller than Grok takes (at least " + PIC_MIN_SIDE + " a side and " + PIC_MIN_PIXELS + " in all)";
   const first = kind === "gif" || kind === "tiff" ? "[0]" : "";
   for (const side of PIC_SIDES) {
     for (const to of kind === "jpeg" ? ["jpeg"] : ["png", "jpeg"]) {
       const r = await runProg("convert", [kind + ":-" + first, "-auto-orient", "-colorspace", "sRGB", "-resize", side + "x" + side + ">", "-strip", ...(to === "jpeg" ? ["-background", "white", "-flatten", "-quality", "85"] : []), to + ":-"], { input: buf });
       if (r.code === -2) {
+        const s = picSize(buf);
+        if (s && picMinFit(s.w, s.h)) return { why: tiny(s) + ", and this machine has no ImageMagick to enlarge it" };
         if ((kind === "png" || kind === "jpeg") && Math.ceil(buf.length / 3) * 4 <= budget) return done("image/" + kind, buf);
         return { why: kind === "png" || kind === "jpeg" ? "it is too big to show without ImageMagick" : "this machine cannot turn a " + kind.toUpperCase() + " into a PNG (no ImageMagick)" };
       }
       if (r.code !== 0 || !r.out.length) return { why: "it could not be opened as a picture" + (r.err ? " (" + r.err + ")" : "") };
-      if (Math.ceil(r.out.length / 3) * 4 <= budget) return done("image/" + to, r.out);
+      let out = r.out;
+      const s = picSize(out), fit = s && picMinFit(s.w, s.h);
+      if (fit) {
+        const e = await runProg("convert", [to + ":-", "-scale", fit.scale * 100 + "%", "-background", "white", "-gravity", "center", "-extent", fit.w + "x" + fit.h, ...(to === "jpeg" ? ["-quality", "85"] : []), to + ":-"], { input: out });
+        if (e.code !== 0 || !e.out.length) return { why: tiny(s) + ", and it could not be enlarged" };
+        out = e.out;
+      }
+      if (Math.ceil(out.length / 3) * 4 <= budget) return done("image/" + to, out);
     }
   }
   return { why: "it is too big to show, even made smaller" };
@@ -324,9 +361,12 @@ async function readPicture(abs, rel, kind) {
   }
   const shown = p.w && p.h ? p.w + "×" + p.h : "";
   const smaller = real && p.w && p.h && Math.max(real.w, real.h) > Math.max(p.w, p.h);
+  // (A picture too small for Grok was enlarged, picMinFit: its real size is said, and how it was shown.)
+  const bigger = !smaller && real && p.w && p.h && (p.w > real.w || p.h > real.h);
   const thumb = await thumbOf(buf, kind);
-  return withPics("Picture: " + rel + " (" + (smaller ? real.w + "×" + real.h : shown ? shown : "") + (smaller || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
-    (smaller ? ", made smaller (" + shown + "; multiply coordinates by " + (Math.max(real.w, real.h) / Math.max(p.w, p.h)).toFixed(2) + " to map them to the real picture): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop." : "."), [p], thumb ? { thumb } : {});
+  return withPics("Picture: " + rel + " (" + (smaller || bigger ? real.w + "×" + real.h : shown ? shown : "") + (smaller || bigger || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
+    (smaller ? ", made smaller (" + shown + "; multiply coordinates by " + (Math.max(real.w, real.h) / Math.max(p.w, p.h)).toFixed(2) + " to map them to the real picture): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop."
+      : bigger ? ", enlarged to " + shown + " because Grok takes no picture under " + PIC_MIN_SIDE + " pixels a side or " + PIC_MIN_PIXELS + " in all: each pixel became a block, with a white margin where a side was still short." : "."), [p], thumb ? { thumb } : {});
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -1298,6 +1338,26 @@ export async function toolSeen({ path, start = false }) {
  * PICTURES_KEEP stay; their names start with when they were sent.
  */
 export const PICTURES = ".coder-pictures", PICTURES_KEEP = 50;
+/**
+ * A PICTURE THE OWNER ATTACHED, MADE BIG ENOUGH FOR GROK (round 5 of the live test, 2026-11-12, the owner: "fix all 10"):
+ * xAI refuses one under PIC_MIN_SIDE pixels a side or PIC_MIN_PIXELS in all, and the whole turn ended. One that small is
+ * enlarged as a command's printed picture is (picMinFit: each pixel a block, a white margin where a side is still short),
+ * as a PNG (a JPEG stays a JPEG). Answers JSON: `{ same: true }` when it fits already (or its size can't be read), else
+ * `{ type, data, w, h, from: { w, h } }`, or `{ why }` when it could not be enlarged.
+ */
+export async function toolFitPicture({ type, data }) {
+  const kind = { "image/png": "png", "image/jpeg": "jpeg", "image/webp": "webp", "image/gif": "gif" }[type];
+  if (!kind || typeof data !== "string" || !data || !/^[A-Za-z0-9+/]+=*$/.test(data)) fail("give a picture: its type and data");
+  const buf = Buffer.from(data, "base64");
+  const s = picSize(buf), fit = s && picMinFit(s.w, s.h);
+  if (!fit) return JSON.stringify({ same: true, ...(s || {}) });
+  const to = kind === "jpeg" ? "jpeg" : "png";
+  const e = await runProg("convert", [kind + ":-" + (kind === "gif" ? "[0]" : ""), "-scale", fit.scale * 100 + "%", "-background", "white", "-gravity", "center", "-extent", fit.w + "x" + fit.h, ...(to === "jpeg" ? ["-quality", "85"] : []), to + ":-"], { input: buf });
+  if (e.code === -2) return JSON.stringify({ why: "this machine has no ImageMagick to enlarge it", from: s });
+  if (e.code !== 0 || !e.out.length) return JSON.stringify({ why: "it could not be enlarged", from: s });
+  const got = picSize(e.out) || { w: fit.w, h: fit.h };
+  return JSON.stringify({ type: "image/" + to, data: e.out.toString("base64"), w: got.w, h: got.h, from: s });
+}
 export async function toolSavePicture({ name, type, data }) {
   const ext = { "image/png": "png", "image/jpeg": "jpg", "image/webp": "webp", "image/gif": "gif" }[type];
   if (!ext || typeof name !== "string" || !/^[\w.-]{1,80}$/.test(name) || typeof data !== "string" || !data || !/^[A-Za-z0-9+/]+=*$/.test(data)) fail("give a picture: its name, type and data");
@@ -1612,7 +1672,7 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
   });
 }
 
-export const TOOLS = { ps_parse: toolPsParse, save_picture: toolSavePicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

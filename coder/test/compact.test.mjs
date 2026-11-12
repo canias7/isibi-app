@@ -112,7 +112,7 @@ const three = () => {
   return { msgs, evs, marks };
 };
 
-test("CD167 on the Worker: a long chat's older jobs are summarized before the next job (not cut); /compact (with a focus) makes the whole conversation a summary and starts no job; Rewind's Summarize up to here / from here; the chat keeps every message, with a note where the summary stands; nothing changes when the summary could not be made", async () => {
+test("CD167 on the Worker: a long chat's older jobs are summarized before the next job (not cut); /compact (with a focus) starts a job on the chat's machine that makes the whole conversation a summary there, with its hooks (round 5), and moves Rewind's marks when it ends; Rewind's Summarize up to here / from here; the chat keeps every message, with a note where the summary stands; nothing changes when the summary could not be made", async () => {
   const c = await chat();
   // BEFORE A JOB: past 300 KB, the older jobs (all but the newest three of the owner's messages) become one summary.
   const big = [];
@@ -128,20 +128,28 @@ test("CD167 on the Worker: a long chat's older jobs are summarized before the ne
   assert.equal(c.read("events.json").length, 17, "every message still in the chat, and the note");
   assert.deepEqual(c.read("meta.json").marks.map((m) => [m.turn, m.msg]), [[6, 1], [7, 3], [8, 5], [9, 7]], "Rewind's points moved with it; the summarized ones are gone");
 
-  // /compact keep the API notes: no job; the whole conversation is one summary.
+  // /compact keep the API notes: a job on the chat's machine, which makes the summary there with the owner's hooks (round 5);
+  // nothing summarized here, no Rewind mark for it, the owner's words as the job's `compact`, no message of the owner's.
   const { msgs, evs, marks } = three();
   await c.set({ marks }, msgs, evs);
   c.machine.calls.length = 0; c.sums.length = 0;
   const r = await (await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact keep the API notes" }) })).json();
-  assert.equal(r.compacted, true);
-  assert.deepEqual(c.machine.calls, [], "no job ran");
-  assert.equal(c.sums[0].f, "keep the API notes");
-  assert.equal(c.sums[0].m.length, 6);
-  assert.equal(c.read("messages.json").length, 1);
-  assert.match(c.read("messages.json")[0].content, /the conversation before the owner's \/compact, focused on: keep the API notes\. The chat on the owner's page still shows all of it\.\)\nTHE SUMMARY$/);
-  assert.equal(r.events[0].text, "Compacted: the conversation so far is now a summary for Coder (kept in focus: keep the API notes). The chat still shows it all.");
-  assert.equal(c.read("meta.json").status, "idle");
-  assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) })).status, 200, "again: the summary is summarized");
+  assert.equal(r.ok, true);
+  assert.equal(r.compacted, undefined);
+  assert.equal(c.sums.length, 0, "not made here");
+  const job = c.machine.calls.find((x) => x.path === "/turn").body;
+  assert.deepEqual(job.compact, { focus: "keep the API notes" });
+  assert.deepEqual([job.text, job.shown], ["", ""]);
+  assert.deepEqual(job.messages, msgs, "the whole conversation, not summarized before");
+  assert.equal(c.read("meta.json").status, "running");
+  assert.deepEqual(c.read("meta.json").marks, marks, "no mark of its own");
+  // Nothing to summarize: refused, no job.
+  await c.set({ marks: [] }, [], []);
+  c.machine.calls.length = 0;
+  const none = await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) });
+  assert.equal(none.status, 400);
+  assert.equal((await none.json()).error, "There is nothing to summarize yet.");
+  assert.deepEqual(c.machine.calls, []);
 
   // REWIND, SUMMARIZE UP TO HERE (message 3): before it, one summary; message 3 on, as it was; files untouched.
   await c.set({ marks }, msgs, evs);
@@ -170,19 +178,18 @@ test("CD167 on the Worker: a long chat's older jobs are summarized before the ne
   await c.set({ marks }, msgs, evs);
   c.setAnswer("");
   assert.equal((await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 2, summarize: "from" }) })).status, 502);
-  assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) })).status, 502);
   assert.deepEqual(c.read("messages.json"), msgs);
   assert.deepEqual(c.read("events.json"), evs);
 });
 
-test("CD168 the page: Rewind's choices like Claude Code's (the code ones only when a later job changed files; Summarize from here and up to here, with an optional focus); the message comes back to the box; /compact starts no job", async () => {
+test("CD168 the page: Rewind's choices like Claude Code's (the code ones only when a later job changed files; Summarize from here and up to here, with an optional focus); the message comes back to the box; /compact goes as a job, like a message (round 5)", async () => {
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /const choices = \[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),\n\s+\['sumfrom', 'Summarize from here'\], \.\.\.\(first \? \[\] : \[\['sumupto', 'Summarize up to here'\]\]\)\];/);
   assert.match(ui, /const changed = \(S\.project\.commits \|\| \[\]\)\.some\(\(c\) => Number\(c\.turn\) >= turn\);/);
   assert.match(ui, /body = \{ turn, summarize: pick === 'sumfrom' \? 'from' : 'upto', focus \};/);
   assert.match(ui, /if \(\(pick === 'both' \|\| pick === 'chat' \|\| pick === 'sumfrom'\) && said && !S\.draft\) S\.draft = said;/);
-  assert.match(ui, /if \(r\.data\.compacted\) \{ S\.project = r\.data\.project; S\.events = S\.events\.slice\(0, base\)\.concat\(r\.data\.events \|\| \[\]\); syncEntry\(\); return draw\(true\); \}/);
+  assert.doesNotMatch(ui, /r\.data\.compacted/, "no special case: the job's own events come as a message's do");
 });
 
 test("CD214 every summary made between messages names the files its part worked on (read, edited, written, viewed with a command, @-mentioned, or named by an earlier summary), so Coder's next job reads the most recently changed of them again, like Claude Code (\"Right after compaction, Claude Code re-reads up to five of the files Claude has read or edited\"): /compact, a long chat summarized before a job, and Rewind's summaries", async () => {
@@ -211,15 +218,12 @@ test("CD214 every summary made between messages names the files its part worked 
   const sq = await compactHistory(big, async () => "THE SUMMARY");
   assert.ok(sq.to > 0);
   assert.deepEqual(sq.messages[0].reread, ["file1.js", "file2.js"], "the files of the summarized jobs, not of the three kept");
-  // /compact and Rewind's summaries, on the Worker.
+  // Rewind's summaries, on the Worker (the owner's /compact is made on the chat's machine: CD532).
   const c = await chat();
   const msgs = [];
   for (let t = 1; t <= 3; t++) msgs.push({ role: "user", content: "ask " + t }, { role: "assistant", content: "", tool_calls: [tc("read", { path: "f" + t + ".js" }, "c" + t)] }, { role: "tool", tool_call_id: "c" + t, content: "…" }, { role: "assistant", content: "answer " + t });
   const evs = [], marks = [];
   for (let t = 1; t <= 3; t++) { marks.push({ turn: t, ev: evs.length, msg: (t - 1) * 4 }); evs.push({ type: "user", text: "ask " + t }, { type: "done", text: "answer " + t }); }
-  await c.set({ marks }, msgs, evs);
-  assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "/compact" }) })).status, 200);
-  assert.deepEqual(c.read("messages.json")[0].reread, ["f1.js", "f2.js", "f3.js"]);
   await c.set({ marks }, msgs, evs);
   await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 3, summarize: "upto" }) });
   assert.deepEqual(c.read("messages.json")[0].reread, ["f1.js", "f2.js"], "Summarize up to here: the files before message 3");

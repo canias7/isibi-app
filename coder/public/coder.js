@@ -730,8 +730,6 @@
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
-    // /compact (like Claude Code's): the summary is made; no job runs.
-    if (r.data.compacted) { S.project = r.data.project; S.events = S.events.slice(0, base).concat(r.data.events || []); syncEntry(); return draw(true); }
     S.project = r.data.project; S.running = true; syncEntry();
     S.next = 0; stopBgWatch();
     startPoll(); draw(true);

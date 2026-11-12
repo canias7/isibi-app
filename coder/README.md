@@ -787,8 +787,9 @@ in Auto (`autoRulesCover`). "Refuse instead of asking" (Claude Code's
 a card, in Claude Code's words (`DENY_INSTEAD_TEXT`), and Coder goes on; 20 in a row
 end the turn. The rules list keeps a repository's working folders (Claude Code's
 `permissions.additionalDirectories`, `dirs`, `dirProblem`): each one that is a
-folder on the machine joins the chat's working directories (`extraDirsOf`), and
-Coder is told of them. Tests: `test/auto-rules.test.mjs`.
+folder where the commands run (in the admin sandbox, round 5) joins the chat's
+working directories (`extraDirsOf`), and Coder is told of them; one that is not
+is said in the chat. Tests: `test/auto-rules.test.mjs`.
 
 **Bash docs pass 6: the last differences** (owner, 2026-11-10: "yea do all of
 them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
@@ -1500,6 +1501,45 @@ cases each difference raised (24 runs, 17 cents in all). Tests:
   version stops the run for an app that resumes it; Coder ignores it, as
   Claude Code's docs say a normal session does).
 
+**Round 5 of the live test: the 10 fixes** (owner, 2026-11-12: "fix all 10,
+then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
+- *A picture too small for Grok* (xAI refuses one under 8 pixels a side or 512
+  in all, and the turn ended): a command's printed picture and one the owner
+  attaches are enlarged on the machine first (`picMinFit`, `asPicture`, the
+  `fit_picture` tool, `fitOwnerPics`), each pixel a block with a white margin
+  where a side is still short; one that can't be is left out; Coder is told
+  either way. `picSize` reads GIF and WebP too (CD524, CD525).
+- *A monitor's end* says its time as Claude Code writes it, "expired after
+  20s" (`monitorSaid`, CD526).
+- *A Monitor rule's card* names the owner's rule as written, "Your rule
+  Monitor asks first" (`monitorRules`' `named`, `namedForMonitor`); the deny
+  sentence stays Claude Code's, which says Bash (CD527).
+- *GitHub busy or away* (a 429 ended a whole turn): each git call to GitHub is
+  tried again after 2 and 6 seconds (`gitNet`, `gitBusy`); still away, with the
+  chat's copy on its branch, the turn goes on with that copy and the chat says
+  so (`prepareRepo`'s `note`); a new chat or a real refusal still ends it. The
+  push at the end is tried again too (CD528).
+- *Working folders where the commands see them*: in the admin sandbox, whose
+  /tmp is its own, looked up there (`boxRealDirs`, `extraDirsOf`'s `seen`,
+  `cwdInside`), once the sandbox is open and before the AI's commands go on;
+  one that is not there is said in the chat (`missingDirsSaid`). A sandbox-only
+  folder's instructions are not read by root; Coder is told to read them
+  (CD529).
+- *Stop's choice off*: the sandbox stays while what the stopped command left
+  running is still in it (`keptInBox`, CD530).
+- *Maven through the gate*: `-Daether.connector.http.useSystemProperties=true`
+  in JAVA_TOOL_OPTIONS, so Maven 3.9's downloader uses Java's proxy settings
+  (`toolProxyEnv`, CD531).
+- *The owner's /compact* is a job on the chat's machine (`compact` in the job,
+  `runCoder`'s `compact`): PreCompact hooks as "manual" with the owner's words
+  (`custom_instructions`; a block keeps the conversation), the summary, then
+  PostCompact and SessionStart ("compact") hooks; Coder does not answer; at its
+  end Coder's server moves Rewind's marks (CD532, CD533).
+- *Only secret-looking variables hidden in the chat* (`secretVar`): by name
+  (KEY, TOKEN, SECRET, PASSWORD, AUTH, …) or by value (a key's shape, a login
+  in a web address, a long mix of letters and digits); `false` stays `false`
+  (CD534).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
@@ -1702,8 +1742,9 @@ the app to 12,000 characters, and a summary to 40,000 (`forSaving`), and the
 chat's record keeps each step's output to 12,000; the saved chat's size cap
 (`capHistory`, 400 KB) cuts only at the owner's messages, and one job over it
 has its answers shortened, never the job dropped (it used to leave nothing).
-`/compact [what to keep]` makes the whole conversation one summary and starts
-no job. Rewind offers Claude Code's choices: Restore code and chat, chat only,
+`/compact [what to keep]` makes the whole conversation one summary, as a job on
+the chat's machine that Coder does not answer, so its PreCompact, PostCompact and
+SessionStart hooks run (round 5). Rewind offers Claude Code's choices: Restore code and chat, chat only,
 code only (the code ones only when a later job changed files), Summarize from
 here and Summarize up to here (each with an optional focus); after the chat
 goes back, the message returns to the box. Rewind's points inside a summary go.

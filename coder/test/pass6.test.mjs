@@ -161,7 +161,7 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.equal(P.fileToolDecision("read", "/work/shop/a.txt", { rules: { deny: ["*"] }, root: "/work/shop" }).why, "Permission to use Read has been denied.");
   assert.equal(P.fileToolDecision("write", "/work/shop/a.txt", { rules: { ask: ["*"] }, root: "/work/shop" }).verdict, "ask");
   // A monitor: a wildcard naming Monitor and not Bash is a rule on all of it; one naming Bash applies as it is.
-  assert.deepEqual(P.monitorRules({ deny: ["Mon*"], ask: ["*"], allow: [] }), { allow: [], ask: ["*"], deny: ["Bash"] });
+  assert.deepEqual(P.monitorRules({ deny: ["Mon*"], ask: ["*"], allow: [] }), { allow: [], ask: ["*"], deny: ["Bash"], named: { "deny:Bash": "Mon*" } });
   // Saved, and an allow one with Claude Code's point said (an anchored mcp__server__ one is kept quietly: no MCP servers here).
   assert.deepEqual([P.ruleSaved("*"), P.ruleSaved("mcp__*"), P.ruleSaved("mcp__github__get_*")], [true, true, true]);
   assert.equal(P.ruleWarning("allow", "*").warning, 'Allow rule "*" names tools with a wildcard. An allow rule takes a wildcard only after a literal mcp__<server>__ prefix, so this one is skipped and doesn\'t auto-approve anything.');
@@ -277,7 +277,7 @@ test("CD391 the working folders' own instructions (Claude Code's CLAUDE_CODE_ADD
   assert.match(full.notes[0].text, /^\[Not loaded here: the instructions already come to 100,000 characters\. Read .*\/CODER\.md with the read tool\.\]$/);
   // The machine reads them only with the variable on.
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /if \(addDirs\.length && varOn\(rawVars\.CODER_ADDITIONAL_DIRECTORIES_CODER_MD\)\) \{\n\s+const more = await extraInstructions\(addDirs, notes\);/);
+  assert.match(server, /if \(addDirs\.length && varOn\(rawVars\.CODER_ADDITIONAL_DIRECTORIES_CODER_MD\)\) \{\n\s+const shared = [^\n]+\n\s+const more = await extraInstructions\(addDirs\.filter\(shared\), notes\);/);
   assert.match(server, /const context = contextFor\(notes, typeof body\.memory === "string" \? body\.memory : "", later\);/);
 });
 

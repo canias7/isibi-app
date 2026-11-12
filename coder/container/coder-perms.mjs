@@ -867,20 +867,34 @@ const anchoredGlob = (t) => /^mcp__[A-Za-z0-9-]+(?:_[A-Za-z0-9-]+)*__/.test(Stri
  * written as Bash's (`Monitor` the whole tool, `Monitor(x)` as `Bash(x)`); in Auto, none of Monitor's allow rules.
  */
 export function monitorRules(rules, mode = "auto") {
-  const out = { allow: [], ask: [], deny: [], ...(rules && rules.sources ? { sources: rules.sources } : {}) };
+  // (`named`: each turned rule's own text as the owner wrote it, by "kind:turned text", so a card names "Monitor", not
+  // "Bash": round 5 of the live test, 2026-11-12, the card said "Your rule Bash asks first" for the rule `ask: Monitor`.
+  // Not when the owner has the same Bash rule too: then either may be the one that matched.)
+  const out = { allow: [], ask: [], deny: [], named: {}, ...(rules && rules.sources ? { sources: rules.sources } : {}) };
+  const own = (k, txt) => (Array.isArray(rules && rules[k]) ? rules[k] : []).some((r) => String(r).trim() === txt);
+  const turned = (k, txt, from) => { out[k].push(txt); if (txt !== from && !own(k, txt)) out.named[k + ":" + txt] = String(from).trim(); };
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k] : []) {
     const x = parseRule(r);
     // (A wildcard naming Monitor but not Bash, `Mon*`, is a rule on all of Monitor; one naming Bash applies to it as it is.)
-    if (x && x.glob) { out[k].push(k !== "allow" && toolGlobMatches(x.tool, "Monitor") && !toolGlobMatches(x.tool, "Bash") ? "Bash" : r); continue; }
+    if (x && x.glob) { if (k !== "allow" && toolGlobMatches(x.tool, "Monitor") && !toolGlobMatches(x.tool, "Bash")) turned(k, "Bash", r); else out[k].push(r); continue; }
     // (A rule on one of Bash's own settings, Bash(run_in_background:true), is on Bash calls, never on a monitor: Bash docs pass
     // 9, every monitor had been refused by one. A Monitor rule on one of the monitor's settings, Monitor(timeout_ms:*), is
     // matched against the monitor's own input: bashDecision's `settings`.)
     if (x && x.tool === "Bash" && x.spec !== null) { const sp = settingSpec(x.spec); if (sp && sp.name !== "command") continue; }
     if (!x || x.tool !== "Monitor") { out[k].push(r); continue; }
     if (k === "allow" && mode === "auto") continue;
-    out[k].push(x.spec === null ? "Bash" : "Bash(" + x.spec + ")");
+    turned(k, x.spec === null ? "Bash" : "Bash(" + x.spec + ")", r);
   }
   return out;
+}
+/**
+ * A MONITOR'S DECISION NAMING THE OWNER'S OWN RULE (monitorRules' `named`): the rule, and an ask's "Your rule … asks first"
+ * sentence, as the owner wrote it. A deny's sentence stays Claude Code's, which says Bash for a monitor too.
+ */
+export function namedForMonitor(dec, rules) {
+  const orig = dec && typeof dec.rule === "string" && rules && rules.named ? rules.named[dec.verdict + ":" + dec.rule] : "";
+  if (!orig) return dec;
+  return { ...dec, rule: orig, ...(dec.verdict === "ask" && typeof dec.why === "string" ? { why: dec.why.replace("Your rule " + dec.rule + " ", "Your rule " + orig + " ") } : {}) };
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";

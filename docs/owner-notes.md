@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Round 5's 10 findings fixed (your words: "fix all 10, then merge and deploy")
+
+All ten are fixed, each with its own test (CD524 to CD534 in `coder/test/round5.test.mjs`):
+1. **A tiny picture from a command** no longer ends the turn: Coder's machine enlarges it first (each pixel becomes a block), and Grok is told its real size.
+2. **A tiny picture you attach** is enlarged the same way. One that can't be enlarged is left out, and Grok is told why. Your saved copy stays the original.
+3. **A monitor's end** now says its real time, as Claude Code does: "expired after 20s", not "1m".
+4. **The card for a Monitor rule** names your rule: "Your rule Monitor asks first". When a Monitor command is refused, the message still says "Bash", as Claude Code's does.
+5. **GitHub saying "too many requests"** (or being down for a moment) no longer stops a turn. Coder asks again after 2 and 6 seconds. If GitHub still doesn't answer and the chat's copy is on its machine, the turn goes on with that copy, and the chat says so. A new chat with no copy yet still has to wait for GitHub. The push at the end is also tried again.
+6. **Working folders in /tmp**: Coder now looks for them where its commands run (their sandbox has its own /tmp), so `/tmp/...` folders work. A cd into one carries over too. A saved folder that doesn't exist is now named in the chat instead of being left out silently.
+7. **"Stopping one also stops what it started" turned off** now really keeps those processes running. The sandbox is kept while they live.
+8. **Maven downloads work**: Java's proxy settings now include the switch that tells Maven 3.9 to use them. Checked here: with it, Maven's request reached the proxy; without it, Maven never asked the proxy.
+9. **Your /compact runs its hooks**: it now runs on the chat's machine, like a message that Coder doesn't answer. The order is: PreCompact ("manual", with your words), then the summary, then PostCompact and SessionStart ("compact"). A PreCompact hook can stop it. The chat shows "/compact" and the "Compacted" note as before. It takes a few seconds longer when the machine is asleep.
+10. **Only secret-looking variables are hidden in the chat.** A variable is hidden if its name says key, token, secret, password, auth and so on, or if its value looks like a key, a web address with a login in it, or a long mix of letters and digits. `false`, `production`, `8080` and paths now show as they are.
+
+**Checks:** the full test suite on my side: 568 of 568 pass. Next: merge, deploy, then a short live check with Grok in the browser (no video).
+
 ## 2026-11-12: Round 5: the rest of the bash tool tried live with Grok (your words: "Ok yes")
 
 **What it was:** every part of the bash tool not yet tried live in the browser, on gofarther.dev with Grok. Eleven groups, in new chats on canias7/testingforclaude ("Live test 10 Nov" environment). Every setting a step changed was put back after it. It was filmed (recording 40, 31 videos) until your word at 05:37 UTC: "for now on dont record anymore , pls". Since then nothing is filmed (see your preferences).
