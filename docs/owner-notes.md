@@ -11,6 +11,10 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Coder may print your plain variables now (your words: "yes change it, then merge and deploy")
+
+Coder's instructions told Grok "never print their values" for every variable you set, so Grok refused `echo $R41_PLAIN` (a variable set to `false`). Claude Code has no such rule. Now Grok is told the names of all your variables, and is told never to print only the ones that look secret. Those are the same ones the chat hides: a name with KEY, TOKEN, SECRET, PASSWORD, AUTH and so on, or a value that looks like a key, a web address with a login in it, or a long mix of letters and digits. Test CD536; the full suite passes (570 of 570).
+
 ## 2026-11-12: The 10 fixes are live (deploys 138 and 139), tried in the browser with Grok (no video)
 
 One new chat on canias7/testingforclaude, "Live test 10 Nov" environment, on gofarther.dev after deploy 138:
@@ -25,7 +29,7 @@ One new chat on canias7/testingforclaude, "Live test 10 Nov" environment, on gof
 - **Fix 10, variables:** your own `!echo plain=$R41_PLAIN token=$R41_TOKEN` showed "plain=false token=[hidden]".
 - **Fix 5 (GitHub's "too many requests")** can't be made to happen on purpose; it is checked by its test with a stand-in GitHub (CD528).
 
-**Something else found (not changed; your word first):** Grok refused `echo $R41_PLAIN`. Coder's instructions to Grok say of your variables "never print their values". Claude Code has no such rule. Now that only secret-looking values are hidden in the chat, that line could say the same.
+**Something else found:** Grok refused `echo $R41_PLAIN`. Coder's instructions to Grok said "never print their values" of all your variables. Claude Code has no such rule. Changed with your word (see the entry above).
 
 **Cost:** 13 Grok messages and one summary, well under $1. Everything put back: no hooks, no rules, Stop's choice on, only your two usual variables.
 

@@ -1536,10 +1536,12 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   (`custom_instructions`; a block keeps the conversation), the summary, then
   PostCompact and SessionStart ("compact") hooks; Coder does not answer; at its
   end Coder's server moves Rewind's marks (CD532, CD533).
-- *Only secret-looking variables hidden in the chat* (`secretVar`): by name
-  (KEY, TOKEN, SECRET, PASSWORD, AUTH, …) or by value (a key's shape, a login
-  in a web address, a long mix of letters and digits); `false` stays `false`
-  (CD534).
+- *Only secret-looking variables hidden in the chat* (`secretVar`, in
+  `container/coder-checks.mjs`): by name (KEY, TOKEN, SECRET, PASSWORD, AUTH, …)
+  or by value (a key's shape, a login in a web address, a long mix of letters
+  and digits); `false` stays `false` (CD534). And Coder is told never to print
+  only those values (`varsNote`; it was "never print their values" for every
+  variable, which Claude Code doesn't have) (CD536).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

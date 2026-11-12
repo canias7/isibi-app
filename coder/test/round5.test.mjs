@@ -462,3 +462,18 @@ test("CD535 a monitor's end says its own time limit, not the time from just befo
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /\.\.\.\(monitor \? \{ limitMs: monitorMs\(limitMs\) \} : \{\}\)/);
 });
+
+test("CD536 Coder is told never to print only the values of the owner's variables that look secret (the owner: \"yes change it\"; round 5's live check: Grok refused `echo $R41_PLAIN`, a variable set to `false`, as it was told \"never print their values\" of every variable; Claude Code has no such rule): the same check that hides them in the chat", async () => {
+  const S = await import("../container/server.mjs");
+  const C = await import("../container/coder-checks.mjs");
+  const R = await import("../src/coder-routes.mjs");
+  assert.equal(R.secretVar, C.secretVar, "the chat's hiding and Coder's instructions use one check");
+  assert.equal(S.varsNote({ R41_PLAIN: "false", NODE_ENV: "production", R41_TOKEN: "r41abc123xyz", DATABASE_URL: "postgres://app:pw@db/app" }), "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): R41_PLAIN, NODE_ENV, R41_TOKEN, DATABASE_URL. Never print the values of those that look secret: R41_TOKEN, DATABASE_URL (the chat hides them)");
+  assert.equal(S.varsNote({ PORT: "8080", CODER_SHELL_DIR: "/opt/tools" }), "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): PORT, CODER_SHELL_DIR", "none secret: no rule at all");
+  assert.equal(S.varsNote({}), "");
+  assert.equal(S.varsNote(null), "");
+  const { readFile } = await import("node:fs/promises");
+  const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.doesNotMatch(server, /\(available to your commands; never print their values\)/, "the old rule for every variable is gone");
+  assert.match(server, /\+ varsNote\(ownerVars\) \+ netNote \+/);
+});

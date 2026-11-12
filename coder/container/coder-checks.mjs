@@ -176,6 +176,23 @@ const KEYISH = [
   /\bAKIA[0-9A-Z]{16}\b/g,
   /\bBearer\s+[A-Za-z0-9._~+/=-]{16,}/g,
 ];
+/**
+ * A VARIABLE OF THE OWNER'S WHOSE VALUE IS HIDDEN IN THE CHAT (round 5 of the live test, 2026-11-12, the owner: "fix all 10"):
+ * its name says it holds a secret (a part of it is KEY, TOKEN, SECRET, PASSWORD, AUTH, CREDENTIALS, …, or ends in one, as
+ * APIKEY), or its value looks like one (a known key's shape, a web address with a login in it, or 16 or more characters
+ * of letters and digits mixed, with no spaces, not a path or a plain web address). Plain words, numbers, paths and settings
+ * (`false`, `bash`, `/opt/tools`) are not: Grok sees them anyway, and blanking them blanked the same words all through the chat.
+ * The same check says which values Grok is told never to print (varsNote, Coder's machine).
+ */
+const SECRET_NAME_PARTS = new Set(["KEY", "KEYS", "TOKEN", "TOKENS", "SECRET", "SECRETS", "PASSWORD", "PASSWORDS", "PASSWD", "PASS", "PWD", "PASSPHRASE", "AUTH", "AUTHORIZATION", "CREDENTIAL", "CREDENTIALS", "CREDS", "PRIVATE", "SESSION", "COOKIE", "SIGNATURE", "CERT", "PAT", "DSN", "SALT", "OTP"]);
+export function secretVar(name, value) {
+  const v = String(value ?? "");
+  if (v.length < 4) return false;
+  if (String(name || "").toUpperCase().split(/[^A-Z0-9]+/).some((p) => SECRET_NAME_PARTS.has(p) || /.(?:KEY|TOKEN|SECRET|PASSWORD)$/.test(p))) return true;
+  if (scrub(v) !== v) return true;
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/i.test(v)) return true;
+  return v.length >= 16 && !/\s/.test(v) && /[A-Za-z]/.test(v) && /\d/.test(v) && !v.startsWith("/") && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v);
+}
 /** Anything shaped like a key, blanked. */
 export function scrub(text) {
   let t = String(text == null ? "" : text);
