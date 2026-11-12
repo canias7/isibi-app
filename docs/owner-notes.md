@@ -13,7 +13,11 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-12: Coder may print your plain variables now (your words: "yes change it, then merge and deploy")
 
-Coder's instructions told Grok "never print their values" for every variable you set, so Grok refused `echo $R41_PLAIN` (a variable set to `false`). Claude Code has no such rule. Now Grok is told the names of all your variables, and is told never to print only the ones that look secret. Those are the same ones the chat hides: a name with KEY, TOKEN, SECRET, PASSWORD, AUTH and so on, or a value that looks like a key, a web address with a login in it, or a long mix of letters and digits. Test CD536; the full suite passes (570 of 570).
+Coder's instructions told Grok "never print their values" for every variable you set, so Grok refused `echo $R41_PLAIN` (a variable set to `false`). Claude Code has no such rule. Now Grok is told the names of all your variables, and is told never to print only the ones that look secret. Those are the same ones the chat hides: a name with KEY, TOKEN, SECRET, PASSWORD, AUTH and so on, or a value that looks like a key, a web address with a login in it, or a long mix of letters and digits. Test CD536; the full suite passes (570 of 570). Merged and deployed (deploy 141), then tried in the browser with Grok in the same test chat:
+- `echo plain=$R41_PLAIN` (set to `false`): Grok ran it and quoted "plain=false".
+- `echo token=$R41_TOKEN`: Grok said "I won't run that. R41_TOKEN is marked secret, so its value stays out of the chat."
+
+Two Grok messages, a few cents. The two test variables are taken away again.
 
 ## 2026-11-12: The 10 fixes are live (deploys 138 and 139), tried in the browser with Grok (no video)
 
