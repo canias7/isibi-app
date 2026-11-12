@@ -481,13 +481,14 @@ export async function serve(dir) {
   const typedPasswords = new Set();
   const secrets = async (L = L0) => {
     const passwords = [...typedPasswords], cards = [...typedCards, ...typedCodes];
+    let cardFields = 0;
     for (const f of L.page.frames()) {
       try {
-        const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean) }), CARD_FIELDS);
-        passwords.push(...v.p); cards.push(...v.c);
+        const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean), n: document.querySelectorAll(sel).length }), CARD_FIELDS);
+        passwords.push(...v.p); cards.push(...v.c); cardFields += v.n;
       } catch { /* a frame that went away */ }
     }
-    return { passwords, cards, typed: [...typedPasswords] };
+    return { passwords, cards, typed: [...typedPasswords], cardFields };
   };
   // MASKED IN EACH SCREENSHOT THE AI GETS (the owner's live view shows the page as it is): the card fields of every frame,
   // and any text that shows what is in them (a card picture beside the fields; a number however it is spaced). And a
@@ -535,7 +536,10 @@ export async function serve(dir) {
     const bare = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + tabsLine + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
     // WHAT A BLANK MEANS (found live, 2026-11-12: with the password blanked and covered after the page's Show button,
     // Gloopy told the owner the box showed a password from earlier in the chat).
-    const text = bare.includes(BLANKED) ? bare + "\n(" + BLANKED + " stands for a password, a code or a card number: it is hidden from you, even when the page shows it, and a grey box covers it in your screenshot. Never guess it; if the owner asks what it says, tell them it is hidden from you.)" : bare;
+    const blanks = bare.includes(BLANKED) ? bare + "\n(" + BLANKED + " stands for a password, a code or a card number: it is hidden from you, even when the page shows it, and a grey box covers it in your screenshot. Never guess it; if the owner asks what it says, tell them it is hidden from you.)" : bare;
+    // WHAT A GREY BOX IS (found live, 2026-11-12: at a checkout, Gloopy took the grey boxes over the card fields for
+    // something in the way, "the card area is still covered", and gave up instead of asking for the card).
+    const text = hide.cardFields ? blanks + "\n(The grey boxes in your screenshot are this page's card fields, hidden from you on purpose: nothing is in the way. To fill them, use pay: the owner types the card on its form, and it goes straight into them.)" : blanks;
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
     let file = null;
     if (picture) {

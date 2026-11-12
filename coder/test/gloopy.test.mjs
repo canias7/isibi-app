@@ -2245,6 +2245,8 @@ test("GL53 (2026-11-09) the browser for real (where Chromium is installed): a ca
     const a = await hub.act({ action: "open", url: S + "/checkout" });
     const num = refOf(a.text, /textbox "Card number" \[ref=([a-z0-9]+)\]/), exp = refOf(a.text, /textbox "Expiration date" \[ref=([a-z0-9]+)\]/), cvc = refOf(a.text, /textbox "CVC" \[ref=([a-z0-9]+)\]/), zip = refOf(a.text, /textbox "ZIP" \[ref=([a-z0-9]+)\]/), name = refOf(a.text, /textbox "Name on card" \[ref=([a-z0-9]+)\]/);
     assert.ok(num && exp && cvc && zip && name, a.text);
+    // Gloopy is told what the grey boxes are (found live, 2026-11-12: it took them for something in the way and gave up).
+    assert.ok(a.text.endsWith("\n(The grey boxes in your screenshot are this page's card fields, hidden from you on purpose: nothing is in the way. To fill them, use pay: the owner types the card on its form, and it goes straight into them.)"), "on a checkout");
     // What each field is, on which site: the card's own in the payment service's frame.
     const d = {};
     for (const [k, r] of Object.entries({ num, exp, cvc, zip, name })) d[k] = await hub.describe(r);
@@ -2291,6 +2293,8 @@ test("GL53 (2026-11-09) the browser for real (where Chromium is installed): a ca
     assert.equal((await hub.describe(pw2)).element.name, "Password");
     // Typing into a password field's label is typing into the field: refused too.
     await assert.rejects(hub.act({ action: "type", ref: refOf(again.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Password/), text: "guess" }), /that is a password field/);
+    // A page with no card fields: no word about grey boxes.
+    assert.ok(!again.text.includes("grey boxes"), "not on a page with no card fields");
   } finally {
     psp.close(); shop.close(); site.close();
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
