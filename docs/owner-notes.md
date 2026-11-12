@@ -23,6 +23,17 @@ log (81,000 lines) is in git history.
   - **A Terminal tab** at the right: the commands Gloopy ran in this chat, with what they printed. While you have control, run your own on its line. Your commands run exactly as Gloopy's do (its own limited user, in its folder) and stop after a minute. Gloopy is told which ones you ran at its next message.
   - A fix on the way: when the tab Gloopy was on closed (a site closing its own pop-up), the live view froze on its last picture. Gloopy now moves on to its newest other tab.
   - Tests GL122 and GL123; GL21, GL90 and GL121 updated.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - **Starting in seconds:** right after a deploy, taking over took 90 seconds (a cold start of the new version, as expected). After 12 minutes idle, Gloopy's computer was suspended. Taking over then gave control in **4.4 seconds**, and both of its browser tabs were still open.
+  - **The hand-off card:** asked for WhatsApp Web's QR code, Gloopy handed it over. The card showed the code live, with Skip / I'm done / Take over. "I'm done" worked: Gloopy looked again, saw the code had expired (nobody scanned it), said so, and clicked nothing.
+  - **The whole computer:** a practice site's new window showed up as a second tab. Switching tabs, closing one, and + for a new tab all worked. A command in the terminal (`uname -srm && date && ls`) ran in Gloopy's folder and showed as yours. Asked afterwards, Gloopy named the command you ran.
+  - **Progress:** the status line followed each step, and Gloopy's answer came with pictures of the pages it ended on.
+- **Four fixes from that test:**
+  - With one tab, its title stayed "New tab" as the page changed. Now it follows the page.
+  - With control, the address box said "Go to an address" instead of the page's address, as Chrome shows it. Now it shows the address.
+  - On a short window, the terminal's $ line fell below the fold. The terminal now leaves room for it.
+  - Asked what was open, Gloopy saw only its own tab and said "one tab". Each step now also lists its other tabs, with titles and addresses.
+  - GL95, GL121 and GL122 updated.
 
 ## 2026-11-12: Grok Bot's browser tool, tried hands-on next to Gloopy's (your words: "just test the whole browser tool and see the differences")
 
