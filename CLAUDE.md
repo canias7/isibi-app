@@ -44,5 +44,5 @@ How Coder works and how GitHub is set up: `coder/README.md`.
   themselves.
 - **Never write GitHub's skip-CI marker** anywhere, not even while explaining it.
 - **Show UI changes as screenshots in the chat.** The owner directs the design.
-- **Test everything in the browser** (owner, 2026-11-08: "we need to test everything in the browser bro, pls, remember that"): every feature and fix is tried live on gofarther.dev in the browser, with Grok, and recorded. Automated tests and checks on Claude's side are not enough on their own.
+- **Test everything in the browser** (owner, 2026-11-08: "we need to test everything in the browser bro, pls, remember that"): every feature and fix is tried live on gofarther.dev in the browser, with Grok. No video recordings (owner, 2026-11-12: "for now on dont record anymore , pls"). Automated tests and checks on Claude's side are not enough on their own.
 - **Every change ships with tests**, an owner-notes entry and a push.

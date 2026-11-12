@@ -21,9 +21,12 @@ deleted (the old file is in git history).
 - Every change ships with tests, an owner-notes entry and a push.
 - **Test everything in the browser (2026-11-08, "we need to test everything in
   the browser bro, pls, remember that"):** every feature and fix is tried live on
-  gofarther.dev in the browser, with Grok, and recorded (then the same in Claude
-  Code, to compare). Automated tests and checks on Claude's side are not enough
-  on their own.
+  gofarther.dev in the browser, with Grok (then the same in Claude Code, to
+  compare). Automated tests and checks on Claude's side are not enough on their
+  own.
+- **No more video recordings (2026-11-12, "for now on dont record anymore ,
+  pls"):** live tests are no longer filmed. Results are written up from what the
+  page and the chat show, with screenshots where they help.
 - **Tool by tool (2026-11-08, "Ok do that"):** while going through one tool, keep
   anything that is not that tool in its own list, marked as outside it, and ask
   the owner before fixing it. Something the tool's change breaks elsewhere may be
