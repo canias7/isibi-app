@@ -11,17 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-12: Round 6's fixes tried live with Grok, and the real cause of fix 6
+## 2026-11-12: Round 6's fixes tried live with Grok: all 6 work
 
-No video. Deploy 144 carried the 6 fixes. I tried each one live in a new chat on canias7/testingforclaude, starting from `r42-live` and with octocat/Hello-World added:
+No video. Deploy 144 carried the 6 fixes, deploy 145 the stop record, deploy 147 the last fix. I tried each one live in a new chat on canias7/testingforclaude, starting from `r42-live` and with octocat/Hello-World added:
 1. **Starting branch late in the alphabet:** works. The chat opened on `r42-live` and saw its files.
 2. **`@coder` on a pull request whose chat was deleted:** works. On pull request 16, "@coder Reply with the single word r43-ok" got "@canias7 Done. r43-ok", in a new chat on the pull request's branch.
 3. **`gh` knows the repository:** works. `origin` is now `https://github.com/canias7/testingforclaude.git`, and `gh run list --branch r42-live --limit 1` listed the workflow run without `-R`.
 4. **No false "Could not open":** works. Hello-World opened without the red line.
 5. **A risky delete in Auto with `CODER_DISABLE_DANGEROUS_RM_TIMEOUT=1`:** works. The checker approved `rm -rf /coder-r43-not-real` and it ran without a card.
-6. **SessionEnd hook when the machine sleeps:** still failed after deploy 144. So deploy 145 added a record the machine keeps of each stop. It showed the real cause: the hook does start when Fly.io stops the machine (signal SIGINT), but it failed in 1 ms. At the end of every message, Coder removes the chat's small work folder when nothing is running in the background, and the hook's input file is written into that folder. Fixed: the folder is made again first. Test CD544 does exactly what the live test did and failed on the old code. The full suite on my side: 578 of 578 pass. The live retest comes next.
+6. **SessionEnd hook when the machine sleeps:** still failed after deploy 144. So deploy 145 added a record the machine keeps of each stop. It showed the real cause: the hook does start when Fly.io stops the machine (signal SIGINT), but it failed in 1 ms. At the end of every message, Coder removes the chat's small work folder when nothing is running in the background, and the hook's input file is written into that folder. Fixed: the folder is made again first. Test CD544 does exactly what the live test did and failed on the old code. The full suite on my side: 578 of 578 pass. **Live after deploy 147: works.** The machine went to sleep at 11:06:58, the hook ran in 16 ms with no error, and `~/r43-end.log` held the hook's input (`"hook_event_name":"SessionEnd","reason":"other"`).
 
-**Also:** I deleted 46 old test chats (your word: "Ok yes"). The live retest so far cost about $0.20 in Grok calls.
+**Also:** I deleted 46 old test chats (your word: "Ok yes"). The whole live retest cost about $0.30 in Grok calls. Left in place for you to look at: today's 6 test chats, the test branches `r42-live` and `a-r42-live` on canias7/testingforclaude, and my test comments on its pull request 16 and issue 18.
 
 ## 2026-11-12: Round 6's 6 findings fixed (your words: "Ok yes")
 
