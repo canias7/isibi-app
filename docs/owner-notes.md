@@ -11,6 +11,16 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Gloopy, tool by tool: where we are
+
+**Done (2 of the list):**
+1. **browser**, Gloopy's own web browser. Checked against Grok Bot's and dots' docs twice, everything built, tried live on the test copy, and tried hands-on next to Grok Bot's app.
+   - Left: a fixed outgoing address (costs money: waits for your word); a full desktop with "computer use".
+2. **sign_in**, signing in to websites (the private card, saved logins in your Vault, warnings, Take over). Checked against both docs, built, tried live, and tried side by side in Grok Bot's app.
+   - Not tried live: a password Gloopy makes for a new account, and the code box (my safety check blocked both; automated tests cover them); your real security key (needs the Mac or Windows app rebuilt); Grok Bot's answer to the Show test (your Grok Bot usage ran out).
+
+**Next: 3, pay.** Then 4 handoff, 5 web search, 6 web_fetch, 7 helpers, 8 schedule, 9 webhook, 10 ask_user, 11 notify, 12 todo, 13 page, 14 files, 15 request_secret, 16 bash, 17 to 21 read, write, edit, grep and glob, and 22 to 23 monitor and stop_job.
+
 ## 2026-11-12: Signing in, side by side with Grok Bot's own app (your words: "yes go ahead")
 
 **How:** Grok Bot's desktop app on my test computer, signed in with your link, in the "Browser test (Claude)" Bot (your other Bots untouched). The same practice sites as Gloopy's tests.
