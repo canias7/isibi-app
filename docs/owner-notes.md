@@ -11,6 +11,34 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Tool 2, signing in (sign_in), checked against Grok Bot's and dots' docs (your words: "lets go to the next tool")
+
+**The check:** both apps' docs were fetched fresh today: 76 of the 78 pages from the last check, plus the 10 new ones. The 2 missing pages were Grok Bot's "shared bots", now "team bots". The new pages are about team Bots, meetings, Microsoft Teams, Grok Bot's initiative, X subscriptions, and Okta FastPass. Okta FastPass is the only one about signing in, and it's for company Okta admins. Every passage about signing in was compared with Gloopy's sign-in card, its saved logins and its code card.
+
+**Already the same as both:**
+- A private card in the chat when a site needs your password. What you type goes straight into the page, and Gloopy never sees it (Grok Bot's Secure Form, dots' private sign-in form). The card names the site. Gloopy also checks that the page is the real one and warns you if not; dots only tells you to "check the site address".
+- A code the site sent you, typed on a card the same way.
+- Take over to sign in yourself, and handing you what a form can't do: single sign-on, a passkey, a CAPTCHA, an approval on another device, a QR code.
+- "Save this login" is optional, a tick box on the card, as dots' "Save to Passwords" and Grok Bot's "Securely save to Bot's vault".
+- Using a saved login is your setting. dots always asks first ("Reusing a saved login to sign in requires your confirmation"). Grok Bot uses it first, without asking. Gloopy's "Sign in with saved logins" can be Ask, Always allow or Never.
+- Gloopy stays signed in between jobs, and you can sign it out in Settings → Browser.
+- Your phone's or laptop's passkeys don't reach the cloud browser, but a hardware security key does, through the desktop app (Grok Bot's).
+- If a site asks to verify again, Gloopy stops and tells you, and never works around it. Changing a password is yours to do (dots).
+- Gloopy knows which sites you saved logins for, never the passwords (Grok Bot's Bots do too).
+
+**Missing in Gloopy (your choice):**
+1. **Add and edit logins yourself, in Settings.** Grok Bot's Vault has "New item → Login" (website, username, password), with edit and remove. Gloopy saves a login only from the sign-in card, and Settings can only forget one.
+2. **Bring your logins over from a password manager.** Grok Bot imports the file you export from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass. The file is read on your computer, and logins you already have are skipped.
+3. **More than one account on a site.** Grok Bot chooses between them by your hints ("Use for work purchases"). dots lets you "confirm that you want to use it or enter another account". Gloopy keeps one per site and username, but always uses the newest.
+4. **Passwords made for new sign-ups.** Grok Bot: "if you let a Bot choose the password when it signs up for a site, Vault generates the password and saves the login, and the Bot never sees it." Gloopy can't do that; you'd have to type a new password on the card.
+5. **Your own browser leaves the card alone.** Found live on Nov 11: Chrome on my side warned "the password you just used was found in a data breach" after I typed a demo password in Gloopy's card. Your browser's password manager treats the card like any login form, and could offer to save the password. Neither app's docs mention this.
+
+**For other tools, or not for us:**
+- 1Password connected to the browser (Grok Bot: you approve each login in 1Password and it fills the page). That belongs to connected apps.
+- Codes read from email (Grok Bot reads them from a connected Gmail or Outlook, or from its own inbox). That belongs to the email tool.
+- Signing in with a connected app instead of the website. That belongs to connected apps.
+- Okta FastPass, company single sign-on rules, and a team Bot's own logins are for companies, not for you.
+
 ## 2026-11-12: The chat no longer scrolls sideways (your words: "fix the sideways scroll too")
 
 - **What it was:** Gloopy's chat had a sideways scrollbar. The cause was a long unbroken string in one of Gloopy's answers, a security key's 140-character code from an earlier test. It was 1,060 pixels wide, wider than the chat, so the whole chat scrolled sideways.
