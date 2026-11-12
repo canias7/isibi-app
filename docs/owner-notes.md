@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The low-memory warning fixed (your words: "Ok yes", to the fix and round 5)
+
+**What was wrong:** Settings' low-memory warning should count what's left under the memory cap on Coder's commands. It never did on Coder's own machines. They track memory the older way (cgroup v1), and the warning only knew how to read the newer way (cgroup v2). So it went by the whole machine's free memory instead, and in round 3 it stayed quiet even when it should have warned. The check of every Bash part against our live tests found it, and I confirmed it in the code and in a live machine's output.
+
+**The fix:** the warning now reads both ways. Test CD523. It will be tried live in round 5.
+
 ## 2026-11-11: Round 4 is live (deploy 130) and tried in the browser with Grok (recording 39)
 
 **What went out:** everything chats use: the new page, the Worker and the new machine on Fly.io. All of Coder's tests passed on GitHub's machine first. The ones that need the picture and PDF programs were skipped, as planned.
