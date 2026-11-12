@@ -1610,6 +1610,23 @@ command printed was lost" when it printed nothing; the note before the output
 (`FREE_SPACE`) without "or restart Claude Code with CLAUDE_CODE_TMPDIR …", which
 Coder has no setting for.
 
+**Low memory, the same day.** The memory-pressure stop's rules match Claude
+Code 2.1.322's code (critical, idle 30 minutes, no turn running, not soon after
+an earlier stop, MemAvailable under 10% and 4 GiB; its "delegated agents"
+condition has nothing to match in Coder). Live, memory was made scarce (1.2 to
+1.4 GB of 16 GB left, under a cap just above what a test program held), but
+critical stall could not be held: reclaiming clean cache costs almost nothing,
+Linux keeps a running program's code in memory, and re-reading a file stalls
+only at first (8–15% of 5-second readings, then 0.4–1.2%); with no swap on
+Coder's machines, sustained critical pressure comes only near running out of
+memory. One difference was found and fixed (CD338): Claude Code arms the
+kernel's trigger, "some 150000 2000000" (150 ms of stall within any 2 seconds);
+Coder averaged 5-second readings, so a 160 ms burst inside 5 seconds never
+counted. Now it reads the stall every half second (`samplePressure`,
+`PRESSURE_SAMPLE_MS`) and looks at each background command when 150 ms falls
+within 2 seconds (`stallTriggered`), then starts the readings again, as the
+kernel fires once a window.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

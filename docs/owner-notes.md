@@ -21,6 +21,12 @@ No video. Two throwaway chats on canias7/testingforclaude.
 - **Fixed, on the branch (not live yet),** with Claude Code 2.1.322's own rules, read in its code: a full disk never stops a command from starting. The note comes only after a command that failed, only about the disk of Coder's output folder, and before the command's output. It says "whatever this command printed was lost" when it printed nothing. Your own `!` commands get it too. Claude Code's advice wording, without its setting Coder doesn't have.
 - **Checks:** new tests CD546 and CD547; the full suite on my side: 581 of 581 pass. The Claude Code side cost about a quarter of a cent.
 
+**Low memory.**
+- **Coder's rules match Claude Code's own code:** it stops a background command only when the system reports critical memory stalls, the chat has been idle 30 minutes, nothing is running, and memory is nearly gone (under 10%). The words it uses are Claude Code's too.
+- **Live:** I made memory scarce on a test machine (1.2–1.4 GB of 16 GB left) with a program that holds memory under a cap. But I couldn't keep the stalls "critical" for 30 minutes. Linux frees file cache almost for free, keeps running programs' code in memory, and re-reading a file only stalls at first (8–15% of the time, then 0.4–1.2%; critical is 7.5%). Coder's machines have no swap, so critical stalls only come just before a machine runs out of memory entirely. I didn't push a machine that far. My first try was also stopped by my own test runner's cleanup (my mistake).
+- **One real difference found and fixed (on the branch):** Claude Code asks Linux to signal it when stalls reach 150 ms within any 2 seconds. Coder averaged readings over 5 seconds, so a 160 ms burst never counted. Now Coder takes a reading every half second and checks each 2-second stretch, like Claude Code. Test CD338 updated (that burst now counts); the full suite: 581 of 581 pass.
+- **Not tried in Claude Code itself:** starving memory here would starve the machine I work on.
+
 ## 2026-11-12: The hook at machine sleep is told the mode the same way (your words: "yes fix it, then merge and deploy")
 
 Hooks are told which mode the chat is in. During a message, Accept edits is given as "default", as in Claude Code's cloud. The SessionEnd hook that runs when the machine goes to sleep was given "acceptEdits". Now both use the same rule, so both say "default". If the repository's own settings start chats in Accept edits, both say "acceptEdits", as before.

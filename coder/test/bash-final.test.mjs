@@ -76,11 +76,19 @@ test("CD338 background commands are stopped when memory runs critically low whil
   const job = { project: "shop-mem1", id: "job1", pid: p.pid, log: p.log, command: "sleep 60", desc: "", cwd: dir, at: now - 31 * 60_000, moved: true, deadline: now + 60 * 60_000, box: false, end: null, told: false, stopping: "" };
   S.JOBS.set(p.pid, job);
   try {
+    // (The kernel's trigger as Claude Code 2.1.322 arms it, "some 150000 2000000", read every half second: the live test of
+    // 2026-11-12 found Coder averaging 5-second readings, so a 160 ms burst inside 5 seconds, 3.2% of them, never counted.)
     const reading = (us) => ({ stall: () => us, scarce: () => ({ scarce: true, detail: "test" }) });
+    assert.equal(S.stallTriggered([{ at: 0, us: 0 }, { at: 2000, us: 150_000 }]), true, "150 ms within 2 s");
+    assert.equal(S.stallTriggered([{ at: 0, us: 0 }, { at: 2001, us: 200_000 }]), false, "over a longer stretch");
+    assert.equal(S.stallTriggered([{ at: 0, us: 0 }, { at: 1000, us: 149_999 }]), false);
+    assert.equal(S.stallTriggered([{ at: 0, us: 0 }, { at: 500, us: 10_000 }, { at: 1500, us: 170_000 }, { at: 3000, us: 175_000 }]), false, "the burst is more than 2 s before the newest");
     S.checkJobs(now, reading(5_000_000));
-    S.checkJobs(now + 5000, reading(5_000_000 + 100_000)); // 2% of the time stalled: not critical
+    S.checkJobs(now + 5000, reading(5_000_000 + 100_000)); // 2% of the time stalled, over 5 s: not critical
     assert.equal(job.stopping, "", "not stopped below the line");
-    S.checkJobs(now + 10_000, reading(5_000_000 + 100_000 + 1_000_000)); // 20%: critical
+    for (const [ms, us] of [[5500, 5_100_000 + 20_000], [6000, 5_100_000 + 60_000], [6500, 5_100_000 + 140_000]]) S.samplePressure(now + ms, reading(us));
+    assert.equal(job.stopping, "", "140 ms in 1.5 s: not yet");
+    S.samplePressure(now + 7000, reading(5_100_000 + 160_000)); // 160 ms within 1.5 s: the trigger fires (3.2% of a 5 s reading)
     assert.equal(job.stopping, "memory");
     for (let k = 0; k < 40 && !job.end; k++) await wait(100);
     assert.equal(job.end && job.end.why, "memory");

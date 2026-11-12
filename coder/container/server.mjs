@@ -1003,6 +1003,10 @@ export async function logTail(file, n = BG_OUT_LINES) {
  * CODER_DISABLE_BG_SHELL_PRESSURE_REAP=1 in the environment's variables, kept with each command when it started.
  */
 export const PRESSURE_STALL = 150_000 / 2_000_000, PRESSURE_IDLE_MS = 30 * 60 * 1000, PRESSURE_AGAIN_MS = 30 * 60 * 1000;
+// THE KERNEL'S TRIGGER, AS CLAUDE CODE 2.1.322 ARMS IT ("some 150000 2000000": 150 ms of memory stall within any 2 seconds),
+// read every half second (the live test, 2026-11-12: Coder read it every 5 seconds, so a burst of 150 ms inside 5 seconds,
+// 3% of them, never counted, where the kernel's trigger fires).
+export const PRESSURE_TRIGGER_US = 150_000, PRESSURE_WINDOW_MS = 2_000, PRESSURE_SAMPLE_MS = 500;
 export const SCARCE_SHARE = 0.1, SCARCE_KIB = 4 * 1024 * 1024;
 /** The kernel's memory stall so far ("some", in microseconds), from /proc/pressure/memory; null when it can't be read. */
 export function memoryStallUs(read = () => readFileSync("/proc/pressure/memory", "utf8")) {
@@ -1037,7 +1041,13 @@ export function memoryScarce(read = () => readFileSync("/proc/meminfo", "utf8"))
   if (!(total > 0) || Number.isNaN(avail)) return { scarce: false, detail: "/proc/meminfo unparseable" };
   return { scarce: avail / total < SCARCE_SHARE && avail < SCARCE_KIB, detail: "MemAvailable " + avail + " kB of " + total + " kB; scarce is under 10% and under 4 GiB" };
 }
-const PRESSURE = { at: 0, us: null, reaped: new Map(), said: new Map() };
+const PRESSURE = { samples: [], reaped: new Map(), said: new Map() };
+/** Whether the newest reading is at least 150 ms of stall past one taken at most 2 seconds before it (the kernel's trigger). */
+export function stallTriggered(samples, { thresholdUs = PRESSURE_TRIGGER_US, windowMs = PRESSURE_WINDOW_MS } = {}) {
+  const last = samples[samples.length - 1];
+  if (!last) return false;
+  return samples.some((s) => s.at < last.at && last.at - s.at <= windowMs && last.us - s.us >= thresholdUs);
+}
 /** Why this background command is not stopped for memory now ("" when it is). `idleMs`: how long its chat has had no turn. */
 export function pressureSkip(j, { critical, idleMs, running, lastReap = 0, lastInput = 0, scarce = () => ({ scarce: false }) }) {
   if (j.noReap) return "turned off (CODER_DISABLE_BG_SHELL_PRESSURE_REAP)";
@@ -1049,12 +1059,24 @@ export function pressureSkip(j, { critical, idleMs, running, lastReap = 0, lastI
   if (!m.scarce) return "host memory is not scarce" + (m.detail ? " (" + m.detail + ")" : "");
   return "";
 }
-function checkPressure(now, { stall = memoryStallUs, scarce = memoryScarce } = {}) {
+/**
+ * A MEMORY-STALL READING (every half second on the machine, and with each look at the jobs): while a background command runs,
+ * the kernel's stall total is kept for the last 2 seconds; when the trigger fires (stallTriggered), each background command is
+ * looked at, as Claude Code does on its trigger's event, and the readings start again (the kernel fires at most once a window).
+ */
+export function samplePressure(now = Date.now(), { stall = memoryStallUs, scarce = memoryScarce } = {}) {
   const live = [...JOBS.values()].filter((j) => !j.end && !j.stopping);
-  const us = live.length ? stall() : null;
-  const critical = us !== null && PRESSURE.us !== null && now > PRESSURE.at && (us - PRESSURE.us) / ((now - PRESSURE.at) * 1000) >= PRESSURE_STALL;
-  PRESSURE.at = now; PRESSURE.us = us;
-  if (!critical) return;
+  if (!live.length) { PRESSURE.samples = []; return false; }
+  const us = stall();
+  if (us === null) return false;
+  PRESSURE.samples = PRESSURE.samples.filter((s) => s.at <= now && now - s.at <= PRESSURE_WINDOW_MS + PRESSURE_SAMPLE_MS).concat({ at: now, us });
+  if (!stallTriggered(PRESSURE.samples)) return false;
+  PRESSURE.samples = [{ at: now, us }];
+  reapUnderPressure(now, live, scarce);
+  return true;
+}
+function reapUnderPressure(now, live, scarce) {
+  const critical = true;
   let mem = null;
   for (const j of live) {
     const t = turns.get(j.project);
@@ -1079,7 +1101,7 @@ export function checkJobs(now = Date.now(), memory = {}) {
     if (!groupAlive(j.pid) && !j.stopping) { jobEnded(j.pid, BG_EXITS.has(j.pid) ? BG_EXITS.get(j.pid) : null); continue; }
     try { watchStall(j, now); } catch { /* next look */ }
   }
-  try { checkPressure(now, memory); } catch { /* never costs the look */ }
+  try { samplePressure(now, memory); } catch { /* never costs the look */ }
 }
 /**
  * A PICTURE A COMMAND PRINTED AS A DATA URL (Claude Code: "data:image/…;base64," output comes back as a picture), saved
@@ -3759,6 +3781,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
   if (typeof jobTimer.unref === "function") jobTimer.unref();
+  // (The kernel's memory-stall trigger, read every half second while a background command runs: samplePressure. Only on the
+  // real machine, liveFetch: a test's machine is given its readings.)
+  if (liveFetch) {
+    const pressureTimer = setInterval(() => { try { samplePressure(); } catch { /* next time */ } }, PRESSURE_SAMPLE_MS);
+    if (typeof pressureTimer.unref === "function") pressureTimer.unref();
+  }
   // (A running monitor's lines, every 200 ms: Claude Code's batching, so its limits meet a busy command as they do there. Only
   // on the real machine, liveFetch: a machine made in a test reads its monitors on its own clock.)
   if (liveFetch) {
