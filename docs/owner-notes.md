@@ -19,6 +19,8 @@ Hooks are told which mode the chat is in. During a message, Accept edits is give
 
 **Live, after deploy 152:** a new chat in Accept edits with a hook during the message and a SessionEnd hook. I sent one message and let the machine go to sleep. When it woke for my check (13:08), both hooks had been told `"permission_mode":"default"`. About 5 cents of Grok.
 
+**Also:** on your word ("yes delete them"), I deleted this afternoon's 2 test chats. Their branches on GitHub (`coder/testingforclaude-hkmrty9i`, `coder/testingforclaude-s298zk0f`) are still there.
+
 ## 2026-11-12: The last bash-tool item, tried live: hooks around the automatic summary (your words: "1 do the test")
 
 No video. One new chat on canias7/testingforclaude, with three hooks set in Settings: PreCompact (for "auto"), PostCompact (for "auto") and SessionStart (for "compact"). One message made Coder write a big file, read it whole and print three long texts, so the job passed 450,000 characters.
