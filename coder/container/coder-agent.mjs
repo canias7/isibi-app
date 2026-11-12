@@ -583,6 +583,12 @@ export async function readPage(deps, { model = "", url, prompt, page, now = Date
 /** Gloopy's lines as it works (2026-11-12): one in the chat at most this often; the others in the status line only. */
 export const SAY_EVERY_MS = 20_000;
 
+/** THE OWNER'S SAVED LOGINS FOR A SITE (2026-11-12, the Vault): "www." or not; an older plain list of sites still works. */
+export const savedFor = (list, site) => {
+  const k = (h) => String(h || "").toLowerCase().replace(/^www\./, "");
+  return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
+};
+
 export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
@@ -1185,8 +1191,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // when their settings allow it, or offered on the card ("Use saved login") when they say to ask.
         const args = c.args || {};
         const codeRef = String(args.code_ref || "").trim();
-        const asCode = !!codeRef && !String(args.password_ref || "").trim();
-        emit({ type: "bash", id: c.id, tool: "sign_in", verb: asCode ? "Asked you for a code" : "Asked you to sign in", command: "" });
+        const newRef = String(args.new_password_ref || "").trim();
+        const asCode = !!codeRef && !String(args.password_ref || "").trim() && !newRef;
+        emit({ type: "bash", id: c.id, tool: "sign_in", verb: newRef ? "Made a password" : asCode ? "Asked you for a code" : "Asked you to sign in", command: "" });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
         const hub = deps.browser;
         if (!hub || typeof hub.describe !== "function") { no("error: there is no browser on this computer"); continue; }
@@ -1215,8 +1222,32 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           signinRequest = { id, site, url: field.url || "", codeRef, submitRef, code: true };
           return end("done", { summary: lastSaid || "asked the owner for the code from " + site });
         }
+        // A PASSWORD MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's "if you let a Bot choose the password
+        // when it signs up for a site, Vault generates the password and saves the login, and the Bot never sees it"): made
+        // and kept in the owner's Vault by Coder's service, typed into the new-password field (and its confirm field);
+        // nothing is sent. Never while the owner's settings say never to sign up; the form's button is checked as ever.
+        if (newRef) {
+          if (perms.signup === "deny") { no("not done: the owner's settings say never to sign up for things (Sign up or subscribe: Never). Tell them; don't do it another way."); continue; }
+          if (!hub || typeof hub.makeLogin !== "function") { no("error: a password can't be made on this computer: ask the owner to type one on the sign-in card instead"); continue; }
+          const confirmRef = String(args.confirm_ref || "").trim();
+          let field, conf = null;
+          try { field = await hub.describe(newRef); if (confirmRef) conf = await hub.describe(confirmRef); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
+          if (!field.element || !field.element.password) { no("error: new_password_ref is not a password field: look again and give the number of the form's new password field"); continue; }
+          if (conf && (!conf.element || !conf.element.password)) { no("error: confirm_ref is not a password field: give the field that asks for the password again, or leave it out"); continue; }
+          const site = String(field.frameHost || "");
+          if (!site) { no("error: that password field has no web address of its own (it is in a frame that belongs to no site): open the site's own sign-up page"); continue; }
+          if (conf && conf.frameHost !== site) { no("error: confirm_ref is on another site than the new password field (" + site + "): give the confirm field of the same form"); continue; }
+          const username = plain(scrub(String(args.username || ""))).slice(0, 500);
+          if (!username) { no("error: give username: the email or username the new account uses (what you typed in the form), so the owner's Vault keeps the login under it"); continue; }
+          let r = null;
+          try { r = await hub.makeLogin({ site, username, passRef: newRef, confirmRef, length: Number(args.length) || 20, symbols: args.symbols !== false }); } catch (e) { r = { ok: false, why: String((e && e.message) || e).slice(0, 300) }; }
+          if (!r || !r.ok) { no((r && r.kept ? "error: the password was made and kept in the owner's Vault, but it could not be typed in (" : "not done: no password was made (") + String((r && r.why) || "Gloopy's computer could not do it") + "). Look at the page again."); continue; }
+          emit({ type: "result", id: c.id, code: 0, output: "Made a password for " + site + " (" + username + ") and saved it to your Vault", label: "Made a password for " + site + " and saved it to your Vault" });
+          reply("made a strong password for the new account on " + site + " (" + username + "), kept it in the owner's Vault, and typed it into the new password field" + (confirmRef ? " and its confirm field" : "") + ". You never see it. Nothing is sent yet: finish the form and press its button yourself (that click is checked like any sign-up). Tell the owner you made the account's password and saved it to their Vault.");
+          continue;
+        }
         const passRef = String(args.password_ref || ""), userRef = String(args.username_ref || ""), submitRef = String(args.submit_ref || "");
-        if (!passRef.trim()) { no("error: give password_ref (the page's password field), or code_ref when the site asks for a code it sent the owner"); continue; }
+        if (!passRef.trim()) { no("error: give password_ref (the page's password field), code_ref when the site asks for a code it sent the owner, or new_password_ref when you are creating an account"); continue; }
         let pass, user = null;
         try { pass = await hub.describe(passRef); if (userRef) user = await hub.describe(userRef); if (submitRef) await hub.describe(submitRef); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         if (!pass.element || !pass.element.password) { no("error: password_ref is not a password field: look again and give the number of the page's password field"); continue; }
@@ -1225,11 +1256,16 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (!site) { no("error: that password field has no web address of its own (it is in a frame that belongs to no site), so it can't be filled in: open the site's own sign-in page"); continue; }
         if (user && user.frameHost !== site) { no("error: username_ref is on another site than the password field (" + site + "): give the username field of the same sign-in form"); continue; }
         // A LOGIN THE OWNER SAVED for this site (2026-11-09; Grok Bot's Vault): typed in by Coder's service, with no card,
-        // while the owner's settings allow it; if it does not work, the card as below.
+        // while the owner's settings allow it; if it does not work, the card as below. SEVERAL ACCOUNTS ON ONE SITE
+        // (2026-11-12, Grok Bot's hints): the one Gloopy names (login: its username), or the only one; else the card asks.
+        const mine = savedFor(savedLogins, site);
+        const want = String(args.login || "").trim();
+        const chosen = want ? mine.find((x) => x.username === want || (x.id && x.id === want)) || null : mine.length === 1 ? mine[0] : null;
+        if (want && !chosen) { no("error: no saved login for " + site + " has the username “" + plain(want).slice(0, 200) + "”" + (mine.length ? ": the owner saved " + mine.map((x) => "“" + (x.username || "no username") + "”").join(", ") : ": the owner saved none for this site") + ". Leave login out, and the card lets the owner choose."); continue; }
         let savedFailed = false;
-        if ((Array.isArray(savedLogins) ? savedLogins : []).includes(site) && perms.login === "allow" && typeof hub.signInSaved === "function") {
+        if (chosen && perms.login === "allow" && typeof hub.signInSaved === "function") {
           let s = null;
-          try { s = await hub.signInSaved({ site, userRef, passRef, submitRef }); } catch { s = null; }
+          try { s = await hub.signInSaved({ site, userRef, passRef, submitRef, ...(chosen.id ? { id: chosen.id } : {}) }); } catch { s = null; }
           if (s && s.ok && !s.still) {
             if (!signedIn.includes(site)) signedIn.push(site);
             emit({ type: "result", id: c.id, code: 0, output: "Signed in to " + site + " with your saved login", label: "Signed in to " + site + " with your saved login", saved: true });
@@ -1241,12 +1277,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const id = "si" + Math.random().toString(36).slice(2, 10);
         const { warn, said } = await looked({ url: pass.url, host: pass.host, title: pass.title }, pass);
         // A SAVED LOGIN THE OWNER IS ASKED ABOUT (their setting is Ask; dots always asks before reusing one): "Use saved
-        // login" on the card, when one is kept for this very site and it was not just tried.
-        const offer = !savedFailed && (Array.isArray(savedLogins) ? savedLogins : []).includes(site) && perms.login === "ask";
+        // login" on the card, for each one kept for this very site (the chosen one first; 2026-11-12: several accounts,
+        // also when their setting allows it but Gloopy couldn't tell which), but never the one that was just tried.
+        const offer = perms.login === "deny" || (perms.login === "allow" && chosen && !savedFailed) ? [] : (chosen ? [chosen, ...mine.filter((x) => x !== chosen)] : mine).filter((x) => !(savedFailed && x === chosen)).slice(0, 10);
         emit({ type: "result", id: c.id, code: 0, output: "Asked you to sign in to " + site, label: "Asked you to sign in to " + site });
-        reply("asked the owner to sign in to " + site + " through the private form" + (offer ? " (or to use the login they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + said);
+        reply("asked the owner to sign in to " + site + " through the private form" + (offer.length === 1 ? " (or to use the login they saved for it)" : offer.length ? " (or to use one of the " + offer.length + " logins they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + said);
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to sign in first" });
-        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer ? { saved: true } : {}), ...(warn ? { warn } : {}) });
+        emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer.length ? { saved: offer.map((x) => ({ id: x.id || "", username: x.username || "", ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}) })) } : {}), ...(warn ? { warn } : {}) });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
       } else if (c.name === "pay") {

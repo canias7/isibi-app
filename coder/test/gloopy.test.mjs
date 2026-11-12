@@ -724,8 +724,9 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook'\);/);
   assert.match(ui, /const yes = e\.byRule \|\| !ruleOffered \? 'Allow' : 'Allow once', nay = e\.byRule \? 'Not now' : 'Deny';/);
   assert.match(ui, /<button type="button" class="cd-card-no" data-approve="deny" data-card="' \+ esc\(e\.id\) \+ '">' \+ nay \+ '<\/button>' \+ \(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' \+ esc\(e\.id\) \+ '"[^>]*>Always allow<\/button>'\) \+ '<button type="button" class="cd-card-yes" data-approve="once" data-card="' \+ esc\(e\.id\) \+ '">' \+ yes \+ '<\/button>/);
-  assert.match(ui, /<input id="cdSignPass" class="cd-secret-in" type="password" autocomplete="off">/);
-  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved only if you tick the box below\./);
+  // (Since 2026-11-12, GL131: a field the owner's own browser leaves alone, with an eye; "saved to your Vault".)
+  assert.match(ui, /'<label class="cd-secret-l" for="cdSignPass">Password<\/label>' \+ secretField\('cdSignPass'\)/);
+  assert.match(ui, /What you type goes straight into Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ '\. Gloopy never sees it, and it’s saved to your Vault only if you tick the box below\./);
   assert.match(ui, /<button type="button" class="cd-card-no" data-signin-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button>' \+ take \+ '<button type="button" class="cd-card-yes" data-signin="' \+ esc\(e\.id\) \+ '" disabled>Sign in<\/button>/);
   // Found while writing these: the secret card's handlers are bound by its button classes, so the cards' buttons have
   // their own (a Deny would also have sent "I declined the secret for undefined.").
@@ -1891,7 +1892,8 @@ test("GL47 (2026-11-09) saved logins: kept sealed, only once a sign-in worked an
   const turns = [];
   deps.container = () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns.push(await req.json()); return Response.json({ ok: true }); } });
   await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "check my orders" }) });
-  assert.deepEqual(turns[0].savedLogins, ["shop.example"]);
+  // (Since 2026-11-12, the Vault: each login's id, site and username, and its hint; never a password.)
+  assert.deepEqual(turns[0].savedLogins, [{ id: saved[0].id, site: "shop.example", username: "ana@example.com" }]);
   assert.ok(!JSON.stringify(turns[0]).includes("hunter2"));
   // Gloopy's machine asks for it: only with this running job's own pass, for the one site, while the owner allows it.
   const turnNo = meta().turn;
@@ -1914,12 +1916,15 @@ test("GL47 (2026-11-09) saved logins: kept sealed, only once a sign-in worked an
   const id = saved[0].id;
   assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify({ remove: id }) })).json()).logins, []);
   assert.equal((await go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify({ remove: id }) })).status, 404);
-  // At most 50: the oldest goes. Saving the same site and username again replaces it.
-  for (let i = 0; i < 52; i++) await V.saveLogin(env, bucket, "u1", { site: "s" + i + ".example", username: "u", password: "p" + i });
-  await V.saveLogin(env, bucket, "u1", { site: "s51.example", username: "u", password: "newer" });
+  // At most LOGINS_MAX (1000 since 2026-11-12, a password manager's whole export; it was 50): the oldest goes. Saving the
+  // same site and username again replaces it.
+  assert.equal(V.LOGINS_MAX, 1000);
+  await V.importLogins(env, bucket, "u1", Array.from({ length: V.LOGINS_MAX }, (_, i) => ({ site: "s" + i + ".example", username: "u", password: "p" + i })));
+  await V.saveLogin(env, bucket, "u1", { site: "s1000.example", username: "u", password: "p1000" });
+  await V.saveLogin(env, bucket, "u1", { site: "s999.example", username: "u", password: "newer" });
   const all = await V.readLogins(env, bucket, "u1");
-  assert.equal(all.length, 50);
-  assert.equal(V.loginFor(all, "s51.example").password, "newer");
+  assert.equal(all.length, V.LOGINS_MAX);
+  assert.equal(V.loginFor(all, "s999.example").password, "newer");
   assert.equal(V.loginFor(all, "s0.example"), null);
 });
 
@@ -1968,7 +1973,7 @@ test("GL48 (2026-11-09) in the job loop: a site with a saved login is signed in 
   ({ out } = await run({ ...fakeBrowser({ ...ELS, e7: { ...ELS.e7, frameHost: "" } }), signInSaved: async () => { throw new Error("not used"); } }));
   assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /^error: that password field has no web address of its own/);
   const { gloopyContext } = await import("../container/gloopy-agent.mjs");
-  assert.match(gloopyContext({ memFile: "/m.md", savedLogins: ["shop.example"] }), /SAVED LOGINS \(the owner saved these; sign_in uses one for you, and you never see it\): shop\.example/);
+  assert.match(gloopyContext({ memFile: "/m.md", savedLogins: ["shop.example"] }), /SAVED LOGINS \(in the owner's Vault; sign_in uses one for you, and you never see it; where a site has several, give login: the username that fits the job and their hints\): shop\.example\./);
 });
 
 test("GL49 (2026-11-09) saved logins, for real (where Chromium is installed): you sign in once on the private card and tick Save; next time Gloopy signs in to that site by itself, with no card; the password is never in anything sent to Grok, Gloopy's chat, or kept in plain words", async (t) => {
@@ -2039,7 +2044,7 @@ test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key 
   assert.match(ui, /const box = \(S\.root \|\| document\)\.querySelector\('#cdSecretIn'\)/, "the box in this screen, not Coder's");
   assert.doesNotMatch(ui, /getElementById\('cdSecretIn'\)/);
   assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
-  assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save this login, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/);
+  assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave"> Save to your Vault, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/, "since 2026-11-12: to your Vault");
   assert.match(ui, /save: !!\(keep && keep\.checked\)/);
 });
 
@@ -3145,7 +3150,7 @@ test("GL69 (2026-11-10) the sign-in card, as dots' is: a look first at whether t
   assert.match(signinCheckMessages({ page: { url: "https://a.example/x", host: "a.example", title: "T" }, field: { frameHost: "auth.b.example", element: { formAction: "https://evil.example/collect" } }, reason: "r", convo: [] })[1].content, /\nTHE FIELD IS ON: auth\.b\.example \(a box from that site, framed in the page\)\nTHE FORM SENDS WHAT IS TYPED TO: https:\/\/evil\.example\/collect$/);
   // A saved login, the owner's setting Ask: offered on the card.
   r = await job([call("sign_in", { password_ref: "e7", reason: "x" }, "s1")], { opts: { savedLogins: ["shop.example"], permissions: { login: "ask" } } });
-  assert.equal(r.card.saved, true);
+  assert.deepEqual(r.card.saved, [{ id: "", username: "" }], "since 2026-11-12 (GL129): each saved login for the site");
   assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, /^asked the owner to sign in to shop\.example through the private form \(or to use the login they saved for it\)\./);
   // Always allow: used with no card and no look (it is only ever typed on the very site it was saved for).
   const b = { ...fakeBrowser(C), signInSaved: async (x) => ({ ok: true, still: false, title: "Your orders", url: "https://shop.example/orders", x }) };
@@ -3165,7 +3170,7 @@ test("GL69 (2026-11-10) the sign-in card, as dots' is: a look first at whether t
   r = await job([call("sign_in", { code_ref: "e11", reason: "x" }, "s1")]);
   assert.match(r.out.messages.find((m) => m.tool_call_id === "s1").content, /^error: code_ref is not a field to type a code into/);
   r = await job([call("sign_in", { reason: "x" }, "s1")]);
-  assert.equal(r.out.messages.find((m) => m.tool_call_id === "s1").content, "error: give password_ref (the page's password field), or code_ref when the site asks for a code it sent the owner");
+  assert.equal(r.out.messages.find((m) => m.tool_call_id === "s1").content, "error: give password_ref (the page's password field), code_ref when the site asks for a code it sent the owner, or new_password_ref when you are creating an account");
   assert.deepEqual(r.out.signinRequest, undefined);
 });
 
@@ -3200,7 +3205,7 @@ test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goe
   assert.ok(!r.project.note.includes("shop-pass-456"));
   setMeta({ pending: { kind: "signin", id: "si3", site: "nologin.example", at: Date.now() } });
   r = await answer({ id: "si3", useSaved: true });
-  assert.deepEqual([r.status, (await r.json()).error], [404, "No login is saved for nologin.example any more. Type it instead."]);
+  assert.deepEqual([r.status, (await r.json()).error], [404, "That login isn't saved for nologin.example any more. Type it instead."]);
   await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { login: "deny" } }) });
   setMeta({ pending: { kind: "signin", id: "si4", site: "shop.example", at: Date.now() } });
   r = await answer({ id: "si4", useSaved: true });
@@ -3222,7 +3227,7 @@ test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goe
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /<b class="cd-secret-t">Enter the code for ' \+ site \+ '<\/b>' \+ warn/);
   assert.match(ui, /<input id="cdSignCode" class="cd-secret-in cd-sign-code" type="text" autocomplete="one-time-code"/);
-  assert.match(ui, /data-signin-saved="' \+ esc\(e\.id\) \+ '">Use your saved login' \+ \(mine && mine\.username \? ' · ' \+ esc\(mine\.username\) : ''\) \+ '<\/button>/);
+  assert.match(ui, /data-signin-saved="' \+ esc\(e\.id\) \+ '" data-login="' \+ esc\(l\.id \|\| ''\) \+ '">Use your saved login' \+ \(l\.username \? ' · ' \+ esc\(l\.username\) : ''\) \+ \(l\.hint \? '<small>' \+ esc\(l\.hint\) \+ '<\/small>' : ''\) \+ '<\/button>'/, "since 2026-11-12: one for each saved login, with its hint");
   assert.match(ui, /data-signin-take="' \+ esc\(e\.id\) \+ '"' \+ \(S\.webOK \? '' : ' disabled'\)/);
   assert.match(ui, /if \(box\) box\.value = '';\n      cardAnswer\(id, 'signin', \{ code \}, 'The code could not be sent\.'\);/, "the code leaves its box as it is sent");
   assert.match(ui, /p\.kind === 'signin' && S\.signTake === p\.id \? \{ \.\.\.p, task:/);
@@ -5525,8 +5530,9 @@ test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section
   assert.match(ui, /esc\(GSET_SIGNED_HOW\[x\.how\] \|\| 'Signed in'\) \+ \(x\.at \? ' · ' \+ esc\(gsetWhen\(x\.at\)\) : ''\)/);
   assert.match(ui, /<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet\.<\/p>/);
   assert.match(ui, /data-gs="signout-site"><input id="gsOutHost"/, "any other site too");
-  assert.match(ui, /'<h4 class="cd-gset-sub">Saved logins<\/h4>/);
-  assert.match(ui, /data-gs-forget="' \+ esc\(l\.id\) \+ '"/);
+  // (Since 2026-11-12, GL127: the saved logins are in the Vault's own section, above Browser.)
+  assert.doesNotMatch(ui, /'<h4 class="cd-gset-sub">Saved logins<\/h4>/);
+  assert.match(ui, /        vaultHTML\(\) \+\n        '<section><h3>Browser<\/h3>/);
   // Each through the Worker's routes, the same as the /signins card's; the list as it is after.
   assert.match(ui, /else if \(d\.gsSignout\) signOut\(d\.gsSignout\);/);
   assert.match(ui, /const r = await call\(base \+ '\/signout', \{ method: 'POST', body: JSON\.stringify\(\{ site \}\) \}\);/);
@@ -6479,4 +6485,287 @@ test("GL126 (2026-11-12) nothing in the chat scrolls it sideways (owner: \"fix t
       await page.close();
     }
   } finally { await browser.close(); }
+});
+
+// ── TOOL 2, SIGNING IN: THE FIVE FROM THE DOCS (owner, 2026-11-12: "do all 5 make sure you do similar frontend compare to grok bot") ──
+test("GL127 (2026-11-12) the Vault, as Grok Bot's Settings → Vault: logins added and changed in Settings (website, username, password, hints), brought over from a password manager's export (skipping what's saved, leaving out what can't come in), several accounts on one site, www. or not, up to 1000; the page and Gloopy never get a password; Gloopy's machine gets the one asked for", async () => {
+  const V = await import("../src/gloopy-vault.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { egressPass } = await import("../src/coder-egress.mjs");
+  assert.deepEqual(["github.com", "https://www.GitHub.com/login", "WWW.Amazon.com/orders", "http://192.168.1.1/admin", "android://x@com.app", "ftp://a.example", "", "a b"].map(V.loginSite), ["github.com", "github.com", "amazon.com", "192.168.1.1", "", "", "", ""]);
+  assert.equal(V.cleanHint("  Use\n for   work "), "Use for work");
+  assert.equal(V.cleanHint("x".repeat(500)).length, V.HINT_MAX);
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const machine = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); machine.push({ path: u.pathname, body: req.method === "POST" ? await req.json() : null }); return Response.json(u.pathname === "/turn" ? { ok: true } : { ok: true, still: false, title: "Your account", url: "https://github.com/" }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const logins = (body) => go("projects/" + GLOOPY_ID + "/logins", { method: "POST", body: JSON.stringify(body) });
+  await go("gloopy");
+  // New item → Login (Grok Bot's): the website as an address or a name; its hint; never a password back.
+  let r = await (await logins({ add: { site: "https://www.github.com/login", username: " ana@x.com ", password: "gh-PASS-1", hint: "For my own projects" } })).json();
+  assert.deepEqual(r.logins.map((l) => [l.site, l.username, l.hint, "password" in l]), [["github.com", "ana@x.com", "For my own projects", false]]);
+  r = await (await logins({ add: { site: "github.com", username: "ana@work.com", password: "gh-PASS-2", hint: "Use for work" } })).json();
+  assert.equal(r.logins.length, 2, "a second account on the same site");
+  const [mine, work] = r.logins;
+  assert.deepEqual(await (await logins({ add: { site: "", password: "x" } })).json(), { error: "Type the website, such as github.com." });
+  assert.deepEqual(await (await logins({ add: { site: "a.example", password: "" } })).json(), { error: "Type the password." });
+  // Changed in Settings: an empty password keeps the saved one; a new one replaces it.
+  r = await (await logins({ edit: { id: mine.id, site: "github.com", username: "ana@x.com", hint: "Personal" } })).json();
+  let all = await V.readLogins(env, bucket, "u1");
+  assert.deepEqual(all.filter((l) => l.username === "ana@x.com").map((l) => [l.id, l.hint, l.password]), [[mine.id, "Personal", "gh-PASS-1"]]);
+  await logins({ edit: { id: mine.id, password: "gh-NEW-3" } });
+  all = await V.readLogins(env, bucket, "u1");
+  assert.equal(V.loginFor(all, "github.com", { id: mine.id }).password, "gh-NEW-3");
+  assert.equal((await logins({ edit: { id: "lnope", hint: "x" } })).status, 404);
+  assert.deepEqual(await (await logins({ edit: { id: mine.id, site: "not a site" } })).json(), { error: "Type the website, such as github.com." });
+  // Brought over from an export (Grok Bot's "Import from CSV…"): saved ones skipped, the later of twins, the bad left out.
+  r = await (await logins({ import: [{ site: "github.com", username: "ana@x.com", password: "dup" }, { site: "shop.example", username: "u", password: "s1" }, { site: "shop.example", username: "u", password: "s2" }, { site: "", username: "x", password: "y" }, { site: "news.example", username: "", password: "" }] })).json();
+  assert.deepEqual(r.imported, { added: 1, skipped: 1, bad: 2, over: 0 });
+  all = await V.readLogins(env, bucket, "u1");
+  assert.equal(V.loginFor(all, "shop.example").password, "s2");
+  assert.equal(V.loginFor(all, "github.com", { id: mine.id }).password, "gh-NEW-3", "a saved one isn't overwritten by an import");
+  assert.equal((await logins({ import: Array.from({ length: V.LOGINS_MAX + 1 }, () => ({})) })).status, 400, "more than a Vault holds");
+  // Never in plain words in storage; the page's lists carry hints, never passwords.
+  for (const [k, v] of bucket.m) assert.ok(!/gh-PASS|gh-NEW|"s2"/.test(v), "a password in plain words in " + k);
+  const si = await (await go("projects/" + GLOOPY_ID + "/signins")).json();
+  assert.deepEqual(si.saved.map((l) => [l.site, l.username, l.hint || ""]), [["github.com", "ana@work.com", "Use for work"], ["github.com", "ana@x.com", "Personal"], ["shop.example", "u", ""]]);
+  assert.ok(!JSON.stringify(si).includes("gh-"));
+  // Each message tells Gloopy's machine every login's id, site, username and hint, never a password.
+  await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "check my repos" }) });
+  const turn = machine.find((m) => m.path === "/turn").body;
+  assert.deepEqual(turn.savedLogins.map((l) => [l.id.length > 0, l.site, l.username, l.hint || ""]), [[true, "github.com", "ana@work.com", "Use for work"], [true, "github.com", "ana@x.com", "Personal"], [true, "shop.example", "u", ""]]);
+  assert.ok(!JSON.stringify(turn).includes("gh-"));
+  // Gloopy's machine asks for the one it needs: by id (or username), else the site's newest; "www." or not.
+  const meta = JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json"));
+  const pass = await egressPass(env, "u1/" + GLOOPY_ID, meta.turn);
+  const ask = async (body) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(meta.turn), "x-coder-egress": pass }, body: JSON.stringify(body) }), env, {}, { ...deps, authUser: async () => null });
+  assert.deepEqual(await (await ask({ site: "www.github.com", id: work.id })).json(), { ok: true, username: "ana@work.com", password: "gh-PASS-2" });
+  assert.deepEqual(await (await ask({ site: "github.com", username: "ana@x.com" })).json(), { ok: true, username: "ana@x.com", password: "gh-NEW-3" });
+  assert.equal((await ask({ site: "github.com", id: "lnope" })).status, 404);
+  // A password its computer made for a new account: kept (marked made), not while the owner says never to sign up.
+  assert.equal((await ask({ save: true, site: "new.example", username: "ana@x.com", password: "Made-Pass-123456789" })).status, 200);
+  assert.deepEqual(loginListOf(await V.readLogins(env, bucket, "u1"), "new.example"), [["ana@x.com", true]]);
+  await go("projects/" + GLOOPY_ID + "/permissions", { method: "POST", body: JSON.stringify({ set: { signup: "deny" } }) });
+  assert.equal((await ask({ save: true, site: "other.example", username: "x", password: "Made-Pass-987654321" })).status, 403);
+  // The card's "Use your saved login": the one the owner chose on it.
+  bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ ...meta, status: "idle", waiting: "signin", pending: { kind: "signin", id: "si7", site: "github.com" } }));
+  r = await (await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si7", useSaved: true, login: work.id }) })).json();
+  assert.deepEqual(machine.filter((m) => m.path === "/gloopy/signin").at(-1).body, { project: GLOOPY_ID, id: "si7", username: "ana@work.com", password: "gh-PASS-2" });
+  assert.equal(r.said, "Signed in to github.com with my saved login");
+  // Removed.
+  r = await (await logins({ remove: work.id })).json();
+  assert.ok(!r.logins.some((l) => l.id === work.id));
+});
+const loginListOf = (list, site) => list.filter((l) => l.site === site).map((l) => [l.username, l.made === true]);
+
+test("GL128 (2026-11-12) several accounts on one site (Grok Bot's hints; dots' \"confirm that you want to use it or enter another account\"): Gloopy names the one that fits (login), used with no card when the owner's setting allows it; when it can't tell, or their setting is Ask, the card offers each, with its hint; a name that isn't saved is refused; Gloopy is told each site's usernames and hints, never a password", async () => {
+  const { savedLoginsLine } = await import("../container/gloopy-agent.mjs");
+  const two = [{ id: "l1", site: "shop.example", username: "ana@x.com", hint: "Personal" }, { id: "l2", site: "www.shop.example", username: "ana@work.com", hint: "Use for work" }];
+  const calls = [];
+  const run = async (args, extra = {}, res = { ok: true, still: false, title: "Your account", url: "https://shop.example/account" }) => {
+    const ev = [];
+    const b = { ...fakeBrowser(ELS), signInSaved: async (x) => { calls.push(x); return res; } };
+    const g = scripted([say("", [call("sign_in", { password_ref: "e7", username_ref: "e8", submit_ref: "e9", reason: "To see your orders", ...args }, "s1")]), say("Done.")]);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => ev.push(e) }, { text: "check my work orders", ...GLOOPY, savedLogins: two, ...extra });
+    return { out, ev, said: out.messages.find((m) => m.tool_call_id === "s1").content, card: ev.find((e) => e.type === "signin") };
+  };
+  // Named: used, with no card ("www." or not).
+  let r = await run({ login: "ana@work.com" });
+  assert.deepEqual(calls.at(-1), { site: "shop.example", userRef: "e8", passRef: "e7", submitRef: "e9", id: "l2" });
+  assert.equal(r.card, undefined);
+  assert.match(r.said, /^signed in to shop\.example with the owner's saved login/);
+  // Not named, and two saved: the card offers each, with its hint.
+  const n = calls.length;
+  r = await run({});
+  assert.equal(calls.length, n, "not guessed");
+  assert.deepEqual(r.card.saved, [{ id: "l1", username: "ana@x.com", hint: "Personal" }, { id: "l2", username: "ana@work.com", hint: "Use for work" }]);
+  assert.match(r.said, /^asked the owner to sign in to shop\.example through the private form \(or to use one of the 2 logins they saved for it\)\./);
+  // Ask: the card, Gloopy's pick first.
+  r = await run({ login: "ana@work.com" }, { permissions: { login: "ask" } });
+  assert.deepEqual(r.card.saved.map((l) => l.id), ["l2", "l1"]);
+  // The named one didn't work: the card offers the other, and says so.
+  r = await run({ login: "ana@work.com" }, {}, { ok: true, still: true });
+  assert.deepEqual([r.card.saved.map((l) => l.id), r.card.reason], [["l1"], "Your saved login for shop.example didn't work. To see your orders"]);
+  // A name that isn't saved: refused, saying which are.
+  r = await run({ login: "bob@x.com" });
+  assert.equal(r.said, "error: no saved login for shop.example has the username “bob@x.com”: the owner saved “ana@x.com”, “ana@work.com”. Leave login out, and the card lets the owner choose.");
+  // Never: none offered.
+  r = await run({}, { permissions: { login: "deny" } });
+  assert.equal(r.card.saved, undefined);
+  // What Gloopy is told: usernames and hints where there is a choice; a big Vault cut short.
+  assert.equal(savedLoginsLine(two), "shop.example (ana@x.com: “Personal”; ana@work.com: “Use for work”).");
+  assert.equal(savedLoginsLine([]), "none.");
+  const many = Array.from({ length: 200 }, (_, i) => ({ id: "x" + i, site: "s" + i + ".example", username: "u" }));
+  assert.match(savedLoginsLine([...two, ...many]), /^shop\.example \(ana@x\.com: “Personal”; ana@work\.com: “Use for work”\), s121\.example, .*, s199\.example, and 121 more sites \(sign_in finds a site's own\)\.$/);
+  assert.match(GLOOPY_TOOLS.find((t) => t.function.name === "sign_in").function.description, /When the owner saved several logins for the site \(SAVED LOGINS lists their usernames and hints\), give login: the username that fits the job and their hints; leave it out when you can't tell, and the card offers each\./);
+});
+
+test("GL129 (2026-11-12) a password made for a new account (Grok Bot's \"Vault generates the password and saves the login, and the Bot never sees it\"): made on Gloopy's machine, kept in the owner's Vault first, typed into the new-password field and its confirm field, nothing sent; never while Sign up is Never; Gloopy and Grok never see it", async (t) => {
+  const { makePassword, PASSWORD_SYMBOLS } = await import("../container/server.mjs");
+  // Strong, each kind of character, the site's rules followed.
+  const ps = Array.from({ length: 50 }, () => makePassword());
+  assert.equal(new Set(ps).size, 50);
+  for (const p of ps) { assert.equal(p.length, 20); assert.match(p, /[a-z]/); assert.match(p, /[A-Z]/); assert.match(p, /[2-9]/); assert.ok([...p].some((c) => PASSWORD_SYMBOLS.includes(c)), p); }
+  assert.doesNotMatch(makePassword({ length: 14, symbols: false }), /[^A-Za-z0-9]/);
+  assert.deepEqual([makePassword({ length: 3 }).length, makePassword({ length: 500 }).length, makePassword({ length: 14, symbols: false }).length], [12, 64, 14]);
+  // In the job loop.
+  const els = { ...ELS, e11: { name: "Confirm password", tag: "input", type: "password", password: true } };
+  const made = [];
+  const run = async (args, extra = {}, res = { ok: true, id: "l9", title: "Create account", url: "https://shop.example/signup" }) => {
+    const ev = [];
+    const b = { ...fakeBrowser(els), makeLogin: async (x) => { made.push(x); return res; } };
+    const g = scripted([say("", [call("sign_in", { new_password_ref: "e7", confirm_ref: "e11", username: "ana@x.com", reason: "Creating your shop account", ...args }, "s1")]), say("Done.")]);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => ev.push(e) }, { text: "make me an account on the shop", ...GLOOPY, ...extra });
+    return { out, ev, said: out.messages.find((m) => m.tool_call_id === "s1").content, g };
+  };
+  let r = await run({});
+  assert.deepEqual(made.at(-1), { site: "shop.example", username: "ana@x.com", passRef: "e7", confirmRef: "e11", length: 20, symbols: true });
+  assert.equal(r.said, "made a strong password for the new account on shop.example (ana@x.com), kept it in the owner's Vault, and typed it into the new password field and its confirm field. You never see it. Nothing is sent yet: finish the form and press its button yourself (that click is checked like any sign-up). Tell the owner you made the account's password and saved it to their Vault.");
+  assert.equal(r.out.signinRequest, undefined, "no card: Gloopy goes on");
+  assert.equal(r.g.seen.length, 2);
+  assert.equal(r.ev.find((e) => e.type === "bash" && e.id === "s1").verb, "Made a password");
+  assert.equal(r.ev.find((e) => e.type === "result" && e.id === "s1").label, "Made a password for shop.example and saved it to your Vault");
+  r = await run({ length: 14, symbols: false, confirm_ref: undefined });
+  assert.deepEqual([made.at(-1).length, made.at(-1).symbols, made.at(-1).confirmRef], [14, false, ""]);
+  const before = made.length;
+  r = await run({}, { permissions: { signup: "deny" } });
+  assert.equal(r.said, "not done: the owner's settings say never to sign up for things (Sign up or subscribe: Never). Tell them; don't do it another way.");
+  r = await run({ new_password_ref: "e8" });
+  assert.match(r.said, /^error: new_password_ref is not a password field/);
+  r = await run({ username: "" });
+  assert.match(r.said, /^error: give username: the email or username the new account uses/);
+  assert.equal(made.length, before, "none made for those");
+  r = await run({}, {}, { ok: false, kept: true, why: "the confirm field is not on the same site as the password field, so nothing was typed" });
+  assert.equal(r.said, "error: the password was made and kept in the owner's Vault, but it could not be typed in (the confirm field is not on the same site as the password field, so nothing was typed). Look at the page again.");
+  // For real (where Chromium is installed): a sign-up page; the site gets the same password twice, the Vault keeps it,
+  // and nothing sent to Grok holds it.
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const V = await import("../src/gloopy-vault.mjs");
+  const { createApp } = await import("../container/server.mjs");
+  let got = "";
+  const site = http.createServer((req, res) => {
+    if (req.method === "POST") { let b = ""; req.on("data", (c) => { b += c; }); req.on("end", () => { got = b; res.writeHead(302, { location: "/welcome" }); res.end(); }); return; }
+    res.setHeader("content-type", "text/html");
+    res.end(req.url === "/welcome" ? "<title>Welcome</title><h1>Welcome</h1>" : '<title>Create account</title><h1>Create account</h1><form method=post action=/register><label>Email <input name=email></label><label>Password <input type=password name=p></label><label>Confirm password <input type=password name=c></label><button>Create account</button></form>');
+  });
+  const siteBase = await listen(site), host = new URL(siteBase).host;
+  const browserRoot = join(await mkdtemp(join(tmpdir(), "gl-mp-")), "browser");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl-mpw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-mpg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-mpm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-mpb-")) };
+  const seen = [];
+  const lastTool = (req) => String(req.messages.filter((m) => m.role === "tool").at(-1).content);
+  const steps = [
+    () => say("", [call("browser", { action: "open", url: siteBase + "/" }, "o1")]),
+    (req) => say("", [call("browser", { action: "type", ref: refOf(lastTool(req), /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), text: "ana@example.com" }, "t1")]),
+    (req) => { const o = lastTool(req); return say("", [call("sign_in", { new_password_ref: refOf(o, /textbox "Password" \[ref=([a-z0-9]+)\]/), confirm_ref: refOf(o, /textbox "Confirm password" \[ref=([a-z0-9]+)\]/), username: "ana@example.com", reason: "Creating your account" }, "m1")]); },
+    (req) => say("", [call("browser", { action: "look" }, "l1")]),
+    (req) => say("", [call("browser", { action: "click", ref: refOf(lastTool(req), /button "Create account" \[ref=([a-z0-9]+)\]/) }, "c1")]),
+    () => say("Your account is made; its password is in your Vault."),
+  ];
+  let n = 0;
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket, CODER_PUBLIC_URL: "https://gofarther.example" };
+  let deps;
+  const vaultFetch = (url, init) => handleCoder(new Request(url, init), env, {}, { ...deps, authUser: async () => null });
+  const srv = http.createServer(createApp({ ...roots, env: { ...process.env, CODER_IMAGE: "full" }, browserRoot, vaultFetch, send: async (req) => {
+    if (String(req.messages[0].content).startsWith(CHECK_SYSTEM)) return { message: { role: "assistant", content: '{"kind":"signup","decision":"allow","rule":"","asked":true,"why":"You asked for the account."}' }, usage: { in: 1, out: 1 } };
+    seen.push(req); return steps[Math.min(n++, steps.length - 1)](req);
+  } }));
+  await new Promise((r2) => srv.listen(0, r2));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: (req) => fetch(base + new URL(req.url).pathname + new URL(req.url).search, { method: req.method, headers: req.headers, body: req.method === "POST" ? req.body : undefined, duplex: "half" }) }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  try {
+    await go("gloopy");
+    const res = await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Make me an account on the shop with ana@example.com" }) });
+    assert.equal(res.status, 200, await res.clone().text());
+    let st;
+    for (let i = 0; i < 900; i++) { st = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json(); if (!st.running) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    const form = new URLSearchParams(got);
+    assert.equal(form.get("email"), "ana@example.com");
+    const pw = form.get("p");
+    assert.equal(pw.length, 20);
+    assert.equal(form.get("c"), pw, "the confirm field got the same");
+    const kept = await V.readLogins(env, bucket, "u1");
+    assert.deepEqual(kept.map((l) => [l.site, l.username, l.password === pw, l.made === true]), [[host, "ana@example.com", true, true]]);
+    for (const req of seen) assert.ok(!JSON.stringify(req).includes(pw), "the password went to Grok");
+    const events = JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json"));
+    assert.ok(!JSON.stringify(events).includes(pw), "the password is in Gloopy's chat");
+    assert.ok(events.some((e) => e.type === "result" && e.label === "Made a password for " + host + " and saved it to your Vault"));
+  } finally { srv.close(); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]); }
+});
+
+test("GL130 (2026-11-12) on the page: the sign-in card offers each saved login with its hint; its fields are ones the owner's own browser leaves alone (found live: Chrome said a password typed on the card \"was found in a data breach\"), with Grok Bot's eye; the Vault in Settings, as Grok Bot's (New item: a login or a file; Search Vault; Edit, Remove for good?; its note); an export read on the device, in each password manager's layout", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  // The card.
+  assert.ok(ui.includes("const choices = Array.isArray(e.saved) ? e.saved.filter((l) => l && typeof l === 'object').slice(0, 10)"));
+  assert.ok(ui.includes("cardAnswer(id, 'signin', { useSaved: true, ...(login ? { login } : {}) }, 'Your saved login could not be used.')"));
+  assert.ok(ui.includes("const MASKS = typeof CSS !== 'undefined' && typeof CSS.supports === 'function' && CSS.supports('-webkit-text-security', 'disc');"));
+  assert.ok(ui.includes(`const PM_OFF = ' autocomplete="off" autocapitalize="off" autocorrect="off" spellcheck="false" data-1p-ignore="true" data-lpignore="true" data-bwignore="true" data-form-type="other"';`));
+  assert.ok(ui.includes(`<input id="cdSignUser" class="cd-secret-in" type="text" name="gf-private-user"' + PM_OFF + '>'`));
+  assert.match(css, /\.cd-secret-in\.is-masked\{-webkit-text-security:disc\}/);
+  assert.doesNotMatch(ui, /id="cdSignPass"[^>]*type="password"/, "not a password box where browsers can mask text");
+  // The Vault: its parts, as Grok Bot's.
+  for (const bit of ["<h3>Vault</h3>", ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import logins from a file…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
+  assert.ok(ui.includes("// The password leaves the box as it is sent: it is never kept in this page's state.\n        if (box2) box2.value = '';"));
+  assert.ok(ui.includes("// The export's passwords leave this page's memory.\n        st.vault.imp = null;"));
+  assert.match(css, /\.cd-gset button\.cd-vault-newbtn\{[^}]*background:#1f1e1d;color:#fff;border-radius:999px/);
+  // An export, read here: each app's layout.
+  const part = (from, to) => ui.slice(ui.indexOf(from), ui.indexOf(to, ui.indexOf(from)));
+  const loginsFromCsv = new Function(part("  function csvRows(", "  function loginsFromCsv(") + part("  function loginsFromCsv(", "  function hoScreen(") + "return loginsFromCsv;")();
+  const rows = (csv, saved = []) => loginsFromCsv(csv, saved).rows.map((r) => [r.site, r.username, r.status, r.password]);
+  assert.deepEqual(rows("name,url,username,password,note\nGitHub,https://github.com/login,ana@x.com,pw-1,\n"), [["github.com", "ana@x.com", "Ready", "pw-1"]], "Chrome and Edge");
+  assert.deepEqual(rows('"url","username","password","httpRealm","formActionOrigin","guid","timeCreated","timeLastUsed","timePasswordChanged"\n"https://www.amazon.com","ana","p,w ""2""","","https://www.amazon.com","{1}","1","1","1"\n'), [["amazon.com", "ana", "Ready", 'p,w "2"']], "Firefox, with a comma and quotes in a password");
+  assert.deepEqual(rows("Title,URL,Username,Password,Notes,OTPAuth\nShop,https://shop.example/,ana,pw-3,\"two\nlines\",\n"), [["shop.example", "ana", "Ready", "pw-3"]], "Safari and Apple Passwords, a note on two lines");
+  assert.deepEqual(rows("folder,favorite,type,name,notes,fields,reprompt,login_uri,login_username,login_password,login_totp\n,,login,Bank,,,0,https://bank.example,ana,pw-4,\n,,note,A note,secret stuff,,0,,,,\n"), [["bank.example", "ana", "Ready", "pw-4"]], "Bitwarden, its notes left out");
+  assert.deepEqual(rows("url,username,password,totp,extra,name,grouping,fav\nhttps://mail.example,ana,pw-5,,,Mail,,0\nhttp://sn,,,,NoteType:Credit Card,Card,,0\n"), [["mail.example", "ana", "Ready", "pw-5"], ["http://sn", "", "Not a website", ""]], "LastPass, its notes (http://sn) left out");
+  assert.deepEqual(rows("Title,Url,Username,Password,OTPAuth,Favorite,Archived,Tags,Notes\nNews,https://news.example,ana,pw-6,,false,false,,\n"), [["news.example", "ana", "Ready", "pw-6"]], "1Password");
+  // What can't come in, and what is skipped.
+  assert.deepEqual(rows("url,username,password\nhttp://old.example,a,p\n,b,p\nhttps://x.example,c,\nandroid://abc@com.app,d,p\nhttps://github.com,ana@x.com,p\nhttps://shop.example,e,p1\nhttps://www.shop.example,e,p2\n", [{ site: "github.com", username: "ana@x.com" }]),
+    [["http://old.example", "a", "Not a secure (https) website", ""], ["(no website)", "b", "No website", ""], ["x.example", "c", "No password", ""], ["android://abc@com.app", "d", "Not a website", ""], ["github.com", "ana@x.com", "Already in your Vault", ""], ["shop.example", "e", "Ready", "p1"], ["shop.example", "e", "Twice in the file", ""]]);
+  assert.deepEqual(loginsFromCsv("a,b\n1,2\n", []), { error: "That doesn’t look like a passwords export: it needs a website (url) column and a password column." });
+  assert.deepEqual(loginsFromCsv("url,password\n", []), { error: "That file has no logins in it." });
+  // For real (where Chromium is installed): the card's password box is plain text drawn as dots; the eye shows it.
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage();
+    // Drawn in the browser itself (where CSS.supports says whether it can mask text), from the page's own code.
+    const src = part("  const MASKS = ", "\n") + "\n" + part("  const PM_OFF = ", "\n") + "\n" + part("  function secretField(", "\n  }\n") + "\n  }\nreturn secretField;";
+    await page.setContent('<style>' + css + '</style><div id="x"></div>');
+    await page.evaluate((code) => { document.getElementById("x").innerHTML = new Function("esc", "ICON", code)((v) => String(v), { eye: "o" })("cdSignPass"); }, src);
+    await page.fill("#cdSignPass", "hunter2-SECRET");
+    const m = await page.evaluate(() => { const i = document.getElementById("cdSignPass"); return { type: i.type, mask: getComputedStyle(i).webkitTextSecurity, value: i.value, ignore: i.getAttribute("data-1p-ignore") + i.getAttribute("data-lpignore") + i.getAttribute("data-bwignore"), auto: i.autocomplete }; });
+    assert.deepEqual(m, { type: "text", mask: "disc", value: "hunter2-SECRET", ignore: "truetruetrue", auto: "off" });
+  } finally { await browser.close(); }
+});
+
+test("GL131 (2026-11-12) a password this service typed (the owner's, or one made for a new account) is blanked from everything Gloopy reads, even once a page's \"show password\" turns its field into plain text", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const html = '<title>Join</title><label>Email <input name=e></label><label>Password <input id=p type=password name=p></label><label>Confirm password <input id=c type=password name=c></label><button type=button onclick="document.getElementById(\'p\').type=\'text\';document.getElementById(\'c\').type=\'text\'">Show password</button>';
+  const site = http.createServer((q, s) => { s.setHeader("content-type", "text/html"); s.end(html); });
+  const base = await listen(site), host = new URL(base).host;
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-tp-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  const pw = "Zq7!made-Password-42";
+  try {
+    let a = await hub.act({ action: "open", url: base + "/" });
+    const p = refOf(a.text, /textbox "Password" \[ref=([a-z0-9]+)\]/), c = refOf(a.text, /textbox "Confirm password" \[ref=([a-z0-9]+)\]/);
+    await assert.rejects(hub.fillNew({ site: "other.example", passRef: p, confirmRef: c, password: pw }), /the password field is not on other\.example/);
+    await assert.rejects(hub.fillNew({ site: host, passRef: p, confirmRef: refOf(a.text, /- generic \[ref=([a-z0-9]+)\]:\n\s+- text: Email/), password: pw }), /the confirm field is not a password field/);
+    const r = await hub.fillNew({ site: host, passRef: p, confirmRef: c, password: pw });
+    assert.equal(r.ok, true);
+    a = await hub.act({ action: "look" });
+    a = await hub.act({ action: "click", ref: refOf(a.text, /button "Show password" \[ref=([a-z0-9]+)\]/) });
+    assert.ok(!a.text.includes(pw), "shown as text, still blanked");
+    assert.match(a.text, /••••••/);
+  } finally { await hub.closeLanes().catch(() => {}); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
 });

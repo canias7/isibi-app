@@ -266,6 +266,14 @@
 .cd-secret-l{display:block;text-align:left;font-size:13px;color:#6b6a66;margin:0 0 6px 4px}
 .cd-secret-in{width:100%;box-sizing:border-box;font:inherit;font-size:15px;border:1px solid #d9d6cf;border-radius:999px;padding:11px 16px;background:#fff;color:#1f1e1d;outline:none}
 .cd-secret-in:focus{border-color:#1f1e1d}
+/* A field your own browser leaves alone (2026-11-12): typed text drawn as dots, with an eye to show it (Grok Bot's form). */
+.cd-secret-pw{position:relative;display:block}
+.cd-secret-pw .cd-secret-in{padding-right:46px}
+.cd-secret-in.is-masked{-webkit-text-security:disc}
+.cd-secret-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:inline-grid;place-items:center;width:32px;height:32px;border:0;border-radius:999px;background:none;color:#8a8984;cursor:pointer}
+.cd-secret-eye:hover{background:#f1efea;color:#1f1e1d}
+.cd-secret-eye[aria-pressed="true"]{color:#1f1e1d}
+.cd-sign-saved small{display:block;font-size:12px;font-weight:400;opacity:.75;margin-top:2px}
 .cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
 .cd-secret-btns{display:flex;gap:10px;margin-top:16px}
 /* The live screen in a hand-off card (2026-11-12, Grok Bot's card shows its screen). */
@@ -735,3 +743,51 @@
 .cd-web-cmd{align-items:center;background:#0b1220;border-top:1px solid #1e293b}
 .cd-web-cmd .cd-web-in{background:#0f172a;color:#e2e8f0;border-color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
 .cd-web-cmd .cd-web-in:focus{border-color:#34d399}
+
+/* THE VAULT (2026-11-12, owner: "do all 5 make sure you do similar frontend compare to grok bot"; Grok Bot's Settings →
+   Vault): its title with a dark "New item" button and its menu, a tab row with Search Vault, the logins, a form to add
+   or change one, an export's review, and the note under it. */
+.cd-vault-head{display:flex;align-items:center;gap:10px;margin:0 0 10px}
+.cd-vault-head h3{margin:0}
+.cd-vault-new{position:relative;margin-left:auto}
+.cd-gset button.cd-vault-newbtn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;border:0;background:#1f1e1d;color:#fff;border-radius:999px;padding:7px 13px;cursor:pointer}
+.cd-vault-newbtn svg{transform:rotate(90deg)}
+.cd-vault-newbtn:disabled{opacity:.6;cursor:default}
+.cd-vault-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;display:flex;flex-direction:column;min-width:240px;padding:6px;background:#fff;border:1px solid #e6e2db;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,32,.12)}
+.cd-gset .cd-vault-menu button{display:flex;align-items:center;gap:9px;font:inherit;font-size:13.5px;font-weight:500;text-align:left;border:0;background:none;color:#1f1e1d;border-radius:8px;padding:8px 10px;cursor:pointer}
+.cd-gset .cd-vault-menu button:hover{background:#f4f2ee}
+.cd-vault-menu svg{color:#6b6a68;flex:none}
+.cd-vault-bar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.cd-vault-tab{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#4b4a46;border-radius:999px;padding:5px 11px}
+.cd-vault-tab.is-on{background:#f1efea;color:#1f1e1d;font-weight:600}
+.cd-vault-tab i{font-style:normal;color:#8a857d;font-weight:500}
+.cd-vault-q{margin-left:auto;width:min(220px,50%);box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #e3e0d9;border-radius:999px;padding:7px 12px 7px 32px;color:#1f1e1d;background:#faf9f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a857d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px 50%}
+.cd-vault-q:focus{outline:none;border-color:#1f1e1d;background-color:#fff}
+.cd-vault-list .cd-vault-item{align-items:flex-start}
+.cd-vault-ic{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:#f1efea;color:#4b4a46}
+.cd-vault-hint{font-style:italic}
+.cd-vault-made{color:#0f766e}
+.cd-vault-item.is-open{display:block}
+.cd-vault-form{display:flex;flex-direction:column;gap:6px;margin:0 0 12px;padding:14px;border:1px solid #e6e2db;border-radius:14px;background:#faf9f7}
+.cd-vault-form .cd-gset-l small{font-weight:400;color:#8a857d}
+.cd-vault-form .cd-secret-pw .cd-secret-in{font-size:14px;border-radius:10px;padding:8px 46px 8px 11px}
+.cd-vault-btns{margin-top:6px}
+.cd-vault-sp{flex:1}
+.cd-gset .cd-vault-btns button.cd-gset-go{margin-left:0}
+.cd-gset .cd-vault-btns .cd-vault-rm{color:#b42318;border-color:#f1c7c2}
+.cd-vault-impt{font-size:14px;color:#1f1e1d}
+.cd-vault-imp .cd-gset-hint{margin:0 0 6px}
+.cd-gset .cd-vault-file{position:relative;align-self:flex-start;display:inline-flex;align-items:center;font-size:13px;font-weight:600;background:#1f1e1d;color:#fff;border-radius:999px;padding:7px 14px;cursor:pointer}
+.cd-vault-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.cd-vault-sum{margin:2px 0 6px;font-size:13px;color:#4b4a46;overflow-wrap:anywhere}
+.cd-vault-review{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid #ece9e3;border-radius:10px;background:#fff}
+.cd-vault-review li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-top:1px solid #f4f2ee;font-size:13px}
+.cd-vault-review li:first-child{border-top:0}
+.cd-vault-review li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.cd-vault-review li b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500;font-size:12.5px}
+.cd-vault-review li small{display:block;color:#8a857d}
+.cd-vault-review li em{flex:none;font-style:normal;font-size:12px;color:#8a857d}
+.cd-vault-review li.is-ok em{color:#11845b;font-weight:600}
+.cd-vault-review li.is-skip{opacity:.75}
+.cd-vault-empty{text-align:center;padding:14px 0}
+.cd-vault-foot{margin:4px 0 12px;font-size:12px;line-height:1.45;color:#8a857d}

@@ -48,7 +48,7 @@ import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, wr
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught, cleanSites, siteHost, SITE_MODES, SITE_WORDS, SITES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
-import { readLogins, saveLogin, removeLogin, loginList, loginSites, loginFor, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
+import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -1528,7 +1528,7 @@ async function gloopyMessage(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginSites(await readLogins(env, bucket, uid)), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginList(await readLogins(env, bucket, uid)).map(({ at, ...x }) => x), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1907,8 +1907,9 @@ async function gloopyCard(g, action) {
     // "USE SAVED LOGIN" ON THE CARD (the audit, 2026-11-10; dots asks before reusing a saved login): the one kept for this
     // very site, from the vault straight to Gloopy's machine, while the owner's settings don't turn saved logins off.
     if ((await readPermissions(bucket, uid)).login === "deny") return json({ error: "Saved logins are turned off in Gloopy's settings." }, 403);
-    const login = loginFor(await readLogins(env, bucket, uid), p.site);
-    if (!login) return json({ error: "No login is saved for " + site + " any more. Type it instead." }, 404);
+    // The one the owner chose on the card (several accounts on one site, 2026-11-12), or the site's newest.
+    const login = loginFor(await readLogins(env, bucket, uid), p.site, typeof body.login === "string" && body.login ? { id: body.login } : {});
+    if (!login) return json({ error: "That login isn't saved for " + site + " any more. Type it instead." }, 404);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password }).then((x) => x.json()); } catch { r = null; }
     if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "saved");
@@ -2277,24 +2278,60 @@ async function gloopyVaultAsk(request, env, bucket) {
   const no = () => json({ error: "not allowed" }, 403);
   const uid = await gloopyJob(request, env, bucket);
   if (!uid) return no();
-  if ((await readPermissions(bucket, uid)).login !== "allow") return no();
   let body = {}; try { body = await request.json(); } catch { body = {}; }
-  const it = loginFor(await readLogins(env, bucket, uid), body.site);
+  const perms = await readPermissions(bucket, uid);
+  // A PASSWORD GLOOPY'S COMPUTER MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's "Vault generates the
+  // password and saves the login, and the Bot never sees it"): kept before it is typed in, so it is never lost; not while
+  // the owner's settings say never to sign up.
+  if (body.save === true) {
+    if (perms.signup === "deny") return no();
+    const item = await saveLogin(env, bucket, uid, { site: body.site, username: body.username, password: body.password, made: true });
+    return item ? json({ ok: true, id: item.id }) : json({ error: "that login could not be kept" }, 400);
+  }
+  if (perms.login !== "allow") return no();
+  const pick = typeof body.id === "string" && body.id ? { id: body.id } : typeof body.username === "string" && body.username ? { username: body.username } : {};
+  const it = loginFor(await readLogins(env, bucket, uid), body.site, pick);
   return it ? json({ ok: true, username: it.username, password: it.password }) : json({ error: "no login is saved for that site" }, 404);
 }
 
 /**
- * GLOOPY'S SAVED LOGINS, FOR THE SETTINGS SCREEN (2026-11-09): GET lists them (site and username, never a password);
- * POST { remove: id } takes one away.
+ * GLOOPY'S SAVED LOGINS, FOR THE SETTINGS SCREEN (2026-11-09): GET lists them (site, username and hint, never a
+ * password); POST { remove: id } takes one away. THE VAULT (owner, 2026-11-12: "do all 5 make sure you do similar
+ * frontend compare to grok bot"; Grok Bot's Settings → Vault): POST { add: { site, username, password, hint } } (its
+ * "New item → Login"), { edit: { id, site?, username?, password?, hint? } } (an empty password keeps the saved one), and
+ * { import: [{ site, username, password }] } (its "Import from CSV…": the file is read on the owner's device).
  */
 async function gloopyLogins(g) {
   const { request, env, bucket, uid } = g;
-  if (request.method === "GET") return json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)) });
+  const list = async (extra = {}) => json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)), ...extra });
+  if (request.method === "GET") return list();
   if (request.method !== "POST") return json({ error: "Gloopy has no logins " + request.method }, 400);
   let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (body.add && typeof body.add === "object") {
+    const a = body.add;
+    if (!loginSiteOk(a.site)) return json({ error: "Type the website, such as github.com." }, 400);
+    if (typeof a.password !== "string" || !a.password) return json({ error: "Type the password." }, 400);
+    if (a.password.length > 1000) return json({ error: "That password is too long (at most 1000 characters)." }, 400);
+    // Full: a login that would replace one (the same site and username) still goes in; a new one doesn't push one out.
+    const all = await readLogins(env, bucket, uid), s0 = loginSite(a.site), u0 = String(a.username == null ? "" : a.username).trim();
+    if (all.length >= LOGINS_MAX && !all.some((x) => loginSite(x.site) === s0 && x.username === u0)) return json({ error: "The Vault is full (" + LOGINS_MAX + " logins). Remove one first." }, 400);
+    const item = await saveLogin(env, bucket, uid, { site: a.site, username: a.username, password: a.password, hint: typeof a.hint === "string" ? a.hint : "" });
+    return item ? list({ id: item.id }) : json({ error: "That login could not be saved." }, 400);
+  }
+  if (body.edit && typeof body.edit === "object" && typeof body.edit.id === "string") {
+    const { id, ...change } = body.edit;
+    const r = await editLogin(env, bucket, uid, id, change);
+    return r.error ? json({ error: r.error }, r.error.startsWith("No saved login") ? 404 : 400) : list({ id: r.item.id });
+  }
+  if (Array.isArray(body.import)) {
+    if (body.import.length > LOGINS_MAX) return json({ error: "That file has more than " + LOGINS_MAX + " logins: import part of it at a time." }, 400);
+    const r = await importLogins(env, bucket, uid, body.import);
+    return list({ imported: r });
+  }
   if (typeof body.remove !== "string" || !(await removeLogin(env, bucket, uid, body.remove))) return json({ error: "No saved login has that id." }, 404);
-  return json({ ok: true, logins: loginList(await readLogins(env, bucket, uid)) });
+  return list();
 }
+const loginSiteOk = (raw) => !!loginSite(raw);
 
 /**
  * A CALL TO ONE OF GLOOPY'S WEBHOOKS (2026-11-09: "2"; Grok Bot's "Send an HTTP POST to that URL with the header", "a

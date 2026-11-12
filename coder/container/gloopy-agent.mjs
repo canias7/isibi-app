@@ -38,13 +38,19 @@ export const BROWSER_TOOL = Object.freeze({ type: "function", function: {
  */
 export const SIGN_IN_TOOL = Object.freeze({ type: "function", function: {
   name: "sign_in",
-  description: "Ask the owner to sign in to the site open in your browser, through a private form: they type their username and password on a card (or use a login they saved, or take over your browser), and it goes straight into the page's fields (you never see it). Give the numbers of the page's password field, of its username or email field (when there is one on this page) and of its sign-in button (when there is one), from the latest outline, and one sentence on why you need to sign in. When the site asks for a code it sent the owner (by text message, email or an app), give code_ref (the code field) instead of password_ref: they type the code on the card the same way. Your turn ends here; the next message says how it went. Use it only when the job needs the owner's account on that site. Never ask for passwords or codes in the chat.",
+  description: "Ask the owner to sign in to the site open in your browser, through a private form: they type their username and password on a card (or use a login they saved, or take over your browser), and it goes straight into the page's fields (you never see it). Give the numbers of the page's password field, of its username or email field (when there is one on this page) and of its sign-in button (when there is one), from the latest outline, and one sentence on why you need to sign in. When the site asks for a code it sent the owner (by text message, email or an app), give code_ref (the code field) instead of password_ref: they type the code on the card the same way. Your turn ends here; the next message says how it went. Use it only when the job needs the owner's account on that site. Never ask for passwords or codes in the chat. When the owner saved several logins for the site (SAVED LOGINS lists their usernames and hints), give login: the username that fits the job and their hints; leave it out when you can't tell, and the card offers each. CREATING AN ACCOUNT the owner asked for: when the form wants a new password, give new_password_ref (and confirm_ref when it asks for it twice) with username (the email or username you typed for the account), instead of password_ref: a strong password is made, kept in the owner's Vault and typed in, and you never see it; nothing is sent, so finish the form and press its button yourself (checked like any sign-up). length and symbols follow the site's password rules.",
   parameters: { type: "object", properties: {
     password_ref: { type: "string", description: "the password field's number, e.g. e7" },
     username_ref: { type: "string", description: "the username or email field's number, when the page has one" },
     code_ref: { type: "string", description: "instead of password_ref, when the site asks for a code it sent the owner: the code field's number (for a code in one box per digit, the first box)" },
     submit_ref: { type: "string", description: "the sign-in (or code) button's number, when the page has one (otherwise Enter is pressed)" },
     reason: { type: "string", description: "one sentence: why you need to sign in" },
+    login: { type: "string", description: "when the owner saved several logins for this site: the username of the one to use (from SAVED LOGINS), chosen by the job and their hints" },
+    new_password_ref: { type: "string", description: "creating an account: the new password field's number, instead of password_ref" },
+    confirm_ref: { type: "string", description: "creating an account: the field that asks for the new password again" },
+    username: { type: "string", description: "creating an account: the email or username the account uses (what you typed in the form)" },
+    length: { type: "integer", description: "creating an account: the password's length when the site has a rule (12 to 64; 20 by default)" },
+    symbols: { type: "boolean", description: "creating an account: false when the site takes no symbols in a password" },
   }, required: ["reason"] },
 } });
 
@@ -208,7 +214,7 @@ HOW YOU WORK
 - Your tools: bash (run commands on your computer), read, write, edit, grep and glob (files on your computer), web search (built into you: use it for anything current), web_fetch (a separate reader answers your question from one web page), browser (your own web browser: open sites, look, click, type, scroll), todo (a checklist the owner sees, for bigger jobs), ask_user (questions for the owner, as a card), notify (a notification on the owner's phone or computer), monitor and stop_job (commands left running in the background).
 - For a big job with parts that don't depend on each other (compare four hotels, research three topics), give the parts to helpers: they work at the same time and report back, and you put it together. For one quick thing, do it yourself.
 - For a quick fact, search; to read one page, web_fetch; to use a site (search forms, filters, menus, pages behind buttons, prices that change), your browser. Look at the outline and the screenshot before each click, and say what you found with the page's address.
-- When a site needs the owner's account, use sign_in: they sign in on a private card (or with a login they saved, or by taking over your browser) and you never see the password. When the site then asks for a code it sent them, use sign_in again with code_ref. Never type passwords or codes yourself, and never ask for them in the chat. If the card warns that the page may be fake, don't argue the owner out of it.
+- When a site needs the owner's account, use sign_in: they sign in on a private card (or with a login they saved in their Vault, or by taking over your browser) and you never see the password. Creating an account they asked for: type its details yourself, then sign_in with new_password_ref makes its password and keeps it in their Vault; never make one up or ask them for one. When the site then asks for a code it sent them, use sign_in again with code_ref. Never type passwords or codes yourself, and never ask for them in the chat. If the card warns that the page may be fake, don't argue the owner out of it.
 - At a checkout the owner asked for, use pay: they give a card on a private form (or pick one they saved) and it goes straight into the page; you never see it. Then check the page and place the order yourself (that click is checked like any purchase). Never type card numbers yourself.
 - When a job needs an API key or token for a site's API, use request_secret: the owner types it on a private card and it is added to your requests to that site; you never see it. Never ask for keys, passwords or card numbers in the chat.
 - When a step needs the owner themselves (a CAPTCHA, single sign-on, an approval on another device, a QR code to scan, a bank's check of a payment), use handoff: they take over your browser, do it, and hand it back.
@@ -253,6 +259,28 @@ export const GLOOPY_NOTES_MAX = 25000;
  * `machine`: the machine's tools text (Coder's MACHINE_TOOLS on the full image), or "". `browser`: false on a machine with no
  * browser (Coder's small image), where Gloopy is not offered it.
  */
+/**
+ * THE OWNER'S SAVED LOGINS, AS GLOOPY IS TOLD THEM (2026-11-12, the Vault): each site, with its usernames and the owner's
+ * hints where there is a choice to make (Grok Bot's Bots "can see ... which logins you saved, so it can pick the right
+ * entry"); never a password. A big Vault (a password manager's export) is cut short: sign_in finds any site's itself.
+ */
+export function savedLoginsLine(list) {
+  const by = new Map();
+  for (const x of Array.isArray(list) ? list : []) {
+    const it = typeof x === "string" ? { site: x, username: "" } : x && typeof x.site === "string" ? x : null;
+    if (!it) continue;
+    const k = it.site.toLowerCase().replace(/^www\./, "");
+    if (!by.has(k)) by.set(k, []);
+    by.get(k).push(it);
+  }
+  if (!by.size) return "none.";
+  const choice = (xs) => xs.length > 1 || xs.some((x) => x.hint);
+  const say = ([k, xs]) => k + (choice(xs) ? " (" + xs.map((x) => (x.username || "no username") + (x.hint ? ": “" + String(x.hint).slice(0, 200) + "”" : "")).join("; ") + ")" : "");
+  const all = [...by.entries()], picks = all.filter(([, xs]) => choice(xs)).slice(0, 40), rest = all.filter(([, xs]) => !choice(xs));
+  const shown = [...picks, ...rest.slice(-Math.max(0, 80 - picks.length))];
+  return shown.map(say).join(", ") + (all.length > shown.length ? ", and " + (all.length - shown.length) + " more sites (sign_in finds a site's own)." : ".");
+}
+
 export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], webhooks = [], files = [], background = false } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
@@ -272,7 +300,7 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     "THE OWNER'S CUSTOM RULES (their own words; a rule that fits comes before the settings above; a Never rule always wins; Hand off to me: leave it to the owner; Only when I ask: only when the owner's own message asks for it): " + (cleanRules(rules).length ? "\n" + cleanRules(rules).map((r) => "- " + RULE_WORDS[r.mode] + ": " + r.text).join("\n") : "none."),
     // THE OWNER'S CHOICE FOR EACH SITE (2026-11-10): what Gloopy's browser may do there; the browser keeps to it too.
     "THE OWNER'S SITES (their choice for each; a site covers its subdomains): " + (cleanSites(sites).length ? "\n" + cleanSites(sites).map((x) => "- " + x.host + ": " + SITE_WORDS[x.mode] + ({ deny: " (never use it: don't open it or do anything on it, nor get its content another way)", ask: " (opening it, and each step there that would change something, waits for their OK on a card)", handoff: " (steps there that would change something are theirs: use handoff)", allow: " (steps there go ahead unless the check finds another reason to stop)" })[x.mode]).join("\n") : "none."),
-    "SAVED LOGINS (the owner saved these; sign_in uses one for you, and you never see it): " + (Array.isArray(savedLogins) && savedLogins.length ? savedLogins.slice(0, 50).join(", ") : "none."),
+    "SAVED LOGINS (in the owner's Vault; sign_in uses one for you, and you never see it; where a site has several, give login: the username that fits the job and their hints): " + savedLoginsLine(savedLogins),
     "SAVED CARDS (the owner saved these; pay offers them on its form, and you never see their numbers): " + (Array.isArray(savedCards) && savedCards.length ? savedCards.slice(0, 10).join(", ") : "none."),
     "YOUR PAGES (page list says more): " + (Array.isArray(pages) && pages.length ? "\n" + pages.slice(0, 30).map((p) => "- " + String(p.id || "") + " · " + String(p.title || "") + " · version " + (Number(p.version) || 1)).join("\n") : "none yet."),
     "YOUR SCHEDULES (approved by the owner; schedule list says more): " + (Array.isArray(schedules) && schedules.length ? "\n" + schedules.slice(0, 20).map(scheduleLine).join("\n") : "none."),

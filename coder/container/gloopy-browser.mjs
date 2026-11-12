@@ -476,8 +476,11 @@ export async function serve(dir) {
   // The codes the owner typed on the sign-in card (the audit, 2026-11-10): blanked as a card's few digits are, wherever a
   // field shows one again (a page that asks again with the code still in its box is a new page, not marked).
   const typedCodes = new Set();
+  // PASSWORDS THIS SERVICE TYPED (the owner's, and ones made for a new account, 2026-11-12): blanked wherever they show,
+  // even once a page's "show password" turns the field into plain text (at least 6 characters: shorter is ordinary text).
+  const typedPasswords = new Set();
   const secrets = async (L = L0) => {
-    const passwords = [], cards = [...typedCards, ...typedCodes];
+    const passwords = [...typedPasswords], cards = [...typedCards, ...typedCodes];
     for (const f of L.page.frames()) {
       try {
         const v = await f.evaluate((sel) => ({ p: [...document.querySelectorAll("input[type=password]")].map((i) => i.value).filter(Boolean), c: [...document.querySelectorAll(sel)].map((i) => i.value).filter(Boolean) }), CARD_FIELDS);
@@ -853,6 +856,7 @@ export async function serve(dir) {
     if (!x.site || on !== String(x.site)) throw new Error("the password field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
     if (userRef && (await about(userRef)).origin !== pw.origin) throw new Error("the username field is not on the same site as the password field, so nothing was typed");
     if (userRef) await target(userRef).fill(String(x.username || ""), { timeout: 8000 });
+    if (x.password.length >= 6) typedPasswords.add(x.password);
     await target(passRef).fill(x.password, { timeout: 8000 });
     if (submitRef) await target(submitRef).click({ timeout: 8000 }); else await target(passRef).press("Enter", { timeout: 8000 });
     await settle();
@@ -860,6 +864,28 @@ export async function serve(dir) {
     let still = false;
     for (const f of page.frames()) { try { if (await f.evaluate(() => [...document.querySelectorAll("input[type=password]")].some((i) => i.offsetParent !== null))) still = true; } catch { /* a frame that went away */ } }
     return { ok: true, url: page.url(), title: await page.title().catch(() => ""), still };
+  };
+  // A PASSWORD MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's Vault makes it): typed by this service
+  // into the page's new-password field, and its confirm field when it has one; nothing is sent (Gloopy presses the form's
+  // button itself, which is checked like any sign-up). Only into password fields of the site it is for; blanked from every
+  // outline, as every password is.
+  const fillNew = async (x) => {
+    const passRef = needRef(x, "passRef"), confirmRef = x.confirmRef ? needRef(x, "confirmRef") : "";
+    if (typeof x.password !== "string" || x.password.length < 12) throw new Error("no password was given");
+    const pw = await about(passRef);
+    if (!pw.password) throw new Error("the field asked for is not a password field");
+    const on = siteOf(pw.origin);
+    if (!x.site || on !== String(x.site)) throw new Error("the password field is not on " + (x.site || "the site") + " (it is on " + (on || "no site") + "), so nothing was typed");
+    if (confirmRef) {
+      const c = await about(confirmRef);
+      if (!c.password) throw new Error("the confirm field is not a password field, so nothing was typed");
+      if (c.origin !== pw.origin) throw new Error("the confirm field is not on the same site as the password field, so nothing was typed");
+    }
+    typedPasswords.add(x.password);
+    await target(passRef).fill(x.password, { timeout: 8000 });
+    if (confirmRef) await target(confirmRef).fill(x.password, { timeout: 8000 });
+    await settle();
+    return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
   };
   // A CODE THE SITE SENT THE OWNER, from the private sign-in card (the audit, 2026-11-10; dots' sign-in card has a code
   // box): typed into the page's code field here, then sent; never reported back. Only into a field on that site (`site`);
@@ -1116,6 +1142,7 @@ export async function serve(dir) {
           else if (x.action === "fill") out = await fill(x);
           else if (x.action === "fillCard") out = await fillCard(x);
           else if (x.action === "fillCode") out = await fillCode(x);
+          else if (x.action === "fillNew") out = await fillNew(x);
           else if (x.action === "state") out = await stateOf(ctx);
           else if (x.action === "signOut") out = await signOutOf(ctx, page, x);
           else if (x.action === "input") out = await input(x);
@@ -1420,6 +1447,8 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
     fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
     // A code from the private sign-in card (the audit, 2026-11-10), typed into the page's code field.
     fillCode: ({ site = "", codeRef, submitRef = "", code }) => call({ action: "fillCode", site, codeRef, submitRef, code }),
+    // A password made for a new account (2026-11-12), typed into its field (and its confirm field), nothing sent.
+    fillNew: ({ site = "", passRef, confirmRef = "", password }) => call({ action: "fillNew", site, passRef, confirmRef, password }),
     // ITS SIGN-INS (the audit, 2026-11-10): what to keep a copy of (cookies, each site's local storage), and one site's
     // taken away (the owner signs Gloopy out of it).
     state: () => call({ action: "state" }),
