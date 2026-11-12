@@ -3200,7 +3200,7 @@ test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goe
   await saveLogin(env, bucket, "u1", { site: "shop.example", username: "ana@example.com", password: "shop-pass-456" });
   setMeta({ pending: { kind: "signin", id: "si2", site: "shop.example", at: Date.now() } });
   r = await (await answer({ id: "si2", useSaved: true })).json();
-  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, id: "si2", username: "ana@example.com", password: "shop-pass-456" });
+  assert.deepEqual(machine.at(-1).body, { project: GLOOPY_ID, id: "si2", username: "ana@example.com", password: "shop-pass-456", saved: true }, "said to be a saved one (typed only on a secure page: GL136)");
   assert.equal(r.said, "Signed in to shop.example with my saved login");
   assert.ok(!r.project.note.includes("shop-pass-456"));
   setMeta({ pending: { kind: "signin", id: "si3", site: "nologin.example", at: Date.now() } });
@@ -6556,7 +6556,7 @@ test("GL127 (2026-11-12) the Vault, as Grok Bot's Settings → Vault: logins add
   // The card's "Use your saved login": the one the owner chose on it.
   bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify({ ...meta, status: "idle", waiting: "signin", pending: { kind: "signin", id: "si7", site: "github.com" } }));
   r = await (await go("projects/" + GLOOPY_ID + "/signin", { method: "POST", body: JSON.stringify({ id: "si7", useSaved: true, login: work.id }) })).json();
-  assert.deepEqual(machine.filter((m) => m.path === "/gloopy/signin").at(-1).body, { project: GLOOPY_ID, id: "si7", username: "ana@work.com", password: "gh-PASS-2" });
+  assert.deepEqual(machine.filter((m) => m.path === "/gloopy/signin").at(-1).body, { project: GLOOPY_ID, id: "si7", username: "ana@work.com", password: "gh-PASS-2", saved: true });
   assert.equal(r.said, "Signed in to github.com with my saved login");
   // Removed.
   r = await (await logins({ remove: work.id })).json();
@@ -7091,4 +7091,48 @@ test("GL135 (2026-11-12) end to end, as found live: a saved login that didn't wo
     assert.equal(posts.length, 3, "not tried again: on a real site, failed tries can lock the account");
     assert.equal(card().reason, "Your saved login for " + host + " didn't work. To see your account");
   } finally { srv.close(); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]); }
+});
+
+test("GL136 (2026-11-12) side by side with Grok Bot (owner: \"yes go ahead\"): a saved login is typed only on a secure (https) page, as Grok Bot's Vault \"only fills logins on secure https pages\" (Gloopy's would have typed one into the same site's plain http page): not used, not offered on the card, refused on Gloopy's computer too; and an element's site comes from the browser, never from the page (a page's script can replace its own window.origin)", async (t) => {
+  // In the job loop: a password field on a page that isn't secure, with a saved login for the site.
+  const ev = [], used = [];
+  const els = { ...ELS, e7: { ...ELS.e7, secure: false } };
+  const g = scripted([say("", [call("sign_in", { password_ref: "e7", username_ref: "e8", reason: "To see your orders" }, "s1")]), say("Waiting.")]);
+  const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: { ...fakeBrowser(els), signInSaved: async (x) => { used.push(x); return { ok: true, still: false }; } }, emit: (e) => ev.push(e) }, { text: "check my orders", ...GLOOPY, savedLogins: [{ site: "shop.example", username: "ana" }], permissions: { login: "ask" } });
+  assert.equal(used.length, 0, "not typed in");
+  assert.ok(out.signinRequest, "the card instead");
+  assert.equal(ev.find((e) => e.type === "signin").saved, undefined, "and not offered on it");
+  assert.match(out.messages.find((m) => m.tool_call_id === "s1").content, /Their saved login for shop\.example wasn't used: a saved login is typed only on a secure \(https\) page, and this one isn't\./);
+  // The card's "Use your saved login" says it is one, and Gloopy's computer then types it only on a secure page.
+  const routes = await readFile(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.ok(routes.includes('post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password, saved: true })'));
+  assert.ok(server.includes("...(body.saved === true ? { secureOnly: true } : {})"));
+  assert.ok(server.includes("password: login.password, secureOnly: true });"), "and the saved login it types by itself");
+  // For real (where Chromium is installed).
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const site = http.createServer((req, res) => {
+    res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    res.end(req.url === "/liar" ? '<title>Sign in</title><script>window.origin = "https://bank.example";</script><label>Password <input type=password name=p></label>' : '<title>Sign in</title><label>Email <input name=u></label><label>Password <input type=password name=p></label><button>Sign in</button>');
+  });
+  const base = await listen(site), port = new URL(base).port;
+  const dir = join(await mkdtemp(join(tmpdir(), "gl136-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    // The page says it is another site: the browser's own address counts.
+    let l = await hub.act({ action: "open", url: base + "/liar" });
+    let d = await hub.describe(refOf(l.text, /textbox "Password" \[ref=([a-z0-9]+)\]/));
+    assert.deepEqual([d.frameHost, d.element.secure], ["127.0.0.1:" + port, true], "this computer's own address is a secure one");
+    // A plain http page on another address: a saved login isn't typed there.
+    const ip = Object.values((await import("node:os")).networkInterfaces()).flat().find((x) => x && x.family === "IPv4" && !x.internal);
+    if (!ip) return t.skip("no network address to open the page by");
+    l = await hub.act({ action: "open", url: "http://" + ip.address + ":" + port + "/" });
+    const pass = refOf(l.text, /textbox "Password" \[ref=([a-z0-9]+)\]/);
+    d = await hub.describe(pass);
+    assert.deepEqual([d.frameHost, d.element.secure], [ip.address + ":" + port, false]);
+    await assert.rejects(hub.fill({ site: ip.address + ":" + port, passRef: pass, password: "saved-PASSWORD-1", secureOnly: true }), /a saved login is typed only on a secure \(https\) page, and this one isn't, so nothing was typed/);
+    // What the owner types on the card goes in there, after the card's warning.
+    const typed = await hub.fill({ site: ip.address + ":" + port, passRef: pass, password: "typed-PASSWORD-1" });
+    assert.equal(typed.ok, true);
+  } finally { site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
 });

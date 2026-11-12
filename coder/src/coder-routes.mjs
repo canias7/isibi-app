@@ -1911,7 +1911,7 @@ async function gloopyCard(g, action) {
     const login = loginFor(await readLogins(env, bucket, uid), p.site, typeof body.login === "string" && body.login ? { id: body.login } : {});
     if (!login) return json({ error: "That login isn't saved for " + site + " any more. Type it instead." }, 404);
     let r = null;
-    try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password }).then((x) => x.json()); } catch { r = null; }
+    try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password, saved: true }).then((x) => x.json()); } catch { r = null; }
     if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "saved");
     if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner had you use the login they saved for " + site + ". You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " was typed in, but the site still shows a sign-in form: it may be out of date, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly.)";

@@ -2040,7 +2040,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       try { r = await vaultAsk({ site, ...(id ? { id } : {}) }); } catch { return { ok: false }; }
       const login = r && r.ok ? await r.json().catch(() => null) : null;
       if (!login || typeof login.password !== "string" || !login.password) return { ok: false };
-      const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password });
+      const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password, secureOnly: true });
       if (done.still === true) savedFailed.set(site, Date.now()); else savedFailed.delete(site);
       return { ok: true, still: done.still === true, title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
     };
@@ -2459,7 +2459,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
         }
         try {
-          const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || "") });
+          const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || ""), ...(body.saved === true ? { secureOnly: true } : {}) });
           // Signed in on the card: the site's saved login may be tried again (the card may have just saved a new one).
           if (r.still !== true) savedFailed.delete(p.site);
           return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });

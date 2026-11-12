@@ -11,6 +11,28 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Signing in, side by side with Grok Bot's own app (your words: "yes go ahead")
+
+**How:** Grok Bot's desktop app on my test computer, signed in with your link, in the "Browser test (Claude)" Bot (your other Bots untouched). The same practice sites as Gloopy's tests.
+
+**What I found, Grok Bot next to Gloopy:**
+- **The sign-in request.** Grok Bot puts a small row in the chat ("Sign in to The Internet practice site · Opens a secure form · Open"), and its form opens in a pop-up window. Gloopy shows the whole form in the chat.
+- **The form.** Grok Bot's has "Email or username", "Password" with an eye, "Securely save to Bot's vault" (ticked), Submit and ×. It doesn't show the site's address, warn about anything, or offer "Not now" or "Take over". Gloopy's card names the site, warns when the page isn't secure or doesn't look like the real one, and has Not now, Take over and Sign in.
+- **Saving.** Grok Bot saved the login to its Vault first, then typed it from the Vault. Gloopy saves only once the sign-in has worked. Both signed in ("You logged into a secure area!").
+- **Using the saved login again.** Grok Bot failed twice. First its Login click "did nothing". Then the site said "Your username is invalid!", though its Vault had the right username, and Grok Bot wrongly said the saved entry "may have been changed". Gloopy signed in with its saved login with no card, earlier today.
+- **A saved login that didn't work.** Both show the form again and say so. Grok Bot retried the same saved login by itself. Gloopy now leaves it alone for half an hour.
+- **A plain http page.** Grok Bot warned in the chat that what you type goes "over the network unencrypted", and **its Vault won't type a saved login on an http page** ("It only fills logins on secure https pages"). It handed you its screen instead. Gloopy's card warns too, but **Gloopy would have typed a saved login there.** Fixed, below.
+- **A page that isn't a real sign-in** (the GOV.UK password demo). Gloopy's card warned "this is a password-box demo, not a sign-in page". Grok Bot's form didn't warn.
+- **The Show button.** Grok Bot said up front it wouldn't read the password back, by its own rule. Gloopy now can't see it at all (covered), and is told not to guess.
+- **Grok Bot also remembers a login per chat.** It first tried "the login you gave me earlier, which is still kept for this chat". Gloopy keeps logins only in your Vault.
+- **Your Grok Bot usage:** Settings → Usage & Billing showed your trial at 90% used, ending in 17 days. These tests used the rest: Grok Bot now says "You are out of usage", so its last answer (after Show) never came. I've stopped using it.
+
+**Fixed in Gloopy:**
+1. **A saved login is typed only on a secure (https) page,** as Grok Bot's Vault does. On a plain http page, Gloopy doesn't use it, the card doesn't offer it, and Gloopy's computer refuses it even if asked. The card, with its warning, is shown instead, and Gloopy is told why. (This computer's own address counts as secure, as browsers count it.)
+2. **Which site a box belongs to comes from the browser, never from the page.** A page's own script can change what it says its address is, and so make the card name another site. Found while making fix 1.
+
+Test GL136 (in a real browser: a page claiming to be another site; a plain http page refused a saved login, but taking what you type on the card).
+
 ## 2026-11-12: Signing in, the rest tested live, and what it found fixed (your words: "test everything")
 
 **Tried live on test.gofarther.dev, with Grok, and recorded:**

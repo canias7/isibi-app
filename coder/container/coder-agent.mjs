@@ -1265,7 +1265,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // Gloopy named one from earlier in the chat, and the chat showed a failed step before the card).
         if (want && !chosen && mine.length) { no("error: no saved login for " + site + " has the username “" + plain(want).slice(0, 200) + "”: the owner saved " + mine.map((x) => "“" + (x.username || "no username") + "”").join(", ") + ". Leave login out, and the card lets the owner choose."); continue; }
         let savedFailed = false;
-        if (chosen && perms.login === "allow" && typeof hub.signInSaved === "function") {
+        // Never on a page that isn't secure (2026-11-12, as Grok Bot's Vault): the card, which warns about it, instead.
+        const insecure = pass.element && pass.element.secure === false;
+        if (chosen && !insecure && perms.login === "allow" && typeof hub.signInSaved === "function") {
           let s = null;
           try { s = await hub.signInSaved({ site, userRef, passRef, submitRef, ...(chosen.id ? { id: chosen.id } : {}) }); } catch { s = null; }
           if (s && s.ok && !s.still) {
@@ -1281,9 +1283,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         // A SAVED LOGIN THE OWNER IS ASKED ABOUT (their setting is Ask; dots always asks before reusing one): "Use saved
         // login" on the card, for each one kept for this very site (the chosen one first; 2026-11-12: several accounts,
         // also when their setting allows it but Gloopy couldn't tell which), but never the one that was just tried.
-        const offer = perms.login === "deny" || (perms.login === "allow" && chosen && !savedFailed) ? [] : (chosen ? [chosen, ...mine.filter((x) => x !== chosen)] : mine).filter((x) => !(savedFailed && x === chosen)).slice(0, 10);
+        const offer = insecure || perms.login === "deny" || (perms.login === "allow" && chosen && !savedFailed) ? [] : (chosen ? [chosen, ...mine.filter((x) => x !== chosen)] : mine).filter((x) => !(savedFailed && x === chosen)).slice(0, 10);
         emit({ type: "result", id: c.id, code: 0, output: "Asked you to sign in to " + site, label: "Asked you to sign in to " + site });
-        reply("asked the owner to sign in to " + site + " through the private form" + (offer.length === 1 ? " (or to use the login they saved for it)" : offer.length ? " (or to use one of the " + offer.length + " logins they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + said);
+        reply("asked the owner to sign in to " + site + " through the private form" + (offer.length === 1 ? " (or to use the login they saved for it)" : offer.length ? " (or to use one of the " + offer.length + " logins they saved for it)" : "") + ". Your turn ends here; the next message says how it went. You never see what they type." + (insecure && mine.length ? " Their saved login for " + site + " wasn't used: a saved login is typed only on a secure (https) page, and this one isn't." : "") + said);
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to sign in first" });
         emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer.length ? { saved: offer.map((x) => ({ id: x.id || "", username: x.username || "", ...(x.nickname ? { nickname: String(x.nickname).slice(0, 60) } : {}), ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}) })) } : {}), ...(warn ? { warn } : {}) });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };

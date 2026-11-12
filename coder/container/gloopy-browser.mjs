@@ -737,7 +737,23 @@ export async function serve(dir) {
   // year, name), or "".
   // A number no longer on the page fails at once (not after the 8 seconds a wait would take).
   const about = async (ref, L = L0) => { if (!(await target(ref, L).count().catch(() => 0))) throw new Error("no element for that number: " + ref); return aboutOf(ref, L); };
-  const aboutOf = (ref, L = L0) => target(ref, L).evaluate((n) => {
+  // THE SITE OF AN ELEMENT, FROM THE BROWSER ITSELF (2026-11-12): its frame's address as the browser knows it, never what
+  // the page says (a page's script can replace its own window.origin, and so make a box look like another site's). A
+  // frame with no address of its own (about:blank, srcdoc) is its parent's, as browsers count it.
+  const frameUrlOf = async (ref, L = L0) => {
+    const h = await target(ref, L).elementHandle({ timeout: 8000 });
+    try { let f = await h.ownerFrame(); while (f && /^about:/.test(f.url()) && f.parentFrame()) f = f.parentFrame(); return f ? f.url() : ""; }
+    finally { await h.dispose().catch(() => {}); }
+  };
+  const aboutOf = async (ref, L = L0) => {
+    const el = await aboutPage(ref, L);
+    const at = await frameUrlOf(ref, L).catch(() => "");
+    let origin = "";
+    try { origin = new URL(at).origin; } catch { origin = ""; }
+    // A secure page: https, or this computer's own address (as browsers count one).
+    return { ...el, origin, secure: secureUrl(at) };
+  };
+  const aboutPage = (ref, L = L0) => target(ref, L).evaluate((n) => {
     const c = n instanceof HTMLLabelElement && n.control ? n.control : n;
     const field = (c instanceof HTMLInputElement && !/^(submit|button|reset|image)$/i.test(c.type)) || c instanceof HTMLTextAreaElement || c instanceof HTMLSelectElement;
     const labels = c.labels ? [...c.labels].map((l) => l.innerText).join(" ") : "";
@@ -763,11 +779,10 @@ export async function serve(dir) {
       tag: c.tagName.toLowerCase(), type: String(c.getAttribute("type") || "").toLowerCase(), role: String(c.getAttribute("role") || ""),
       password: c instanceof HTMLInputElement && c.type === "password", card,
       form: !!(c.form || (c.closest && c.closest("form"))), formAction: String((c.form && c.form.action) || ""), href: String(n.href || ""),
-      // The site the element itself is on: its own frame's (a box from another site, framed in the page, is that site's).
-      origin: String(window.origin || ""),
     };
   }, null, { timeout: 8000 });
   const siteOf = (origin) => { try { const u = new URL(origin); return /^https?:$/.test(u.protocol) ? u.host : ""; } catch { return ""; } };
+  const secureUrl = (u) => { try { const x = new URL(u); return x.protocol === "https:" || (x.protocol === "http:" && /^(localhost|127(\.\d{1,3}){3}|\[::1\])$/.test(x.hostname)); } catch { return false; } };
   const quote = (t, max = 60) => "“" + String(t).replace(/\s+/g, " ").trim().slice(0, max) + (String(t).length > max ? "…" : "") + "”";
   // One of the AI's steps, done on the page.
   const step = async (ask, el, file, L = L0) => {
@@ -880,7 +895,7 @@ export async function serve(dir) {
     }
     if (found.length !== 1 || found[0].n !== 1) return null;
     const f = found[0].f, mark = (k) => f.locator('[data-gloopy-signin="' + k + '"]');
-    return { pass: mark("password"), user: (await mark("username").count()) ? mark("username") : null, submit: (await mark("submit").count()) ? mark("submit") : null };
+    return { url: f.url(), pass: mark("password"), user: (await mark("username").count()) ? mark("username") : null, submit: (await mark("submit").count()) ? mark("submit") : null };
   };
   // THE OWNER'S SIGN-IN, from the private form: typed into the page here, then sent; never reported back.
   const fill = async (x) => {
@@ -888,6 +903,9 @@ export async function serve(dir) {
     if (typeof x.password !== "string" || !x.password) throw new Error("no password was given");
     // The page loaded its form again since it was asked about: that form, found again on the same site.
     const again = (await target(passRef).count().catch(() => 0)) ? null : await signinAgain(String(x.site || ""));
+    // A SAVED LOGIN ONLY ON A SECURE PAGE (2026-11-12, side by side with Grok Bot: its Vault "only fills logins on secure
+    // https pages"; Gloopy's would have typed one into the same site's plain http page, where it can be read on the way).
+    if (x.secureOnly === true && !(again ? secureUrl(again.url) : (await about(passRef)).secure === true)) throw new Error("a saved login is typed only on a secure (https) page, and this one isn't, so nothing was typed");
     if (!again) {
       const pw = await about(passRef);
       if (!pw.password) throw new Error("the field asked for is not a password field");
@@ -1490,7 +1508,7 @@ export function makeBrowserHub({ dir, uid = null, gid = null, timeoutMs = ACT_MS
       return { route: !!wantRoute, restarted: true };
     },
     describe: (ref, lane = 0) => call({ action: "describe", ...(ref ? { ref } : {}), ...(Number.isInteger(lane) && lane > 0 ? { lane } : {}) }),
-    fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password }),
+    fill: ({ site = "", userRef = "", passRef, submitRef = "", username = "", password, secureOnly = false }) => call({ action: "fill", site, userRef, passRef, submitRef, username, password, secureOnly: secureOnly === true }),
     // THE OWNER'S CARD (2026-11-09): { site, numberRef, expRef?, monthRef?, yearRef?, cvcRef?, nameRef?, postalRef?, card }.
     fillCard: ({ site = "", card, numberRef, expRef = "", monthRef = "", yearRef = "", cvcRef = "", nameRef = "", postalRef = "" }) => call({ action: "fillCard", site, card, numberRef, expRef, monthRef, yearRef, cvcRef, nameRef, postalRef }),
     // A code from the private sign-in card (the audit, 2026-11-10), typed into the page's code field.
