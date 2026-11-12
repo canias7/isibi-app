@@ -289,11 +289,11 @@
 .cd-web-x { border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; color: #6b7280; cursor: pointer; }
 .cd-web-screen { display: flex; justify-content: center; background: #f4f2ee; outline: none; }
 /* The picture leaves room in the window for the panel's bar and foot, the chat's first line and your message box. */
-.cd-web-screen img { display: block; max-width: 100%; max-height: max(160px, min(52vh, calc(100vh - 330px))); width: auto; height: auto; user-select: none; -webkit-user-select: none; }
+.cd-web-screen img { display: block; max-width: 100%; max-height: max(160px, min(52vh, calc(100vh - 410px))); width: auto; height: auto; user-select: none; -webkit-user-select: none; }
 .cd-web-screen.is-you { box-shadow: inset 0 0 0 3px #e8590c; }
 .cd-web-screen.is-you img { cursor: pointer; }
 /* With control, two rows of tools join it: the picture leaves them, the foot and your message box room in the window. */
-.cd-web-screen.is-you img { max-height: max(160px, min(52vh, calc(100vh - 390px))); }
+.cd-web-screen.is-you img { max-height: max(160px, min(52vh, calc(100vh - 428px))); }
 .cd-web-screen.is-you:focus-visible { box-shadow: inset 0 0 0 4px #e8590c; }
 .cd-web-empty { margin: 0; padding: 44px 20px; text-align: center; color: #6b7280; font-size: 14px; }
 .cd-web-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid #efece7; }

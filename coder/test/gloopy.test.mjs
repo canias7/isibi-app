@@ -4948,8 +4948,8 @@ test("GL101 (2026-11-10) for real (where Chromium is installed), found in the li
 test("GL102 (2026-11-10) found in the live test: on a short window the live view never cuts off its own foot (Hand it back): the picture leaves room for the rest, and the panel scrolls rather than clip; a step's long words end in \"…\" on their line (no sideways scroll in the chat), whole on hover", async () => {
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-web \{ max-width: 900px; margin: 12px auto 0; width: calc\(100% - 40px\); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow-x: hidden; overflow-y: auto; \}/);
-  assert.match(css, /\.cd-web-screen img \{ display: block; max-width: 100%; max-height: max\(160px, min\(52vh, calc\(100vh - 330px\)\)\);/);
-  assert.match(css, /\.cd-web-screen\.is-you img \{ max-height: max\(160px, min\(52vh, calc\(100vh - 390px\)\)\); \}/, "with control, two more rows of tools");
+  assert.match(css, /\.cd-web-screen img \{ display: block; max-width: 100%; max-height: max\(160px, min\(52vh, calc\(100vh - 410px\)\)\);/);
+  assert.match(css, /\.cd-web-screen\.is-you img \{ max-height: max\(160px, min\(52vh, calc\(100vh - 428px\)\)\); \}/, "with control, two more rows of tools (2026-11-12: and the tabs above the page)");
   assert.match(css, /\.cd-cmd-verb:has\(> \.cd-cmd-said\) \{ flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; \}/);
   assert.match(ui, /'<span class="cd-cmd-said" title="' \+ esc\(said\) \+ '">' \+ esc\(said\) \+ '<\/span>'/);
   // On a phone the foot's words take the whole line, its buttons under them (squeezed, they stood one word to a line).
