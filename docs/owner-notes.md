@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The hook at machine sleep is told the mode the same way (your words: "yes fix it, then merge and deploy")
+
+Hooks are told which mode the chat is in. During a message, Accept edits is given as "default", as in Claude Code's cloud. The SessionEnd hook that runs when the machine goes to sleep was given "acceptEdits". Now both use the same rule, so both say "default". If the repository's own settings start chats in Accept edits, both say "acceptEdits", as before.
+
+**Checks:** new test CD545 runs a real machine with a hook during the message and a SessionEnd hook, and both must be told the same. With the machine's old code back, it failed exactly as the live chat did ("default" and "acceptEdits"). The full suite on my side: 579 of 579 pass.
+
 ## 2026-11-12: The last bash-tool item, tried live: hooks around the automatic summary (your words: "1 do the test")
 
 No video. One new chat on canias7/testingforclaude, with three hooks set in Settings: PreCompact (for "auto"), PostCompact (for "auto") and SessionStart (for "compact"). One message made Coder write a big file, read it whole and print three long texts, so the job passed 450,000 characters.
@@ -22,7 +28,7 @@ No video. One new chat on canias7/testingforclaude, with three hooks set in Sett
 
 So every part of the bash tool that can be tried safely from a chat has now been tried live. I did not add Claude Code's auto-compact window setting: its smallest value (100,000 tokens) is about where Coder already summarizes, so it would not have made this test cheaper (your choice: "1 do the test").
 
-**Noticed, not changed (your call):** hooks are told the chat's mode (`permission_mode`). During a message, Accept edits is given as "default", as in Claude Code's cloud. But the SessionEnd hook that runs when the machine sleeps is given "acceptEdits" (seen in this morning's retest). A one-line fix would make it say "default" too.
+**Noticed (fixed: see the entry above):** hooks are told the chat's mode (`permission_mode`). During a message, Accept edits is given as "default", as in Claude Code's cloud. But the SessionEnd hook that runs when the machine sleeps is given "acceptEdits" (seen in this morning's retest). A one-line fix would make it say "default" too.
 
 **Also:** Coder saved the test's big file to the branch `coder/testingforclaude-hkmrty9i`. The test chat is still there.
 

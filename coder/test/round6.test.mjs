@@ -3,7 +3,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
-import { mkdtemp, writeFile, readFile, mkdir } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, mkdir, rm } from "node:fs/promises";
 import { readFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -138,6 +138,48 @@ test("CD544 a chat's SessionEnd hook runs when its machine stops after a message
     const recs = readFileSync(join(r.gitRoot, ".session-end.log"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
     assert.deepEqual([recs[0].signal, recs[0].hooks, recs[1].said[0].code, recs[1].said[0].error], ["SIGINT", 1, 0, undefined]);
   } finally { srv.close(); }
+});
+
+test("CD545 a chat's SessionEnd hooks are told its mode as its message's hooks were (the live test of the automatic summary, 2026-11-12: a message's hooks were told Accept edits as \"default\", as in Claude Code's cloud, and the SessionEnd hook when the machine slept \"acceptEdits\")", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  assert.deepEqual([A.hookModeName("acceptEdits", false), A.hookModeName("acceptEdits", true), A.hookModeName("plan", false), A.hookModeName("auto", false)], ["default", "acceptEdits", "plan", "auto"]);
+  const http = (await import("node:http")).default;
+  const r = { ...(await roots()), memRoot: await mkdtemp(join(tmpdir(), "coder-mem6m-")), bgRoot: await mkdtemp(join(tmpdir(), "coder-bg6m-")), home: await mkdtemp(join(tmpdir(), "coder-home6m-")) };
+  const project = "r6-mode-" + process.pid;
+  const say = (content) => ({ message: { role: "assistant", content }, usage: { in: 1, out: 1 } });
+  const app = S.createApp({ ...r, send: async () => say("ready") });
+  const srv = http.createServer(app);
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  // A hook of the message (UserPromptSubmit) and a SessionEnd hook, each saving what it was given.
+  const hooks = { hooks: {
+    UserPromptSubmit: [{ hooks: [{ type: "command", command: "cat > \"$CLAUDE_PROJECT_DIR/r6-msg.json\"" }] }],
+    SessionEnd: [{ hooks: [{ type: "command", command: "cat > \"$CLAUDE_PROJECT_DIR/r6-end.json\"" }] }],
+  } };
+  const turn = async () => {
+    // (Each time from nothing. This file's machines share one list of chats, so CD544's chat ends with it: no count here.)
+    await rm(join(r.root, project, "r6-msg.json"), { force: true }); await rm(join(r.root, project, "r6-end.json"), { force: true });
+    const sent = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "Reply with the single word ready.", messages: [], mode: "acceptEdits", hooks }) });
+    assert.equal(sent.status, 200);
+    let st;
+    for (let i = 0; i < 400; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    assert.ok(st && st.result, "the message ended");
+    assert.ok(await app.sessionEnd("other", { signal: "SIGINT" }) >= 1);
+    const told = (f) => JSON.parse(readFileSync(join(r.root, project, f), "utf8")).permission_mode;
+    return [told("r6-msg.json"), told("r6-end.json")];
+  };
+  try {
+    // Accept edits, the repository setting nothing: both are told "default".
+    assert.deepEqual(await turn(), ["default", "default"]);
+    // The repository's own settings start chats in Accept edits (permissions.defaultMode): both are told "acceptEdits".
+    await mkdir(join(r.root, project, ".claude"), { recursive: true });
+    await writeFile(join(r.root, project, ".claude", "settings.json"), JSON.stringify({ permissions: { defaultMode: "acceptEdits" } }));
+    assert.deepEqual(await turn(), ["acceptEdits", "acceptEdits"]);
+  } finally { srv.close(); }
+  // The machine's side uses the same rule, with what the message's hooks were given.
+  const server = read("container/server.mjs");
+  assert.match(server, /mode: hookModeName\(t\.mode \|\| "auto", t\.fileEdits\)/);
+  assert.match(server, /t\.fileEdits = repoSet\.defaultMode === "acceptEdits";/);
 });
 
 // ── `@coder` ON A PULL REQUEST WHOSE CHAT WAS DELETED ─────────────────────────────────────────────────────────────────────

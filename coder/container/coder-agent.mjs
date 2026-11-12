@@ -1038,6 +1038,13 @@ export const PLAN_ASKS = Object.freeze({
   undo_last_job: () => "Undo the last job that changed files",
 });
 /** What Grok is told of the chat's permission mode, with the system's words (not saved with the chat). */
+/**
+ * THE MODE AS CLAUDE CODE NAMES IT TO HOOKS (`permission_mode`): in its cloud, the Accept edits the owner picks is "default"
+ * for commands, as Coder's is when commands that change files ask (`fileEdits` false; Bash docs pass 9). One name for every
+ * hook: a message's, and the SessionEnd ones when the machine stops (the live test of the automatic summary, 2026-11-12:
+ * those said "acceptEdits" where a message's said "default").
+ */
+export const hookModeName = (mode, fileEdits) => (mode === "acceptEdits" && fileEdits === false ? "default" : mode);
 export function modeSystem(mode, { fileEdits = true } = {}) {
   const m = normMode(mode);
   if (m === "acceptEdits" && fileEdits === false) return "PERMISSION MODE: Accept edits (the owner's pick): your file edits in the project run without asking; a command that changes files (mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like), any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, wait for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
@@ -1454,9 +1461,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
   // until the first user input"; Bash docs pass 8. A turn with no message of the owner's has none.)
   const promptId = typeof text === "string" && text.trim() ? randomUUID() : "";
-  // (The mode as Claude Code names it to hooks: in its cloud, the Accept edits the owner picks is "default" for commands, as
-  // Coder's is when commands that change files ask, `fileEdits` false; Bash docs pass 9.)
-  const hookMode = () => { const m = modeNow(); return m === "acceptEdits" && fileEdits === false ? "default" : m; };
+  // (The mode as Claude Code names it to hooks: hookModeName.)
+  const hookMode = () => hookModeName(modeNow(), fileEdits);
   const hookCtx = () => ({ session: String(deps.chatId || ""), cwd: String((typeof deps.here === "function" && deps.here()) || deps.root || ""), mode: hookMode(), effort: String(effort || ""), promptId });
   const hookMark = () => "<<coder-hook-stderr-" + Math.random().toString(36).slice(2, 12) + ">>";
   /** A command hook's own command (hookShell): the event's JSON on its stdin, its stderr kept apart, Claude Code's variables set. */
