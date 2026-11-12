@@ -34,6 +34,13 @@ log (81,000 lines) is in git history.
   - On a short window, the terminal's $ line fell below the fold. The terminal now leaves room for it.
   - Asked what was open, Gloopy saw only its own tab and said "one tab". Each step now also lists its other tabs, with titles and addresses.
   - GL95, GL121 and GL122 updated.
+- **Rechecked live after the last deploy, all working:**
+  - **Progress:** the same two-page practice task gave 3 lines in the chat (they were 8), at least 20 seconds apart. The other 7 showed only in the status line.
+  - **The four fixes:** the one tab's title went to "Example Domain" and back to "The Internet" with the page. The address box showed each page's address. The terminal's $ line stayed in view, and a command ran. Asked again with two tabs open, Gloopy named both, with their addresses, and the command you ran.
+  - **The QR code:** asked only to open WhatsApp Web so you could link your phone, Gloopy handed the QR code over by itself. **Skip** worked: Gloopy said you chose not to scan it and offered a fresh code.
+- **Found, not changed (your choice):**
+  - Gloopy's browser has no hover step. To read a picture's hover name, it clicks the picture. Once, the safety check asked first, because you had said hover, not click.
+  - If the big live view is open when Gloopy hands you a step, on a short window it covers the card's Skip and I'm done buttons. Closing the live view shows them.
 
 ## 2026-11-12: Grok Bot's browser tool, tried hands-on next to Gloopy's (your words: "just test the whole browser tool and see the differences")
 
