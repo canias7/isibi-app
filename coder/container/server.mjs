@@ -1806,13 +1806,19 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     const c = await gitIn(dir, ["init", "-q", "-b", base], o);
     if (c.code !== 0) return failed("could not start the repository: " + c.output.slice(0, 200));
     if (keptExclude) { await mkdir(join(gitDir, "info"), { recursive: true }); await writeFile(join(gitDir, "info", "exclude"), keptExclude); }
+    // THE STARTING BRANCH, ASKED FOR BY NAME (round 6 of the live test, 2026-11-12: the list of all branches is cut at 4,000
+    // characters, about 50 branches, so in canias7/testingforclaude a branch late in the alphabet looked missing: "has no
+    // branch named r42-live"). Only when it is not there does the whole list say whether the repository is empty.
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
-    const heads = await gitNet(dir, ["ls-remote", "--heads", url], { ...o, token, headers }, netWaits);
-    if (heads.code !== 0) return failed("could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200));
-    const empty = !String(heads.stdout ?? heads.output).trim();
-    if (!empty && !String(heads.stdout ?? heads.output).includes("refs/heads/" + base + "\n") && !String(heads.stdout ?? heads.output).endsWith("refs/heads/" + base)) {
-      return failed(repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + ".");
+    const one = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + base], { ...o, token, headers }, netWaits);
+    if (one.code !== 0) return failed("could not reach " + repo + " on GitHub: " + one.output.slice(0, 200));
+    let empty = false;
+    if (!headListed(one.stdout ?? one.output, base)) {
+      const heads = await gitNet(dir, ["ls-remote", "--heads", url], { ...o, token, headers }, netWaits);
+      if (heads.code !== 0) return failed("could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200));
+      empty = !String(heads.stdout ?? heads.output).trim();
+      if (!empty) return failed(repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + ".");
     }
     if (!empty) {
       const f = await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers }, netWaits);
@@ -1873,14 +1879,36 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     await new Promise((r) => spawn("chmod", ["-R", "u+rwX,go+rX,go-w", gitDir]).on("close", r));
   }
   // ITS `origin` (Bash docs pass 9; Claude Code's cloud clone has a normal origin, so `gh pr list` and other tools know which
-  // repository they are in): the repository's address with no login in it, its branches as origin's. Set by root; the AI's
-  // commands read it (the git folder is root's), and Coder itself fetches and pushes by its own address as before.
-  if ((await gitIn(dir, ["config", "--get", "remote.origin.url"], o)).stdout.trim() !== url) {
-    await gitIn(dir, ["config", "remote.origin.url", url], o);
+  // repository they are in): the repository's address on github.com with no login in it, its branches as origin's. Set by
+  // root; the AI's commands read it (the git folder is root's), and Coder itself fetches and pushes by its own address as
+  // before. (Round 6 of the live test, 2026-11-12: it was that address, `url`, which on Coder's machines is Coder's git relay
+  // on gofarther.dev, so `gh run list` said "none of the git remotes configured for this repository point to a known GitHub
+  // host".)
+  const origin = originUrl(repo);
+  if ((await gitIn(dir, ["config", "--get", "remote.origin.url"], o)).stdout.trim() !== origin) {
+    await gitIn(dir, ["config", "remote.origin.url", origin], o);
     await gitIn(dir, ["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], o);
   }
   return { ok: true, ...(note ? { note } : {}) };
 }
+/**
+ * WHAT THE CHAT IS TOLD OF ONE OF ITS OTHER REPOSITORIES once prepareRepo answered `p`: its note when it opened with one,
+ * nothing when it simply opened, and why when it could not be opened. (Round 6 of the live test, 2026-11-12: round 5's note
+ * had split the "else" from its "if", so every one that opened without a note said "Could not open octocat/Hello-World:
+ * undefined".)
+ */
+export function extraRepoEvent(repo, p) {
+  if (p && p.ok) return p.note ? { type: "note", text: repo + ": " + p.note } : null;
+  return { type: "error", text: "Could not open " + repo + ": " + String((p && p.why) || "it could not be prepared").slice(0, 200) };
+}
+/** The sandbox a chat's SessionEnd hooks may run in when the machine stops: the job's own only while it is still the live one (`live`, BOX). */
+export const boxAtEnd = (box, live) => (box && box === live ? box : null);
+/** Is `branch` in `git ls-remote --heads` output (`<sha>\trefs/heads/<name>` lines), by its whole name? */
+export function headListed(out, branch) {
+  return String(out ?? "").split("\n").some((l) => l.replace(/\r$/, "").split("\t")[1] === "refs/heads/" + branch);
+}
+/** A repository's `origin` in the chat's copy: its github.com address, whatever address Coder itself fetches by. */
+export const originUrl = (repo) => "https://github.com/" + repo + ".git";
 
 /**
  * THE WORK TREE, HANDED TO THE AI'S USER (the audit, 2026-11-06). This used to
@@ -3016,8 +3044,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       try {
         const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true });
         if (p.ok) extras.push({ ...x, dir: xdir });
-        if (p.ok && p.note) t.events.push({ at: Date.now(), type: "note", text: x.repo + ": " + p.note });
-        else t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String(p.why).slice(0, 200) });
+        const said = extraRepoEvent(x.repo, p);
+        if (said) t.events.push({ at: Date.now(), ...said });
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
     }
     // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
@@ -3712,6 +3740,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (!t || !t.turnDeps || typeof t.turnDeps.exec !== "function" || !Array.isArray(t.hooksLast)) continue;
       const list = hooksFor(t.hooksLast, "SessionEnd", reason).filter((h) => h.type === "command" || h.type === "http");
       if (!list.length) continue;
+      // (Round 6 of the live test, 2026-11-12: the job's admin sandbox is stopped when its job ends, unless a background
+      // command keeps it, so the hooks entered a sandbox that was gone and never ran. Then they run as Coder's commands ran
+      // before the sandbox: as the AI's user, in the room.)
+      t.box = boxAtEnd(t.box, BOX);
       const budget = sessionEndBudget(t.hooksLast, t.sessionEndMs);
       const input = hookInput("SessionEnd", { session: project, cwd: String(t.cwd || t.home0 || ""), mode: t.mode || "auto" }, { reason });
       for (const h of list) {

@@ -2590,6 +2590,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
               countAllowed(checkSt);
               if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
+              // (A risky removal sent to the checker by CODER_DISABLE_DANGEROUS_RM_TIMEOUT: its approval is the answer, with no
+              // card after it. Claude Code: "These removals then go to the classifier in auto mode"; "auto: the classifier
+              // decides". Round 6 of the live test, 2026-11-12: the card still came after the checker's approval.)
+              if (rmToChecker) rmWhy = "";
             }
           }
         }

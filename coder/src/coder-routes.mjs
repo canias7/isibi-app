@@ -381,6 +381,20 @@ async function getJson(bucket, key, fallback) {
   try { return JSON.parse(await o.text()); } catch { return fallback; }
 }
 const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMetadata: { contentType: "application/json" } });
+/**
+ * A DELETED CHAT'S BRANCH RECORDS (branchKey: which chat a branch's pull request news and `@coder` comments go to): its own
+ * branch's and the one it works on (auto-fix may have moved it onto a pull request's), only while they name this chat.
+ */
+export async function dropBranchRecords(bucket, uid, id, meta) {
+  if (!bucket || typeof bucket.delete !== "function" || !meta || typeof meta.repo !== "string") return 0;
+  let n = 0;
+  for (const b of new Set([meta.branch, "coder/" + id].filter((x) => typeof x === "string" && x))) {
+    const k = branchKey(meta.repo, b);
+    const rec = await getJson(bucket, k, null);
+    if (rec && rec.uid === uid && rec.id === id) { await bucket.delete(k); n++; }
+  }
+  return n;
+}
 
 /** A CHAT IN THE LIST (2026-11-05, the owner: "each coder can have its own session"): each
  *  project is one chat, with its own history, branch and pull request. */
@@ -1754,6 +1768,10 @@ export async function handleCoder(request, env, ctx, deps) {
     if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
     for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
     await dropLive(bucket, uid, id).catch(() => {});
+    // ITS BRANCH RECORDS GO TOO, only those that are this chat's (round 6 of the live test, 2026-11-12: a deleted chat's record
+    // still sent `@coder` on its pull request to it, "Coder could not start: no such project", and would have kept another
+    // chat from turning on auto-fix for that pull request, "belongs to another chat").
+    await dropBranchRecords(bucket, uid, id, meta).catch(() => {});
     // ITS MACHINE GOES TOO (Fly.io: the chat's own VM and its kept disk; worker.js).
     if (typeof deps.dropMachine === "function") await deps.dropMachine(uid + "-" + id).catch(() => {});
     return json({ ok: true });

@@ -1543,6 +1543,34 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   only those values (`varsNote`; it was "never print their values" for every
   variable, which Claude Code doesn't have) (CD536).
 
+**Round 6 of the live test: the 6 fixes** (owner, 2026-11-12: "Ok yes"). Tests:
+`test/round6.test.mjs` (CD537 to CD541) and CD542 in `test/pass7.test.mjs`.
+- *A starting branch late in the alphabet* is asked for by name (`git
+  ls-remote --heads <url> refs/heads/<base>`, `headListed`): the list of all
+  branches is cut at 4,000 characters, about 50 branches, so a branch past them
+  looked missing. Only when it isn't there does the whole list say whether the
+  repository is empty (CD537).
+- *The copy's `origin`* is the repository's github.com address
+  (`originUrl`), whatever address Coder fetches by: on Coder's machines that was
+  its git relay, and `gh` could not tell which repository it was in. Coder's own
+  fetch and push still name their address (CD538, CD24).
+- *An extra repository that opens* says nothing (`extraRepoEvent`): round 5's
+  note had split the "else" from its "if", so each one said "Could not open …:
+  undefined" (CD539).
+- *SessionEnd hooks when the machine stops* run outside the job's admin sandbox
+  once it has closed (`boxAtEnd`): as the AI's user, in the room, as commands
+  ran before the sandbox. A sandbox a background command keeps is still used
+  (CD540).
+- *`@coder` on a pull request whose chat was deleted* drops the stale branch
+  record and opens a new chat on the pull request's branch, as for anyone
+  else's pull request; deleting a chat drops its own branch records
+  (`dropBranchRecords`), and auto-fix news for a deleted chat's branch does too
+  (CD541).
+- *`CODER_DISABLE_DANGEROUS_RM_TIMEOUT` in Auto*: the checker's approval of a
+  critical-path removal is the answer, with no card after it (Claude Code: "These
+  removals then go to the classifier in auto mode"; "auto: the classifier
+  decides"). Its block is a block, and an Ask rule still asks (CD542).
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

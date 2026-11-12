@@ -268,6 +268,24 @@ test("CD403 a risky rm under the owner's own Ask rule in Auto (Claude Code: \"If
   assert.match(read("container/server.mjs"), /rmChecksOff: \{ subst: varOn\(rawVars\.CODER_DISABLE_SUBSTITUTION_RM_PROMPT\), inline: varOn\(rawVars\.CODER_DISABLE_INLINE_SHELL_RM_PROMPT\), mounted: varOn\(rawVars\.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT\), timeout: varOn\(rawVars\.CODER_DISABLE_DANGEROUS_RM_TIMEOUT\) \}/);
 });
 
+test("CD542 CODER_DISABLE_DANGEROUS_RM_TIMEOUT in Auto: the checker's approval of a critical-path removal is the answer, with no card after it (Claude Code: \"These removals then go to the classifier in auto mode\"; \"auto: the classifier decides\"; round 6 of the live test: the card still came); its block is a block; an Ask rule still asks; without the switch, refused", async () => {
+  // (A card answered "no" would leave it unrun: a card the harness answers by itself can't hide here.)
+  const own = (t0) => t0.ran.filter((x) => !/--porcelain=v1/.test(x));
+  for (const command of ["rm -rf /coder-r42-not-real-3", "rm -rf ~"]) {
+    const rm = [say("", [call("bash", { command, description: "Clean" }, "b1")]), say("ok")];
+    let t = await job(rm, { checker: true, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"allow"}', answers: [{ choice: "no" }] });
+    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [1, 0, 1], command + ": approved by the checker, run with no card");
+    t = await job(rm, { checker: true, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"block","rule":"Irreversible Local Destruction","reason":"a top-level folder"}', answers: [{ choice: "yes" }] });
+    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [1, 0, 0], command + ": blocked by the checker");
+    assert.match(t.told("b1"), /Irreversible Local Destruction/);
+    t = await job(rm, { checker: true, rules: { allow: [], deny: [], ask: ["Bash(rm *)"] }, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"allow"}', answers: [{ choice: "no" }] });
+    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [0, 1, 0], command + ": your Ask rule still asks you");
+    t = await job(rm, { checker: true, verdict: () => '{"decision":"allow"}' });
+    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [0, 0, 0], command + ": without the switch, refused");
+    assert.match(t.told("b1"), /Dangerous rm operation detected/);
+  }
+});
+
 test("CD404 a PostToolUse hook's note for the Auto mode checker (Claude Code's classifierContext): to the checker, never to Coder; 2,000 characters a call; dropped with a refused or replaced rewrite of its own; never on a read-only lookup", async () => {
   const run = (json) => ({ hook: { type: "command", command: "note.sh" }, result: { kind: "ok", json } });
   const note = (text, extra = {}) => run({ hookSpecificOutput: { hookEventName: "PostToolUse", classifierContext: text, ...extra } });
