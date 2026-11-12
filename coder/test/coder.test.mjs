@@ -649,7 +649,8 @@ test("CD24 the audit's critical fixes: git runs no hooks and pushes only to GitH
   for (const h of ["pre-commit", "pre-push", "post-checkout"]) { writeFileSync(join(gd, "hooks", h), "#!/bin/sh\ntouch " + marker + "\n"); execFileSync("chmod", ["+x", join(gd, "hooks", h)]); }
   // (Pass 9: the clone has its own origin, the repository's address with no login in it, as Claude Code's cloud clone does;
   // pointed elsewhere, it changes nothing either.)
-  assert.equal(execFileSync("git", ["--git-dir=" + gd, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim(), remote + "ana/shop.git");
+  // (Its github.com address whatever address Coder fetches by, round 6: so `gh` knows the repository, CD538.)
+  assert.equal(execFileSync("git", ["--git-dir=" + gd, "config", "--get", "remote.origin.url"], { encoding: "utf8" }).trim(), "https://github.com/ana/shop.git");
   execFileSync("git", ["--git-dir=" + gd, "remote", "set-url", "origin", "/nonexistent/evil.git"]);
   writeFileSync(join(dir, "b.txt"), "b\n");
   const p = await pushRepo({ dir, repo: "ana/shop", branch: "coder/shop-hook", token: "", message: "b", remote, gitRoot, root });
@@ -1512,9 +1513,10 @@ test("CD57 @coder on Coder's own pull request works in that pull request's chat 
   const payload = { action: "created", comment: { body: "@coder add a comment", user: { login: "canias7" } }, sender: { login: "canias7", type: "User" }, repository: { full_name: "canias7/shop", id: 1 }, installation: { id: 7 }, issue: { number: 4, title: "Add sum", pull_request: {} } };
   const raw = JSON.stringify(payload);
   await M.handleWebhook(new Request("https://x/webhook", { method: "POST", headers: { "x-github-event": "issue_comment", "x-hub-signature-256": "sha256=" + createHmac("sha256", "s").update(raw).digest("hex") }, body: raw }), env, null, { fetchFn, coder });
-  assert.deepEqual(calls, [], "nothing made, and the job starts with the minute check");
+  // (Round 6: its chat is looked up first, as a deleted one's record is dropped, CD541.)
+  assert.deepEqual(calls, [["GET", "/api/coder/projects/shop-abcd1234"]], "nothing made, and the job starts with the minute check");
   await M.runMentionJobs(env, { fetchFn, coder });
-  assert.deepEqual(calls, [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
+  assert.deepEqual(calls.slice(1), [["POST", "/api/coder/projects/shop-abcd1234/message"]], "no new chat: the pull request's own");
 });
 
 test("CD58 an auto-fix shows its real reason in the chat (not the safety label)", async () => {

@@ -200,7 +200,14 @@ export async function startMention(env, deps, m) {
       headRef = String(h.ref || "");
       if (/^coder\//.test(headRef)) {
         const owned = await getJson(bucket, branchKey(m.repo, headRef));
-        if (owned && owned.uid === acct.uid && (!thread || thread.id !== owned.id)) { thread = { id: owned.id }; await putJson(bucket, threadKey, thread); }
+        if (owned && owned.uid === acct.uid && (!thread || thread.id !== owned.id)) {
+          // (Round 6 of the live test, 2026-11-12: the chat that made the branch had been deleted, and its record still sent
+          // the comment there: "Coder could not start: no such project". A deleted chat's record is dropped, and the pull
+          // request is then anyone else's: a new chat that starts from its branch.)
+          const there = await run("projects/" + owned.id);
+          if (there.status === 404) await bucket.delete(branchKey(m.repo, headRef)).catch(() => {});
+          else { thread = { id: owned.id }; await putJson(bucket, threadKey, thread); }
+        }
       }
     }
   }
@@ -306,6 +313,8 @@ export async function startAutofix(env, deps, f) {
   const user = { id: owner.uid, email: prof.email };
   const run = (path, init = {}) => deps.coder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), user).then((r) => r.json().catch(() => ({})).then((j) => ({ status: r.status, data: j })));
   const look = await run("projects/" + owner.id);
+  // (A deleted chat's record is dropped, round 6: it would keep another chat from turning on auto-fix for this branch.)
+  if (look.status === 404) await bucket.delete(branchKey(f.repo, f.branch)).catch(() => {});
   if (look.status !== 200 || !look.data.project) return { ok: false, why: "chat gone" };
   const meta = look.data.project;
   // OFF UNTIL TURNED ON, for each pull request (owner item 2, like Claude Code: "turn on Auto-fix" in the

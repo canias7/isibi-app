@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Round 6's 6 findings fixed (your words: "Ok yes")
+
+All six are fixed, each with its own test (CD537 to CD542):
+1. **A starting branch late in the alphabet:** Coder now asks GitHub for that one branch by name, instead of reading the list of all branches (it only read the first 4,000 characters of that list, about 50 branches).
+2. **`@coder` on a pull request whose chat was deleted:** Coder checks that the chat still exists. If it doesn't, Coder forgets the old link and opens a new chat on the pull request's branch, as it does for anyone else's pull request. Deleting a chat now also removes its links to its branches (a stale one would also have stopped another chat from turning on auto-fix for that pull request).
+3. **`gh` knows the repository:** the copy's `origin` is now the github.com address. Coder's own fetching and pushing still go the way they did, and Coder's commands still can't push by themselves (github.com gets no login from the machine).
+4. **The false red "Could not open … undefined" is gone.** It shows only when a repository really can't be opened.
+5. **`CODER_DISABLE_DANGEROUS_RM_TIMEOUT` in Auto:** when the checker approves a risky delete, it runs without asking you, as Claude Code's docs say ("auto: the classifier decides"). The checker's block is still a block, and your own Ask rule still asks you.
+6. **SessionEnd hooks when a chat's machine goes to sleep:** they now run outside the job's sandbox once it has closed, as Coder's user and still inside the network room. If a background command is still running in the sandbox, they run inside it.
+
+**Checks:** the full test suite on my side: 576 of 576 pass. I also put the old code back for a moment, and each new test failed on it. One older test (CD57) now expects the extra "does that chat still exist?" lookup.
+
 ## 2026-11-12: Round 6: the last of the bash tool, tried live with Grok (your words: "yes go ahead, include 8-10 too")
 
 No video. Three new chats on canias7/testingforclaude in the "Live test 10 Nov" environment, plus one `@coder` comment on GitHub. For the test I made a branch, `r42-live`, with its own `.claude/settings.json` (Plan as the starting mode, a deny rule, two `Read` rules, a working folder) and a tiny GitHub Actions workflow, and a copy of it named `a-r42-live` (see found item 1).
