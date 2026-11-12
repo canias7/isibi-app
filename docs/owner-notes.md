@@ -35,6 +35,8 @@ Test GL136 (in a real browser: a page claiming to be another site; a plain http 
 
 **Tried live on test.gofarther.dev after deploying:** with the practice login saved in Gloopy's Vault, "Sign in to http://the-internet.herokuapp.com/login" brought the card with the red "This page isn't secure" warning. The saved login wasn't typed, and the card didn't offer it. Then on https, Gloopy signed in by itself with the saved login ("You logged into a secure area!"). Afterwards I removed the login and signed Gloopy out; every setting is Always allow, with no rules or sites.
 
+**Also tried live, for the first time:** the card's **"Use your saved login"** button (saved logins set to Ask). The card offered "Use your saved login · Practice account (tomsmith)". Pressing it signed Gloopy in ("Signed in … with my saved login", then "You logged into a secure area!"). Gloopy's opening line still wrongly said saved logins were off, carried over from earlier in this long test chat. Put back afterwards: Always allow, Vault empty, signed out.
+
 **Note:** a deploy of `main` (run 156, started 14:54 from your account, maybe by another session) was running at the same time. It doesn't touch the test copy: the main site's machines and the test copy's are separate (gofarther-coder-machines and gofarther-coder-test-machines on Fly.io, each with its own image). So the test copy still runs this branch.
 
 ## 2026-11-12: Signing in, the rest tested live, and what it found fixed (your words: "test everything")
