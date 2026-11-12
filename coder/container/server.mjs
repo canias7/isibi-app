@@ -903,7 +903,7 @@ export function monitorNews(project) {
     const dropped = j.dropped || 0; j.dropped = 0;
     // (How many events it delivered in all, and its time limit: Claude Code's notice at its deadline says both; and, when it
     // was stopped for flooding, Claude Code's words for that.)
-    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
+    const end = j.end && !j.told ? { code: j.end.code, why: j.end.why || "", ...(j.wsEnd ? { ws: j.wsEnd } : {}), events: j.events || 0, ...(Number(j.limitMs) > 0 ? { ms: Number(j.limitMs) } : Number(j.deadline) > Number(j.at) ? { ms: Number(j.deadline) - Number(j.at) } : {}), ...(j.floodNote ? { note: j.floodNote } : {}) } : null;
     if (end) j.told = true;
     if (lines.length || end) out.push({ id: j.id, desc: j.desc, lines, dropped, ...(end ? { end } : {}), ...(j.errLog ? { errLog: j.errLog } : {}) });
   }
@@ -3495,7 +3495,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           if (r && r.background && r.pid && !tool) {
             const id = "job" + (1 + Math.max(0, ...[...JOBS.values()].filter((j) => j.project === project).map((j) => Number(String(j.id).slice(3)) || 0)));
             // (`at`: when the command started, for "running for"; its time limit counts from the move to the background.)
-            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, ...(pass ? { closePass: () => px.closeFor(pass) } : {}), deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}), ...(ws ? { ws: true } : {}) } : {}) });
+            JOBS.set(r.pid, { project, id, pid: r.pid, log: r.log, command: String(asked), desc: String(desc || "").slice(0, 200), cwd: startedIn, at: startedAt, mark, moved: !inBg, ...(pass ? { closePass: () => px.closeFor(pass) } : {}), deadline: Date.now() + (monitor ? monitorMs(limitMs) : inBg ? bgLimitMs(limitMs, t.tmo) : t.tmo.bgDefaultMs), ...(monitor ? { limitMs: monitorMs(limitMs) } : {}), box: !!r.inBox, end: null, told: false, stopping: "", noReap: t.noReap === true, ...(monitor ? { monitor: true, readAt: 0, part: "", pending: [], dropped: 0, ...(errLog ? { errLog } : {}), ...(ws ? { ws: true } : {}) } : {}) });
             r.jobId = id;
           }
           // ONE ASKED TO RUN IN THE BACKGROUND THAT ENDED IN ITS FIRST SECOND (Bash docs pass 9; Claude Code answers at once with
