@@ -6442,3 +6442,41 @@ test("GL125 (2026-11-12) the big live view makes way for a hand-off card (owner:
   assert.deepEqual(did, [["close"]]);
   assert.ok(ui.includes("function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }"), "a paused picture comes back for the card");
 });
+
+test("GL126 (2026-11-12) nothing in the chat scrolls it sideways (owner: \"fix the sideways scroll too\"; found live: a security key's 140-character code in an answer was wider than the chat): long words, codes and links wrap wherever they have to, in answers, your messages, steps and cards; code blocks and tables scroll inside themselves; on a computer and on a phone", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.ok(css.includes(".cd-thread { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; overflow-wrap: anywhere; }"));
+  assert.ok(css.includes("max-width: 78%; white-space: pre-wrap; overflow-wrap: anywhere; }"), "your own messages too");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  // The answer as the page writes it (its own formatting code), with every kind of long thing in it.
+  const part = (from, to) => ui.slice(ui.indexOf(from), ui.indexOf(to, ui.indexOf(from)));
+  const prose = new Function(part("  const esc = ", "\n") + "\n" + part("  function inline(", "  // A TABLE") + part("  const SEP_ROW", "  function blocks(") + part("  function blocks(", "  function prose(") + part("  function prose(", "\n  }\n") + "\n  }\nreturn [prose, esc];")();
+  const [toHTML, esc] = prose;
+  const hex = "3044022063766f254e87dabde2bb1056308bf80e6d233ff489800e4969f55cf3cd352b0602202ca3f2e86aa395".repeat(2).slice(0, 140);
+  const url = "https://example.com/" + "a".repeat(200);
+  const answer = "The key signed it: `" + hex + "`. See " + url + "\n\n- " + "word".repeat(60) + "\n\n```\n" + "x".repeat(400) + "\n```\n\n| Name | Value |\n| --- | --- |\n| key | " + hex + " |";
+  const html = '<!doctype html><meta charset="utf-8"><style>' + css + '</style><style>html,body{margin:0;height:100%}#app{height:100%;display:flex;flex-direction:column}</style><div id="app"><div class="cd"><div class="cd-log" id="cdLog"><div class="cd-thread">' +
+    '<div class="cd-user"><div class="cd-bubble">' + esc("z".repeat(300)) + '</div></div>' +
+    '<div class="cd-ai">' + toHTML(answer) + '</div>' +
+    '<div class="cd-cmd is-ok"><button type="button" class="cd-cmd-row"><span class="cd-cmd-verb"><span class="cd-cmd-said">' + esc("Asked you to take over: " + "q".repeat(300)) + '</span></span></button></div>' +
+    '<div class="cd-secret cd-approve"><b class="cd-secret-t">Gloopy wants to click “' + "b".repeat(200) + '”</b><p class="cd-secret-how">On <code>' + "h".repeat(120) + '.example</code></p><span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + "s".repeat(300) + '</pre></div>' +
+    '</div></div></div></div>';
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    for (const [w, h] of [[1280, 800], [390, 844]]) {
+      const page = await browser.newPage({ viewport: { width: w, height: h } });
+      await page.setContent(html);
+      const m = await page.evaluate(() => {
+        const log = document.getElementById("cdLog"), pre = document.querySelector(".cd-pre"), code = document.querySelector(".cd-ai code");
+        return { log: [log.scrollWidth, log.clientWidth], pre: [pre.scrollWidth, pre.clientWidth], codeLines: code.getClientRects().length };
+      });
+      assert.ok(m.log[0] <= m.log[1], w + " px wide: the chat scrolls sideways " + JSON.stringify(m));
+      assert.ok(m.pre[0] > m.pre[1], w + " px wide: a code block scrolls inside itself " + JSON.stringify(m));
+      assert.ok(m.codeLines > 1, w + " px wide: the long code wraps " + JSON.stringify(m));
+      await page.close();
+    }
+  } finally { await browser.close(); }
+});

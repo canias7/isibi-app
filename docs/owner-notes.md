@@ -11,6 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: The chat no longer scrolls sideways (your words: "fix the sideways scroll too")
+
+- **What it was:** Gloopy's chat had a sideways scrollbar. The cause was a long unbroken string in one of Gloopy's answers, a security key's 140-character code from an earlier test. It was 1,060 pixels wide, wider than the chat, so the whole chat scrolled sideways.
+- **The fix:** long words, codes and links now wrap onto the next line wherever they have to. That covers Gloopy's answers, your own messages, steps and cards. Code blocks and tables keep their own scrollbar inside themselves, so code isn't broken up. Coder's chat uses the same page, so it's fixed there too.
+- **Checked:** a new test draws the chat in a real browser, with long text of every kind, at a computer's width and a phone's. With the old styles the chat was 1,328 pixels wide in a 1,280-pixel window. Now it fits exactly. Test GL126.
+
 ## 2026-11-12: A hover step, and the live view makes way for the hand-off card (your words: "yes do both")
 
 - **Hover.** Gloopy's browser has a new step: hover, which puts the mouse over something without clicking it. It shows what appears only then, such as a menu, a tooltip or a picture's name. Before, Gloopy clicked pictures to read their hover names, and the safety check once asked you first, because you had said hover, not click. Hovering changes nothing on a site, so like scrolling it isn't checked first. The live view marks where Gloopy hovered, and its helpers can hover too. Test GL124; GL10 and GL85 updated.
