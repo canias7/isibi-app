@@ -517,8 +517,12 @@ export async function serve(dir) {
       + (L.key ? "\nThe page asks for a security key, to sign in to " + L.key.site + ". It waits for the owner: their key is plugged into their own computer." : "")
       + (L.keyNote ? "\nThe page asked for a security key (" + L.keyNote + "): a helper can't use the owner's key. Say so in your answer, and Gloopy will do it." : "");
     L.fileAsked = false; L.keyNote = "";
+    // ITS OTHER TABS (live test, 2026-11-12: asked what was open, Gloopy saw only its own tab and said "one tab"): the
+    // others the owner or a site opened, each by its title and address (open an address to go there).
+    const others = L === L0 ? mainTabs().filter((p) => p !== page).slice(0, 8) : [];
+    const tabsLine = others.length ? "\nYour other tabs (the owner can switch to one in the live view; open its address to go there yourself): " + (await Promise.all(others.map(async (p) => JSON.stringify((await p.title().catch(() => "")) || "(no title)") + " " + p.url().slice(0, 300)))).join("; ") : "";
     // Blanked in all of it, what was done too (a step's words name an element, never what is typed in it, but never trust that alone).
-    const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
+    const text = redactCards(redactPasswords("Did: " + did + "\nPage: " + (title || "(no title)") + "\nAddress: " + page.url() + tabsLine + said + "\n\n" + outline + cut, hide.passwords), hide.cards);
     // SCREENSHOTS AS FILES (fix 1): the page as a PNG (in view, or the whole page), masked as the AI's own screenshot is.
     let file = null;
     if (picture) {

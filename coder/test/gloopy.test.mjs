@@ -4742,7 +4742,9 @@ test("GL95 (2026-11-10) on the page: the live view marks where Gloopy acted and 
   assert.match(ui, /if \(S\.running \|\| w\.working\) \{\n\s+w\.msg = 'Stopping Gloopy…'; draw\(\);\n\s+await stop\(\);\n\s+for \(let i = 0; i < 60 && S\.running && S\.web === w; i\+\+\) await new Promise\(\(ok\) => setTimeout\(ok, 500\)\);/);
   // Your own way around, and a file when the page asks for one.
   assert.match(ui, /<button type="button" id="cdWebBack">Back<\/button><button type="button" id="cdWebFwd">Forward<\/button><button type="button" id="cdWebReload">Reload<\/button>/);
-  assert.match(ui, /<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address"/);
+  // (2026-11-12: the page's own address shows in it until another is typed, as in Chrome; GL122.)
+  assert.match(ui, /<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="' \+ esc\(webAddr\(\)\) \+ '" aria-label="Go to an address"/);
+  assert.ok(ui.includes("const webAddr = () => { const u = S.web && S.web.url; return u && /^https?:/.test(u) ? u : 'Go to an address'; };"));
   assert.match(ui, /webInput\(\{ kind: 'open', url: u\.slice\(0, 4000\) \}\)/);
   assert.match(ui, /\(w\.chooser \? '<div class="cd-web-tools cd-web-file"><span>The page asks for a file\.<\/span><label class="cd-web-pick">Choose a file<input type="file" id="cdWebFile" hidden><\/label><\/div>' : ''\)/);
   assert.match(ui, /if \(f\.size > 5 \* 1024 \* 1024\) \{ S\.web\.msg = 'That file is over 5 MB\.'; return draw\(\); \}/);
@@ -6205,7 +6207,7 @@ test("GL121 (2026-11-12) the hand-off card shows Gloopy's browser live, as Grok 
   assert.ok(ui.includes("S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '', card: !!card && !take };"));
   assert.ok(ui.includes("if (ho && w.shot && ho.getAttribute('src') !== w.shot) ho.setAttribute('src', w.shot);\n    if (before === shape && !img && ho && w.card) return;"), "the card's picture changes in place, the chat is not redrawn for it");
   assert.ok(ui.includes("(S.running || w.working || Date.now() - w.touched <= (w.control || w.card ? WEB_HOLD_MS : WEB_WATCH_MS));"), "it waits for you as long as taking over does, then pauses");
-  assert.match(ui, /w\.lane \|\| 0, !!w\.card, \(w\.tabs \|\| \[\]\)\.map\(\(x\) => x\.id \+ \(x\.on \? '\*' : ''\) \+ x\.title\)\.join\('\\n'\), !!S\.webTerm, \(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| '', w\.key \? w\.key\.site : ''\]\.join\('\|'\)/);
+  assert.ok(ui.includes("w.lane || 0, !!w.card, (w.tabs && w.tabs.length ? w.tabs.map((x) => x.id + (x.on ? '*' : '') + x.title).join('\\n') : w.title || ''), !!S.webTerm, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|')"), "the tabs (or the one tab's title) and the terminal redraw the view");
   // The screen's own words, run as the page runs them; never the .cd-web class (on a phone it hides the chat, GL27).
   const fn = (name, end) => ui.slice(ui.indexOf("  function " + name + "("), ui.indexOf(end, ui.indexOf("  function " + name + "(")));
   const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
@@ -6306,6 +6308,9 @@ test("GL122 (2026-11-12) the whole computer in Gloopy's live view, as Grok Bot's
     await assert.rejects(hub.input({ kind: "tab", id: two }), /that tab is closed/);
     sc = await hub.input({ kind: "newtab", url: base + "/two" });
     assert.deepEqual([sc.title, sc.tabs.length, sc.tabs.at(-1).on], ["Two", 2, true]);
+    // (Live test, 2026-11-12: Gloopy saw only its own tab and said "one tab".) Its step names its other tabs.
+    a = await hub.act({ action: "look" });
+    assert.match(a.text, /\nAddress: [^\n]+\/two\nYour other tabs \(the owner can switch to one in the live view; open its address to go there yourself\): "One" http:\/\/[^\s/]+\/\n/);
     // A tab that closes itself: Gloopy goes on in its newest other tab, never on a closed one.
     a = await hub.act({ action: "look" });
     a = await hub.act({ action: "click", ref: ref(a.text, "pop three") });

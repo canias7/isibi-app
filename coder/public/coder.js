@@ -1492,11 +1492,13 @@
           : '<button type="button" class="cd-card-yes" id="cdWebTake"' + (w.none ? ' disabled' : '') + '>' + (w.working || S.running ? 'Stop and take over' : 'Take over') + '</button>') +
       '</div></div>');
   }
+  const webAddr = () => { const u = S.web && S.web.url; return u && /^https?:/.test(u) ? u : 'Go to an address'; };
   // YOUR OWN WAY AROUND (dots: Take over gives "its mouse and keyboard"): Back, Forward, Reload and an address; above the
   // page since 2026-11-12, where a browser has them.
   function webNavHTML() {
     return '<div class="cd-web-tools cd-web-nav"><button type="button" id="cdWebBack">Back</button><button type="button" id="cdWebFwd">Forward</button><button type="button" id="cdWebReload">Reload</button>' +
-      '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>';
+      // The page's own address shows in the box (live test, 2026-11-12: Chrome's does), until you type another.
+      '<input id="cdWebUrl" class="cd-web-in" type="text" inputmode="url" placeholder="' + esc(webAddr()) + '" aria-label="Go to an address" autocomplete="off" autocapitalize="off" spellcheck="false" value="' + esc(S.webUrl || '') + '"><button type="button" id="cdWebGo">Go</button></div>';
   }
   // GLOOPY'S TABS AND ITS TERMINAL, as tabs (2026-11-12): each tab of its browser (one, with its page's title, until a
   // second opens); while you have control, switch to one, close one (never the last) or open one (+). Terminal shows its
@@ -1600,13 +1602,15 @@
       if (did) did.textContent = w.last ? 'Gloopy: ' + w.last.did : 'You’re watching Gloopy work.';
       const full = S.root.querySelector('#cdWebFull');
       if (full && full.textContent !== (w.url || '')) { full.textContent = w.url || ''; full.title = w.url || ''; }
+      const box = S.root.querySelector('#cdWebUrl');
+      if (box && box.placeholder !== webAddr()) box.placeholder = webAddr();
       const a = S.root.querySelector('#cdWebAddr');
       if (a) { let host = ''; try { host = /^https?:/.test(w.url) ? new URL(w.url).host : ''; } catch (e) { host = ''; } a.textContent = (w.title || '') + (host ? ' · ' + host : ''); a.title = w.url || ''; }
       return;
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, !!w.card, (w.tabs || []).map((x) => x.id + (x.on ? '*' : '') + x.title).join('\n'), !!S.webTerm, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, !!w.card, (w.tabs && w.tabs.length ? w.tabs.map((x) => x.id + (x.on ? '*' : '') + x.title).join('\n') : w.title || ''), !!S.webTerm, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
   // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
   // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
