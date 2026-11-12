@@ -1254,7 +1254,7 @@ export function thumbOf(b64) {
  * programs do, and Gloopy's browser rightly refuses it; ordinary Chrome sent the same way is refused the same): said
  * so, with what to do, to Gloopy and to the owner in the live view. `routed`: the connection went through the link.
  */
-export const ROUTE_CERT_NOTE = " Gloopy's browser goes through the owner's computer right now. If every secure site says this, that computer's network is checking secure connections with its own certificate (some office networks and security programs do), and Gloopy's browser won't accept that. Turning off \"Through your own computer\" in Settings → Browser sends it straight out again.";
+export const ROUTE_CERT_NOTE = " Gloopy's browser goes through the owner's computer right now. If every secure site says this, that computer's network is checking secure connections with its own certificate (some office networks and security programs do), and Gloopy's browser won't accept that. Turning off \"Through your own computer\" in Settings → Computer sends it straight out again.";
 export const routeCertNote = (msg, routed) => (routed && /net::ERR_CERT_/.test(String(msg)) ? String(msg) + ROUTE_CERT_NOTE : String(msg));
 
 /**

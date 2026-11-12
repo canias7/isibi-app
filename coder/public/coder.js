@@ -345,6 +345,18 @@
   // closes a card waiting now shows in the chat behind it.
   const GSET_PERM_WORDS = { ask: 'Ask', allow: 'Always allow', deny: 'Never' };
   const GSET_SIGNED_HOW = { form: 'You signed in on the card', saved: 'With your saved login', code: 'With a code', 'took over': 'You signed in yourself' };
+  // The menu down Settings' left (Grok Bot's): each page's key, name and icon.
+  const GSET_ICON = (d) => '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' + d + '</svg>';
+  const GSET_PAGES = [
+    ['perms', 'Permissions', GSET_ICON('<path d="M12 3l7 3v5c0 4.4-2.9 8.3-7 10-4.1-1.7-7-5.6-7-10V6z"/>')],
+    ['sites', 'Sites', GSET_ICON('<circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/>')],
+    ['vault', 'Vault', GSET_ICON('<rect x="3.5" y="3.5" width="17" height="17" rx="2.5"/><circle cx="12" cy="12" r="3.2"/><path d="M12 8.8V7M12 17v-1.8M8.8 12H7M17 12h-1.8"/>')],
+    ['computer', 'Computer', GSET_ICON('<rect x="3" y="4" width="18" height="12" rx="2"/><path d="M8 20h8M12 16v4"/>')],
+  ];
+  // Your rules, kind by kind (Grok Bot's Always Ask, then Allow without Asking): what each does, and an example.
+  const GSET_RULE_ORDER = ['ask', 'allow', 'deny', 'handoff', 'when_asked'];
+  const GSET_RULE_HINTS = { ask: 'Gloopy stops and asks you when a step fits one of these.', allow: 'Gloopy goes ahead without asking when a step fits one of these.', deny: 'Gloopy never takes a step that fits one of these. Never always wins.', handoff: 'Gloopy leaves a step that fits one of these to you.', when_asked: 'Gloopy takes a step that fits one of these only when your own message asks for it.' };
+  const GSET_RULE_EXAMPLES = { ask: 'buy anything over $50', allow: 'read pages on news sites', deny: 'delete anything in my email', handoff: 'pay for something', when_asked: 'post on social media' };
   const gsetWhen = (t) => new Date(t).toLocaleString('en-GB', { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' });
   async function showGloopySettings() {
     if (!S.project) return;
@@ -359,6 +371,8 @@
       // Where its browser is signed in, and your saved logins (the /signins card's), when they could be had.
       signins: gr.status === 200 && gr.data ? { sites: gr.data.sites || [], saved: gr.data.saved || [] } : null,
       edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', outHost: '', note: '', busy: false,
+      // The open page (the one you had open last, else Permissions) and the add form open on it (a rule's kind, or a site).
+      page: GSET_PAGES.some(([k]) => k === S.gsetPage) ? S.gsetPage : 'perms', ruleOpen: '', siteOpen: false,
       // The Vault (2026-11-12): its search, what is open (`new`, `import`, or a login's id to change), the New item menu,
       // the form's words (never its password: that is read from the box when saved), a removal to confirm, and an
       // export read on this device (its rows, passwords and all, only until they are imported or cancelled).
@@ -395,7 +409,7 @@
     };
     const vaultHTML = () => {
       const v = st.vault, all = st.signins ? st.signins.saved : null;
-      const head = '<div class="cd-vault-head"><h3>Vault</h3><span class="cd-vault-new"><button type="button" class="cd-vault-newbtn" data-vault="menu" aria-haspopup="menu" aria-expanded="' + (v.menu ? 'true' : 'false') + '"' + (st.busy || !all ? ' disabled' : '') + '>New item ' + ICON.chev + '</button>' +
+      const head = '<div class="cd-vault-head"><h2 class="cd-gset-pt">Vault</h2><span class="cd-vault-new"><button type="button" class="cd-vault-newbtn" data-vault="menu" aria-haspopup="menu" aria-expanded="' + (v.menu ? 'true' : 'false') + '"' + (st.busy || !all ? ' disabled' : '') + '>New item ' + ICON.chev + '</button>' +
         (v.menu ? '<span class="cd-vault-menu" role="menu"><button type="button" role="menuitem" data-vault="new">' + ICON.key + 'Login</button><button type="button" role="menuitem" data-vault="import">' + ICON.doc + 'Import from CSV…</button></span>' : '') + '</span></div>';
       if (!all) return '<section class="cd-vault">' + head + '<p class="cd-gset-none">Your Vault couldn’t be loaded. Close this and try again.</p></section>';
       const q = v.q.trim().toLowerCase();
@@ -408,46 +422,60 @@
         (v.open === 'new' ? vaultForm(null) : v.open === 'import' ? vaultImport() : '') +
         (!all.length ? '<p class="cd-gset-none cd-vault-empty">Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.</p>'
           : !shown.length ? '<p class="cd-gset-none cd-vault-empty">No login matches “' + esc(v.q.trim()) + '”.</p>'
-          : '<ul class="cd-gset-list cd-vault-list">' + shown.slice(0, 200).map(row).join('') + '</ul>' + (shown.length > 200 ? '<p class="cd-gset-hint">' + (shown.length - 200) + ' more: search to find one.</p>' : '')) +
+          : '<div class="cd-gset-card cd-vault-card"><ul class="cd-gset-list cd-vault-list">' + shown.slice(0, 200).map(row).join('') + '</ul></div>' + (shown.length > 200 ? '<p class="cd-gset-hint">' + (shown.length - 200) + ' more: search to find one.</p>' : '')) +
         '<p class="cd-vault-foot">Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.</p></section>';
     };
     const paint = () => {
       const top = box.querySelector('.cd-gset-body') ? box.querySelector('.cd-gset-body').scrollTop : 0;
       const typing = box.querySelector('#gsVaultPass'), typed = typing ? typing.value : '', focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : '';
-      box.innerHTML = '<div class="cd-gset-head"><b>Gloopy’s settings</b><button type="button" class="cd-view-x" data-gs="close" aria-label="Close">×</button></div>' +
-        '<div class="cd-gset-body">' +
-        // What it may do on its own.
-        '<section><h3>What Gloopy may do on its own</h3><p class="cd-gset-hint">For each kind of step: ask you first, always allow it, or never do it. Your rules and sites below come first. Gloopy’s safety check runs either way.</p>' +
-        st.permList.map((x) => '<div class="cd-gset-row"><div class="cd-gset-what"><b>' + esc(x.label) + '</b><small>' + esc(x.hint) + '</small></div><div class="cd-gset-seg" role="group" aria-label="' + esc(x.label) + '">' +
-          st.permModes.map((m) => '<button type="button" data-perm="' + esc(x.key) + '" data-mode="' + esc(m) + '" aria-pressed="' + (st.perms[x.key] === m ? 'true' : 'false') + '"' + (st.busy ? ' disabled' : '') + '>' + esc(GSET_PERM_WORDS[m] || m) + '</button>').join('') + '</div></div>').join('') + '</section>' +
-        // Your rules.
-        '<section><h3>Your rules</h3><p class="cd-gset-hint">In your own words. A rule that fits a step comes before the settings above, and Never always wins. Up to ' + st.ruleMax + ' of each kind.</p>' +
-        '<form class="cd-gset-add" data-gs="add-rule"><label class="cd-gset-l" for="gsRuleText">When Gloopy wants to</label><textarea id="gsRuleText" class="cd-gset-in" rows="2" maxlength="1000" placeholder="buy anything over $50">' + esc(st.ruleText) + '</textarea>' +
-          '<div class="cd-gset-addrow"><label class="cd-gset-l" for="gsRuleMode">It should</label><select id="gsRuleMode" class="cd-gset-sel">' + opts(st.ruleModes, st.ruleWords, st.ruleMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add rule</button></div></form>' +
-        (st.rules.length ? '<ul class="cd-gset-list">' + st.rules.map((r) => st.edit === r.id
-          ? '<li class="cd-gset-item is-edit"><form data-gs="save-rule" data-id="' + esc(r.id) + '"><textarea class="cd-gset-in" id="gsEditText" rows="2" maxlength="1000">' + esc(st.editText) + '</textarea><div class="cd-gset-addrow"><select id="gsEditMode" class="cd-gset-sel">' + opts(st.ruleModes, st.ruleWords, st.editMode) + '</select><button type="button" data-gs="cancel-edit">Cancel</button><button type="submit" class="cd-gset-go">Save rule</button></div></form></li>'
-          : '<li class="cd-gset-item"><span class="cd-gset-mode m-' + esc(r.mode) + '">' + esc(st.ruleWords[r.mode] || r.mode) + '</span><span class="cd-gset-text">' + esc(r.text) + '</span><span class="cd-gset-btns"><button type="button" data-gs-edit="' + esc(r.id) + '">Edit</button><button type="button" data-gs-del="' + esc(r.id) + '" aria-label="Delete this rule">Delete</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No rules yet.</p>') + '</section>' +
-        // Sites.
-        '<section><h3>Sites</h3><p class="cd-gset-hint">What Gloopy’s browser may do on a site and its subdomains. Never: it doesn’t open the site or do anything there. Ask first: it asks before opening it, and before each step there that would change something. Hand off to me: those steps are yours. Always allow: they go ahead unless the check finds another reason to stop.</p>' +
-        '<form class="cd-gset-add cd-gset-siteadd" data-gs="add-site"><input id="gsSiteHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="shop.example" value="' + esc(st.siteHost) + '" aria-label="Site"><select id="gsSiteMode" class="cd-gset-sel" aria-label="Choice for this site">' + opts(st.siteModes, st.siteWords, st.siteMode) + '</select><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Add site</button></form>' +
-        (st.sites.length ? '<ul class="cd-gset-list">' + st.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text cd-gset-host">' + esc(x.host) + '</span><select class="cd-gset-sel" data-site="' + esc(x.host) + '" aria-label="Choice for ' + esc(x.host) + '">' + opts(st.siteModes, st.siteWords, x.mode) + '</select><span class="cd-gset-btns"><button type="button" data-gs-unsite="' + esc(x.host) + '" aria-label="Remove ' + esc(x.host) + '">Remove</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No sites yet.</p>') + '</section>' +
-        // THE BROWSER'S SIGN-INS (the docs check, 2026-11-11: both apps keep them in their settings, dots' "Browser data";
-        // Gloopy had them only by typing /signins): where it is signed in, Sign out for each site or any other, and the
-        // logins you saved for it, to forget.
-        vaultHTML() +
-        '<section><h3>Browser</h3><p class="cd-gset-hint">Where Gloopy’s browser is signed in. Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it.</p>' +
-        (!st.signins ? '<p class="cd-gset-none">Gloopy’s sign-ins couldn’t be loaded. Close this and try again.</p>'
-          : (st.signins.sites.length ? '<ul class="cd-gset-list">' + st.signins.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(x.site) + '</b><small>' + esc(GSET_SIGNED_HOW[x.how] || 'Signed in') + (x.at ? ' · ' + esc(gsetWhen(x.at)) : '') + '</small></span><span class="cd-gset-btns"><button type="button" data-gs-signout="' + esc(x.site) + '"' + (st.busy ? ' disabled' : '') + '>Sign out</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet.</p>') +
-          '<form class="cd-gset-add cd-gset-siteadd" data-gs="signout-site"><input id="gsOutHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Another site, like shop.example" value="' + esc(st.outHost) + '" aria-label="Sign out of another site"><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Sign out</button></form>') +
-        // THROUGH THIS COMPUTER (2026-11-11): the switch is in the Go Farther app (it carries the connections).
-        '<h4 class="cd-gset-sub">Through your own computer</h4>' + (DESKTOP_ROUTE
-          ? '<label class="cd-gset-switch"><input type="checkbox" id="gsRoute"' + (st.options.route ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>Send Gloopy’s browser’s traffic through this computer. Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away. It works while this app is open. This computer’s private and VPN addresses stay closed to Gloopy.</span></label>' +
-            (st.options.route ? '<p class="cd-gset-route" role="status">' + esc(gsetRouteWords(st.route)) + '</p>' : '')
-          : st.options.route ? '<p class="cd-gset-hint">On: Gloopy’s browser goes through your computer while the Go Farther app is open on it.</p><button type="button" class="cd-gset-go" data-gs-route-off="1"' + (st.busy ? ' disabled' : '') + '>Turn it off</button>'
-          : '<p class="cd-gset-hint">In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection.</p>') + '</section>' +
-        // The monitor (dots' safety monitoring).
-        '<section><h3>Watch over each run</h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"' + (st.options.monitor ? ' checked' : '') + (st.busy ? ' disabled' : '') + '><span>A second AI looks over what Gloopy does as it works, every few steps and right after anything is refused, and pauses the run if Gloopy seems to get around a safeguard or do what you didn’t ask. It uses a little more Grok.</span></label></section>' +
-        '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '');
+      // GLOOPY'S SETTINGS AS GROK BOT'S (owner, 2026-11-12: "yes make the menu like grok bot , very similar"): a menu down
+      // the left, an icon and a name for each page (the open one on a grey pill), the page's title at its top, its settings
+      // in white cards under small grey labels (each a name and a line about it on the left, its control on the right: a
+      // drop-down, a switch or a grey button, as Grok Bot's Theme, Check Spelling and Add Rule), and × in the top corner.
+      // Rules sit under their kind, each kind with its own Add rule (Grok Bot's Always Ask and Allow without Asking). On a
+      // phone, the menu is a row of tabs on top.
+      const busy = st.busy ? ' disabled' : '';
+      const what = (b, small) => '<span class="cd-gset-what"><b>' + b + '</b>' + (small ? '<small>' + small + '</small>' : '') + '</span>';
+      const toggle = (id, on, label) => '<input type="checkbox" role="switch" class="cd-gset-tog" id="' + id + '"' + (on ? ' checked' : '') + busy + ' aria-label="' + label + '">';
+      const ruleRow = (r) => st.edit === r.id
+        ? '<li class="cd-gset-item is-edit"><form data-gs="save-rule" data-id="' + esc(r.id) + '"><textarea class="cd-gset-in" id="gsEditText" rows="2" maxlength="1000" aria-label="The rule">' + esc(st.editText) + '</textarea><div class="cd-gset-addrow"><select id="gsEditMode" class="cd-gset-dd" aria-label="What Gloopy should do">' + opts(st.ruleModes, st.ruleWords, st.editMode) + '</select><span class="cd-vault-sp"></span><button type="button" data-gs="cancel-edit">Cancel</button><button type="submit" class="cd-gset-go">Save rule</button></div></form></li>'
+        : '<li class="cd-gset-item"><span class="cd-gset-text">' + esc(r.text) + '</span><span class="cd-gset-btns"><button type="button" data-gs-edit="' + esc(r.id) + '">Edit</button><button type="button" data-gs-del="' + esc(r.id) + '" aria-label="Delete this rule">Delete</button></span></li>';
+      const ruleKinds = GSET_RULE_ORDER.filter((m) => st.ruleModes.includes(m)).concat(st.ruleModes.filter((m) => !GSET_RULE_ORDER.includes(m)));
+      const sec = {
+        watch: () => '<section><div class="cd-gset-card"><label class="cd-gset-row">' + what('Watch over each run', 'A second AI looks over what Gloopy does as it works, every few steps and right after anything is refused, and pauses the run if Gloopy seems to get around a safeguard or do what you didn’t ask. It uses a little more Grok.') + toggle('gsMonitor', st.options.monitor, 'Watch over each run') + '</label></div></section>',
+        perms: () => '<section><h3 class="cd-gset-sl">What Gloopy may do on its own</h3><div class="cd-gset-card"><p class="cd-gset-cardnote">For each kind of step: ask you first, always allow it, or never do it. Your rules and your sites come first. Gloopy’s safety check runs either way.</p>' +
+          st.permList.map((x) => '<div class="cd-gset-row">' + what(esc(x.label), esc(x.hint)) + '<select class="cd-gset-dd m-' + esc(st.perms[x.key] || '') + '" data-perm="' + esc(x.key) + '" aria-label="' + esc(x.label) + '"' + busy + '>' +
+            st.permModes.map((m) => '<option value="' + esc(m) + '"' + (st.perms[x.key] === m ? ' selected' : '') + '>' + esc(GSET_PERM_WORDS[m] || m) + '</option>').join('') + '</select></div>').join('') + '</div></section>',
+        rules: () => '<section><h3 class="cd-gset-sl">Your rules</h3><div class="cd-gset-card"><p class="cd-gset-cardnote">In your own words. A rule that fits a step comes before the settings above. Up to ' + st.ruleMax + ' of each kind.</p>' +
+          ruleKinds.map((m) => {
+            const mine = st.rules.filter((r) => r.mode === m);
+            return '<div class="cd-gset-kind"><div class="cd-gset-row">' + what(esc(st.ruleWords[m] || m), esc(GSET_RULE_HINTS[m] || '')) + '<button type="button" class="cd-gset-pill" data-gs-rule-new="' + esc(m) + '"' + busy + '>Add rule</button></div>' +
+              (st.ruleOpen === m ? '<form class="cd-gset-add" data-gs="add-rule"><label class="cd-gset-l" for="gsRuleText">When Gloopy wants to</label><textarea id="gsRuleText" class="cd-gset-in" rows="2" maxlength="1000" placeholder="' + esc(GSET_RULE_EXAMPLES[m] || '') + '">' + esc(st.ruleText) + '</textarea>' +
+                '<div class="cd-gset-addrow"><span class="cd-vault-sp"></span><button type="button" data-gs="cancel-rule">Cancel</button><button type="submit" class="cd-gset-go"' + busy + '>Add rule</button></div></form>' : '') +
+              (mine.length ? '<ul class="cd-gset-list">' + mine.map(ruleRow).join('') + '</ul>' : '') + '</div>';
+          }).join('') + '</div></section>',
+        sites: () => '<section><div class="cd-gset-card"><div class="cd-gset-row">' + what('Your sites', 'What Gloopy’s browser may do on a site and its subdomains.') + '<button type="button" class="cd-gset-pill" data-gs="site-new"' + busy + '>Add site</button></div>' +
+          (st.siteOpen ? '<form class="cd-gset-add cd-gset-siteadd" data-gs="add-site"><input id="gsSiteHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="shop.example" value="' + esc(st.siteHost) + '" aria-label="Site"><select id="gsSiteMode" class="cd-gset-dd" aria-label="Choice for this site">' + opts(st.siteModes, st.siteWords, st.siteMode) + '</select>' +
+            '<button type="button" data-gs="cancel-site">Cancel</button><button type="submit" class="cd-gset-go"' + busy + '>Add site</button></form>' : '') +
+          (st.sites.length ? '<ul class="cd-gset-list">' + st.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text cd-gset-host">' + esc(x.host) + '</span><select class="cd-gset-dd m-' + esc(x.mode) + '" data-site="' + esc(x.host) + '" aria-label="Choice for ' + esc(x.host) + '"' + busy + '>' + opts(st.siteModes, st.siteWords, x.mode) + '</select><span class="cd-gset-btns"><button type="button" data-gs-unsite="' + esc(x.host) + '" aria-label="Remove ' + esc(x.host) + '">Remove</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">No sites yet.</p>') + '</div></section>' +
+          '<p class="cd-gset-foot">Never: it doesn’t open the site or do anything there. Ask first: it asks before opening it, and before each step there that would change something. Hand off to me: those steps are yours. Always allow: they go ahead unless the check finds another reason to stop.</p>',
+        browser: () => '<section><h3 class="cd-gset-sl">Browser</h3><div class="cd-gset-card"><div class="cd-gset-row">' + what('Where Gloopy’s browser is signed in', 'Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it.') + '</div>' +
+          (!st.signins ? '<p class="cd-gset-none">Gloopy’s sign-ins couldn’t be loaded. Close this and try again.</p>'
+            : (st.signins.sites.length ? '<ul class="cd-gset-list">' + st.signins.sites.map((x) => '<li class="cd-gset-item"><span class="cd-gset-text"><b class="cd-gset-host">' + esc(x.site) + '</b><small>' + esc(GSET_SIGNED_HOW[x.how] || 'Signed in') + (x.at ? ' · ' + esc(gsetWhen(x.at)) : '') + '</small></span><span class="cd-gset-btns"><button type="button" data-gs-signout="' + esc(x.site) + '"' + busy + '>Sign out</button></span></li>').join('') + '</ul>' : '<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet.</p>') +
+            '<form class="cd-gset-add cd-gset-siteadd" data-gs="signout-site"><input id="gsOutHost" class="cd-gset-in" type="text" inputmode="url" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="Another site, like shop.example" value="' + esc(st.outHost) + '" aria-label="Sign out of another site"><button type="submit" class="cd-gset-pill"' + busy + '>Sign out</button></form>') + '</div></section>' +
+          '<section><h3 class="cd-gset-sl">Through your own computer</h3><div class="cd-gset-card">' + (DESKTOP_ROUTE
+            ? '<label class="cd-gset-row">' + what('Send Gloopy’s browser’s traffic through this computer', 'Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away. It works while this app is open. This computer’s private and VPN addresses stay closed to Gloopy.') + toggle('gsRoute', st.options.route, 'Send Gloopy’s browser’s traffic through this computer') + '</label>' +
+              (st.options.route ? '<p class="cd-gset-route" role="status">' + esc(gsetRouteWords(st.route)) + '</p>' : '')
+            : st.options.route ? '<div class="cd-gset-row">' + what('On', 'Gloopy’s browser goes through your computer while the Go Farther app is open on it.') + '<button type="button" class="cd-gset-pill" data-gs-route-off="1"' + busy + '>Turn it off</button></div>'
+            : '<div class="cd-gset-row">' + what('Send Gloopy’s browser’s traffic through your own computer', 'In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection.') + '</div>') + '</div></section>',
+      };
+      const pageHTML = st.page === 'sites' ? '<h2 class="cd-gset-pt">Sites</h2>' + sec.sites()
+        : st.page === 'vault' ? vaultHTML()
+        : st.page === 'computer' ? '<h2 class="cd-gset-pt">Computer</h2>' + sec.browser()
+        : '<h2 class="cd-gset-pt">Permissions</h2>' + sec.watch() + sec.perms() + sec.rules();
+      box.innerHTML = '<nav class="cd-gset-nav" aria-label="Gloopy’s settings">' + GSET_PAGES.map(([k, label, icon]) => '<button type="button" class="cd-gset-navb' + (st.page === k ? ' is-on' : '') + '" data-gs-page="' + k + '"' + (st.page === k ? ' aria-current="page"' : '') + '>' + icon + '<span>' + label + '</span></button>').join('') + '</nav>' +
+        '<div class="cd-gset-main"><div class="cd-gset-body">' + pageHTML + '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '') + '</div>' +
+        '<button type="button" class="cd-gset-x" data-gs="close" aria-label="Close"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
       const b = box.querySelector('.cd-gset-body'); if (b) b.scrollTop = top;
       const again = box.querySelector('#gsVaultPass'); if (again && typed) again.value = typed;
       if (focused === 'gsVaultQ') { const q = box.querySelector('#gsVaultQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
@@ -470,18 +498,19 @@
     });
     box.addEventListener('change', (e) => {
       const t = e.target;
-      if (t.id === 'gsRuleMode') st.ruleMode = t.value; else if (t.id === 'gsEditMode') st.editMode = t.value; else if (t.id === 'gsSiteMode') st.siteMode = t.value;
+      if (t.id === 'gsEditMode') st.editMode = t.value; else if (t.id === 'gsSiteMode') st.siteMode = t.value;
       else if (t.id === 'gsMonitor') save('/options', { set: { monitor: t.checked } }, (d) => { st.options = d.options; });
       else if (t.id === 'gsRoute') routeSwitch(t.checked);
       else if (t.id === 'gsVaultFile') vaultFile(t.files && t.files[0]);
+      else if (t.dataset.perm) save('/permissions', { set: { [t.dataset.perm]: t.value } }, (x) => { st.perms = x.permissions; });
       else if (t.dataset.site) save('/sites', { set: { host: t.dataset.site, mode: t.value } }, (d) => { st.sites = d.sites; });
     });
     box.addEventListener('submit', async (e) => {
       e.preventDefault();
       const f = e.target, what = f.dataset.gs;
-      if (what === 'add-rule') { const text = st.ruleText.trim(); if (!text) { st.note = 'Write the rule first.'; return paint(); } if (await save('/rules', { add: { text, mode: st.ruleMode } }, (d) => { st.rules = d.rules; })) { st.ruleText = ''; paint(); } }
+      if (what === 'add-rule') { const text = st.ruleText.trim(); if (!text) { st.note = 'Write the rule first.'; return paint(); } if (await save('/rules', { add: { text, mode: st.ruleMode } }, (d) => { st.rules = d.rules; })) { st.ruleText = ''; st.ruleOpen = ''; paint(); } }
       else if (what === 'save-rule') { if (await save('/rules', { change: { id: f.dataset.id, text: st.editText, mode: st.editMode } }, (d) => { st.rules = d.rules; })) { st.edit = ''; paint(); } }
-      else if (what === 'add-site') { const host = st.siteHost.trim(); if (!host) { st.note = 'Write the site’s address first.'; return paint(); } if (await save('/sites', { set: { host, mode: st.siteMode } }, (d) => { st.sites = d.sites; })) { st.siteHost = ''; paint(); } }
+      else if (what === 'add-site') { const host = st.siteHost.trim(); if (!host) { st.note = 'Write the site’s address first.'; return paint(); } if (await save('/sites', { set: { host, mode: st.siteMode } }, (d) => { st.sites = d.sites; })) { st.siteHost = ''; st.siteOpen = false; paint(); } }
       else if (what === 'vault-save') {
         const id = f.dataset.id || '', box2 = box.querySelector('#gsVaultPass'), password = box2 ? box2.value : '';
         const site = st.vault.site.trim();
@@ -500,7 +529,16 @@
       const d = t.dataset;
       if (d.gs === 'close') close();
       else if (d.gs === 'cancel-edit') { st.edit = ''; paint(); }
-      else if (d.perm) save('/permissions', { set: { [d.perm]: d.mode } }, (x) => { st.perms = x.permissions; });
+      else if (d.gsPage) {
+        // Another page: open forms and menus close (a password being typed is not carried over), and it opens at its top.
+        Object.assign(st, { page: d.gsPage, edit: '', note: '' }); Object.assign(st.vault, { menu: false, sure: '' }); S.gsetPage = d.gsPage;
+        paint(); const b = box.querySelector('.cd-gset-body'); if (b) b.scrollTop = 0;
+        const n = box.querySelector('[data-gs-page="' + d.gsPage + '"]'); if (n) n.focus();
+      }
+      else if (d.gsRuleNew) { Object.assign(st, { ruleOpen: d.gsRuleNew, ruleMode: d.gsRuleNew, ruleText: '', edit: '' }); paint(); const i = box.querySelector('#gsRuleText'); if (i) i.focus(); }
+      else if (d.gs === 'cancel-rule') { Object.assign(st, { ruleOpen: '', ruleText: '' }); paint(); }
+      else if (d.gs === 'site-new') { st.siteOpen = true; paint(); const i = box.querySelector('#gsSiteHost'); if (i) i.focus(); }
+      else if (d.gs === 'cancel-site') { Object.assign(st, { siteOpen: false, siteHost: '' }); paint(); }
       else if (d.gsEdit) { const r = st.rules.find((x) => x.id === d.gsEdit); if (r) { st.edit = r.id; st.editText = r.text; st.editMode = r.mode; paint(); const i = box.querySelector('#gsEditText'); if (i) i.focus(); } }
       else if (d.gsDel) save('/rules', { remove: d.gsDel }, (x) => { st.rules = x.rules; });
       else if (d.gsUnsite) save('/sites', { remove: d.gsUnsite }, (x) => { st.sites = x.sites; });
@@ -573,7 +611,7 @@
     };
     paint();
     routeLook();
-    const first = box.querySelector('.cd-gset-seg button'); if (first) first.focus();
+    const first = box.querySelector('.cd-gset-navb.is-on'); if (first) first.focus();
   }
   // How the link from this computer is doing, in words.
   function gsetRouteWords(r) {

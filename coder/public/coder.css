@@ -644,62 +644,87 @@
 @media (max-width: 640px) { .cd-sched-btns { max-width: none; justify-content: flex-start; } }
 .cd-note .cd-resume{font:inherit;font-size:13px;font-weight:600;border-radius:999px;padding:5px 14px;margin-left:8px;cursor:pointer;vertical-align:middle}
 
-/* GLOOPY'S SETTINGS (2026-11-10): what it may do, your rules, your sites. */
-.cd-gset{max-width:680px;padding:0;display:flex;flex-direction:column;max-height:min(88vh,980px);overflow:hidden}
-.cd-gset-head{display:flex;align-items:center;gap:10px;padding:14px 12px 12px 20px;border-bottom:1px solid #ecebe6}
-.cd-gset-head b{flex:1;font-size:16px;color:#1f1e1d}
-.cd-gset-body{overflow-y:auto;padding:4px 20px 20px}
-.cd-gset section{padding:16px 0 4px;border-bottom:1px solid #f0eee9}
-.cd-gset section:last-child{border-bottom:0}
-.cd-gset h3{margin:0 0 4px;font-size:14.5px;font-weight:600;color:#1f1e1d}
-.cd-gset-hint{margin:0 0 12px;font-size:13px;line-height:1.45;color:#6b6a68}
-.cd-gset-row{display:flex;align-items:center;gap:12px;padding:9px 0;border-top:1px solid #f4f2ee}
+/* GLOOPY'S SETTINGS (2026-11-10), laid out as Grok Bot's (2026-11-12): a menu down the left (each page an icon and its
+   name, the open one on a grey pill), the page on the right (its title, small grey labels over white cards, each row a
+   name and a line about it with its control on the right), and × in the top corner. Grok Bot's own greys and blue. */
+.cd-sure-box.cd-gset{position:relative;max-width:800px;height:min(624px,88vh);padding:0;display:flex;overflow:hidden;border-radius:14px;background:#fcfcfc;color:#1f1f1f}
+.cd-gset-nav{flex:none;width:176px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:14px 11px 14px 12px;border-right:1px solid #f0f0f0;overflow-y:auto}
+.cd-gset-navb{display:flex;align-items:center;gap:9px;font:inherit;font-size:13px;color:#1f1f1f;text-align:left;border:0;background:none;border-radius:7px;padding:6px 8px;cursor:pointer;white-space:nowrap}
+.cd-gset-navb svg{flex:none;width:15px;height:15px;color:#3d3d3d}
+.cd-gset-navb:hover{background:#f3f3f3}
+.cd-gset-navb.is-on{background:#eaeaea}
+.cd-gset-navb:focus-visible,.cd-gset-x:focus-visible,.cd-gset-dd:focus-visible{outline:2px solid #1f1f1f;outline-offset:1px}
+.cd-gset-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.cd-gset-body{flex:1;overflow-y:auto;padding:28px 30px 24px}
+.cd-gset-pt{margin:4px 0 22px 6px;font-size:16px;font-weight:500;color:#1f1f1f}
+.cd-gset-x{position:absolute;top:9px;right:11px;z-index:3;display:grid;place-items:center;width:28px;height:28px;border:0;background:none;border-radius:7px;color:#747474;cursor:pointer}
+.cd-gset-x:hover{background:#efefef;color:#1f1f1f}
+.cd-gset section{margin:0 0 24px}
+.cd-gset h3.cd-gset-sl{margin:0 0 8px 11px;font-size:11.5px;font-weight:400;color:#8b8b8b}
+.cd-gset-card{background:#fff;border:1px solid #f0f0f0;border-radius:11px;padding:2px 13px}
+.cd-gset-cardnote{margin:11px 0 3px;font-size:12px;line-height:1.45;color:#8b8b8b}
+.cd-gset-hint{margin:0 0 10px;font-size:12.5px;line-height:1.45;color:#6b6b6b}
+.cd-gset-row{display:flex;align-items:center;gap:14px;padding:11px 0}
+label.cd-gset-row{cursor:pointer}
 .cd-gset-what{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
-.cd-gset-what b{font-size:14px;font-weight:500;color:#1f1e1d}
-.cd-gset-what small{font-size:12.5px;color:#8a857d}
-.cd-gset-seg{display:inline-flex;border:1px solid #e1ded7;border-radius:999px;padding:2px;background:#f7f6f2;flex:none}
-.cd-gset-seg button{font:inherit;font-size:12.5px;font-weight:500;border:0;background:transparent;color:#4b4a46;border-radius:999px;padding:5px 11px;cursor:pointer;white-space:nowrap}
-.cd-gset-seg button[aria-pressed="true"]{background:#1f1e1d;color:#fff}
-.cd-gset-seg button[aria-pressed="true"][data-mode="deny"]{background:#b3261e}
-.cd-gset-seg button:disabled{cursor:default;opacity:.7}
-.cd-gset-add{display:flex;flex-direction:column;gap:6px;margin-bottom:12px}
-.cd-gset-l{font-size:12.5px;font-weight:600;color:#4b4a46}
-.cd-gset-in{font:inherit;font-size:14px;border:1px solid #d9d6cf;border-radius:10px;padding:8px 11px;color:#1f1e1d;background:#fff;box-sizing:border-box;width:100%;resize:vertical}
-.cd-gset-in:focus,.cd-gset-sel:focus{outline:none;border-color:#1f1e1d}
+.cd-gset-what b{font-size:13px;font-weight:400;color:#1f1f1f}
+.cd-gset-what small{font-size:12px;line-height:1.4;color:#8b8b8b}
+.cd-gset-kind+.cd-gset-kind{border-top:1px solid #f4f4f4}
+/* Grok Bot's drop-down (its "Follow System ⌄"): no box, the choice and a small arrow. */
+.cd-gset-dd{flex:none;field-sizing:content;max-width:170px;font:inherit;font-size:12.5px;color:#1f1f1f;border:0;border-radius:7px;padding:5px 22px 5px 8px;cursor:pointer;-webkit-appearance:none;appearance:none;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center}
+.cd-gset-dd:hover{background-color:#f3f3f3}
+.cd-gset-dd.m-deny{color:#b3261e}
+.cd-gset-dd:disabled{cursor:default;opacity:.6}
+/* Grok Bot's switch (its "Check Spelling While Typing"). */
+.cd-gset-tog{flex:none;-webkit-appearance:none;appearance:none;position:relative;width:30px;height:18px;margin:0;border-radius:999px;background:#d9d9d9;cursor:pointer;transition:background .15s}
+.cd-gset-tog::before{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.cd-gset-tog:checked{background:#1680f3}
+.cd-gset-tog:checked::before{transform:translateX(12px)}
+.cd-gset-tog:focus-visible{outline:2px solid #1680f3;outline-offset:2px}
+.cd-gset-tog:disabled{cursor:default;opacity:.6}
+/* Grok Bot's grey buttons (its "Add Rule"), and black for the one that saves. */
+.cd-gset .cd-gset-pill,.cd-gset-btns button,.cd-gset-add button,.cd-vault-btns button{flex:none;font:inherit;font-size:12.5px;font-weight:500;border:0;background:#efefef;color:#1f1f1f;border-radius:999px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+.cd-gset .cd-gset-pill:hover,.cd-gset-btns button:hover,.cd-gset-add button:hover,.cd-vault-btns button:hover{background:#e6e6e6}
+.cd-gset button.cd-gset-go{background:#1f1f1f;color:#fff}
+.cd-gset button.cd-gset-go:hover{background:#000}
+.cd-gset button:disabled{cursor:default;opacity:.6}
+.cd-gset-add{display:flex;flex-direction:column;gap:6px;margin:0 0 12px}
+.cd-gset-l{font-size:12px;font-weight:500;color:#5d5d5d}
+.cd-gset-in{font:inherit;font-size:13px;border:1px solid #e3e3e3;border-radius:9px;padding:7px 10px;color:#1f1f1f;background:#fff;box-sizing:border-box;width:100%;resize:vertical}
+.cd-gset-in:focus{outline:none;border-color:#1f1f1f}
 .cd-gset-addrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.cd-gset-sel{font:inherit;font-size:13.5px;border:1px solid #d9d6cf;border-radius:10px;padding:7px 10px;background:#fff;color:#1f1e1d}
-.cd-gset button.cd-gset-go,.cd-gset-addrow button,.cd-gset-btns button{font:inherit;font-size:13px;font-weight:600;border:1px solid #d9d6cf;background:#fff;color:#1f1e1d;border-radius:999px;padding:6px 13px;cursor:pointer}
-.cd-gset button.cd-gset-go{background:#1f1e1d;border-color:#1f1e1d;color:#fff;margin-left:auto}
-.cd-gset-siteadd{flex-direction:row;align-items:center}
-.cd-gset-siteadd .cd-gset-in{flex:1;min-width:140px}
-.cd-gset-list{list-style:none;margin:0 0 12px;padding:0}
-.cd-gset-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #f4f2ee}
+.cd-gset-siteadd{flex-direction:row;align-items:center;flex-wrap:wrap}
+.cd-gset-siteadd .cd-gset-in{flex:1;min-width:140px;width:auto}
+.cd-gset-list{list-style:none;margin:0 0 6px;padding:0}
+.cd-gset-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #f4f4f4}
 .cd-gset-item.is-edit form{display:flex;flex-direction:column;gap:6px;width:100%}
-.cd-gset-text{flex:1;min-width:0;font-size:14px;color:#1f1e1d;overflow-wrap:anywhere}
-.cd-gset-host{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:13px}
+.cd-gset-text{flex:1;min-width:0;font-size:13px;color:#1f1f1f;overflow-wrap:anywhere}
+.cd-gset-host{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
 /* The browser's sign-ins (2026-11-11): the site, then how and when it was signed in, under it. */
-.cd-gset-text small{display:block;margin-top:2px;font-size:12px;color:#8a857d}
+.cd-gset-text small{display:block;margin-top:2px;font-size:12px;color:#8b8b8b}
 .cd-gset-text b.cd-gset-host{font-weight:500}
-.cd-gset-sub{margin:14px 0 2px;font-size:13px;font-weight:600;color:#5c5852}
 /* Through your own computer (2026-11-11): how the link is doing, and the live view's tag while it carries the browser. */
-.cd-gset-route{margin:6px 0 0 26px;font-size:12.5px;color:#5c5852}
+.cd-gset-route{margin:-4px 0 12px;font-size:12px;color:#5d5d5d}
 .cd-web-route{flex:none;font-size:11.5px;font-weight:600;color:#1f6f43;background:#e7f4ec;border-radius:999px;padding:2px 8px;white-space:nowrap}
 .cd-gset-btns{display:inline-flex;gap:6px;flex:none}
-.cd-gset-mode{flex:none;font-size:11.5px;font-weight:600;border-radius:999px;padding:3px 9px;background:#eef3ec;color:#2f6f3a;white-space:nowrap}
-.cd-gset-mode.m-ask,.cd-gset-mode.m-when_asked{background:#fdf3e2;color:#8a5a00}
-.cd-gset-mode.m-deny{background:#fbeceb;color:#b3261e}
-.cd-gset-mode.m-handoff{background:#eef0fb;color:#3a46a8}
-.cd-gset-none{margin:0 0 12px;font-size:13px;color:#8a857d}
-.cd-gset-note{padding:10px 20px;border-top:1px solid #ecebe6;font-size:13px;color:#4b4a46;background:#faf9f6}
+.cd-gset-none{margin:0 0 12px;font-size:12.5px;color:#8b8b8b}
+.cd-gset-foot{margin:-12px 6px 16px;font-size:11.5px;line-height:1.5;color:#8b8b8b}
+.cd-gset-note{padding:10px 30px;border-top:1px solid #f0f0f0;font-size:12.5px;color:#4b4b4b;background:#fff}
+/* On a phone: a sheet from the bottom, the menu a row of tabs along its top. */
 @media (max-width:640px){
   .cd-gset-wrap{padding:0;align-items:flex-end}
-  .cd-gset{max-width:none;border-radius:16px 16px 0 0;max-height:92vh}
-  .cd-gset-row{flex-direction:column;align-items:stretch;gap:8px}
-  .cd-gset-seg{align-self:flex-start}
+  .cd-sure-box.cd-gset{flex-direction:column;max-width:none;height:92vh;height:92dvh;border-radius:16px 16px 0 0}
+  .cd-gset-nav{width:auto;flex-direction:row;gap:4px;margin-right:44px;padding:10px 0 10px 12px;border-right:0;border-bottom:1px solid #f0f0f0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .cd-gset-nav::-webkit-scrollbar{display:none}
+  .cd-gset-navb{flex:none;padding:6px 10px}
+  .cd-gset-navb svg{display:none}
+  .cd-vault-new{margin-right:0}
+  .cd-gset-body{padding:18px 16px 20px}
+  .cd-gset-pt{margin:0 0 16px 4px}
+  .cd-gset-x{top:10px;right:10px}
+  .cd-gset-note{padding:10px 16px}
   .cd-gset-item,.cd-vault-item{flex-wrap:wrap}
 }
-.cd-gset-switch{display:flex;gap:10px;align-items:flex-start;font-size:13.5px;line-height:1.45;color:#4b4a46;cursor:pointer;margin-bottom:12px}
-.cd-gset-switch input{margin-top:3px;width:16px;height:16px;flex:none;accent-color:#1f1e1d}
 /* ITS MONITOR PAUSED THE RUN (2026-11-10). */
 .cd-paused{max-width:720px;margin:10px auto;border:1px solid #f0d9a8;background:#fdf6e7;border-radius:12px;padding:12px 14px;color:#5c4400}
 .cd-paused b{font-size:14px}
@@ -747,10 +772,10 @@
 /* THE VAULT (2026-11-12, owner: "do all 5 make sure you do similar frontend compare to grok bot"; Grok Bot's Settings →
    Vault): its title with a dark "New item" button and its menu, a tab row with Search Vault, the logins, a form to add
    or change one, an export's review, and the note under it. */
-.cd-vault-head{display:flex;align-items:center;gap:10px;margin:0 0 10px}
-.cd-vault-head h3{margin:0}
-.cd-vault-new{position:relative;margin-left:auto}
-.cd-gset button.cd-vault-newbtn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:13px;font-weight:600;border:0;background:#1f1e1d;color:#fff;border-radius:999px;padding:7px 13px;cursor:pointer}
+.cd-vault-head{display:flex;align-items:center;gap:10px;margin:0 0 18px}
+.cd-vault-head .cd-gset-pt{margin:0 0 0 6px}
+.cd-vault-new{position:relative;margin:0 20px 0 auto}
+.cd-gset button.cd-vault-newbtn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:500;border:0;background:#1f1e1d;color:#fff;border-radius:999px;padding:6px 12px;cursor:pointer}
 .cd-vault-newbtn svg{transform:rotate(90deg)}
 .cd-vault-newbtn:disabled{opacity:.6;cursor:default}
 .cd-vault-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;display:flex;flex-direction:column;min-width:240px;padding:6px;background:#fff;border:1px solid #e6e2db;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,32,.12)}
@@ -759,17 +784,20 @@
 .cd-vault-menu svg{color:#6b6a68;flex:none}
 .cd-vault-bar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
 .cd-vault-tab{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#4b4a46;border-radius:999px;padding:5px 11px}
-.cd-vault-tab.is-on{background:#f1efea;color:#1f1e1d;font-weight:600}
+.cd-vault-tab.is-on{background:#efefef;color:#1f1f1f;font-weight:500}
 .cd-vault-tab i{font-style:normal;color:#8a857d;font-weight:500}
-.cd-vault-q{margin-left:auto;width:min(220px,50%);box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #e3e0d9;border-radius:999px;padding:7px 12px 7px 32px;color:#1f1e1d;background:#faf9f7 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a857d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px 50%}
+.cd-vault-q{margin-left:auto;width:min(220px,50%);box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #f3f3f3;border-radius:999px;padding:7px 12px 7px 32px;color:#1f1f1f;background:#f3f3f3 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a857d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px 50%}
 .cd-vault-q:focus{outline:none;border-color:#1f1e1d;background-color:#fff}
 /* Each login one row: its key, its names, Edit and Remove (found live, 2026-11-12: without it they stacked). */
-.cd-vault-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f4f2ee}
-.cd-vault-ic{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:#f1efea;color:#4b4a46}
+.cd-vault-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f4f4f4}
+.cd-vault-card{padding:0 13px;margin:0 0 14px}
+.cd-vault-card .cd-vault-list{margin:0}
+.cd-vault-item:first-child{border-top:0}
+.cd-vault-ic{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:#f3f3f3;color:#4b4b4b}
 .cd-vault-hint{font-style:italic}
 .cd-vault-made{color:#0f766e}
 .cd-vault-item.is-open{display:block}
-.cd-vault-form{display:flex;flex-direction:column;gap:6px;margin:0 0 12px;padding:14px;border:1px solid #e6e2db;border-radius:14px;background:#faf9f7}
+.cd-vault-form{display:flex;flex-direction:column;gap:6px;margin:0 0 14px;padding:13px;border:1px solid #f0f0f0;border-radius:11px;background:#fff}
 .cd-vault-form .cd-gset-l small{font-weight:400;color:#8a857d}
 .cd-vault-form .cd-secret-pw .cd-secret-in{font-size:14px;border-radius:10px;padding:8px 46px 8px 11px}
 .cd-vault-btns{margin-top:6px}
@@ -791,6 +819,6 @@
 .cd-vault-review li.is-ok em{color:#11845b;font-weight:600}
 .cd-vault-review li.is-skip{opacity:.75}
 .cd-vault-empty{text-align:center;padding:14px 0}
-.cd-vault-foot{margin:4px 0 12px;font-size:12px;line-height:1.45;color:#8a857d}
+.cd-vault-foot{margin:4px 6px 12px;font-size:11.5px;line-height:1.5;color:#8b8b8b}
 .cd-vault-nick{font-weight:600;font-size:14px;color:#1f1e1d}
 .cd-gset-text small .cd-gset-host{font-size:12px}

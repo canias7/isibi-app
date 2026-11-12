@@ -11,6 +11,18 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Gloopy's Settings laid out like Grok Bot's (your words: "yes make the menu like grok bot , very similar")
+
+- **A menu down the left**, as Grok Bot's Settings: **Permissions**, **Sites**, **Vault** and **Computer**, each with an icon, the open one on a grey pill. It opens on the page you had open last (Permissions the first time).
+- **Each page as Grok Bot's:** its title at the top, small grey labels over white cards, and **×** in the top right corner. In each row, the name and a line about it sit on the left and the control on the right. The colours are Grok Bot's own greys, its blue switch and its black and grey buttons.
+  - **Permissions:** "Watch over each run" is a card at the top with a blue switch, where Grok Bot puts its Approvals card. Each kind of step under "What Gloopy may do on its own" has a small drop-down (Ask, Always allow, Never), like Grok Bot's "Follow System ⌄". A Never shows in red. Your rules sit under their kind (Ask first, Always allow, Never, Hand off to me, Only when I ask), each with its own grey **Add rule** button, as Grok Bot's "Always Ask" and "Allow without Asking" have.
+  - **Sites:** your sites in a card, each with its drop-down and Remove, and **Add site** opens the form. What each choice means is in a small grey note under it.
+  - **Vault:** the title with the black **New item** button on its right, as Grok Bot's. The logins are in a white card.
+  - **Computer:** where Gloopy's browser is signed in (Sign out for each site), and "Through your own computer" (a blue switch in the Mac and Windows app).
+- **On a phone** it slides up from the bottom, and the menu is one row of tabs along the top, beside ×.
+- Gloopy's note about secure sites while its browser goes through your computer now says "Settings → Computer" (that switch moved there).
+- Test GL133 opens the real Settings in a browser and clicks through it: the four pages, a drop-down saving its choice, Add rule under Never, ×, reopening on the last page, and the phone layout. GL105, GL106, GL112, GL115, GL116 and GL130 were updated for the new layout.
+
 ## 2026-11-12: Signing in, all five built, with Grok Bot's look (your words: "do all 5 make sure you do similar frontend compare to grok bot pls")
 
 - **A Vault in Gloopy's Settings, like Grok Bot's Settings → Vault.** It has a dark "New item" button with **Login** and **Import from CSV…** (Grok Bot's words), a **Logins** tab with **Search Vault**, and the list. Each login shows its website and username, its hint, and "Password made by Gloopy" when Gloopy made it. **Edit** changes the website, username, password (leave it empty to keep the saved one) and hint. **Remove** asks "Remove for good?" first. Grok Bot's note sits under it, in Gloopy's words: Gloopy never sees a saved password. The old "Saved logins" list under Browser moved here. Cards will join the Vault, as Grok Bot's Payments, with the payment tool.

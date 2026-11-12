@@ -5140,12 +5140,13 @@ test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Al
   assert.match(ui, /\(S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' \+ ICON\.sliders \+ 'Settings<\/button>' : ''\)/);
   assert.match(ui, /on\('#cdGset', 'click', \(\) => \{ showGloopySettings\(\); \}\);/);
   assert.match(ui, /const \[pr, rr, sr, or, gr\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\), call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/);
-  for (const words of ["What Gloopy may do on its own", "Your rules", "When Gloopy wants to", "It should", "Add rule", "Save rule", "Sites", "Add site", "No rules yet.", "No sites yet."]) assert.ok(ui.includes(words), words);
+  // (Since 2026-11-12, GL133: rules sit under their kind, each with its own Add rule, as Grok Bot's.)
+  for (const words of ["What Gloopy may do on its own", "Your rules", "When Gloopy wants to", "Add rule", "Save rule", "Sites", "Add site", "No sites yet."]) assert.ok(ui.includes(words), words);
   assert.match(ui, /else if \(t\.dataset\.site\) save\('\/sites', \{ set: \{ host: t\.dataset\.site, mode: t\.value \} \}/);
   assert.match(ui, /if \(r\.data\.closed && S\.project\) \{ reloadChat\(S\.project\.id\);/);
   assert.match(ui, /\(e\.bySite \? '<p class="cd-card-rule">Your setting for ' \+ esc\(e\.bySite\) \+ ' says to ask first\.<\/p>' : e\.byRule/);
-  assert.match(css, /\.cd-gset\{max-width:680px;/);
-  assert.match(css, /\.cd-gset-seg button\[aria-pressed="true"\]\{background:#1f1e1d;color:#fff\}/);
+  assert.match(css, /\.cd-sure-box\.cd-gset\{position:relative;max-width:800px;/);
+  assert.match(css, /\.cd-gset-dd\.m-deny\{color:#b3261e\}/, "a Never stands out");
 });
 
 test("GL106 (2026-11-10) the owner: \"all of it\": the monitor (dots' safety monitoring) reads the whole run every few actions, and at once after a step was refused; a concern pauses the run with a warning for the owner (a push too), and Gloopy is told not to carry on; it can be turned off; reading doesn't count", async () => {
@@ -5215,7 +5216,8 @@ test("GL106 (2026-11-10) the owner: \"all of it\": the monitor (dots' safety mon
   // On the page: the warning, and the switch in Settings.
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /else if \(e\.type === 'paused'\) out\.push\('<div class="cd-paused" role="status"><b>Gloopy paused this task<\/b><p>' \+ esc\(e\.why/);
-  assert.match(ui, /'<section><h3>Watch over each run<\/h3><label class="cd-gset-switch"><input type="checkbox" id="gsMonitor"'/);
+  assert.match(ui, /watch: \(\) => '<section><div class="cd-gset-card"><label class="cd-gset-row">' \+ what\('Watch over each run', 'A second AI looks over what Gloopy does as it works/);
+  assert.match(ui, /toggle\('gsMonitor', st\.options\.monitor, 'Watch over each run'\)/);
   assert.match(ui, /else if \(t\.id === 'gsMonitor'\) save\('\/options', \{ set: \{ monitor: t\.checked \} \}/);
   assert.match(css, /\.cd-paused\{max-width:720px;/);
 });
@@ -5525,14 +5527,14 @@ test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/, "the sign-ins are asked for with the rest");
   assert.match(ui, /signins: gr\.status === 200 && gr\.data \? \{ sites: gr\.data\.sites \|\| \[\], saved: gr\.data\.saved \|\| \[\] \} : null,/);
-  assert.match(ui, /'<section><h3>Browser<\/h3><p class="cd-gset-hint">Where Gloopy’s browser is signed in\. Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it\.<\/p>'/);
+  assert.match(ui, /'<section><h3 class="cd-gset-sl">Browser<\/h3><div class="cd-gset-card"><div class="cd-gset-row">' \+ what\('Where Gloopy’s browser is signed in', 'Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it\.'\)/);
   assert.match(ui, /data-gs-signout="' \+ esc\(x\.site\) \+ '"/);
   assert.match(ui, /esc\(GSET_SIGNED_HOW\[x\.how\] \|\| 'Signed in'\) \+ \(x\.at \? ' · ' \+ esc\(gsetWhen\(x\.at\)\) : ''\)/);
   assert.match(ui, /<p class="cd-gset-none">Gloopy hasn’t signed in anywhere for you yet\.<\/p>/);
   assert.match(ui, /data-gs="signout-site"><input id="gsOutHost"/, "any other site too");
-  // (Since 2026-11-12, GL127: the saved logins are in the Vault's own section, above Browser.)
+  // (Since 2026-11-12, GL127: the saved logins are in the Vault; GL133: the Vault and the Browser are pages of their own.)
   assert.doesNotMatch(ui, /'<h4 class="cd-gset-sub">Saved logins<\/h4>/);
-  assert.match(ui, /        vaultHTML\(\) \+\n        '<section><h3>Browser<\/h3>/);
+  assert.match(ui, /: st\.page === 'vault' \? vaultHTML\(\)\n\s+: st\.page === 'computer' \? '<h2 class="cd-gset-pt">Computer<\/h2>' \+ sec\.browser\(\)/);
   // Each through the Worker's routes, the same as the /signins card's; the list as it is after.
   assert.match(ui, /else if \(d\.gsSignout\) signOut\(d\.gsSignout\);/);
   assert.match(ui, /const r = await call\(base \+ '\/signout', \{ method: 'POST', body: JSON\.stringify\(\{ site \}\) \}\);/);
@@ -5545,7 +5547,7 @@ test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section
   assert.match(routes, /if \(action === "signins" && request\.method === "GET"\) return json\(\{ ok: true, sites: await readSignins\(bucket, uid\), saved: loginList\(await readLogins\(env, bucket, uid\)\) \}\);/);
   assert.match(routes, /if \(action === "signout" && request\.method === "POST"\)/);
   const css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
-  assert.match(css, /\.cd-gset-text small\{display:block;margin-top:2px;font-size:12px;color:#8a857d\}/);
+  assert.match(css, /\.cd-gset-text small\{display:block;margin-top:2px;font-size:12px;color:#8b8b8b\}/);
 });
 
 test("GL113 (2026-11-11) Gloopy's browser through the owner's own computer, on its machine: the link (a WebSocket) carries many connections at once with flow control; the browser's proxy takes only the browser's own user, sends new connections through the link while there is one and straight out while there isn't, never another way when the owner's computer refused one (a private address); for real, the browser starts with the proxy while routing is on and restarts without it", async (t) => {
@@ -5770,10 +5772,12 @@ test("GL115 (2026-11-11) Gloopy's browser through the owner's own computer, on t
   assert.match(ui, /if \(GLOOPY\) desktopRouteKick\(\);/, "a message nudges it");
   assert.match(ui, /w\.msg = 'Taking over…'; webPaint\(b\);\n\s+desktopRouteKick\(\);/, "taking over too");
   // Settings: the switch in the app; elsewhere, what it does and how to turn it off.
-  assert.match(ui, /'<h4 class="cd-gset-sub">Through your own computer<\/h4>' \+ \(DESKTOP_ROUTE/);
-  assert.match(ui, /<input type="checkbox" id="gsRoute"' \+ \(st\.options\.route \? ' checked' : ''\)/);
-  assert.match(ui, /Send Gloopy’s browser’s traffic through this computer\. Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away\. It works while this app is open\. This computer’s private and VPN addresses stay closed to Gloopy\./);
-  assert.match(ui, /On: Gloopy’s browser goes through your computer while the Go Farther app is open on it\.<\/p><button type="button" class="cd-gset-go" data-gs-route-off="1"/);
+  // (Since 2026-11-12, GL133: on Settings' Computer page, a switch as Grok Bot's.)
+  assert.match(ui, /'<section><h3 class="cd-gset-sl">Through your own computer<\/h3><div class="cd-gset-card">' \+ \(DESKTOP_ROUTE/);
+  assert.match(ui, /toggle\('gsRoute', st\.options\.route, 'Send Gloopy’s browser’s traffic through this computer'\)/);
+  assert.match(ui, /const toggle = \(id, on, label\) => '<input type="checkbox" role="switch" class="cd-gset-tog" id="' \+ id \+ '"' \+ \(on \? ' checked' : ''\)/);
+  assert.match(ui, /what\('Send Gloopy’s browser’s traffic through this computer', 'Sites then see this computer’s internet connection, as when you browse yourself, which helps with a site that turns cloud computers away\. It works while this app is open\. This computer’s private and VPN addresses stay closed to Gloopy\.'\)/);
+  assert.match(ui, /what\('On', 'Gloopy’s browser goes through your computer while the Go Farther app is open on it\.'\) \+ '<button type="button" class="cd-gset-pill" data-gs-route-off="1"/);
   assert.match(ui, /In the Go Farther app for Mac or Windows, you can send Gloopy’s browser’s traffic through your own computer, so sites see your own internet connection\./);
   assert.match(ui, /else if \(t\.id === 'gsRoute'\) routeSwitch\(t\.checked\);/);
   // Off says when it takes effect: now (Gloopy's computer was told, or was asleep), else from its next step.
@@ -5800,7 +5804,7 @@ test("GL116 (2026-11-11) live test: a secure site refused for its certificate wh
   assert.equal(routeCertNote(CERT, true), CERT + ROUTE_CERT_NOTE);
   assert.equal(routeCertNote(CERT, false), CERT);
   assert.equal(routeCertNote(OTHER, true), OTHER);
-  assert.match(ROUTE_CERT_NOTE, /^ Gloopy's browser goes through the owner's computer right now\. If every secure site says this, that computer's network is checking secure connections with its own certificate \(some office networks and security programs do\), and Gloopy's browser won't accept that\. Turning off "Through your own computer" in Settings → Browser sends it straight out again\.$/);
+  assert.match(ROUTE_CERT_NOTE, /^ Gloopy's browser goes through the owner's computer right now\. If every secure site says this, that computer's network is checking secure connections with its own certificate \(some office networks and security programs do\), and Gloopy's browser won't accept that\. Turning off "Through your own computer" in Settings → Computer sends it straight out again\.$/);
   // Through the hub (as Coder's service drives the browser): a stand-in browser that answers each step with an error.
   const dir = join(await mkdtemp(join(tmpdir(), "gl-cert-")), "browser");
   const { mkdirSync } = await import("node:fs");
@@ -6711,7 +6715,7 @@ test("GL130 (2026-11-12) on the page: the sign-in card offers each saved login w
   assert.match(css, /\.cd-secret-in\.is-masked\{-webkit-text-security:disc\}/);
   assert.doesNotMatch(ui, /id="cdSignPass"[^>]*type="password"/, "not a password box where browsers can mask text");
   // The Vault: its parts, as Grok Bot's.
-  for (const bit of ["<h3>Vault</h3>", ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import from CSV…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
+  for (const bit of ['<h2 class="cd-gset-pt">Vault</h2>', ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import from CSV…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
   assert.ok(ui.includes("// The password leaves the box as it is sent: it is never kept in this page's state.\n        if (box2) box2.value = '';"));
   assert.ok(ui.includes("// The export's passwords leave this page's memory.\n        st.vault.imp = null;"));
   assert.match(css, /\.cd-gset button\.cd-vault-newbtn\{[^}]*background:#1f1e1d;color:#fff;border-radius:999px/);
@@ -6833,4 +6837,95 @@ test("GL132 (2026-11-12) nicknames, and Gloopy changing a login's nickname or hi
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   for (const bit of ['for="gsVaultNick">Nickname <small>(optional)</small></label>', "A short name, like “Work GitHub”", "'<b class=\"cd-vault-nick\">' + esc(l.nickname) + '</b>", "(l.nickname ? ' · ' + esc(l.nickname) + (l.username ? ' (' + esc(l.username) + ')' : '')", "'Import from CSV…</button>", "Import from CSV</b>", 'id="cdSignSave" checked>', "it’s saved to your Vault unless you untick the box below."]) assert.ok(ui.includes(bit), bit);
   assert.doesNotMatch(ui, /Import logins from a file/);
+});
+
+test("GL133 (2026-11-12) Gloopy's Settings laid out as Grok Bot's (owner: \"yes make the menu like grok bot , very similar\"): a menu down the left (Permissions, Sites, Vault, Computer, each with its icon, the open one on a grey pill), the page's title, small grey labels over white cards, rows with a drop-down, a switch or a grey button on the right, rules under their kind each with its own Add rule, × in the corner; on a phone, the menu is a row of tabs on top; the page you had open last opens next time", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(ui, /const GSET_PAGES = \[\n    \['perms', 'Permissions', GSET_ICON\(/);
+  assert.match(ui, /page: GSET_PAGES\.some\(\(\[k\]\) => k === S\.gsetPage\) \? S\.gsetPage : 'perms', ruleOpen: '', siteOpen: false,/);
+  assert.deepEqual(eval(ui.match(/const GSET_RULE_ORDER = (\[[^\]]*\]);/)[1]), ["ask", "allow", "deny", "handoff", "when_asked"], "Ask first first, as Grok Bot's Always Ask");
+  for (const bit of [".cd-gset-navb.is-on{background:#eaeaea}", ".cd-gset-card{background:#fff;border:1px solid #f0f0f0;border-radius:11px;", ".cd-gset-tog:checked{background:#1680f3}", ".cd-gset .cd-gset-pill,", "@media (max-width:640px){\n  .cd-gset-wrap{padding:0;align-items:flex-end}"]) assert.ok(css.includes(bit), bit);
+  assert.doesNotMatch(ui, /cd-gset-seg|cd-gset-switch|cd-gset-sub|cd-gset-head/, "the old look is gone");
+  // For real: the page's own Settings code, drawn and clicked in Chromium, with the Worker's answers faked.
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const part = (from, to) => ui.slice(ui.indexOf(from), ui.indexOf(to, ui.indexOf(from)));
+  const code = part("  const GSET_PERM_WORDS = ", "  // How the link from this computer is doing, in words.") + part("  function gsetRouteWords(", "\n  }\n") + "\n  }\nreturn showGloopySettings;";
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+    await page.setContent('<style>body{margin:0;font-family:sans-serif}' + css + "</style>");
+    await page.evaluate((code) => {
+      const RULE_WORDS = { allow: "Always allow", ask: "Ask first", deny: "Never", handoff: "Hand off to me", when_asked: "Only when I ask" };
+      const db = { perms: { buy: "ask", send: "allow" }, rules: [{ id: "r1", text: "buy anything over $50", mode: "ask" }] };
+      window.calls = [];
+      const call = async (path, o) => {
+        const body = o && o.body ? JSON.parse(o.body) : null;
+        if (body) window.calls.push([path.replace(/^\/projects\/p1/, ""), body]);
+        if (path.endsWith("/permissions")) { if (body) Object.assign(db.perms, body.set); return { status: 200, data: { permissions: { ...db.perms }, list: [{ key: "buy", label: "Buying", hint: "Paying for things" }, { key: "send", label: "Sending messages", hint: "Email and chat" }], modes: ["ask", "allow", "deny"] } }; }
+        if (path.endsWith("/rules")) { if (body && body.add) db.rules.push({ id: "r" + (db.rules.length + 1), ...body.add }); return { status: 200, data: { rules: db.rules.slice(), modes: ["allow", "ask", "deny", "handoff", "when_asked"], words: RULE_WORDS, max: 20 } }; }
+        if (path.endsWith("/sites")) return { status: 200, data: { sites: [{ host: "shop.example", mode: "allow" }], modes: ["allow", "ask", "handoff", "deny"], words: { allow: "Always allow", ask: "Ask first", handoff: "Hand off to me", deny: "Never" }, max: 50 } };
+        if (path.endsWith("/options")) return { status: 200, data: { options: { monitor: true } } };
+        if (path.endsWith("/signins")) return { status: 200, data: { sites: [{ site: "github.com", how: "saved", at: Date.now() }], saved: [{ id: "l1", site: "github.com", username: "ana", nickname: "Work", hint: "Use for work" }] } };
+        return { status: 404, data: {} };
+      };
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      window.S = { project: { id: "p1" } };
+      window.open1 = new Function("S", "call", "note", "esc", "ICON", "PM_OFF", "MASKS", "secretField", "DESKTOP_ROUTE", "reloadChat", "loginsFromCsv", code)(window.S, call, () => {}, esc, { chev: ">", key: "k", doc: "d" }, "", false, (id) => '<input id="' + id + '">', null, () => {}, () => ({ rows: [] }));
+    }, code);
+    const look = () => page.evaluate(() => {
+      const box = document.querySelector(".cd-gset"), r = (el) => { const b = el.getBoundingClientRect(); return [Math.round(b.left), Math.round(b.top), Math.round(b.width), Math.round(b.height)]; };
+      return { title: box.querySelector(".cd-gset-pt").textContent, menu: [...box.querySelectorAll(".cd-gset-navb")].map((b) => b.textContent + (b.classList.contains("is-on") ? "*" : "") + (b.getAttribute("aria-current") === "page" ? "!" : "")), labels: [...box.querySelectorAll(".cd-gset-sl")].map((h) => h.textContent), box: r(box), nav: r(box.querySelector(".cd-gset-nav")), body: r(box.querySelector(".cd-gset-body")), x: r(box.querySelector(".cd-gset-x")), tabs: [...box.querySelectorAll(".cd-gset-navb")].map((b) => r(b)[1]), focus: document.activeElement && document.activeElement.textContent };
+    });
+    await page.evaluate(() => window.open1());
+    await page.waitForSelector(".cd-gset-nav");
+    let v = await look();
+    assert.deepEqual([v.title, v.menu, v.labels], ["Permissions", ["Permissions*!", "Sites", "Vault", "Computer"], ["What Gloopy may do on its own", "Your rules"]]);
+    assert.equal(v.focus, "Permissions", "the open page's name has the focus");
+    assert.deepEqual([v.box[2], v.nav[0] === v.box[0], v.nav[2], v.body[0] >= v.nav[0] + v.nav[2]], [800, true, 176, true], "800 wide, the menu down its left, the page beside it");
+    assert.ok(v.x[0] + v.x[2] <= v.box[0] + v.box[2] && v.x[0] > v.box[0] + v.box[2] - 50 && v.x[1] < v.box[1] + 30, "× in the top right corner");
+    // Rows: the switch, a drop-down for each kind of step, each kind of rule with its rules under it.
+    const perm = await page.evaluate(() => ({ watch: [document.querySelector("#gsMonitor").getAttribute("role"), document.querySelector("#gsMonitor").checked], buy: document.querySelector('select[data-perm="buy"]').value, kinds: [...document.querySelectorAll(".cd-gset-kind")].map((k) => k.querySelector("b").textContent + ":" + [...k.querySelectorAll(".cd-gset-item .cd-gset-text")].map((x) => x.textContent).join("|")) }));
+    assert.deepEqual(perm, { watch: ["switch", true], buy: "ask", kinds: ["Ask first:buy anything over $50", "Always allow:", "Never:", "Hand off to me:", "Only when I ask:"] });
+    await page.selectOption('select[data-perm="buy"]', "deny");
+    await page.waitForFunction(() => window.calls.length === 1);
+    assert.equal(await page.evaluate(() => document.querySelector('select[data-perm="buy"]').className), "cd-gset-dd m-deny", "Never in red");
+    await page.click('.cd-gset-kind:nth-child(4) [data-gs-rule-new="deny"]');
+    assert.equal(await page.getAttribute("#gsRuleText", "placeholder"), "delete anything in my email");
+    await page.fill("#gsRuleText", "empty the trash");
+    await page.click('form[data-gs="add-rule"] button[type="submit"]');
+    await page.waitForFunction(() => window.calls.length === 2);
+    assert.deepEqual(await page.evaluate(() => window.calls), [["/permissions", { set: { buy: "deny" } }], ["/rules", { add: { text: "empty the trash", mode: "deny" } }]]);
+    assert.equal(await page.locator("#gsRuleText").count(), 0, "the form closed");
+    assert.equal(await page.evaluate(() => [...document.querySelectorAll(".cd-gset-kind")][2].innerText.includes("empty the trash")), true, "under Never");
+    // The other pages.
+    await page.click('[data-gs-page="sites"]');
+    v = await look();
+    assert.deepEqual([v.title, v.menu[1], v.focus], ["Sites", "Sites*!", "Sites"]);
+    assert.equal(await page.locator("#gsSiteHost").count(), 0, "the form waits for Add site");
+    await page.click('[data-gs="site-new"]');
+    assert.equal(await page.evaluate(() => document.activeElement.id), "gsSiteHost");
+    await page.click('[data-gs="cancel-site"]');
+    await page.click('[data-gs-page="vault"]');
+    v = await look();
+    assert.deepEqual([v.title, await page.locator(".cd-vault-newbtn").innerText(), await page.locator(".cd-vault-nick").innerText()], ["Vault", "New item >", "Work"]);
+    await page.click('[data-gs-page="computer"]');
+    v = await look();
+    assert.deepEqual([v.title, v.labels], ["Computer", ["Browser", "Through your own computer"]]);
+    assert.match(await page.locator(".cd-gset-body").innerText(), /github\.com[\s\S]*With your saved login[\s\S]*Sign out[\s\S]*In the Go Farther app for Mac or Windows/);
+    // × closes it; it opens next time on the page you had open.
+    await page.click(".cd-gset-x");
+    assert.equal(await page.locator(".cd-gset").count(), 0);
+    await page.evaluate(() => window.open1());
+    await page.waitForSelector(".cd-gset-nav");
+    assert.equal((await look()).title, "Computer");
+    // On a phone: a sheet from the bottom, the menu one row of tabs on top, the page under it.
+    await page.setViewportSize({ width: 390, height: 844 });
+    v = await look();
+    assert.equal(new Set(v.tabs).size, 1, "the tabs in one row");
+    assert.ok(v.nav[1] + v.nav[3] <= v.body[1] && v.box[2] === 390 && v.box[1] + v.box[3] === 844, JSON.stringify(v));
+    assert.ok(v.x[1] < v.nav[1] + v.nav[3] && v.x[0] > 330, "× still in the corner, clear of the tabs");
+  } finally { await browser.close(); }
 });
