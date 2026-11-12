@@ -11,6 +11,40 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Round 6: the last of the bash tool, tried live with Grok (your words: "yes go ahead, include 8-10 too")
+
+No video. Three new chats on canias7/testingforclaude in the "Live test 10 Nov" environment, plus one `@coder` comment on GitHub. For the test I made a branch, `r42-live`, with its own `.claude/settings.json` (Plan as the starting mode, a deny rule, two `Read` rules, a working folder) and a tiny GitHub Actions workflow, and a copy of it named `a-r42-live` (see found item 1).
+
+**The 10 items:**
+1. **SessionEnd hook:** did not run (found item 6).
+2. **Auto pauses after 20 blocks:** yes. The count carries over between messages. After the 20th block, the next command showed "Auto mode paused after 20 blocks, so this action needs your approval. Approving it resumes auto mode."
+3. **The repository's starting mode:** the chat's first message switched it to Plan ("This repository's settings (.claude/settings.json, defaultMode) start chats in Plan mode."), and the repository's deny rule stopped `echo r42-repo-denied-1`.
+4. **A `!` exception only cancels a rule from the same place:** `.env` stayed blocked by your rule (the repository's exception didn't count), `.secret` stayed blocked by the repository's rule (your exception didn't count), and `.cfg` was read (your own exception cancelled your own rule).
+5. **The read block and a working folder only the repository adds:** your own folder was read; the repository's folder asked first.
+6. **The memory cap on hooks (`CODER_TOOL_MEMORY_CGROUP_EXCLUDE=none`):** a Notification hook ran inside the cap; with the variable unset, outside it. Hooks that can block an action (PreToolUse and others) are never capped, as in Claude Code.
+7. **A hook that leaves a program running** (`sleep 33 &`): Coder waited about 10 seconds, not 33, and the program kept running.
+8. **GitHub Actions logs through `gh`:** `gh run view <id> --log` printed the workflow's "r42-hello-from-actions", but only when the repository is named (`-R owner/repo`) (found item 3).
+9. **A chat with two repositories reads neither one's settings:** the deny rule didn't apply, and the mode stayed Accept edits.
+10. **`!` in a GitHub `@coder` comment is not run as your command:** Coder treated it as a normal message and ran `echo` as its own step. A `!` message with a picture attached is a normal message too (Coder described the picture).
+
+**The partly tried ones, now done:** a rule on a command's description (`Bash(description:R42*)`) asked first. The inline-shell and substitution switches each removed their own extra delete warning (the "timeout" switch: found item 5). 10 more PowerShell safety checks each asked with their own reason. `CODER_POWERSHELL_RESPECT_EXECUTION_POLICY` takes `-ExecutionPolicy Bypass` off PowerShell's command line (Linux always says "Unrestricted", so that is the only visible difference). `CODER_PWSH_PARSE_TIMEOUT_MS=1` gave "pwsh timed out after 1ms (2 attempts)" and asked first. A Stop hook that always says "go on" kept Coder going 8 times, then Coder stopped. A PowerShell hook ran. `CODER_SHELL_PREFIX` wrapped the 3 shell hooks and, as in Claude Code, not the PowerShell one. A normal-size picture a command prints: Grok saw "64×64 and green". Not done, as agreed: hooks around the automatic summary during a job (it happens only near 450,000 characters, too costly to reach).
+
+**Found, not fixed yet (your call):**
+1. **A starting branch late in the alphabet "doesn't exist"** in a repository with many branches: "canias7/testingforclaude has no branch named r42-live". Coder keeps only the first 4,000 characters of GitHub's branch list, about 50 branches. Fix: ask GitHub for that one branch.
+2. **`@coder` on a pull request whose chat was deleted** answers "Coder could not start: no such project". Coder still has a note that the PR's branch belongs to the deleted chat. Fix: check that the chat exists, and otherwise start a new chat on the PR's branch, as for anyone else's PR.
+3. **`gh` can't tell which repository it is in** ("none of the git remotes configured for this repository point to a known GitHub host"). The copy's `origin` is Coder's own git relay on gofarther.dev, not github.com. Fix: make `origin` the github.com address, which is what the code meant to do.
+4. **A false red "Could not open octocat/Hello-World: undefined"** for every extra repository that opens fine. This is my mistake in this morning's round 5 fixes. Fix: one misplaced "else".
+5. **`CODER_DISABLE_DANGEROUS_RM_TIMEOUT`:** in Auto, the checker can block a risky delete but never approve it; you are still asked. Its test missed this because the test answers every card "yes" by itself. Fix: when the checker approves, run it without the card.
+6. **SessionEnd hooks never run when a chat's machine goes to sleep.** The machine slept (it woke for my check at 09:08:51), and the hook's file was never written. The hook tries to run inside the job's sandbox, which is already closed by then. Fix: run them outside the closed sandbox, within their 1.5 seconds.
+
+**My own test mistakes, redone:** a risky delete under an Ask rule always asks you, so the "timeout" switch needed a step with no rule. A PreToolUse hook can never be capped, so item 6 needed a Notification hook. A Notification hook only fires after a card waits 6 seconds, and my test answered in 4. And a "soft" Auto rule gives way when your own message names the action (as in Claude Code), so my first 20-block try only reached 10: Grok, as the checker, judged the same command both ways, letting 10 of 20 through. The second try used a "hard" rule, which held 10 of 10.
+
+**Also:** your account reached Coder's limit of 50 chats. I deleted only today's empty failed chat. Old test chats can go when you say.
+
+**Cost:** about $3 of Grok (roughly 150 Coder calls at 1 to 2.5 cents each, and about 46 checker calls at under a cent each). That's more than my estimate of $1–2: the chats were longer than I assumed, and I redid three steps.
+
+**Left in place:** the branches `r42-live` and `a-r42-live`, my two test comments (PR #16 and issue #18), and the 4 test chats. Your settings are back as they were: only your two usual variables, no rules, no hooks, trust off, no Auto rules, Accept edits.
+
 ## 2026-11-12: Coder may print your plain variables now (your words: "yes change it, then merge and deploy")
 
 Coder's instructions told Grok "never print their values" for every variable you set, so Grok refused `echo $R41_PLAIN` (a variable set to `false`). Claude Code has no such rule. Now Grok is told the names of all your variables, and is told never to print only the ones that look secret. Those are the same ones the chat hides: a name with KEY, TOKEN, SECRET, PASSWORD, AUTH and so on, or a value that looks like a key, a web address with a login in it, or a long mix of letters and digits. Test CD536; the full suite passes (570 of 570). Merged and deployed (deploy 141), then tried in the browser with Grok in the same test chat:
