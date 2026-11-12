@@ -32,7 +32,11 @@ import { createRequire } from "node:module";
 import { fileURLToPath } from "node:url";
 import { createHash, randomBytes } from "node:crypto";
 
-export const BROWSER_ACTIONS = Object.freeze(["open", "look", "click", "type", "press", "select", "scroll", "back", "screenshot", "upload"]);
+// HOVER (owner, 2026-11-12: "yes do both"): the mouse over an element, for what shows only then (a menu, a tooltip, a
+// picture's caption), without clicking. Found live: with no hover step, Gloopy clicked pictures to read their hover names,
+// and the check once asked the owner first, as they had said hover, not click. Like scrolling, it changes nothing on the
+// site, so it isn't checked first.
+export const BROWSER_ACTIONS = Object.freeze(["open", "look", "click", "hover", "type", "press", "select", "scroll", "back", "screenshot", "upload"]);
 /**
  * "ARE YOU SURE?" (owner, 2026-11-10: "yes go ahead", fix 6): the steps that may be asked with confirm: true, which
  * answers OK when the page asks to confirm (a confirm box, or "Leave this page?"). Without it the page is answered Cancel
@@ -132,7 +136,7 @@ export function checkAsk(a) {
   if (!BROWSER_ACTIONS.includes(action)) throw new Error("action is one of: " + BROWSER_ACTIONS.join(", "));
   const out = { action };
   if (action === "open") out.url = pageAddress(x.url);
-  if (["click", "type", "select", "upload"].includes(action)) out.ref = needRef(x);
+  if (["click", "hover", "type", "select", "upload"].includes(action)) out.ref = needRef(x);
   if (action === "upload") {
     const id = String(x.staged || "");
     if (!STAGED_RE.test(id)) throw new Error("give path: the file in your work folder to upload");
@@ -761,6 +765,8 @@ export async function serve(dir) {
     const page = L.page, target_ = (ref) => target(ref, L);
     if (ask.action === "open") await page.goto(ask.url, { waitUntil: "domcontentloaded", timeout: 30000 });
     else if (ask.action === "click") await target_(ask.ref).click({ timeout: 8000 });
+    // The mouse stays there, so the page's answer (its outline and picture) shows what the hover brought up.
+    else if (ask.action === "hover") await target_(ask.ref).hover({ timeout: 8000 });
     else if (ask.action === "type") {
       if (el.password) throw new Error(PASSWORD_REFUSED);
       if (["number", "cvc", "exp"].includes(el.card)) throw new Error(CARD_REFUSED);
@@ -795,7 +801,7 @@ export async function serve(dir) {
     const kind = (e) => (e.tag === "a" ? "the link" : e.tag === "button" || e.role === "button" || /^(submit|button|reset|image)$/.test(e.type) ? "the button" : e.type === "checkbox" ? "the checkbox" : e.type === "radio" ? "the choice" : e.tag === "select" ? "the list" : /^(input|textarea)$/.test(e.tag) ? "the field" : e.tag === "img" ? "the picture" : "");
     const it = el && el.name ? quote(el.name) : (el && kind(el)) || ask.ref;
     const file = ask.action === "upload" ? await stagedFile(ask.staged) : null;
-    let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
+    let did = { open: "Opened " + ask.url, look: "Looked at the page", click: "Clicked " + it, hover: "Hovered over " + it, type: "Typed " + quote(ask.text || "") + " into " + it, press: "Pressed " + ask.key, select: "Chose " + quote(ask.option || "") + " in " + it, scroll: "Scrolled " + ask.direction, back: "Went back", screenshot: "Took a screenshot of " + (ask.full ? "the whole page" : "what is in view"), upload: "Uploaded " + quote(file ? file.name : "") + " with " + it }[ask.action];
     if (ask.action === "upload" && ask.submit_ref) { const b = await about(ask.submit_ref, L); did += " and clicked " + (b && b.name ? quote(b.name) : ask.submit_ref); }
     L.dialogs = [];
     L.fileAsked = false;

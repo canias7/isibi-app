@@ -11,6 +11,11 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: A hover step, and the live view makes way for the hand-off card (your words: "yes do both")
+
+- **Hover.** Gloopy's browser has a new step: hover, which puts the mouse over something without clicking it. It shows what appears only then, such as a menu, a tooltip or a picture's name. Before, Gloopy clicked pictures to read their hover names, and the safety check once asked you first, because you had said hover, not click. Hovering changes nothing on a site, so like scrolling it isn't checked first. The live view marks where Gloopy hovered, and its helpers can hover too. Test GL124; GL10 and GL85 updated.
+- **The live view makes way for the card.** If the big live view is open when Gloopy hands you a step, it now closes by itself, and the hand-off card shows the browser live with Skip / I'm done / Take over, scrolled into view. On a short window the view used to cover those buttons, and on a phone it hid the chat with the card in it. It happens once per hand-off: open the view again and it stays. It never closes while you have control or are marking a part. Once you've answered, the view you had open comes back. Test GL125.
+
 ## 2026-11-12: Grok Bot's four ideas, built into Gloopy (your words: "yes build all four")
 
 - **Progress as it works.** Gloopy now posts short lines as it goes, Grok Bot's way: one as it starts ("On it, opening the order form now."), then one at each new stage, never one per click. A status line under the chat says what it's doing now: its latest line, or the step running. Its answer shows pictures of the pages its browser ended on, at most two. Test GL120.

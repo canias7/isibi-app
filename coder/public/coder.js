@@ -1029,7 +1029,7 @@
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
-    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : e.verb) : state === 'run' ? 'Running' : 'Ran';
+    const verb = e.verb ? (state === 'run' ? e.verb.replace(/^Read$/, 'Reading').replace(/^Wrote$/, 'Writing').replace(/^Edited$/, 'Editing').replace(/^Searched/, 'Searching').replace(/^Found$/, 'Finding').replace(/^Fetched$/, 'Fetching').replace(/^Opened$/, 'Opening').replace(/^Looked at$/, 'Looking at').replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering').replace(/^Typed into$/, 'Typing into').replace(/^Typed$/, 'Typing').replace(/^Pressed$/, 'Pressing').replace(/^Chose in$/, 'Choosing in').replace(/^Chose$/, 'Choosing').replace(/^Scrolled$/, 'Scrolling').replace(/^Went back$/, 'Going back') : e.verb) : state === 'run' ? 'Running' : 'Ran';
     // WHAT A BROWSER STEP DID, said in words once it is done ("Clicked “Go”"), in place of its verb and the element's number.
     const said = r && typeof r.label === 'string' && r.label ? r.label : '';
     // A HELPER'S STEP: its name first, then what it does (live test, 2026-11-10: "Searched the web for “Rome population” ·
@@ -2089,8 +2089,14 @@
   // card alone (no panel); once it is answered (or you open the view), that stops.
   function hoSync() {
     const p = S.project && !S.running && S.project.pending && S.project.pending.kind === 'handoff' ? S.project.pending : null;
-    if (p && S.webOK && !S.web) webOpen(false, true);
-    else if (!p && S.web && S.web.card) webClose();
+    const w = S.web;
+    if (p && S.webOK && !w) webOpen(false, true);
+    // THE BIG VIEW MAKES WAY FOR THE CARD (owner, 2026-11-12: "yes do both"; found live: open when Gloopy handed a step
+    // over, on a short window it covered the card's Skip and I'm done, and on a phone it hides the chat): it closes once
+    // for each hand-off, and the card goes on showing the browser live, scrolled into view. Opened again, it stays; never
+    // while you have control or are marking a part. Once the step is answered, the view you had open comes back.
+    else if (p && w && !w.card && !w.control && !w.marking && !w.sel && S.hoMadeWay !== String(p.id || p.task || '')) { S.hoMadeWay = String(p.id || p.task || ''); w.card = true; w.madeWay = true; w.touched = Date.now(); draw(true); webWake(); }
+    else if (!p && w && w.card) { if (w.madeWay) { w.card = false; w.madeWay = false; w.touched = Date.now(); draw(); } else webClose(); }
   }
 
   function grow(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }

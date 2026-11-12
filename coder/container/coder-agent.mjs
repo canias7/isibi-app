@@ -141,7 +141,7 @@ export const HELPERS_MAX = 4, HELPERS_PER_TURN = 8, HELPER_ROUNDS = 15, HELPER_M
 /** GLOOPY'S BROWSER STEP in the chat (2026-11-09): the verb from its action; once done the chat shows what it did ("Clicked “Go”"). */
 // While a step runs, never the element's number ("Typing into f2e23" in the live test, 2026-11-10), nor what it types
 // (a refused step keeps its row): "Typing", "Clicking"; once done, its own words replace this ("Typed “pizza” into “Search”").
-export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", type: "Typed", press: "Pressed", select: "Chose", scroll: "Scrolled", back: "Went back", screenshot: "Took a screenshot of", upload: "Uploaded" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" || a.action === "screenshot" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "upload" ? String(a.path || "").split("/").pop() : "") };
+export const BROWSER_STEP = { verb: (a) => ({ open: "Opened", look: "Looked at", click: "Clicked", hover: "Hovered", type: "Typed", press: "Pressed", select: "Chose", scroll: "Scrolled", back: "Went back", screenshot: "Took a screenshot of", upload: "Uploaded" })[a.action] || "Used the browser", label: (a) => String(a.action === "open" ? a.url || "" : a.action === "look" || a.action === "screenshot" ? "the page" : a.action === "press" ? a.key || "" : a.action === "scroll" ? (a.direction === "up" ? "up" : "down") : a.action === "upload" ? String(a.path || "").split("/").pop() : "") };
 
 /**
  * @-MENTIONED FILES GO INTO THE MESSAGE (the owner, 2026-11-08: "add all of that"), like Claude Code's @: it "includes
@@ -1679,7 +1679,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const a = c.args || {};
         const what = c.name === "browser" ? "browser " + [a.action, a.url, a.ref, a.text !== undefined ? JSON.stringify(String(a.text).slice(0, 80)) : "", a.key, a.option, a.path].filter(Boolean).join(" ") : c.name + " " + scrub(JSON.stringify(a)).slice(0, 200);
         trail.push(scrub(what).slice(0, 260) + " → " + answer.slice(0, 200));
-        const reads = (c.name === "browser" && ["look", "scroll", "screenshot"].includes(a.action)) || ["read", "grep", "glob", "lsp", "todo", "web_fetch"].includes(c.name);
+        const reads = (c.name === "browser" && ["look", "hover", "scroll", "screenshot"].includes(a.action)) || ["read", "grep", "glob", "lsp", "todo", "web_fetch"].includes(c.name);
         if (!reads) sinceReview++;
         if (/^not done\b/.test(answer)) refused = true;
       }

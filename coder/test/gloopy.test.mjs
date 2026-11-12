@@ -215,7 +215,7 @@ test("GL10 the browser's checks: http(s) addresses only (never the machine's set
   assert.deepEqual(checkAsk({ action: "type", ref: "e4", text: "red shoes", submit: true }), { action: "type", ref: "e4", text: "red shoes", submit: true });
   assert.deepEqual(checkAsk({ action: "scroll", direction: "sideways" }), { action: "scroll", direction: "down" });
   assert.throws(() => checkAsk({ action: "click" }), /give ref/);
-  assert.throws(() => checkAsk({ action: "fly" }), /action is one of: open, look, click, type, press, select, scroll, back/);
+  assert.throws(() => checkAsk({ action: "fly" }), /action is one of: open, look, click, hover, type, press, select, scroll, back/, "hover since 2026-11-12 (GL124)");
 });
 
 // A small made-up site for the browser tests: a search, a sign-in that takes "hunter2-SECRET", an account page with an
@@ -4055,7 +4055,7 @@ test("GL85 (2026-11-10) the browser fixes' parts: a screenshot as a file, an upl
   const B = await import("../container/gloopy-browser.mjs");
   const { BROWSER_STEP } = await import("../container/coder-agent.mjs");
   const { BROWSER_TOOL } = await import("../container/gloopy-agent.mjs");
-  assert.deepEqual(B.BROWSER_ACTIONS, ["open", "look", "click", "type", "press", "select", "scroll", "back", "screenshot", "upload"]);
+  assert.deepEqual(B.BROWSER_ACTIONS.filter((x) => x !== "hover"), ["open", "look", "click", "type", "press", "select", "scroll", "back", "screenshot", "upload"], "and hover since 2026-11-12 (GL124)");
   assert.deepEqual([B.DOWNLOAD_MAX, B.UPLOAD_MAX, B.STAGED_MS, B.DOWNLOAD_WAIT_MS], [25 * 1024 * 1024, 5 * 1024 * 1024, 24 * 60 * 60 * 1000, 20_000]);
   // 1. A screenshot: of what is in view, or of the whole page.
   assert.deepEqual(B.checkAsk({ action: "screenshot" }), { action: "screenshot", full: false });
@@ -6351,4 +6351,94 @@ test("GL123 (2026-11-12) the owner's own command in Gloopy's terminal, on its ma
     assert.equal((await post(full.base, "/gloopy/control", { take: false }))[1].control, false);
     assert.deepEqual(await post(full.base, "/gloopy/run", { command: "ls" }), [409, { error: "Take over first." }], "handed back: no more");
   } finally { full.srv.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + browserRoot]); }
+});
+
+test("GL124 (2026-11-12) a hover step in Gloopy's browser (owner: \"yes do both\"; found live: with none, Gloopy clicked pictures to read their hover names, and the check once asked the owner first): the mouse over an element, for what shows only then, clicking nothing; not checked first (it changes nothing, like scrolling); said in words, marked in the live view, and its helpers have it too", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const B = await import("../container/gloopy-browser.mjs");
+  const { BROWSER_STEP } = await import("../container/coder-agent.mjs");
+  const { BROWSER_TOOL, HELPER_BROWSER_TOOL } = await import("../container/gloopy-agent.mjs");
+  assert.deepEqual(B.BROWSER_ACTIONS, ["open", "look", "click", "hover", "type", "press", "select", "scroll", "back", "screenshot", "upload"]);
+  assert.throws(() => B.checkAsk({ action: "hover" }), /give ref/);
+  assert.deepEqual(B.checkAsk({ action: "hover", ref: "e3" }), { action: "hover", ref: "e3" });
+  assert.equal(B.checkAsk({ action: "hover", ref: "e3", confirm: true }).confirm, undefined, "a hover brings up no \"Are you sure?\"");
+  assert.equal(needsCheck({ action: "hover", ref: "e3" }), false, "not checked first");
+  assert.deepEqual([BROWSER_STEP.verb({ action: "hover", ref: "e3" }), BROWSER_STEP.label({ action: "hover", ref: "e3" })], ["Hovered", ""]);
+  // Told to Gloopy and its helpers: use it rather than a click to see those.
+  assert.ok(BROWSER_TOOL.function.parameters.properties.action.enum.includes("hover"));
+  assert.match(BROWSER_TOOL.function.description, /hover \(ref: the mouse over it without clicking, for what shows only then, such as a menu, a tooltip or a picture's caption; it changes nothing, so use it rather than a click to see those\)/);
+  assert.match(BROWSER_TOOL.function.parameters.properties.ref.description, /^click, hover, type, select, upload:/);
+  assert.deepEqual(HELPER_BROWSER_TOOL.function.parameters.properties.action.enum, B.BROWSER_ACTIONS.filter((a) => a !== "upload"));
+  assert.match(HELPER_BROWSER_TOOL.function.description, /hover \(ref: the mouse over it without clicking, for a menu, a tooltip or a caption\)/);
+  // A reading step for the run's monitor (dots'), and "Hovering" while it runs in the chat.
+  const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.ok(agent.includes('const reads = (c.name === "browser" && ["look", "hover", "scroll", "screenshot"].includes(a.action))'));
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(ui.includes(".replace(/^Clicked$/, 'Clicking').replace(/^Hovered$/, 'Hovering')"));
+  if (!B.hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  // A real browser: the hovers page of the live test (each picture's name shows only while the mouse is over it).
+  const fig = (n) => '<div class="fig"><img alt="User Avatar" width="80" height="80" src="data:image/gif;base64,R0lGODlhAQABAAAAACw=" onclick="document.title=\'Clicked\'"><div class="cap"><h5>name: user' + n + '</h5><a href="/users/' + n + '">View profile</a></div></div>';
+  const html = '<title>Hovers</title><style>.fig{display:inline-block;margin:10px}.cap{display:none}.fig:hover .cap{display:block}</style><h3>Hovers</h3>' + fig(1) + fig(2) + fig(3);
+  const site = http.createServer((q, s) => { s.setHeader("content-type", "text/html"); s.end(html); });
+  const base = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl-hover-")), "browser");
+  const hub = B.makeBrowserHub({ dir });
+  const pics = (text) => [...text.matchAll(/img "User Avatar" \[ref=([a-z0-9]+)\]/g)].map((m) => m[1]);
+  try {
+    let a = await hub.act({ action: "open", url: base + "/" });
+    assert.doesNotMatch(a.text, /name: user/, "no names before a hover");
+    const [one, two] = pics(a.text);
+    assert.ok(one && two, a.text);
+    a = await hub.act({ action: "hover", ref: one });
+    assert.match(a.text, /^Did: Hovered over “User Avatar”\nPage: Hovers\n/);
+    assert.match(a.text, /name: user1/);
+    assert.doesNotMatch(a.text, /name: user2/);
+    assert.match(a.text, /link "View profile"/, "what the hover brought up is in the outline, to use");
+    let sc = await hub.screen({});
+    assert.equal(sc.last.did, "Hovered over “User Avatar”", "the live view says it");
+    assert.ok(sc.last.box && sc.last.box.w > 0, "and marks where");
+    a = await hub.act({ action: "hover", ref: pics(a.text)[1] });
+    assert.match(a.text, /name: user2/);
+    assert.doesNotMatch(a.text, /name: user1/, "the first one's name is gone with the mouse");
+    assert.match(a.text, /\nPage: Hovers\n/, "nothing was clicked (a click would retitle the page)");
+  } finally { await hub.closeLanes().catch(() => {}); site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL125 (2026-11-12) the big live view makes way for a hand-off card (owner: \"yes do both\"; found live: open when Gloopy handed a step over, on a short window it covered the card's Skip and I'm done, and on a phone it hides the chat): it closes once for each hand-off, the card goes on showing the browser live, scrolled into view; opened again it stays; never while the owner has control or is marking a part; once the step is answered, the view they had open comes back", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /@media \(max-width: 640px\) \{ \.cd:has\(\.cd-web\) > \.cd-log \{ display: none; \}/, "why: on a phone the open view hides the chat, and the card with it");
+  const fn = (name, end) => ui.slice(ui.indexOf("  function " + name + "("), ui.indexOf(end, ui.indexOf("  function " + name + "(")));
+  const sync = new Function("S", "webOpen", "webClose", "draw", "webWake", fn("hoSync", "\n  }\n") + "\n  }\nreturn hoSync;");
+  const ho = (id) => ({ kind: "handoff", id, task: "Scan the QR code" });
+  let did = [];
+  const run = (S) => sync(S, (take, card) => did.push(["open", take, card]), () => did.push(["close"]), (scroll) => did.push(["draw", !!scroll]), () => did.push(["wake"]))();
+  // The view open, a hand-off comes: the view makes way, the card shows the browser live, scrolled to it.
+  const S = { webOK: true, running: false, web: { card: false, control: false }, project: { pending: ho("ho1") } };
+  run(S);
+  assert.deepEqual(did, [["draw", true], ["wake"]]);
+  assert.deepEqual([S.web.card, S.web.madeWay, S.hoMadeWay], [true, true, "ho1"]);
+  // Opened again by the owner (the Browser button): it stays, for this hand-off.
+  did = []; S.web.card = false; run(S);
+  assert.deepEqual([did, S.web.card], [[], false]);
+  // Answered (the turn goes on): the view they reopened stays as it is.
+  S.project.pending = null; S.running = true; run(S);
+  assert.deepEqual([did, S.web.card], [[], false]);
+  // The next hand-off makes way again; once it is answered, the view they had open comes back (not closed).
+  S.running = false; S.project.pending = ho("ho2"); run(S);
+  assert.deepEqual([did, S.web.card, S.hoMadeWay], [[["draw", true], ["wake"]], true, "ho2"]);
+  did = []; S.project.pending = null; S.running = true; run(S);
+  assert.deepEqual([did, S.web.card, S.web.madeWay], [[["draw", false]], false, false]);
+  // Never while the owner has control (they're doing it in the view), or is marking a part.
+  for (const w of [{ card: false, control: true }, { card: false, marking: true }, { card: false, sel: { x: 1 } }]) {
+    did = []; const T = { webOK: true, running: false, web: w, project: { pending: ho("ho3") } }; run(T);
+    assert.deepEqual([did, T.web.card, T.hoMadeWay], [[], false, undefined], JSON.stringify(w));
+  }
+  // No view open: the card's own picture, as before (GL121); answered, it stops.
+  did = []; const U = { webOK: true, running: false, web: null, project: { pending: ho("ho4") } }; run(U);
+  assert.deepEqual(did, [["open", false, true]]);
+  did = []; U.web = { card: true }; U.project.pending = null; run(U);
+  assert.deepEqual(did, [["close"]]);
+  assert.ok(ui.includes("function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }"), "a paused picture comes back for the card");
 });
