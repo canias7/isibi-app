@@ -1050,6 +1050,21 @@
       (open && r ? '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
     '</div>';
   }
+  // THE LIVE SCREEN IN A HAND-OFF CARD (2026-11-12): the live view's picture, from the same stream; asleep, paused, or
+  // still coming are said in its place.
+  function hoScreen() {
+    const w = S.web;
+    if (!S.webOK) return '';
+    if (w && w.shot && !w.paused) return '<div class="cd-ho-screen"><img id="cdHoImg" src="' + w.shot + '" alt="Gloopy’s browser, live"></div>';
+    const why = !w ? 'Connecting…' : w.paused ? '' : w.asleep ? 'Gloopy’s computer is asleep: take over to wake it.' : w.off ? 'Gloopy’s browser isn’t open.' : w.error ? String(w.error) : 'Connecting…';
+    return '<div class="cd-ho-screen is-empty">' + (w && w.paused ? '<button type="button" class="cd-card-no" data-ho-resume="1">Show the screen</button>' : '<span>' + esc(why) + '</span>') + '</div>';
+  }
+  // THE RESULT, SHOWN (owner, 2026-11-12: "yes build all four"; Grok Bot attaches screenshots of the result to its
+  // answer): the pictures of the pages Gloopy's browser ended on, under its answer, as large as the chat allows.
+  function resultPics(e) {
+    const list = e && Array.isArray(e.shots) ? e.shots.filter((u) => typeof u === 'string' && u.length <= 60000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(u)).slice(0, 2) : [];
+    return list.length ? '<div class="cd-result-pics">' + list.map((u) => '<img src="' + u + '" alt="The page Gloopy’s browser ended on" loading="lazy">').join('') + '</div>' : '';
+  }
   /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
   function stepPics(r) {
     const list = r && Array.isArray(r.thumbs) ? r.thumbs.filter((u) => typeof u === 'string' && u.length <= 60000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(u)).slice(0, 4) : [];
@@ -1078,6 +1093,17 @@
     return { line: line.charAt(0).toUpperCase() + line.slice(1), failed };
   }
 
+  // WHAT GLOOPY IS DOING NOW, under the chat while it works (owner, 2026-11-12: "yes build all four"; Grok Bot's status
+  // line, "Running dynamic loading test"): its latest line to the owner this turn, else the step running now, else
+  // "Thinking". Seen even when its steps are folded away.
+  function statusLine(turn, results) {
+    const run = turn.filter((e) => e.type === 'bash' && !results[e.id]).pop();
+    const said = turn.filter((e) => e.type === 'text' && typeof e.text === 'string' && e.text.trim()).pop();
+    const first = (t) => { const one = String(t).replace(/\s+/g, ' ').trim(); const m = /^(.{8,140}?[.!?…])(\s|$)/.exec(one); return m ? m[1] : one.slice(0, 140); };
+    const step = run ? String(run.verb || 'Working') + (run.command ? ' ' + String(run.command).split('\n')[0].slice(0, 100) : '') : '';
+    const text = said ? first(said.text) : step || 'Thinking';
+    return '<div class="cd-status" role="status"><span class="cd-spin" aria-hidden="true"></span><span class="cd-status-t">' + esc(text) + '</span></div>';
+  }
   function stepsHTML() {
     const out = [];
     const results = {};
@@ -1118,7 +1144,7 @@
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
       if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble">' + esc(e.text) + '</div></div>');
-      else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
+      else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
       else if (e.type === 'question') {
@@ -1320,12 +1346,16 @@
       else if (e.type === 'handoff') {
         // A STEP ONLY YOU CAN DO, IN GLOOPY'S BROWSER (2026-11-09; Grok Bot hands you the computer, dots' browser handoff):
         // Open browser takes over at once; "Done, hand it back" answers it there.
+        // THE LIVE SCREEN IN THE CARD (owner, 2026-11-12: "yes build all four"; Grok Bot's card shows its screen, with Skip,
+        // I'm done and Take over): Gloopy's browser, live, right here (a QR code can be scanned from it); "I'm done" when the
+        // step is done without taking over; "Take over" to use the browser yourself.
         const live = cardOpen(i, e);
         out.push('<div class="cd-secret cd-handoff"><div class="cd-secret-icon">' + ICON.web.replace('width="16" height="16"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Gloopy needs you in its browser</b>' +
           '<p class="cd-secret-how">' + esc(e.task || '') + (e.site ? ' · <code>' + esc(e.site) + '</code>' : '') + '</p>' +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">Open Gloopy’s browser, do only this step, then hand it back. Gloopy sees the page again after.</p>' + until(i, e) + gone(i, e) +
-          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Open browser</button></div>' : '') + '</div>');
+          (live ? hoScreen() : '') +
+          '<p class="cd-secret-p">Do only this step, then choose “I’m done”. To use Gloopy’s browser yourself, take over. Gloopy sees the page again after.</p>' + until(i, e) + gone(i, e) +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Skip</button><button type="button" class="cd-card-no" data-handoff-done="' + esc(e.id) + '">I’m done</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Take over</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
@@ -1352,7 +1382,8 @@
       else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');
     });
     flush();
-    if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
+    if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));
+    else if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
     return out.join('');
   }
 
@@ -1365,10 +1396,10 @@
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       '<span class="cd-gl-av" aria-hidden="true">' + gloopyFig(26) + '</span><b class="cd-title-bar">' + esc((S.project && S.project.title) || 'Gloopy') + '</b>' +
-      (S.webOK && S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"' + (S.web ? ' aria-pressed="true"' : '') + '>' + ICON.web + 'Browser' + (S.web && S.web.control ? ' · You' : S.running ? ' · Live' : '') + '</button>' : '') +
+      (S.webOK && S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"' + (S.web && !S.web.card ? ' aria-pressed="true"' : '') + '>' + ICON.web + 'Browser' + (S.web && S.web.control ? ' · You' : S.running ? ' · Live' : '') + '</button>' : '') +
       // WHAT GLOOPY MAY DO (the owner, 2026-11-10: "all of it"): its settings, your rules and your sites, in one place.
       (S.project ? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' + ICON.sliders + 'Settings</button>' : '') +
-    '</div>' + (S.web ? webHTML() : '') + (S.view ? viewHTML() : '');
+    '</div>' + (S.web && !S.web.card ? webHTML() : '') + (S.view ? viewHTML() : '');
   }
   // A PREVIEW OF A FILE (the audit, 2026-11-10): a PDF or a picture Gloopy made, shown over the chat at its signed address
   // (10 minutes), with Download; Escape or × closes it.
@@ -1472,9 +1503,9 @@
     const W = w.w || 1280, H = w.h || 800, pc = (v, of) => Math.max(0, Math.min(100, (v / of) * 100)).toFixed(2) + '%';
     return ' style="left:' + pc(b.x, W) + ';top:' + pc(b.y, H) + ';width:' + pc(b.w, W) + ';height:' + pc(b.h, H) + '"';
   }
-  function webOpen(take) {
+  function webOpen(take, card) {
     if (!S.project) return;
-    S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '' };
+    S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '', card: !!card && !take };
     draw();
     if (take) webTake(); else webTick();
   }
@@ -1517,6 +1548,9 @@
     if (!w) return;
     const shape = webShape();
     const img = S.root && S.root.querySelector('#cdWebImg');
+    const ho = S.root && S.root.querySelector('#cdHoImg');
+    if (ho && w.shot && ho.getAttribute('src') !== w.shot) ho.setAttribute('src', w.shot);
+    if (before === shape && !img && ho && w.card) return;
     if (before === shape && img) {
       if (img.getAttribute('src') !== w.shot) img.setAttribute('src', w.shot);
       // Gloopy's last step, in words and as a mark, in place.
@@ -1530,7 +1564,7 @@
     }
     draw();
   }
-  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
+  const webShape = () => { const w = S.web; return w ? [w.control, w.working, w.asleep, w.off, w.none, !!w.shot, w.paused, w.msg, w.error, S.running, !!w.chooser, !!w.marking, !!w.sel, !!w.teaching, w.teaching ? w.teaching.steps : '', !!w.taught, w.lane || 0, !!w.card, (w.lanes || []).map((x) => x.id).join(','), w.route || '', w.key ? w.key.site : ''].join('|') : ''; };
   // NEAR-VIDEO (the owner, 2026-11-10: "all of it"; both apps stream the screen): once there is a picture, the view is a
   // stream (live test, 2026-11-10: each look paid the sign-in check, about half a second, so it showed about two pictures
   // a second): one request carries the page's pictures as they come, for up to 25 seconds, and the next starts at once.
@@ -1542,7 +1576,7 @@
     if (!w || !S.project || !S.root || !S.root.isConnected || S.webQuiet) return;
     if (S.webLooking) { S.webAgain = true; return; }
     const quiet = Date.now() - w.touched;
-    if (!S.running && !w.working && quiet > (w.control ? WEB_HOLD_MS : WEB_WATCH_MS)) { const b = webShape(); w.paused = true; return webPaint(b); }
+    if (!S.running && !w.working && quiet > (w.control || w.card ? WEB_HOLD_MS : WEB_WATCH_MS)) { const b = webShape(); w.paused = true; return webPaint(b); }
     let next = WEB_EVERY_MS;
     if (!S.root.hidden && document.visibilityState === 'visible') {
       const b = webShape();
@@ -1569,7 +1603,7 @@
     S.webTimer = setTimeout(webTick, next);
   }
   // Whether the view still wants pictures: shown, not paused, and worth it (as webTick decides).
-  const webKeep = (w) => S.web === w && !!S.root && S.root.isConnected && !S.root.hidden && document.visibilityState === 'visible' && !S.webQuiet && !w.asleep && !w.off && !w.none && !w.error && (S.running || w.working || Date.now() - w.touched <= (w.control ? WEB_HOLD_MS : WEB_WATCH_MS));
+  const webKeep = (w) => S.web === w && !!S.root && S.root.isConnected && !S.root.hidden && document.visibilityState === 'visible' && !S.webQuiet && !w.asleep && !w.off && !w.none && !w.error && (S.running || w.working || Date.now() - w.touched <= (w.control || w.card ? WEB_HOLD_MS : WEB_WATCH_MS));
   // THE STREAM: the machine's events (each a look's answer), taken as they come. True once it was read (it ends after up
   // to 25 seconds, or when the view no longer wants it); false when it can't be had, so a look is asked instead. A stream
   // that brought nothing is not asked for again on this page.
@@ -2001,6 +2035,14 @@
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
+    if (GLOOPY) setTimeout(hoSync, 0);
+  }
+  // THE HAND-OFF CARD'S LIVE SCREEN (2026-11-12): while a hand-off waits for you, the live view's pictures come for the
+  // card alone (no panel); once it is answered (or you open the view), that stops.
+  function hoSync() {
+    const p = S.project && !S.running && S.project.pending && S.project.pending.kind === 'handoff' ? S.project.pending : null;
+    if (p && S.webOK && !S.web) webOpen(false, true);
+    else if (!p && S.web && S.web.card) webClose();
   }
 
   function grow(t) { t.style.height = 'auto'; t.style.height = Math.min(t.scrollHeight, 200) + 'px'; }
@@ -2217,7 +2259,13 @@
       if (r.status !== 200 || !r.data || !r.data.key) { S.cardMsg = { id, text: (r.data && r.data.error) || 'The key could not be shown.' }; return draw(); }
       S.cardMsg = null; S.hookKey = { id, key: r.data.key }; draw();
     });
-    on('[data-handoff-open]', 'click', () => { if (S.web) webTake(); else webOpen(true); });
+    on('[data-handoff-open]', 'click', () => { if (S.web) { S.web.card = false; webTake(); } else webOpen(true); });
+    on('[data-handoff-done]', 'click', (e) => {
+      if (!S.project) return;
+      e.currentTarget.disabled = true;
+      cardAnswer(e.currentTarget.dataset.handoffDone, 'handoff', { done: true }, 'Your answer could not be sent.');
+    });
+    on('[data-ho-resume]', 'click', () => { if (S.web) { S.web.paused = false; S.web.touched = Date.now(); webTick(); draw(); } });
     on('[data-page-open]', 'click', (e) => openPage(e.currentTarget.dataset.pageOpen));
     on('[data-handoff-skip]', 'click', (e) => {
       if (!S.project) return;
@@ -2225,7 +2273,7 @@
       cardAnswer(e.currentTarget.dataset.handoffSkip, 'handoff', { skip: true }, 'Your answer could not be sent.');
     });
     // GLOOPY'S BROWSER, LIVE: open or close the view; take over and hand back; your clicks, typing, keys and scrolling.
-    on('#cdWeb', 'click', () => (S.web ? webClose() : webOpen(false)));
+    on('#cdWeb', 'click', () => (S.web && S.web.card ? (S.web.card = false, S.web.touched = Date.now(), draw()) : S.web ? webClose() : webOpen(false)));
     on('#cdWebClose', 'click', webClose);
     on('#cdWebResume', 'click', () => { if (S.web) { S.web.paused = false; S.web.touched = Date.now(); webTick(); draw(); } });
     on('#cdWebTake', 'click', webTake);

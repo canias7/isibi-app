@@ -57,6 +57,8 @@ function fakeFly() {
       if (method === "GET" && p === "/volumes") return J([...w.volumes.values()]);
       if ((m = /^\/machines\/(\w+)\/start$/.exec(p))) { const x = w.machines.get(m[1]); if (!x) return J({}, 404); x.state = "started"; return J({ previous_state: "stopped" }); }
       if ((m = /^\/machines\/(\w+)\/stop$/.exec(p))) { const x = w.machines.get(m[1]); if (!x) return J({}, 404); x.state = "stopped"; return J({ ok: true }); }
+      // SUSPEND (2026-11-12, Gloopy's machine): refused when noSuspend (Fly suspends only small machines), else suspended.
+      if ((m = /^\/machines\/(\w+)\/suspend$/.exec(p))) { const x = w.machines.get(m[1]); if (!x) return J({}, 404); if (w.noSuspend) return J({ error: "machine cannot be suspended" }, 400); x.state = "suspended"; return J({ ok: true }); }
       if ((m = /^\/machines\/(\w+)$/.exec(p))) {
         const x = w.machines.get(m[1]);
         if (!x) return J({ error: "not found" }, 404);
@@ -117,8 +119,8 @@ test("CD125 Fly.io machines: on only when switched on and set up; each chat's ma
   assert.deepEqual(a, a2, "the same chat, the same names");
   assert.notEqual(a.machine, c.machine);
   assert.match(a.machine, /^coder-[0-9a-f]{20}$/); assert.match(a.volume, /^coder_[0-9a-f]{20}$/); assert.match(a.key, /^coder\/fly-machines\/[0-9a-f]{20}\.json$/);
-  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", kind: "performance", cpus: 4, memory: 16384, disk: 10, diskMax: 50, root: 20 });
-  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", kind: "performance", cpus: 4, memory: 8192, disk: 20, diskMax: 50, root: 30 });
+  assert.deepEqual(F.flySettings(envWith(b)), { app: APP, image: IMG1, region: "iad", kind: "performance", cpus: 4, memory: 16384, disk: 10, diskMax: 50, root: 20, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
+  assert.deepEqual(F.flySettings(envWith(b, { CODER_FLY_REGION: "ams", CODER_FLY_CPUS: "4", CODER_FLY_MEMORY_MB: "8192", CODER_FLY_DISK_GB: "20", CODER_FLY_ROOT_GB: "30" })), { app: APP, image: IMG1, region: "ams", kind: "performance", cpus: 4, memory: 8192, disk: 20, diskMax: 50, root: 30, gloopy: { kind: "performance", cpus: 1, memory: 2048 } });
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_ROOT_GB: "99" })).root, 20, "Fly allows at most 50");
   assert.equal(F.flySettings(envWith(b, { CODER_FLY_CPUS: "99", CODER_FLY_REGION: "x" })).cpus, 4, "nonsense falls back");
   assert.deepEqual(F.machineConfig(envWith(b, { CODER_MODEL: "default" }), "vol_9"), {
@@ -349,7 +351,7 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
 
 test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute Fly step, a removed chat's machine, and the deploy button's Fly.io steps (the token only from GitHub's secrets, never shown)", async () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name\) => \{ const box = flyBox\(env, name\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\), routeLink: \(name\) => flyRouteLink\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's; the desktop app's link to Gloopy's machine (2026-11-11) too");
+  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name, o\) => \{ const box = flyBox\(env, name, \{\}, o \|\| \{\}\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\), routeLink: \(name\) => flyRouteLink\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's; the desktop app's link to Gloopy's machine (2026-11-11) too");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
   assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
   assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable, copyState: m\.copyState, routeLink: m\.routeLink \}\);/);
@@ -587,4 +589,69 @@ test("CD151 the environment's saved copy of its setup, on Fly.io (owner, 2026-11
   assert.equal(F.cacheUsable(env, { ...c, at: now + 3600e3 }, key, now), false, "from the future");
   assert.equal(F.cacheUsable(env, null, key, now), false);
   assert.equal(F.cacheUsable(env, c, "", now), false);
+});
+
+test("CD248 (2026-11-12) Gloopy's computer starts in seconds (owner: \"yes build all four\"; Grok Bot's is up at once): Gloopy's machine has its own size (1 full-speed CPU, 2 GB; Fly suspends machines of at most 2 GB) and, when idle, is suspended, not stopped, so it wakes as it was (its browser open) in under a second; stopped if Fly won't suspend it; an older Gloopy machine gets its size at its next wake; Coder's chats are as before", async () => {
+  // Its size: 1 performance CPU and 2 GB unless set otherwise within Fly's rules and 2 GB.
+  const base = { CODER_FLY_APP: APP, CODER_FLY_IMAGE: IMG1 };
+  assert.deepEqual(F.flySettings(base).gloopy, { kind: "performance", cpus: 1, memory: 2048 });
+  assert.deepEqual(F.gloopySize({ CODER_FLY_GLOOPY_CPU_KIND: "shared", CODER_FLY_GLOOPY_CPUS: "4", CODER_FLY_GLOOPY_MEMORY_MB: "1024" }), { kind: "shared", cpus: 4, memory: 1024 });
+  assert.deepEqual(F.gloopySize({ CODER_FLY_GLOOPY_MEMORY_MB: "4096" }), { kind: "performance", cpus: 1, memory: 2048 }, "never over 2 GB: it could not be suspended");
+  assert.deepEqual(F.gloopySize({ CODER_FLY_GLOOPY_CPUS: "2" }), { kind: "performance", cpus: 1, memory: 2048 }, "2 performance CPUs need 4 GB: back to one");
+  assert.equal(F.flyShape(F.flySettings(base), true), "gloopy/performance/1/2048/50/20");
+  assert.deepEqual(F.machineConfig(base, "v1", { gloopy: true }).guest, { cpu_kind: "performance", cpus: 1, memory_mb: 2048 });
+  assert.deepEqual(F.machineConfig(base, "v1", { gloopy: true, small: true }).guest, F.GLOOPY_SMALL);
+  assert.equal(F.GLOOPY_SMALL.memory_mb, 2048);
+  assert.equal(F.machineConfig(base, "v1", { gloopy: true }).metadata.coder, "gloopy-machine");
+  assert.deepEqual([F.machineConfig(base, "v1").guest, F.machineConfig(base, "v1").metadata.coder], [{ cpu_kind: "performance", cpus: 4, memory_mb: 16384 }, "chat-machine"], "Coder's chats as before");
+  // Made for Gloopy: its disk on a server with room for its size, the machine at its size, the record marked.
+  const b = fakeBucket(), w = fakeFly(), env = envWith(b, { CODER_TOKEN_KEY: TKEY });
+  const box = F.flyBox(env, "user-1-gloopy", deps(w), { gloopy: true });
+  const names = await F.flyNames("user-1-gloopy");
+  const r1 = await box.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy", text: "hi" }) })));
+  assert.equal(r1.status, 200);
+  const [vol] = [...w.volumes.values()], [mach] = [...w.machines.values()];
+  assert.deepEqual(vol.compute, { cpu_kind: "performance", cpus: 1, memory_mb: 2048 });
+  assert.deepEqual(mach.config.guest, { cpu_kind: "performance", cpus: 1, memory_mb: 2048 });
+  let rec = JSON.parse(b.m.get(names.key));
+  assert.deepEqual([rec.gloopy, rec.shape], [true, "gloopy/performance/1/2048/50/20"]);
+  // Idle 10 minutes: suspended (and the record says so), not stopped.
+  const now = Date.now();
+  w.busy[mach.id] = { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, idleMs: 11 * 60e3 };
+  w.api.length = 0;
+  const out = await F.runFlyMachines(env, deps(w), now);
+  assert.deepEqual(out, { checked: 1, stopped: 1, removed: 0, suspended: 1 });
+  assert.deepEqual(w.api.filter((x) => /^POST /.test(x)), ["POST /machines/" + mach.id + "/suspend"]);
+  assert.equal(w.machines.get(mach.id).state, "suspended");
+  rec = JSON.parse(b.m.get(names.key));
+  assert.deepEqual([rec.stopped, rec.suspended], [true, true]);
+  // Woken: resumed with /start (no update: same image and size), then asked.
+  w.api.length = 0;
+  const r2 = await box.fetch(signed(new Request("http://coder/state?project=gloopy")));
+  assert.equal(r2.status, 200);
+  assert.deepEqual(w.api, ["GET /machines/" + mach.id, "POST /machines/" + mach.id + "/start"]);
+  assert.equal(w.machines.get(mach.id).state, "started");
+  // Fly won't suspend it: stopped instead.
+  w.noSuspend = true;
+  w.busy[mach.id] = { busy: false, working: 0, unsaved: 0, workingMs: 0, unsavedMs: 0, idleMs: 11 * 60e3 };
+  const out2 = await F.runFlyMachines(env, deps(w), now + 60e3);
+  assert.deepEqual(out2, { checked: 1, stopped: 1, removed: 0 });
+  assert.equal(w.machines.get(mach.id).state, "stopped");
+  assert.equal(JSON.parse(b.m.get(names.key)).suspended, undefined);
+  // An older Gloopy machine, made at Coder's size: marked and given Gloopy's size at its next wake.
+  const b2 = fakeBucket(), w2 = fakeFly(), env2 = envWith(b2, { CODER_TOKEN_KEY: TKEY });
+  const plain = F.flyBox(env2, "user-2-gloopy", deps(w2));
+  await plain.fetch(signed(new Request("http://coder/turn", { method: "POST", headers: { "content-type": "application/json" }, body: "{}" })));
+  const n2 = await F.flyNames("user-2-gloopy"), [m2] = [...w2.machines.values()];
+  assert.deepEqual(m2.config.guest, { cpu_kind: "performance", cpus: 4, memory_mb: 16384 });
+  w2.machines.get(m2.id).state = "stopped";
+  b2.m.set(n2.key, JSON.stringify({ ...JSON.parse(b2.m.get(n2.key)), stopped: true }));
+  await F.flyBox(env2, "user-2-gloopy", deps(w2), { gloopy: true }).fetch(signed(new Request("http://coder/state?project=gloopy")));
+  assert.deepEqual(w2.machines.get(m2.id).config.guest, { cpu_kind: "performance", cpus: 1, memory_mb: 2048 });
+  assert.deepEqual([JSON.parse(b2.m.get(n2.key)).gloopy, JSON.parse(b2.m.get(n2.key)).shape], [true, "gloopy/performance/1/2048/50/20"]);
+  // The wiring: Gloopy's chat asks for its own machine; the Worker passes that on.
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
+  assert.ok(routes.includes('const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);'));
+  assert.ok(worker.includes("container: (name, o) => { const box = flyBox(env, name, {}, o || {}); return { fetch: (req) => box.fetch(req) }; }"));
 });

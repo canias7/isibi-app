@@ -66,7 +66,7 @@ export function machinesFor(env) {
   // On Fly.io each machine has its own lock key (step 2, 2026-11-07): flyBox adds it, per machine.
   // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (2026-11-07, like Claude Code's cache): Fly.io only.
   // The desktop app's link to Gloopy's machine (2026-11-11): Fly.io only, like Gloopy's browser.
-  if (flyOn(env)) return { kind: "fly", sign, container: (name) => { const box = flyBox(env, name); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key), copyState: (c) => copyState(env, c), routeLink: (name) => flyRouteLink(env, name) };
+  if (flyOn(env)) return { kind: "fly", sign, container: (name, o) => { const box = flyBox(env, name, {}, o || {}); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key), copyState: (c) => copyState(env, c), routeLink: (name) => flyRouteLink(env, name) };
   return { kind: "cloudflare", sign, container: (name) => { const box = getContainer(env.CODER_CONTAINER, name); return { fetch: (req) => box.fetch(sign(req)) }; }, drop: async () => {} };
 }
 

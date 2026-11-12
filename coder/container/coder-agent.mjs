@@ -780,6 +780,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
   // reminded once, before it finishes, to offer them for the setup script.
   const installs = new Set(); let nudged = false;
+  // THE RESULT, SHOWN (owner, 2026-11-12: "yes build all four"; Grok Bot attaches screenshots of the result to its
+  // answer): the last picture of each page Gloopy's browser was on this turn, in order; the answer carries the last two.
+  const turnShots = [];
   // A SETUP SCRIPT THAT FAILED before this job (live test, 2026-11-06: Coder
   // was told in its instructions, yet answered as if nothing had happened).
   // Like the installs above, it is reminded once, before it finishes, to say
@@ -867,7 +870,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the environment's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
       continue;
     }
-    if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
+    if (!calls.length) { emit({ type: "done", text: scrub(said), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
     if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
 
     for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
@@ -1153,6 +1156,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const out = capOutput(String(r.text || ""));
         const told = kept.length ? "\n\n" + kept.join("\n") : "";
         if (r.shot) roundPics.push({ path: "the browser", urls: ["data:image/jpeg;base64," + r.shot] });
+        if (r.thumb) { const at = (/^Address: (\S{1,2000})$/m.exec(String(r.text || "")) || [])[1] || ""; const last = turnShots[turnShots.length - 1]; if (last && last.at === at) last.thumb = r.thumb; else turnShots.push({ at, thumb: r.thumb }); }
         emit({ type: "result", id: c.id, code: 0, output: (out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out) + told, ...(r.thumb ? { thumbs: [r.thumb] } : {}), ...(did ? { label: did } : {}) });
         // A PAGE ASKING FOR A SECURITY KEY (2026-11-11; Grok Bot's "Use hardware security keys"): the owner is asked on a
         // card; in the Go Farther app on their Mac or Windows computer, their own key signs the page's very request there.

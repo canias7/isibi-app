@@ -1024,7 +1024,8 @@ test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browse
   assert.match(ui, /S\.webOK = g\.data\.browser === true;/);
   assert.match(ui, /\(S\.webOK && S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdWeb"'/);
   assert.match(ui, /const WEB_EVERY_MS = 800, WEB_WATCH_MS = 2 \* 60 \* 1000, WEB_HOLD_MS = 15 \* 60 \* 1000, WEB_WAIT_MS = 6000, WEB_NEXT_MS = 30;/);
-  assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
+  // (2026-11-12: a hand-off card's live screen waits as long as taking over does; GL121.)
+  assert.match(ui, /if \(!S\.running && !w\.working && quiet > \(w\.control \|\| w\.card \? WEB_HOLD_MS : WEB_WATCH_MS\)\) \{ const b = webShape\(\); w\.paused = true; return webPaint\(b\); \}/, "it pauses on its own");
   assert.match(ui, /if \(!S\.root\.hidden && document\.visibilityState === 'visible'\) \{/, "and looks only while it can be seen");
   // (Since 2026-11-10, near-video: GL107, and a stream: GL110; the picture it has still goes with each look and stream.)
   assert.match(ui, /\[w\.hash \? 'since=' \+ encodeURIComponent\(w\.hash\) : '', live && !w\.lane \? 'wait=' \+ WEB_WAIT_MS : '', w\.lane \? 'lane=' \+ w\.lane : ''\]/, "an unchanged page is not sent again");
@@ -1034,8 +1035,9 @@ test("GL27 (2026-11-09) on the page: Gloopy's Browser button (only with a browse
   assert.match(ui, /\(ho \? 'Done, hand it back' : 'Hand it back'\)/);
   assert.match(ui, /const x = Math\.floor\(\(\(e\.clientX - r\.left\) \/ r\.width\) \* img\.naturalWidth\), y = Math\.floor\(\(\(e\.clientY - r\.top\) \/ r\.height\) \* img\.naturalHeight\);/, "a click lands where it was made");
   assert.match(ui, /if \(S\.web && S\.web\.control\) S\.web\.control = false;/, "a message hands the browser back");
-  assert.match(ui, /else if \(e\.type === 'handoff'\) \{[\s\S]{0,600}<b class="cd-secret-t">Gloopy needs you in its browser<\/b>/);
-  assert.match(ui, /data-handoff-skip="' \+ esc\(e\.id\) \+ '">Not now<\/button><button type="button" class="cd-card-yes" data-handoff-open="' \+ esc\(e\.id\) \+ '"/);
+  assert.match(ui, /else if \(e\.type === 'handoff'\) \{[\s\S]{0,1100}<b class="cd-secret-t">Gloopy needs you in its browser<\/b>/);
+  // (2026-11-12: Skip, I'm done and Take over, Grok Bot's; GL121.)
+  assert.match(ui, /data-handoff-skip="' \+ esc\(e\.id\) \+ '">Skip<\/button><button type="button" class="cd-card-no" data-handoff-done="' \+ esc\(e\.id\) \+ '">I’m done<\/button><button type="button" class="cd-card-yes" data-handoff-open="' \+ esc\(e\.id\) \+ '"/);
   assert.match(ui, /handoff: \['asked you to take over', '', '', 'handoff'\]/);
   assert.match(css, /\.cd-web-screen\.is-you \{ box-shadow: inset 0 0 0 3px #e8590c; \}/, "an orange edge while you have control");
   // Found in the screenshots: a cut-off strip of the chat showed under the view; while you have control (and on a phone,
@@ -6133,4 +6135,85 @@ test("GL119 (2026-11-11) hardware security keys, from Gloopy's step to the card 
   // A request that names no key (passkey-style): the app's refusal is said for what it most likely is (live test).
   assert.match(ui, /This site didn’t say which key it wants \(as with passkeys\), and on this computer the app can’t pick one yet\. Choose “Not now” and sign in another way\./);
   assert.ok(ui.includes("keyWords(r, ev.request)") && ui.includes("keyWords(r, w.key.request)"));
+});
+
+test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all four\"): Gloopy says what it is doing in short lines as it goes, a status line under the chat says what it does now, and its answer shows the pages its browser ended on (the last picture of each of the last two pages; none without the browser, none for Coder)", async () => {
+  // The answer carries the last picture of each of the last two pages its browser was on this turn.
+  const pages = { a: "https://shop.example/", b: "https://shop.example/cart" };
+  let n = 0;
+  const browser = { act: async (a) => { n += 1; const at = a.url === "cart" ? pages.b : pages.a; return { text: "Did: step " + n + "\nPage: Shop\nAddress: " + at + "\n\n- button \"Buy\" [ref=e2]", shot: "AAAA", thumb: "data:image/jpeg;base64,T" + n }; }, describe: async () => ({ site: "shop.example", url: pages.a }) };
+  const events = [];
+  const g = scripted([say("On it, opening the shop now.", [call("browser", { action: "open", url: "shop.example" }, "b1")]), say("", [call("browser", { action: "look" }, "b2")]), say("", [call("browser", { action: "open", url: "cart" }, "b3")]), say("It's in your cart.")]);
+  await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), browser }, { text: "buy it", ...GLOOPY });
+  assert.deepEqual(events.filter((e) => e.type === "text").map((e) => e.text), ["On it, opening the shop now."], "its line as it starts, in the chat");
+  const done = events.find((e) => e.type === "done");
+  assert.deepEqual([done.text, done.shots], ["It's in your cart.", ["data:image/jpeg;base64,T2", "data:image/jpeg;base64,T3"]], "the shop as last seen, then the cart");
+  // A turn without the browser, and Coder: no pictures.
+  const quiet = []; const q = scripted([say("Hello.")]);
+  await runCoder({ send: q.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => quiet.push(e), browser }, { text: "hi", ...GLOOPY });
+  assert.equal(quiet.find((e) => e.type === "done").shots, undefined);
+  // Its instructions: a short line as it starts and at each new stage, never one per click.
+  assert.match(GLOOPY_SYSTEM, /- While working, keep the owner posted in short plain lines, written alongside your tool calls \(Grok Bot's way\): one as you\n  start \("On it, opening the order form now\."\), then one at each new stage/);
+  assert.match(GLOOPY_SYSTEM, /One line at a time, never\n  a line per click, and never your plan in detail\./);
+  // The page: the pictures under the answer, and the status line for Gloopy while it works (Coder keeps its dots).
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));"));
+  assert.match(ui, /e\.shots\.filter\(\(u\) => typeof u === 'string' && u\.length <= 60000 && \/\^data:image\\\/jpeg;base64,\[A-Za-z0-9\+\/\]\+=\*\$\/\.test\(u\)\)\.slice\(0, 2\)/, "only the machine's own small JPEGs, two at most");
+  assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.events"));
+  assert.match(css, /\.cd-result-pics img \{[^}]*width: min\(320px, 100%\)/);
+  assert.match(css, /\.cd-status-t \{[^}]*text-overflow: ellipsis/);
+  // The status line's words, run as the page runs them.
+  const src = ui.slice(ui.indexOf("  function statusLine("), ui.indexOf("  function stepsHTML() {"));
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const statusLine = new Function("esc", src + "\nreturn statusLine;")(esc);
+  const words = (turn, results = {}) => /<span class="cd-status-t">([^<]*)<\/span>/.exec(statusLine(turn, results))[1];
+  assert.equal(words([{ type: "text", text: "On it, opening the order form now. Then the rest." }, { type: "bash", id: "x", verb: "Opening", command: "shop.example" }]), "On it, opening the order form now.");
+  assert.equal(words([{ type: "bash", id: "x", verb: "Opening", command: "shop.example\nmore" }]), "Opening shop.example");
+  assert.equal(words([{ type: "bash", id: "x", verb: "Opening", command: "shop.example" }], { x: { type: "result" } }), "Thinking");
+  assert.match(statusLine([], {}), /^<div class="cd-status" role="status"><span class="cd-spin" aria-hidden="true"><\/span>/);
+});
+
+test("GL121 (2026-11-12) the hand-off card shows Gloopy's browser live, as Grok Bot's does (owner: \"yes build all four\"): its picture from the live view's own stream, with no panel open (\"card\" mode, which never hides the chat on a phone); Skip, I'm done (the step done without taking over, e.g. a QR code scanned from the card) and Take over (the full view, in control); it starts while a hand-off waits and stops once it is answered", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  // The card: the screen while it waits, then the three answers.
+  assert.ok(ui.includes("(live ? hoScreen() : '') +\n          '<p class=\"cd-secret-p\">Do only this step, then choose “I’m done”. To use Gloopy’s browser yourself, take over. Gloopy sees the page again after.</p>'"));
+  assert.ok(ui.includes(">Skip</button><button type=\"button\" class=\"cd-card-no\" data-handoff-done=\"' + esc(e.id) + '\">I’m done</button><button type=\"button\" class=\"cd-card-yes\" data-handoff-open=\"' + esc(e.id) + '\"' + (S.webOK ? '' : ' disabled') + '>Take over</button>"));
+  // I'm done answers the card as done; Take over turns the card's picture into the full view, in control.
+  assert.ok(ui.includes("cardAnswer(e.currentTarget.dataset.handoffDone, 'handoff', { done: true }, 'Your answer could not be sent.');"));
+  assert.ok(ui.includes("on('[data-handoff-open]', 'click', () => { if (S.web) { S.web.card = false; webTake(); } else webOpen(true); });"));
+  // Card mode: no panel, the Browser button not pressed (and pressing it shows the view), painted in place.
+  assert.ok(ui.includes("'</div>' + (S.web && !S.web.card ? webHTML() : '') + (S.view ? viewHTML() : '');"));
+  assert.ok(ui.includes("(S.web && !S.web.card ? ' aria-pressed=\"true\"' : '')"));
+  assert.ok(ui.includes("on('#cdWeb', 'click', () => (S.web && S.web.card ? (S.web.card = false, S.web.touched = Date.now(), draw()) : S.web ? webClose() : webOpen(false)));"));
+  assert.ok(ui.includes("S.web = { url: '', title: '', shot: '', hash: '', control: false, working: false, touched: Date.now(), msg: '', card: !!card && !take };"));
+  assert.ok(ui.includes("if (ho && w.shot && ho.getAttribute('src') !== w.shot) ho.setAttribute('src', w.shot);\n    if (before === shape && !img && ho && w.card) return;"), "the card's picture changes in place, the chat is not redrawn for it");
+  assert.ok(ui.includes("(S.running || w.working || Date.now() - w.touched <= (w.control || w.card ? WEB_HOLD_MS : WEB_WATCH_MS));"), "it waits for you as long as taking over does, then pauses");
+  assert.match(ui, /w\.lane \|\| 0, !!w\.card, \(w\.lanes \|\| \[\]\)\.map\(\(x\) => x\.id\)\.join\(','\), w\.route \|\| '', w\.key \? w\.key\.site : ''\]\.join\('\|'\)/);
+  // The screen's own words, run as the page runs them; never the .cd-web class (on a phone it hides the chat, GL27).
+  const fn = (name, end) => ui.slice(ui.indexOf("  function " + name + "("), ui.indexOf(end, ui.indexOf("  function " + name + "(")));
+  const esc = (t) => String(t).replace(/&/g, "&amp;").replace(/</g, "&lt;");
+  const screenOf = (S) => new Function("S", "esc", fn("hoScreen", "  // THE RESULT, SHOWN") + "\nreturn hoScreen();")(S, esc);
+  assert.equal(screenOf({ webOK: true, web: { shot: "data:image/jpeg;base64,AA" } }), '<div class="cd-ho-screen"><img id="cdHoImg" src="data:image/jpeg;base64,AA" alt="Gloopy’s browser, live"></div>');
+  assert.match(screenOf({ webOK: true, web: null }), /<span>Connecting…<\/span>/);
+  assert.match(screenOf({ webOK: true, web: { asleep: true } }), /Gloopy’s computer is asleep: take over to wake it\./);
+  assert.match(screenOf({ webOK: true, web: { shot: "x", paused: true } }), /data-ho-resume="1">Show the screen<\/button>/);
+  assert.equal(screenOf({ webOK: false, web: null }), "");
+  assert.ok(!/cd-web/.test(fn("hoScreen", "  // THE RESULT, SHOWN")));
+  // It starts while a hand-off waits (and the browser can be shown), and stops once answered.
+  const sync = new Function("S", "webOpen", "webClose", fn("hoSync", "\n  }\n") + "\n  }\nreturn hoSync;");
+  const did = [];
+  const run = (S) => sync(S, (take, card) => did.push(["open", take, card]), () => did.push(["close"]))();
+  run({ webOK: true, web: null, running: false, project: { pending: { kind: "handoff", id: "ho1" } } });
+  run({ webOK: true, web: { card: true }, running: false, project: { pending: { kind: "handoff", id: "ho1" } } });
+  run({ webOK: true, web: { card: true }, running: false, project: { pending: null } });
+  run({ webOK: true, web: { card: false }, running: false, project: { pending: null } });
+  run({ webOK: false, web: null, running: false, project: { pending: { kind: "handoff", id: "ho1" } } });
+  run({ webOK: true, web: null, running: true, project: { pending: { kind: "handoff", id: "ho1" } } });
+  assert.deepEqual(did, [["open", false, true], ["close"]], "opened once for the card, closed once answered; never the view you opened, never while Gloopy works");
+  assert.ok(ui.includes("    if (GLOOPY) setTimeout(hoSync, 0);\n  }"), "checked after each drawing");
+  assert.match(css, /\.cd-ho-screen\{[^}]*aspect-ratio:16\/10/);
 });

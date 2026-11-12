@@ -649,7 +649,8 @@ export async function handleCoder(request, env, ctx, deps) {
   const metaKey = keyOf(uid, id, "meta.json");
   const meta = await getJson(bucket, metaKey, null);
   if (!meta) return json({ error: "no such project" }, 404);
-  const box = () => deps.container(uid + "-" + id);
+  // GLOOPY'S MACHINE (2026-11-12): its own size, suspended when idle so it is back in under a second (coder-fly.mjs).
+  const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const post = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).

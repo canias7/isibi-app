@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Grok Bot's four ideas, built into Gloopy (your words: "yes build all four")
+
+- **Progress as it works.** Gloopy now posts short lines as it goes, Grok Bot's way: one as it starts ("On it, opening the order form now."), then one at each new stage, never one per click. A status line under the chat says what it's doing now: its latest line, or the step running. Its answer shows pictures of the pages its browser ended on, at most two. Test GL120.
+- **The live screen inside the hand-off card.** When Gloopy hands you a step (a QR code, a robot check), the card now shows Gloopy's browser live, with **Skip / I'm done / Take over**. "I'm done" is for a step done without taking over, such as scanning a QR code straight from the card. The picture comes from the live view's own stream, without opening the big panel, and pauses after 15 minutes if you're away. Tests GL121 and GL27.
+- **Gloopy's computer starts in seconds.** Gloopy's machine used to be the same size as Coder's (4 CPUs, 16 GB), and was stopped when idle, so each wake was a full cold start of the 6.9 GB image: about 80 seconds. Now it has its own size, 1 full-speed CPU and 2 GB, and is **suspended** when idle, like closing a laptop lid. Fly.io resumes a suspended machine in under a second, with its browser still open. Fly only suspends machines of 2 GB or less. If Fly won't suspend it, it's stopped as before. A suspended machine costs the same as a stopped one (disk only), and the smaller size costs less while awake, so the bill goes down. After a deploy, the first wake is still a cold start (a new version can't resume an old one). Your existing Gloopy machine gets the new size at its next wake. Test CD248; CD125 and CD129 updated.
+- **The whole computer in the live view** (tabs, address bar, a terminal): being built next.
+
 ## 2026-11-12: Grok Bot's browser tool, tried hands-on next to Gloopy's (your words: "just test the whole browser tool and see the differences")
 
 **How:** Grok Bot's Linux app ran on my cloud machine. You finished its sign-in on your own computer. I made a test Bot, "Browser test (Claude)", used practice sites only, and signed the app out at the end. Recorded. Your Grok Bot trial read 60% used partway through and 65% at the end.
