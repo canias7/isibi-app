@@ -16,6 +16,10 @@ log (81,000 lines) is in git history.
 - **What it was:** Gloopy's chat had a sideways scrollbar. The cause was a long unbroken string in one of Gloopy's answers, a security key's 140-character code from an earlier test. It was 1,060 pixels wide, wider than the chat, so the whole chat scrolled sideways.
 - **The fix:** long words, codes and links now wrap onto the next line wherever they have to. That covers Gloopy's answers, your own messages, steps and cards. Code blocks and tables keep their own scrollbar inside themselves, so code isn't broken up. Coder's chat uses the same page, so it's fixed there too.
 - **Checked:** a new test draws the chat in a real browser, with long text of every kind, at a computer's width and a phone's. With the old styles the chat was 1,328 pixels wide in a 1,280-pixel window. Now it fits exactly. Test GL126.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - With the real chat history, the chat is now 948 pixels wide in its 948-pixel window, so there's no scrollbar. The security key's code wraps onto a second line.
+  - Asked for 300 x's with no spaces, both as code and as plain text, Gloopy's answer wrapped onto several lines inside the chat.
+  - At a phone's size, the chat was 390 pixels wide on a 390-pixel screen.
 
 ## 2026-11-12: A hover step, and the live view makes way for the hand-off card (your words: "yes do both")
 
