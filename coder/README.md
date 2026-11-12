@@ -1568,7 +1568,8 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   1 ms, "ENOENT … req-….json", because a job's end removes the chat's work folder
   (`/srv/coder-bg/<chat>`, `tidyBg`) when nothing in the background keeps it, and
   the hook's input file is written there. That folder is now made again before
-  the file is written (CD544).
+  the file is written (CD544). Live after deploy 147: the machine slept, and
+  the hook ran in 16 ms with exit code 0 and wrote its file.
 - *`@coder` on a pull request whose chat was deleted* drops the stale branch
   record and opens a new chat on the pull request's branch, as for anyone
   else's pull request; deleting a chat drops its own branch records
