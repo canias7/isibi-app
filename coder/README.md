@@ -1080,7 +1080,9 @@ first). Tests: `test/pass8.test.mjs` (CD408 on).
   warning in Settings (`memWarnGib`, Claude Code's
   `CLAUDE_CODE_WARN_MEMORY_FREE_GIB`: "Low memory: … is available to this
   session.", from MemAvailable or what is left under the commands' memory cap,
-  `memAvailable`); it and the low-disk warning are off unless chosen, and said
+  `memAvailable`, which reads cgroup v2's `memory.max`/`memory.current` or
+  v1's `memory.limit_in_bytes`/`memory.usage_in_bytes`: Coder's Fly.io
+  machines have v1 for memory, CD523); it and the low-disk warning are off unless chosen, and said
   again only after the figure was back above 1.25 times the line
   (`WARN_REARM`). Every command and the setup script have
   `CLAUDE_CODE_REMOTE=true` (`REMOTE_MARK`); no `OTEL_*` variable reaches a

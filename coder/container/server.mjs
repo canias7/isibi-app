@@ -964,10 +964,16 @@ export function memAvailable(cg = "", read = (f) => readFileSync(f, "utf8")) {
   let avail = null;
   try { const a = Number((/^MemAvailable:\s+(\d+) kB$/m.exec(read("/proc/meminfo")) || [])[1]); if (Number.isFinite(a) && a >= 0) avail = a * 1024; } catch { avail = null; }
   if (cg) {
-    try {
-      const max = Number(String(read(join(cg, "memory.max"))).trim()), cur = Number(String(read(join(cg, "memory.current"))).trim());
-      if (Number.isFinite(max) && max > 0 && Number.isFinite(cur) && cur >= 0) { const left = Math.max(0, max - cur); avail = avail === null ? left : Math.min(avail, left); }
-    } catch { /* no cap to read: the machine's figure */ }
+    // cgroup v2 calls the cap and the use memory.max and memory.current; cgroup v1 memory.limit_in_bytes and
+    // memory.usage_in_bytes (toolMemoryCgroup writes either). Coder's Fly.io machines have v1 for memory (live, recording
+    // 24: "8:memory:/coder-bash-…"), so reading only v2's names left the warning blind to the cap there (round 5's
+    // inventory, 2026-11-12). The first pair that reads is the cgroup's own; "max" or v1's huge number is no cap.
+    for (const [capFile, useFile] of [["memory.max", "memory.current"], ["memory.limit_in_bytes", "memory.usage_in_bytes"]]) {
+      let max, cur;
+      try { max = Number(String(read(join(cg, capFile))).trim()); cur = Number(String(read(join(cg, useFile))).trim()); } catch { continue; }
+      if (Number.isFinite(max) && max > 0 && max < 2 ** 60 && Number.isFinite(cur) && cur >= 0) { const left = Math.max(0, max - cur); avail = avail === null ? left : Math.min(avail, left); }
+      break;
+    }
   }
   return avail;
 }
