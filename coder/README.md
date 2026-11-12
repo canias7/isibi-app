@@ -1510,7 +1510,8 @@ then merge and deploy"). Tests: `test/round5.test.mjs` (CD523 to CD534).
   where a side is still short; one that can't be is left out; Coder is told
   either way. `picSize` reads GIF and WebP too (CD524, CD525).
 - *A monitor's end* says its time as Claude Code writes it, "expired after
-  20s" (`monitorSaid`, CD526).
+  20s" (`monitorSaid`, CD526): its own time limit (`limitMs`), not the time from
+  just before its command started to its deadline (CD535).
 - *A Monitor rule's card* names the owner's rule as written, "Your rule
   Monitor asks first" (`monitorRules`' `named`, `namedForMonitor`); the deny
   sentence stays Claude Code's, which says Bash (CD527).

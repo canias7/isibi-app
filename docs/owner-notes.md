@@ -11,12 +11,12 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-12: The 10 fixes are live (deploy 138), tried in the browser with Grok (no video)
+## 2026-11-12: The 10 fixes are live (deploys 138 and 139), tried in the browser with Grok (no video)
 
 One new chat on canias7/testingforclaude, "Live test 10 Nov" environment, on gofarther.dev after deploy 138:
 - **Fix 1, a 1x1 picture from a command:** made with `convert`, opened with read. Grok answered "1×1, red." The turn no longer ends.
 - **Fix 2, a 4x4 picture you attach:** Grok answered "Blue."
-- **Fix 3, a monitor's end:** the 20-second watch ended, but Grok was told "21 seconds". The machine measured from just before the command started to its deadline, a second longer than the limit. Fixed now: it says the monitor's own limit, as Claude Code does (test CD535). Goes out with the next deploy; checked again after it.
+- **Fix 3, a monitor's end:** the first try said "21 seconds" for a 20-second watch. The machine measured from just before the command started to its deadline, a second longer than the limit. Fixed to say the monitor's own limit, as Claude Code does (test CD535), deployed (deploy 139) and tried again: "Monitor "r41 watch two" (job1) expired after 20s with no events delivered."
 - **Fix 4, your rule `ask: Monitor`:** the card said "Your rule Monitor asks first for this command."
 - **Fix 6, working folders:** `/tmp/r41-extra`, made by your own command, worked: `cd` into it carried over, and `pwd` printed /tmp/r41-extra. The missing `/tmp/r41-gone` was named in the chat: "The working folder /tmp/r41-gone (your rules) is not used in this message: it is not a folder where Coder's commands run (their sandbox, whose /tmp is its own)."
 - **Fix 7, Stop's choice off:** after Stop on `setsid sleep 7101 & sleep 600`, `pgrep` still found "94 sleep 7101".
@@ -27,7 +27,7 @@ One new chat on canias7/testingforclaude, "Live test 10 Nov" environment, on gof
 
 **Something else found (not changed; your word first):** Grok refused `echo $R41_PLAIN`. Coder's instructions to Grok say of your variables "never print their values". Claude Code has no such rule. Now that only secret-looking values are hidden in the chat, that line could say the same.
 
-**Cost:** 12 Grok messages and one summary, well under $1. Everything put back: no hooks, no rules, Stop's choice on, only your two usual variables.
+**Cost:** 13 Grok messages and one summary, well under $1. Everything put back: no hooks, no rules, Stop's choice on, only your two usual variables.
 
 ## 2026-11-12: Round 5's 10 findings fixed (your words: "fix all 10, then merge and deploy")
 
