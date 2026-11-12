@@ -11,6 +11,58 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-12: Round 5's 10 findings fixed (your words: "fix all 10, then merge and deploy")
+
+All ten are fixed, each with its own test (CD524 to CD534 in `coder/test/round5.test.mjs`):
+1. **A tiny picture from a command** no longer ends the turn: Coder's machine enlarges it first (each pixel becomes a block), and Grok is told its real size.
+2. **A tiny picture you attach** is enlarged the same way. One that can't be enlarged is left out, and Grok is told why. Your saved copy stays the original.
+3. **A monitor's end** now says its real time, as Claude Code does: "expired after 20s", not "1m".
+4. **The card for a Monitor rule** names your rule: "Your rule Monitor asks first". When a Monitor command is refused, the message still says "Bash", as Claude Code's does.
+5. **GitHub saying "too many requests"** (or being down for a moment) no longer stops a turn. Coder asks again after 2 and 6 seconds. If GitHub still doesn't answer and the chat's copy is on its machine, the turn goes on with that copy, and the chat says so. A new chat with no copy yet still has to wait for GitHub. The push at the end is also tried again.
+6. **Working folders in /tmp**: Coder now looks for them where its commands run (their sandbox has its own /tmp), so `/tmp/...` folders work. A cd into one carries over too. A saved folder that doesn't exist is now named in the chat instead of being left out silently.
+7. **"Stopping one also stops what it started" turned off** now really keeps those processes running. The sandbox is kept while they live.
+8. **Maven downloads work**: Java's proxy settings now include the switch that tells Maven 3.9 to use them. Checked here: with it, Maven's request reached the proxy; without it, Maven never asked the proxy.
+9. **Your /compact runs its hooks**: it now runs on the chat's machine, like a message that Coder doesn't answer. The order is: PreCompact ("manual", with your words), then the summary, then PostCompact and SessionStart ("compact"). A PreCompact hook can stop it. The chat shows "/compact" and the "Compacted" note as before. It takes a few seconds longer when the machine is asleep.
+10. **Only secret-looking variables are hidden in the chat.** A variable is hidden if its name says key, token, secret, password, auth and so on, or if its value looks like a key, a web address with a login in it, or a long mix of letters and digits. `false`, `production`, `8080` and paths now show as they are.
+
+**Checks:** the full test suite on my side: 568 of 568 pass. Next: merge, deploy, then a short live check with Grok in the browser (no video).
+
+## 2026-11-12: Round 5: the rest of the bash tool tried live with Grok (your words: "Ok yes")
+
+**What it was:** every part of the bash tool not yet tried live in the browser, on gofarther.dev with Grok. Eleven groups, in new chats on canias7/testingforclaude ("Live test 10 Nov" environment). Every setting a step changed was put back after it. It was filmed (recording 40, 31 videos) until your word at 05:37 UTC: "for now on dont record anymore , pls". Since then nothing is filmed (see your preferences).
+
+**Almost everything worked as in Claude Code.** In short:
+- **Commands and output:** long outputs cut in Claude Code's way, a background `cd` not carried over, a 5-second time limit (written `5_000`) moving a command to the background, split letters, control characters refused, a command over 10,000 characters asking, aliases from `~/.zshrc`, Grok's ten retries when xAI failed.
+- **Background commands and monitors:** limits and their notices, "Do not start a second copy", the reminder each message, a notice when a command ends with no message from you, Stop ending only the turn, a monitor waking the chat, a WebSocket watch with its card, rules on Monitor. Settings' longest background time at 4 hours let a command asking for 2 h 20 min run past 2 hours (checked at 2 h 0 min 47 s).
+- **Permissions:** the plan card's "No, keep planning" and "Yes, and use auto mode", the mode changed mid-turn, "don't ask again" on a `cd`, rules on a command's time limit, `ask *`, `deny B*` taking the bash tool away, "Refuse instead of asking", working folders, the repository's own settings file before and after you trust it.
+- **Safety checks:** deletes at the machine's top level or on `/mnt`, zsh's odd forms, brackets and counting loops asking, a long run of blanks shown as "⟨300 blanks⟩" on the card, the read block for `less` and `xargs`, the key scrub and script caps.
+- **Auto mode:** the checker blocking under your own rule ("Never create a file whose name starts with r40-soft"), `allowed_domains` for one command, Plan mode with the checker off, and auto mode pausing after 3 blocks in a row, still counted after an 11-minute wait ("Auto mode paused after 3 blocks in a row, so this action needs your approval.").
+- **PowerShell:** Claude Code's checks and wording, "don't ask again" on a chain, the env file reaching it and the shell prefix skipping it.
+- **Settings and variables:** the low-memory warning at last working on Coder's machines ("Low memory: 1.9 GB is available to this session.", the fix from deploy 132), bash instead of zsh, TERM and other variables.
+- **Network:** the refusal's `X-Deny-Reason: host_not_allowed`, an allowed site, None with a saved key's site still open, Full with a blocked site still blocked, the cloud metadata address refused, and a running command seeing a site allowed mid-run.
+- **Hooks, most never tried live before:** allow, rewriting a command, replacing output, agent, prompt and http hooks, async and exec-form hooks, the env file, the chat's title, the Stop hook, PermissionRequest hooks adding and removing rules and setting the mode, a hook approving the plan, a hook waking Coder after the turn, the Notification switch, disableAllHooks and the repository's file overriding it.
+- **Not shown:** the SessionEnd hook. The chat's machine was still awake after 11 minutes, so it hadn't ended yet; my wait was too short.
+
+**Found: 10 things to fix (nothing changed yet; your word first):**
+1. **A tiny picture ends the turn.** xAI refuses pictures under 8 pixels a side or 512 in all, so a command printing a 1x1 or 8x8 picture ended with "The AI could not be reached". Fix ready: such pictures are enlarged first. Test CD524.
+2. **The same for a tiny picture you attach** (outside bash). Not fixed.
+3. **A monitor's end says the wrong time.** A 20-second watch "expired after 1m". Claude Code says "expired after 20s".
+4. **The card for a Monitor ask rule says "Your rule Bash asks first".** Your rule was "Monitor".
+5. **One "too many requests" from GitHub stops a whole turn** (outside bash). Each turn first asks GitHub for the branch. Twice tonight GitHub answered "429" and the turn never started, though the chat's copy was on its machine.
+6. **A working folder in /tmp is dropped without a word.** Commands see their own /tmp; Coder looked for the folder in the machine's /tmp, didn't find it, and left it out. A folder in Coder's home works.
+7. **"Stopping one also stops what it started" turned off doesn't keep it running.** When the stopped command was the last one, Coder ended its sandbox and everything in it.
+8. **Maven can't download anything** (outside bash). It ignores the Java proxy settings Coder gives it, and Coder's network has no other way out. The notes from bash pass 9 said Maven works; it was never tried live until now.
+9. **Your /compact runs no hooks.** It's done by Coder's server, away from the chat's machine, so PreCompact, PostCompact and SessionStart ("compact") never fire. The automatic summary does run them.
+10. **Any variable's value of 4 letters or more is blanked in the chat** (outside bash). With this round's variable set to `false`, every "false" in the chat showed as "[hidden]". Grok still sees the real text; only your view changes.
+
+**Notes, not bugs:** PowerShell errors reach Grok as raw CLIXML (Claude Code's likely do too). A request for 10,050 copies of one letter made xAI fail on every later message in that chat. The checker let three risky commands run because my message asked for them by name, as Claude Code's does; the network list and git's read-only folder stopped them anyway. Once, a new chat's first job was lost after 8 minutes ("Coder's machine restarted"); the same step ran fine in another new chat.
+
+**What went wrong on my side, fixed:** the account hit Coder's 50-chat limit, so I deleted the 15 oldest test chats (your word of 11-08: "you can delete old chats bro"; all on canias7/testingforclaude). Several of my steps answered No where Yes was needed, and were run again. My disk allowance filled up and crashed the browser; I freed 2 GB.
+
+**Cost:** 93 messages, about 350 Grok calls, roughly $7: over the $4 to $6 I estimated, because of the reruns.
+
+**Put back at the end:** no hooks, no rules, no Auto mode rules, the background limit at 2 hours, Stop's choice on, memory warning off, Refuse instead of asking off, Auto mode not turned off, no trust, network Limited with package managers, no saved keys, no added sites, and the round's own variable (CODER_RESPOND_TO_BASH_COMMANDS) taken away.
+
 ## 2026-11-12: The low-memory warning fixed (your words: "Ok yes", to the fix and round 5)
 
 **What was wrong:** Settings' low-memory warning should count what's left under the memory cap on Coder's commands. It never did on Coder's own machines. They track memory the older way (cgroup v1), and the warning only knew how to read the newer way (cgroup v2). So it went by the whole machine's free memory instead, and in round 3 it stayed quiet even when it should have warned. The check of every Bash part against our live tests found it, and I confirmed it in the code and in a live machine's output.

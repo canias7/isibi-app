@@ -197,7 +197,10 @@ const openssl = (args, input) => {
  * pass in it), `none` the hosts that skip it, `javaStore` the Java trust store ("" for none).
  */
 export function toolProxyEnv(p, port, none, pass, bundle, javaStore) {
-  const javaOpts = [...(javaStore ? ["-Djavax.net.ssl.trustStore=" + javaStore, "-Djavax.net.ssl.trustStoreType=JKS"] : []), "-Dhttps.proxyHost=127.0.0.1", "-Dhttps.proxyPort=" + port, "-Dhttp.proxyHost=127.0.0.1", "-Dhttp.proxyPort=" + port, "-Dhttp.nonProxyHosts=" + none.split(",").join("|")];
+  // (And Maven 3.9's own downloader told to use them: round 5 of the live test, 2026-11-12, Maven could download nothing, as
+  // its resolver ignores Java's proxy settings unless `aether.connector.http.useSystemProperties` is on, and Coder's sealed
+  // network has no other way out. Claude Code's cloud machine lets Maven connect directly instead.)
+  const javaOpts = [...(javaStore ? ["-Djavax.net.ssl.trustStore=" + javaStore, "-Djavax.net.ssl.trustStoreType=JKS"] : []), "-Dhttps.proxyHost=127.0.0.1", "-Dhttps.proxyPort=" + port, "-Dhttp.proxyHost=127.0.0.1", "-Dhttp.proxyPort=" + port, "-Dhttp.nonProxyHosts=" + none.split(",").join("|"), "-Daether.connector.http.useSystemProperties=true"];
   return {
     YARN_HTTPS_PROXY: p, YARN_HTTP_PROXY: p,
     npm_config_https_proxy: p, npm_config_proxy: p, npm_config_noproxy: none,

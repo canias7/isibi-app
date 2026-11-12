@@ -341,21 +341,61 @@ export function prefsIn(p) {
  * each a full path or one in Coder's home (~/…) that is a folder on this machine, its links followed; never the machine's
  * root, nor /proc, /sys or /dev. At most 20.
  */
-export async function extraDirsOf(list, home) {
-  const out = [];
+export async function extraDirsOf(list, home, { seen = null } = {}) {
+  const out = [], asked = [];
+  // (`missing`, beside the list: each folder asked for, as written, that is not a folder where the commands run, said in the
+  // chat, round 5.)
+  Object.defineProperty(out, "missing", { value: [], enumerable: false });
   for (const d0 of (Array.isArray(list) ? list : []).slice(0, 20)) {
     if (typeof d0 !== "string") continue;
     const d = d0.trim();
     if (!d || d.length > 400 || /[\u0000-\u001f\u007f]/.test(d) || d.split("/").includes("..")) continue;
     const full = d === "~" ? home : d.startsWith("~/") ? (home ? join(home, d.slice(2)) : "") : d.startsWith("/") ? d : "";
-    if (!full) continue;
-    let real = "";
-    try { real = await realpath(full); } catch { continue; }
-    if (real === "/" || /^\/(proc|sys|dev)(\/|$)/.test(real)) continue;
-    try { if (!(await stat(real)).isDirectory()) continue; } catch { continue; }
-    if (!out.includes(real)) out.push(real);
+    if (full) asked.push({ d, full });
   }
+  // WHERE CODER'S COMMANDS SEE THEM (round 5 of the live test, 2026-11-12: a working folder in /tmp, made by a command, was
+  // left out without a word): in the admin sandbox, whose /tmp and all it makes outside the chat's own folders are its own
+  // layer's, not the machine's (`seen`: boxRealDirs). Without a sandbox, the machine's own view, where they run.
+  const reals = seen ? await seen(asked.map((x) => x.full)).catch(() => asked.map(() => "")) : await Promise.all(asked.map(async (x) => {
+    try { const real = await realpath(x.full); return (await stat(real)).isDirectory() ? real : ""; } catch { return ""; }
+  }));
+  asked.forEach((x, i) => {
+    const real = String((reals && reals[i]) || "");
+    if (!real) { if (!out.missing.includes(x.d)) out.missing.push(x.d); return; }
+    if (real === "/" || /^\/(proc|sys|dev)(\/|$)/.test(real)) return;
+    if (!out.includes(real)) out.push(real);
+  });
   return out;
+}
+/** A SAVED WORKING FOLDER THAT IS NOT THERE, said in the chat (round 5: it was left out without a word). "" for none. */
+export function missingDirsSaid(missing, from, inBox = false) {
+  const list = (Array.isArray(missing) ? missing : []).map((x) => saidDir(x)).filter(Boolean).slice(0, 10);
+  if (!list.length) return "";
+  return (list.length === 1 ? "The working folder " + list[0] + " (" + from + ") is" : "The working folders " + list.join(", ") + " (" + from + ") are") + " not used in this message: " + (list.length === 1 ? "it is not a folder" : "they are not folders") + " where Coder's commands run" + (inBox ? " (their sandbox, whose /tmp is its own)" : "") + ".";
+}
+/**
+ * FOLDERS AS THE ADMIN SANDBOX SEES THEM (round 5): each path looked up in there, as the AI's user (`realpath -e`: links
+ * followed, as a command's own `cd` would), its real path when it is a folder, else "". `exec(script)` runs the script there
+ * and answers its output (tests: plain bash); the paths go in as quoted words, the answers come back each ended by a NUL.
+ */
+export async function boxRealDirs(box, paths, { exec = null, timeoutMs = 5000 } = {}) {
+  const list = (Array.isArray(paths) ? paths : []).map((x) => String(x || ""));
+  const ok = list.map((x) => isAbsolute(x) && x.length <= 4096 && !/[\u0000-\u001f\u007f]/.test(x));
+  const ask = list.filter((x, i) => ok[i]);
+  if (!ask.length) return list.map(() => "");
+  const script = "for p in " + ask.map(shellWord).join(" ") + "; do r=$(realpath -e -- \"$p\" 2>/dev/null) && [ -d \"$r\" ] && printf '%s' \"$r\"; printf '\\0'; done";
+  const run = exec || ((s) => new Promise((done) => {
+    if (!box || !Number.isInteger(box.pid)) return done("");
+    let out = "";
+    const p = spawn(NSENTER, sandboxArgs(box.pid, "/", s), { cwd: "/", env: { PATH: "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin", LANG: "C.UTF-8" }, stdio: ["ignore", "pipe", "ignore"] });
+    const t = setTimeout(() => { try { p.kill("SIGKILL"); } catch { /* gone */ } }, timeoutMs);
+    p.stdout.on("data", (b) => { if (out.length < 200_000) out += b; });
+    p.on("error", () => { clearTimeout(t); done(""); });
+    p.on("close", () => { clearTimeout(t); done(out); });
+  }));
+  const got = String(await run(script)).split("\0");
+  let k = 0;
+  return list.map((x, i) => (ok[i] ? got[k++] || "" : ""));
 }
 /** This machine's settings, from the last message it was given (one chat to a machine). */
 let PREFS = prefsIn({});
@@ -1690,7 +1730,30 @@ export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_R
  * `base`). The work tree is handed to `dev`; the git folder stays root's.
  * `{ ok, why? }`.
  */
-export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
+/**
+ * GITHUB BUSY OR AWAY FOR A MOMENT (round 5 of the live test, 2026-11-12, the owner: "fix all 10"): GitHub answered "429, too
+ * many requests" twice, and the whole turn ended before Grok started, though the chat's copy was on its machine. Such an
+ * answer (a 429, a 5xx, no connection) is tried again after each of GIT_NET_WAITS; `gitBusy` tells it apart from a real
+ * refusal (a 403, a missing repository), which is not. `gitAway` says it in a few words.
+ */
+export const GIT_NET_WAITS = [2000, 6000];
+export const gitBusy = (out) => /returned error: (?:429|5\d\d)\b|Could not resolve host|Failed to connect|Couldn't connect|Connection (?:timed out|reset|refused)|Operation timed out|timed out after|early EOF|unexpected disconnect|RPC failed|SSL_ERROR|gnutls_handshake|Empty reply from server|Recv failure|Send failure/i.test(String(out || ""));
+export function gitAway(out) {
+  const m = /returned error: (\d{3})\b/.exec(String(out || ""));
+  if (m) return m[1] === "429" ? "429, too many requests" : m[1] + ", a problem on GitHub's side";
+  const line = String(out || "").split("\n").map((l) => l.trim()).find(Boolean);
+  return line ? line.replace(/^(?:fatal|error):\s*/i, "").slice(0, 120) : "no answer";
+}
+async function gitNet(dir, args, o, waits = GIT_NET_WAITS) {
+  let r = await gitIn(dir, args, o);
+  for (const ms of waits) {
+    if (r.code === 0 || !gitBusy(r.output)) return r;
+    await new Promise((res) => setTimeout(res, ms));
+    r = await gitIn(dir, args, o);
+  }
+  return r;
+}
+export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS }) {
   const url = remote + repo + ".git";
   const gitDir = gitDirFor(dir, gitRoot);
   const o = { gitDir, remote, root };
@@ -1719,6 +1782,8 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // The work tree's pointer to the git folder, put back when it is gone (never over anything there).
     else if (!(await lstat(join(dir, ".git")).then(() => true, () => false))) await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
+  // (The chat's copy was here before this turn: GitHub away for a moment, the turn goes on with it.)
+  const hadCopy = has;
   if (!has) {
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
@@ -1731,14 +1796,14 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     if (keptExclude) { await mkdir(join(gitDir, "info"), { recursive: true }); await writeFile(join(gitDir, "info", "exclude"), keptExclude); }
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
-    const heads = await gitIn(dir, ["ls-remote", "--heads", url], { ...o, token, headers });
+    const heads = await gitNet(dir, ["ls-remote", "--heads", url], { ...o, token, headers }, netWaits);
     if (heads.code !== 0) return failed("could not reach " + repo + " on GitHub: " + heads.output.slice(0, 200));
     const empty = !String(heads.stdout ?? heads.output).trim();
     if (!empty && !String(heads.stdout ?? heads.output).includes("refs/heads/" + base + "\n") && !String(heads.stdout ?? heads.output).endsWith("refs/heads/" + base)) {
       return failed(repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + ".");
     }
     if (!empty) {
-      const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers });
+      const f = await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers }, netWaits);
       if (f.code !== 0) return failed("could not clone " + repo + ": " + f.output.slice(0, 300));
       const co = await checkout(["-q", "-B", base, "refs/remotes/origin/" + base]);
       if (co.code !== 0) return failed("could not open " + base + ": " + co.output.slice(0, 200));
@@ -1754,7 +1819,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
       if (c.code !== 0) return failed("could not start the empty repository: " + c.output.slice(0, 200));
       // A READ-ONLY REPOSITORY (owner item 5): the start stays on this machine too.
       if (!noPush) {
-        const pb = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token, headers });
+        const pb = await gitNet(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + base], { ...o, token, headers }, netWaits);
         if (pb.code !== 0) return failed("could not create " + base + " in the empty repository: " + pb.output.slice(0, 200));
       }
       await gitIn(dir, ["update-ref", "refs/remotes/origin/" + base, "HEAD"], o);
@@ -1763,13 +1828,22 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // history. A new plain file: never written through a link left with its name.
     await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
-  const remoteHas = await gitIn(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers });
-  if (remoteHas.code !== 0) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
+  const remoteHas = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers }, netWaits);
   const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
-  if (remoteHas.stdout.trim()) {
-    const f = await gitIn(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers });
-    if (f.code !== 0) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
-    if (cur !== branch) {
+  // GITHUB STILL BUSY OR AWAY, AND THE CHAT'S COPY HERE ON ITS BRANCH (round 5): the turn goes on with that copy, as the last
+  // message left it, and the chat says so (`note`). Coder's work is pushed at the end as always. Claude Code's cloud session
+  // never asks GitHub again after its first clone. A new chat (no copy yet) or a real refusal still ends the turn.
+  const onCopy = (r) => hadCopy && cur === branch && gitBusy(r.output);
+  const away = (r) => "GitHub did not answer (" + gitAway(r.output) + "), so Coder works from this chat's copy on its machine, as the last message left it. Its work is pushed to GitHub at the end, as always.";
+  let note = "";
+  if (remoteHas.code !== 0) {
+    if (!onCopy(remoteHas)) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
+    note = away(remoteHas);
+  } else if (remoteHas.stdout.trim()) {
+    const f = await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers }, netWaits);
+    if (f.code !== 0 && !onCopy(f)) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
+    if (f.code !== 0) note = away(f);
+    else if (cur !== branch) {
       const co = await checkout(["-q", "-B", branch, "refs/remotes/origin/" + branch]);
       if (co.code !== 0) return { ok: false, why: "could not open the branch " + branch + ": " + co.output.slice(0, 200) };
     }
@@ -1793,7 +1867,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     await gitIn(dir, ["config", "remote.origin.url", url], o);
     await gitIn(dir, ["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], o);
   }
-  return { ok: true };
+  return { ok: true, ...(note ? { note } : {}) };
 }
 
 /**
@@ -1893,7 +1967,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -1940,7 +2014,8 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, pushed: false, changed: false, ...told };
   }
   const url = remote + repo + ".git";
-  const p = await gitIn(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers });
+  // (GitHub busy for a moment: tried again, as at the start of a turn, round 5.)
+  const p = await gitNet(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers }, netWaits);
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), ...told };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // `changed`: this job changed files (a new commit), so there is new work to show.
@@ -2203,11 +2278,18 @@ export const saidDir = (p) => String(p).replace(/[\u0000-\u001f\u007f]/g, "?").s
  * additional working directory"): the project's folder, one of the chat's other repositories' (`roots`, as they really
  * are), or a folder inside one, as it really is (links followed); "" for anything else, or a folder that is gone.
  */
-export async function cwdInside(p, roots) {
+export async function cwdInside(p, roots, { seen = null } = {}) {
   if (typeof p !== "string" || !isAbsolute(p) || p.includes("\0")) return "";
-  const real = await realpath(p).catch(() => "");
-  const st = real ? await stat(real).catch(() => null) : null;
-  if (!st || !st.isDirectory()) return "";
+  // (Where the commands run: in the admin sandbox, its own view, `seen` (boxRealDirs); a folder in its /tmp is no folder of the
+  // machine's. Round 5.)
+  let real = "";
+  if (seen) real = String(((await seen([p]).catch(() => [""])) || [""])[0] || "");
+  else {
+    real = await realpath(p).catch(() => "");
+    const st = real ? await stat(real).catch(() => null) : null;
+    if (!st || !st.isDirectory()) return "";
+  }
+  if (!real) return "";
   return roots.some((r) => real === r || real.startsWith(r + "/")) ? real : "";
 }
 /** A tool's path inside the project (`dir`), relative to it; "" when outside it. */
@@ -2786,8 +2868,10 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
     if (!endAll(keep ? "lost" : "coder")) { finish(); return null; }
     return finish;
   }
-  // The admin sandbox stays only while one of them is in it.
-  const boxKept = BOX && live.some((j) => j.box) ? BOX : null;
+  // The admin sandbox stays only while one of them is in it, or what a stopped command left running there by the owner's
+  // choice (round 5 of the live test, 2026-11-12: with Stop's choice off, the stopped command was the last one running, and
+  // the sandbox was ended with all in it, `setsid sleep 7001` too).
+  const boxKept = BOX && (live.some((j) => j.box) || keptInBox(kept)) ? BOX : null;
   if (BOX && !boxKept) { BOX.stop(); BOX = null; }
   const p = await pauseAI({ uid, gid, boxPid: boxKept ? boxKept.pid : 0, box: [SBX_BASE, SBX_BASE + SBX_RANGE] });
   if (!p.ok) {
@@ -2798,6 +2882,16 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
   await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set([...live.map((j) => j.mark).filter(Boolean), ...kept]) });
   let went = false;
   return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters(live); finish(); };
+}
+/**
+ * IS ANYTHING A STOPPED COMMAND LEFT RUNNING (its mark among `marks`, KEPT_MARKS) STILL IN THE ADMIN SANDBOX? Its processes
+ * are the sandbox's ids' (SBX_BASE on); `look` and `read` as endMarked's (tests).
+ */
+export function keptInBox(marks, { look = () => aiProcesses({ uid: null, box: [SBX_BASE, SBX_BASE + SBX_RANGE] }), read = (pid) => markOf(pid) } = {}) {
+  const want = new Set((Array.isArray(marks) ? marks : [...(marks || [])]).filter((m) => typeof m === "string" && m));
+  if (!want.size) return false;
+  for (const [pid] of look()) if (pid !== process.pid && want.has(read(pid))) return true;
+  return false;
 }
 /**
  * THE KEPT COMMANDS' OWN STARTERS, WOKEN TOO (the live test after deploy 75): a command in the admin sandbox is started by
@@ -2891,6 +2985,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (body.repo) {
         const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true });
         if (!prep.ok) return fail(502, prep.why);
+        if (prep.note) t.events.push({ at: Date.now(), type: "note", text: prep.note });
       } else {
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
         // here, as root, and only that folder is handed to the AI's user.
@@ -2909,6 +3004,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       try {
         const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true });
         if (p.ok) extras.push({ ...x, dir: xdir });
+        if (p.ok && p.note) t.events.push({ at: Date.now(), type: "note", text: x.repo + ": " + p.note });
         else t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String(p.why).slice(0, 200) });
       } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
     }
@@ -2992,11 +3088,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // edits changes files there without asking, a cd there carries over, the read block reads there).
     // (And the repository's own, once trusted: a path in its settings counts from the project's folder. Those only it adds stay
     // out of reach of the write block, as Claude Code's: "A directory that only repository settings add".)
-    const ownAdded = await extraDirsOf(body.rules && body.rules.dirs, home || DEV_HOME);
-    const repoAdded = await extraDirsOf(repoSet.dirs.map((x) => (x.startsWith("/") || x.startsWith("~") ? x : resolve(dir, x))), home || DEV_HOME);
-    const addDirs = [...new Set([...ownAdded, ...repoAdded])].filter((d) => !workRoots.includes(d));
-    const repoOnlyDirs = repoAdded.filter((d) => !ownAdded.includes(d));
-    workRoots.push(...addDirs);
+    // (Looked up below, once the job's admin sandbox is open: where the commands see them, round 5.)
+    const addDirs = [], repoOnlyDirs = [];
     const home0 = workRoots[0];
     // (A setting for Coder itself, read from the owner's variables as given: names starting with CODER_ never reach the
     // commands, see safeVars.)
@@ -3005,12 +3098,6 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const rawVars = withRepoOwn(ownerRaw, repoSet.own);
     const fromRepo = (n) => !Object.hasOwn(ownerRaw, n) && Object.hasOwn(repoSet.own, n);
     const setBy = (n) => (fromRepo(n) ? "this repository's .claude/settings.json sets " + REPO_OWN_FROM[n] : "this chat's environment sets " + n);
-    // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions).
-    if (addDirs.length && varOn(rawVars.CODER_ADDITIONAL_DIRECTORIES_CODER_MD)) {
-      const more = await extraInstructions(addDirs, notes);
-      notes.push(...more.notes);
-      later.push(...more.later);
-    }
     // THE POWERSHELL TOOL (coder-ps.mjs; Claude Code's CLAUDE_CODE_USE_POWERSHELL_TOOL, opt-in on Linux), on a machine with pwsh;
     // without one, the owner is told (Claude Code: "the tool requires PowerShell 7 or later: install pwsh").
     const psWanted = varOn(rawVars.CODER_USE_POWERSHELL_TOOL);
@@ -3054,11 +3141,6 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       return t.memCg;
     };
     t.cwd = home0; t.cwdWas = "";
-    const askedCwd = typeof body.cwd === "string" ? body.cwd.slice(0, 4096) : "";
-    if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
-      const ok = await cwdInside(askedCwd, workRoots);
-      if (ok) t.cwd = ok; else t.cwdWas = askedCwd;
-    }
     // NETWORK SECRETS (owner, 2026-11-06, like Claude Code's): the proxy adds
     // each key to HTTPS requests for its host; the commands only learn the proxy.
     // THE NETWORK LIST (owner, 2026-11-06, "4"): with "limited" on, a firewall
@@ -3125,6 +3207,37 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // One kept from the last message (a background command still runs in it) is used again.
     if (t.room && !BOX) BOX = await openBox();
     t.box = t.room ? BOX : null;
+    // FOLDERS AS THE COMMANDS SEE THEM (round 5 of the live test, 2026-11-12: `/tmp/r40-extra`, made by a command, was saved
+    // as a working folder and left out without a word, since the machine's own /tmp has no such folder): in the admin
+    // sandbox when the commands run there (boxRealDirs), looked up while nothing of the AI's runs yet.
+    t.seen = t.box ? (paths) => boxRealDirs(t.box, paths) : null;
+    // THE OWNER'S ADDITIONAL WORKING FOLDERS for this repository (extraDirsOf): working directories of the chat too (Accept
+    // edits changes files there without asking, a cd there carries over, the read block reads there).
+    // (And the repository's own, once trusted: a path in its settings counts from the project's folder. Those only it adds stay
+    // out of reach of the write block, as Claude Code's: "A directory that only repository settings add".)
+    const ownAdded = await extraDirsOf(body.rules && body.rules.dirs, home || DEV_HOME, { seen: t.seen });
+    const repoAdded = await extraDirsOf(repoSet.dirs.map((x) => (x.startsWith("/") || x.startsWith("~") ? x : resolve(dir, x))), home || DEV_HOME, { seen: t.seen });
+    addDirs.push(...[...new Set([...ownAdded, ...repoAdded])].filter((d) => !workRoots.includes(d)));
+    repoOnlyDirs.push(...repoAdded.filter((d) => !ownAdded.includes(d)));
+    workRoots.push(...addDirs);
+    // ONE THAT IS NOT THERE IS SAID, not left out without a word (round 5).
+    for (const said of [missingDirsSaid(ownAdded.missing, "your rules", !!t.box), missingDirsSaid(repoAdded.missing, "this repository's .claude/settings.json", !!t.box)]) if (said) t.events.push({ at: Date.now(), type: "note", text: said });
+    // THE WORKING FOLDERS' OWN INSTRUCTIONS, with CODER_ADDITIONAL_DIRECTORIES_CODER_MD on (see extraInstructions): read by root
+    // only from a folder the sandbox shares with the machine (the chat's folders, dev's home); one of the sandbox's own (its
+    // /tmp) is the AI's alone, so Coder is told to read its instructions itself.
+    if (addDirs.length && varOn(rawVars.CODER_ADDITIONAL_DIRECTORIES_CODER_MD)) {
+      const shared = (d) => !t.box || [root, home, memRoot].filter(Boolean).some((b) => d === b || d.startsWith(b + "/"));
+      const more = await extraInstructions(addDirs.filter(shared), notes);
+      notes.push(...more.notes);
+      later.push(...more.later);
+      for (const d of addDirs.filter((x) => !shared(x))) notes.push({ name: d + "/CODER.md", text: "[The working folder " + d + " is in your commands' own space (their sandbox), so its instructions (CODER.md, CLAUDE.md or AGENTS.md there, and .coder/rules) are not loaded here. Read them with the read tool if it has any.]" });
+    }
+    // WHERE THE LAST MESSAGE'S COMMANDS LEFT OFF (see above), in the commands' own view.
+    const askedCwd = typeof body.cwd === "string" ? body.cwd.slice(0, 4096) : "";
+    if (!keepHome && askedCwd && askedCwd !== home0 && Array.isArray(body.messages) && body.messages.length) {
+      const ok = await cwdInside(askedCwd, workRoots, { seen: t.seen });
+      if (ok) t.cwd = ok; else t.cwdWas = askedCwd;
+    }
     // ROOT IS DONE PREPARING: the background commands of before go on.
     if (t.resume) { t.resume(); t.resume = null; }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
@@ -3311,7 +3424,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // docs pass 9.)
           let hookHome = false;
           if (here && t.cwd !== home0) {
-            const ok = await cwdInside(t.cwd, workRoots);
+            const ok = await cwdInside(t.cwd, workRoots, { seen: t.seen });
             if (ok) t.cwd = ok; else if (hook) hookHome = true; else { t.cwd = home0; t.cwdWas = ""; notes.push("Shell cwd was reset to " + home0); }
           }
           const moved = here && t.cwd !== home0 && !hookHome;
@@ -3407,7 +3520,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             // In the background (asked to, or still running at its time limit): its cd never carries over, as in Claude Code.
             if (inBg || (r && r.background)) { if (CWD_WORDS.test(command)) notes.push("Session cwd remains " + saidDir(t.cwd) + "; directory changes made by the backgrounded command do not apply to subsequent commands."); }
             else if (follow && r && typeof r.ended === "string") {
-              const ok = r.ended ? await cwdInside(r.ended, workRoots) : "";
+              const ok = r.ended ? await cwdInside(r.ended, workRoots, { seen: t.seen }) : "";
               if (!ok) { t.cwd = home0; t.cwdWas = ""; if (!notes.length) notes.push("Shell cwd was reset to " + home0); }
               else if (ok !== t.cwd) { told = "Working directory: " + saidDir(ok) + " (was " + saidDir(t.cwd) + ")"; t.cwd = ok; t.cwdWas = ""; }
             }
@@ -3523,7 +3636,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0;
-      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))

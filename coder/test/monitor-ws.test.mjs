@@ -36,7 +36,7 @@ test("CD385 Monitor's WebSocket input and rules, in Claude Code's words: the url
   assert.deepEqual(P.wsDecision({ rules: { allow: ["Bash"] }, mode: "acceptEdits" }).verdict, "ask", "a Bash allow rule is no Monitor allow rule");
   // MONITOR RULES: kept as rules; for a monitor's command they are Bash's; in Auto their allow rules are set aside.
   assert.deepEqual([P.parseRule("Monitor"), P.parseRule("Monitor(*)"), P.parseRule("Monitor(tail -f *)")], [{ tool: "Monitor", spec: null }, { tool: "Monitor", spec: null }, { tool: "Monitor", spec: "tail -f *" }]);
-  assert.deepEqual(P.monitorRules({ allow: ["Monitor(tail -f *)", "Bash(npm test)", "Read(.env)"], ask: ["Monitor"], deny: ["Monitor(rm *)"] }, "acceptEdits"), { allow: ["Bash(tail -f *)", "Bash(npm test)", "Read(.env)"], ask: ["Bash"], deny: ["Bash(rm *)"] });
+  assert.deepEqual(P.monitorRules({ allow: ["Monitor(tail -f *)", "Bash(npm test)", "Read(.env)"], ask: ["Monitor"], deny: ["Monitor(rm *)"] }, "acceptEdits"), { allow: ["Bash(tail -f *)", "Bash(npm test)", "Read(.env)"], ask: ["Bash"], deny: ["Bash(rm *)"], named: { "allow:Bash(tail -f *)": "Monitor(tail -f *)", "ask:Bash": "Monitor", "deny:Bash(rm *)": "Monitor(rm *)" } });
   assert.deepEqual(P.monitorRules({ allow: ["Monitor", "Bash(npm test)"] }, "auto").allow, ["Bash(npm test)"]);
   assert.deepEqual([C.droppedInAuto("Monitor"), C.droppedInAuto("Monitor(tail -f x)"), C.droppedInAuto("Bash(npm test)")], [true, true, false]);
   assert.equal(P.ruleSaved("Monitor(tail -f *)"), true);

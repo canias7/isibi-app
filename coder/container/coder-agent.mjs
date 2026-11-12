@@ -18,7 +18,7 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile } from "./coder-compact.mjs";
+import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
 import { retryLine } from "./coder-model.mjs";
@@ -27,7 +27,7 @@ import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets,
 import { textReasons } from "./coder-shell.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
@@ -36,7 +36,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait } from "./coder-checker.mjs";
-import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -461,7 +461,8 @@ export function monitorSaid(n) {
       : ws && e.why === "exit" && Number.isInteger(ws.close) ? "ended: the WebSocket closed with code " + ws.close + (ws.reason ? " (" + ws.reason + ")" : "") + "."
       // (At its deadline, Claude Code 2.1.322's words: "Monitor expired after 30m with 3 events delivered. Re-arm it if you still
       // need the watch", and with none, "… with no events delivered. … — and widen the filter if silence was unexpected".)
-      : e.why === "limit" && Number.isInteger(e.events) ? "expired" + (Number(e.ms) > 0 ? " after " + durWords(e.ms) : "") + " with " + (e.events > 0 ? e.events + " event" + (e.events === 1 ? "" : "s") + " delivered. Re-arm it if you still need the watch." : "no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.")
+      // (Its time as Claude Code writes it, the same as at its start: "expired after 20s"; it said "1m" for 20 seconds, round 5.)
+      : e.why === "limit" && Number.isInteger(e.events) ? "expired" + (Number(e.ms) > 0 ? " after " + ccDuration(Number(e.ms), { hideTrailingZeros: true }) : "") + " with " + (e.events > 0 ? e.events + " event" + (e.events === 1 ? "" : "s") + " delivered. Re-arm it if you still need the watch." : "no events delivered. Re-arm it if you still need the watch — and widen the filter if silence was unexpected.")
       : e.why === "limit" ? "reached its deadline and ended. Start it again if you still need it."
       : e.why === "flood" ? "was stopped: it printed too many lines. Start it again with a tighter filter (grep --line-buffered, or awk with fflush()) if you still need it."
       : e.why === "stopped" || e.why === "coder" ? "stopped."
@@ -711,6 +712,29 @@ export const shownStart = (text) => [...new Set([...String(text || "").matchAll(
 async function markShownStart(deps, text) {
   if (!deps || deps.seen !== true) return;
   for (const name of shownStart(text)) await appTool(deps, "seen", { path: typeof deps.root === "string" && deps.root ? deps.root + "/" + name : name, start: true });
+}
+/**
+ * THE OWNER'S PICTURES AS GROK TAKES THEM (round 5 of the live test, 2026-11-12, the owner: "fix all 10"): xAI refuses a
+ * picture under PIC_MIN_SIDE pixels a side or PIC_MIN_PIXELS in all, and the whole turn ended ("The AI could not be
+ * reached"). One that small is enlarged on Coder's machine (`fitOne`: the fit_picture tool) as a command's printed picture
+ * is; one that can't be is left out, and Coder is told either way. The owner's saved copy stays the original. Answers
+ * `{ send, notes }`: the pictures to send (`{ type, data }`) and the notes for Coder.
+ */
+export async function fitOwnerPics(pics, fitOne) {
+  const send = [], notes = [];
+  for (const [n, x] of (Array.isArray(pics) ? pics : []).entries()) {
+    let s = null;
+    try { s = picSize(Buffer.from(String(x.data).slice(0, 96_000), "base64")); } catch { s = null; }
+    if (!s || !picMinFit(s.w, s.h)) { send.push(x); continue; }
+    let j = null;
+    try { j = JSON.parse(String(await fitOne(x))); } catch { j = null; }
+    const which = "the owner's picture " + (pics.length > 1 ? n + 1 + " " : "") + "(" + s.w + "×" + s.h + " pixels)";
+    if (j && typeof j.data === "string" && /^image\/(png|jpeg)$/.test(j.type)) {
+      send.push({ type: j.type, data: j.data });
+      notes.push(which + " is smaller than Grok takes (at least " + PIC_MIN_SIDE + " pixels a side and " + PIC_MIN_PIXELS + " in all), so you get it enlarged to " + j.w + "×" + j.h + ": each pixel became a block, with a white margin where a side was still short.");
+    } else notes.push(which + " is smaller than Grok takes (at least " + PIC_MIN_SIDE + " pixels a side and " + PIC_MIN_PIXELS + " in all) and " + String((j && j.why) || "could not be enlarged") + ", so it is not attached for you.");
+  }
+  return { send, notes };
 }
 async function appTool(deps, tool, args) {
   const json = JSON.stringify({ tool, args });
@@ -1230,7 +1254,7 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null} = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null} = {}) {
   const now = typeof deps.now === "function" ? deps.now : () => Date.now();
   // (Each step's last result is kept, for its PostToolUse hooks: whether it worked.)
   const resultsSeen = new Map();
@@ -1985,7 +2009,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       emit({ type: "note", text: "UserPromptSubmit operation blocked by hook:\n" + scrub(String(why || "")).slice(0, 2000) + "\n\nOriginal prompt: " + typed.slice(0, 2000), hook: "UserPromptSubmit" });
       promptBlocked = why || "";
     } else {
-      convo.push({ role: "user", content: text.trim(), ...(pics.length ? { images: pics.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
+      // (A picture too small for Grok goes enlarged, or not at all, with a note: fitOwnerPics.)
+      const fitted = pics.length ? await fitOwnerPics(pics, (x) => appTool(deps, "fit_picture", { type: x.type, data: x.data }).then((r) => (r.code === 0 ? r.output : JSON.stringify({ why: "it could not be enlarged" })))) : { send: [], notes: [] };
+      const picNote = fitted.notes.length ? "\n\n(Note from Coder's app: " + fitted.notes.join(" ") + ")" : "";
+      convo.push({ role: "user", content: text.trim() + picNote, ...(fitted.send.length ? { images: fitted.send.map((x) => "data:" + x.type + ";base64," + x.data) } : {}) });
       // The chat shows what the owner typed (`shown`); Coder also gets the notes added to it.
       emit({ type: "user", text: typed, ...(pics.length ? { images: pics.length } : {}) });
       if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
@@ -2090,6 +2117,35 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
   const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
 
+  // THE OWNER'S /compact [what to keep] (round 5 of the live test, 2026-11-12, the owner: "fix all 10": Coder's server made the
+  // summary away from the chat's machine, so its hooks never ran). Claude Code's, here, where the hooks are: PreCompact hooks
+  // as "manual", with the owner's words as custom_instructions (one that blocks keeps the conversation whole; what they print
+  // goes to the summary as more instructions); the summary of the chat so far; then PostCompact hooks with it, and SessionStart
+  // hooks as "compact", their context with the summary. Coder does not answer it: the job ends here.
+  if (compact && typeof compact === "object") {
+    const focus = String(compact.focus || "").replace(/\s+/g, " ").trim().slice(0, 300);
+    emit({ type: "user", text: "/compact" + (focus ? " " + focus : ""), compact: true });
+    const history = convo.slice();
+    if (!history.length) { emit({ type: "note", text: "There is nothing to summarize yet." }); return end("done", { compact: { done: false } }); }
+    const preC = hookList.length ? await runHooks("PreCompact", "manual", { trigger: "manual", custom_instructions: focus }) : null;
+    if (preC && (preC.decision === "block" || preC.stop)) {
+      emit({ type: "note", text: scrub("A PreCompact hook kept the conversation from being summarized: " + String(preC.reason || (preC.stop && preC.stop.reason) || "")).slice(0, 600), hook: "PreCompact" });
+      return end("done", { compact: { done: false } });
+    }
+    const asks = [focus, preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : ""].filter(Boolean).join(" ");
+    let sumText = "";
+    try { const r = await deps.send({ model, ...summaryRequest(history, asks), webSearch: false }); sumText = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { sumText = ""; }
+    if (!sumText) { emit({ type: "error", text: "The summary could not be made. Try again in a minute." }); return end("done", { compact: { done: false } }); }
+    convo.splice(0, convo.length, summaryMessage(scrub(sumText), "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(history)));
+    emit({ type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." });
+    if (hookList.length) {
+      await runHooks("PostCompact", "manual", { trigger: "manual", compact_summary: scrub(sumText).slice(0, 20000) });
+      const ss = await runHooks("SessionStart", "compact", { source: "compact" });
+      if (ss && ss.context.length) convo[0] = { ...convo[0], content: convo[0].content + "\n\n" + hookNote("SessionStart", ss.context) };
+    }
+    // (What was summarized, for the chat's Rewind marks: the saved history before this job, by Coder's server.)
+    return end("done", { compact: { done: true, from: 0, to: jobStart } });
+  }
   // (A message a hook blocked never reaches Coder: the job ends here.)
   if (promptBlocked !== null) return end("done", { summary: "The owner's message was blocked by a UserPromptSubmit hook.", blocked: true });
   // AN OWNER'S COMMAND CODER DOES NOT ANSWER (above): the job ends here, its output kept for later messages; unless a
@@ -2433,6 +2489,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
         let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH], ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) });
+        // (A monitor's card names the owner's Monitor rule as written: namedForMonitor.)
+        if (c.monitor) dec = namedForMonitor(dec, rulesB);
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
         // A PRETOOLUSE HOOK'S ALLOW OR ASK (Claude Code: "allow skips the permission prompt"; "ask prompts the user to confirm";
         // "Deny and ask rules are still evaluated regardless of what the hook returns"): its ask asks, in Auto too; its allow

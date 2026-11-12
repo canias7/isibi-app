@@ -119,7 +119,7 @@ import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../contain
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
-import { PROJECT_ID, SETUP_SCRIPT_MAX } from "../container/coder-checks.mjs";
+import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub } from "../container/coder-checks.mjs";
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
@@ -410,7 +410,25 @@ async function hiddenValues(env, bucket, uid, meta) {
   let jobKeys = [];
   const ho = await bucket.get(keyOf(uid, meta.id, "hide.json"));
   if (ho) { try { const v = await unseal(env, JSON.parse(await ho.text()).box); if (Array.isArray(v)) jobKeys = v.map(String); } catch { /* none */ } await bucket.delete(keyOf(uid, meta.id, "hide.json")); }
-  return [...Object.values(envNow.vars).map(String), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
+  // (The owner's variables: only those that look secret, by name or value: secretVar. Round 5 of the live test, 2026-11-12:
+  // every value was hidden, so a variable set to `false` turned every "false" in the chat into "[hidden]".)
+  return [...Object.entries(envNow.vars).filter(([k, v]) => secretVar(k, v)).map(([, v]) => String(v)), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
+}
+/**
+ * A VARIABLE OF THE OWNER'S WHOSE VALUE IS HIDDEN IN THE CHAT (round 5 of the live test, 2026-11-12, the owner: "fix all 10"):
+ * its name says it holds a secret (a part of it is KEY, TOKEN, SECRET, PASSWORD, AUTH, CREDENTIALS, …, or ends in one, as
+ * APIKEY), or its value looks like one (a known key's shape, a web address with a login in it, or 16 or more characters
+ * of letters and digits mixed, with no spaces, not a path or a plain web address). Plain words, numbers, paths and settings
+ * (`false`, `bash`, `/opt/tools`) are not: Grok sees them anyway, and blanking them blanked the same words all through the chat.
+ */
+const SECRET_NAME_PARTS = new Set(["KEY", "KEYS", "TOKEN", "TOKENS", "SECRET", "SECRETS", "PASSWORD", "PASSWORDS", "PASSWD", "PASS", "PWD", "PASSPHRASE", "AUTH", "AUTHORIZATION", "CREDENTIAL", "CREDENTIALS", "CREDS", "PRIVATE", "SESSION", "COOKIE", "SIGNATURE", "CERT", "PAT", "DSN", "SALT", "OTP"]);
+export function secretVar(name, value) {
+  const v = String(value ?? "");
+  if (v.length < 4) return false;
+  if (String(name || "").toUpperCase().split(/[^A-Z0-9]+/).some((p) => SECRET_NAME_PARTS.has(p) || /.(?:KEY|TOKEN|SECRET|PASSWORD)$/.test(p))) return true;
+  if (scrub(v) !== v) return true;
+  if (/^[a-z][a-z0-9+.-]*:\/\/[^/\s@]+@/i.test(v)) return true;
+  return v.length >= 16 && !/\s/.test(v) && /[A-Za-z]/.test(v) && /\d/.test(v) && !v.startsWith("/") && !/^[a-z][a-z0-9+.-]*:\/\//i.test(v);
 }
 /** Those values hidden in a job's steps: their text, the lines a write shows under its step (the owner, 2026-11-09), and the files a command changed. */
 export function hideIn(events, values) {
@@ -950,21 +968,14 @@ export async function handleCoder(request, env, ctx, deps) {
       return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
     }
     // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
-    // optional focus instructions"): the conversation so far becomes one summary for Coder; no job runs.
+    // optional focus instructions"): the conversation so far becomes one summary for Coder. Made on the chat's machine, as a
+    // job of its own that Coder does not answer, so the owner's PreCompact, PostCompact and SessionStart ("compact") hooks run
+    // around it, as Claude Code's do (round 5 of the live test, 2026-11-12: made here, away from the machine, they never ran).
     const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
-    if (compact && !notes && !pics.images.length) {
+    const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300) } : null;
+    if (compactJob) {
       const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
       if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
-      const focus = String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300);
-      const sum = await summarizeFn(msgs, focus);
-      if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
-      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-      const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
-      await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs))]);
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
-      const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
-      await saveMeta(bucket, uid, next);
-      return json({ ok: true, project: next, events: [ev], compacted: true });
     }
     const t = await userToken(env, bucket, uid, { fetchFn });
     if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
@@ -974,7 +985,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
     // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
     let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
-    const squeezed = await compactHistory(messages, summarizeFn);
+    // (Not before the owner's /compact, which summarizes all of it.)
+    const squeezed = compactJob ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
     if (squeezed.to) {
       messages = squeezed.messages;
       await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
@@ -1031,13 +1043,14 @@ export async function handleCoder(request, env, ctx, deps) {
     // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
     // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
     const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
-    const marks = [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+    // (Not for the owner's /compact: no message of the owner's to go back to; its summary moves the marks when it ends.)
+    const marks = compactJob ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
     // THE REVIEW THREAD AN AUTO-FIX JOB MAY ANSWER IN (owner item 2, like Claude Code's auto-fix: it "may reply
     // to review comment threads"): only one GitHub's news started the job for; kept for its end.
     const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
     const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
     const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
-    const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {};
+    const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
     // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
     const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
     // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
@@ -1063,7 +1076,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
     let r;
     try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...bgOn, ...lastAtOn, text: wake || shell ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
     } catch (e) {
       await notStarted();
       return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1264,6 +1277,9 @@ export async function handleCoder(request, env, ctx, deps) {
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
+      // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
+      const cj = s.result.compact && typeof s.result.compact === "object" ? s.result.compact : null;
+      if (cj && cj.done === true && Number.isInteger(cj.to) && cj.to > 0) meta.marks = marksAfter(meta.marks, { from: 0, to: cj.to });
       const capped = capHistoryInfo(s.result.messages), kept = capped.messages;
       await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });

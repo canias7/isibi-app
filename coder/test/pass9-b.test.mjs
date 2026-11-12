@@ -124,7 +124,7 @@ test("CD459 every tool's own proxy and certificate settings, as Claude Code's cl
   assert.deepEqual([t.npm_config_noproxy, t.GLOBAL_AGENT_NO_PROXY, t.ELECTRON_GET_USE_PROXY], ["localhost,127.0.0.1,::1", "localhost,127.0.0.1,::1", "1"]);
   assert.deepEqual([t.CLOUDSDK_PROXY_TYPE, t.CLOUDSDK_PROXY_ADDRESS, t.CLOUDSDK_PROXY_PORT, t.CLOUDSDK_PROXY_USERNAME, t.CLOUDSDK_PROXY_PASSWORD], ["http", "127.0.0.1", "4567", "cmd", "a".repeat(32)]);
   assert.equal(t.FSSPEC_GCS, '{"session_kwargs": {"trust_env": true}}');
-  assert.equal(t.JAVA_TOOL_OPTIONS, "-Djavax.net.ssl.trustStore=/srv/java-cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=4567 -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=4567 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1");
+  assert.equal(t.JAVA_TOOL_OPTIONS, "-Djavax.net.ssl.trustStore=/srv/java-cacerts -Djavax.net.ssl.trustStoreType=JKS -Dhttps.proxyHost=127.0.0.1 -Dhttps.proxyPort=4567 -Dhttp.proxyHost=127.0.0.1 -Dhttp.proxyPort=4567 -Dhttp.nonProxyHosts=localhost|127.0.0.1|::1 -Daether.connector.http.useSystemProperties=true");
   for (const k of ["CLOUDSDK_CORE_CUSTOM_CA_CERTS_FILE", "HTTPLIB2_CA_CERTS", "AWS_CA_BUNDLE", "DENO_CERT", "CARGO_HTTP_CAINFO", "PIP_CERT", "GRPC_DEFAULT_SSL_ROOTS_FILE_PATH", "NIX_SSL_CERT_FILE", "HEX_CACERTS_PATH"]) assert.equal(t[k], "/srv/b.pem", k);
   assert.deepEqual([t.DENO_TLS_CA_STORE, t.UV_NATIVE_TLS], ["system,mozilla", "true"]);
   // No pass: no gcloud login for the proxy; no Java store: Java's own.
