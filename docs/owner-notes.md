@@ -25,6 +25,15 @@ log (81,000 lines) is in git history.
   - The menu says **Import from CSV…** and the card's save box starts ticked, as Grok Bot's.
   - Test GL132.
 - **Also:** any password Gloopy's computer typed (yours, or a made one) is now blanked from what Gloopy reads, even when a page's "show password" turns it into plain text.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - **The Vault:** New item opened its menu (Login, Import from CSV…). The Login form, with the eye, saved "Practice account" (tomsmith, the practice site's public demo login). A second account on the same site, "Old account", went in next to it.
+  - **Import:** a sample export in Chrome's layout showed "2 ready · 1 already in your Vault (skipped) · 2 can't be imported" (an http router address, and a row with no password). "Import 2 logins" brought them in, with the reminder to delete the export. Search Vault found "shop", and Edit opened the login's form in place.
+  - **Found and fixed:** each login's key, names and Edit/Remove buttons stacked on separate lines. Each login is now one row.
+  - **Several accounts:** "Sign in to the practice site with my practice account": Gloopy picked tomsmith by its nickname and signed in with the saved login, with no card. The page said "You logged into a secure area!".
+  - **The card:** with saved logins set to Ask, "Sign in to the practice site" brought the card with both accounts by nickname, each with its hint, Gloopy's pick first. The save box was ticked.
+  - **Your browser leaves it alone:** I typed the demo password into the card myself. It showed as dots in a plain text box, the eye showed it, and I signed in from the card. Chrome showed no "Change your password" warning and no "Save password?". It showed that warning on Nov 11 for the same password.
+  - **Gloopy's Vault changes:** "Rename my old practice login to Retired account, and change its hint" brought the chat line "Changed the nickname and hints of your the-internet.herokuapp.com login", and the Vault showed it. Asked to change the password, Gloopy said a saved login's password can only be changed in Settings → Vault.
+  - **Not tried live: a made password for a real sign-up.** My safety check stopped me from creating an account on a public practice site (practice.expandtesting.com). The automated test GL129 does it end to end in a real browser, on a practice sign-up page of its own. It can be tried live with your OK.
 - Tests GL127 to GL131; GL10, GL47, GL48, GL69, GL70 and the card and Settings checks updated. GL129 makes an account on a practice sign-up page in a real browser: the site got the same password twice, the Vault kept it, and nothing sent to Grok held it.
 
 ## 2026-11-12: Tool 2, signing in (sign_in), checked against Grok Bot's and dots' docs (your words: "lets go to the next tool")
