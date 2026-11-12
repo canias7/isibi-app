@@ -1901,6 +1901,19 @@ export function extraRepoEvent(repo, p) {
   if (p && p.ok) return p.note ? { type: "note", text: repo + ": " + p.note } : null;
   return { type: "error", text: "Could not open " + repo + ": " + String((p && p.why) || "it could not be prepared").slice(0, 200) };
 }
+/**
+ * WHAT THE SESSIONEND HOOKS DID WHEN THIS MACHINE LAST STOPPED (round 6 of the live test, 2026-11-12): the newest 20
+ * records, one JSON line each, in `.session-end.log` in root's own git folder, which the AI's commands may read (it is in
+ * their sandbox, read-only) and never write, so nothing of theirs can point the write elsewhere.
+ */
+export async function noteSessionEnd(gitRoot, rec, { max = 20 } = {}) {
+  if (typeof gitRoot !== "string" || !gitRoot) return false;
+  const f = join(gitRoot, ".session-end.log");
+  const old = await readFile(f, "utf8").catch(() => "");
+  const lines = old.split("\n").filter(Boolean).slice(-(max - 1));
+  await writeFile(f, lines.concat(JSON.stringify(rec)).join("\n") + "\n", { mode: 0o644 });
+  return true;
+}
 /** The sandbox a chat's SessionEnd hooks may run in when the machine stops: the job's own only while it is still the live one (`live`, BOX). */
 export const boxAtEnd = (box, live) => (box && box === live ? box : null);
 /** Is `branch` in `git ls-remote --heads` output (`<sha>\trefs/heads/<name>` lines), by its whole name? */
@@ -3734,12 +3747,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
    * to the highest hook timeout given, at most 60; CODER_SESSIONEND_HOOKS_TIMEOUT_MS sets it). Their output is not used.
    * Answers how many ran.
    */
-  const sessionEnd = async (reason = "other") => {
-    const runs = [];
+  const sessionEnd = async (reason = "other", { signal = "" } = {}) => {
+    const runs = [], said = [], chats = [], t0 = Date.now();
     for (const [project, t] of turns) {
       if (!t || !t.turnDeps || typeof t.turnDeps.exec !== "function" || !Array.isArray(t.hooksLast)) continue;
       const list = hooksFor(t.hooksLast, "SessionEnd", reason).filter((h) => h.type === "command" || h.type === "http");
       if (!list.length) continue;
+      chats.push(project);
       // (Round 6 of the live test, 2026-11-12: the job's admin sandbox is stopped when its job ends, unless a background
       // command keeps it, so the hooks entered a sandbox that was gone and never ran. Then they run as Coder's commands ran
       // before the sandbox: as the AI's user, in the room.)
@@ -3753,10 +3767,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const one = h.type === "http"
           ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
           : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
-        runs.push(Promise.race([Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).catch(() => null), new Promise((ok) => { const w = setTimeout(ok, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
+        // (What each did, for the record below.)
+        const name = String((h.type === "http" ? h.url : h.command) || "").slice(0, 80);
+        let over = false;
+        const ran = Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).then(
+          (r) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, code: r && typeof r.code === "number" ? r.code : null, ...(r && r.timedOut ? { timedOut: true } : {}), out: scrub(String((r && r.output) || "")).slice(0, 300) }); },
+          (e) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, error: scrub(String((e && e.message) || e)).slice(0, 200) }); });
+        runs.push(Promise.race([ran, new Promise((ok) => { const w = setTimeout(() => { if (!over) said.push({ chat: project, hook: name, ms: Date.now() - t0, late: true }); ok(); }, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
       }
     }
+    // A RECORD OF IT (round 6 of the live test: a SessionEnd hook's file was never written when the machine slept, and its
+    // own log is not kept): when it began, then what each hook did, in root's own git folder (noteSessionEnd).
+    await noteSessionEnd(gitRoot, { at: new Date(t0).toISOString(), reason, ...(signal ? { signal } : {}), chats, hooks: runs.length }).catch(() => {});
     await Promise.all(runs);
+    if (runs.length) await noteSessionEnd(gitRoot, { at: new Date().toISOString(), said, ms: Date.now() - t0 }).catch(() => {});
     return runs.length;
   };
   const handle = async function handle(req, res) {
@@ -4004,7 +4028,7 @@ if (import.meta.url === "file://" + process.argv[1]) {
     ending = true;
     const hard = setTimeout(() => process.exit(0), 61_000);
     if (typeof hard.unref === "function") hard.unref();
-    Promise.resolve().then(() => app.sessionEnd("other")).then((n) => { if (n) console.log("coder: " + sig + ": ran " + n + " SessionEnd hook(s)"); }, () => {}).finally(() => process.exit(0));
+    Promise.resolve().then(() => app.sessionEnd("other", { signal: sig })).then((n) => { if (n) console.log("coder: " + sig + ": ran " + n + " SessionEnd hook(s)"); }, () => {}).finally(() => process.exit(0));
   };
   process.on("SIGTERM", () => stopNow("SIGTERM"));
   process.on("SIGINT", () => stopNow("SIGINT"));
