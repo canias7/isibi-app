@@ -2046,8 +2046,24 @@ a Gloopy turn runs with none of Coder's hooks, Auto checker or permission rules
 (the machine's `gloopyOpts`), and its browser rules go in as `browserRules`, apart
 from Coder's `rules`; the mode chip, its keys and the connectors chip are Coder's
 alone; Settings, Connectors and Notifications open in the tab that is showing.
-Gloopy's chat does not take connectors yet, and its `/compact` is still made by the
-Worker (Coder's runs on its machine, with its hooks).
+Gloopy's `/compact` is still made by the Worker (Coder's runs on its machine, with
+its hooks).
+
+**Gloopy uses the connectors** (2026-11-13, the owner: "make gloopy use the
+connectors"): the same list as Coder's chats (the Connectors page), sent with each
+Gloopy turn by the Worker (`jobConnectors`) and offered after Gloopy's own tools
+(with the tool search when there are many); each call goes through the Worker's
+gate with the turn's pass, as Coder's do. Each tool as the owner set it: **Always
+allow** runs at once; **Needs approval**, and a tool its server asks about every
+time, asks on Gloopy's own card and the turn ends there (Gloopy has no modes, so
+Coder's "in Auto it runs" does not apply; nor do read-only tools start side by side
+before their card). On the card, **Allow once** has the Worker make that one call
+with the owner's sign-in (`gloopyCard`), and Gloopy hears the answer with the next
+message, fenced off as the connector's data (up to 20,000 characters); **Always
+allow** also sets that tool to Always allow on the Connectors page (not offered for
+a tool its server asks about every time); **Deny** calls nothing, and Gloopy is not
+asked about it again until the owner's own next message. **Blocked** tools are never
+offered. Gloopy's helpers get no connectors. Tests: `test/gloopy-connectors.test.mjs`.
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.

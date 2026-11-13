@@ -17,6 +17,21 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Gloopy uses your connectors (your words: "ok i deleted them, now make gloopy use the connectors")
+
+- **What changed:** Gloopy now gets the same connectors as Coder (the Connectors page in the gear's menu), each tool as you set it there:
+  1. **Always allow:** Gloopy uses it right away, and its step shows in the chat.
+  2. **Needs approval:** Gloopy asks on its own card first ("Gloopy wants to use Linear: create_issue", with what it sends). Its turn stops there.
+     - **Allow once:** Coder's server makes that one call with your sign-in, and Gloopy carries on with the answer.
+     - **Always allow:** the same, and that tool is set to Always allow on the Connectors page.
+     - **Deny:** nothing is done, and Gloopy doesn't ask about it again until you send your own next message.
+  3. **Blocked:** Gloopy never sees it.
+  4. A tool whose own service asks for your OK every time asks on Gloopy's card every time. Its card has only Deny and Allow.
+- **Fixed while doing it:** Coder starts several read-only connector tools at once. In Gloopy's chat that could have run a "Needs approval" tool before its card, because Gloopy counted as being in Auto mode. Now only Always allow tools start early in Gloopy's chat. Coder's own modes work as before.
+- **Not included:** Gloopy's helpers (the ones it hands big jobs to) don't get connectors, because they can't show you a card.
+- **Tests:** `coder/test/gloopy-connectors.test.mjs`. 7 tests: Gloopy's turn, the Worker's side and the card in a real browser. Three older Gloopy page tests were updated for the card's new line.
+- **Not on gofarther.dev yet:** it needs your word to merge and deploy. Then I'll test it live with Grok on Low.
+
 ## 2026-11-13: Connectors and Gloopy are live on gofarther.dev, tested on Low (your words: "yea deploy and test it on low")
 
 - **Deployed:** deploy 182, from main. It worked the first time (16 minutes, the machine's image included).
