@@ -3825,6 +3825,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // it only looks things up. The tabs are closed when the helpers are done.
         const lanes = deps.browser && typeof deps.browser.lane === "function" && helper.browserTool ? deps.browser : null;
         const said = ownerWords(checkConvo || convo);
+        // THE OWNER'S CONNECTORS FOR HELPERS (owner, 2026-11-13: "fix 3"; Claude Code's subagents get the session's MCP tools):
+        // only those set to Always allow, and not one the owner just said no to, as a helper can't ask the owner on a card
+        // (Claude Code's background subagents deny what isn't allowed beforehand). One its server asks about every time stays out.
+        const helperConn = typeof deps.mcp === "function" ? mcpTools.filter((x) => x.perm === "allow" && !x.always && !denied.has(("Use " + x.label).slice(0, 300))) : [];
         const runs = await Promise.all(list.map((t, k) => {
           const tag = "h" + (first + k + 1) + "-";
           // Only a helper's steps reach the chat, under its name (a pause of its monitor too); its own opening, words and
@@ -3832,7 +3836,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // A done step's own words keep its helper's name too (live test, 2026-11-10: "Opened …" said not whose step it was).
           const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}), ...(e.type === "result" && typeof e.label === "string" && e.label ? { label: "“" + t.name + "” · " + e.label } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
           const lane = lanes ? lanes.lane((k % HELPERS_MAX) + 1) : null;
-          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}) }, { text: t.task, system: helper.system, tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, browserRules, permissions: perms, sites, background, monitor, model, effort, zone, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
+          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}), ...(helperConn.length ? { mcp: deps.mcp } : {}) }, { text: t.task, system: helper.system, ...(helperConn.length ? { connectors: helperConn, connectorNotes } : {}), tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, browserRules, permissions: perms, sites, background, monitor, model, effort, zone, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
             .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));
         }));
         for (const r of runs) for (const u of r.usage || []) usage.push(u);

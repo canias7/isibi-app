@@ -117,6 +117,38 @@ test("GC4 (2026-11-13) a connector step the owner said no to is not done or aske
   assert.equal(asked, 0);
 });
 
+test("GC8 (2026-11-13) Gloopy's helpers get the owner's connector tools set to Always allow (owner: \"fix 3\"; Claude Code's subagents get the session's MCP tools): never one that would need a card (Needs approval, or its server asks every time), nor one the owner just said no to", async () => {
+  const { HELPER_SYSTEM, HELPER_TOOLS } = await import("../container/gloopy-agent.mjs");
+  const helper = { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "" };
+  const run = async (extra) => {
+    const steps = [
+      say("", [call("helpers", { tasks: [{ name: "Issues", task: "List the open issues" }] }, "h1")]),
+      say("", [call("mcp__fake__list_issues", { q: "open" }, "k1"), call("mcp__fake__create_issue", { title: "x" }, "k2")]),
+      say("Two issues are open."),
+      say("The helper found two open issues."),
+    ];
+    let i = 0;
+    const seen = [], ran = [], events = [];
+    const out = await runCoder({ send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), mcp: async (n, a) => { ran.push([n, a]); return { text: "LIN-1, LIN-2", isError: false }; } },
+      { text: "go", ...GLOOPY, connectors: CONN, helper, ...extra });
+    const helperReq = seen.find((q) => String(q.messages[0].content).startsWith(HELPER_SYSTEM));
+    return { out, seen, ran, events, helperReq, helperReply: (id) => (seen[2] && seen[2].messages || []).find((m) => m.role === "tool" && m.tool_call_id === id) };
+  };
+  const r = await run({});
+  assert.equal(r.out.status, "done");
+  const names = r.helperReq.tools.map((x) => x.function.name);
+  assert.deepEqual(names.slice(0, HELPER_TOOLS.length), HELPER_TOOLS.map((x) => x.function.name), "the helper's own tools first");
+  assert.deepEqual(names.slice(HELPER_TOOLS.length), ["mcp__fake__list_issues"], "then only the Always allow connector tool");
+  assert.deepEqual(r.ran, [["mcp__fake__list_issues", { q: "open" }]], "it ran through the Worker; the other was never offered");
+  assert.match(r.helperReply("k2").content, /^error: no such tool: mcp__fake__create_issue/);
+  assert.ok(!r.events.some((e) => e.type === "approval"), "no card from a helper");
+  assert.ok(r.events.some((e) => e.type === "bash" && e.tool === "connector" && /^“Issues” · Fake: list_issues$/.test(e.command)), "its step in the chat, under the helper's name");
+  // One the owner said no to in this run: not even that.
+  const d = await run({ denied: ["Use Fake: list_issues"] });
+  assert.deepEqual(d.helperReq.tools.map((x) => x.function.name), HELPER_TOOLS.map((x) => x.function.name));
+  assert.deepEqual(d.ran, []);
+});
+
 // ── THE WORKER ──────────────────────────────────────────────────────────────────────────────────────────────────────
 
 function fakeBucket() {

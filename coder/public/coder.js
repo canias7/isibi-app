@@ -4058,7 +4058,10 @@
       // menu's Notifications did nothing, as only Coder's view listened). GitHub's return is Coder's.
       if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showNotifications(); }); }
       // (Settings and Connectors open in the view that is showing: the page has Coder's and Gloopy's, each listening; merged 2026-11-13.)
-      if (!S.settingsHook) { S.settingsHook = true; window.addEventListener('gf:settings', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showSettings(); }); }
+      // SETTINGS IN GLOOPY'S TAB ARE GLOOPY'S (owner, 2026-11-13: "fix 2"): the gear's Settings opens the same Settings as
+      // Gloopy's own button there; Coder's (its machine's background commands, disk and memory warnings, hooks, Auto mode)
+      // are in Coder's tab, as they do nothing for Gloopy.
+      if (!S.settingsHook) { S.settingsHook = true; window.addEventListener('gf:settings', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) { if (GLOOPY) showGloopySettings(); else showSettings(); } }); }
       if (!S.connHook) {
         S.connHook = true;
         window.addEventListener('gf:connectors', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showConnectors(); });
