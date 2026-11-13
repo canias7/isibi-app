@@ -1634,7 +1634,8 @@
         const now = new Date(), thisMonth = now.getFullYear() * 12 + now.getMonth();
         const saved = (S.cards || []).filter((c) => Number(c.year) * 12 + Number(c.month) - 1 >= thisMonth);
         const first = saved.find((c) => c.id === e.use) || saved.find((c) => c.default) || saved[0];
-        const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : (first ? first.id : '');
+        // A card the owner wants to type (Gloopy's card "new", 2026-11-13): "Another card" is chosen to start with.
+        const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : e.another ? '' : (first ? first.id : '');
         const usedCard = saved.find((c) => c.id === use);
         const box = (id, label, attrs) => '<label class="cd-secret-l" for="' + id + '">' + label + '</label><input id="' + id + '" class="cd-secret-in" ' + attrs + ' spellcheck="false">';
         const two = (a, b) => '<div class="cd-pay-two"><div>' + a + '</div><div>' + b + '</div></div>';

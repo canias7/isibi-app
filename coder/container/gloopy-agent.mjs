@@ -102,7 +102,7 @@ export const PAY_TOOL = Object.freeze({ type: "function", function: {
     postal_ref: { type: "string", description: "the billing postal or ZIP code field next to the card fields, when the page has one" },
     total: { type: "string", description: "the total to pay, exactly as the page shows it, e.g. €72.00" },
     reason: { type: "string", description: "what is being bought, in a few words" },
-    card: { type: "string", description: "which saved card to pay with: its id from SAVED CARDS (leave it out for the owner's default card)" },
+    card: { type: "string", description: "which saved card to pay with: its id from SAVED CARDS (leave it out for the owner's default card); or \"new\" when the owner wants to give a card that isn't saved (\"I'll type a new card\", \"not my saved one\"), or none of the saved ones fits: the private form then asks them for it" },
     items: { type: "array", description: "what is in the order, as the page shows it (for the owner's order card)", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "integer" }, price: { type: "string" } }, required: ["name"] } },
     ship_to: { type: "string", description: "where the order ships, as the page shows it (name and address), or \"nothing to ship\"" },
     result: { type: "string", enum: ["paid", "not paid"], description: "after you placed the order: whether the page shows it went through (only this, total and note are needed then)" },

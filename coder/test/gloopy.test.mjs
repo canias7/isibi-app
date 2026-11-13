@@ -7916,3 +7916,36 @@ test("GL145 (2026-11-13) found live (test.gofarther.dev): after the owner put \"
   await post("permissions", { set: { share: "allow" } });
   assert.equal(bucket.m.has("coder/u1/gloopy/changed.json"), false);
 });
+
+test("GL146 (2026-11-13) found while checking what was left to test of paying (owner: \"yes do it on low\"): once a card was saved, Gloopy could not ask the owner for a different one (\"I'll type a new card this time\"): the saved default always filled in. Card \"new\" now brings the private form, set to Another card", async () => {
+  const { readFileSync } = await import("node:fs");
+  const hub = () => { const b = fakeBrowser(PAY_ELS), filled = []; return { ...b, filled, payWithSaved: async (x) => { filled.push(x); return { ok: true, id: x.id, label: "Visa ending 4242" }; } }; };
+  const visa = { id: "c1", label: "Visa ending 4242", default: true, code: true };
+  const job = async (card, b) => {
+    const ev = [], g = withChecks([say("", [call("pay", { ...PAY_ARGS, ...(card !== undefined ? { card } : {}) }, "p1")]), say("Waiting.")], []);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: b, emit: (e) => ev.push(e) }, { text: "buy it, I'll type a new card", ...GLOOPY, savedCards: [visa], permissions: { buy: "ask" } });
+    return { out, ev, said: (out.messages.find((m) => m.tool_call_id === "p1") || {}).content };
+  };
+  for (const word of ["new", "NEW", " New "]) {
+    const b = hub();
+    const { out, ev } = await job(word, b);
+    assert.equal(b.filled.length, 0, "the saved card is not filled in: " + word);
+    const form = ev.find((e) => e.type === "pay");
+    assert.equal(form.another, true);
+    assert.equal(form.use, undefined, "no saved card picked");
+    assert.ok(out.cardRequest && out.cardRequest.id === form.id, "the private form");
+    assert.equal(ev.find((e) => e.type === "result" && e.id === "p1").label, "Asked you for a card to pay €72.00 on shop.example");
+  }
+  // Left out: the default fills in as before; a card that isn't saved is an error that says what to give.
+  let b = hub();
+  await job(undefined, b);
+  assert.equal(b.filled.length, 1);
+  const { said } = await job("c9", hub());
+  assert.equal(said, "error: card is not one of SAVED CARDS: give its id, \"new\" for a card the owner types, or leave card out to use the owner's default card");
+  // Gloopy is told it can.
+  const PAY = GLOOPY_TOOLS.find((t) => t.function.name === "pay");
+  assert.match(PAY.function.parameters.properties.card.description, /or "new" when the owner wants to give a card that isn't saved \("I'll type a new card", "not my saved one"\), or none of the saved ones fits: the private form then asks them for it/);
+  // The form starts on "Another card".
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.ok(ui.includes("const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : e.another ? '' : (first ? first.id : '');"));
+});

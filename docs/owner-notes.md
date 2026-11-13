@@ -11,6 +11,10 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Paying, the last three paths, and asking for another card (your words: "yes do it on low")
+
+**Fixed first:** once a card was saved, Gloopy couldn't ask you for a different one: if you said "use a new card this time, I'll type it", it still filled in your default card. Now, when you ask for another card (or none of the saved ones fits), the private card form opens set to "Another card". (Test GL146.)
+
 ## 2026-11-13: Gloopy, tool by tool: where we are (your words: "note that real quick")
 
 **Done (3 of the list):** 1 browser, 2 sign_in, and now **3 pay**: built like Grok Bot's and tested live completely (11 fixes found and made along the way; details in the three paying entries below).

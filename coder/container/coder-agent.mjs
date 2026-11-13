@@ -1428,7 +1428,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const cards = Array.isArray(savedCards) ? savedCards.filter((x) => x && typeof x.id === "string" && x.id) : [];
         const named = typeof args.card === "string" ? plain(String(args.card)).trim().slice(0, 60) : "";
         const want = named ? cards.find((x) => x.id === named || x.label === named || (x.nickname && x.nickname === named)) : null;
-        if (named && !want) { no("error: card is not one of SAVED CARDS: give its id, or leave card out to use the owner's default card"); continue; }
+        // ANOTHER CARD THAN A SAVED ONE (live check, 2026-11-13: once a card was saved, Gloopy could not ask the owner for a
+        // different one, as "I'll type a new card this time"): card "new" brings the private form, set to a new card.
+        const fresh = named.toLowerCase() === "new";
+        if (named && !fresh && !want) { no("error: card is not one of SAVED CARDS: give its id, \"new\" for a card the owner types, or leave card out to use the owner's default card"); continue; }
         const els = {};
         try { for (const [k, ref] of Object.entries(refs)) els[k] = await hub.describe(ref); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         // Each one the field it says it is (a card's own fields by what the page calls them; a name or postal code a text field).
@@ -1446,7 +1449,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (deps.order && typeof deps.order.set === "function") deps.order.set(order);
         // A SAVED CARD THAT FITS FILLS IN FROM THE VAULT (the one named, else the default card, else the only one): when its
         // security code is kept, or the page asks for none.
-        const pick = want || cards.find((x) => x.default) || (cards.length === 1 ? cards[0] : null);
+        const pick = fresh ? null : want || cards.find((x) => x.default) || (cards.length === 1 ? cards[0] : null);
         let tried = "";
         if (pick && (pick.code === true || !refs.cvc) && typeof hub.payWithSaved === "function") {
           const r = await hub.payWithSaved({ site, refs, id: pick.id });
@@ -1464,7 +1467,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "result", id: c.id, code: 0, output: "Asked you for a card to pay " + total + " on " + site + (tried ? " (your saved card couldn't be used: " + tried + ")" : ""), label: "Asked you for a card to pay " + total + " on " + site });
         reply("asked the owner for a card through the private form, to pay " + total + " on " + site + ". Your turn ends here; the next message says how it went. You never see the card.");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a card first" });
-        emit({ type: "pay", id, site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), fields: Object.keys(refs), ...(pick ? { use: pick.id } : {}) });
+        emit({ type: "pay", id, site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), fields: Object.keys(refs), ...(pick ? { use: pick.id } : {}), ...(fresh ? { another: true } : {}) });
         cardRequest = { id, site, url: String(els.number.url || ""), total, fields: Object.keys(refs), refs };
         return end("done", { summary: lastSaid || "asked the owner for a card to pay " + total + " on " + site });
       } else if (c.name === "page") {
