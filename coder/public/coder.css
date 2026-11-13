@@ -851,6 +851,7 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-order-row.is-total{border-bottom:0;margin-bottom:10px}
 .cd-order-row.is-total b{font-size:16px;font-weight:700}
 .cd-order .cd-secret-btns .cd-card-yes{font-weight:700}
+.cd-order .cd-order-check{font-size:13px;color:#6b6a66;margin-top:-2px}
 .cd-receipt{display:flex;align-items:flex-start;gap:8px;font-size:14px;line-height:1.45;border-radius:12px;padding:10px 12px;margin:8px 0}
 .cd-receipt svg{flex:none;margin-top:2px;width:16px;height:16px}
 .cd-receipt span{display:flex;flex-direction:column}

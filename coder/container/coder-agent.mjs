@@ -591,7 +591,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -627,6 +627,9 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // WHAT THE CHECK AND THE MONITOR TAKE AS THE OWNER'S OWN WORDS: theirs, never a helper's task (Gloopy wrote it): a
   // helper's run is given them (2026-11-10).
   const checkConvo = Array.isArray(ownerSaid) ? ownerSaid.filter((t) => typeof t === "string" && t.trim()).map((t) => ({ role: "user", content: t })) : null;
+  // The owner's own contact info, for the check and the monitor (live test, 2026-11-13: without it the check guessed whose
+  // address a checkout held, wrongly): one line each, as Gloopy is given it.
+  const contactLines = (Array.isArray(contacts) ? contacts : []).filter((x) => x && typeof x === "object").slice(0, 20).map(contactWords).filter(Boolean);
   // THE MONITOR'S RECORD OF THIS RUN (2026-11-10; gloopy-check.mjs gloopyMonitor): each step and the start of its answer.
   const trail = [];
   let sinceReview = 0, reviews = 0;
@@ -771,7 +774,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
     if (!v) {
       if (writeChecks >= WRITE_CHECKS_MAX) return { go: false, text: "Not sent: Gloopy's check has looked at " + WRITE_CHECKS_MAX + " requests in this job, the most it looks at in one job. Tell the owner what is left to send." };
       writeChecks++;
-      v = await gloopyCheck({ send: deps.send, model, step, request: { method: m, url: String(url), preview }, convo, rules, background });
+      v = await gloopyCheck({ send: deps.send, model, step, request: { method: m, url: String(url), preview }, convo, rules, background, contacts: contactLines });
       if (v.usage) usage.push(v.usage);
       writeVerdicts.set(sig, v);
     }
@@ -1131,7 +1134,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           about = { ...about, sends: stepSends(act, about) };
           if (denied.has(step.slice(0, 300))) { no(noAgain(step)); continue; }
           const g = granted.indexOf(step);
-          let v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo: checkConvo || convo, rules, background });
+          let v = g >= 0 ? (granted.splice(g, 1), { decision: "allow", why: "The owner already allowed this step.", kind: "none", rule: "allow" }) : await gloopyCheck({ send: deps.send, model, step, about, convo: checkConvo || convo, rules, background, contacts: contactLines });
           if (v.usage) usage.push(v.usage);
           // The owner's choice for this site, over the check's answer: never over a Never rule, the check's block, a step
           // only the owner may do, or a step they already allowed. Ask first asks before opening the site and before each
@@ -1331,6 +1334,8 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const r = await deps.vault.contact(cid ? { id: cid, change: fields } : { add: fields });
         if (!r || !r.ok) { no("not done: " + String((r && r.why) || "the owner's Vault didn't take it")); continue; }
         const said = contactWords(r.contact || fields);
+        // The check knows it from now on too (the owner gave it in this chat).
+        if (said && !contactLines.includes(said) && contactLines.length < 20) contactLines.push(said);
         emit({ type: "result", id: c.id, code: 0, output: (cid ? "Changed" : "Saved") + " in your Vault: " + said, label: (cid ? "Changed your contact info: " : "Saved your contact info: ") + said.slice(0, 160) });
         reply((cid ? "changed" : "saved") + " the owner's contact info in their Vault: " + said + ". Tell them in a line what you " + (cid ? "changed" : "saved") + ", and that they can see or remove it in Settings → Vault.");
       } else if (c.name === "vault") {
@@ -1368,7 +1373,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           const o = deps.order && typeof deps.order.get === "function" ? deps.order.get("") : null;
           if (!o) { no("error: there is no order to say this about: use pay with result right after placing an order whose card you filled in with pay"); continue; }
           const words = paid ? "Paid " + o.total + " on " + o.site + (o.payWith ? " with " + o.payWith : "") : "Not paid on " + o.site + (note ? ": " + note : "");
-          emit({ type: "result", id: c.id, code: 0, output: words + (paid && note ? " (" + note + ")" : ""), label: words });
+          emit({ type: "result", id: c.id, code: 0, output: words + (paid && note ? " (" + note + ")" : ""), label: words, receipt: true });
           emit({ type: "paid", id: "pd" + Math.random().toString(36).slice(2, 10), ok: paid, site: o.site, total: o.total, ...(o.payWith ? { payWith: o.payWith } : {}), ...(note ? { note } : {}) });
           if (typeof deps.order.done === "function") deps.order.done();
           reply("noted: the owner's chat now shows " + (paid ? "it was paid" : "it was not paid") + ". Tell them in a few words.");
@@ -1415,7 +1420,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
           if (r && r.ok) {
             const label = String(r.label || pick.label);
             if (deps.order && typeof deps.order.set === "function") deps.order.set({ ...order, payWith: label });
-            emit({ type: "result", id: c.id, code: 0, output: "Filled your saved " + label + " into the payment form on " + site, label: "Filled your saved " + label + " into the payment form on " + site });
+            emit({ type: "result", id: c.id, code: 0, output: "Filled your saved " + label + " into the payment form on " + site, label: "Filled your saved " + label + " into the payment form on " + site, saved: true });
             emit({ type: "pay", id: "pc" + Math.random().toString(36).slice(2, 10), site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), fields: Object.keys(refs), filled: true, label });
             reply("the owner's saved card (" + label + ") was filled into the page's card fields from their Vault; you never see it. Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order (that click is checked like any purchase), then use pay with result.");
             continue;
@@ -1829,7 +1834,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       }
       if (reviews < MONITOR_MAX && (sinceReview >= MONITOR_EVERY || refused)) {
         reviews++; sinceReview = 0;
-        const w = await gloopyMonitor({ send: deps.send, model, convo: checkConvo || convo, rules, trail, background });
+        const w = await gloopyMonitor({ send: deps.send, model, convo: checkConvo || convo, rules, trail, background, contacts: contactLines });
         if (w.usage) usage.push(w.usage);
         if (w.verdict === "pause") {
           emit({ type: "paused", why: w.why });

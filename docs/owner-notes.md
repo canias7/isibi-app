@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Paying with a saved card, tried live, and five fixes (your words: "yes if dots and bot have it do it pls")
+
+Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test cards only, no real money).
+
+**What worked:**
+1. **A card from a photo.** New item → Card → Upload a photo, with a picture of a test card: Grok read it and filled in the number (4242…), the expiry (12/34) and the name. Nothing was saved until Save card; I cancelled it.
+2. **Contact info in the Vault** (New item → Contact info): saved, and shown on the Contact info tab.
+3. **A whole checkout with Buy or pay on Ask.** Gloopy filled in the shipping details from the Home contact info, then filled in the saved Visa ending 4242 straight from the Vault, with no card form. The order card showed the items, Ship to, Pay with "Visa ending 4242", the Total €39.95, and Cancel / Pay €39.95. I pressed Pay. The demo stayed on "Processing…" (its own server is broken, as before), so Gloopy marked it "Not paid", with a screenshot, and did not press Pay again.
+4. **An address given in the chat.** I gave Gloopy a work address; it saved it in the Vault as "Work" and said so.
+
+**Found and fixed:**
+1. **The safety check guessed whose address it was, wrongly.** It said the order "would ship to Jenny Rosen's demo address, not your Vault contact info", but it was the Home address from the Vault (the test contact uses the same sample name as Stripe's demo, which made the guess easy to get wrong). The check was never given your contact info. Gloopy was told what the check said, you weren't shown it, and Gloopy then mentioned "the confirm card" in its answer. Now the check (and the monitor) are given your contact info, only when "Share your details" isn't Never, and are told never to guess whose details a form holds.
+2. **The order card now shows what the check said,** in a smaller line under Gloopy's reason, so you see what Gloopy is told.
+3. **The line over the steps said "asked you for a card"** when the saved card filled itself in, and when Gloopy was only saying how the order went. It now says "filled in your saved card" and "said how the order went". A Vault save said "Did 1 step"; it now says "Updated your Vault".
+4. **"Not paid" was said twice:** on the order card, and again on a line under it. Now once, on the order card. Without an order card (Buy or pay on Always allow), the line still shows.
+5. **Gloopy kept the work address twice:** in the Vault, and in its own notes. An older instruction (2026-11-10) told it to keep addresses in its notes, so an address you removed from the Vault would have stayed there. Now addresses, phone numbers and emails are kept only in the Vault; any left in its notes from before move to the Vault when they next come up.
+
+**Still can't be tried:** a declined card, and an order that goes through. The demo's server fails on every payment, and no other free test shop without sign-up was found.
+
+Tests: GL142 (new), plus GL48, GL80 and CD236 updated.
+
 ## 2026-11-13: Paying, built like Grok Bot's (your words: "yes if dots and bot have it do it pls")
 
 dots' docs say nothing about paying, so this follows Grok Bot's docs (its Vault and its order card).

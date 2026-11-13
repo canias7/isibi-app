@@ -1398,7 +1398,7 @@
    * failed }], a step with no tool being a command.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -1463,8 +1463,10 @@
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
         // The line names each kind of step and what failed, as Claude Code's does (groupWords).
-        // A sign-in Gloopy did with a saved login, with no card (2026-11-09), is said so, not "asked you to sign in".
-        const words = groupWords(group.map(([e, i]) => ({ tool: e.tool === 'sign_in' && results[e.id] && results[e.id].saved === true ? 'sign_in_saved' : e.tool || '', failed: stateOf(e, i) === 'bad' })));
+        // A sign-in Gloopy did with a saved login, with no card (2026-11-09), is said so, not "asked you to sign in"; a saved card
+        // that filled itself in, or Gloopy saying how an order went, is not "asked you for a card" (live test, 2026-11-13).
+        const kindOf = (e) => { const r = results[e.id]; if (e.tool === 'sign_in' && r && r.saved === true) return 'sign_in_saved'; if (e.tool === 'pay' && r && (r.saved === true || /^Filled your saved /.test(String(r.label || '')))) return 'pay_saved'; if (e.tool === 'pay' && ((r && r.receipt === true) || /^(Paid|Not paid)$/.test(String(e.verb || '')))) return 'pay_result'; return e.tool || ''; };
+        const words = groupWords(group.map(([e, i]) => ({ tool: kindOf(e), failed: stateOf(e, i) === 'bad' })));
         out.push('<div class="cd-group' + (shut ? ' is-shut' : '') + '">' +
           '<button type="button" class="cd-group-head" data-group="' + esc(gk) + '">' + esc(words.line) + ' <span class="cd-caret">' + (shut ? '▸' : '▾') + '</span>' + (words.failed ? '<span class="cd-bad">' + esc(words.failed) + '</span>' : '') + '</button>' +
           (shut ? '' : '<div class="cd-group-box">' + group.map(([e, i]) => cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))).join('') + '</div>') +
@@ -1535,7 +1537,9 @@
         const after = S.events.slice(i + 1), done = after.find((x) => x.type === 'paid');
         const said = after.find((x) => x.type === 'user');
         out.push('<div class="cd-secret cd-order"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">' + esc(e.site || 'Your order') + '</b>' +
-          (o.reason ? '<p class="cd-secret-why">' + esc(o.reason) + '</p>' : '') + orderBits(o) +
+          (o.reason ? '<p class="cd-secret-why">' + esc(o.reason) + '</p>' : '') +
+          // What the check said of placing it (live test, 2026-11-13: Gloopy was told it and the card didn't show it).
+          (e.why ? '<p class="cd-secret-why cd-order-check">' + esc(e.why) + '</p>' : '') + orderBits(o) +
           '<p class="cd-order-row"><span>Pay with</span><b>' + esc(o.payWith || 'The card in the payment form') + '</b></p>' +
           '<p class="cd-order-row is-total"><span>Total</span><b>' + esc(o.total || '') + '</b></p>' +
           (e.bySite ? '<p class="cd-card-rule">Your setting for ' + esc(e.bySite) + ' says to ask first.</p>' : e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
@@ -1647,7 +1651,10 @@
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-pay-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-pay="' + esc(e.id) + '">Fill in card</button></div>' : '') + '</div>');
       }
       else if (e.type === 'paid') {
-        // HOW THE ORDER WENT (owner, 2026-11-13; Grok Bot's "Once the order is placed, the card shows what you Paid with").
+        // HOW THE ORDER WENT (owner, 2026-11-13; Grok Bot's "Once the order is placed, the card shows what you Paid with"):
+        // said once. When an order card asked about this order, the card shows it (live test, 2026-11-13: it was said twice).
+        const before = S.events.slice(0, i).reverse().find((x) => x.type === 'paid' || (x.type === 'approval' && x.order && typeof x.order === 'object'));
+        if (before && before.type === 'approval' && (!e.site || before.site === e.site)) return;
         out.push('<div class="cd-receipt ' + (e.ok ? 'is-ok' : 'is-no') + '">' + (e.ok ? ICON.check : ICON.card) + '<span>' + (e.ok ? 'Paid ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + (e.payWith ? ' with ' + esc(e.payWith) : '') : 'Not paid on ' + esc(e.site || 'the site')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span></div>');
       }
       else if (e.type === 'file') {
