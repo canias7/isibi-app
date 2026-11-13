@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The side cases of the two changes, tried live (your words: "yea test them all")
+
+All on gofarther.dev with Grok (deploy 169), no video; six throwaway chats, all deleted after; your test settings back exactly as they were (variables, rules, auto mode rules, and "Turn off Auto mode").
+
+**Auto mode checks read-only commands:**
+- **PowerShell** (tool turned on for that step only): `Get-ChildItem` in Auto went to the checker first (1 checker call), then ran.
+- **Monitor:** watching `cat README.md` in Auto went to the checker (1 checker call), then ran.
+- **A job started from GitHub with Auto mode turned off** (canias7/testingforclaude#19, "Turn off Auto mode" on for the test account during the step): `git status --short` and `ls -la` ran with no check (0 checker calls), and `touch gh-auto-off.txt` was refused: "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub". Coder's reply on the issue said the same.
+
+**Rewind:**
+- **Restore code and chat**, with a file that a command had turned into a link: "the code is back as it was (1 file restored, saved to the branch …; files only commands changed stay as they are); the chat after it is gone. Restored the code, but skipped 1 file: the tracked path is (or became) a link or other non-regular file, its directory changed since the checkpoint, or its backup could not be safely read. Skipped files were left untouched: rw/l.txt." The files after: `rw/a.txt` back to "a v1", the command's `rw/c.txt` kept, `rw/l.txt` still the link. Message 2 came back into the box to send again, as in Claude Code.
+- **A read-only repository** (octocat/Hello-World, opened with "Or open any public repository"): "the code is back as it was (1 file restored, kept on Coder's machine; files only commands changed stay as they are)". `rw/ro.txt` back to "ro v1", the command's file kept, the Rewind commit on Coder's machine only.
+- Not tried: a chat from before today (I had deleted the old test chats). The tests cover it.
+
+**Found, not changed yet (your call):**
+1. **PowerShell drops table output.** `Get-ChildItem` gave "(PowerShell completed with no output)" in a folder with README.md in it, through Coder's PowerShell tool and through your `!` command alike; with `| Out-String` only the "Directory:" heading came back, no rows. The same command run straight through `pwsh` listed everything. Coder's PowerShell script ends with `exit`; Claude Code 2.1.323's ends with `$host.SetShouldExit(...)` (it only uses `exit` in restricted language mode), which lets PowerShell finish printing first. Earlier tests used `Get-ChildItem -Name` (plain names, not a table), so they never caught it. It's older than today's changes (since the PowerShell tool came in, pass 6). Fix: copy Claude Code's ending, then try it live.
+2. **The Rewind box in a read-only chat** says "It is undone with a new commit on the branch, never deleted from GitHub", but in a read-only chat nothing goes to GitHub: the commit stays on Coder's machine. The same words were there before today.
+3. **The refusal in a GitHub job with Auto mode off** starts "Permission for this action was denied by the Coder auto mode classifier", but no checker ran (Auto mode is off). Wording from pass 6.
+
+Cost: a few cents of Grok (about 12 messages and 2 checker calls). Test branch left for you to delete by hand: `coder/testingforclaude-hrlpcnxv` (plus `coder/testingforclaude-yd6z1u5p` from the earlier run). Issue #19 on testingforclaude stays open, like the earlier test issues.
+
 ## 2026-11-13: The two left from pass 10, done (your words: "yea do those 2 things merge and deploy then test it")
 
 **1. In Auto, the checker now looks at read-only commands too.** Before, a command that only reads (`ls`, `cat`, `git status`) ran in Auto without the second check. Claude Code's cloud sessions check those too: "read-only and sandboxed shell commands wait for that review and are blocked if it flags them". I read Claude Code 2.1.323's own program to copy it exactly: it holds a command for the check whenever any part of it was allowed only for being read-only ("Auto mode held this command for the server-side classifier to review"), for the bash, PowerShell and Monitor tools. So now:
