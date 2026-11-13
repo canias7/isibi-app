@@ -16,7 +16,19 @@ log (81,000 lines) is in git history.
 1. **The page hides terminal color codes.** Codes like `[31;1m` and `[0m` no longer show as text. This covers a step's output and its last lines while it runs, monitors, background commands, Coder's notes and errors, and Grok's own text. What Grok is given stays as it was, the same as Claude Code (which gives its model a hook's output as it is). Cards that ask you to approve something still show their text exactly, so nothing can hide there.
 2. **The "Blocked by your hook" box keeps the hook's lines**, in a fixed-width font, so a table in a hook's message stays a table. It shows up to 20 lines (2,000 characters) there; all of it is in the step when you open it.
 
-Tests: 1 new (`CD570`: the live test's own text, other codes, the box, where the page uses it, and that the approval cards and what Grok gets are untouched), 6 older ones updated; all 604 pass. Next: merge, deploy, live test on Low.
+Tests: 1 new (`CD570`: the live test's own text, other codes, the box, where the page uses it, and that the approval cards and what Grok gets are untouched), 6 older ones updated; all 604 pass. Merged; deploy 176.
+
+**Tried live on Low** (the same PowerShell hooks as before, one throwaway chat, deleted after; your hooks back exactly as they were):
+- The "Blocked by your hook" box shows the hook's message line by line, like a terminal: its settings line, the "Directory:" line, the table (column names, dashes, the README.md row) lined up, then "Get-Item: Cannot find path … because it does not exist." No color codes.
+- Grok's quote of the context hook's table shows with no color codes.
+- `!printf '\033[31mred words\033[0m and plain words\n'`: the step's output shows "red words and plain words".
+- The whole page had 0 escape characters left, while the chat's stored data still had all 27. So Grok was given exactly what it was before, as in Claude Code.
+
+Cost: a few cents of Grok on Low (3 messages). No branch was made.
+
+Seen, not changed (small): Grok's own quote of a table, when it doesn't put it in a code block, shows as normal text, so the columns don't line up. That's how the page shows Grok's writing in general.
+
+Also: deploy 175 (08:07) came from another session's branch (`claude/keen-goodall-8ghmph`, Gloopy). I checked it went only to the test copy (test.gofarther.dev; its "Deploy Coder" step for gofarther.dev was skipped), so deploy 176 from main didn't undo it.
 
 ## 2026-11-13: PowerShell hooks tried live on Low (your words: "yea test the powershell hooks live too")
 
