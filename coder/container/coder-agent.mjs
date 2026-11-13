@@ -28,6 +28,8 @@ import { okHost, HEADER_RE, PREFIXES } from "./coder-secrets.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
+/** A contact entry from the owner's Vault in one line (as gloopy-agent.mjs's contactWords, kept here to import nothing of it). */
+const contactWords = (x) => { const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", "); return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · "); };
 import { checkSchedule, nextRun, whenWords, whenLocal, scheduleLine, SCHEDULES_MAX, WAKEUPS_MAX, WAKE_MIN_MINUTES, cleanWebhook, webhookLine, WEBHOOKS_MAX, HOOK_ID } from "./gloopy-schedule.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -589,7 +591,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
+export async function runCoder(deps, { messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", rules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1155,8 +1157,13 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
             for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
             // What the form holds, on the card (Grok Bot's card shows the action's inputs): never a password or card field.
             const holds = about.sends ? formWords(about.fields) : "";
-            emit({ type: "approval", id, step, site: where.site, url: where.url, why: v.why, ...cardBits(v), ...(bySite ? { bySite } : {}), ...(holds ? { detail: holds, form: true } : {}) });
-            approvalRequest = { id, args: { ...act }, step, site: where.site, url: where.url };
+            // THE ORDER CARD (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "an order card with the
+            // store, the items, Ship to, Pay with, and the Total ... the pay button, which shows the total, or Cancel"): a
+            // purchase on the site Gloopy filled a card in for carries that order.
+            const ord = v.kind === "buy" && deps.order && typeof deps.order.get === "function" ? deps.order.get(where.site) : null;
+            const order = ord ? { total: ord.total, reason: ord.reason, ...(ord.items ? { items: ord.items } : {}), ...(ord.shipTo ? { shipTo: ord.shipTo } : {}), ...(ord.payWith ? { payWith: ord.payWith } : {}) } : null;
+            emit({ type: "approval", id, step, site: where.site, url: where.url, why: v.why, ...cardBits(v), ...(bySite ? { bySite } : {}), ...(holds ? { detail: holds, form: true } : {}), ...(order ? { order } : {}) });
+            approvalRequest = { id, args: { ...act }, step, site: where.site, url: where.url, ...(order ? { order: order.total } : {}) };
             return end("done", { summary: lastSaid || "asked the owner's OK to: " + step });
           }
         }
@@ -1290,6 +1297,42 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         emit({ type: "signin", id, site, url: pass.url || "", reason: ((savedFailed ? "Your saved login for " + site + " didn't work. " : "") + reason0).slice(0, 300), user: user && user.element && plain(user.element.name) ? plain(user.element.name).slice(0, 40) : userRef ? "Username" : "", ...(offer.length ? { saved: offer.map((x) => ({ id: x.id || "", username: x.username || "", ...(x.nickname ? { nickname: String(x.nickname).slice(0, 60) } : {}), ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}) })) } : {}), ...(warn ? { warn } : {}) });
         signinRequest = { id, site, url: pass.url || "", userRef, passRef, submitRef };
         return end("done", { summary: lastSaid || "asked the owner to sign in to " + site });
+      } else if (c.name === "vault" && (c.args || {}).what === "card") {
+        // A SAVED CARD'S NICKNAME OR HINTS, WHEN THE OWNER ASKS (owner, 2026-11-13: "yes if dots and bot have it do it pls";
+        // Grok Bot's "A Bot can change ... an entry's nickname and hints, when you ask"): never its number or code.
+        const args = c.args || {};
+        const cid = plain(String(args.card || "")).slice(0, 40);
+        const what = [args.nickname !== undefined ? "nickname" : "", args.hint !== undefined ? "hints" : ""].filter(Boolean).join(" and ");
+        const known = (Array.isArray(savedCards) ? savedCards : []).find((x) => x && x.id === cid);
+        emit({ type: "bash", id: c.id, tool: "vault", verb: "Changed", command: (what ? "the " + what + " of " : "") + "your " + (known ? known.label : "saved card") });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!deps.vault || typeof deps.vault.card !== "function") { no("error: the owner's Vault can't be changed from this computer: tell them to change it in Settings → Vault"); continue; }
+        if (!cid) { no("error: give card: the card's id, as SAVED CARDS lists it"); continue; }
+        if (!what) { no("error: give nickname, hint, or both: only those change here (card numbers and security codes change only in the owner's Settings → Vault)"); continue; }
+        const r = await deps.vault.card({ id: cid, ...(args.nickname !== undefined ? { nickname: plain(scrub(String(args.nickname))).slice(0, 60) } : {}), ...(args.hint !== undefined ? { hint: plain(scrub(String(args.hint))).slice(0, 200) } : {}) });
+        if (!r || !r.ok) { no("not done: " + String((r && r.why) || "the owner's Vault didn't take it")); continue; }
+        const k = r.card || {};
+        const now = (k.nickname ? "nickname “" + k.nickname + "”" : "no nickname") + ", " + (k.hint ? "hints “" + k.hint + "”" : "no hints");
+        emit({ type: "result", id: c.id, code: 0, output: "Changed your " + (k.label || "card") + ": " + now, label: "Changed the " + what + " of your " + (k.label || "saved card") });
+        reply("changed the owner's saved card " + (k.label || "") + ": it now has " + now + ". Tell them in a few words.");
+      } else if (c.name === "vault" && (c.args || {}).what === "contact") {
+        // THE OWNER'S CONTACT INFO, KEPT OR CHANGED (owner, 2026-11-13; Grok Bot's "when you give a Bot a name, address,
+        // phone number, or email, it saves it as contact info once the task is done and tells you what it saved"; "A Bot can
+        // change contact info ... when you ask"): in their Vault, by Coder's Worker.
+        const args = c.args || {};
+        const cid = plain(String(args.contact || "")).slice(0, 40);
+        const fields = {};
+        for (const k of ["name", "line1", "line2", "city", "region", "postal", "country", "phone", "email", "nickname", "hint"]) if (typeof args[k] === "string") fields[k] = plain(scrub(args[k])).slice(0, 200);
+        emit({ type: "bash", id: c.id, tool: "vault", verb: cid ? "Changed" : "Saved", command: "your contact info" });
+        const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (!deps.vault || typeof deps.vault.contact !== "function") { no("error: the owner's Vault can't be changed from this computer: tell them to add it in Settings → Vault"); continue; }
+        if (perms.share === "deny") { no("not done: the owner's settings never allow sharing their details (" + permissionLabel("share") + "), so their contact info isn't kept or used by you."); continue; }
+        if (!Object.keys(fields).length) { no("error: give the details to keep: name, line1, city, postal, country, phone or email (and nickname or hint)"); continue; }
+        const r = await deps.vault.contact(cid ? { id: cid, change: fields } : { add: fields });
+        if (!r || !r.ok) { no("not done: " + String((r && r.why) || "the owner's Vault didn't take it")); continue; }
+        const said = contactWords(r.contact || fields);
+        emit({ type: "result", id: c.id, code: 0, output: (cid ? "Changed" : "Saved") + " in your Vault: " + said, label: (cid ? "Changed your contact info: " : "Saved your contact info: ") + said.slice(0, 160) });
+        reply((cid ? "changed" : "saved") + " the owner's contact info in their Vault: " + said + ". Tell them in a line what you " + (cid ? "changed" : "saved") + ", and that they can see or remove it in Settings → Vault.");
       } else if (c.name === "vault") {
         // A SAVED LOGIN'S NICKNAME OR HINTS, WHEN THE OWNER ASKS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's "A Bot can
         // change ... an entry's nickname and hints, when you ask"): changed in their Vault by Coder's Worker; nothing else.
@@ -1310,12 +1353,28 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("changed the owner's saved login for " + l.site + " (" + (l.username || "no username") + "): it now has " + now + ". Tell them in a few words.");
       } else if (c.name === "pay") {
         // PAYING AT A CHECKOUT (owner, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before
-        // a payment): a private card form in the chat; the owner's card (typed, or saved and only its security code typed)
-        // goes from it straight into the page's card fields, typed by Coder's service. The AI never sees it, and placing
-        // the order stays its own click, checked like any purchase.
+        // a payment): the owner's card goes straight into the page's card fields, typed by Coder's service; the AI never
+        // sees it, and placing the order stays its own click, checked like any purchase. AS GROK BOT'S (owner, 2026-11-13:
+        // "yes if dots and bot have it do it pls"): a saved card that fits fills in from the owner's Vault without asking
+        // ("A card saved in Vault fills in at checkout without asking you each time"); otherwise the private card form. The
+        // order (its items, where it ships, the card, the total) is kept for the owner's order card, and afterwards Gloopy
+        // says how it went ("Once the order is placed, the card shows what you Paid with").
         const args = c.args || {};
-        emit({ type: "bash", id: c.id, tool: "pay", verb: "Asked you for a card", command: "" });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
+        if (args.result !== undefined) {
+          const paid = String(args.result) === "paid";
+          const note = plain(scrub(String(args.note || ""))).slice(0, 300);
+          emit({ type: "bash", id: c.id, tool: "pay", verb: paid ? "Paid" : "Not paid", command: "" });
+          const o = deps.order && typeof deps.order.get === "function" ? deps.order.get("") : null;
+          if (!o) { no("error: there is no order to say this about: use pay with result right after placing an order whose card you filled in with pay"); continue; }
+          const words = paid ? "Paid " + o.total + " on " + o.site + (o.payWith ? " with " + o.payWith : "") : "Not paid on " + o.site + (note ? ": " + note : "");
+          emit({ type: "result", id: c.id, code: 0, output: words + (paid && note ? " (" + note + ")" : ""), label: words });
+          emit({ type: "paid", id: "pd" + Math.random().toString(36).slice(2, 10), ok: paid, site: o.site, total: o.total, ...(o.payWith ? { payWith: o.payWith } : {}), ...(note ? { note } : {}) });
+          if (typeof deps.order.done === "function") deps.order.done();
+          reply("noted: the owner's chat now shows " + (paid ? "it was paid" : "it was not paid") + ". Tell them in a few words.");
+          continue;
+        }
+        emit({ type: "bash", id: c.id, tool: "pay", verb: "Paying", command: "" });
         const hub = deps.browser;
         if (!hub || typeof hub.describe !== "function") { no("error: there is no browser on this computer"); continue; }
         if (perms.buy === "deny") { no("not done: the owner's settings never allow this (" + permissionLabel("buy") + "). Don't do it another way; tell the owner it is turned off in Gloopy's settings."); continue; }
@@ -1326,7 +1385,12 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         const total = plain(scrub(String(args.total || ""))).slice(0, 40), reason = plain(scrub(String(args.reason || ""))).slice(0, 300);
         if (!refs.number) { no("error: give number_ref: the number of the page's card number field, from the latest outline"); continue; }
         if (!total) { no("error: give total: the total to pay, exactly as the page shows it"); continue; }
+        if (!reason) { no("error: give reason: what is being bought, in a few words"); continue; }
         if ((refs.month && !refs.year) || (refs.year && !refs.month)) { no("error: give both month_ref and year_ref (or expiry_ref when the expiry is one field)"); continue; }
+        const cards = Array.isArray(savedCards) ? savedCards.filter((x) => x && typeof x.id === "string" && x.id) : [];
+        const named = typeof args.card === "string" ? plain(String(args.card)).trim().slice(0, 60) : "";
+        const want = named ? cards.find((x) => x.id === named || x.label === named || (x.nickname && x.nickname === named)) : null;
+        if (named && !want) { no("error: card is not one of SAVED CARDS: give its id, or leave card out to use the owner's default card"); continue; }
         const els = {};
         try { for (const [k, ref] of Object.entries(refs)) els[k] = await hub.describe(ref); } catch (e) { no("error: " + String((e && e.message) || e).slice(0, 400)); continue; }
         // Each one the field it says it is (a card's own fields by what the page calls them; a name or postal code a text field).
@@ -1337,11 +1401,32 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         if (!via || elsewhere) { no("error: " + (via ? "the " + WHAT[elsewhere] + " field is not on the same site as the card number field" : "the card number field has no web address of its own") + ": give the card fields of one payment form"); continue; }
         const site = String(els.number.host || "");
         if (!site) { no("error: the page has no web address of its own: open the shop's checkout page"); continue; }
+        // The order, for the owner's order card: what is in it and where it ships, in the page's words.
+        const items = (Array.isArray(args.items) ? args.items : []).filter((x) => x && typeof x === "object" && typeof x.name === "string" && x.name.trim()).slice(0, 20).map((x) => ({ name: plain(scrub(x.name)).slice(0, 120), ...(Number.isInteger(x.quantity) && x.quantity > 0 ? { quantity: Math.min(x.quantity, 9999) } : {}), ...(typeof x.price === "string" && x.price.trim() ? { price: plain(scrub(x.price)).slice(0, 30) } : {}) }));
+        const shipTo = plain(scrub(String(args.ship_to || ""))).slice(0, 300);
+        const order = { site, total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), payWith: "" };
+        if (deps.order && typeof deps.order.set === "function") deps.order.set(order);
+        // A SAVED CARD THAT FITS FILLS IN FROM THE VAULT (the one named, else the default card, else the only one): when its
+        // security code is kept, or the page asks for none.
+        const pick = want || cards.find((x) => x.default) || (cards.length === 1 ? cards[0] : null);
+        let tried = "";
+        if (pick && (pick.code === true || !refs.cvc) && typeof hub.payWithSaved === "function") {
+          const r = await hub.payWithSaved({ site, refs, id: pick.id });
+          if (r && r.ok) {
+            const label = String(r.label || pick.label);
+            if (deps.order && typeof deps.order.set === "function") deps.order.set({ ...order, payWith: label });
+            emit({ type: "result", id: c.id, code: 0, output: "Filled your saved " + label + " into the payment form on " + site, label: "Filled your saved " + label + " into the payment form on " + site });
+            emit({ type: "pay", id: "pc" + Math.random().toString(36).slice(2, 10), site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), fields: Object.keys(refs), filled: true, label });
+            reply("the owner's saved card (" + label + ") was filled into the page's card fields from their Vault; you never see it. Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order (that click is checked like any purchase), then use pay with result.");
+            continue;
+          }
+          tried = r && r.why ? r.why : "";
+        }
         const id = "pc" + Math.random().toString(36).slice(2, 10);
-        emit({ type: "result", id: c.id, code: 0, output: "Asked you for a card to pay " + total + " on " + site, label: "Asked you for a card to pay " + total + " on " + site });
+        emit({ type: "result", id: c.id, code: 0, output: "Asked you for a card to pay " + total + " on " + site + (tried ? " (your saved card couldn't be used: " + tried + ")" : ""), label: "Asked you for a card to pay " + total + " on " + site });
         reply("asked the owner for a card through the private form, to pay " + total + " on " + site + ". Your turn ends here; the next message says how it went. You never see the card.");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a card first" });
-        emit({ type: "pay", id, site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, fields: Object.keys(refs) });
+        emit({ type: "pay", id, site, via: via !== site ? via : "", url: String(els.number.url || ""), total, reason, ...(items.length ? { items } : {}), ...(shipTo ? { shipTo } : {}), fields: Object.keys(refs), ...(pick ? { use: pick.id } : {}) });
         cardRequest = { id, site, url: String(els.number.url || ""), total, fields: Object.keys(refs), refs };
         return end("done", { summary: lastSaid || "asked the owner for a card to pay " + total + " on " + site });
       } else if (c.name === "page") {

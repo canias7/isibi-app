@@ -62,13 +62,25 @@ export const SIGN_IN_TOOL = Object.freeze({ type: "function", function: {
  */
 export const VAULT_TOOL = Object.freeze({ type: "function", function: {
   name: "vault",
-  description: "Change a saved login's nickname or hints in the owner's Vault, when the owner asks you to (\"call my work GitHub login Work\", \"use that one for work\"). Name the login as SAVED LOGINS lists it: its site, and its username when the site has several. Give nickname, hint, or both (an empty one takes it away). Passwords, usernames and websites change only in the owner's Settings → Vault, and logins are removed only there: tell them so when they ask for that.",
+  description: "Keep the owner's Vault up to date, when they ask you to or give you details. what: login (default): change a saved login's nickname or hints (\"call my work GitHub login Work\", \"use that one for work\"); name it as SAVED LOGINS lists it: its site, and its username when the site has several. what: card: change a saved card's nickname or hints (card: its id from SAVED CARDS); never its number or security code. what: contact: when the owner gives you a name, an address, a phone number or an email for shipping or billing, save it as contact info once the task is done and tell them what you saved (leave contact out to add an entry; give contact: an entry's id from THE OWNER'S CONTACT INFO to change it); they can tell you not to keep something. An empty nickname or hint takes it away. Passwords, usernames, websites, card numbers and security codes change only in the owner's Settings → Vault, and logins and cards are removed only there: tell them so when they ask for that.",
   parameters: { type: "object", properties: {
-    site: { type: "string", description: "the login's website, as SAVED LOGINS lists it, e.g. github.com" },
-    username: { type: "string", description: "the login's username, when the owner saved several for the site" },
-    nickname: { type: "string", description: "its new nickname (a short name, like \"Work GitHub\"); empty takes it away" },
+    what: { type: "string", enum: ["login", "card", "contact"], description: "what to change: a saved login (default), a saved card, or contact info" },
+    site: { type: "string", description: "a login: its website, as SAVED LOGINS lists it, e.g. github.com" },
+    username: { type: "string", description: "a login: its username, when the owner saved several for the site" },
+    card: { type: "string", description: "a card: its id, as SAVED CARDS lists it" },
+    contact: { type: "string", description: "contact info: the id of the entry to change, as THE OWNER'S CONTACT INFO lists it (leave it out to add one)" },
+    nickname: { type: "string", description: "its new nickname (a short name, like \"Work GitHub\" or \"Home\"); empty takes it away" },
     hint: { type: "string", description: "its new hints: when to use it, like \"Use for work\"; empty takes them away" },
-  }, required: ["site"] },
+    name: { type: "string", description: "contact info: the person's full name" },
+    line1: { type: "string", description: "contact info: the street address" },
+    line2: { type: "string", description: "contact info: the flat, suite or floor, if any" },
+    city: { type: "string", description: "contact info: the city or town" },
+    region: { type: "string", description: "contact info: the state, province or county" },
+    postal: { type: "string", description: "contact info: the postal or ZIP code" },
+    country: { type: "string", description: "contact info: the country" },
+    phone: { type: "string", description: "contact info: the phone number" },
+    email: { type: "string", description: "contact info: the email address" },
+  } },
 } });
 
 /**
@@ -79,7 +91,7 @@ export const VAULT_TOOL = Object.freeze({ type: "function", function: {
  */
 export const PAY_TOOL = Object.freeze({ type: "function", function: {
   name: "pay",
-  description: "At a checkout the owner asked for, ask them for a payment card through a private form: they type a card (or pick one they saved and type only its security code), and it goes straight into the page's card fields (you never see it). Give the numbers, from the latest outline, of the card number field and of whichever of these the page has: the expiry date field (or its month and year), the security code field (CVC), the name on card, and the billing postal code next to the card fields; the total to pay, exactly as the page shows it; and what is being bought. Your turn ends here; the next message says how it went. It only fills in the card: placing the order is your next step (a click, checked like any purchase). Never type card details yourself and never ask for them in the chat. When the shop already has the owner's card and asks only for its security code, or the bank asks to confirm the payment, use handoff.",
+  description: "At a checkout the owner asked for, fill a payment card into the page's card fields; you never see it. If the owner saved a card that fits (SAVED CARDS), it fills in straight from their Vault without asking them: give card to pick one by its hints, or leave it out for their default card. Otherwise a private form asks them for a card (or for a saved card's security code), your turn ends there, and the next message says how it went. Give the numbers, from the latest outline, of the card number field and of whichever of these the page has: the expiry date field (or its month and year), the security code field (CVC), the name on card, and the billing postal code next to the card fields; the total to pay, exactly as the page shows it; what is being bought; and, for the owner's order card, the items and where it ships, as the page shows them. It only fills in the card: placing the order is your next step (a click, checked like any purchase; when the owner's settings say to ask first, they see the order card and choose Pay or Cancel). After you placed the order, look at the page and call pay again with result (paid or not paid, and note: what the page says), so the owner's chat shows what they paid with. Never type card details yourself and never ask for them in the chat. When the shop already has the owner's card and asks only for its security code, or the bank asks to confirm the payment, use handoff.",
   parameters: { type: "object", properties: {
     number_ref: { type: "string", description: "the card number field's number, e.g. f2e7 (payment fields are often in a frame of their own)" },
     expiry_ref: { type: "string", description: "the expiry date field (MM / YY), when the page has one" },
@@ -90,7 +102,12 @@ export const PAY_TOOL = Object.freeze({ type: "function", function: {
     postal_ref: { type: "string", description: "the billing postal or ZIP code field next to the card fields, when the page has one" },
     total: { type: "string", description: "the total to pay, exactly as the page shows it, e.g. €72.00" },
     reason: { type: "string", description: "what is being bought, in a few words" },
-  }, required: ["number_ref", "total", "reason"] },
+    card: { type: "string", description: "which saved card to pay with: its id from SAVED CARDS (leave it out for the owner's default card)" },
+    items: { type: "array", description: "what is in the order, as the page shows it (for the owner's order card)", items: { type: "object", properties: { name: { type: "string" }, quantity: { type: "integer" }, price: { type: "string" } }, required: ["name"] } },
+    ship_to: { type: "string", description: "where the order ships, as the page shows it (name and address), or \"nothing to ship\"" },
+    result: { type: "string", enum: ["paid", "not paid"], description: "after you placed the order: whether the page shows it went through (only this, total and note are needed then)" },
+    note: { type: "string", description: "with result: what the page says (an order number, or why it didn't go through)" },
+  } },
 } });
 
 /**
@@ -232,7 +249,7 @@ HOW YOU WORK
 - For a big job with parts that don't depend on each other (compare four hotels, research three topics), give the parts to helpers: they work at the same time and report back, and you put it together. For one quick thing, do it yourself.
 - For a quick fact, search; to read one page, web_fetch; to use a site (search forms, filters, menus, pages behind buttons, prices that change), your browser. Look at the outline and the screenshot before each click, and say what you found with the page's address.
 - When a site needs the owner's account, use sign_in: they sign in on a private card (or with a login they saved in their Vault, or by taking over your browser) and you never see the password. Creating an account they asked for: type its details yourself, then sign_in with new_password_ref makes its password and keeps it in their Vault; never make one up or ask them for one. To rename a saved login or change its hints when they ask, use vault. When the site then asks for a code it sent them, use sign_in again with code_ref. Never type passwords or codes yourself, and never ask for them in the chat. If the card warns that the page may be fake, don't argue the owner out of it.
-- At a checkout the owner asked for, use pay: they give a card on a private form (or pick one they saved) and it goes straight into the page; you never see it. Then check the page and place the order yourself (that click is checked like any purchase). Never type card numbers yourself.
+- At a checkout the owner asked for, use pay: a card they saved fills in straight from their Vault (else they give one on a private form) and it goes into the page; you never see it. Then check the page and place the order yourself (that click is checked like any purchase), and after it, use pay with result. Never type card numbers yourself. Type the owner's shipping and billing details from THE OWNER'S CONTACT INFO; when they give you new ones, save them with vault once the task is done and say so.
 - When a job needs an API key or token for a site's API, use request_secret: the owner types it on a private card and it is added to your requests to that site; you never see it. Never ask for keys, passwords or card numbers in the chat.
 - When a step needs the owner themselves (a CAPTCHA, single sign-on, an approval on another device, a QR code to scan, a bank's check of a payment), use handoff: they take over your browser, do it, and hand it back.
   Its card shows your browser live, so a QR code can be scanned right from it: hand it off rather than telling the
@@ -281,6 +298,25 @@ export const GLOOPY_NOTES_MAX = 25000;
  * hints where there is a choice to make (Grok Bot's Bots "can see ... which logins you saved, so it can pick the right
  * entry"); never a password. A big Vault (a password manager's export) is cut short: sign_in finds any site's itself.
  */
+/**
+ * THE OWNER'S SAVED CARDS, AS GLOOPY IS TOLD THEM (owner, 2026-11-13; the Vault): each one's id, name ("Visa ending 4242"),
+ * nickname and hints, the default card, whether it has expired, and whether it fills in without the form (its security
+ * code is kept). Never a number, a code or an expiry date.
+ */
+export function savedCardsLine(list) {
+  const cards = (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", label: x } : x)).filter((x) => x && typeof x.label === "string").slice(0, 10);
+  if (!cards.length) return "none (pay asks the owner for a card on its form).";
+  return "\n" + cards.map((x) => "- " + (x.id ? x.id + " · " : "") + String(x.label).slice(0, 60) + (x.nickname ? " “" + String(x.nickname).slice(0, 60) + "”" : "") + (x.default ? " (default)" : "") + (x.expired ? " · expired: don't pay with it" : "") + (x.hint ? " · hints: “" + String(x.hint).slice(0, 200) + "”" : "") + (x.id ? " · " + (x.code === true ? "fills in without asking" : "the form asks for its security code") : "")).join("\n");
+}
+/** A contact entry in one line (the Vault's contactLine), for Gloopy. */
+export function contactWords(x) {
+  const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", ");
+  return [x.nickname ? "“" + x.nickname + "”" : "", [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · ") + (x.hint ? " (hints: “" + x.hint + "”)" : "");
+}
+export function contactsLine(list) {
+  const all = (Array.isArray(list) ? list : []).filter((x) => x && typeof x === "object").slice(0, 20);
+  return all.length ? "\n" + all.map((x) => "- " + (x.id ? x.id + " · " : "") + contactWords(x)).join("\n") : "none yet (when the owner gives you their name, address, phone or email for a task, save it with vault).";
+}
 export function savedLoginsLine(list) {
   const by = new Map();
   for (const x of Array.isArray(list) ? list : []) {
@@ -298,7 +334,7 @@ export function savedLoginsLine(list) {
   return shown.map(say).join(", ") + (all.length > shown.length ? ", and " + (all.length - shown.length) + " more sites (sign_in finds a site's own)." : ".");
 }
 
-export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], webhooks = [], files = [], background = false } = {}) {
+export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], files = [], background = false } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
   return [
@@ -320,7 +356,10 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     // Saved logins turned off (found live, 2026-11-12: the card said "with the saved practice account" while they were).
     permissions && permissions.login === "deny" ? "SAVED LOGINS: turned off in the owner's settings (Sign in with saved logins: Never). sign_in always shows the owner the card to type their login: don't mention saved logins, and don't give login."
       : "SAVED LOGINS (in the owner's Vault; sign_in uses one for you, and you never see it; where a site has several, give login: the username that fits the job and their hints): " + savedLoginsLine(savedLogins),
-    "SAVED CARDS (the owner saved these; pay offers them on its form, and you never see their numbers): " + (Array.isArray(savedCards) && savedCards.length ? savedCards.slice(0, 10).join(", ") : "none."),
+    "SAVED CARDS (in the owner's Vault; pay fills one in for you, and you never see its number or security code): " + savedCardsLine(savedCards),
+    // THE OWNER'S CONTACT INFO (owner, 2026-11-13; Grok Bot's "It can see your contact info ... and type contact details
+    // for you"): not while their settings say never to share their details.
+    permissions && permissions.share === "deny" ? "THE OWNER'S CONTACT INFO: sharing their details is turned off in their settings (Share your details: Never), so you are not given it." : "THE OWNER'S CONTACT INFO (in their Vault; you may see it: use it for the shipping and billing details of what they asked for, and keep it up to date with vault): " + contactsLine(contacts),
     "YOUR PAGES (page list says more): " + (Array.isArray(pages) && pages.length ? "\n" + pages.slice(0, 30).map((p) => "- " + String(p.id || "") + " · " + String(p.title || "") + " · version " + (Number(p.version) || 1)).join("\n") : "none yet."),
     "YOUR SCHEDULES (approved by the owner; schedule list says more): " + (Array.isArray(schedules) && schedules.length ? "\n" + schedules.slice(0, 20).map(scheduleLine).join("\n") : "none."),
     // ALL OF IT PAUSED BY THE OWNER (the audit, 2026-11-10): the owner's /pause; only their /resume (or their page) undoes it.

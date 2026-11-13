@@ -151,9 +151,13 @@ export function pushesFor(events, meta, now = Date.now()) {
     if (!e || typeof e !== "object") continue;
     // A card from a run the owner did not start waits 30 minutes for them (the audit, 2026-11-10): the push says so.
     const until = Number(e.expires) > now ? " · answer within " + Math.max(1, Math.round((Number(e.expires) - now) / 60000)) + " min" : "";
+    // A card filled in from the owner's Vault (2026-11-13) waits for nothing.
+    if (e.type === "pay" && e.filled) continue;
     if (until && ["approval", "signin", "pay", "handoff"].includes(e.type)) { const one = pushesFor([{ ...e, expires: 0 }], meta, now)[0]; if (one) out.push({ ...one, title: one.title + until }); continue; }
     if (e.type === "notify" && e.text) out.push({ kind: "decides", title: who + tail, body: e.text });
     else if (e.type === "question") out.push({ kind: "actions", title: who + " needs your answer" + tail, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
+    // THE ORDER CARD (2026-11-13): what it would pay, and where.
+    else if (e.type === "approval" && e.order && typeof e.order === "object") out.push({ kind: "actions", title: who + " needs your OK to pay" + tail, body: String(e.order.total || "") + (e.site ? " on " + e.site : "") + (e.order.reason ? ": " + e.order.reason : "") });
     else if (e.type === "approval") out.push({ kind: "actions", title: who + " needs your OK" + tail, body: String(e.step || "") + (e.site ? " on " + e.site : "") + (e.why ? ": " + e.why : "") });
     else if (e.type === "signin") out.push({ kind: "actions", title: who + " asks you to sign in" + tail, body: "To " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
     else if (e.type === "pay") out.push({ kind: "actions", title: who + " needs your card" + tail, body: "To pay " + String(e.total || "") + " on " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });

@@ -11,6 +11,30 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Paying, built like Grok Bot's (your words: "yes if dots and bot have it do it pls")
+
+dots' docs say nothing about paying, so this follows Grok Bot's docs (its Vault and its order card).
+
+**Built:**
+1. **Cards in Settings → Vault.** The Vault now has three tabs, Logins, Cards and Contact info, and New item offers Login, Card, Contact info and Import. Each card shows its name, last 4 digits, expiry, nickname and hints, "Default" on your default card, and whether it fills in without asking. You can add one, edit it (expiry, security code, name, nickname, hints, default) or remove it. To change a card's number, remove it and add it again, as in Grok Bot.
+2. **A card from a photo.** New item → Card has "Scan with camera" and "Upload a photo". The photo is read once to fill the form; you check it, type the security code, and save. The photo isn't kept, and Gloopy never sees it.
+3. **A saved card fills in without the form.** This is the big change. Like Grok Bot, a saved card now keeps its security code, sealed. When Gloopy reaches a checkout, it uses the card you named, else your default card, else your only card, and fills it in straight from your Vault without asking you. Gloopy still never sees the number or the code. You see a card in the chat: "Gloopy filled your saved Visa ending 4242 into the payment form… Filled into the page. Secret values were never shown to Gloopy." If no saved card fits, or one has no code saved on a page that asks for one, the card form appears as before.
+   - **To approve every payment yourself:** keep Buy or pay on Ask (Permissions). Then the order card always asks before paying. Grok Bot's own advice is to not save the card; that works here too.
+   - The card form's "Save to your Vault" box is now ticked by default, as Grok Bot's is. Untick it to use a card just once.
+   - The first card you save becomes your default.
+4. **The order card.** With Buy or pay on Ask, placing the order waits on a card showing the store, the items, Ship to, Pay with, the Total, and two buttons, **Pay €72.00** and **Cancel**. Afterwards it shows "Paid with Visa ending 4242", "Not paid", or "Cancelled. Nothing was charged."
+5. **A receipt line.** After placing an order, Gloopy says how it went: "Paid €72.00 on shop.example with Visa ending 4242", or "Not paid", with what the page said.
+6. **"Filled into the page" or "Could not fill into the page"** now appears on every private form after you use it, for cards and sign-ins alike.
+7. **Contact info.** Settings → Vault → Contact info holds names, addresses, phones and emails. Gloopy can see it, as Grok Bot's can, and uses it for shipping and billing. When you give Gloopy details in a chat, it saves them and tells you. It can also change them, or a card's nickname and hints, when you ask. With "Share your details" on Never, Gloopy isn't given your contact info and won't save any.
+8. **Gloopy never sees a card's number, code or expiry date,** only its name, last 4 digits, nickname, hints, whether it's the default, and whether it has expired.
+
+**Not built:**
+- **Wallets** (Link, X Money, Shop Pay) and Link's one-time cards: these need accounts and agreements with those companies.
+- **Batches of up to 500 payments under one OK:** a business feature, and the practice shop can't finish even one payment.
+- **"Save to Vault" when you attach a photo of a card in the chat:** Gloopy would see the photo first. Use New item → Card → Upload a photo instead.
+
+Tests GL139, GL140, GL141, plus older tests updated (GL51, GL52, GL54, GL55, GL105, GL112, GL130, GL132).
+
 ## 2026-11-13: For the Coder session: a message can get stuck the same way Gloopy's did (your words: "note coder i will let the other session know")
 
 Not changed here (you said to leave Coder to the other session).

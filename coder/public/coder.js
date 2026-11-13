@@ -361,7 +361,7 @@
   async function showGloopySettings() {
     if (!S.project) return;
     const base = '/projects/' + encodeURIComponent(S.project.id);
-    const [pr, rr, sr, or, gr] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites'), call(base + '/options'), call(base + '/signins')]);
+    const [pr, rr, sr, or, gr, cr, kr] = await Promise.all([call(base + '/permissions'), call(base + '/rules'), call(base + '/sites'), call(base + '/options'), call(base + '/signins'), call(base + '/cards'), call(base + '/contacts')]);
     if (pr.status !== 200 || rr.status !== 200 || sr.status !== 200 || or.status !== 200) { note(((pr.data || rr.data || sr.data || or.data || {}).error) || 'Gloopy’s settings could not be opened.'); return; }
     const st = {
       perms: pr.data.permissions || {}, permList: pr.data.list || [], permModes: pr.data.modes || ['ask', 'allow', 'deny'],
@@ -370,13 +370,19 @@
       options: or.data.options || { monitor: true },
       // Where its browser is signed in, and your saved logins (the /signins card's), when they could be had.
       signins: gr.status === 200 && gr.data ? { sites: gr.data.sites || [], saved: gr.data.saved || [] } : null,
+      // The Vault's cards and contact info (2026-11-13): never a card's number or security code, only whether one is kept.
+      cards: cr.status === 200 && cr.data ? cr.data.cards || [] : null,
+      contacts: kr.status === 200 && kr.data ? kr.data.contacts || [] : null,
       edit: '', editText: '', editMode: '', ruleText: '', ruleMode: 'ask', siteHost: '', siteMode: 'ask', outHost: '', note: '', busy: false,
       // The open page (the one you had open last, else Permissions) and the add form open on it (a rule's kind, or a site).
       page: GSET_PAGES.some(([k]) => k === S.gsetPage) ? S.gsetPage : 'perms', ruleOpen: '', siteOpen: false,
       // The Vault (2026-11-12): its search, what is open (`new`, `import`, or a login's id to change), the New item menu,
       // the form's words (never its password: that is read from the box when saved), a removal to confirm, and an
       // export read on this device (its rows, passwords and all, only until they are imported or cancelled).
-      vault: { q: '', open: '', menu: false, site: '', user: '', nick: '', hint: '', sure: '', imp: null },
+      vault: { q: '', open: '', menu: false, site: '', user: '', nick: '', hint: '', sure: '', imp: null,
+        // Its tabs (2026-11-13: Grok Bot's Vault holds logins, cards and contact info), and the card and contact forms' words
+        // (never a card's number, expiry or security code: those are read from their boxes when saved).
+        tab: 'logins', card: { nick: '', hint: '', name: '', postal: '', def: false, forget: false }, ct: {} },
     };
     const wrap = document.createElement('div'); wrap.className = 'cd-sure cd-gset-wrap';
     const box = document.createElement('div'); box.className = 'cd-sure-box cd-gset'; box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true'); box.setAttribute('aria-label', 'Gloopy’s settings');
@@ -407,27 +413,86 @@
         '<ul class="cd-vault-review">' + imp.rows.slice(0, 300).map((r) => '<li class="' + (r.status === 'Ready' ? 'is-ok' : 'is-skip') + '"><span><b>' + esc(r.site) + '</b>' + (r.username ? '<small>' + esc(r.username) + '</small>' : '') + '</span><em>' + esc(r.status) + '</em></li>').join('') + (imp.rows.length > 300 ? '<li class="is-skip"><span>And ' + (imp.rows.length - 300) + ' more rows</span></li>' : '') + '</ul>' +
         '<div class="cd-gset-addrow cd-vault-btns"><span class="cd-vault-sp"></span><button type="button" data-vault="cancel">Cancel</button><button type="button" class="cd-gset-go" data-vault="do-import"' + (st.busy || !ready.length ? ' disabled' : '') + '>Import ' + ready.length + (ready.length === 1 ? ' login' : ' logins') + '</button></div></div>';
     };
+    // CARDS AND CONTACT INFO IN THE VAULT (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's Vault: "Pick
+    // Login, Card, or Contact info", "cards show only their last four digits", "Under Hints, tell your Bots when to use an
+    // entry", "Default payment method, which Grok Bot pays with first"). A card's number, expiry and security code are read
+    // from their boxes when it is saved, never kept in this page's state; a saved card's number is never shown again.
+    const cardIn = (id, label, attrs) => '<label class="cd-gset-l" for="' + id + '">' + label + '</label><input id="' + id + '" class="cd-gset-in" ' + attrs + PM_OFF + ' spellcheck="false">';
+    const cardForm = (c) => {
+      const k = st.vault.card;
+      return '<form class="cd-vault-form" data-gs="card-save"' + (c ? ' data-id="' + esc(c.id) + '"' : '') + '>' +
+        (c ? '<p class="cd-vault-cardt">' + ICON.cardsm + '<b>' + esc(c.brand) + ' ending ' + esc(c.last4) + '</b><small>To change its number, remove it and add it again.</small></p>'
+          // FROM A PHOTO (Grok Bot's "Scan with camera or Upload a photo to fill it from the card, or type it in").
+          : '<div class="cd-vault-scan"><label class="cd-gset-pill cd-vault-file"><input type="file" id="gsCardCam" accept="image/*" capture="environment"> Scan with camera</label><label class="cd-gset-pill cd-vault-file"><input type="file" id="gsCardPhoto" accept="image/*"> Upload a photo</label></div>' +
+            (st.vault.scanning ? '<p class="cd-gset-hint">Reading the card…</p>' : '<p class="cd-gset-hint">The photo is read once to fill this form, and isn’t kept. Gloopy never sees it. Check what it filled in.</p>') +
+            cardIn('gsCardNumber', 'Card number', 'type="text" inputmode="numeric" autocomplete="off" placeholder="1234 1234 1234 1234" maxlength="23"')) +
+        '<div class="cd-pay-two"><div>' + cardIn('gsCardExp', 'Expiry date', 'type="text" inputmode="numeric" autocomplete="off" placeholder="MM / YY" maxlength="7"' + (c ? ' value="' + esc(String(c.month).padStart(2, '0') + ' / ' + String(c.year).slice(-2)) + '"' : '')) + '</div>' +
+        '<div>' + cardIn('gsCardCvc', 'Security code' + (c ? ' <small>(' + (c.code ? 'empty keeps the saved one' : 'none saved yet') + ')</small>' : ''), 'type="password" inputmode="numeric" autocomplete="off" placeholder="CVC" maxlength="4"') + '</div></div>' +
+        '<label class="cd-gset-l" for="gsCardName">Name on card <small>(optional)</small></label><input id="gsCardName" class="cd-gset-in" type="text" maxlength="100" value="' + esc(k.name) + '" autocomplete="off">' +
+        '<label class="cd-gset-l" for="gsCardPostal">Billing postal code <small>(' + (c ? 'empty keeps the saved one' : 'optional') + ')</small></label><input id="gsCardPostal" class="cd-gset-in" type="text" maxlength="12" value="' + esc(k.postal) + '" autocomplete="off">' +
+        '<label class="cd-gset-l" for="gsCardNick">Nickname <small>(optional)</small></label><input id="gsCardNick" class="cd-gset-in" type="text" maxlength="60" placeholder="A short name, like “Work card”" value="' + esc(k.nick) + '" autocomplete="off">' +
+        '<label class="cd-gset-l" for="gsCardHint">Hints <small>(optional)</small></label><input id="gsCardHint" class="cd-gset-in" type="text" maxlength="200" placeholder="When Gloopy should use it, like “Use for work purchases”" value="' + esc(k.hint) + '" autocomplete="off">' +
+        '<label class="cd-sign-save"><input type="checkbox" id="gsCardDefault"' + (k.def ? ' checked' : '') + '> Default payment method: Gloopy pays with this card first</label>' +
+        (c && c.code ? '<label class="cd-sign-save"><input type="checkbox" id="gsCardForget"' + (k.forget ? ' checked' : '') + '> Forget its security code, so the card form asks for it each time</label>' : '') +
+        '<div class="cd-gset-addrow cd-vault-btns">' + (c ? '<button type="button" class="cd-vault-rm" data-card-remove="' + esc(c.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.vault.sure === c.id ? 'Remove for good?' : 'Remove') + '</button>' : '') +
+        '<span class="cd-vault-sp"></span><button type="button" data-vault="cancel">Cancel</button><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Save card</button></div></form>';
+    };
+    const CT_PARTS = [['name', 'Full name', 'autocomplete="off"'], ['line1', 'Street address', 'autocomplete="off"'], ['line2', 'Flat, suite or floor <small>(optional)</small>', 'autocomplete="off"'], ['city', 'City', 'autocomplete="off"'], ['region', 'State or region', 'autocomplete="off"'], ['postal', 'Postal code', 'autocomplete="off"'], ['country', 'Country', 'autocomplete="off"'], ['phone', 'Phone', 'type="tel" autocomplete="off"'], ['email', 'Email', 'type="email" autocomplete="off"']];
+    const contactForm = (x) => '<form class="cd-vault-form" data-gs="contact-save"' + (x ? ' data-id="' + esc(x.id) + '"' : '') + '>' +
+      CT_PARTS.map(([k, label, attrs]) => '<label class="cd-gset-l" for="gsCt_' + k + '">' + label + '</label><input id="gsCt_' + k + '" class="cd-gset-in" ' + (/type=/.test(attrs) ? '' : 'type="text" ') + attrs + ' maxlength="200" value="' + esc(st.vault.ct[k] || '') + '">').join('') +
+      '<label class="cd-gset-l" for="gsCt_nickname">Nickname <small>(optional)</small></label><input id="gsCt_nickname" class="cd-gset-in" type="text" maxlength="60" placeholder="A short name, like “Home” or “Work”" value="' + esc(st.vault.ct.nickname || '') + '" autocomplete="off">' +
+      '<label class="cd-gset-l" for="gsCt_hint">Hints <small>(optional)</small></label><input id="gsCt_hint" class="cd-gset-in" type="text" maxlength="200" placeholder="When Gloopy should use it, like “Ship gifts here”" value="' + esc(st.vault.ct.hint || '') + '" autocomplete="off">' +
+      '<div class="cd-gset-addrow cd-vault-btns">' + (x ? '<button type="button" class="cd-vault-rm" data-contact-remove="' + esc(x.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (st.vault.sure === x.id ? 'Remove for good?' : 'Remove') + '</button>' : '') +
+      '<span class="cd-vault-sp"></span><button type="button" data-vault="cancel">Cancel</button><button type="submit" class="cd-gset-go"' + (st.busy ? ' disabled' : '') + '>Save contact info</button></div></form>';
+    const placeOf = (x) => [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(' '), x.country].filter(Boolean).join(', ');
     const vaultHTML = () => {
-      const v = st.vault, all = st.signins ? st.signins.saved : null;
+      const v = st.vault, all = st.signins ? st.signins.saved : null, cards = st.cards || [], contacts = st.contacts || [];
       const head = '<div class="cd-vault-head"><h2 class="cd-gset-pt">Vault</h2><span class="cd-vault-new"><button type="button" class="cd-vault-newbtn" data-vault="menu" aria-haspopup="menu" aria-expanded="' + (v.menu ? 'true' : 'false') + '"' + (st.busy || !all ? ' disabled' : '') + '>New item ' + ICON.chev + '</button>' +
-        (v.menu ? '<span class="cd-vault-menu" role="menu"><button type="button" role="menuitem" data-vault="new">' + ICON.key + 'Login</button><button type="button" role="menuitem" data-vault="import">' + ICON.doc + 'Import from CSV…</button></span>' : '') + '</span></div>';
+        (v.menu ? '<span class="cd-vault-menu" role="menu"><button type="button" role="menuitem" data-vault="new">' + ICON.key + 'Login</button><button type="button" role="menuitem" data-vault="new-card">' + ICON.cardsm + 'Card</button><button type="button" role="menuitem" data-vault="new-contact">' + ICON.person + 'Contact info</button><button type="button" role="menuitem" data-vault="import">' + ICON.doc + 'Import from CSV…</button></span>' : '') + '</span></div>';
       if (!all) return '<section class="cd-vault">' + head + '<p class="cd-gset-none">Your Vault couldn’t be loaded. Close this and try again.</p></section>';
       const q = v.q.trim().toLowerCase();
-      const shown = all.filter((l) => !q || [l.site, l.username, l.nickname, l.hint].some((x) => String(x || '').toLowerCase().includes(q))).slice().reverse();
+      const hit = (xs) => !q || xs.some((x) => String(x || '').toLowerCase().includes(q));
+      const bar = '<div class="cd-vault-bar"><span class="cd-vault-tabs" role="tablist">' + [['logins', 'Logins', all.length], ['cards', 'Cards', cards.length], ['contacts', 'Contact info', contacts.length]].map(([k, label, n]) => '<button type="button" role="tab" class="cd-vault-tab' + (v.tab === k ? ' is-on' : '') + '" data-vault-tab="' + k + '" aria-selected="' + (v.tab === k ? 'true' : 'false') + '">' + label + ' <i>' + n + '</i></button>').join('') + '</span><input id="gsVaultQ" class="cd-vault-q" type="search" placeholder="Search Vault" value="' + esc(v.q) + '" aria-label="Search Vault" autocomplete="off"></div>';
+      const list = (rows, more) => '<div class="cd-gset-card cd-vault-card"><ul class="cd-gset-list cd-vault-list">' + rows.slice(0, 200).join('') + '</ul></div>' + (more || '');
+      if (v.tab === 'cards') {
+        if (st.cards === null) return '<section class="cd-vault">' + head + bar + '<p class="cd-gset-none">Your cards couldn’t be loaded. Close this and try again.</p></section>';
+        const shown = cards.filter((c) => hit([c.brand, c.last4, c.nickname, c.hint, c.name])).slice().reverse();
+        const row = (c) => v.open === c.id ? '<li class="cd-vault-item is-open">' + cardForm(c) + '</li>'
+          : '<li class="cd-vault-item"><span class="cd-vault-ic">' + ICON.cardsm + '</span><span class="cd-gset-text">' + (c.nickname ? '<b class="cd-vault-nick">' + esc(c.nickname) + '</b><small>' + esc(c.brand) + ' ending ' + esc(c.last4) + ' · ' : '<b>' + esc(c.brand) + ' ending ' + esc(c.last4) + '</b><small>') + 'Expires ' + esc(String(c.month).padStart(2, '0') + '/' + String(c.year).slice(-2)) + (c.name ? ' · ' + esc(c.name) : '') + '</small>' +
+            '<small class="cd-vault-tags">' + (c.default ? '<span class="cd-vault-tag is-def">Default</span>' : '') + '<span class="cd-vault-tag">' + (c.code ? 'Fills in without asking' : 'Asks for its security code') + '</span></small>' + (c.hint ? '<small class="cd-vault-hint">' + esc(c.hint) + '</small>' : '') + '</span>' +
+            '<span class="cd-gset-btns"><button type="button" data-card-edit="' + esc(c.id) + '"' + (st.busy ? ' disabled' : '') + '>Edit</button><button type="button" data-card-remove="' + esc(c.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (v.sure === c.id ? 'Remove for good?' : 'Remove') + '</button></span></li>';
+        return '<section class="cd-vault">' + head + bar + (v.open === 'new-card' ? cardForm(null) : '') +
+          (!cards.length ? '<p class="cd-gset-none cd-vault-empty">No cards yet. Add one with New item, or keep “Save to your Vault” ticked on a card form.</p>'
+            : !shown.length ? '<p class="cd-gset-none cd-vault-empty">No card matches “' + esc(v.q.trim()) + '”.</p>' : list(shown.map(row))) +
+          '<p class="cd-vault-foot">Gloopy never sees a saved card’s number or security code. It sees each card’s name, last 4 digits and hints, so it can pick the right one, and its computer fills the card in. A saved card fills in at checkout without asking you; with Buy or pay on Ask (in Permissions), you still see each order and choose Pay or Cancel.</p></section>';
+      }
+      if (v.tab === 'contacts') {
+        if (st.contacts === null) return '<section class="cd-vault">' + head + bar + '<p class="cd-gset-none">Your contact info couldn’t be loaded. Close this and try again.</p></section>';
+        const shown = contacts.filter((x) => hit([x.name, placeOf(x), x.phone, x.email, x.nickname, x.hint])).slice().reverse();
+        const row = (x) => v.open === x.id ? '<li class="cd-vault-item is-open">' + contactForm(x) + '</li>'
+          : '<li class="cd-vault-item"><span class="cd-vault-ic">' + ICON.person + '</span><span class="cd-gset-text">' + (x.nickname ? '<b class="cd-vault-nick">' + esc(x.nickname) + '</b><small>' + esc(x.name || '') + '</small>' : '<b>' + esc(x.name || x.email || x.phone || 'Contact info') + '</b>') +
+            (placeOf(x) ? '<small>' + esc(placeOf(x)) + '</small>' : '') + ((x.phone || x.email) ? '<small>' + esc([x.phone, x.email].filter(Boolean).join(' · ')) + '</small>' : '') + (x.hint ? '<small class="cd-vault-hint">' + esc(x.hint) + '</small>' : '') + '</span>' +
+            '<span class="cd-gset-btns"><button type="button" data-contact-edit="' + esc(x.id) + '"' + (st.busy ? ' disabled' : '') + '>Edit</button><button type="button" data-contact-remove="' + esc(x.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (v.sure === x.id ? 'Remove for good?' : 'Remove') + '</button></span></li>';
+        return '<section class="cd-vault">' + head + bar + (v.open === 'new-contact' ? contactForm(null) : '') +
+          (!contacts.length ? '<p class="cd-gset-none cd-vault-empty">No contact info yet. Add your name and address with New item, or give them to Gloopy in a chat.</p>'
+            : !shown.length ? '<p class="cd-gset-none cd-vault-empty">No contact info matches “' + esc(v.q.trim()) + '”.</p>' : list(shown.map(row))) +
+          '<p class="cd-vault-foot">Gloopy can see your contact info, to fill in shipping and billing details for you. When you give it a name, address, phone number or email in a chat, it saves them here and tells you.</p></section>';
+      }
+      const shown = all.filter((l) => hit([l.site, l.username, l.nickname, l.hint])).slice().reverse();
       const row = (l) => v.open === l.id ? '<li class="cd-vault-item is-open">' + vaultForm(l) + '</li>'
         : '<li class="cd-vault-item"><span class="cd-vault-ic">' + ICON.key + '</span><span class="cd-gset-text">' + (l.nickname ? '<b class="cd-vault-nick">' + esc(l.nickname) + '</b><small><span class="cd-gset-host">' + esc(l.site) + '</span> · ' : '<b class="cd-gset-host">' + esc(l.site) + '</b><small>') + esc(l.username || 'No username') + (l.made ? ' · <span class="cd-vault-made">Password made by Gloopy</span>' : '') + '</small>' + (l.hint ? '<small class="cd-vault-hint">' + esc(l.hint) + '</small>' : '') + '</span>' +
           '<span class="cd-gset-btns"><button type="button" data-vault-edit="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>Edit</button><button type="button" data-vault-remove="' + esc(l.id) + '"' + (st.busy ? ' disabled' : '') + '>' + (v.sure === l.id ? 'Remove for good?' : 'Remove') + '</button></span></li>';
-      return '<section class="cd-vault">' + head +
-        '<div class="cd-vault-bar"><span class="cd-vault-tab is-on">Logins <i>' + all.length + '</i></span><input id="gsVaultQ" class="cd-vault-q" type="search" placeholder="Search Vault" value="' + esc(v.q) + '" aria-label="Search Vault" autocomplete="off"></div>' +
+      return '<section class="cd-vault">' + head + bar +
         (v.open === 'new' ? vaultForm(null) : v.open === 'import' ? vaultImport() : '') +
         (!all.length ? '<p class="cd-gset-none cd-vault-empty">Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.</p>'
           : !shown.length ? '<p class="cd-gset-none cd-vault-empty">No login matches “' + esc(v.q.trim()) + '”.</p>'
-          : '<div class="cd-gset-card cd-vault-card"><ul class="cd-gset-list cd-vault-list">' + shown.slice(0, 200).map(row).join('') + '</ul></div>' + (shown.length > 200 ? '<p class="cd-gset-hint">' + (shown.length - 200) + ' more: search to find one.</p>' : '')) +
+          : list(shown.map(row), shown.length > 200 ? '<p class="cd-gset-hint">' + (shown.length - 200) + ' more: search to find one.</p>' : '')) +
         '<p class="cd-vault-foot">Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.</p></section>';
     };
     const paint = () => {
       const top = box.querySelector('.cd-gset-body') ? box.querySelector('.cd-gset-body').scrollTop : 0;
-      const typing = box.querySelector('#gsVaultPass'), typed = typing ? typing.value : '', focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : '';
+      // What is being typed in a password or card box is put back after the redraw (it is never kept in this page's state).
+      const typed = ['gsVaultPass', 'gsCardNumber', 'gsCardExp', 'gsCardCvc'].map((k) => { const n = box.querySelector('#' + k); return [k, n ? n.value : '']; }), focused = document.activeElement && box.contains(document.activeElement) ? document.activeElement.id : '';
       // GLOOPY'S SETTINGS AS GROK BOT'S (owner, 2026-11-12: "yes make the menu like grok bot , very similar"): a menu down
       // the left, an icon and a name for each page (the open one on a grey pill), the page's title at its top, its settings
       // in white cards under small grey labels (each a name and a line about it on the left, its control on the right: a
@@ -477,7 +542,7 @@
         '<div class="cd-gset-main"><div class="cd-gset-body">' + pageHTML + '</div>' + (st.note ? '<div class="cd-gset-note" role="status">' + esc(st.note) + '</div>' : '') + '</div>' +
         '<button type="button" class="cd-gset-x" data-gs="close" aria-label="Close"><svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M6 6l12 12M18 6L6 18"/></svg></button>';
       const b = box.querySelector('.cd-gset-body'); if (b) b.scrollTop = top;
-      const again = box.querySelector('#gsVaultPass'); if (again && typed) again.value = typed;
+      for (const [k, val] of typed) { const n = box.querySelector('#' + k); if (n && val) n.value = val; }
       if (focused === 'gsVaultQ') { const q = box.querySelector('#gsVaultQ'); if (q) { q.focus(); q.setSelectionRange(q.value.length, q.value.length); } }
     };
     // Each change: the answer is kept, and a card it closed shows in the chat behind.
@@ -495,6 +560,8 @@
       if (t.id === 'gsRuleText') st.ruleText = t.value; else if (t.id === 'gsEditText') st.editText = t.value; else if (t.id === 'gsSiteHost') st.siteHost = t.value; else if (t.id === 'gsOutHost') st.outHost = t.value;
       else if (t.id === 'gsVaultSite') st.vault.site = t.value; else if (t.id === 'gsVaultUser') st.vault.user = t.value; else if (t.id === 'gsVaultNick') st.vault.nick = t.value; else if (t.id === 'gsVaultHint') st.vault.hint = t.value;
       else if (t.id === 'gsVaultQ') { st.vault.q = t.value; paint(); }
+      else if (t.id === 'gsCardName') st.vault.card.name = t.value; else if (t.id === 'gsCardPostal') st.vault.card.postal = t.value; else if (t.id === 'gsCardNick') st.vault.card.nick = t.value; else if (t.id === 'gsCardHint') st.vault.card.hint = t.value;
+      else if (t.id && t.id.startsWith('gsCt_')) st.vault.ct[t.id.slice(5)] = t.value;
     });
     box.addEventListener('change', (e) => {
       const t = e.target;
@@ -502,6 +569,8 @@
       else if (t.id === 'gsMonitor') save('/options', { set: { monitor: t.checked } }, (d) => { st.options = d.options; });
       else if (t.id === 'gsRoute') routeSwitch(t.checked);
       else if (t.id === 'gsVaultFile') vaultFile(t.files && t.files[0]);
+      else if (t.id === 'gsCardDefault') st.vault.card.def = t.checked; else if (t.id === 'gsCardForget') st.vault.card.forget = t.checked;
+      else if (t.id === 'gsCardCam' || t.id === 'gsCardPhoto') cardScan(t.files && t.files[0]);
       else if (t.dataset.perm) save('/permissions', { set: { [t.dataset.perm]: t.value } }, (x) => { st.perms = x.permissions; });
       else if (t.dataset.site) save('/sites', { set: { host: t.dataset.site, mode: t.value } }, (d) => { st.sites = d.sites; });
     });
@@ -520,6 +589,21 @@
         if (box2) box2.value = '';
         const body = id ? { edit: { id, site, username: st.vault.user.trim(), nickname: st.vault.nick, hint: st.vault.hint, ...(password ? { password } : {}) } } : { add: { site, username: st.vault.user.trim(), password, nickname: st.vault.nick, hint: st.vault.hint } };
         if (await save('/logins', body, (d) => { if (st.signins) st.signins.saved = d.logins || st.signins.saved; })) { st.vault.open = ''; st.vault.site = st.vault.user = st.vault.nick = st.vault.hint = ''; st.note = id ? 'Saved.' : 'Saved to your Vault.'; paint(); }
+      }
+      else if (what === 'card-save') {
+        // A CARD (2026-11-13, Grok Bot's "New item → Card"): its number, expiry and security code leave their boxes as sent.
+        const id = f.dataset.id || '', val = (k) => { const n = box.querySelector('#' + k); const x = n ? n.value : ''; if (n) n.value = ''; return x; };
+        const number = id ? '' : val('gsCardNumber'), expiry = val('gsCardExp'), cvc = val('gsCardCvc'), k = st.vault.card;
+        if (!id && !number.trim()) { st.note = 'Type the card number.'; return paint(); }
+        // (A saved card's billing postal code is never sent back to this page: one typed here replaces it, an empty box keeps it.)
+        const body = id ? { edit: { id, expiry, ...(cvc ? { cvc } : {}), name: k.name, ...(k.postal.trim() ? { postal: k.postal } : {}), nickname: k.nick, hint: k.hint, default: k.def, ...(k.forget ? { forgetCode: true } : {}) } }
+          : { add: { number, expiry, cvc, name: k.name, postal: k.postal, nickname: k.nick, hint: k.hint, default: k.def } };
+        if (await save('/cards', body, (x) => { st.cards = x.cards || st.cards; S.cards = st.cards; })) { st.vault.open = ''; st.vault.card = { nick: '', hint: '', name: '', postal: '', def: false, forget: false }; st.note = id ? 'Saved.' : 'Card saved to your Vault.'; paint(); }
+      }
+      else if (what === 'contact-save') {
+        const id = f.dataset.id || '', c = { ...st.vault.ct };
+        const body = id ? { edit: { id, ...c } } : { add: c };
+        if (await save('/contacts', body, (x) => { st.contacts = x.contacts || st.contacts; })) { st.vault.open = ''; st.vault.ct = {}; st.note = id ? 'Saved.' : 'Contact info saved to your Vault.'; paint(); }
       }
       else if (what === 'signout-site') { const site = st.outHost.trim(); if (!site) { st.note = 'Write the site’s address first.'; return paint(); } if (await signOut(site)) { st.outHost = ''; paint(); } }
     });
@@ -547,8 +631,22 @@
       else if (d.gsForget) save('/logins', { remove: d.gsForget }, () => {}).then((ok) => (ok ? signinsAgain() : null));
       else if (d.eye) { const f = box.querySelector('#' + d.eye); if (f) { const show = t.getAttribute('aria-pressed') !== 'true'; if (MASKS) f.classList.toggle('is-masked', !show); else f.type = show ? 'text' : 'password'; t.setAttribute('aria-pressed', show ? 'true' : 'false'); t.setAttribute('aria-label', show ? 'Hide what you typed' : 'Show what you typed'); f.focus(); } }
       else if (d.vault === 'menu') { st.vault.menu = !st.vault.menu; paint(); }
-      else if (d.vault === 'new') { Object.assign(st.vault, { menu: false, open: 'new', site: '', user: '', nick: '', hint: '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultSite'); if (i) i.focus(); }
-      else if (d.vault === 'import') { Object.assign(st.vault, { menu: false, open: 'import', sure: '', imp: null }); paint(); }
+      else if (d.vault === 'new') { Object.assign(st.vault, { tab: 'logins', menu: false, open: 'new', site: '', user: '', nick: '', hint: '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultSite'); if (i) i.focus(); }
+      else if (d.vault === 'import') { Object.assign(st.vault, { tab: 'logins', menu: false, open: 'import', sure: '', imp: null }); paint(); }
+      else if (d.vault === 'new-card') { Object.assign(st.vault, { tab: 'cards', menu: false, open: 'new-card', sure: '', card: { nick: '', hint: '', name: '', postal: '', def: !(st.cards || []).length, forget: false } }); paint(); const i = box.querySelector('#gsCardNumber'); if (i) i.focus(); }
+      else if (d.vault === 'new-contact') { Object.assign(st.vault, { tab: 'contacts', menu: false, open: 'new-contact', sure: '', ct: {} }); paint(); const i = box.querySelector('#gsCt_name'); if (i) i.focus(); }
+      else if (d.vaultTab) { Object.assign(st.vault, { tab: d.vaultTab, open: '', sure: '', menu: false }); st.note = ''; paint(); }
+      else if (d.cardEdit) { const c = (st.cards || []).find((x) => x.id === d.cardEdit); if (c) { Object.assign(st.vault, { menu: false, open: c.id, sure: '', card: { nick: c.nickname || '', hint: c.hint || '', name: c.name || '', postal: '', def: !!c.default, forget: false } }); paint(); } }
+      else if (d.cardRemove) {
+        // Asked once more first (Remove for good?): Gloopy can no longer pay with a removed card.
+        if (st.vault.sure !== d.cardRemove) { st.vault.sure = d.cardRemove; return paint(); }
+        save('/cards', { remove: d.cardRemove }, (x) => { st.cards = x.cards || []; S.cards = st.cards; }).then((ok) => { if (ok) { Object.assign(st.vault, { sure: '', open: st.vault.open === d.cardRemove ? '' : st.vault.open }); st.note = 'Removed.'; paint(); } });
+      }
+      else if (d.contactEdit) { const x = (st.contacts || []).find((y) => y.id === d.contactEdit); if (x) { const { id: _i, at: _a, ...rest } = x; Object.assign(st.vault, { menu: false, open: x.id, sure: '', ct: { ...rest } }); paint(); } }
+      else if (d.contactRemove) {
+        if (st.vault.sure !== d.contactRemove) { st.vault.sure = d.contactRemove; return paint(); }
+        save('/contacts', { remove: d.contactRemove }, (x) => { st.contacts = x.contacts || []; }).then((ok) => { if (ok) { Object.assign(st.vault, { sure: '', open: st.vault.open === d.contactRemove ? '' : st.vault.open }); st.note = 'Removed.'; paint(); } });
+      }
       else if (d.vault === 'cancel') { Object.assign(st.vault, { open: '', sure: '', imp: null }); paint(); }
       else if (d.vault === 'do-import') vaultImportNow();
       else if (d.vaultEdit) { const l = (st.signins ? st.signins.saved : []).find((x) => x.id === d.vaultEdit); if (l) { Object.assign(st.vault, { menu: false, open: l.id, site: l.site, user: l.username || '', nick: l.nickname || '', hint: l.hint || '', sure: '', imp: null }); paint(); const i = box.querySelector('#gsVaultPass'); if (i) i.focus(); } }
@@ -568,6 +666,23 @@
       const r = loginsFromCsv(text, st.signins ? st.signins.saved : []);
       if (r.error) { st.note = r.error; return paint(); }
       st.vault.imp = { name: file.name, rows: r.rows }; st.note = ''; paint();
+    };
+    // A CARD FROM A PHOTO (2026-11-13): made smaller here, read once by Coder's Worker, and its words put in the boxes.
+    const cardScan = async (file) => {
+      if (!file) return;
+      const pic = await shrink(file);
+      if (!pic) { st.note = 'That photo couldn’t be read. Try another, or type the card.'; return paint(); }
+      st.vault.scanning = true; st.busy = true; st.note = ''; paint();
+      const r = await call(base + '/cards', { method: 'POST', body: JSON.stringify({ scan: { type: pic.type, data: pic.data } }) });
+      st.vault.scanning = false; st.busy = false;
+      const d = r.data || {};
+      if (d.name) st.vault.card.name = d.name;
+      paint();
+      const put = (k, v) => { const n = box.querySelector('#' + k); if (n && v) n.value = v; };
+      put('gsCardNumber', d.number); put('gsCardExp', d.expiry);
+      st.note = r.status === 200 ? 'Filled in from the photo. Check it, type the security code, then Save card.' : d.error || 'The photo couldn’t be read.';
+      const n = st.note; paint(); st.note = n;
+      put('gsCardNumber', d.number); put('gsCardExp', d.expiry);
     };
     const vaultImportNow = async () => {
       const imp = st.vault.imp;
@@ -1087,6 +1202,10 @@
     term: '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 17l6-5-6-5M12 19h8"/></svg>',
     send: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 19V5M5 12l7-7 7 7"/></svg>',
     stop: '<svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/></svg>',
+    // The Vault's cards and contact info, and a filled form (2026-11-13).
+    check: '<svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>',
+    cardsm: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></svg>',
+    person: '<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 20c1.5-3.6 4.4-5.5 8-5.5s6.5 1.9 8 5.5"/></svg>',
     chev: '<svg viewBox="0 0 24 24" width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 6l6 6-6 6"/></svg>',
     branch: '<svg viewBox="0 0 24 24" width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="8" r="2"/><path d="M6 7v10M18 10c0 4-6 3-12 7"/></svg>',
   };
@@ -1317,6 +1436,18 @@
     // looked open again): in Gloopy's chat, only the one Gloopy is waiting on is open.
     const waitedOn = (e) => !GLOOPY || !e.id || !S.project || (S.project.pending && S.project.pending.id === e.id);
     const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e) && waitedOn(e);
+    // WHAT BECAME OF A SECURE FORM (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "A filled form says
+    // Filled into the page. Secret values were never shown to your Bot", or "Could not fill into the page"): on the card.
+    // AN ORDER'S ITEMS AND WHERE IT SHIPS (Grok Bot's order card), as Gloopy read them off the page.
+    const orderBits = (e) => {
+      const items = Array.isArray(e.items) ? e.items.filter((x) => x && x.name).slice(0, 20) : [];
+      return (items.length ? '<ul class="cd-order-items">' + items.map((x) => '<li><span>' + (Number(x.quantity) > 1 ? esc(String(x.quantity)) + ' × ' : '') + esc(x.name) + '</span>' + (x.price ? '<b>' + esc(x.price) + '</b>' : '') + '</li>').join('') + '</ul>' : '') + (e.shipTo ? '<p class="cd-order-row"><span>Ship to</span><b>' + esc(e.shipTo) + '</b></p>' : '');
+    };
+    const filledLine = (i, e) => {
+      const f = e.filled === true ? { ok: true } : S.events.slice(i + 1).find((x) => x.type === 'filled' && x.id === e.id);
+      return !f ? '' : f.ok ? '<p class="cd-filled is-ok">' + ICON.check + 'Filled into the page. Secret values were never shown to Gloopy.</p>'
+        : '<p class="cd-filled is-no">Could not fill into the page' + (f.why ? ': ' + esc(f.why) : '') + '. Nothing you typed was shown to Gloopy.</p>';
+    };
     const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
     const gone = (i, e) => { const x = !S.events.slice(i + 1).some((y) => y.type === 'user') && expiredOf(i, e); return x ? '<p class="cd-card-expired">' + esc(x.text || 'Expired.') + '</p>' : ''; };
     // Redrawn when the soonest open card's time is up.
@@ -1395,6 +1526,24 @@
             : '<p class="cd-secret-p">The whole new script, run on Coder\'s machine before it starts, in every chat that uses ' + esc(envName) + ' (it cannot read your variables or keys):</p><pre class="cd-envchange-pre">' + esc(e.script) + '</pre>') +
           (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">Decline</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">Approve</button></div>' : '') + '</div>');
       }
+      else if (e.type === 'approval' && e.order && typeof e.order === 'object') {
+        // THE ORDER CARD (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "an order card with the store,
+        // the items, Ship to, Pay with, and the Total ... choose the pay button, which shows the total, or choose Cancel. If
+        // you cancel, nothing is charged. Once the order is placed, the card shows what you Paid with"): placing the order
+        // waits for you here (Buy or pay on Ask). Pay is Allow once; Cancel is Deny.
+        const live = cardOpen(i, e), o = e.order;
+        const after = S.events.slice(i + 1), done = after.find((x) => x.type === 'paid');
+        const said = after.find((x) => x.type === 'user');
+        out.push('<div class="cd-secret cd-order"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">' + esc(e.site || 'Your order') + '</b>' +
+          (o.reason ? '<p class="cd-secret-why">' + esc(o.reason) + '</p>' : '') + orderBits(o) +
+          '<p class="cd-order-row"><span>Pay with</span><b>' + esc(o.payWith || 'The card in the payment form') + '</b></p>' +
+          '<p class="cd-order-row is-total"><span>Total</span><b>' + esc(o.total || '') + '</b></p>' +
+          (e.bySite ? '<p class="cd-card-rule">Your setting for ' + esc(e.bySite) + ' says to ask first.</p>' : e.byRule ? '<p class="cd-card-rule">One of your rules says to ask first.</p>' : '') +
+          until(i, e) + gone(i, e) +
+          (done ? '<p class="cd-filled ' + (done.ok ? 'is-ok">' + ICON.check + 'Paid with ' + esc(done.payWith || o.payWith || 'your card') : 'is-no">Not paid' + (done.note ? ': ' + esc(done.note) : '')) + '</p>'
+            : !live && said && /^(Denied: |Cancelled the order)/.test(String(said.text || '')) ? '<p class="cd-filled is-no">Cancelled. Nothing was charged.</p>' : '') +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">Cancel</button><button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">Pay ' + esc(o.total || '') + '</button></div>' : '') + '</div>');
+      }
       else if (e.type === 'approval') {
         // A BROWSER STEP WAITING FOR YOUR OK (Gloopy, 2026-11-09; like Grok Bot's approval cards and dots' Auto-review):
         // the step, the site and why it asks; Allow once, Always allow (a rule for steps like it) or Deny. Live on the last card.
@@ -1446,12 +1595,12 @@
         const take = '<button type="button" class="cd-card-no" data-signin-take="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + ' title="Open Gloopy’s browser and do it yourself there">Take over</button>';
         if (e.code) out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Enter the code for ' + site + '</b>' + warn +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">Type the code ' + site + ' sent you (by text message, email or an app). It goes straight into Gloopy’s browser; Gloopy never sees it.</p>' + until(i, e) + gone(i, e) +
+          '<p class="cd-secret-p">Type the code ' + site + ' sent you (by text message, email or an app). It goes straight into Gloopy’s browser; Gloopy never sees it.</p>' + until(i, e) + gone(i, e) + filledLine(i, e) +
           (live ? '<label class="cd-secret-l" for="cdSignCode">Code</label><input id="cdSignCode" class="cd-secret-in cd-sign-code" type="text" autocomplete="one-time-code" autocapitalize="off" spellcheck="false" maxlength="16">' + msg +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin-code="' + esc(e.id) + '" disabled>Enter code</button></div>' : '') + '</div>');
         else out.push('<div class="cd-secret cd-signin"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Sign in to ' + site + '</b>' + warn +
           (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved to your Vault unless you untick the box below.</p>' + until(i, e) + gone(i, e) +
+          '<p class="cd-secret-p">What you type goes straight into Gloopy’s browser on ' + esc(e.site || 'the site') + '. Gloopy never sees it, and it’s saved to your Vault unless you untick the box below.</p>' + until(i, e) + gone(i, e) + filledLine(i, e) +
           (live ? (choices.length ? choices.map((l) => '<button type="button" class="cd-card-yes cd-sign-saved" data-signin-saved="' + esc(e.id) + '" data-login="' + esc(l.id || '') + '">Use your saved login' + (l.nickname ? ' · ' + esc(l.nickname) + (l.username ? ' (' + esc(l.username) + ')' : '') : l.username ? ' · ' + esc(l.username) : '') + (l.hint ? '<small>' + esc(l.hint) + '</small>' : '') + '</button>').join('') + '<p class="cd-sign-or">or type it</p>' : '') +
             (e.user ? '<label class="cd-secret-l" for="cdSignUser">' + esc(e.user) + '</label><input id="cdSignUser" class="cd-secret-in" type="text" name="gf-private-user"' + PM_OFF + '>' : '') +
             '<label class="cd-secret-l" for="cdSignPass">Password</label>' + secretField('cdSignPass') +
@@ -1460,31 +1609,46 @@
             msg +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-signin-skip="' + esc(e.id) + '">Not now</button>' + take + '<button type="button" class="cd-card-yes" data-signin="' + esc(e.id) + '" disabled>Sign in</button></div>' : '') + '</div>');
       }
+      else if (e.type === 'pay' && e.filled) {
+        // A SAVED CARD FILLED IN FROM THE VAULT (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "A card
+        // saved in Vault fills in at checkout without asking you each time"): no form; the card says which, and that it went in.
+        out.push('<div class="cd-secret cd-pay is-filled"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">Pay ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + '</b>' +
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') + orderBits(e) +
+          '<p class="cd-secret-p">Gloopy filled your saved <b>' + esc(e.label || 'card') + '</b> into the payment form on ' + esc(e.site || 'the site') + (e.via ? ' (its card fields are from ' + esc(e.via) + ')' : '') + ', from your Vault. Nothing is paid until the order is placed.</p>' + filledLine(i, e) + '</div>');
+      }
       else if (e.type === 'pay') {
         // PAYING AT A CHECKOUT (Gloopy, 2026-11-09: "can we try both"; Grok Bot's card form and Vault, dots' asking before a
-        // payment): the card goes straight into the payment form in Gloopy's browser. A card can be saved (never its
-        // security code); a saved one needs only its security code. Nothing typed here is kept in this page's state.
-        const live = cardOpen(i, e);
+        // payment): the card goes straight into the payment form in Gloopy's browser. Nothing typed here is kept in this
+        // page's state. AS GROK BOT'S (owner, 2026-11-13): a saved card keeps its security code, so the form asks for it only
+        // when it isn't kept, and a card saved here fills in without this form next time.
         const has = (f) => Array.isArray(e.fields) && e.fields.includes(f);
+        const live = cardOpen(i, e);
         const now = new Date(), thisMonth = now.getFullYear() * 12 + now.getMonth();
         const saved = (S.cards || []).filter((c) => Number(c.year) * 12 + Number(c.month) - 1 >= thisMonth);
-        const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : (saved[0] ? saved[0].id : '');
+        const first = saved.find((c) => c.id === e.use) || saved.find((c) => c.default) || saved[0];
+        const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : (first ? first.id : '');
+        const usedCard = saved.find((c) => c.id === use);
         const box = (id, label, attrs) => '<label class="cd-secret-l" for="' + id + '">' + label + '</label><input id="' + id + '" class="cd-secret-in" ' + attrs + ' spellcheck="false">';
         const two = (a, b) => '<div class="cd-pay-two"><div>' + a + '</div><div>' + b + '</div></div>';
         const cvcBox = has('cvc') ? box('cdPayCvc', 'Security code', 'type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4" placeholder="CVC"') : '';
         out.push('<div class="cd-secret cd-pay"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">Pay ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + '</b>' +
-          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-p">Your card goes straight into the payment form in Gloopy’s browser on ' + esc(e.site || 'the site') + (e.via ? ' (its card fields are from ' + esc(e.via) + ')' : '') + '. Gloopy never sees it. Nothing is paid until Gloopy places the order.</p>' + until(i, e) + gone(i, e) +
-          (live ? (saved.length ? '<div class="cd-pay-pick">' + saved.map((c) => '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="' + esc(c.id) + '" data-pay-for="' + esc(e.id) + '"' + (use === c.id ? ' checked' : '') + '> ' + esc(c.brand) + ' ending ' + esc(c.last4) + ' <small>' + esc(String(c.month).padStart(2, '0') + '/' + String(c.year).slice(-2)) + '</small></label>').join('') + '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="" data-pay-for="' + esc(e.id) + '"' + (use ? '' : ' checked') + '> Another card</label></div>' : '') +
-            (use ? cvcBox
+          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') + orderBits(e) +
+          '<p class="cd-secret-p">Your card goes straight into the payment form in Gloopy’s browser on ' + esc(e.site || 'the site') + (e.via ? ' (its card fields are from ' + esc(e.via) + ')' : '') + '. Gloopy never sees it. Nothing is paid until Gloopy places the order.</p>' + until(i, e) + gone(i, e) + filledLine(i, e) +
+          (live ? (saved.length ? '<div class="cd-pay-pick">' + saved.map((c) => '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="' + esc(c.id) + '" data-pay-for="' + esc(e.id) + '"' + (use === c.id ? ' checked' : '') + '> ' + (c.nickname ? esc(c.nickname) + ' · ' : '') + esc(c.brand) + ' ending ' + esc(c.last4) + (c.default ? ' <em>Default</em>' : '') + ' <small>' + esc(String(c.month).padStart(2, '0') + '/' + String(c.year).slice(-2)) + '</small></label>').join('') + '<label class="cd-pay-opt"><input type="radio" name="cdPayUse" value="" data-pay-for="' + esc(e.id) + '"' + (use ? '' : ' checked') + '> Another card</label></div>' : '') +
+            (use ? (usedCard && usedCard.code ? '<p class="cd-secret-p">Its security code is in your Vault.</p>' : cvcBox)
               : box('cdPayNumber', 'Card number', 'type="text" inputmode="numeric" autocomplete="cc-number" placeholder="1234 1234 1234 1234"') +
                 two(box('cdPayExp', 'Expiry date', 'type="text" inputmode="numeric" autocomplete="cc-exp" placeholder="MM / YY"'), cvcBox) +
                 (has('name') ? box('cdPayName', 'Name on card', 'type="text" autocomplete="cc-name"') : '') +
                 (has('postal') ? box('cdPayPostal', 'Billing postal code', 'type="text" autocomplete="postal-code"') : '') +
-                // SAVE FOR NEXT TIME (Grok Bot's "Securely save to Bot's vault"): kept sealed once it went in, never its security code.
-                '<label class="cd-sign-save"><input type="checkbox" id="cdPaySave"> Save this card, so next time you only type its security code (the code itself is never saved)</label>') +
+                // SAVE TO THE VAULT (Grok Bot's "Securely save to Bot's vault"): kept sealed once it went in, with its
+                // security code; next time it fills in without this form. Untick it to give the card this once.
+                '<label class="cd-sign-save"><input type="checkbox" id="cdPaySave" checked> Save to your Vault, so next time Gloopy fills it in without asking you</label>') +
             (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') +
             '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-pay-skip="' + esc(e.id) + '">Not now</button><button type="button" class="cd-card-yes" data-pay="' + esc(e.id) + '">Fill in card</button></div>' : '') + '</div>');
+      }
+      else if (e.type === 'paid') {
+        // HOW THE ORDER WENT (owner, 2026-11-13; Grok Bot's "Once the order is placed, the card shows what you Paid with").
+        out.push('<div class="cd-receipt ' + (e.ok ? 'is-ok' : 'is-no') + '">' + (e.ok ? ICON.check : ICON.card) + '<span>' + (e.ok ? 'Paid ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + (e.payWith ? ' with ' + esc(e.payWith) : '') : 'Not paid on ' + esc(e.site || 'the site')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span></div>');
       }
       else if (e.type === 'file') {
         // A FILE GLOOPY MADE (2026-11-09: "4"; Grok Bot's file cards): its name, size and Download (always saved, never opened here).

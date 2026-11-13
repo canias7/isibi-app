@@ -48,7 +48,8 @@ import { HOOK_PREFIX, HOOK_BODY_MAX, readWebhooks, addWebhook, removeWebhook, wr
 import { PERMISSIONS, PERMISSION_KEYS, MODES, DEFAULT_MODE, DEFAULTS, TESTING, cleanPermissions } from "../container/gloopy-permissions.mjs";
 import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, cleanMarked, cleanTaught, cleanSites, siteHost, SITE_MODES, SITE_WORDS, SITES_MAX } from "../container/gloopy-check.mjs";
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
-import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
+import { scanCard } from "./gloopy-cardscan.mjs";
+import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
 import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
@@ -660,7 +661,7 @@ export async function handleCoder(request, env, ctx, deps) {
     g = await expireCard(bucket, uid, GLOOPY_ID, g);
     // Only whether it waits for the owner (the page's mark on Gloopy's tab, the docs 2026-11-10).
     if (url.searchParams.get("brief") === "1") return json({ ok: true, gloopy: { id: g.id, status: g.status, waiting: g.waiting || null, pending: g.pending ? { kind: g.pending.kind } : null } });
-    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), sites: await readSites(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
+    return json({ ok: true, gloopy: g, events: await getJson(bucket, keyOf(uid, GLOOPY_ID, "events.json"), []), rules: await readRules(bucket, uid), sites: await readSites(bucket, uid), logins: loginList(await readLogins(env, bucket, uid)), cards: cardList(await readCards(env, bucket, uid)), contacts: contactList(await readContacts(env, bucket, uid)), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), files: filesForTurn(await readFiles(bucket, uid)), keys: secretList((await readEnvData(env, bucket, uid, GLOOPY_ENV)).secrets).map((x) => ({ id: x.id, name: x.name, host: x.host, hosts: x.hosts })), browser: flyOn(env), schedules: schedulesForTurn(await readSchedules(bucket, uid)), permissions: await readPermissions(bucket, uid), permissionList: PERMISSIONS, pages: await readPages(bucket, uid) });
   }
 
   if (parts[0] !== "projects") return json({ error: "not found" }, 404);
@@ -720,7 +721,7 @@ export async function handleCoder(request, env, ctx, deps) {
   if (isGloopy(meta)) {
     // Whether Gloopy's computer is awake, from Coder's own record of it (never by asking it, which would wake it).
     const awake = typeof deps.awake === "function" ? () => deps.awake(uid + "-" + id) : flyOn(env) ? () => flyAwake(env, uid + "-" + id) : null;
-    const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake, fetchFn };
+    const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake, fetchFn, scanFn: typeof deps.scanCard === "function" ? deps.scanCard : (img) => scanCard(env, img, { fetchFn }) };
     // A START, OR A CARD'S ANSWER, GOES ON WHEN THE PAGE GOES (live test, 2026-11-13: the test browser closed while the
     // message after a card's answer was being started, and the start was cut off half-way with it): Cloudflare lets it
     // finish, up to 30 seconds after the page has gone.
@@ -739,6 +740,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (action === "pages") return gloopyPages(g);
     if (action === "logins") return gloopyLogins(g);
     if (action === "cards") return gloopyCards(g);
+    if (action === "contacts") return gloopyContacts(g);
     if (action === "webhooks") return gloopyWebhooks(g);
     if (action === "files") return gloopyFiles(g);
     if (action === "signout" && request.method === "POST") { let b = {}; try { b = await request.json(); } catch { b = {}; } const r = await signGloopyOut(g, b.site); return r.ok ? json({ ok: true, said: r.said, sites: await readSignins(bucket, uid), project: await getJson(bucket, keyOf(uid, id, "meta.json"), meta) }) : json({ error: r.error }, r.status || 400); }
@@ -1615,7 +1617,7 @@ async function startGloopy(g) {
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", start: claim.id, background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginList(await readLogins(env, bucket, uid)).map(({ at, ...x }) => x), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", start: claim.id, background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginList(await readLogins(env, bucket, uid)).map(({ at, ...x }) => x), savedCards: cardsForTurn(await readCards(env, bucket, uid)), contacts: (await readPermissions(bucket, uid)).share === "deny" ? [] : contactList(await readContacts(env, bucket, uid)).map(({ at, ...x }) => x), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1700,7 +1702,8 @@ async function gloopyState(g) {
     await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
     const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
     const marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
-    const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff", "pay"].includes(e.type)).at(-1);
+    // (A card filled in from the Vault, 2026-11-13, waits for nothing.)
+    const asked = fresh.filter((e) => e && ["question", "approval", "signin", "handoff", "pay"].includes(e.type) && !(e.type === "pay" && e.filled)).at(-1);
     // A CARD THE TURN ENDED ON (2026-11-09): which one, so only its answer is taken (never a password: none is here).
     // Where Gloopy signed in with a saved login in this turn (the audit, 2026-11-10), for signing out.
     for (const site of (Array.isArray(s.result.signedIn) ? s.result.signedIn : []).slice(0, 10)) await noteSignin(bucket, uid, site, "saved");
@@ -1739,7 +1742,7 @@ async function gloopyState(g) {
     const ed = s.result.approvalRequest && s.result.approvalRequest.kind === "schedule" && s.result.approvalRequest.edit && typeof s.result.approvalRequest.edit === "object" ? s.result.approvalRequest.edit : null;
     const editAsk = ed && typeof ed.id === "string" && /^s[a-z0-9]{4,20}$/.test(ed.id) ? { id: ed.id, name: String(ed.name || "").slice(0, 60), task: String(ed.task || "").slice(0, 2000), ...(ed.spec && cleanSchedule(ed.spec) ? { spec: cleanSchedule(ed.spec) } : {}) } : null;
     const hookAsk = s.result.approvalRequest && s.result.approvalRequest.kind === "webhook" && s.result.approvalRequest.webhook && HOOK_ID.test(String(s.result.approvalRequest.webhook.id || "")) && cleanWebhook(s.result.approvalRequest.webhook) ? { id: s.result.approvalRequest.webhook.id, ...cleanWebhook(s.result.approvalRequest.webhook) } : null;
-    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(editAsk ? { edit: editAsk } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : s.result.keyRequest ? { kind: "key", id: String(s.result.keyRequest.id || ""), site: String(s.result.keyRequest.site || "").slice(0, 200) } : null;
+    const want0 = s.result.approvalRequest ? { kind: "approval", id: String(s.result.approvalRequest.id || ""), step: String(s.result.approvalRequest.step || "").slice(0, 300), site: String(s.result.approvalRequest.site || "").slice(0, 200), ...(asks ? { schedule: asks } : {}), ...(editAsk ? { edit: editAsk } : {}), ...(hookAsk ? { webhook: hookAsk } : {}), ...(s.result.approvalRequest.kind === "write" ? { write: true } : {}), ...(typeof s.result.approvalRequest.order === "string" && s.result.approvalRequest.order ? { order: s.result.approvalRequest.order.slice(0, 40) } : {}) } : s.result.signinRequest ? { kind: "signin", id: String(s.result.signinRequest.id || ""), site: String(s.result.signinRequest.site || "").slice(0, 200), ...(s.result.signinRequest.code === true ? { code: true } : {}) } : s.result.cardRequest ? { kind: "card", id: String(s.result.cardRequest.id || ""), site: String(s.result.cardRequest.site || "").slice(0, 200), total: String(s.result.cardRequest.total || "").slice(0, 40), fields: (Array.isArray(s.result.cardRequest.fields) ? s.result.cardRequest.fields : []).filter((f) => ["number", "exp", "month", "year", "cvc", "name", "postal"].includes(f)) } : s.result.handoffRequest ? { kind: "handoff", id: String(s.result.handoffRequest.id || ""), task: String(s.result.handoffRequest.task || "").slice(0, 200), site: String(s.result.handoffRequest.site || "").slice(0, 200) } : s.result.keyRequest ? { kind: "key", id: String(s.result.keyRequest.id || ""), site: String(s.result.keyRequest.site || "").slice(0, 200) } : null;
     // When the card was raised; in a run the owner did not start, until when it waits for them (the audit, 2026-11-10).
     const want = want0 ? { ...want0, at: Date.now(), ...(meta.bg ? { expires: Date.now() + CARD_TTL_MS } : {}) } : null;
     // A request held for the owner's OK that no card asks about (the turn ended another way first) is let go.
@@ -1871,7 +1874,7 @@ async function gloopyCard(g, action) {
   const kind = { approve: "approval", signin: "signin", handoff: "handoff", card: "card", key: "key" }[action];
   if (!p || p.kind !== kind || p.id !== String(body.id || "")) return json({ error: { approve: "Nothing is waiting for your OK.", signin: "No sign-in is waiting.", handoff: "Gloopy isn't waiting for you in its browser.", card: "Gloopy isn't waiting for a card.", key: "Gloopy isn't waiting for your security key." }[action] }, 409);
   const site = String(p.site || "the site");
-  let note = "", said = "", grant = "", madeRoom = "";
+  let note = "", said = "", grant = "", madeRoom = "", filled = null;
   if (action === "approve" && p.webhook) {
     // A NEW WEBHOOK (2026-11-09): kept here when the owner allows it; its card (address, and the key on request) goes in
     // the chat; nothing to do on Gloopy's computer.
@@ -1930,9 +1933,9 @@ async function gloopyCard(g, action) {
     if (decision === "always") madeRoom = await allowRule(bucket, uid, (p.step + " on " + site).slice(0, 1000));
     let r = null;
     try { r = await post("/gloopy/approve", { project: id, id: p.id, allow: decision !== "deny" }).then((x) => x.json()); } catch { r = null; }
-    if (decision === "deny") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + " on " + site + ". It was not done. Don't try it another way: say what you would have done, and stop or go on without it.)"; said = "Denied: " + p.step; }
-    else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; }
-    else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; grant = String(p.step || ""); }
+    if (decision === "deny") { note = "(Note from Gloopy's app, not the owner: the owner said no to: " + p.step + " on " + site + ". It was not done. Don't try it another way: say what you would have done, and stop or go on without it.)"; said = p.order ? "Cancelled the order on " + site : "Denied: " + p.step; }
+    else if (r && r.done) { note = "(Note from Gloopy's app, not the owner: the owner allowed" + (decision === "always" ? " (from now on, too)" : " (this once)") + ": " + p.step + " on " + site + ". It was done: " + String(r.did || p.step) + ". Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)"; said = p.order && decision === "once" ? "Pay " + p.order + " on " + site : (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; }
+    else { note = "(Note from Gloopy's app, not the owner: the owner allowed: " + p.step + " on " + site + ", but it could not be done (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; if you still need to do it, try again: the owner's OK holds for this same step, once.)"; said = p.order && decision === "once" ? "Pay " + p.order + " on " + site : (decision === "always" ? "Always allow: " : "Allowed: ") + p.step + madeRoom; grant = String(p.step || ""); }
   } else if (action === "key") {
     // THE OWNER'S SECURITY KEY (2026-11-11; Grok Bot's "Use hardware security keys"): what their key signed in the Go
     // Farther app on their computer goes to the page waiting for it (checked there to be for its very request, its site
@@ -1967,7 +1970,8 @@ async function gloopyCard(g, action) {
       if (typeof body.use === "string" && body.use) {
         saved = (await readCards(env, bucket, uid)).find((x) => x.id === body.use) || null;
         if (!saved) return json({ error: "That saved card is gone. Pick another, or type a card." }, 404);
-        const cvc = String(body.cvc || "").trim();
+        // Its security code: typed now, else the one kept in the Vault (2026-11-13).
+        const cvc = String(body.cvc || "").trim() || String(saved.cvc || "");
         if (fields.includes("cvc") && !/^\d{3,4}$/.test(cvc)) return json({ error: "Type the card's security code (3 or 4 digits, on its back)." }, 400);
         card = { number: saved.number, month: saved.month, year: saved.year, cvc, name: String(body.name || saved.name || "").slice(0, 100), postal: String(body.postal || saved.postal || "").slice(0, 12) };
       } else {
@@ -1976,11 +1980,13 @@ async function gloopyCard(g, action) {
         card = c.card;
       }
       let r = null;
-      try { r = await post("/gloopy/card", { project: id, id: p.id, card }).then((x) => x.json()); } catch { r = null; }
       const label = saved ? cardLabel(saved) : cardBrand(card.number) + " ending " + card.number.slice(-4);
+      try { r = await post("/gloopy/card", { project: id, id: p.id, card, label }).then((x) => x.json()); } catch { r = null; }
+      filled = { ok: !!(r && r.ok), why: r && !r.ok ? String(r.why || r.error || "") : !r ? "Gloopy's computer could not be reached" : "" };
       // SAVED FOR NEXT TIME (when ticked): only a card that went into the page, sealed, without its security code.
-      const kept = r && r.ok && !saved && body.save === true ? await saveCard(env, bucket, uid, card) : null;
-      if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner gave their card (" + label + ") through the private card form, and it was typed into the payment form on " + site + ". You never see it." + (kept ? " They saved it for next time (without its security code)." : "") + " Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order, then tell them what you did. Your browser's page is “" + String(r.title || "") + "” at " + String(r.url || "") + ".)";
+      // The first card saved is the default one (Grok Bot's "Default payment method").
+      const kept = r && r.ok && !saved && body.save === true ? await saveCard(env, bucket, uid, { ...card, ...((await readCards(env, bucket, uid)).length ? {} : { default: true }) }) : null;
+      if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner gave their card (" + label + ") through the private card form, and it was typed into the payment form on " + site + ". You never see it." + (kept ? " They saved it in their Vault (as " + cardLabel(kept) + "): next time it fills in at checkout without the card form." : "") + " Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order, then tell them what you did (pay with result). Your browser's page is “" + String(r.title || "") + "” at " + String(r.url || "") + ".)";
       else note = "(Note from Gloopy's app, not the owner: the owner's card could not be typed into the payment form on " + site + " (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Nothing was paid. Look at the page again; use pay again only if the card fields are still there.)";
       said = r && r.ok ? "Gave my card (" + label + ") to pay " + total + " on " + site : "Tried to give my card to pay on " + site;
     }
@@ -2003,6 +2009,7 @@ async function gloopyCard(g, action) {
     if (!/^[A-Za-z0-9-]{3,16}$/.test(code)) return json({ error: "Type the code (3 to 16 letters or digits)." }, 400);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, code }).then((x) => x.json()); } catch { r = null; }
+    filled = { ok: !!(r && r.ok), why: r && !r.ok ? String(r.why || r.error || "") : !r ? "Gloopy's computer could not be reached" : "" };
     if (r && r.ok) await noteSignin(bucket, uid, p.site, "code");
     if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner typed the code from " + site + " through the private card, and it went into the page. You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's code for " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in with code_ref again only if the code field is still there.)";
@@ -2016,6 +2023,7 @@ async function gloopyCard(g, action) {
     if (!login) return json({ error: "That login isn't saved for " + site + " any more. Type it instead." }, 404);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username: login.username, password: login.password, saved: true }).then((x) => x.json()); } catch { r = null; }
+    filled = { ok: !!(r && r.ok), why: r && !r.ok ? String(r.why || r.error || "") : !r ? "Gloopy's computer could not be reached" : "" };
     if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "saved");
     if (r && r.ok && !r.still) note = "(Note from Gloopy's app, not the owner: the owner had you use the login they saved for " + site + ". You never see it. Your browser's page is now “" + String(r.title || "") + "” at " + String(r.url || "") + ". Look at it before you go on.)";
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's saved login for " + site + " was typed in, but the site still shows a sign-in form: it may be out of date, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly.)";
@@ -2026,6 +2034,7 @@ async function gloopyCard(g, action) {
     if (!password || password.length > 1000) return json({ error: "Type your password (at most 1000 characters)." }, 400);
     let r = null;
     try { r = await post("/gloopy/signin", { project: id, id: p.id, username, password }).then((x) => x.json()); } catch { r = null; }
+    filled = { ok: !!(r && r.ok), why: r && !r.ok ? String(r.why || r.error || "") : !r ? "Gloopy's computer could not be reached" : "" };
     // SAVED FOR NEXT TIME (2026-11-09, when ticked): only a login that worked, sealed (src/gloopy-vault.mjs).
     const kept = r && r.ok && !r.still && body.save === true ? await saveLogin(env, bucket, uid, { site: p.site, username, password }) : null;
     if (r && r.ok && !r.still) await noteSignin(bucket, uid, p.site, "form");
@@ -2033,6 +2042,13 @@ async function gloopyCard(g, action) {
     else if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " was typed in, but the site still shows a sign-in form: the username or password may be wrong, or the site asks for another step (a code, a CAPTCHA). Look at the page and tell the owner plainly; ask them to sign in again only if it makes sense.)";
     else note = "(Note from Gloopy's app, not the owner: the owner's sign-in to " + site + " could not be typed in (" + String((r && (r.why || r.error)) || "Gloopy's computer could not be reached") + "). Look at the page again; use sign_in again only if the sign-in form is still there.)";
     said = r && r.ok && !r.still ? "Signed in to " + site : "Tried to sign in to " + site;
+  }
+  // WHAT BECAME OF A SECURE FORM (owner, 2026-11-13; Grok Bot's "A filled form says Filled into the page. Secret values
+  // were never shown to your Bot. If it says Could not fill into the page, the page may have moved before the form could
+  // fill it"): said on the card in the chat, for a card or a sign-in typed on it.
+  if (filled) {
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), { at: Date.now(), type: "filled", id: String(p.id || ""), ok: filled.ok === true, ...(filled.ok ? {} : { why: String(filled.why || "").slice(0, 200) }) }].slice(-MAX_EVENTS));
   }
   // A handoff done says where the browser is now, so the plainer "the owner used your browser" note is not needed too.
   // A step the owner said no to is not tried or asked about again until their own next message (the docs, 2026-11-10).
@@ -2406,6 +2422,35 @@ async function gloopyVaultAsk(request, env, bucket) {
     const r = await editLogin(env, bucket, uid, it.id, { ...(e.nickname !== undefined ? { nickname: String(e.nickname) } : {}), ...(e.hint !== undefined ? { hint: String(e.hint) } : {}) });
     return r.error ? json({ error: r.error }, 400) : json({ ok: true, login: loginList([r.item])[0] });
   }
+  // A SAVED CARD FOR THE CHECKOUT GLOOPY IS AT (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "A
+  // card saved in Vault fills in at checkout without asking you each time", "Default payment method, which Grok Bot pays
+  // with first"): the one Gloopy named, else the default card, else the only one; to this job's machine's service only
+  // (never the AI), and never while the owner's settings say never to buy or pay.
+  if (body.card && typeof body.card === "object") {
+    if (perms.buy === "deny") return no();
+    const it = cardFor(await readCards(env, bucket, uid), typeof body.card.id === "string" ? body.card.id : "");
+    if (!it) return json({ error: "no saved card fits" }, 404);
+    return json({ ok: true, id: it.id, label: cardLabel(it), number: it.number, month: it.month, year: it.year, cvc: it.cvc || "", name: it.name || "", postal: it.postal || "" });
+  }
+  // CONTACT INFO GLOOPY KEEPS OR CHANGES (owner, 2026-11-13; Grok Bot: "when you give a Bot a name, address, phone number,
+  // or email, it saves it as contact info once the task is done and tells you what it saved"; "A Bot can change contact
+  // info, and an entry's nickname and hints, when you ask"). A card's nickname or hints too; never its number or code.
+  if (body.contact && typeof body.contact === "object") {
+    const c = body.contact;
+    if (typeof c.id === "string" && c.id) {
+      const r = await editContact(env, bucket, uid, c.id, c.change && typeof c.change === "object" ? c.change : {});
+      return r.error ? json({ error: r.error }, 400) : json({ ok: true, contact: r.item });
+    }
+    if ((await readContacts(env, bucket, uid)).length >= CONTACTS_MAX) return json({ error: "the owner's Vault holds " + CONTACTS_MAX + " contact entries: they remove one in Settings first" }, 400);
+    const r = await saveContact(env, bucket, uid, c.add && typeof c.add === "object" ? c.add : {});
+    return r.error ? json({ error: r.error }, 400) : json({ ok: true, contact: r.item });
+  }
+  if (body.cardEdit && typeof body.cardEdit === "object" && typeof body.cardEdit.id === "string") {
+    const e = body.cardEdit;
+    if (e.nickname === undefined && e.hint === undefined) return json({ error: "give a new nickname or hint" }, 400);
+    const r = await editCard(env, bucket, uid, e.id, { ...(e.nickname !== undefined ? { nickname: String(e.nickname) } : {}), ...(e.hint !== undefined ? { hint: String(e.hint) } : {}) });
+    return r.error ? json({ error: r.error }, 400) : json({ ok: true, card: cardsForTurn([r.item])[0] });
+  }
   if (perms.login !== "allow") return no();
   const pick = typeof body.id === "string" && body.id ? { id: body.id } : typeof body.username === "string" && body.username ? { username: body.username } : {};
   const it = loginFor(await readLogins(env, bucket, uid), body.site, pick);
@@ -2552,11 +2597,62 @@ async function gloopyWebhooks(g) {
  */
 async function gloopyCards(g) {
   const { request, env, bucket, uid } = g;
-  if (request.method === "GET") return json({ ok: true, cards: cardList(await readCards(env, bucket, uid)) });
+  const list = async (extra = {}) => json({ ok: true, cards: cardList(await readCards(env, bucket, uid)), ...extra });
+  if (request.method === "GET") return list();
   if (request.method !== "POST") return json({ error: "Gloopy has no cards " + request.method }, 400);
   let body = {}; try { body = await request.json(); } catch { body = {}; }
+  // A CARD FROM A PHOTO (owner, 2026-11-13; Grok Bot's Vault "Scan with camera or Upload a photo to fill it from the card"):
+  // read once to fill the New card form (src/gloopy-cardscan.mjs); not kept, and nothing of it reaches Gloopy.
+  if (body.scan && typeof body.scan === "object") {
+    const pic = checkImages([body.scan]);
+    if (pic.error || !pic.images.length) return json({ error: pic.error ? "That photo can't be read: " + pic.error + "." : "Choose a photo of the card." }, 400);
+    const r = await g.scanFn(pic.images[0]);
+    return r && r.ok ? json({ ok: true, number: r.number, ...(r.expiry ? { expiry: r.expiry } : {}), ...(r.name ? { name: r.name } : {}) }) : json({ error: (r && r.error) || "The photo couldn't be read." }, 400);
+  }
+  // NEW ITEM → CARD (owner, 2026-11-13; Grok Bot's Vault "For a card ... type it in. Then choose Save card"): checked as
+  // the card form's are; its security code kept when typed (then it fills in at checkout without the card form).
+  if (body.add && typeof body.add === "object") {
+    const a = body.add;
+    const c = checkCard(a, { needCvc: false });
+    if (c.error) return json({ error: c.error }, 400);
+    if (String(a.cvc || "").trim() && !/^\d{3,4}$/.test(String(a.cvc).trim())) return json({ error: "Type the card's security code (3 or 4 digits, on its back), or leave it empty." }, 400);
+    const all = await readCards(env, bucket, uid);
+    if (all.length >= CARDS_MAX && !all.some((x) => x.number === c.card.number)) return json({ error: "The Vault holds " + CARDS_MAX + " cards. Remove one first." }, 400);
+    const item = await saveCard(env, bucket, uid, { ...c.card, cvc: String(a.cvc || "").trim(), nickname: typeof a.nickname === "string" ? a.nickname : "", hint: typeof a.hint === "string" ? a.hint : "", default: a.default === true || !all.length });
+    return item ? list({ id: item.id }) : json({ error: "That card could not be saved." }, 400);
+  }
+  if (body.edit && typeof body.edit === "object" && typeof body.edit.id === "string") {
+    const e = body.edit;
+    const r = await editCard(env, bucket, uid, e.id, { ...(e.nickname !== undefined ? { nickname: String(e.nickname) } : {}), ...(e.hint !== undefined ? { hint: String(e.hint) } : {}), ...(typeof e.default === "boolean" ? { default: e.default } : {}), ...(e.name !== undefined ? { name: String(e.name) } : {}), ...(e.postal !== undefined ? { postal: String(e.postal) } : {}), ...(e.expiry !== undefined ? { expiry: String(e.expiry) } : {}), ...(e.cvc !== undefined ? { cvc: String(e.cvc) } : {}), ...(e.forgetCode === true ? { forgetCode: true } : {}) });
+    return r.error ? json({ error: r.error }, r.error.startsWith("No saved card") ? 404 : 400) : list({ id: r.item.id });
+  }
   if (typeof body.remove !== "string" || !(await removeCard(env, bucket, uid, body.remove))) return json({ error: "No saved card has that id." }, 404);
-  return json({ ok: true, cards: cardList(await readCards(env, bucket, uid)) });
+  return list();
+}
+
+/**
+ * THE OWNER'S CONTACT INFO, FOR THE SETTINGS SCREEN (owner, 2026-11-13; Grok Bot's Vault "New item → Contact info", "enter
+ * the name, address, phone, and email, then choose Save contact info"): GET lists them; POST { add }, { edit: { id, … } }
+ * or { remove: id }.
+ */
+async function gloopyContacts(g) {
+  const { request, env, bucket, uid } = g;
+  const list = async (extra = {}) => json({ ok: true, contacts: contactList(await readContacts(env, bucket, uid)), ...extra });
+  if (request.method === "GET") return list();
+  if (request.method !== "POST") return json({ error: "Gloopy has no contacts " + request.method }, 400);
+  let body = {}; try { body = await request.json(); } catch { body = {}; }
+  if (body.add && typeof body.add === "object") {
+    if ((await readContacts(env, bucket, uid)).length >= CONTACTS_MAX) return json({ error: "The Vault holds " + CONTACTS_MAX + " contact entries. Remove one first." }, 400);
+    const r = await saveContact(env, bucket, uid, body.add);
+    return r.error ? json({ error: r.error }, 400) : list({ id: r.item.id });
+  }
+  if (body.edit && typeof body.edit === "object" && typeof body.edit.id === "string") {
+    const { id: cid, ...change } = body.edit;
+    const r = await editContact(env, bucket, uid, cid, change);
+    return r.error ? json({ error: r.error }, r.error.startsWith("No contact") ? 404 : 400) : list({ id: r.item.id });
+  }
+  if (typeof body.remove !== "string" || !(await removeContact(env, bucket, uid, body.remove))) return json({ error: "No contact entry has that id." }, 404);
+  return list();
 }
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */

@@ -825,3 +825,39 @@ label.cd-gset-row{cursor:pointer}
 .cd-vault-foot{margin:4px 6px 12px;font-size:11.5px;line-height:1.5;color:#8b8b8b}
 .cd-vault-nick{font-weight:600;font-size:14px;color:#1f1e1d}
 .cd-gset-text small .cd-gset-host{font-size:12px}
+
+/* THE VAULT'S CARDS AND CONTACT INFO, AND PAYING (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's Vault
+   tabs, its "Filled into the page" line, its order card with the pay button that shows the total, and "Paid with"). */
+.cd-vault-tabs{display:inline-flex;gap:2px;flex-wrap:wrap}
+button.cd-vault-tab{border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer}
+button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
+.cd-vault-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.cd-vault-tag{font-size:11.5px;font-style:normal;color:#4b4a46;background:#f1efe9;border-radius:999px;padding:2px 8px}
+.cd-vault-tag.is-def{color:#0b57d0;background:#e8f0fe;font-weight:600}
+.cd-vault-cardt{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 6px;font-size:14px;color:#1f1e1d}
+.cd-vault-cardt small{flex-basis:100%;font-size:12px;color:#8a857d}
+.cd-pay-opt em{font-style:normal;font-size:11.5px;font-weight:600;color:#0b57d0;background:#e8f0fe;border-radius:999px;padding:1px 7px}
+.cd-filled{display:flex;align-items:flex-start;gap:6px;font-size:13px;line-height:1.45;text-align:left;border-radius:10px;padding:8px 10px;margin:4px 0 0}
+.cd-filled svg{flex:none;margin-top:1px}
+.cd-filled.is-ok{color:#14532d;background:#ecfdf3}
+.cd-filled.is-no{color:#7a2e0e;background:#fff4ed}
+.cd-pay.is-filled .cd-secret-p{margin-bottom:8px}
+.cd-order-items{list-style:none;margin:6px 0 4px;padding:0;text-align:left;border-top:1px solid #ece9e2}
+.cd-order-items li{display:flex;gap:12px;justify-content:space-between;font-size:13.5px;color:#1f1e1d;padding:8px 2px;border-bottom:1px solid #ece9e2}
+.cd-order-items li b{font-weight:500;white-space:nowrap}
+.cd-order-row{display:flex;gap:12px;justify-content:space-between;font-size:13.5px;margin:0;padding:8px 2px;border-bottom:1px solid #ece9e2;text-align:left}
+.cd-order-row span{color:#6b6a66;flex:none}
+.cd-order-row b{font-weight:500;color:#1f1e1d;text-align:right;overflow-wrap:anywhere}
+.cd-order-row.is-total{border-bottom:0;margin-bottom:10px}
+.cd-order-row.is-total b{font-size:16px;font-weight:700}
+.cd-order .cd-secret-btns .cd-card-yes{font-weight:700}
+.cd-receipt{display:flex;align-items:flex-start;gap:8px;font-size:14px;line-height:1.45;border-radius:12px;padding:10px 12px;margin:8px 0}
+.cd-receipt svg{flex:none;margin-top:2px;width:16px;height:16px}
+.cd-receipt span{display:flex;flex-direction:column}
+.cd-receipt small{font-size:12.5px;color:#6b6a66;margin-top:2px}
+.cd-receipt.is-ok{color:#14532d;background:#ecfdf3}
+.cd-receipt.is-no{color:#7a2e0e;background:#fff4ed}
+.cd-vault-scan{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px}
+.cd-vault-scan .cd-vault-file{cursor:pointer}
+.cd-gset .cd-vault-scan .cd-vault-file{background:#efefef;color:#1f1f1f;font-weight:500}
+.cd-gset .cd-vault-scan .cd-vault-file:hover{background:#e6e6e6}

@@ -2064,8 +2064,10 @@ const PAY_ARGS = { number_ref: "f1e2", expiry_ref: "f1e3", cvc_ref: "f1e4", post
 test("GL51 (2026-11-09) Gloopy's pay tool: at a checkout it asks the owner for a card on a private form (the shop, the total, what is bought, which fields the page has) and its turn ends; each field must be the one it says; never when the owner's settings say Never; Coder has no such tool", async () => {
   const { gloopyContext, PAY_TOOL, BROWSER_TOOL_NAMES } = await import("../container/gloopy-agent.mjs");
   assert.ok(GLOOPY_TOOL_NAMES.includes("pay") && BROWSER_TOOL_NAMES.includes("pay"));
-  assert.deepEqual(PAY_TOOL.function.parameters.required, ["number_ref", "total", "reason"]);
-  assert.match(GLOOPY_SYSTEM, /At a checkout the owner asked for, use pay: they give a card on a private form \(or pick one they saved\) and it goes straight into the page; you never see it\. Then check the page and place the order yourself \(that click is checked like any purchase\)\. Never type card numbers yourself\./);
+  // (2026-11-13: also a saved card's pick, the order's items and ship-to, and afterwards its result; checked in code.)
+  assert.equal(PAY_TOOL.function.parameters.required, undefined);
+  assert.deepEqual(Object.keys(PAY_TOOL.function.parameters.properties), ["number_ref", "expiry_ref", "month_ref", "year_ref", "cvc_ref", "name_ref", "postal_ref", "total", "reason", "card", "items", "ship_to", "result", "note"]);
+  assert.match(GLOOPY_SYSTEM, /At a checkout the owner asked for, use pay: a card they saved fills in straight from their Vault \(else they give one on a private form\) and it goes into the page; you never see it\. Then check the page and place the order yourself \(that click is checked like any purchase\), and after it, use pay with result\. Never type card numbers yourself\. Type the owner's shipping and billing details from THE OWNER'S CONTACT INFO; when they give you new ones, save them with vault once the task is done and say so\./);
   const run = async (args, extra = {}, els = PAY_ELS) => { const ev = []; const g = scripted([say("", [call("pay", args, "p1")]), say("Waiting for your card.")]); const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: fakeBrowser(els), emit: (e) => ev.push(e) }, { text: "buy the Strider Red", ...GLOOPY, ...extra }); return { out, ev, g, said: (out.messages.find((m) => m.tool_call_id === "p1") || {}).content }; };
   let { out, ev, g, said } = await run(PAY_ARGS);
   const card = ev.find((e) => e.type === "pay");
@@ -2101,8 +2103,9 @@ test("GL51 (2026-11-09) Gloopy's pay tool: at a checkout it asks the owner for a
   assert.equal(co.cardRequest, undefined);
   assert.match(co.messages.find((m) => m.tool_call_id === "p1").content, /^error: no such tool: pay/);
   // Gloopy knows the owner's saved cards by name only.
-  assert.match(gloopyContext({ memFile: "/m.md", savedCards: ["Visa ending 4242"] }), /SAVED CARDS \(the owner saved these; pay offers them on its form, and you never see their numbers\): Visa ending 4242/);
-  assert.match(gloopyContext({ memFile: "/m.md" }), /SAVED CARDS \(.*\): none\./);
+  assert.match(gloopyContext({ memFile: "/m.md", savedCards: [{ id: "c1", label: "Visa ending 4242", default: true, code: true, hint: "Use for work" }, { id: "c2", label: "Mastercard ending 4444", expired: true }] }), /SAVED CARDS \(in the owner's Vault; pay fills one in for you, and you never see its number or security code\): \n- c1 · Visa ending 4242 \(default\) · hints: “Use for work” · fills in without asking\n- c2 · Mastercard ending 4444 · expired: don't pay with it · the form asks for its security code/);
+  assert.match(gloopyContext({ memFile: "/m.md", savedCards: [] }), /SAVED CARDS \(in the owner's Vault; pay fills one in for you, and you never see its number or security code\): none \(pay asks the owner for a card on its form\)\./);
+  assert.match(gloopyContext({ memFile: "/m.md" }), /SAVED CARDS \(.*\): none \(pay asks the owner for a card on its form\)\./);
 });
 
 test("GL52 (2026-11-09) the Worker: a card from the form is checked and sent only to Gloopy's machine; one ticked to save is kept sealed with NO security code; a saved card is used with only its security code typed; the page and Gloopy see brand, last 4 and expiry, never a number", async () => {
@@ -2141,11 +2144,11 @@ test("GL52 (2026-11-09) the Worker: a card from the form is checked and sent onl
   assert.equal(fills.length, 0);
   // Typed, not saved: sent to the machine for this card form only; nothing kept.
   r = await (await card("pc1", { number: "4242 4242 4242 4242", expiry: "12/30", cvc: "123", name: "Ana Example", postal: "94110" })).json();
-  assert.deepEqual(fills.at(-1), { project: GLOOPY_ID, id: "pc1", card: { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" } });
+  assert.deepEqual(fills.at(-1), { project: GLOOPY_ID, id: "pc1", card: { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" }, label: "Visa ending 4242" });
   assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on shop.example");
   assert.deepEqual(r.cards, []);
   assert.deepEqual(await V.readCards(env, bucket, "u1"), []);
-  assert.match(meta().note, /^\(Note from Gloopy's app, not the owner: the owner gave their card \(Visa ending 4242\) through the private card form, and it was typed into the payment form on shop\.example\. You never see it\. Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total \(€72\.00\) with no error, place the order, then tell them what you did\./);
+  assert.match(meta().note, /^\(Note from Gloopy's app, not the owner: the owner gave their card \(Visa ending 4242\) through the private card form, and it was typed into the payment form on shop\.example\. You never see it\. Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total \(€72\.00\) with no error, place the order, then tell them what you did \(pay with result\)\./);
   assert.equal(meta().pending, null);
   // Ticked, but it could not go into the page: not kept.
   answer = { ok: false, why: "the card number field is not one" };
@@ -2158,21 +2161,30 @@ test("GL52 (2026-11-09) the Worker: a card from the form is checked and sent onl
   answer = { ok: true, title: "Checkout", url: "https://shop.example/checkout" };
   waitCard("pc3");
   r = await (await card("pc3", { number: "4242424242424242", expiry: "12/30", cvc: "123", name: "Ana Example", postal: "94110", save: true })).json();
-  assert.match(meta().note, /They saved it for next time \(without its security code\)\./);
+  assert.match(meta().note, /They saved it in their Vault \(as Visa ending 4242\): next time it fills in at checkout without the card form\./);
   const kept = await V.readCards(env, bucket, "u1");
-  assert.deepEqual(kept.map((x) => [x.brand, x.last4, x.number, x.month, x.year, x.name, x.postal, "cvc" in x]), [["Visa", "4242", "4242424242424242", 12, 2030, "Ana Example", "94110", false]]);
-  assert.deepEqual(r.cards, [{ id: kept[0].id, brand: "Visa", last4: "4242", month: 12, year: 2030, name: "Ana Example", at: kept[0].at }]);
+  // (2026-11-13, as Grok Bot's Vault: "Cards: the number, expiry, security code ...": kept with its code, sealed.)
+  assert.deepEqual(kept.map((x) => [x.brand, x.last4, x.number, x.month, x.year, x.name, x.postal, x.cvc]), [["Visa", "4242", "4242424242424242", 12, 2030, "Ana Example", "94110", "123"]]);
+  assert.deepEqual(r.cards, [{ id: kept[0].id, brand: "Visa", last4: "4242", month: 12, year: 2030, name: "Ana Example", default: true, code: true, at: kept[0].at }], "the first card saved is the default; its code is kept, never shown");
   for (const [k, v] of bucket.m) assert.ok(!v.includes("4242424242424242") && !v.includes("4242 4242"), "a card number in plain words in " + k);
   const g = await (await go("gloopy")).json();
   assert.ok(!JSON.stringify(g).includes("424242424242"), "the page never gets a number");
   assert.deepEqual(g.cards.map((x) => x.last4), ["4242"]);
-  // A saved card: only its security code typed (needed when the page has that field), then sent like a typed one.
+  // A saved card picked on the form: its security code from the Vault (2026-11-13, as Grok Bot's); one typed there wins.
   waitCard("pc4");
-  r = await card("pc4", { use: kept[0].id });
+  r = await (await card("pc4", { use: kept[0].id })).json();
+  assert.deepEqual(fills.at(-1).card, { number: "4242424242424242", month: 12, year: 2030, cvc: "123", name: "Ana Example", postal: "94110" }, "its code from the Vault");
+  waitCard("pc4b");
+  r = await (await card("pc4b", { use: kept[0].id, cvc: "456" })).json();
+  assert.equal(fills.at(-1).card.cvc, "456", "one typed on the form wins");
+  // A saved card whose code is not kept (forgotten in Settings): the form asks for it, as before.
+  await V.editCard(env, bucket, "u1", kept[0].id, { forgetCode: true });
+  waitCard("pc4c");
+  r = await card("pc4c", { use: kept[0].id });
   assert.equal(r.status, 400);
   assert.match((await r.json()).error, /security code/);
-  waitCard("pc4");
-  r = await (await card("pc4", { use: kept[0].id, cvc: "456" })).json();
+  waitCard("pc4c");
+  r = await (await card("pc4c", { use: kept[0].id, cvc: "456" })).json();
   assert.deepEqual(fills.at(-1).card, { number: "4242424242424242", month: 12, year: 2030, cvc: "456", name: "Ana Example", postal: "94110" });
   assert.equal(r.said, "Gave my card (Visa ending 4242) to pay €72.00 on shop.example");
   waitCard("pc5");
@@ -2186,7 +2198,7 @@ test("GL52 (2026-11-09) the Worker: a card from the form is checked and sent onl
   const turns = [];
   deps.container = () => ({ fetch: async (req) => { if (new URL(req.url).pathname === "/turn") turns.push(await req.json()); return Response.json({ ok: true }); } });
   await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "buy it again" }) });
-  assert.deepEqual(turns[0].savedCards, ["Visa ending 4242"]);
+  assert.deepEqual(turns[0].savedCards.map((x) => [x.label, x.code, x.default]), [["Visa ending 4242", false, true]], "(its code was forgotten above)");
   assert.ok(!JSON.stringify(turns[0]).includes("424242424242"));
   // The settings screen's list, and taking one away.
   assert.deepEqual((await (await go("projects/" + GLOOPY_ID + "/cards")).json()).cards.map((x) => x.last4), ["4242"]);
@@ -2362,7 +2374,7 @@ test("GL54 (2026-11-09) paying, for real (where Chromium is installed): Gloopy a
     assert.equal(orders.length, 1, "the order was placed");
     assert.ok(events().some((e) => e.type === "done" && /^Ordered: Strider Red/.test(e.text)));
     const saved = await V.readCards(env, bucket, "u1");
-    assert.deepEqual(saved.map((x) => [x.last4, "cvc" in x]), [["4242", false]], "kept, without its security code");
+    assert.deepEqual(saved.map((x) => [x.last4, x.cvc]), [["4242", "123"]], "kept with its security code (2026-11-13, as Grok Bot's)");
     // 3. Next time: you pick the saved card and type only its security code.
     st = await message("Order another pair");
     form = events().filter((e) => e.type === "pay").at(-1);
@@ -2390,8 +2402,10 @@ test("GL55 (2026-11-09) on the page: the card form names the shop, the total and
   assert.match(block, /Your card goes straight into the payment form in Gloopy’s browser on ' \+ esc\(e\.site \|\| 'the site'\) \+ \(e\.via \? ' \(its card fields are from ' \+ esc\(e\.via\) \+ '\)' : ''\) \+ '\. Gloopy never sees it\. Nothing is paid until Gloopy places the order\./);
   assert.match(block, /esc\(c\.brand\) \+ ' ending ' \+ esc\(c\.last4\)/);
   assert.match(block, /> Another card<\/label>/);
-  assert.match(block, /\(use \? cvcBox\n/, "a saved card: its security code only");
-  assert.match(block, /Save this card, so next time you only type its security code \(the code itself is never saved\)/);
+  // (2026-11-13, as Grok Bot's Vault: a saved card keeps its security code; the form asks for one only when it isn't kept.)
+  assert.match(block, /\(use \? \(usedCard && usedCard\.code \? '<p class="cd-secret-p">Its security code is in your Vault\.<\/p>' : cvcBox\)\n/, "a saved card: its security code only when it isn't kept");
+  assert.match(block, /<input type="checkbox" id="cdPaySave" checked> Save to your Vault, so next time Gloopy fills it in without asking you<\/label>/, "ticked, as Grok Bot's");
+  assert.match(block, /const first = saved\.find\(\(c\) => c\.id === e\.use\) \|\| saved\.find\(\(c\) => c\.default\) \|\| saved\[0\];/, "the card Gloopy named first, else the default");
   assert.match(block, /type="password" inputmode="numeric" autocomplete="cc-csc" maxlength="4"/);
   assert.doesNotMatch(block, /\.number\b/, "a card's number is never put in the page (the Worker never sends one)");
   assert.match(ui, /const take = \(sel\) => \{ const b = root\.querySelector\(sel\); const v = b \? b\.value : ''; if \(b\) b\.value = ''; return v; \};/);
@@ -5143,7 +5157,7 @@ test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Al
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8"), css = await readFile(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /\(S\.project \? '<button type="button" class="cd-hbtn cd-web-btn" id="cdGset">' \+ ICON\.sliders \+ 'Settings<\/button>' : ''\)/);
   assert.match(ui, /on\('#cdGset', 'click', \(\) => \{ showGloopySettings\(\); \}\);/);
-  assert.match(ui, /const \[pr, rr, sr, or, gr\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\), call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/);
+  assert.match(ui, /const \[pr, rr, sr, or, gr, cr, kr\] = await Promise\.all\(\[call\(base \+ '\/permissions'\), call\(base \+ '\/rules'\), call\(base \+ '\/sites'\), call\(base \+ '\/options'\), call\(base \+ '\/signins'\), call\(base \+ '\/cards'\), call\(base \+ '\/contacts'\)\]\);/);
   // (Since 2026-11-12, GL133: rules sit under their kind, each with its own Add rule, as Grok Bot's.)
   for (const words of ["What Gloopy may do on its own", "Your rules", "When Gloopy wants to", "Add rule", "Save rule", "Sites", "Add site", "No sites yet."]) assert.ok(ui.includes(words), words);
   assert.match(ui, /else if \(t\.dataset\.site\) save\('\/sites', \{ set: \{ host: t\.dataset\.site, mode: t\.value \} \}/);
@@ -5529,7 +5543,7 @@ test("GL111 (2026-11-11) the docs check: a screenshot's time is given in the own
 
 test("GL112 (2026-11-11) the docs check: Gloopy's Settings has a Browser section (both apps keep the browser's sign-ins in their settings; Gloopy had them only by typing /signins): where its browser is signed in, how and when, Sign out for each site or any other, and the saved logins to forget, through the Worker's own routes", async () => {
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(ui, /call\(base \+ '\/options'\), call\(base \+ '\/signins'\)\]\);/, "the sign-ins are asked for with the rest");
+  assert.match(ui, /call\(base \+ '\/options'\), call\(base \+ '\/signins'\), call\(base \+ '\/cards'\), call\(base \+ '\/contacts'\)\]\);/, "the sign-ins are asked for with the rest");
   assert.match(ui, /signins: gr\.status === 200 && gr\.data \? \{ sites: gr\.data\.sites \|\| \[\], saved: gr\.data\.saved \|\| \[\] \} : null,/);
   assert.match(ui, /'<section><h3 class="cd-gset-sl">Browser<\/h3><div class="cd-gset-card"><div class="cd-gset-row">' \+ what\('Where Gloopy’s browser is signed in', 'Signing out of a site removes its cookies from Gloopy’s browser and from the copy kept for it\.'\)/);
   assert.match(ui, /data-gs-signout="' \+ esc\(x\.site\) \+ '"/);
@@ -6719,7 +6733,7 @@ test("GL130 (2026-11-12) on the page: the sign-in card offers each saved login w
   assert.match(css, /\.cd-secret-in\.is-masked\{-webkit-text-security:disc\}/);
   assert.doesNotMatch(ui, /id="cdSignPass"[^>]*type="password"/, "not a password box where browsers can mask text");
   // The Vault: its parts, as Grok Bot's.
-  for (const bit of ['<h2 class="cd-gset-pt">Vault</h2>', ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import from CSV…</button>", 'placeholder="Search Vault"', "Logins <i>' + all.length + '</i>", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
+  for (const bit of ['<h2 class="cd-gset-pt">Vault</h2>', ">New item ' + ICON.chev + '</button>", "'Login</button>", "'Import from CSV…</button>", 'placeholder="Search Vault"', "['logins', 'Logins', all.length]", "Nothing saved yet. Add a login with New item, or tick “Save to your Vault” on a sign-in card.", "Gloopy never sees a saved password. It sees each login’s website, username and hints, so it can pick the right one, and its computer types the password in for it.", ">Website</label>", ">Username or email</label>", "(leave it empty to keep the saved one)", "Hints <small>(optional)</small>", "When Gloopy should use it, like “Use for work”", ">Save login</button>", "'Remove for good?' : 'Remove'", "Password made by Gloopy", "Export your passwords as a CSV file from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass, then choose it here. It’s read on this device; the file itself is never uploaded. At most 5 MB.", "Delete the exported file now: it holds your passwords unencrypted."]) assert.ok(ui.includes(bit), bit);
   assert.ok(ui.includes("// The password leaves the box as it is sent: it is never kept in this page's state.\n        if (box2) box2.value = '';"));
   assert.ok(ui.includes("// The export's passwords leave this page's memory.\n        st.vault.imp = null;"));
   assert.match(css, /\.cd-gset button\.cd-vault-newbtn\{[^}]*background:#1f1e1d;color:#fff;border-radius:999px/);
@@ -6828,7 +6842,7 @@ test("GL132 (2026-11-12) nicknames, and Gloopy changing a login's nickname or hi
   assert.equal((await run({ nickname: "x" })).said, "error: give site: the login's website, as SAVED LOGINS lists it");
   assert.match((await run({ site: "github.com", hint: "x" }, null)).said, /^error: the owner's Vault can't be changed from this computer/);
   assert.equal((await run({ site: "github.com", hint: "x" }, { edit: async () => ({ ok: false, why: "the owner saved 2 logins for github.com: give the username of the one to change" }) })).said, "not done: the owner saved 2 logins for github.com: give the username of the one to change");
-  assert.match(GLOOPY_TOOLS.find((t) => t.function.name === "vault").function.description, /Passwords, usernames and websites change only in the owner's Settings → Vault, and logins are removed only there/);
+  assert.match(GLOOPY_TOOLS.find((t) => t.function.name === "vault").function.description, /Passwords, usernames, websites, card numbers and security codes change only in the owner's Settings → Vault, and logins and cards are removed only there/);
   // Gloopy is told nicknames; it may name a login by one.
   assert.equal(savedLoginsLine([{ site: "github.com", username: "a@x.com", nickname: "Personal GitHub" }, { site: "github.com", username: "b@w.com", nickname: "Work GitHub", hint: "Use for work" }]), "github.com (a@x.com “Personal GitHub”; b@w.com “Work GitHub”: “Use for work”).");
   const calls = [];
@@ -7359,4 +7373,315 @@ test("GL138 (2026-11-13) found in the live pay test (Buy or pay on Ask): the car
     spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
     site.close();
   }
+});
+
+test("GL139 (2026-11-13) paying as Grok Bot's (owner: \"yes if dots and bot have it do it pls\"; Grok Bot: \"A card saved in Vault fills in at checkout without asking you each time\", \"Default payment method, which Grok Bot pays with first\", \"an order card with the store, the items, Ship to, Pay with, and the Total\", \"Once the order is placed, the card shows what you Paid with\"): a saved card that fits fills in from the Vault and Gloopy goes on; placing the order waits on an order card; afterwards Gloopy says how it went; a card without its code, or none that fits, brings the form; the vault tool keeps contact info and a card's nickname", async () => {
+  const ORDER = { ...PAY_ARGS, items: [{ name: "Strider Red, size 39", quantity: 1, price: "€72.00" }], ship_to: "Ana Example, 1 Main St, Springfield" };
+  const hub = (fill) => { const b = fakeBrowser(PAY_ELS), filled = []; return { ...b, filled, payWithSaved: async (x) => { filled.push(x); return fill(x); } }; };
+  const memo = () => { let o = null; return { get: (site) => (o && (!site || o.site === site) ? o : null), set: (x) => { o = { ...x }; }, done: () => { o = null; }, now: () => o }; };
+  const job = async (steps, verdicts, { browser, order = memo(), cards = [], perms = {}, vault } = {}) => {
+    const ev = [], g = withChecks(steps, verdicts);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser, order, ...(vault ? { vault } : {}), emit: (e) => ev.push(e) }, { text: "buy the Strider Red", ...GLOOPY, savedCards: cards, permissions: { buy: "ask", ...perms } });
+    return { out, ev, order, said: (id) => (out.messages.find((m) => m.tool_call_id === id) || {}).content };
+  };
+  const BUY = { kind: "buy", decision: "ask", why: "This would place the order and charge your card €72.00." };
+  const visa = { id: "c1", label: "Visa ending 4242", default: true, code: true }, master = { id: "c2", label: "Mastercard ending 4444", nickname: "Work card", code: true };
+
+  // 1. The default card, its code kept: filled in from the Vault, no form; Gloopy goes on, and placing the order waits on
+  // the order card (store, items, Ship to, Pay with, Total).
+  let b = hub(() => ({ ok: true, id: "c1", label: "Visa ending 4242" }));
+  let { out, ev, order, said } = await job([say("", [call("pay", ORDER, "p1")]), say("", [call("browser", { action: "click", ref: "e5" }, "b1")]), say("Waiting for your OK.")], [BUY], { browser: b, cards: [visa, master] });
+  assert.deepEqual(b.filled, [{ site: "shop.example", refs: { number: "f1e2", exp: "f1e3", cvc: "f1e4", name: "e4", postal: "f1e5" }, id: "c1" }], "the default card, asked for by this computer's service");
+  const filled = ev.find((e) => e.type === "pay");
+  assert.deepEqual({ ...filled, id: "", at: 0 }, { type: "pay", id: "", at: 0, site: "shop.example", via: "pay.example", url: "https://shop.example/cart", total: "€72.00", reason: "Strider Red, size 39", items: [{ name: "Strider Red, size 39", quantity: 1, price: "€72.00" }], shipTo: "Ana Example, 1 Main St, Springfield", fields: ["number", "exp", "cvc", "name", "postal"], filled: true, label: "Visa ending 4242" });
+  assert.match(said("p1"), /^the owner's saved card \(Visa ending 4242\) was filled into the page's card fields from their Vault; you never see it\. .*then use pay with result\.$/);
+  assert.equal(out.cardRequest, undefined, "no card form");
+  const okCard = ev.find((e) => e.type === "approval");
+  assert.deepEqual(okCard.order, { total: "€72.00", reason: "Strider Red, size 39", items: [{ name: "Strider Red, size 39", quantity: 1, price: "€72.00" }], shipTo: "Ana Example, 1 Main St, Springfield", payWith: "Visa ending 4242" });
+  assert.equal(out.approvalRequest.order, "€72.00");
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "p1").label, "Filled your saved Visa ending 4242 into the payment form on shop.example");
+  // 2. Afterwards: how it went, on the order card and the receipt line; the order is then forgotten.
+  ({ ev, said } = await job([say("", [call("pay", { result: "paid", note: "Order #1042" }, "r1")]), say("Paid.")], [], { browser: b, order }));
+  assert.deepEqual(ev.filter((e) => e.type === "paid").map(({ id, at, ...x }) => x), [{ type: "paid", ok: true, site: "shop.example", total: "€72.00", payWith: "Visa ending 4242", note: "Order #1042" }]);
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "r1").label, "Paid €72.00 on shop.example with Visa ending 4242");
+  assert.equal(order.now(), null, "forgotten");
+  ({ said } = await job([say("", [call("pay", { result: "not paid" }, "r2")]), say("Hmm.")], [], { browser: b, order }));
+  assert.match(said("r2"), /^error: there is no order to say this about/);
+  // 3. A card named by Gloopy (its hints); one not saved is an error.
+  b = hub((x) => ({ ok: true, id: x.id, label: "Mastercard ending 4444" }));
+  ({ ev } = await job([say("", [call("pay", { ...ORDER, card: "c2" }, "p1")]), say("Filled.")], [], { browser: b, cards: [visa, master] }));
+  assert.equal(b.filled[0].id, "c2");
+  assert.equal(ev.find((e) => e.type === "pay").label, "Mastercard ending 4444");
+  ({ said } = await job([say("", [call("pay", { ...ORDER, card: "c9" }, "p1")]), say("Hmm.")], [], { browser: b, cards: [visa] }));
+  assert.match(said("p1"), /^error: card is not one of SAVED CARDS/);
+  // 4. A saved card without its code on a page that asks for one: the form (that card picked), not the Vault.
+  b = hub(() => ({ ok: true }));
+  ({ out, ev } = await job([say("", [call("pay", ORDER, "p1")]), say("Waiting.")], [], { browser: b, cards: [{ ...visa, code: false }] }));
+  assert.equal(b.filled.length, 0);
+  assert.equal(ev.find((e) => e.type === "pay").use, "c1");
+  assert.ok(out.cardRequest && out.cardRequest.id === ev.find((e) => e.type === "pay").id, "the card form");
+  // ...on a page with no security code field, it fills in from the Vault.
+  ({ ev } = await job([say("", [call("pay", { ...ORDER, cvc_ref: undefined }, "p1")]), say("Filled.")], [], { browser: b, cards: [{ ...visa, code: false }] }));
+  assert.equal(b.filled.length, 1);
+  // Several saved cards and none the default or named: the form. The Vault couldn't fill it: the form, saying why.
+  b = hub(() => ({ ok: false, why: "the owner's Vault can't be reached from this computer" }));
+  ({ out } = await job([say("", [call("pay", ORDER, "p1")]), say("Waiting.")], [], { browser: b, cards: [{ ...visa, default: false }, master] }));
+  assert.equal(b.filled.length, 0);
+  assert.ok(out.cardRequest);
+  ({ out, ev } = await job([say("", [call("pay", ORDER, "p1")]), say("Waiting.")], [], { browser: b, cards: [visa] }));
+  assert.equal(b.filled.length, 1);
+  assert.ok(out.cardRequest);
+  assert.match(ev.find((e) => e.type === "result" && e.id === "p1").output, /\(your saved card couldn't be used: the owner's Vault can't be reached from this computer\)$/);
+  // A purchase with no order Gloopy filled a card for: the plain OK card.
+  ({ ev } = await job([say("", [call("browser", { action: "click", ref: "e5" }, "b1")]), say("Waiting for your OK.")], [BUY], { browser: hub(() => ({ ok: true })) }));
+  assert.equal(ev.find((e) => e.type === "approval").order, undefined);
+  // Never: nothing filled.
+  b = hub(() => ({ ok: true }));
+  ({ said } = await job([say("", [call("pay", ORDER, "p1")]), say("Off.")], [], { browser: b, cards: [visa], perms: { buy: "deny" } }));
+  assert.equal(b.filled.length, 0);
+  assert.match(said("p1"), /^not done: the owner's settings never allow this/);
+
+  // 5. THE VAULT TOOL: contact info the owner gives is kept (and said); a card's nickname changes; never with sharing off.
+  const asks = [];
+  const vault = { contact: async (x) => { asks.push(["contact", x]); return { ok: true, contact: { id: "p1", ...(x.add || x.change) } }; }, card: async (x) => { asks.push(["card", x]); return { ok: true, card: { id: x.id, label: "Visa ending 4242", nickname: x.nickname } }; }, edit: async () => ({ ok: false }) };
+  ({ ev, said } = await job([say("", [call("vault", { what: "contact", name: "Ana Example", line1: "1 Main St", city: "Springfield", postal: "62701", country: "United States", email: "ana@example.com", nickname: "Home" }, "v1")]), say("Saved.")], [], { browser: b, vault }));
+  assert.deepEqual(asks[0], ["contact", { add: { name: "Ana Example", line1: "1 Main St", city: "Springfield", postal: "62701", country: "United States", email: "ana@example.com", nickname: "Home" } }]);
+  assert.equal(ev.find((e) => e.type === "result" && e.id === "v1").label, "Saved your contact info: “Home” · Ana Example, 1 Main St, Springfield, 62701, United States · ana@example.com");
+  assert.match(said("v1"), /^saved the owner's contact info in their Vault: .* Tell them in a line what you saved, and that they can see or remove it in Settings → Vault\.$/);
+  ({ said } = await job([say("", [call("vault", { what: "contact", contact: "p1", phone: "+1 555 0100" }, "v2")]), say("Changed.")], [], { browser: b, vault }));
+  assert.deepEqual(asks[1], ["contact", { id: "p1", change: { phone: "+1 555 0100" } }]);
+  ({ said } = await job([say("", [call("vault", { what: "card", card: "c1", nickname: "Everyday" }, "v3")]), say("Done.")], [], { browser: b, vault, cards: [visa] }));
+  assert.deepEqual(asks[2], ["card", { id: "c1", nickname: "Everyday" }]);
+  assert.match(said("v3"), /^changed the owner's saved card Visa ending 4242: it now has nickname “Everyday”, no hints\./);
+  ({ said } = await job([say("", [call("vault", { what: "contact", name: "Ana" }, "v4")]), say("No.")], [], { browser: b, vault, perms: { share: "deny" } }));
+  assert.equal(asks.length, 3, "nothing kept with sharing off");
+  assert.match(said("v4"), /^not done: the owner's settings never allow sharing their details/);
+});
+
+test("GL140 (2026-11-13) the Vault's cards and contact info on Coder's Worker (owner: \"yes if dots and bot have it do it pls\"; Grok Bot's Vault: \"Pick Login, Card, or Contact info\", \"Cards: the number, expiry, security code, name on card, and billing address\", \"Default payment method\", \"It can see your contact info\", \"Scan with camera or Upload a photo to fill it from the card\", and its forms' \"Filled into the page\"): added, changed and removed in Settings; a card's number and code never come back to the page or Gloopy; Gloopy's computer gets the default (or named) card for a running job, never while paying is off; Gloopy is told the cards and the contact info (not while sharing is off); a form's result is said on its card; the order card's answers; a card from a photo", async () => {
+  const V = await import("../src/gloopy-vault.mjs");
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const { egressPass } = await import("../src/coder-egress.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const fills = [], turns = [];
+  let answer = { ok: true, title: "Checkout", url: "https://shop.example/checkout" };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); const body = req.method === "POST" ? await req.json() : {}; if (u.pathname === "/turn") { turns.push(body); return Response.json({ ok: true }); } if (u.pathname === "/gloopy/card" || u.pathname === "/gloopy/approve") { fills.push(body); return Response.json(u.pathname === "/gloopy/approve" ? { done: true, did: "Clicked “Pay €72.00”" } : answer); } return Response.json({ running: false, events: [] }); } }),
+    scanCard: async (img) => (img.data.startsWith("AAAA") ? { ok: true, number: "4242 4242 4242 4242", expiry: "12 / 30", name: "ANA EXAMPLE" } : { error: "No card number could be read from that photo." }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const post = async (path, body) => go("projects/" + GLOOPY_ID + "/" + path, { method: "POST", body: JSON.stringify(body) });
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const meta = () => JSON.parse(bucket.m.get(metaKey));
+  const setMeta = (m) => bucket.m.set(metaKey, JSON.stringify(m));
+  await go("gloopy");
+
+  // 1. CARDS IN SETTINGS: added with its code (the first is the default); the page sees brand, last 4, expiry, name,
+  // nickname, hints, default and whether its code is kept, never a number or a code.
+  let r = await post("cards", { add: { number: "4242 4242 4242 4242", expiry: "12/30", cvc: "123", name: "Ana Example", postal: "94110", nickname: "Everyday", hint: "Use for small things" } });
+  assert.equal(r.status, 200);
+  let d = await r.json();
+  assert.deepEqual(d.cards.map(({ id, at, ...x }) => x), [{ brand: "Visa", last4: "4242", month: 12, year: 2030, name: "Ana Example", nickname: "Everyday", hint: "Use for small things", default: true, code: true }]);
+  const c1 = d.id;
+  d = await (await post("cards", { add: { number: "5555 5555 5555 4444", expiry: "01/31", nickname: "Work card", hint: "Use for work purchases" } })).json();
+  const c2 = d.id;
+  assert.deepEqual(d.cards.map((x) => [x.last4, !!x.default, x.code]), [["4242", true, true], ["4444", false, false]], "a second card isn't the default; no code typed, none kept");
+  assert.match((await (await post("cards", { add: { number: "4242 4242 4242 4241", expiry: "12/30" } })).json()).error, /card number doesn't look right/);
+  assert.match((await (await post("cards", { add: { number: "5555 5555 5555 4444", expiry: "12/30", cvc: "12" } })).json()).error, /security code \(3 or 4 digits/);
+  // Changed: the default moves; a code typed is kept, one forgotten is dropped; the expiry checked.
+  d = await (await post("cards", { edit: { id: c2, default: true, cvc: "777" } })).json();
+  assert.deepEqual(d.cards.map((x) => [x.last4, !!x.default, x.code]), [["4242", false, true], ["4444", true, true]]);
+  d = await (await post("cards", { edit: { id: c1, forgetCode: true, hint: "" } })).json();
+  assert.deepEqual(d.cards.map((x) => [x.last4, x.code, x.hint || ""]), [["4242", false, ""], ["4444", true, "Use for work purchases"]]);
+  assert.match((await (await post("cards", { edit: { id: c1, expiry: "13/30" } })).json()).error, /expiry date/);
+  assert.equal((await post("cards", { edit: { id: "cnope", nickname: "x" } })).status, 404);
+  const sealed = [...bucket.m.entries()].filter(([k]) => k.endsWith("cards.json"));
+  assert.equal(sealed.length, 1);
+  assert.ok(!sealed[0][1].includes("4242") && !sealed[0][1].includes("777"), "kept sealed");
+  const page = JSON.stringify(await (await go("gloopy")).json()) + JSON.stringify(await (await go("projects/" + GLOOPY_ID + "/cards")).json());
+  assert.ok(!page.includes("424242424242") && !page.includes("555555555555") && !page.includes("777"), "the page never gets a number or a code");
+
+  // 2. A CARD FROM A PHOTO: read once, its words back to the owner's own page; nothing kept.
+  d = await (await post("cards", { scan: { type: "image/jpeg", data: "AAAABBBB" } })).json();
+  assert.deepEqual(d, { ok: true, number: "4242 4242 4242 4242", expiry: "12 / 30", name: "ANA EXAMPLE" });
+  r = await post("cards", { scan: { type: "image/jpeg", data: "CCCC" } });
+  assert.equal(r.status, 400);
+  assert.match((await r.json()).error, /No card number could be read/);
+  assert.match((await (await post("cards", { scan: { type: "text/html", data: "AAAA" } })).json()).error, /^That photo can't be read: pictures must be PNG, JPEG, WebP or GIF\./);
+  const { scanCard, SCAN_ASK } = await import("../src/gloopy-cardscan.mjs");
+  const asked = [];
+  const read = (content) => scanCard(env, { type: "image/png", data: "AAAA" }, { send: async (req) => { asked.push(req); return { message: { content } }; } });
+  assert.deepEqual(await read('Here: {"number":"4000 0566 5566 5556","expiry":"7/2031","name":"Ana  Example"}'), { ok: true, number: "4000 0566 5566 5556", expiry: "07 / 31", name: "Ana Example" });
+  assert.equal(asked[0].messages[0].content, SCAN_ASK);
+  assert.deepEqual(asked[0].messages[1].images, ["data:image/png;base64,AAAA"]);
+  assert.match((await read('{"number":"4242424242424241"}')).error, /No card number could be read/, "a number that doesn't add up");
+  assert.match((await read("{}")).error, /No card number/);
+  assert.match((await scanCard(env, { type: "image/png", data: "AAAA" }, { send: async () => { throw new Error("down"); } })).error, /couldn't be read just now/);
+
+  // 3. CONTACT INFO IN SETTINGS: checked, kept sealed, all of it shown (it isn't a secret).
+  d = await (await post("contacts", { add: { name: "Ana Example", line1: "1 Main St", city: "Springfield", region: "IL", postal: "62701", country: "United States", phone: "+1 555 0100", email: "ana@example.com", nickname: "Home" } })).json();
+  const p1 = d.id;
+  assert.deepEqual(d.contacts.map(({ id, at, ...x }) => x), [{ name: "Ana Example", line1: "1 Main St", city: "Springfield", region: "IL", postal: "62701", country: "United States", phone: "+1 555 0100", email: "ana@example.com", nickname: "Home" }]);
+  assert.equal(V.contactLine(d.contacts[0]), "Home · Ana Example, 1 Main St, Springfield, IL 62701, United States · +1 555 0100 · ana@example.com");
+  assert.match((await (await post("contacts", { add: { email: "not-an-email" } })).json()).error, /email doesn't look right/);
+  assert.match((await (await post("contacts", { add: { phone: "call me" } })).json()).error, /phone number doesn't look right/);
+  assert.match((await (await post("contacts", { add: { nickname: "x" } })).json()).error, /Type a name, an address, a phone number or an email/);
+  d = await (await post("contacts", { edit: { id: p1, line2: "Apt 4", phone: "" } })).json();
+  assert.deepEqual([d.contacts[0].line2, d.contacts[0].phone], ["Apt 4", undefined]);
+  assert.ok(![...bucket.m.entries()].filter(([k]) => k.endsWith("contacts.json"))[0][1].includes("Main St"), "kept sealed");
+
+  // 4. WITH EACH MESSAGE: the cards (no number, code or expiry; whether each has expired) and the contact info.
+  await post("message", { text: "buy the shoes again" });
+  assert.deepEqual(turns[0].savedCards.map(({ id, ...x }) => x), [{ brand: "Visa", last4: "4242", nickname: "Everyday", code: false, label: "Visa ending 4242" }, { brand: "Mastercard", last4: "4444", nickname: "Work card", hint: "Use for work purchases", default: true, code: true, label: "Mastercard ending 4444" }]);
+  assert.deepEqual(turns[0].contacts.map((x) => x.nickname), ["Home"]);
+  assert.ok(!JSON.stringify(turns[0]).includes("424242424242") && !JSON.stringify(turns[0]).includes("777") && !JSON.stringify(turns[0]).includes("12/30"));
+  // Gloopy's computer: the default card, or the one named, for that running job only; never while paying is off.
+  const turnNo = meta().turn, pass = await egressPass(env, "u1/" + GLOOPY_ID, turnNo);
+  const job = { "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(turnNo), "x-coder-egress": pass };
+  const vault = (body, headers = job) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", ...headers }, body: JSON.stringify(body) }), env, {}, deps);
+  assert.deepEqual(await (await vault({ card: { site: "shop.example" } })).json(), { ok: true, id: c2, label: "Mastercard ending 4444", number: "5555555555554444", month: 1, year: 2031, cvc: "777", name: "", postal: "" }, "the default card");
+  assert.equal((await (await vault({ card: { id: c1, site: "shop.example" } })).json()).label, "Visa ending 4242", "the one named");
+  assert.equal((await vault({ card: { site: "shop.example" } }, { ...job, "x-coder-egress": "nope" })).status, 403, "only a running job's pass");
+  await post("permissions", { set: { buy: "deny" } });
+  assert.equal((await vault({ card: { site: "shop.example" } })).status, 403, "never while paying is off");
+  await post("permissions", { set: { buy: "allow" } });
+  // Gloopy keeps contact info, and changes a card's nickname or hints (nothing else of it).
+  d = await (await vault({ contact: { add: { name: "Bo Example", line1: "9 Oak Ave", city: "Portland", country: "United States" } } })).json();
+  assert.equal(d.contact.name, "Bo Example");
+  d = await (await vault({ contact: { id: p1, change: { phone: "+1 555 0199" } } })).json();
+  assert.equal(d.contact.phone, "+1 555 0199");
+  d = await (await vault({ cardEdit: { id: c1, nickname: "Old Visa", number: "4000056655665556" } })).json();
+  assert.deepEqual([d.card.nickname, d.card.last4], ["Old Visa", "4242"], "only its nickname");
+  // Sharing off: Gloopy is told none of the contact info.
+  setMeta({ ...meta(), status: "idle" });
+  await post("permissions", { set: { share: "deny" } });
+  await post("message", { text: "where do you ship it?" });
+  assert.deepEqual(turns.at(-1).contacts, []);
+  await post("permissions", { set: { share: "allow" } });
+
+  // 5. A FORM'S RESULT, said on its card ("Filled into the page" / "Could not fill into the page"); the card's label goes
+  // to Gloopy's computer (for the order card); a card saved from the form keeps its code.
+  const waitCard = (cid) => setMeta({ ...meta(), status: "idle", waiting: "pay", pending: { kind: "card", id: cid, site: "shop.example", total: "€72.00", fields: ["number", "exp", "cvc"] } });
+  const events = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json") || "[]");
+  waitCard("pc1");
+  d = await (await post("card", { id: "pc1", use: c2 })).json();
+  assert.deepEqual([fills.at(-1).card.cvc, fills.at(-1).label], ["777", "Mastercard ending 4444"], "its kept code; its name");
+  assert.deepEqual(events().filter((e) => e.type === "filled").map(({ at, ...x }) => x), [{ type: "filled", id: "pc1", ok: true }]);
+  answer = { ok: false, why: "the page moved" };
+  waitCard("pc2");
+  await post("card", { id: "pc2", number: "4000 0566 5566 5556", expiry: "12/30", cvc: "321", save: true });
+  assert.deepEqual(events().filter((e) => e.type === "filled").at(-1), { at: events().filter((e) => e.type === "filled").at(-1).at, type: "filled", id: "pc2", ok: false, why: "the page moved" });
+  assert.equal((await V.readCards(env, bucket, "u1")).length, 2, "not kept: it didn't go in");
+  // The order card's answers: "Pay €72.00 on shop.example", or "Cancelled the order on shop.example".
+  const waitOrder = (aid) => setMeta({ ...meta(), status: "idle", waiting: "approval", pending: { kind: "approval", id: aid, step: "Click the button “Pay €72.00”", site: "shop.example", order: "€72.00" } });
+  waitOrder("ap1");
+  assert.equal((await (await post("approve", { id: "ap1", decision: "once" })).json()).said, "Pay €72.00 on shop.example");
+  waitOrder("ap2");
+  assert.equal((await (await post("approve", { id: "ap2", decision: "deny" })).json()).said, "Cancelled the order on shop.example");
+  // Removed: gone for Gloopy too.
+  d = await (await post("cards", { remove: c1 })).json();
+  assert.deepEqual(d.cards.map((x) => x.last4), ["4444"]);
+  d = await (await post("contacts", { remove: p1 })).json();
+  assert.deepEqual(d.contacts.map((x) => x.name), ["Bo Example"]);
+  assert.equal((await post("contacts", { remove: p1 })).status, 404);
+});
+
+test("GL141 (2026-11-13) on the page (owner: \"yes if dots and bot have it do it pls\"): the Vault's tabs (Logins, Cards, Contact info) and New item → Card or Contact info, as Grok Bot's; a card typed or scanned from a photo, its number and code never kept in the page; a card's Default, \"Fills in without asking\" and hints; contact info; and in the chat: a saved card filled in, \"Filled into the page\", the order card (Pay €… or Cancel, then \"Paid with\"), the receipt line", async (t) => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  // The chat's cards.
+  for (const bit of [
+    "Filled into the page. Secret values were never shown to Gloopy.",
+    "Could not fill into the page' + (f.why ? ': ' + esc(f.why) : '') + '. Nothing you typed was shown to Gloopy.",
+    "else if (e.type === 'pay' && e.filled) {",
+    "Gloopy filled your saved <b>' + esc(e.label || 'card') + '</b> into the payment form on ",
+    "else if (e.type === 'approval' && e.order && typeof e.order === 'object') {",
+    "'<p class=\"cd-order-row\"><span>Pay with</span><b>' + esc(o.payWith || 'The card in the payment form') + '</b></p>'",
+    "'<p class=\"cd-order-row is-total\"><span>Total</span><b>' + esc(o.total || '') + '</b></p>'",
+    "data-approve=\"deny\" data-card=\"' + esc(e.id) + '\">Cancel</button><button type=\"button\" class=\"cd-card-yes\" data-approve=\"once\" data-card=\"' + esc(e.id) + '\">Pay ' + esc(o.total || '') + '</button>",
+    "'Paid with ' + esc(done.payWith || o.payWith || 'your card')",
+    "Cancelled. Nothing was charged.",
+    "else if (e.type === 'paid') {",
+    "'Paid ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + (e.payWith ? ' with ' + esc(e.payWith) : '')",
+  ]) assert.ok(ui.includes(bit), bit);
+  assert.ok(/filledLine\(i, e\)/.test(/else if \(e\.type === 'signin'\) \{[\s\S]*?\n      \}\n/.exec(ui)[0]), "the sign-in card says it too");
+  for (const bit of [".cd-filled.is-ok{color:#14532d;background:#ecfdf3}", ".cd-order-row.is-total b{font-size:16px;font-weight:700}", ".cd-receipt.is-ok{", ".cd-vault-tag.is-def{"]) assert.ok(css.includes(bit), bit);
+
+  // For real: the page's own Settings code, drawn and clicked in Chromium, with the Worker's answers faked.
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const part = (from, to) => ui.slice(ui.indexOf(from), ui.indexOf(to, ui.indexOf(from)));
+  const code = part("  const GSET_PERM_WORDS = ", "  // How the link from this computer is doing, in words.") + part("  function gsetRouteWords(", "\n  }\n") + "\n  }\nreturn showGloopySettings;";
+  const { chromium } = (await import("node:module")).createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    const page = await browser.newPage({ viewport: { width: 1280, height: 860 } });
+    await page.setContent('<style>body{margin:0;font-family:sans-serif}' + css + "</style>");
+    await page.evaluate((code) => {
+      const db = { cards: [{ id: "c1", brand: "Visa", last4: "4242", month: 12, year: 2030, name: "Ana Example", nickname: "Everyday", hint: "Use for small things", default: true, code: true }, { id: "c2", brand: "Mastercard", last4: "4444", month: 1, year: 2031, name: "", code: false }], contacts: [{ id: "p1", name: "Ana Example", line1: "1 Main St", city: "Springfield", region: "IL", postal: "62701", country: "United States", email: "ana@example.com", nickname: "Home" }] };
+      window.calls = [];
+      const call = async (path, o) => {
+        const body = o && o.body ? JSON.parse(o.body) : null;
+        if (body) window.calls.push([path.replace(/^\/projects\/p1/, ""), body]);
+        if (path.endsWith("/permissions")) return { status: 200, data: { permissions: { buy: "ask" }, list: [{ key: "buy", label: "Buy or pay", hint: "Orders" }], modes: ["ask", "allow", "deny"] } };
+        if (path.endsWith("/rules")) return { status: 200, data: { rules: [], modes: ["allow", "ask", "deny"], words: {}, max: 20 } };
+        if (path.endsWith("/sites")) return { status: 200, data: { sites: [], modes: [], words: {}, max: 50 } };
+        if (path.endsWith("/options")) return { status: 200, data: { options: { monitor: true } } };
+        if (path.endsWith("/signins")) return { status: 200, data: { sites: [], saved: [{ id: "l1", site: "github.com", username: "ana" }] } };
+        if (path.endsWith("/cards")) {
+          if (body && body.scan) return { status: 200, data: { ok: true, number: "4000 0566 5566 5556", expiry: "07 / 31", name: "ANA EXAMPLE" } };
+          if (body && body.add) db.cards.push({ id: "c3", brand: "Visa", last4: body.add.number.replace(/\D/g, "").slice(-4), month: 7, year: 2031, name: body.add.name, nickname: body.add.nickname, code: !!body.add.cvc });
+          return { status: 200, data: { cards: db.cards.slice() } };
+        }
+        if (path.endsWith("/contacts")) { if (body && body.add) db.contacts.push({ id: "p2", ...body.add }); return { status: 200, data: { contacts: db.contacts.slice() } }; }
+        return { status: 404, data: {} };
+      };
+      const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+      window.S = { project: { id: "p1" }, gsetPage: "vault" };
+      const shrink = async () => ({ type: "image/jpeg", data: "AAAA", url: "data:image/jpeg;base64,AAAA" });
+      window.open1 = new Function("S", "call", "note", "esc", "ICON", "PM_OFF", "MASKS", "secretField", "DESKTOP_ROUTE", "reloadChat", "loginsFromCsv", "shrink", code)(window.S, call, () => {}, esc, { chev: ">", key: "k", doc: "d", cardsm: "c", person: "p", check: "✓" }, "", false, (id) => '<input id="' + id + '">', null, () => {}, () => ({ rows: [] }), shrink);
+    }, code);
+    const texts = (sel) => page.$$eval(sel, (xs) => xs.map((x) => x.textContent.replace(/\s+/g, " ").trim()));
+    await page.evaluate(() => window.open1());
+    await page.waitForSelector(".cd-vault");
+    assert.deepEqual(await texts(".cd-vault-tab"), ["Logins 1", "Cards 2", "Contact info 1"]);
+    // Cards: the default first in the menu's words; each card's tags and hints; never a number.
+    await page.click('[data-vault-tab="cards"]');
+    const rows = await texts(".cd-vault-item");
+    assert.deepEqual(rows, ["cMastercard ending 4444Expires 01/31Asks for its security codeEditRemove", "cEverydayVisa ending 4242 · Expires 12/30 · Ana ExampleDefaultFills in without askingUse for small thingsEditRemove"], "newest first; its default and whether it fills in without asking");
+    assert.ok(!(await page.content()).includes("4242 4242"), "no number on the page");
+    // New item → Card: typed (or filled from a photo), saved; the number and code leave their boxes, never the page's state.
+    await page.click('[data-vault="menu"]');
+    assert.deepEqual(await texts(".cd-vault-menu button"), ["kLogin", "cCard", "pContact info", "dImport from CSV…"]);
+    await page.click('[data-vault="new-card"]');
+    assert.ok(await page.$("#gsCardCam[capture=environment]") && await page.$("#gsCardPhoto"), "Scan with camera, Upload a photo");
+    await page.setInputFiles("#gsCardPhoto", { name: "card.jpg", mimeType: "image/jpeg", buffer: Buffer.from("x") });
+    await page.waitForFunction(() => document.querySelector("#gsCardNumber") && document.querySelector("#gsCardNumber").value === "4000 0566 5566 5556");
+    assert.deepEqual(await page.evaluate(() => [document.querySelector("#gsCardExp").value, document.querySelector("#gsCardName").value, document.querySelector(".cd-gset-note").textContent]), ["07 / 31", "ANA EXAMPLE", "Filled in from the photo. Check it, type the security code, then Save card."]);
+    assert.deepEqual(window_calls(await page.evaluate(() => window.calls)).at(-1), ["/cards", { scan: { type: "image/jpeg", data: "AAAA" } }]);
+    await page.fill("#gsCardCvc", "321");
+    await page.fill("#gsCardNick", "Travel");
+    await page.click('form[data-gs="card-save"] button[type=submit]');
+    await page.waitForFunction(() => window.calls.some(([p, b]) => p === "/cards" && b.add));
+    assert.deepEqual(window_calls(await page.evaluate(() => window.calls)).find(([p, b]) => p === "/cards" && b.add)[1], { add: { number: "4000 0566 5566 5556", expiry: "07 / 31", cvc: "321", name: "ANA EXAMPLE", postal: "", nickname: "Travel", hint: "", default: false } });
+    assert.equal(await page.evaluate(() => JSON.stringify(window.S).includes("4000") || JSON.stringify(window.S).includes("321")), false, "nothing of it in the page's state");
+    // Editing a card: no number to change; an empty postal code box keeps the saved one.
+    await page.click('[data-card-edit="c1"]');
+    assert.match(await page.textContent(".cd-vault-cardt"), /Visa ending 4242To change its number, remove it and add it again\./);
+    await page.click('form[data-gs="card-save"] button[type=submit]');
+    await page.waitForFunction(() => window.calls.some(([p, b]) => p === "/cards" && b.edit));
+    assert.deepEqual(window_calls(await page.evaluate(() => window.calls)).find(([p, b]) => p === "/cards" && b.edit)[1], { edit: { id: "c1", expiry: "12 / 30", name: "Ana Example", nickname: "Everyday", hint: "Use for small things", default: true } });
+    // Contact info.
+    await page.click('[data-vault-tab="contacts"]');
+    assert.deepEqual(await texts(".cd-vault-item .cd-gset-text"), ["HomeAna Example1 Main St, Springfield, IL 62701, United Statesana@example.com"]);
+    await page.click('[data-vault="menu"]');
+    await page.click('[data-vault="new-contact"]');
+    await page.fill("#gsCt_name", "Bo Example");
+    await page.fill("#gsCt_email", "bo@example.com");
+    await page.click('form[data-gs="contact-save"] button[type=submit]');
+    await page.waitForFunction(() => window.calls.some(([p, b]) => p === "/contacts" && b.add));
+    assert.deepEqual(window_calls(await page.evaluate(() => window.calls)).find(([p, b]) => p === "/contacts" && b.add)[1], { add: { name: "Bo Example", email: "bo@example.com" } });
+    assert.match(await page.textContent(".cd-vault-foot"), /Gloopy can see your contact info, to fill in shipping and billing details for you\./);
+  } finally { await browser.close(); }
+  function window_calls(x) { return x; }
 });

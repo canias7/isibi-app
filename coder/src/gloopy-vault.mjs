@@ -147,9 +147,15 @@ export const loginFor = (list, site, pick = {}) => {
 
 // GLOOPY'S SAVED CARDS (owner, 2026-11-09: "can we try both"; Grok Bot's Vault cards, kept from its card form's
 // "Securely save" box). Ticked on the private card form, a card that went into the page is kept here, sealed
-// (coder/<uid>/gloopy/cards.json): its number, expiry, name and postal code, NEVER its security code (the card industry's
-// rules do not allow keeping it once a payment is made), so the owner types those 3 or 4 digits each time they use it,
-// which is also their OK to pay. The page and Gloopy only ever see a card's brand, last 4 digits, expiry and name.
+// (coder/<uid>/gloopy/cards.json). The page and Gloopy only ever see a card's brand, last 4 digits, expiry, name, nickname
+// and hints, never its number or its security code.
+//
+// AS GROK BOT'S (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's Vault: "Cards: the number, expiry,
+// security code, name on card, and billing address", "A card saved in Vault fills in at checkout without asking you each
+// time", "Default payment method, which Grok Bot pays with first", "Under Hints, tell your Bots when to use an entry"):
+// a card is also added in Settings (New item → Card), and keeps its security code when one was typed for it (before,
+// it never did, so the owner typed it each time). A card with its code fills in at checkout without the card form; one
+// without it asks only for the code. Paying itself is still the owner's "Buy or pay" setting (the order card).
 
 /** At most this many saved cards per person. */
 export const CARDS_MAX = 10;
@@ -208,23 +214,170 @@ async function writeCards(env, bucket, uid, list) {
   await bucket.put(cardsKey(uid), JSON.stringify({ at: Date.now(), box: await seal(env, list) }), { httpMetadata: { contentType: "application/json" } });
 }
 
-/** What the page and Gloopy may know of them: never the number (its last 4 digits) or a security code (none is kept). */
-export const cardList = (list) => list.map((x) => ({ id: x.id, brand: x.brand, last4: x.last4, month: x.month, year: x.year, name: x.name || "", at: x.at }));
+/**
+ * What the page and Gloopy may know of them: never the number (its last 4 digits) nor the security code (only whether
+ * one is kept: `code`, so the card fills in without the form).
+ */
+export const cardList = (list) => list.map((x) => ({ id: x.id, brand: x.brand, last4: x.last4, month: x.month, year: x.year, name: x.name || "", ...(x.nickname ? { nickname: x.nickname } : {}), ...(x.hint ? { hint: x.hint } : {}), ...(x.default ? { default: true } : {}), code: !!x.cvc, at: x.at }));
 
-/** A card kept (saving the same number again replaces it), WITHOUT its security code; the oldest goes past CARDS_MAX. */
-export async function saveCard(env, bucket, uid, { number, month, year, name = "", postal = "" }, now = Date.now()) {
+/** A card's security code as kept: 3 or 4 digits, or none. */
+const cleanCvc = (c) => (/^\d{3,4}$/.test(String(c == null ? "" : c).trim()) ? String(c).trim() : "");
+
+/**
+ * A card kept (saving the same number again replaces it, keeping its id, nickname, hints and default unless new ones are
+ * given), with its security code when one is given; the oldest goes past CARDS_MAX. `default`: the one Gloopy pays with
+ * first (only one is).
+ */
+export async function saveCard(env, bucket, uid, { number, month, year, name = "", postal = "", cvc = "", nickname, hint, default: dflt }, now = Date.now()) {
   const digits = String(number || "").replace(/\D/g, "");
   if (!/^\d{12,19}$/.test(digits) || !luhn(digits) || !(month >= 1 && month <= 12) || !(year >= 2000)) return null;
-  const list = (await readCards(env, bucket, uid)).filter((x) => x.number !== digits);
-  const item = { id: "c" + crypto.randomUUID().replace(/-/g, "").slice(0, 10), brand: cardBrand(digits), last4: digits.slice(-4), number: digits, month: Number(month), year: Number(year), name: String(name || "").slice(0, 100), postal: String(postal || "").slice(0, 12), at: now };
-  await writeCards(env, bucket, uid, [...list, item].slice(-CARDS_MAX));
+  const all = await readCards(env, bucket, uid), old = all.find((x) => x.number === digits);
+  const nick = typeof nickname === "string" ? cleanNickname(nickname) : old && old.nickname ? old.nickname : "";
+  const h = typeof hint === "string" ? cleanHint(hint) : old && old.hint ? old.hint : "";
+  const code = cleanCvc(cvc) || (old && old.cvc) || "";
+  const isDefault = typeof dflt === "boolean" ? dflt : !!(old && old.default);
+  const item = { id: old ? old.id : "c" + crypto.randomUUID().replace(/-/g, "").slice(0, 10), brand: cardBrand(digits), last4: digits.slice(-4), number: digits, month: Number(month), year: Number(year), name: String(name || "").replace(/\s+/g, " ").trim().slice(0, 100), postal: String(postal || "").trim().slice(0, 12), ...(code ? { cvc: code } : {}), ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), ...(isDefault ? { default: true } : {}), at: now };
+  const rest = all.filter((x) => x !== old).map((x) => (isDefault && x.default ? (({ default: _d, ...y }) => y)(x) : x));
+  await writeCards(env, bucket, uid, [...rest, item].slice(-CARDS_MAX));
   return item;
 }
 
+/**
+ * A SAVED CARD CHANGED IN SETTINGS (Grok Bot's Vault: "To change a card's number, remove the card and add it again"): its
+ * nickname, hints, whether it is the default card, its name, billing postal code, expiry, and a new security code (an
+ * empty one keeps it; `forgetCode` drops it, so the card form asks for it each time). Gloopy changes only a nickname and
+ * hints, when the owner asks. { item } or { error } in the owner's words.
+ */
+export async function editCard(env, bucket, uid, id, change = {}, now = Date.now()) {
+  const all = await readCards(env, bucket, uid);
+  const it = all.find((x) => x.id === id);
+  if (!it) return { error: "No saved card has that id." };
+  const c = change && typeof change === "object" ? change : {};
+  let month = it.month, year = it.year;
+  if (c.expiry !== undefined && String(c.expiry).trim()) {
+    const ok = checkCard({ number: it.number, expiry: c.expiry }, { needCvc: false, now });
+    if (ok.error) return { error: ok.error };
+    month = ok.card.month; year = ok.card.year;
+  }
+  if (c.cvc !== undefined && String(c.cvc).trim() && !cleanCvc(c.cvc)) return { error: "Type the card's security code (3 or 4 digits, on its back)." };
+  const code = c.forgetCode === true ? "" : cleanCvc(c.cvc) || it.cvc || "";
+  const nick = c.nickname !== undefined ? cleanNickname(c.nickname) : it.nickname || "";
+  const h = c.hint !== undefined ? cleanHint(c.hint) : it.hint || "";
+  const isDefault = typeof c.default === "boolean" ? c.default : !!it.default;
+  const name = c.name !== undefined ? String(c.name || "").replace(/\s+/g, " ").trim().slice(0, 100) : it.name || "";
+  const postal = c.postal !== undefined ? String(c.postal || "").trim().slice(0, 12) : it.postal || "";
+  const next = { id: it.id, brand: it.brand, last4: it.last4, number: it.number, month, year, name, postal, ...(code ? { cvc: code } : {}), ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), ...(isDefault ? { default: true } : {}), at: now };
+  await writeCards(env, bucket, uid, all.map((x) => (x.id === id ? next : isDefault && x.default ? (({ default: _d, ...y }) => y)(x) : x)));
+  return { item: next };
+}
+
+/**
+ * THE CARD TO PAY WITH (Grok Bot's "Default payment method, which Grok Bot pays with first"; its hints pick between
+ * cards): the one named (`id`), else the default card, else the only one; none when there are several and none is named.
+ */
+export function cardFor(list, id = "") {
+  const all = Array.isArray(list) ? list : [];
+  if (id) return all.find((x) => x.id === id) || null;
+  return all.find((x) => x.default) || (all.length === 1 ? all[0] : null);
+}
+
+/**
+ * What Gloopy is told of the saved cards with each message: never a number, a code or an expiry date (only whether the
+ * card has expired).
+ */
+export const cardsForTurn = (list, now = Date.now()) => cardList(list).map(({ at, month, year, name, ...x }) => {
+  const d = new Date(now), gone = Number(year) * 12 + Number(month) - 1 < d.getUTCFullYear() * 12 + d.getUTCMonth();
+  return { ...x, label: cardLabel(x), ...(gone ? { expired: true } : {}) };
+});
 /** A saved card taken away. */
 export async function removeCard(env, bucket, uid, id) {
   const list = await readCards(env, bucket, uid);
   if (!list.some((x) => x.id === id)) return false;
   await writeCards(env, bucket, uid, list.filter((x) => x.id !== id));
   return true;
+}
+
+// THE OWNER'S CONTACT INFO (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's Vault: "Contact info:
+// names, addresses, phone numbers, and emails for shipping and billing", "It can see your contact info ... and type
+// contact details for you", "A Bot can change contact info ... when you ask", "when you give a Bot a name, address, phone
+// number, or email, it saves it as contact info once the task is done and tells you what it saved"). Kept sealed
+// (coder/<uid>/gloopy/contacts.json) like the rest of the Vault; unlike a password or a card, Gloopy sees it, to fill in
+// shipping and billing details.
+
+/** At most this many contact entries per person. */
+export const CONTACTS_MAX = 20;
+const contactsKey = (uid) => ["coder", uid, "gloopy", "contacts.json"].join("/");
+/** A contact entry's parts and their longest. */
+export const CONTACT_PARTS = Object.freeze({ name: 100, line1: 200, line2: 200, city: 100, region: 100, postal: 20, country: 60, phone: 40, email: 200 });
+const one = (t, n) => String(t == null ? "" : t).replace(/[\p{Cf}\p{Cc}]/gu, " ").replace(/\s+/g, " ").trim().slice(0, n);
+
+/**
+ * A CONTACT ENTRY AS TYPED, checked: { contact } or { error } in the owner's words. Something to keep (a name, an address,
+ * a phone number or an email); an email that looks like one; a phone number of digits, spaces and + ( ) - . only.
+ */
+export function checkContact(body) {
+  const b = body && typeof body === "object" ? body : {};
+  const c = {};
+  for (const [k, n] of Object.entries(CONTACT_PARTS)) { const v = one(b[k], n); if (v) c[k] = v; }
+  if (!c.name && !c.line1 && !c.phone && !c.email) return { error: "Type a name, an address, a phone number or an email." };
+  if (c.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(c.email)) return { error: "That email doesn't look right." };
+  if (c.phone && !/^[+\d][\d\s().-]{2,38}$/.test(c.phone)) return { error: "That phone number doesn't look right." };
+  return { contact: c };
+}
+
+/** The contact entries, unsealed: [{ id, name?, line1?, line2?, city?, region?, postal?, country?, phone?, email?, nickname?, hint?, at }]. */
+export async function readContacts(env, bucket, uid) {
+  const o = await bucket.get(contactsKey(uid));
+  if (!o) return [];
+  try {
+    const v = await unseal(env, JSON.parse(await o.text()).box);
+    return (Array.isArray(v) ? v : []).filter((x) => x && typeof x.id === "string").slice(-CONTACTS_MAX);
+  } catch { return []; }
+}
+async function writeContacts(env, bucket, uid, list) {
+  await bucket.put(contactsKey(uid), JSON.stringify({ at: Date.now(), box: await seal(env, list) }), { httpMetadata: { contentType: "application/json" } });
+}
+
+/** What the page and Gloopy see of them: all of it (contact info is not a secret). */
+export const contactList = (list) => list.map((x) => ({ ...x }));
+
+/** A contact entry kept (a new one; the oldest goes past CONTACTS_MAX). { item } or { error }. */
+export async function saveContact(env, bucket, uid, body, now = Date.now()) {
+  const ok = checkContact(body);
+  if (ok.error) return { error: ok.error };
+  const nick = cleanNickname(body && body.nickname), h = cleanHint(body && body.hint);
+  const item = { id: "p" + crypto.randomUUID().replace(/-/g, "").slice(0, 10), ...ok.contact, ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), at: now };
+  await writeContacts(env, bucket, uid, [...(await readContacts(env, bucket, uid)), item].slice(-CONTACTS_MAX));
+  return { item };
+}
+
+/** A contact entry changed: each part given replaces it (an empty one clears it). { item } or { error }. */
+export async function editContact(env, bucket, uid, id, change = {}, now = Date.now()) {
+  const all = await readContacts(env, bucket, uid);
+  const it = all.find((x) => x.id === id);
+  if (!it) return { error: "No contact entry has that id." };
+  const c = change && typeof change === "object" ? change : {};
+  const merged = {};
+  for (const k of Object.keys(CONTACT_PARTS)) merged[k] = c[k] !== undefined ? c[k] : it[k];
+  const ok = checkContact(merged);
+  if (ok.error) return { error: ok.error };
+  const nick = c.nickname !== undefined ? cleanNickname(c.nickname) : it.nickname || "";
+  const h = c.hint !== undefined ? cleanHint(c.hint) : it.hint || "";
+  const next = { id: it.id, ...ok.contact, ...(nick ? { nickname: nick } : {}), ...(h ? { hint: h } : {}), at: now };
+  await writeContacts(env, bucket, uid, all.map((x) => (x.id === id ? next : x)));
+  return { item: next };
+}
+
+/** A contact entry taken away. */
+export async function removeContact(env, bucket, uid, id) {
+  const all = await readContacts(env, bucket, uid);
+  if (!all.some((x) => x.id === id)) return false;
+  await writeContacts(env, bucket, uid, all.filter((x) => x.id !== id));
+  return true;
+}
+
+/** A contact entry in one line, as the page and Gloopy say it: "Home · Ana Example, 1 Main St, Springfield, IL 62701, United States · +1 555 0100 · ana@example.com". */
+export function contactLine(x) {
+  const place = [x.line1, x.line2, x.city, [x.region, x.postal].filter(Boolean).join(" "), x.country].filter(Boolean).join(", ");
+  return [x.nickname, [x.name, place].filter(Boolean).join(", "), x.phone, x.email].filter(Boolean).join(" · ");
 }
