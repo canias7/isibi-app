@@ -1646,6 +1646,28 @@ obrien@…): the Worker then sends a second length and SHA-256 after a comma
 (`emailMark`), and the machine takes one or two (CD549). A monitor's own input
 is what is read for it.
 
+**The low-memory stop and dangerous deletes, live** (owner, 2026-11-13: "Dont
+leave them out ,we gotta test them bro"). The memory-pressure stop fired on a real
+machine: a background command holding 14 GB under a raised cap, writing without a
+break and taking 300 MB and giving it back every 4 seconds (dirty pages the
+kernel must wait to write: 400–2,000 ms of stall within 2 seconds, about 1.43 GB
+available), was left alone while the chat had been active within 30 minutes and
+stopped two seconds after the 30th idle minute (SIGTERM, "low memory", Claude
+Code's words; Grok was woken with them). Dangerous deletes: Grok (and Claude
+Code's Haiku) refused to make the calls at all, so the owner's own PreToolUse
+hook turned marker commands into them (`updatedInput`, applied before the check):
+Accept edits asks with Claude Code's words and only Yes and No; Auto refuses; the
+owner's Ask rule asks in Auto; the three switches let them run; answered Yes,
+each ran for real in the admin sandbox (`rm -rf /` stopped by rm's own failsafe).
+After `sudo rm -rf --no-preserve-root /`, the sandbox could no longer start and
+the next commands ran outside it as plain `dev` (the fallback), unannounced.
+Claude Code 2.1.323 differs in Auto: it shows the question to someone watching,
+refused by itself after 2 minutes, and stops showing it after 3 unanswered in a
+session (its `tengu_splendid_horizon` defaults: `timeoutMs` 120000,
+`maxDialogTimeouts` 3); and it has `CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT` and
+`CLAUDE_CODE_DISABLE_POWERSHELL_CMD_RM_DENY`, which Coder lacks. Not changed: the
+owner's call.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a
