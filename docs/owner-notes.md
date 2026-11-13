@@ -17,6 +17,18 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Fixes 1, 2 and 3 and the docs page are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
+
+- **Deployed:** deploy 184, from main. It worked the first time (7 minutes).
+- **Tested live in the browser, Grok on Low, on the test account:**
+  1. **Fix 1, a plain message:** a new Coder chat on canias7/testingforclaude ran `git log --oneline -1` and said "Done.", with no errors.
+  2. **Fix 1, the same message sent twice:** I sent the next message twice, 0.3 seconds apart, the way a browser does when its connection drops for a second. Both copies got the same answer back, the chat shows the message once, and its command (`echo dup-check-1113`) ran once.
+  3. **Fix 2:** in Gloopy's tab, the gear's Settings opened Gloopy's own Settings (Permissions, Sites, Vault, Computer), not Coder's.
+  4. **Fix 3:** I added DeepWiki for the test and set its Read Wiki Structure tool to Always allow. I asked Gloopy for two helpers at once, one for facebook/react and one for vercel/next.js. Both helpers used DeepWiki with no card, and Gloopy answered "facebook/react: React Repository Overview" and "vercel/next.js: Next.js Repository Overview" (47 seconds).
+  5. **The docs page:** gofarther.dev/docs shows Read, Write, Edit, Bash and Connectors, with 37 links down the side.
+  - No errors on the page or in either chat.
+- **Everything put back:** DeepWiki is removed, so your connectors list is empty again, as it was before the test.
+
 ## 2026-11-13: Fixes 1, 2 and 3, and the docs page (your words: "fix 1 ,2,3, and yes do the docs live now for the tools we have done in the coder")
 
 1. **A Coder message can't get stuck any more** (the note Gloopy's session left). If a message was sent twice (a browser does that when its connection drops for a second), or two went at once, the second could fail and put the chat back as it was before, so the first one's work never showed up. Coder's chats now start a message the way Gloopy's do:
