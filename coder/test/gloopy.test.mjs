@@ -6467,7 +6467,11 @@ test("GL125 (2026-11-12) the big live view makes way for a hand-off card (owner:
   }
   // No view open: the card's own picture, as before (GL121); answered, it stops.
   did = []; const U = { webOK: true, running: false, web: null, project: { pending: ho("ho4") } }; run(U);
-  assert.deepEqual(did, [["open", false, true]]);
+  assert.deepEqual([did, U.hoMadeWay], [[["open", false, true]], "ho4"]);
+  // Take over (or the Browser button) on that card opens the view, and it stays open while the take-over is on its way
+  // (found live, 2026-11-13: it went back into the card, the owner in control with nothing to click).
+  did = []; U.web = { card: false, control: false }; run(U);
+  assert.deepEqual([did, U.web.card], [[], false]);
   did = []; U.web = { card: true }; U.project.pending = null; run(U);
   assert.deepEqual(did, [["close"]]);
   assert.ok(ui.includes("function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }"), "a paused picture comes back for the card");

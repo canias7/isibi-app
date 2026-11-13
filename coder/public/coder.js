@@ -2473,7 +2473,10 @@
   function hoSync() {
     const p = S.project && !S.running && S.project.pending && S.project.pending.kind === 'handoff' ? S.project.pending : null;
     const w = S.web;
-    if (p && S.webOK && !w) webOpen(false, true);
+    // (Opened for the card, the view has made way already: Take over or the Browser button then opens it for good. Found
+    // live, 2026-11-13: Take over on a card that came with the view closed gave you control, then put the view back in
+    // the card while the take-over was on its way, so there was nothing to click.)
+    if (p && S.webOK && !w) { S.hoMadeWay = String(p.id || p.task || ''); webOpen(false, true); }
     // THE BIG VIEW MAKES WAY FOR THE CARD (owner, 2026-11-12: "yes do both"; found live: open when Gloopy handed a step
     // over, on a short window it covered the card's Skip and I'm done, and on a phone it hides the chat): it closes once
     // for each hand-off, and the card goes on showing the browser live, scrolled into view. Opened again, it stays; never

@@ -26,6 +26,10 @@ log (81,000 lines) is in git history.
 
 **For the live tests,** a second practice page (in the repo as `coder/test/fixtures/practice-handoff.html`, nothing real behind it): a bank's "confirm this payment", a "Sign in with Practice ID, approve on your phone", a QR code, and a "press and hold to show you're a person".
 
+**Found in the live tests (on Low):**
+- Asked to finish the practice order, Gloopy didn't press the bank's button itself: it handed the step to you, with the reason ("only you can do that step").
+- **Fixed: Take over on the card did nothing you could use.** When the card came with the browser view closed, pressing Take over gave you control (the top button said "Browser · You"), then put the browser straight back into the card, so there was nothing to click. Now Take over (and the Browser button) opens the view and it stays open. (Test GL125.)
+
 ## 2026-11-13: Paying, the rest tested (your words: "we gotta test everything bro")
 
 On Low, on test.gofarther.dev with Grok.
