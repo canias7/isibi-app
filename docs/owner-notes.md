@@ -28,7 +28,18 @@ log (81,000 lines) is in git history.
 - It's one new commit on the branch with the chat's link, never a force push. Coder is told which files went back.
 - Chats with jobs from before today still undo whole jobs, as before (their jobs have no list of files).
 
-Tests: the old tests that expected read-only commands to skip the checker now expect the check (5 of them), and `test/rewind-restore.test.mjs` adds 5 more, one of them with real git (a file the tools changed goes back, a command's file stays, links skipped, pushed with the chat's link). The live test with Grok comes next.
+Tests: the old tests that expected read-only commands to skip the checker now expect the check (5 of them), and `test/rewind-restore.test.mjs` adds 5 more, one of them with real git (a file the tools changed goes back, a command's file stays, links skipped, pushed with the chat's link). Merged to main; deploy 169 (Coder's tests passed on GitHub first).
+
+**Live test with Grok, in the browser (no video), two throwaway chats on canias7/testingforclaude, both deleted after:**
+- **Auto, two read-only commands** (`git status --short`, `ls -la`): both ran, and the chat's record shows 2 checker calls for that message (before today it would have been 0).
+- **Auto, with a hard rule in your auto mode settings** ("[No Folder Listings] Never run ls in this repository…", set on the test account for this step only and put back exactly after): `ls -la` was blocked under the step, "✕ blocked · Blocked by auto mode · Auto mode: [No Folder Listings] The owner forbids running ls in this repository in any form."
+- **Auto, with an allow rule for the exact command** (`Bash(git status --short)`): it ran with 0 checker calls, as in Claude Code. Rule removed after.
+- **Rewind, Restore code only**, back to before message 2. Message 1: the write tool made `rw/tool.txt` ("tool v1"), a command made `rw/cmd.txt`. Message 2: the edit tool changed tool.txt to "tool v2", the write tool made `rw/tool-new.txt`, and one command changed cmd.txt, made `rw/cmd-new.txt` and added a line to tool.txt. The box offered the code choices with the new wording ("Restoring the code puts back the files Coder's file tools changed, as they were before you sent it; files only commands changed stay as they are…"). After: "Rewound to before an earlier message: the code is back as it was (2 files restored, saved to the branch coder/testingforclaude-yd6z1u5p; files only commands changed stay as they are)." The files, read with a `!` command: tool.txt "tool v1" (the edit and the command's added line both undone), tool-new.txt gone, cmd.txt still "cmd v2", cmd-new.txt still there. The branch got one commit, "Rewind: files back as they were before "Done."", and the next job's push went on top of it normally (no force push).
+- **Rewind on a message after which only a command changed a file** (`rw/only-cmd.txt`): no code choices, and the box said "Only commands changed files after this message, and those stay as they are, so only the chat can go back." (Never mind pressed.)
+
+Seen, not changed: the Rewind commit's title uses the job's own title, here "Done." because Grok's summary was just "Done." (the old Undo did the same, "Revert "Done."").
+
+Cost: a few cents of Grok (8 messages and 3 checker calls). Test branch left for you to delete by hand: `coder/testingforclaude-yd6z1u5p` (the Auto chat changed no files).
 
 ## 2026-11-13: Bash docs pass 10: what Claude Code's docs have that Coder's bash tool doesn't (your words: "now go look on the claude code docs for the batch tool and see what we missing from them")
 
