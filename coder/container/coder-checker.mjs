@@ -266,6 +266,12 @@ export async function checkAction(deps, { model = "", convo = [], skipId = "", c
 // ── CLAUDE CODE'S WORDS (2.1.322) ───────────────────────────────────────────────────────────────────────────────────────
 // What the model is told when the classifier blocks (its yco: e7, the reason, rvo, XCt and q8s), with "Coder" and "owner".
 const WORK_AROUND = "IMPORTANT: You *may* attempt to accomplish this action using other tools that might naturally be used to accomplish this goal, e.g. using head instead of cat. But you *should not* attempt to work around this denial in malicious ways, e.g. do not use your ability to run tests to execute non-test actions. You should only try to work around this restriction in reasonable ways that do not attempt to bypass the intent behind this denial. ";
+/**
+ * NO ONE CAN APPROVE IT, AND NO CHECKER MAY (Claude Code 2.1.323's words, with "owner": its DHn and wgo, what a session that
+ * cannot show a permission prompt is told, as in a job from GitHub with auto mode turned off). Not the checker's own words:
+ * no checker ran (live test, 2026-11-13; the owner: "yea fix all 3").
+ */
+export const noPromptDenied = (tool) => "Permission to use " + tool + " has been denied. " + WORK_AROUND + "If you believe this capability is essential to complete the owner's request, STOP and explain to the owner what you were trying to do and why you need this permission. Let the owner decide how to proceed.";
 export const AUTO_DENIED_PREFIX = "Permission for this action was denied by the Coder auto mode classifier. Reason: ";
 export const autoDenied = (reason) => AUTO_DENIED_PREFIX + reason + ". If you have other tasks that don't depend on this action, continue working on those. " + WORK_AROUND + "If you believe this capability is essential to complete the owner's request, first try a safer method. Get as much of the rest of the task done as you can, then STOP and explain to the owner what you were trying to do and why you need this permission. Let the owner decide how to proceed.";
 /**

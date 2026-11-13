@@ -430,7 +430,10 @@ code in **each user's own GitHub**.
    was allowed only for being read-only, for Bash, PowerShell and Monitor): only a command the owner's allow
    rules approve in full, or an exact rule for the whole command, skips it (`partsAllowedByRules`). A job
    from GitHub with Auto mode turned off still runs read-only commands unreviewed, as Claude Code's
-   "default" mode does. Test CD370 and `test/rewind-restore.test.mjs`.
+   "default" mode does; one that changes things is refused, and Grok is told Claude Code's words for a session
+   that can't ask ("Permission to use Bash has been denied. …", `noPromptDenied`; no checker ran), the chat
+   "Not run: auto mode is off in your settings, …" (`AUTO_OFF_GITHUB`, CD568). Test CD370 and
+   `test/rewind-restore.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
@@ -875,6 +878,10 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   folder kept between commands (`psCommand`). `CODER_DEFAULT_SHELL=powershell`
   runs the owner's `!` commands in it; hooks take `shell: "powershell"`.
   (What only reads, and the rest of its checks, moved to pass 7.)
+  Since 2026-11-13 its script is Claude Code 2.1.323's (`psScript`): its own line before the command (`PS_PREAMBLE`,
+  left out before one that must open a script, `psMustLead`), and it ends with `$host.SetShouldExit` (`exit` only in
+  restricted language mode): an `exit` stopped PowerShell before it printed a table (the live test found `Get-ChildItem`
+  giving "(PowerShell completed with no output)"). Test CD566.
 
 **Bash docs pass 7: the rest, cloud only** (owner, 2026-11-11: "Yea we need to
 build the rest of the batch tool, remember we are not doing local rn with only
@@ -1948,7 +1955,8 @@ message, or, for one first changed after it, as it was before the job that first
 it, so a command's later change to a tracked file is undone too, and a file the tools made
 is removed; a link, a hard-linked file, one under a link or where a folder was is skipped
 with Claude Code's warning ("Restored the code, but skipped N files: …"). One commit with
-the chat's link, saved to the branch, never a force push; Coder is told which files went
+the chat's link, saved to the branch, never a force push (in a read-only chat, kept on
+Coder's machine, and the Rewind box says so, CD567); Coder is told which files went
 back. A chat with jobs from before then reverts the later jobs whole, as before. Tests:
 `test/rewind-restore.test.mjs`.
 

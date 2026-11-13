@@ -639,7 +639,12 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   assert.match(cmd, /if \[ -n "\$__coderTo" \] && \[ -d "\$__coderTo" \]; then cd "\$__coderTo"; fi; \(exit \$__coderPs\)$/);
   const script = Buffer.from(/-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(cmd)[1], "base64").toString("utf16le");
   assert.equal(script, PS.psScript("Set-Location src; Get-ChildItem"));
-  assert.deepEqual(script.split("\n").slice(0, 2), ["try { $PSStyle.OutputRendering = 'PlainText' } catch {}", "Set-Location src; Get-ChildItem"]);
+  // (Claude Code 2.1.323's line before the command, on the same line, and its ending: SetShouldExit, `exit` only in restricted
+  // language mode; the live test of 2026-11-13 found `exit` lost Get-ChildItem's table.)
+  assert.equal(script.split("\n")[0], PS.PS_PREAMBLE + "Set-Location src; Get-ChildItem");
+  assert.equal(script.split("\n").at(-1), "if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { $host.SetShouldExit($__coderCode) } else { exit $__coderCode }");
+  assert.doesNotMatch(script, /^exit \$__coderCode$/m);
+  assert.equal(PS.psScript("param($x) $x").split("\n")[0], "param($x) $x", "a command that must lead its script gets no line before it");
   assert.match(script, /\(Get-Location\)\.ProviderPath \| Set-Content -NoNewline -LiteralPath \$env:CODER_PS_CWD/);
   assert.doesNotMatch(PS.psCommand("x", { bypass: false }), /ExecutionPolicy/, "CODER_POWERSHELL_RESPECT_EXECUTION_POLICY");
   // Its description: Claude Code's, with Coder's tool names and timeouts.
