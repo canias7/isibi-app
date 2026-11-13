@@ -2100,7 +2100,7 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   // A READ-ONLY REPOSITORY (owner item 5): the work is committed here, on the chat's branch, and never pushed.
   if (noPush) {
     const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
-    return { ok: true, pushed: false, kept: true, changed: committed, ...(sha ? { sha } : {}), ...told };
+    return { ok: true, pushed: false, kept: true, changed: committed, ...(sha ? { sha } : {}), ...(committed ? await commitFiles(dir, o) : {}), ...told };
   }
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
@@ -2115,7 +2115,100 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), ...told };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
   // `changed`: this job changed files (a new commit), so there is new work to show.
-  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, ...told };
+  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, ...(committed ? await commitFiles(dir, o) : {}), ...told };
+}
+/** The most paths commitFiles names. */
+export const COMMIT_FILES_MAX = 1000;
+/**
+ * THE PATHS THE COMMIT JUST MADE CHANGED (git's own list, no renames): `files`, and `filesCut` past COMMIT_FILES_MAX. Coder's
+ * Worker marks a job whose commit changed a file Coder's file tools had changed (Rewind's "Restore code" is offered for it,
+ * as Claude Code's: "Under each prompt, the rewind menu counts changes to files Claude had already edited, whatever made
+ * them").
+ */
+async function commitFiles(dir, o, rev = "HEAD") {
+  const r = await gitIn(dir, ["diff-tree", "--root", "--no-commit-id", "--no-renames", "--name-only", "-r", "-z", rev], o);
+  if (r.code !== 0) return {};
+  const all = String(r.stdout ?? "").split("\0").filter(Boolean);
+  return { files: all.slice(0, COMMIT_FILES_MAX), ...(all.length > COMMIT_FILES_MAX ? { filesCut: true } : {}) };
+}
+
+// ── REWIND'S "RESTORE CODE" ──────────────────────────────────────────────────
+/** The most paths one restore takes. */
+export const RESTORE_MAX = 5000;
+/** Claude Code's reason for the files a restore skips (its Q4r, 2.1.323). */
+export const RESTORE_SKIP_WHY = "the tracked path is (or became) a link or other non-regular file, its directory changed since the checkpoint, or its backup could not be safely read";
+/** A path a restore may take: the project's own name for a file, under its folder, never in git's own folder. */
+export function restorePathOk(p) {
+  if (typeof p !== "string" || !p || p.length > 500 || /[\0\n\r]/.test(p) || p.startsWith("/") || p.startsWith(":")) return false;
+  const parts = p.split("/");
+  return parts.every((x) => x && x !== "." && x !== ".." && x !== ".git");
+}
+/**
+ * REWIND'S "RESTORE CODE", AS CLAUDE CODE'S CHECKPOINTS DO IT (the owner, 2026-11-13: "yea do those 2 things"): only the files
+ * Coder's own file tools (write, edit) changed in the chat go back. "A file that only Bash commands changed isn't tracked and
+ * stays as it is", while a tracked file's later changes, a command's too, are undone ("Once Claude has edited a file with its
+ * file editing tools in your conversation, /rewind undoes changes that Bash commands make to that file afterward"). Each item
+ * is { path, before }: the content to go back to is the one in the parent of commit `before` (a path that parent lacks is
+ * removed). Never through a link: a path that is (or became) a link, a hard-linked file or no plain file, one under a link or
+ * a file where a folder was, and one whose saved copy is a link or no plain file, is skipped and left untouched (Claude Code:
+ * "Restored the code, but skipped N files"); so is a removal of a file git never recorded there. The files that differ are
+ * staged; the caller commits them. Returns { ok, restored, skipped } or { ok: false, why }.
+ */
+export async function restoreTracked(dir, items, o) {
+  const restored = [], skipped = [];
+  const parents = new Map();
+  const real = async (rel) => {
+    // Every folder on the way a real folder (never a link), and the file itself a plain one with one name, or not there.
+    const parts = rel.split("/");
+    let at = dir;
+    for (const d of parts.slice(0, -1)) {
+      at = join(at, d);
+      const st = await lstat(at).catch(() => null);
+      if (!st) return "absent";
+      if (!st.isDirectory()) return "bad";
+    }
+    const st = await lstat(join(dir, rel)).catch(() => null);
+    if (!st) return "absent";
+    return st.isFile() && st.nlink === 1 ? "file" : "bad";
+  };
+  const entry = async (rev, rel) => {
+    const r = await gitIn(dir, ["--literal-pathspecs", "ls-tree", "-z", rev, "--", rel], o);
+    if (r.code !== 0) return null;
+    const m = /^(\d{6}) (\w+) ([0-9a-f]{40,64})\t/.exec(String(r.stdout ?? ""));
+    return m ? { mode: m[1], type: m[2] } : String(r.stdout ?? "") ? null : { absent: true };
+  };
+  for (const it of items) {
+    const rel = it.path, before = it.before;
+    let par = parents.get(before);
+    if (par === undefined) {
+      const has = await gitIn(dir, ["cat-file", "-e", before + "^{commit}"], o);
+      if (has.code !== 0) return { ok: false, why: "a job's commit is not on this branch any more" };
+      const pr = await gitIn(dir, ["rev-parse", "--verify", "-q", before + "^1"], o);
+      par = pr.code === 0 ? String(pr.stdout ?? "").trim() : "";
+      parents.set(before, par);
+    }
+    const now = await real(rel);
+    if (now === "bad") { skipped.push(rel); continue; }
+    const was = par ? await entry(par, rel) : { absent: true };
+    if (!was || (!was.absent && (was.type !== "blob" || !/^100(644|755)$/.test(was.mode)))) { skipped.push(rel); continue; }
+    if (was.absent) {
+      if (now === "absent") continue;
+      // (Removed only when git recorded it there: a file the repository never held, as one in a folder kept out of the
+      // commits, is left alone.)
+      const head = await entry("HEAD", rel);
+      if (!head || head.absent) { skipped.push(rel); continue; }
+      const rm = await gitIn(dir, ["--literal-pathspecs", "rm", "-q", "-f", "--ignore-unmatch", "--", rel], o);
+      if (rm.code !== 0) { skipped.push(rel); continue; }
+      restored.push(rel);
+      continue;
+    }
+    const same = await gitIn(dir, ["--literal-pathspecs", "diff", "--quiet", "--no-ext-diff", "--no-textconv", par, "--", rel], o);
+    if (same.code === 0 && now === "file") continue;
+    const co = await gitIn(dir, ["--literal-pathspecs", "checkout", par, "--", rel], o);
+    if (co.code !== 0) { skipped.push(rel); continue; }
+    restored.push(rel);
+  }
+  return { ok: true, restored, skipped };
 }
 
 // ── THE MEMORY FILE, READ AND WRITTEN SAFELY ─────────────────────────────────
@@ -4052,6 +4145,48 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
         return send(200, { ok: true, sha: p.sha, ...told });
+        } finally { go(); }
+      }
+      // REWIND'S "RESTORE CODE" (the owner, 2026-11-13: "yea do those 2 things"; Claude Code's checkpoints): the files Coder's
+      // file tools changed go back as they were (restoreTracked), in one commit with the chat's link, saved to the branch
+      // (never a force push); files only commands changed stay as they are.
+      if (url.pathname === "/restore" && req.method === "POST") {
+        if (t && t.running) return send(409, { error: "busy" });
+        const list = Array.isArray(body.items) ? body.items : [];
+        if (!list.length || list.length > RESTORE_MAX) return send(400, { error: "bad list" });
+        const items = [];
+        for (const x of list) {
+          if (!x || typeof x !== "object" || !restorePathOk(x.path) || !/^[0-9a-f]{7,40}$/.test(String(x.before || ""))) return send(400, { error: "bad item" });
+          items.push({ path: x.path, before: String(x.before) });
+        }
+        const go = await quietly();
+        if (!go) return send(500, { ok: false, why: NOT_STOPPED });
+        try {
+        const dir = join(root, project);
+        const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
+        const noPush = body.noPush === true;
+        const prep = await prepareRepo({ dir, repo: String(body.repo || ""), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
+        if (!prep.ok) return send(502, { ok: false, why: prep.why });
+        // Restoring writes the work tree: nested repositories are kept out first (as for an undo, the audit, 2026-11-06).
+        const k = await keepOut(dir, o);
+        if (!k.ok) return send(409, { ok: false, why: k.why });
+        const r = await nestedAway(dir, o.gitDir, async () => {
+          // (Nothing else staged goes into the restore's commit.)
+          await gitIn(dir, ["reset", "-q"], o);
+          const x = await restoreTracked(dir, items, o);
+          if (!x.ok || !x.restored.length) return x;
+          const st = await gitIn(dir, ["diff", "--cached", "--quiet"], o);
+          if (st.code === 0) return { ...x, restored: [] };
+          const tr = chatTrailer(body.chatUrl);
+          const c = await gitIn(dir, ["commit", "-q", "--no-verify", "-m", String(body.message || "Rewind: files back as they were before an earlier message").slice(0, 300), ...(tr ? ["--trailer", tr] : [])], o);
+          if (c.code !== 0) return { ok: false, why: "could not commit: " + String(c.output).slice(0, 200) };
+          return x;
+        }, (why) => ({ ok: false, why }));
+        if (!r.ok) return send(409, { ok: false, why: r.why });
+        const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
+        const told = p.left ? { left: p.left } : {};
+        if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
+        return send(200, { ok: true, sha: p.sha || "", restored: r.restored, skipped: r.skipped, ...told });
         } finally { go(); }
       }
       // A READ-ONLY CHAT'S CHANGES AND ITS PATCH FILE (owner item 5): from this machine's own git, the only place they are.

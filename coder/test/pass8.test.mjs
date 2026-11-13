@@ -440,10 +440,15 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   };
   const one = (command, id = "b1") => [say("", [call("bash", { command }, id)]), say("ok")];
   const R = { allow: ["Bash(npm test *)", "Bash(npm test)"], ask: [], deny: [] };
-  // EVERY PART ALLOWED BY A RULE OR READ-ONLY (Claude Code: "All pipeline commands are individually allowed, some only by the
-  // read-only allowlist"): no check; a part neither is checked.
+  // EVERY PART ALLOWED BY A RULE (no check), OR SOME ONLY READ-ONLY: checked since 2026-11-13, as Claude Code's cloud review
+  // holds "All pipeline commands are individually allowed, some only by the read-only allowlist" (its Puo, 2.1.323); a part
+  // neither is checked too.
   let t = await job(one("ls && npm test"), { rules: R });
-  assert.deepEqual([t.checks.length, t.ran], [0, ["ls && npm test"]]);
+  assert.deepEqual([t.checks.length, t.ran], [1, ["ls && npm test"]]);
+  t = await job(one("npm test && npm test -- --watch=false"), { rules: R });
+  assert.deepEqual([t.checks.length, t.ran], [0, ["npm test && npm test -- --watch=false"]], "every part approved by a rule: no check");
+  t = await job(one("ls && npm test"), { rules: { allow: ["Bash(ls && npm test)"], ask: [], deny: [] } });
+  assert.deepEqual([t.checks.length, t.ran], [0, ["ls && npm test"]], "an exact rule for the whole command: no check");
   assert.equal((await job(one("npm test && rm notes.txt"), { rules: R })).checks.length, 1);
   assert.equal((await job(one("ls > out.txt && npm test"), { rules: R })).checks.length, 1, "a redirection needs every part allowed by a rule");
   // PLAN: the checker reviews what Plan would ask, only while Auto mode is available ("Auto mode not available …: commands

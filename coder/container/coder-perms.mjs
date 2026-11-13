@@ -634,6 +634,23 @@ export function partsAllowedOrReadOnly(command, rules, ctx = null) {
   return r.cmds.every((c) => byRule(c) || (commandReadOnly(c) && !gitAfterCd(r, c)));
 }
 /**
+ * EVERY PART APPROVED BY THE OWNER'S ALLOW RULES ALONE (the owner, 2026-11-13: "yea do those 2 things"). Claude Code's cloud
+ * sessions, where auto mode's review runs on its server: "read-only and sandboxed shell commands wait for that review and are
+ * blocked if it flags them". In 2.1.323 (its Puo, for Bash, PowerShell and Monitor) an allowed command is held for the review
+ * ("Auto mode held this command for the server-side classifier to review") when any part of it was allowed only by the
+ * read-only allowlist, "All pipeline commands are individually allowed, some only by the read-only allowlist" included; one
+ * the rules approve in full, or an exact rule for the whole command, is not. With `ctx`, the same path checks as
+ * partsAllowedOrReadOnly's.
+ */
+export function partsAllowedByRules(command, rules, ctx = null) {
+  const r = readCommand(command);
+  if (!r.ok || !r.cmds.length || r.complex.length || r.background) return false;
+  const whole = String(command ?? "").trim().replace(/[ \t]+/g, " ");
+  const exact = rulesFor(rules && rules.allow, "Bash").some((x) => typeof x.spec === "string" && !x.spec.includes("*") && x.spec.replace(/[ \t]+/g, " ").trim() === whole);
+  if (!exact && !r.cmds.every((c) => allowRuleCovers(c, rules))) return false;
+  return partsAllowedOrReadOnly(command, rules, ctx);
+}
+/**
  * GIT COMMANDS THAT MOVE THE WORK TREE (Claude Code 2.1.319's own list; its hooks reference: "Set for a Git command that moves
  * the working tree, such as `git checkout` or `git stash`, so Claude Code takes no diff"): whether the command runs one,
  * anywhere in it (after sudo and git's own options such as -C).

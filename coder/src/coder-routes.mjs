@@ -591,6 +591,64 @@ export function projectIdFor(name, rand = Math.random) {
   return (base.length < 3 ? "project-" + base : base) + "-" + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0") + Math.floor(rand() * 36 ** 4).toString(36).padStart(4, "0");
 }
 
+// ── REWIND'S "RESTORE CODE", LIKE CLAUDE CODE'S CHECKPOINTS (the owner, 2026-11-13: "yea do those 2 things") ──
+/** The project's own names for the files a job's write and edit changed (the machine's `edited`), kept with its commit. */
+export const EDITED_KEEP = 200, EDITED_PATH_KEEP = 300;
+const editedOf = (r) => (r && Array.isArray(r.edited) ? r.edited.filter((x) => typeof x === "string" && x && x.length <= EDITED_PATH_KEEP && !x.startsWith("/") && !x.split("/").includes("..")) : null);
+/**
+ * WHAT A JOB'S COMMIT KEEPS FOR REWIND: `edited` (the files Coder's file tools changed in it, Claude Code's tracked files:
+ * "Claude Code tracks all changes made by its file editing tools") and `tracked` (it changed a file those tools had changed by
+ * then, whatever changed it: Claude Code's "Under each prompt, the rewind menu counts changes to files Claude had already
+ * edited, whatever made them", so the page offers "Restore code" for it). Nothing for a job the machine gave no list for
+ * (Rewind then reverts the later jobs whole, as before).
+ */
+export function commitTracking(commits, result, pushed) {
+  const edited = editedOf(result);
+  if (!edited || (result && result.editedCut === true) || edited.length > EDITED_KEEP) return {};
+  const known = new Set(edited);
+  for (const c of Array.isArray(commits) ? commits : []) for (const x of Array.isArray(c.edited) ? c.edited : []) known.add(x);
+  const files = pushed && Array.isArray(pushed.files) ? pushed.files : null;
+  const tracked = edited.length > 0 || !files || pushed.filesCut === true || files.some((f) => known.has(f));
+  return { edited, tracked };
+}
+/**
+ * WHAT "RESTORE CODE" PUTS BACK, rewinding to before message `turn` (Claude Code's checkpoints: "A file that only Bash commands
+ * changed isn't tracked and stays as it is"; "Once Claude has edited a file with its file editing tools in your conversation,
+ * /rewind undoes changes that Bash commands make to that file afterward"): every file Coder's file tools changed in the chat,
+ * as it was before that message, or, for one they first changed after it, as it was before the job that first changed it.
+ * `{ later, items: [{ path, before }] }` (the content to go back to: the one in the parent of commit `before`), or null when a
+ * job on record has no list of its own (one from before 2026-11-13): the later jobs are then reverted whole, as before.
+ */
+export function restorePlan(commits, turn) {
+  const cs = Array.isArray(commits) ? commits : [];
+  const later = cs.filter((c) => Number(c.turn) >= turn);
+  if (!later.length) return { later, items: [] };
+  if (!cs.every((c) => Array.isArray(c.edited))) return null;
+  const first = new Map();
+  for (const c of cs) for (const p of c.edited) if (!first.has(p)) first.set(p, c);
+  const items = [...first].map(([path, c]) => ({ path, before: Number(c.turn) >= turn ? c.sha : later[0].sha }));
+  return { later, items };
+}
+/** Claude Code's warning for the files a code restore skipped (2.1.323), naming them, as the chat can show them. */
+export const RESTORE_SKIP_WHY = "the tracked path is (or became) a link or other non-regular file, its directory changed since the checkpoint, or its backup could not be safely read";
+export function restoreSkipped(paths) {
+  const n = paths.length;
+  return "Restored the code, but skipped " + n + " " + (n === 1 ? "file" : "files") + ": " + RESTORE_SKIP_WHY + ". Skipped files were left untouched: " + namesSaid(paths) + ".";
+}
+/** Paths named in a sentence: the first 20, then how many more. */
+export function namesSaid(paths, most = 20) {
+  const list = paths.slice(0, most).map((p) => String(p).slice(0, 200));
+  return list.join(", ") + (paths.length > most ? " and " + (paths.length - most) + " more" : "");
+}
+/** Whether rewinding to before message `turn` has code to restore (the page's own check, coder.js's codeToRestore, is the same). */
+export function codeToRestore(commits, turn) {
+  const cs = Array.isArray(commits) ? commits : [];
+  const later = cs.filter((c) => Number(c.turn) >= turn);
+  if (!later.length) return false;
+  if (!cs.every((c) => Array.isArray(c.edited))) return true;
+  return later.some((c) => c.tracked !== false);
+}
+
 /** The first line of the agent's summary, as a commit message and a pull request title. */
 export function commitTitle(summary) {
   const first = String(summary || "").split(/\n|(?<=\.)\s/)[0].trim();
@@ -1209,12 +1267,12 @@ export async function handleCoder(request, env, ctx, deps) {
         else if (meta.readOnly) {
           if (p.changed) {
             keptHere = true;
-            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now() }].slice(-50);
+            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
             pushNote = keptNote(meta.repo);
           }
         } else if (p.pushed && p.changed !== false) {
           pushed = true;
-          if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now() }].slice(-50);
+          if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
           if (pr) pr = await prStillOpen(t.token, meta.repo, pr, fetchFn);
           pushNote = "Saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "");
         }
@@ -1482,7 +1540,23 @@ export async function handleCoder(request, env, ctx, deps) {
     let commits = Array.isArray(meta.commits) ? meta.commits : [];
     const later = commits.filter((c) => Number(c.turn) >= turn).reverse();
     let undone = 0;
-    if (code && later.length) {
+    // LIKE CLAUDE CODE'S CHECKPOINTS (the owner, 2026-11-13): only the files Coder's file tools changed go back (restorePlan);
+    // a chat with jobs from before then reverts the later jobs whole, as before.
+    const plan = code && later.length ? restorePlan(commits, turn) : null;
+    let restored = null, skippedFiles = [], restoreLeft = "";
+    if (code && later.length && plan && !plan.items.length) restored = [];
+    else if (code && later.length && plan) {
+      const t = await userToken(env, bucket, uid, { fetchFn });
+      if (!t && !meta.readOnly) return json({ error: "Connect GitHub again first." }, 401);
+      let r;
+      try { r = await post("/restore", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), items: plan.items, message: "Rewind: files back as they were before \"" + String(plan.later[0].title || "an earlier job").replace(/\s+/g, " ").slice(0, 120) + "\"", ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()); }
+      catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
+      if (!r || !r.ok) return json({ error: "Could not restore the code: " + String((r && (r.why || r.error)) || "unknown").slice(0, 300) }, 409);
+      restored = Array.isArray(r.restored) ? r.restored.filter((x) => typeof x === "string") : [];
+      skippedFiles = Array.isArray(r.skipped) ? r.skipped.filter((x) => typeof x === "string") : [];
+      restoreLeft = leftOutNote(r.left);
+      commits = commits.filter((c) => !later.includes(c));
+    } else if (code && later.length) {
       const t = await userToken(env, bucket, uid, { fetchFn });
       if (!t) return json({ error: "Connect GitHub again first." }, 401);
       for (const c of later) {
@@ -1502,11 +1576,14 @@ export async function handleCoder(request, env, ctx, deps) {
     let events = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     let msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
-    const note = "Rewound to before an earlier message: " + [code ? (later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes") : "", chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + ".";
+    const savedTo = meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch;
+    const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
+    const note = "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
     const ev = { at: Date.now(), type: "github", text: note };
     events = [...events, ev].slice(-MAX_EVENTS);
     // Code only: Coder is told, so it knows those changes are gone.
-    if (code && !chat && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
+    if (code && !chat && restored && restored.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner restored the code to before an earlier message, as Claude Code's checkpoints do. The files your file tools (write, edit) had changed since then are back as they were: " + namesSaid(restored) + "." + (skippedFiles.length ? " Skipped and left as they are: " + namesSaid(skippedFiles) + "." : "") + " Files that only commands changed were left as they are. Nothing to do now.)" }];
+    else if (code && !chat && !restored && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
     await putJson(bucket, keyOf(uid, id, "events.json"), events);
     await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs));
     const next = { ...meta, commits, marks: chat ? (meta.marks || []).filter((m) => m.turn < turn) : meta.marks, at: Date.now() };

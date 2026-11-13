@@ -409,8 +409,8 @@ code in **each user's own GitHub**.
 
    **The auto mode checker** (owner, 2026-11-10: "yea do the paid second model too"):
    Claude Code's auto mode classifier, `container/coder-checker.mjs`. In Auto (and a
-   job from GitHub), a bash command that is not read-only and that no narrow allow
-   rule approves, and a web fetch of a page no rule or documentation site covers, is
+   job from GitHub), a bash command that the owner's narrow allow rules do not approve
+   in full, and a web fetch of a page no rule or documentation site covers, is
    judged first by one more call to the chat's model (low effort, no tools), which
    answers allow or block with a rule's name (Claude Code's rule names and the lists
    its docs give: `CHECKER_RULES`). In Plan it judges the commands Plan would ask
@@ -424,6 +424,13 @@ code in **each user's own GitHub**.
    the machine's service). Broad allow rules are dropped in Auto (`droppedInAuto`).
    The machine's service turns it on (`checker: true`); each check's cost is counted
    with the job's. Tests: `test/auto-checker.test.mjs`.
+   Since 2026-11-13 (the owner: "yea do those 2 things") read-only commands wait for the checker too, as in
+   Claude Code's cloud sessions, whose review runs on its server ("read-only and sandboxed shell commands
+   wait for that review and are blocked if it flags them"; its 2.1.323 holds a command when any part of it
+   was allowed only for being read-only, for Bash, PowerShell and Monitor): only a command the owner's allow
+   rules approve in full, or an exact rule for the whole command, skips it (`partsAllowedByRules`). A job
+   from GitHub with Auto mode turned off still runs read-only commands unreviewed, as Claude Code's
+   "default" mode does. Test CD370 and `test/rewind-restore.test.mjs`.
 4. When a job ends, Coder commits and pushes its branch. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
@@ -1930,6 +1937,20 @@ SessionStart hooks run (round 5). Rewind offers Claude Code's choices: Restore c
 code only (the code ones only when a later job changed files), Summarize from
 here and Summarize up to here (each with an optional focus); after the chat
 goes back, the message returns to the box. Rewind's points inside a summary go.
+Since 2026-11-13 Restore code puts back only the files Coder's file tools changed, like
+Claude Code's checkpoints ("A file that only Bash commands changed isn't tracked and stays
+as it is"): each job's result names the files its write and edit changed (`edited`), kept
+with its commit, with whether the commit changed such a file by any means (`tracked`, from
+the push's `files`: "Under each prompt, the rewind menu counts changes to files Claude had
+already edited, whatever made them"); the code choices show only when a later job did. The
+machine's `/restore` (`restoreTracked`) puts each tracked file back as it was before the
+message, or, for one first changed after it, as it was before the job that first changed
+it, so a command's later change to a tracked file is undone too, and a file the tools made
+is removed; a link, a hard-linked file, one under a link or where a folder was is skipped
+with Claude Code's warning ("Restored the code, but skipped N files: …"). One commit with
+the chat's link, saved to the branch, never a force push; Coder is told which files went
+back. A chat with jobs from before then reverts the later jobs whole, as before. Tests:
+`test/rewind-restore.test.mjs`.
 
 **Notifications, like Claude Code's** (owner, 2026-11-07, item 8; its mobile and
 Remote Control docs; `src/coder-push.mjs`). Web Push from the Worker: Coder's

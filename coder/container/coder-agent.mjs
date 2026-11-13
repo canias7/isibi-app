@@ -36,7 +36,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered } from "./coder-checker.mjs";
-import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
 // file and web tools of Claude Code. They run through the same exec as bash
@@ -175,6 +175,8 @@ export function keepPics(convo) {
   }
   return convo;
 }
+/** The most paths one job's `edited` keeps (past it, `editedCut`: Rewind then reverts the later jobs whole), each at most EDITED_PATH_MAX long. */
+export const EDITED_MAX = 200, EDITED_PATH_MAX = 300;
 /** The file tools after which the service may add something for that file (afterFile). */
 export const FILE_HOOK_TOOLS = new Set(["read", "edit", "write"]);
 export const RUN_TOOLS = {
@@ -1413,7 +1415,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // auto mode is active, so the classifier evaluates every shell command regardless of your allow list".)
   // (With where the command runs, `ctx`: the path checks Claude Code makes before its rules, so a rule never covers a path
   // outside the project, a ~user, a write after a cd, eval or a `&`, and the checker is asked: Bash docs pass 9.)
-  const autoRulesCover = (command, ctx = null) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; return partsAllowedOrReadOnly(command, keep, ctx); };
+  const autoRulesCover = (command, ctx = null) => { if (autoMode && autoMode.classifyAllShell === true) return false; const keep = { allow: ownRules.allow.filter((r) => !droppedInAuto(r)) }; if (!keep.allow.length) return false; return partsAllowedByRules(command, keep, ctx); };
   // (PowerShell's in Auto, as Claude Code's: its rules without the ones Auto drops, PowerShell(*) and the like, and none with
   // classifyAllShell. In Auto a PowerShell rule only decides whether the checker is asked: psDecision's `covered`.)
   const autoPsRules = (rs) => ({ ...rs, allow: (rs.allow || []).filter((r) => !droppedInAuto(r, { classifyAllShell: !!(autoMode && autoMode.classifyAllShell === true) })) });
@@ -2161,6 +2163,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   await markShownStart(deps, context);
   const watching = () => deps.seen === true && (followed || touched.size > 0);
   const touch = (p) => { const k = normPath(p); if (!k || k.length > 500) return; touched.delete(k); touched.set(k, ++touchN); if (touched.size > 200) touched.delete(touched.keys().next().value); };
+  // THE FILES THIS JOB'S WRITE AND EDIT CHANGED, by the project's own names (Rewind's "Restore code" puts back only those,
+  // as Claude Code's checkpoints: "Claude Code tracks all changes made by its file editing tools"; the owner, 2026-11-13).
+  // Only the project's own files (a path outside it, the scratch folder, another repository's, is no part of its commits).
+  const edited = new Set();
+  let editedCut = false;
+  const noteEdited = (p) => { if (typeof p !== "string" || !p || p === "." || p.startsWith("/") || p.startsWith("../") || p.length > EDITED_PATH_MAX) return; if (edited.has(p)) return; if (edited.size >= EDITED_MAX) { editedCut = true; return; } edited.add(p); };
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
@@ -2202,7 +2210,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
   // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
 
   // THE OWNER'S /compact [what to keep] (round 5 of the live test, 2026-11-12, the owner: "fix all 10": Coder's server made the
   // summary away from the chat's machine, so its hooks never ran). Claude Code's, here, where the hooks are: PreCompact hooks
@@ -2650,17 +2658,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           return end("done", { summary: lastSaid || "asked to run a command" });
         }
         // THE AUTO MODE CHECKER (coder-checker.mjs, Claude Code's auto mode classifier; the owner, 2026-11-10: "yea do the paid
-        // second model too"): in Auto (and a job from GitHub), a command that is not read-only, and that no narrow allow rule of
-        // the owner's approves, is judged by a second model before it runs; in Plan, one Plan would ask about is judged instead
+        // second model too"): in Auto (and a job from GitHub), a command that the owner's narrow allow rules do not approve in
+        // full is judged by a second model before it runs, a read-only one too (the owner, 2026-11-13: "yea do those 2 things";
+        // Claude Code's cloud sessions, whose review runs on its server: "read-only and sandboxed shell commands wait for that
+        // review and are blocked if it flags them", partsAllowedByRules); in Plan, one Plan would ask about is judged instead
         // (CODER_USE_AUTO_MODE_DURING_PLAN off: asked, as before). Never what asks in every mode (a protected file, the read
         // block, a dangerous removal, an ask rule). After 3 blocks in a row or 20 in all, auto mode pauses: the owner is asked,
         // and their Yes resumes it.
         let pausedCard = false, switchedCard = false;
         const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        const wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(c.ps ? dec.readOnly === true : wholeReadOnly(command)) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        const wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
-        // Code's session then starts in "default", where a run that can't ask is denied what needs approval.)
+        // Code's session then starts in "default", where a run that can't ask is denied what needs approval, and a read-only
+        // command runs unreviewed, as no review runs outside auto mode.)
         if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
         const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
         const cmdWhat = c.ps ? "this PowerShell command" : "this bash command";
@@ -3173,6 +3184,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if ((c.name === "write" || c.name === "edit") && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
+        if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(projectPath(deps, args.path));
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
         // tools' output is, to MAX_OUTPUT_CHARS.
         // A SEARCH'S RESULTS LEAVE OUT WHAT A READ DENY RULE COVERS (Claude Code: "a best-effort attempt to apply Read(path) deny

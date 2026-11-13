@@ -413,18 +413,32 @@
       document.addEventListener('keydown', key); col.firstChild.focus();
     });
   }
+  /**
+   * WHETHER REWINDING TO BEFORE MESSAGE `turn` HAS CODE TO RESTORE (the owner, 2026-11-13; Claude Code: "The two code restore
+   * options appear only when the selected checkpoint has tracked file changes to revert"): a later job changed a file Coder's
+   * file tools had changed (its `tracked`). A chat with jobs from before then: any later job. The Worker's codeToRestore.
+   */
+  function codeToRestore(commits, turn) {
+    const later = commits.filter((c) => Number(c.turn) >= turn);
+    if (!later.length) return false;
+    if (!commits.every((c) => Array.isArray(c.edited))) return true;
+    return later.some((c) => c.tracked !== false);
+  }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
   async function rewind(turn) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
     // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
+    // (Since 2026-11-13, like its checkpoints: only files Coder's file tools changed count, codeToRestore.)
     const mark = (S.project.marks || []).find((m) => m.turn === turn);
     const said = mark && S.events[mark.ev] && S.events[mark.ev].type === 'user' ? String(S.events[mark.ev].text || '') : '';
-    const changed = (S.project.commits || []).some((c) => Number(c.turn) >= turn);
+    const commits = S.project.commits || [];
+    const changed = codeToRestore(commits, turn);
+    const exact = commits.every((c) => Array.isArray(c.edited));
     const first = !(S.project.marks || []).some((m) => m.turn < turn);
     const choices = [...(changed ? [['both', 'Restore code and chat']] : []), ['chat', changed ? 'Restore chat only' : 'Restore chat'], ...(changed ? [['code', 'Restore code only']] : []),
       ['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])];
-    const pick = await askPick('Rewind to this message?', (changed ? 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
+    const pick = await askPick('Rewind to this message?', (changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit on the branch, never deleted from GitHub. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits on the branch, never deleted from GitHub. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
     let body;
     if (pick === 'sumfrom' || pick === 'sumupto') {
