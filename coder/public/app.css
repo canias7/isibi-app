@@ -77,9 +77,6 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 .gf-menu button { border: 0; background: none; text-align: left; padding: 8px 10px; border-radius: 8px; font: 14px Inter, system-ui, sans-serif; color: #0d1b2a; cursor: pointer; }
 .gf-menu button:hover { background: #f3f1ed; }
 .gf-shell > .gf-app { flex: 1; min-width: 0; }
-.gf-soon { flex: 1; min-width: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px; text-align: center; }
-.gf-soon b { font-size: 22px; margin-top: 6px; }
-.gf-soon p { margin: 0; color: #6b7280; }
 .gf-scrim { display: none; }
 
 /* A phone: the left side slides in over the chat (☰). */
@@ -123,3 +120,6 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
   .dl-app span { display: none; }
   .gf-gate:not(.signing) { display: flex; flex-direction: column; align-items: center; justify-content: center; }
 }
+/* GLOOPY NEEDS YOU (the docs, 2026-11-10): a mark on its tab while it waits for your answer. */
+.gf-tab { position: relative; }
+.gf-tab.needs-you::after { content: ''; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #d93025; box-shadow: 0 0 0 2px #f4f2ee; }

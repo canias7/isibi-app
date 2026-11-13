@@ -1112,7 +1112,11 @@ test("CD236 the line over a group of steps names each kind, as Claude Code's doe
   assert.equal(groupWords([step("undo", true)]).failed, "an undo failed");
   assert.equal(groupWords([step("something-new"), step("toString")]).line, "Did 2 steps", "a kind it does not know (even one named like an object's own)");
   // The page uses it for every group, and the old words are gone.
-  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: !e\.tool && e\.monitor === true \? 'monitor_start' : e\.tool \|\| '', failed: stateOf\(e, i\) === 'bad', file: stepFile\(e\) \}\)\)\);/);
+  // (2026-11-09: a sign-in Gloopy did with a saved login is its own kind, "signed in with a saved login"; GL48.)
+  // (2026-11-13: a saved card that filled itself in, and Gloopy saying how an order went, are their own kinds too; GL142.)
+  assert.match(ui, /const kindOf = \(e\) => \{ const r = results\[e\.id\]; if \(e\.tool === 'sign_in' && r && r\.saved === true\) return 'sign_in_saved';/);
+  assert.match(ui, /const words = groupWords\(group\.map\(\(\[e, i\]\) => \(\{ tool: !e\.tool && e\.monitor === true \? 'monitor_start' : kindOf\(e\), failed: stateOf\(e, i\) === 'bad', file: stepFile\(e\) \}\)\)\);/);
+  assert.match(ui, /return 'pay_result'; return e\.tool \|\| ''; \};/, "any other step is its tool, as before");
   assert.ok(!ui.includes("'a command failed'") && !ui.includes("<span class=\"cd-bad\">a command failed</span>"), "the fixed words are gone");
 });
 

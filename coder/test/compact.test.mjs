@@ -190,7 +190,13 @@ test("CD168 the page: Rewind's choices like Claude Code's (the code ones only wh
   assert.match(ui, /const commits = S\.project\.commits \|\| \[\];\n\s+const changed = codeToRestore\(commits, turn\);/);
   assert.match(ui, /body = \{ turn, summarize: pick === 'sumfrom' \? 'from' : 'upto', focus \};/);
   assert.match(ui, /if \(\(pick === 'both' \|\| pick === 'chat' \|\| pick === 'sumfrom'\) && said && !S\.draft\) S\.draft = said;/);
-  assert.doesNotMatch(ui, /r\.data\.compacted/, "no special case: the job's own events come as a message's do");
+  // Coder's /compact goes as a job, like a message: Coder's Worker never answers it itself. Only Gloopy's chat does
+  // (startGloopy makes the summary in the Worker), and its /pause, /resume and /schedules (2026-11-10) are shown the same way.
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  const gl = routes.slice(routes.indexOf("async function startGloopy("));
+  assert.equal((routes.match(/compacted: true/g) || []).length, 1);
+  assert.ok(routes.indexOf("async function startGloopy(") > 0 && gl.slice(0, gl.search(/\n(?:async )?function /)).includes("compacted: true"), "only in Gloopy's own message route");
+  assert.match(ui, /if \(r\.data\.compacted \|\| r\.data\.handled\) \{ S\.project = r\.data\.project; S\.events = S\.events\.slice\(0, base\)\.concat\(r\.data\.events \|\| \[\]\); if \(r\.data\.handled\) \{ S\.sched = null; S\.schedMsg = ''; S\.signins = null; S\.signinsMsg = ''; \} syncEntry\(\); return draw\(true\); \}/);
 });
 
 test("CD214 every summary made between messages names the files its part worked on (read, edited, written, viewed with a command, @-mentioned, or named by an earlier summary), so Coder's next job reads the most recently changed of them again, like Claude Code (\"Right after compaction, Claude Code re-reads up to five of the files Claude has read or edited\"): /compact, a long chat summarized before a job, and Rewind's summaries", async () => {

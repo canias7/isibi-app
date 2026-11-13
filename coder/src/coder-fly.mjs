@@ -82,15 +82,40 @@ export function flySettings(env) {
     // Claude Code's tools): with the chat's 10 GB disk, 30 GB, like Claude Code's machine. Fly.io
     // bills a sleeping machine's disk by what is used, not by this limit.
     root: num(env.CODER_FLY_ROOT_GB, 20, 8, 50),
+    gloopy: gloopySize(env),
   };
+}
+
+/**
+ * GLOOPY'S COMPUTER STARTS IN SECONDS (owner, 2026-11-12: "yes build all four"; Grok Bot's computer is up at once):
+ * Gloopy's machine is suspended when idle, not stopped, and resumed with its memory as it was (its browser still open)
+ * in under a second (Fly.io: "a few hundred ms"; a cold start of the 6.9 GB image took about 80 seconds). Fly suspends
+ * machines of at most 2 GB, so Gloopy's has its own size: one full-speed CPU and 2 GB by default (a browser and its
+ * commands; Coder's chats keep their 4 CPUs and 16 GB). Fly bills a suspended machine like a stopped one (its disk
+ * only), and this size costs less awake. CODER_FLY_GLOOPY_CPU_KIND / _CPUS / _MEMORY_MB may change it, within Fly's
+ * rules and 2 GB.
+ */
+export const GLOOPY_SUSPEND_MB = 2048;
+/** Gloopy's size when Fly.io has no room for it (2 shared CPUs, 2 GB: still suspendable). */
+export const GLOOPY_SMALL = { cpu_kind: "shared", cpus: 2, memory_mb: 2048 };
+export function gloopySize(env) {
+  const kind = String(env.CODER_FLY_GLOOPY_CPU_KIND || "") === "shared" ? "shared" : "performance";
+  const per = kind === "shared" ? { most: 8, step: 256, low: 256, high: 2048 } : { most: 16, step: 2048, low: 2048, high: 8192 };
+  const n = Number(env.CODER_FLY_GLOOPY_CPUS);
+  const cpus = Number.isInteger(n) && n >= 1 && n <= per.most ? n : kind === "shared" ? 2 : 1;
+  const mb = Number(env.CODER_FLY_GLOOPY_MEMORY_MB);
+  const fits = (m) => Number.isInteger(m) && m % per.step === 0 && m >= per.low * cpus && m <= per.high * cpus && m <= GLOOPY_SUSPEND_MB;
+  if (fits(mb)) return { kind, cpus, memory: mb };
+  if (fits(GLOOPY_SUSPEND_MB)) return { kind, cpus, memory: GLOOPY_SUSPEND_MB };
+  return { kind: "performance", cpus: 1, memory: GLOOPY_SUSPEND_MB };
 }
 
 /**
  * WHAT A MACHINE'S SETTINGS ARE MADE FROM, besides its image: when they change (a new size), each
  * chat's machine gets them the next time it wakes, as with a new image (never under a job).
  */
-export function flyShape(s) {
-  return [s.kind, s.cpus, s.memory, s.diskMax, s.root].join("/");
+export function flyShape(s, gloopy = false) {
+  return gloopy ? ["gloopy", s.gloopy.kind, s.gloopy.cpus, s.gloopy.memory, s.diskMax, s.root].join("/") : [s.kind, s.cpus, s.memory, s.diskMax, s.root].join("/");
 }
 
 /** A chat's machine, disk and record names: the same every time, from the chat's own name. */
@@ -127,22 +152,23 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
  * had before (FLY_SMALL). Its work disk grows by itself up to `diskMax` GB;
  * `grow: false` leaves that out (SIZE_TRIES).
  */
-export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, lock = "", small = false, grow = true } = {}) {
+export function machineConfig(env, volumeId, { keepRoot = true, bigRoot = true, lock = "", small = false, grow = true, gloopy = false } = {}) {
   const s = flySettings(env);
+  const size = gloopy ? (small ? GLOOPY_SMALL : { cpu_kind: s.gloopy.kind, cpus: s.gloopy.cpus, memory_mb: s.gloopy.memory }) : small ? FLY_SMALL : { cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory };
   return {
     image: s.image,
     // ITS LOCK, ALWAYS: on Fly.io a machine is on the internet (Fly's front door), so its control
     // key is given here too, not only as a Fly secret (made from CODER_TOKEN_KEY; never the key itself).
     // CODER_IMAGE_REF: which Coder version this is, so the admin sandbox's own layer starts fresh with a new one.
     env: { CODER_DATA: FLY_DATA, CODER_IMAGE_REF: s.image, ...(env.CODER_MODEL ? { CODER_MODEL: String(env.CODER_MODEL) } : {}), ...(lock ? { CODER_CONTROL_KEY: lock } : env.CODER_TOKEN_KEY ? { CODER_CONTROL_KEY: controlKeySync(env.CODER_TOKEN_KEY) } : {}) },
-    guest: { ...(small ? FLY_SMALL : { cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }), ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
+    guest: { ...size, ...(keepRoot && !bigRoot ? { persist_rootfs: "restart" } : {}) },
     ...(keepRoot && bigRoot ? { rootfs: { persist: "restart", size_gb: s.root } } : {}),
     // The chat's work disk, which Fly.io makes bigger by itself when it is 80% full (Fly's auto-extend).
     mounts: [{ volume: volumeId, path: FLY_DATA, ...(grow && s.diskMax > s.disk ? { extend_threshold_percent: 80, add_size_gb: FLY_DISK_STEP_GB, size_gb_limit: s.diskMax } : {}) }],
     // Only through Fly's front door, on https; Coder starts and stops it itself.
     services: [{ protocol: "tcp", internal_port: 8080, ports: [{ port: 443, handlers: ["tls", "http"] }], autostart: false, autostop: "off" }],
     restart: { policy: "on-failure", max_retries: 3 },
-    metadata: { coder: "chat-machine" },
+    metadata: { coder: gloopy ? "gloopy-machine" : "chat-machine" },
   };
 }
 
@@ -180,6 +206,8 @@ export const FROM_COPY = "x-coder-from-copy";
 export const FROM_COPY_GB = "x-coder-from-copy-gb";
 /** What became of that copy, told to the new machine with its first job (flyBox only sets it): "used", or "missed: why". */
 export const COPY_INFO = "x-coder-copy";
+/** A request whose answer is a stream (Gloopy's live view): for viaFly only, never sent on. */
+export const STREAM_HEADER = "x-coder-stream";
 async function locked(env, machine, rec, req) {
   const r = new Request(req.url, { method: req.method, headers: req.headers });
   r.headers.delete(FROM_COPY); r.headers.delete(FROM_COPY_GB); r.headers.delete(COPY_INFO);
@@ -207,7 +235,10 @@ export async function viaFly(env, machineId, req, body, fetchFn = fetch) {
   const u = new URL(req.url);
   const headers = new Headers(req.headers);
   headers.set("fly-force-instance-id", machineId);
-  headers.set("x-coder-keepalive", "1");
+  // A STREAM (Gloopy's live view, 2026-11-10) is passed on as it comes, so it is asked without the "still working"
+  // signal (it sends something every few seconds itself).
+  if (headers.get(STREAM_HEADER) === "1") headers.delete("x-coder-keepalive"); else headers.set("x-coder-keepalive", "1");
+  headers.delete(STREAM_HEADER);
   let r;
   try { r = await fetchFn("https://" + flySettings(env).app + ".fly.dev" + u.pathname + u.search, { method: req.method, headers, ...(body !== undefined ? { body } : {}) }); }
   catch { return null; }
@@ -323,7 +354,7 @@ export async function copyState(env, c, deps0 = {}) {
  * `from` (the environment's saved copy): the disk is made from it (machineFromCopy);
  * if that cannot be done, an empty one, as before, with why (`copyMiss`, said in the chat).
  */
-async function makeMachine(env, bucket, names, deps, from = null) {
+async function makeMachine(env, bucket, names, deps, from = null, gloopy = false) {
   const s = flySettings(env);
   let copyMiss = "";
   if (from && SNAP_ID.test(String(from.snapshot))) {
@@ -334,19 +365,19 @@ async function makeMachine(env, bucket, names, deps, from = null) {
   // ITS DISK GOES ON A SERVER WITH ROOM FOR ITS SIZE (Fly's `compute`: a machine can only run where
   // its disk is); else on one with room for the size before; else anywhere, as before.
   let v;
-  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+  for (const compute of gloopy ? [{ cpu_kind: s.gloopy.kind, cpus: s.gloopy.cpus, memory_mb: s.gloopy.memory }, GLOOPY_SMALL, null] : [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
     v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: names.volume, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}) }, ...deps });
     if (v.ok || v.status === 401 || v.status === 403) break;
   }
   if (!v.ok || !v.data || typeof v.data.id !== "string") return { why: "Fly.io could not make the machine's disk (" + v.status + ")" };
   // Fly refused the settings (should it not take a bigger or kept disk, or the size): made the older way, as before.
   const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
-  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { ...o, lock }) }, ...deps }));
+  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: names.machine, region: s.region, config: machineConfig(env, v.data.id, { ...o, lock, gloopy }) }, ...deps }));
   if (!m.ok || !m.data || typeof m.data.id !== "string") {
     await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps });
     return { why: "Fly.io could not make the machine (" + m.status + ")" };
   }
-  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(copyMiss ? { copyMiss } : {}) };
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s, gloopy), small: m.small, lock: 2, at: deps.now(), used: deps.now(), stopped: false, ...(gloopy ? { gloopy: true } : {}), ...(copyMiss ? { copyMiss } : {}) };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, FLY_PULL_MS);
   return { rec, ...(copyMiss ? { copyMiss } : {}) };
@@ -393,23 +424,25 @@ async function machineFromCopy(env, bucket, names, deps, from) {
  * one is made). A machine that got the size before (no room for the new one)
  * keeps it until the next new version: each try would start its own disk fresh.
  */
-async function wakeMachine(env, bucket, names, rec, deps) {
+async function wakeMachine(env, bucket, names, rec, deps, gloopy = false) {
   const s = flySettings(env);
+  // An older Gloopy machine (made at Coder's size) is marked, and gets Gloopy's size below.
+  if (gloopy && !rec.gloopy) rec = { ...rec, gloopy: true };
   const m = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, deps);
   if (m.status === 404) { await bucket.delete(names.key); return null; }
   const state = m.data && m.data.state;
   let pulled = false;
   if (state !== "started" && state !== "starting") {
-    const shape = flyShape(s);
+    const shape = flyShape(s, !!rec.gloopy);
     if (rec.image !== s.image || rec.shape !== shape) {
       // Updated, it gets its own lock key too (step 2).
       const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
-      const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock }) }, ...deps }));
+      const u = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines/" + rec.id, { method: "POST", body: { config: machineConfig(env, rec.volume, { ...o, lock, gloopy: !!rec.gloopy }) }, ...deps }));
       if (u.ok) { rec = { ...rec, image: s.image, shape, small: u.small, lock: 2 }; pulled = true; }
       else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
     } else await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/start", { method: "POST", ...deps });
   }
-  rec = { ...rec, stopped: false, used: deps.now() };
+  rec = { ...rec, stopped: false, suspended: undefined, used: deps.now() };
   await writeRec(bucket, names.key, rec);
   await untilAnswers(env, rec.id, deps, pulled ? FLY_PULL_MS : FLY_WAKE_MS);
   return rec;
@@ -421,7 +454,7 @@ async function wakeMachine(env, bucket, names, rec, deps) {
  * an awake machine; an asleep, new or silent one is made or woken first, then
  * asked again.
  */
-export function flyBox(env, name, deps0 = {}) {
+export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
   const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
   const bucket = env.CODER_BUCKET;
   return {
@@ -433,7 +466,7 @@ export function flyBox(env, name, deps0 = {}) {
         const r = await viaFly(env, rec.id, await locked(env, names.machine, rec, req), body, deps.fetchFn);
         if (r) return r;
       }
-      if (rec) rec = await wakeMachine(env, bucket, names, rec, deps);
+      if (rec) rec = await wakeMachine(env, bucket, names, rec, deps, gloopy);
       let copy = "";
       if (!rec) {
         // ONLY A JOB'S START, OR AN UNDO (which needs the repo), MAKES A MACHINE.
@@ -443,7 +476,7 @@ export function flyBox(env, name, deps0 = {}) {
         if (!(req.method === "POST" && (u.pathname === "/turn" || u.pathname === "/undo"))) return json({ error: "This chat has no machine on Fly.io yet." }, 503);
         // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
         const from = u.pathname === "/turn" && SNAP_ID.test(String(req.headers.get(FROM_COPY) || "")) ? { snapshot: req.headers.get(FROM_COPY), size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
-        const made = await makeMachine(env, bucket, names, deps, from);
+        const made = await makeMachine(env, bucket, names, deps, from, gloopy);
         if (!made.rec) return json({ error: made.why }, 503);
         rec = made.rec;
         // The machine says in the chat what became of the copy (used, or why not).
@@ -457,11 +490,40 @@ export function flyBox(env, name, deps0 = {}) {
   };
 }
 
+/**
+ * THE LINK FROM THE OWNER'S DESKTOP APP TO GLOOPY'S MACHINE (2026-11-11: routing Gloopy's browser through the owner's
+ * computer): a WebSocket to the machine while it is awake (never waking it: a link is no reason to), with its key; its
+ * answer (101, with the socket) is handed back as it is, and Cloudflare joins it to the app's (its own way of passing a
+ * WebSocket on; live test, 2026-11-11: messages from the machine did not come through a relay of our own). Null when the
+ * machine isn't up or won't take it.
+ */
+export async function flyRouteLink(env, name, deps0 = {}) {
+  if (!flyOn(env)) return null;
+  const fetchFn = deps0.fetchFn || fetch;
+  const names = await flyNames(name);
+  const rec = await readRec(env.CODER_BUCKET, names.key);
+  if (!rec || rec.stopped) return null;
+  const key = await machineLock(env, names.machine, rec);
+  let up = null;
+  try { up = await fetchFn("https://" + flySettings(env).app + ".fly.dev/gloopy/route", { headers: { Upgrade: "websocket", Connection: "Upgrade", "Sec-WebSocket-Version": "13", "fly-force-instance-id": rec.id, ...(key ? { "x-coder-key": key } : {}) } }); } catch { up = null; }
+  return up && up.webSocket ? up : null;
+}
+
 /** Remove a machine and its kept disk (the disk once the machine is gone). */
 async function removeMachine(env, id, volume, deps) {
   const s = flySettings(env);
   await flyApi(env, "/apps/" + s.app + "/machines/" + id + "?force=true", { method: "DELETE", ...deps });
   if (volume) await flyApi(env, "/apps/" + s.app + "/volumes/" + volume, { method: "DELETE", ...deps });
+}
+
+/**
+ * IS A CHAT'S MACHINE AWAKE? From Coder's own record only, so asking never wakes it (Gloopy's live view, 2026-11-09:
+ * a machine asleep has no browser running, and a look is no reason to wake it).
+ */
+export async function flyAwake(env, name) {
+  if (!flyOn(env)) return false;
+  const rec = await readRec(env.CODER_BUCKET, (await flyNames(name)).key);
+  return !!rec && !rec.stopped;
 }
 
 /** A REMOVED CHAT's machine and disk go too. */
@@ -520,8 +582,10 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
       const r = await viaFly(env, m.id, await locked(env, m.name, rec, new Request("http://coder/busy")), undefined, deps.fetchFn);
       const busy = r && r.ok ? await r.json().catch(() => null) : null;
       if (shouldStop(busy, rec, now)) {
-        const st = await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/stop", { method: "POST", ...deps });
-        if (st.ok) { out.stopped++; await writeRec(bucket, key, { ...rec, stopped: true, stoppedAt: now }); }
+        // GLOOPY'S IS SUSPENDED (2026-11-12): woken, it is as it was in under a second; if Fly won't, it is stopped.
+        const sus = rec.gloopy ? await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/suspend", { method: "POST", ...deps }) : null;
+        const st = sus && sus.ok ? sus : await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/stop", { method: "POST", ...deps });
+        if (st.ok) { out.stopped++; if (sus && sus.ok) out.suspended = (out.suspended || 0) + 1; await writeRec(bucket, key, { ...rec, stopped: true, stoppedAt: now, suspended: sus && sus.ok ? true : undefined }); }
       }
     } else if ((m.state === "stopped" || m.state === "suspended") && now - Number(rec.used || rec.at || 0) > FLY_RECLAIM_MS) {
       await removeMachine(env, m.id, rec.volume, deps);

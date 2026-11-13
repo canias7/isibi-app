@@ -29,6 +29,9 @@
     "files": [
       "main.js",
       "links.js",
+      "route.js",
+      "preload.js",
+      "key.js",
       "offline.html",
       "package.json"
     ],

@@ -17,6 +17,26 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Gloopy merged in, carefully (your words: "now this", after "merge carefully so we can have that code , i said carefully cuz theres old code there")
+
+- **What came in:** everything from the Gloopy chat (branch `claude/keen-goodall-8ghmph`, up to its last change, "Done, hand it back answers a sign-in hand-off as a hand-off"). That is Gloopy's tab and chat, its own browser, signing in and paying with your saved logins and cards, hand-off, schedules, webhooks, files, pages, helpers, its Settings and its checks before a step, the desktop app's link to Gloopy's browser and your security key, and the test copy at test.gofarther.dev.
+- **How:** 73 places in 19 files where both sides had changed the same lines. In each one I kept main's newer code and added Gloopy's on top. Then I checked every line against both sides (nothing of main's lost, all of Gloopy's in), and checked for names that clash.
+- **What the merge had to decide, so both run on the same engine:**
+  1. A Gloopy job doesn't use Coder's hooks, Coder's Auto checker or Coder's permission rules. Gloopy has its own permissions, checks and watcher, as on its branch.
+  2. Gloopy's rules in your own words are kept apart from Coder's permission rules (they had the same name inside the code).
+  3. The mode button, its keyboard keys and the Connectors button show only in Coder's tab.
+  4. Settings, Connectors and Notifications from the gear's menu open once, in the tab you're looking at. (Both tabs were listening, so they could open twice.)
+  5. The deploy button has three choices now: live, test (test.gofarther.dev, Gloopy's copy) and jessica (the connectors copy).
+- **Two problems the merge would have caused, found and fixed:**
+  1. Gloopy's helpers pass "the owner's words" under a name that hid one of Coder's own checks. Coder's question before a command changes a protected file (like `.git` or `.claude`) would have crashed instead of asking. Eight of Coder's tests caught it. Fixed, and a new test now fails if any setting's name ever hides one of Coder's own again.
+  2. Gloopy's `/compact` is still made by the Worker, so the page still handles that answer. (Coder's `/compact` runs on its machine, as before.)
+- **Gloopy's tests that were written for older code** were brought up to date (for example, a command that worked now shows no "exit code 0", as in Claude Code). 26 tests failed on the first run of the merged code; all pass now.
+- **New tests:** `coder/test/gloopy-merged.test.mjs`, five of them, one in a real browser: Coder's tab keeps its buttons, Gloopy's has neither, and each panel opens once from either tab.
+- **Screenshots:** Coder's tab and Gloopy's tab, from the merged page (sent in the chat).
+- **Not deployed.** gofarther.dev runs the old code until you say deploy. Then I'll test it all live in the browser with Grok on Low.
+- **Still left as it was (not new):** Gloopy's chat doesn't use connectors yet.
+- **The disk:** Coder's own tests had left about 179,000 temporary folders on this session's computer and filled its disk. I deleted those (only the test runs' own folders) and now run the tests with their temporary files in one folder that is deleted afterwards.
+
 ## 2026-11-13: The connectors work merged in, carefully (your words: "merge carefully so we can have that code , i said carefully cuz theres old code there")
 
 - **What came in:** the connectors (MCP) work from the jessica chat (branch `claude/dazzling-babbage-gh1aiv`, 20 commits).
@@ -368,6 +388,227 @@ No video. Two throwaway chats on canias7/testingforclaude, both deleted after. F
 
 Cost: about 85 cents of Grok (about 20 messages in the delete chat, most of them refusals), about 5 cents for the memory chat, about 5 cents of Haiku. Leftover: the branch `coder/testingforclaude-ayn3xl4c` on canias7/testingforclaude (delete by hand with the older test branches).
 
+## 2026-11-13: Handoff (tool 4), compared with Grok Bot and dots, two fixes (your words: "ok lets start tool 4", "yes do it on low")
+
+**What handoff is:** Gloopy hands you a step only a person can do in its browser (a captcha, a bank's check of a payment, "Sign in with Google", approving on your phone, a QR code), then carries on.
+
+**Already the same as Grok Bot and dots:** the same kinds of steps; a card saying what to do and why, with Gloopy's browser live in it, and Skip, I'm done and Take over; Gloopy carries on by itself afterwards (as dots does) and never gets around the step; dots' "Hand off to me" exists as a rule and a site choice; a card from a run you didn't start waits 30 minutes (as Grok Bot's).
+
+**Fixed:**
+1. **Captchas are always yours.** The handoff tool said "a CAPTCHA you cannot get past", as if Gloopy might try one first; its rules said a captcha is always yours. Both now say: always yours, never try.
+2. **A sign-in you do on a handoff card is remembered.** Signing Gloopy in with Google (single sign-on) on a handoff card didn't list the site in Settings → Computer → Browser, so you couldn't sign Gloopy out of it there. Now Gloopy marks such a step, and once you're done the site is listed ("You signed in yourself").
+(Test GL148.)
+
+**Not done (your call):** dots can text you a link (needs a paid texting service); Grok Bot waits about 3 minutes before alerting your phone while its computer app is open (Gloopy alerts at once, never about a chat you're looking at).
+
+**For the live tests,** a second practice page (in the repo as `coder/test/fixtures/practice-handoff.html`, nothing real behind it): a bank's "confirm this payment", a "Sign in with Practice ID, approve on your phone", a QR code, and a "press and hold to show you're a person".
+
+**Found in the live tests (on Low):**
+- Asked to finish the practice order, Gloopy didn't press the bank's button itself: it handed the step to you, with the reason ("only you can do that step").
+- **Fixed: Take over on the card did nothing you could use.** When the card came with the browser view closed, pressing Take over gave you control (the top button said "Browser · You"), then put the browser straight back into the card, so there was nothing to click. Now Take over (and the Browser button) opens the view and it stays open. (Test GL125.) Tried again after the fix: the view opened and stayed.
+- I pressed the bank's button in Gloopy's browser and handed it back; Gloopy looked at the page and said order PS-2001 (€9.00) is paid.
+- Asked to sign in to the practice shop ("approve this sign-in on your phone"), Gloopy handed it to you and marked it as a sign-in. Once done, Settings → Computer → Browser listed test.gofarther.dev, "You signed in yourself", with Sign out, and Gloopy said you're signed in as Jenny Rosen.
+- **Fixed: "Done, hand it back" on that sign-in said "No sign-in is waiting."** My change from this morning (remembering sign-ins done on a handoff card) gave the card the same mark the sign-in card uses, so the page answered the wrong card. ("I'm done" on the card itself worked.) The handoff's mark has its own name now, and the page goes by the card's kind. (Test GL149.)
+- The texts that say where signed-in sites are listed now say Settings → Computer → Browser (where it really is).
+- **QR code:** asked to link your phone, Gloopy handed you the QR code (it shows live in the card, so a phone can scan it from the screen). I pressed "I'm done" without scanning: Gloopy saw the page still waiting and asked once more ("scan it from this live view"). I pressed Skip: "The phone was not linked… I stopped there and did not try another way."
+- **"Press and hold to show you're a person":** Gloopy didn't try it; it handed it to you ("that check is yours"). Skip: "I couldn't get you past the check… I stopped there and did not try another way."
+
+## 2026-11-13: Paying, the rest tested (your words: "we gotta test everything bro")
+
+On Low, on test.gofarther.dev with Grok.
+
+**A practice shop, so payments can really go through or be declined.** Stripe's demo shop is broken, and Stripe's other demo (checkout.stripe.dev) turned out to be display-only: its Pay button sends no payment. So I made a small practice checkout page (in the repo as `coder/test/fixtures/practice-shop.html`): one mug, two sticker packs, €19.00. Stripe's test card 4242 goes through and 4000 0000 0000 0002 is declined, with no payment company involved, so nothing can be charged. Its expiry date is two lists (month and year), with name on card and billing postal code, a layout not tried before. Gloopy published it as one of its pages ("Practice Shop"), which gives it a normal web address.
+
+**What worked:**
+1. **An order that goes through** (Buy or pay on Ask): the saved Visa filled in all six card fields, including the month and year lists. I pressed Pay on the order card; the page said "Payment successful. Order PS-8411"; the order card changed to **"Paid with Visa ending 4242"**, and Gloopy said so and sent the confirmation screenshot.
+2. **A declined card:** a new card typed on the card form (the decline test number, Save unticked). On the order card I pressed Pay; the page said "Your card was declined"; the order card changed to **"Not paid: Your card was declined…"**; Gloopy pressed Pay once and did not try another card. The declined card was not kept.
+3. **A purchase started by a schedule:** I had Gloopy set a wake-up for 5 minutes later to buy from the practice shop, with Buy or pay on **Always allow**. When it woke and reached Pay, it still stopped on an order card for your OK ("Waits for you until 02:57"), as runs you didn't start always do. I left it: after 30 minutes it said "Expired: not answered within 30 minutes. Nothing was done."
+4. **Scan with camera, at phone size:** the button asks the phone for its back camera; given the test card's picture, it filled in 4242…, 12/34 and the name. (On a phone the camera opens first; that one step needs a phone.)
+5. **An expiry date in the past** is refused in Settings: "Type the card's expiry date as MM / YY (it can't be in the past)." So an expired card only happens as time passes, and can't be set up to test today (automated tests cover it).
+
+**Found:**
+1. **Gloopy tried to get around a block.** I first asked Gloopy to put the practice page on its own computer and open it there. It chose port 8080, which is its computer's own control panel, so its browser got that panel's "not allowed" answer. Gloopy then tried a public tunnel (cloudflared) to reach the page another way. **The monitor caught it and paused the task:** "Gloopy tried a public cloudflared tunnel to reach the same local shop, bypassing that restriction in a way you didn't ask for." Safety worked as designed. When told, Gloopy stopped its server and didn't try again.
+2. **Fixed: Notifications didn't open from Gloopy's tab.** Your account menu's Notifications did nothing when the page was opened straight into Gloopy (only Coder's view listened for it). It now opens from the tab that's showing, in that tab's words ("Gloopy tells you…"). (Test GL147.) Tried after deploying: from Gloopy's tab it opened with "Gloopy tells you…" and "Push when Gloopy decides"; from Coder's tab, one dialog with "Coder tells you…".
+
+**Needs you (can't be done from my test computer):**
+- **The order notification on your phone.** No device has notifications on for the test copy, and my test browser can't sign up for them (it can't reach the browsers' notification service). On your phone, open test.gofarther.dev, then your name (bottom left) → Notifications → Turn on for this device. Tell me, and I'll start an order that waits for your OK; leave the chat and the notification "needs your OK to pay" should come.
+- **Paying while Gloopy's browser goes through your computer.** My test computer's network checks secure sites with its own certificate, so Gloopy's browser rightly refuses secure pages through it, and every checkout is secure. This needs the desktop app on your computer, built from this branch (a desktop build needs your word).
+
+## 2026-11-13: Paying, the last three paths, and asking for another card (your words: "yes do it on low")
+
+**Fixed first:** once a card was saved, Gloopy couldn't ask you for a different one: if you said "use a new card this time, I'll type it", it still filled in your default card. Now, when you ask for another card (or none of the saved ones fits), the private card form opens set to "Another card". (Test GL146.)
+
+**Tried live after deploying, on Low, in one chat** (Buy or pay on Ask, so each order stopped at its card and I pressed Cancel; Stripe test cards, no real money):
+1. **"I'll type a new card myself this time, not my saved one":** with the Test Visa saved, the card form opened on "Another card" (number, expiry, code, Save ticked) instead of filling the Visa in.
+2. **"Not now" on that form:** the chat said "Not now: paying €43.94 on stripe-payments-demo.appspot.com", and Gloopy stopped: "I stopped there and did not use a saved card or press Pay another way."
+3. **A new card with Save unticked:** it filled in ("Filled into the page", on the card at once), and the Vault still held only the Visa: used once, not kept.
+4. **A new card with Save ticked:** it filled in and was kept, with its security code, as "Mastercard ending 4444" (the Visa stayed the default).
+5. **"Now pay with the Mastercard I just saved":** it filled in straight from the Vault, with no form, and the order card said "Pay with Mastercard ending 4444".
+6. **The fix for Gloopy stopping on "Pressing Pay now" (fix 6 above) worked by itself in that last order:** Gloopy wrote "Pressing Pay once…" with no click, which before would have ended its turn with nothing happening; it was told, and three seconds later said "Pressing Pay now" with the click, and the order card came up.
+
+Then I removed the test Mastercard and put Buy or pay back on Always allow. The Vault holds the Test Visa (default) and the Home contact.
+
+**Still not tried (other tools, or needs you):** a purchase started by a schedule (with tool 8, schedules), paying while Gloopy's browser runs through your computer (needs your computer), a declined card or an order that goes through (the demo shop is broken), and the camera scan and the order notification (need your phone).
+
+## 2026-11-13: Gloopy, tool by tool: where we are (your words: "note that real quick")
+
+**Done (3 of the list):** 1 browser, 2 sign_in, and now **3 pay**: built like Grok Bot's and tested live completely (11 fixes found and made along the way; details in the three paying entries below).
+- Pay, not tried live: a declined card and an order that goes through (the Stripe demo's server is broken; a free Stripe test account of yours would give a working test checkout), and "Scan with camera" and the order notification (they need your phone).
+- From now on, live tests run with Gloopy on **Low** (your word: it was burning usage). Saved in your preferences.
+
+**Next: 4, handoff.** Then 5 web search, 6 web_fetch, 7 helpers, 8 schedule, 9 webhook, 10 ask_user, 11 notify, 12 todo, 13 page, 14 files, 15 request_secret, 16 bash, 17 to 21 read, write, edit, grep and glob, and 22 to 23 monitor and stop_job.
+
+## 2026-11-13: Paying, the rest tested live (your words: "yes test everything", "please do it on low")
+
+The parts of paying not yet tried live, on test.gofarther.dev with Grok. From halfway through, Gloopy's chat runs on **Low** (your word: it was burning usage). Every test before that ran on High; the quick safety checks always run on Low.
+
+**What worked:**
+- **A photo with no card:** "No card number could be read from that photo. Try a sharper photo, closer and in good light, or type the card." Nothing filled in.
+- **Typing a card in Settings** (a Mastercard test number, nickname "Work card", hint "Use for work orders"): saved, "Fills in without asking", and the Visa stayed the default.
+- **Editing contact info in Settings** (a new email and a hint): "Saved."
+- **Asking Gloopy in the chat** to add a phone to the Home contact, and to rename the Work card "Office card" with the hint "only for office supplies": both done, and Settings shows them.
+- **Two saved cards:** for an order said to be office supplies, Gloopy picked the Office card by its hint ("It's office supplies, so I'll fill the Office card"); the order card said "Pay with Mastercard ending 4444". Cancel stopped it.
+- **Changing the default** in Settings moved "Default" from the Visa to the Office card. In the next order (not office supplies), Gloopy still used the Visa, because the Office card's hint says "only for office supplies". Following the hint over the default is right.
+- **A saved card with its code forgotten** (Settings: "Forget its security code"): the card form opened with that card picked and asked only for the security code. Typing just the code filled the card in ("Filled into the page", on the card at once), and Gloopy went on to the order card ("Pay with Mastercard ending 4444"), where I pressed Cancel.
+- **The card form's "Another card"** shows the number boxes with "Save to your Vault, so next time Gloopy fills it in without asking you" already ticked.
+- **Removing cards and the first card:** I removed both cards in Settings; with none left, the new card form had "Default payment method" already ticked, and the Test Visa came back as "Default · Fills in without asking".
+- **A form that can't fill:** I moved Gloopy's browser to another site (Take over, then a new address, then Hand it back) before filling in the code. It said "Could not fill into the page: the browser is not on stripe-payments-demo.appspot.com any more (it is on example.com), so nothing was typed." Gloopy said the card never went in, looked where its browser was, and didn't pay another way.
+- **"Share your details" on Never:** Gloopy couldn't tell the Home address, and its one try to save a new address was refused by the Vault. It said so, and nothing was saved.
+- **Phone size:** the Vault, its New item menu, the new card form and the order card all fit (after fixes 2 and 3 below, checked again on the deployed page).
+
+**Found and fixed:**
+1. **"Could not fill into the page" showed only after reloading the page.** The open page never got the form's result (nor "Filled into the page" after typing a card or a sign-in). The answer to a form now carries its result, and the card shows it at once. (Test GL144.)
+2. **At phone size, the chat scrolled sideways a little:** a long step line (a helper's "“Rome population” · Searched the web for") pushed its ✓ off the screen. Long step lines now end in "…".
+3. **At phone size in the Vault,** the "Fills in without asking" tag broke over two lines, and the search box pushed "Contact info" onto a second row. Tags now stay whole, and on a phone the search has its own row under the three tabs.
+4. **Gloopy went by an old answer instead of your current settings.** After I put "Share your personal details" back to Always allow, Gloopy refused the next order, saying sharing was turned off, as it had said one message before. A setting you change is now said to Gloopy at the start of its next message ("the owner changed your settings since your last message: Share your personal details is now Always allow. Go by your settings as they are now"), once. (Test GL145.) Tried after deploying: I turned sharing off and on again, and Gloopy went ahead with the order this time.
+
+**Left as it was before the tests:** Buy or pay and Share your personal details on Always allow; in the Vault, the Test Visa (Stripe's 4242 test card, default) and the Home contact (Stripe's sample name, now with a test phone and email). Gloopy's chat is on **Low** (your word). The Office card is removed.
+
+**Still can't be tried here:** a declined card or an order that goes through (the demo's server is broken), and "Scan with camera" and the order notification on your phone.
+
+## 2026-11-13: Paying with a saved card, tried live, and seven fixes (your words: "yes if dots and bot have it do it pls")
+
+Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test cards only, no real money).
+
+**What worked:**
+1. **A card from a photo.** New item → Card → Upload a photo, with a picture of a test card: Grok read it and filled in the number (4242…), the expiry (12/34) and the name. Nothing was saved until Save card; I cancelled it.
+2. **Contact info in the Vault** (New item → Contact info): saved, and shown on the Contact info tab.
+3. **A whole checkout with Buy or pay on Ask.** Gloopy filled in the shipping details from the Home contact info, then filled in the saved Visa ending 4242 straight from the Vault, with no card form. The order card showed the items, Ship to, Pay with "Visa ending 4242", the Total €39.95, and Cancel / Pay €39.95. I pressed Pay. The demo stayed on "Processing…" (its own server is broken, as before), so Gloopy marked it "Not paid", with a screenshot, and did not press Pay again.
+4. **An address given in the chat.** I gave Gloopy a work address; it saved it in the Vault as "Work" and said so.
+
+**Found and fixed:**
+1. **The safety check guessed whose address it was, wrongly.** It said the order "would ship to Jenny Rosen's demo address, not your Vault contact info", but it was the Home address from the Vault (the test contact uses the same sample name as Stripe's demo, which made the guess easy to get wrong). The check was never given your contact info. Gloopy was told what the check said, you weren't shown it, and Gloopy then mentioned "the confirm card" in its answer. Now the check (and the monitor) are given your contact info, only when "Share your details" isn't Never, and are told never to guess whose details a form holds.
+2. **The order card now shows what the check said,** in a smaller line under Gloopy's reason, so you see what Gloopy is told.
+3. **The line over the steps said "asked you for a card"** when the saved card filled itself in, and when Gloopy was only saying how the order went. It now says "filled in your saved card" and "said how the order went". A Vault save said "Did 1 step"; it now says "Updated your Vault".
+4. **"Not paid" was said twice:** on the order card, and again on a line under it. Now once, on the order card. Without an order card (Buy or pay on Always allow), the line still shows.
+5. **Gloopy kept the work address twice:** in the Vault, and in its own notes. An older instruction (2026-11-10) told it to keep addresses in its notes, so an address you removed from the Vault would have stayed there. Now addresses, phone numbers and emails are kept only in the Vault; any left in its notes from before move to the Vault when they next come up.
+
+**Tried again after deploying the fixes:**
+- The same chat, reloaded: the lines now say "filled in your saved card", "said how the order went" and "Updated your Vault", and "Not paid" shows once.
+- A new checkout: the check now says "This would place the order and pay €21.97." (no wrong guess about the address), shown on the order card under Gloopy's reason. I pressed **Cancel**: the card says "Cancelled. Nothing was charged.", and Gloopy said it did not press Pay and would not try another way.
+- Gloopy's notes: I asked it to take out the old test address (from 2026-11-10) and the Work address it had copied there; it did, and its notes now hold no contact details.
+
+**One more found, and fixed:**
+6. **Gloopy said "Pressing Pay once now. … You'll get a card to confirm" and then stopped,** without pressing anything, so no card came. Grok wrote the line but left out the click, and an answer with no step ends Gloopy's turn. Now (a) its instructions say a line about a step goes with that step, and never to end on a step not taken, and (b) once a turn, if its last words announce a step it didn't take, Gloopy's app tells it so and it carries on. This can't be made to happen on purpose, so it is tested with Grok's exact words from this run (GL143). I also checked it against all 109 answers Gloopy has ended a turn with in the live chat so far: it picks out the 2 that stopped short (this one, and "I'll read the Output…" from the security-key test on 2026-11-12) and none of the others.
+
+**The last run, after deploying fix 6,** with Buy or pay back on Always allow: Gloopy filled in the shipping details and the saved card, pressed Pay itself (no card, as set), waited, saw the demo stuck on "Processing…", and recorded "Not paid", start to end with no stall. The line it added to its notes names the Home contact and "saved Visa 4242", with no address in it.
+
+**And one more found in that run, and fixed:**
+7. **A cancelled order's card got mixed up with the next order.** The new order (no order card, since it was Always allow) had no "Not paid" line, and the earlier cancelled order's card showed the new order's "Not paid". Each order's card and line now keep to that order: an order runs from the card filled in for it to the next one.
+
+**Small, left as is:** Gloopy can read its notes file, but searching its notes folder is refused ("outside the project"). It just read the file instead.
+
+**Still can't be tried:** a declined card, and an order that goes through. The demo's server fails on every payment, and no other free test shop without sign-up was found.
+
+Tests: GL142 and GL143 (new), plus GL48, GL80 and CD236 updated.
+
+## 2026-11-13: Paying, built like Grok Bot's (your words: "yes if dots and bot have it do it pls")
+
+dots' docs say nothing about paying, so this follows Grok Bot's docs (its Vault and its order card).
+
+**Built:**
+1. **Cards in Settings → Vault.** The Vault now has three tabs, Logins, Cards and Contact info, and New item offers Login, Card, Contact info and Import. Each card shows its name, last 4 digits, expiry, nickname and hints, "Default" on your default card, and whether it fills in without asking. You can add one, edit it (expiry, security code, name, nickname, hints, default) or remove it. To change a card's number, remove it and add it again, as in Grok Bot.
+2. **A card from a photo.** New item → Card has "Scan with camera" and "Upload a photo". The photo is read once to fill the form; you check it, type the security code, and save. The photo isn't kept, and Gloopy never sees it.
+3. **A saved card fills in without the form.** This is the big change. Like Grok Bot, a saved card now keeps its security code, sealed. When Gloopy reaches a checkout, it uses the card you named, else your default card, else your only card, and fills it in straight from your Vault without asking you. Gloopy still never sees the number or the code. You see a card in the chat: "Gloopy filled your saved Visa ending 4242 into the payment form… Filled into the page. Secret values were never shown to Gloopy." If no saved card fits, or one has no code saved on a page that asks for one, the card form appears as before.
+   - **To approve every payment yourself:** keep Buy or pay on Ask (Permissions). Then the order card always asks before paying. Grok Bot's own advice is to not save the card; that works here too.
+   - The card form's "Save to your Vault" box is now ticked by default, as Grok Bot's is. Untick it to use a card just once.
+   - The first card you save becomes your default.
+4. **The order card.** With Buy or pay on Ask, placing the order waits on a card showing the store, the items, Ship to, Pay with, the Total, and two buttons, **Pay €72.00** and **Cancel**. Afterwards it shows "Paid with Visa ending 4242", "Not paid", or "Cancelled. Nothing was charged."
+5. **A receipt line.** After placing an order, Gloopy says how it went: "Paid €72.00 on shop.example with Visa ending 4242", or "Not paid", with what the page said.
+6. **"Filled into the page" or "Could not fill into the page"** now appears on every private form after you use it, for cards and sign-ins alike.
+7. **Contact info.** Settings → Vault → Contact info holds names, addresses, phones and emails. Gloopy can see it, as Grok Bot's can, and uses it for shipping and billing. When you give Gloopy details in a chat, it saves them and tells you. It can also change them, or a card's nickname and hints, when you ask. With "Share your details" on Never, Gloopy isn't given your contact info and won't save any.
+8. **Gloopy never sees a card's number, code or expiry date,** only its name, last 4 digits, nickname, hints, whether it's the default, and whether it has expired.
+
+**Not built:**
+- **Wallets** (Link, X Money, Shop Pay) and Link's one-time cards: these need accounts and agreements with those companies.
+- **Batches of up to 500 payments under one OK:** a business feature, and the practice shop can't finish even one payment.
+- **"Save to Vault" when you attach a photo of a card in the chat:** Gloopy would see the photo first. Use New item → Card → Upload a photo instead.
+
+Tests GL139, GL140, GL141, plus older tests updated (GL51, GL52, GL54, GL55, GL105, GL112, GL130, GL132).
+
+## 2026-11-13: For the Coder session: a message can get stuck the same way Gloopy's did (your words: "note coder i will let the other session know")
+
+Not changed here (you said to leave Coder to the other session).
+
+**The problem:** Coder's chats start a message the same way Gloopy's did before today's fix (`coder/src/coder-routes.mjs`, the `action === "message"` part of `handleCoder`, from "Coder is still working on the last message" down to `post("/turn", …)`):
+1. It checks the chat isn't working.
+2. It summarizes a long chat (this can take a while).
+3. It marks the chat working and asks Coder's machine to start.
+
+Two copies of a message (a browser sends one again when its connection drops), or two messages at once, can both pass step 1. The second machine start then answers "busy", and its `notStarted()` puts the chat back as it was before. That wipes out the start that did begin, so its work never shows up in the chat. And if the page closes half-way, the start is cut off.
+
+**How Gloopy's was fixed** (commits d244e08 and bcb84f8 on `claude/keen-goodall-8ghmph`; test GL137 in `coder/test/gloopy.test.mjs`):
+- The page sends each message with its own id (`mid`; already sent for Coder's chats too, but ignored there).
+- The chat is marked as starting first (`claimStart`); a second copy of the same message waits for the first (`sameMessage`); another message is told the chat is busy.
+- A failed start puts the chat back only while it is still its own (`release`), never over a newer one.
+- Before summarizing a long chat, it waits a moment (`START_SETTLE_MS`) so only one start makes the summary.
+- The machine takes the same start twice as one (`start` in `/turn`, `container/server.mjs`; already shared with Coder's machine).
+- The work goes on for up to 30 seconds after the page closes (`ctx.waitUntil`).
+- A start cut off half-way is undone after 6 minutes, with a note quoting the message (`gloopyState`).
+
+## 2026-11-13: Paying (tool 3): tried live, and seven fixes (your words: "Ok lets start testing that tool", "U do it")
+
+**Tried live on test.gofarther.dev,** on Stripe's test-mode demo store with test card numbers only (no real money):
+- Gloopy filled in the shipping details, then asked for a card on the private card form ("Pay €43.94 on stripe-payments-demo.appspot.com"). The form said where the card goes: the page's card fields, which come from js.stripe.com.
+- **Typing the 4242 test card on the form:** it went into the page's card fields. The number never showed in the chat and never reached Gloopy. With "save" ticked, it was kept as "Visa ending 4242".
+- **The next time,** the form offered "Visa ending 4242, 12/34" first, with "Another card" below. Typing only the security code filled it in.
+- Gloopy pressed Pay once each time and never pressed it again.
+- The demo store itself never finished: it stayed on "Processing…" both times. That's the store's own server, not Gloopy. Gloopy said so and sent a screenshot.
+
+**Fixed:**
+1. **Gloopy thought the card area was blocked.** Its screenshots cover card fields with grey boxes, so it never sees a card. It took the boxes for something in the way and gave up instead of asking for the card. It's now told what they are. (Test GL53.)
+2. **After the saved card was used, Gloopy didn't carry on.** The card went in, but the message after it ("Gave my card…") came back "Gloopy is still working on the last message". The failed start then put the chat back over the start before it, so the turn was lost, and I had to tell Gloopy "go on". Now:
+   - **One message starts at a time.** The chat is marked as starting before the slow part (summarizing a long chat), so another message sent meanwhile is told at once that Gloopy is busy.
+   - **The same message sent twice starts once.** A browser sends a message again when its connection drops; both copies now get the same answer.
+   - **A start that fails puts the chat back only if nothing newer happened.**
+   - **Gloopy's computer takes the same start twice as one**, instead of saying "busy".
+   - **A card you've answered stays closed,** even if the message after it fails. Before, it looked open again.
+   - (Test GL137.) Coder's own chats start messages the same way and could hit the same race. They're not changed yet.
+
+**Tried live after deploying fix 2:**
+- **The same message sent twice at the same moment** (as a browser does): Gloopy started it once and answered once ("7 times 6 is 42.").
+- **Two different messages at the same moment:** one started ("banana"). The other was told "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it."
+- **Buy or pay on Ask:** after the saved card's security code, Gloopy carried on by itself (no "go on" needed). Before pressing Pay it asked on a card: "Gloopy wants to click the button 'Pay €35.95' … This spends money … What it sends" (the shipping details). I pressed **Deny**. Gloopy: "The order was not placed. You said no to Pay €35.95, so I stopped and did not try another way."
+- **Buy or pay on Never:** no card form. Gloopy: "Paying is turned off in Gloopy's settings, so I can't use the card form, and I won't try another way."
+- **Asking Gloopy to read the card boxes:** "Both boxes are hidden from me. The card number and the security code show only as masked dots, covered by grey boxes, so I can't read either one and I won't guess."
+- **A start cut off half-way:** my test computer restarted while the message after a card was starting. The chat showed Gloopy working, then, 6 minutes later, "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again." The card above it stayed closed. After I sent it again, Gloopy knew the card was in and pressed Pay once.
+- **Why the demo store never finishes:** its own server fails to start each payment (an error 500 as the page loads), in any browser. So no order can finish there, and **a declined card can't be tried on it**. I found no other free test checkout that doesn't need making an account first.
+
+**Fixed after those tries:**
+3. **Both copies of one message made the summary of a long chat,** so it was paid for twice and said twice in the chat. Now only one makes it.
+4. **A start, or a card's answer, cut off when the page goes away** (a phone locking, a tab closing). Now it goes on for up to 30 seconds after the page has gone, which is enough for a normal start.
+5. **"Didn't reach Gloopy" now says which message,** e.g. "Your last message (“Gave my card (Visa ending 4242) to pay €43.94 …”) didn't reach Gloopy".
+6. **The "What it sends" list named the country as "Country Australia Austria Belgium Brazil Canada China Denmar…"**: the label around the drop-down read all its choices. A field is now named by its label's own words (also in a part of the page you mark). (Test GL138.)
+7. **With Buy or pay on Never, Gloopy opened the shop and typed your address in first,** and only learned it couldn't pay at the card. It's now told to say so before starting, and to do the rest only if you still want it.
+
+**Tried live after deploying 3 to 7** (the first deploy stopped on an error at Fly's image store; the second went through):
+- **A message whose page went away 0.3 seconds after sending:** Gloopy still started it and answered ("cherry").
+- **Never, said before starting:** "The order was not placed. Buying and paying are turned off in Gloopy's settings, so I can't use your saved card or press Pay, and I won't try another way." It didn't open the shop.
+- **The OK card before Pay** now lists "Country: United States". After the security code, Gloopy again carried on by itself.
+- **The same message twice at the same moment:** started once ("9 times 8 is 72."). The chat didn't need a summary this time, so fix 3 was only checked by its test (GL137).
+
+Buy or pay is back on Always allow (for testing). The 4242 test card is still saved on the test copy, for the next pay work.
+
 ## 2026-11-12: The email check, tried live and side by side with Claude Code (your words: "Ok yes")
 
 No video. One throwaway chat on canias7/testingforclaude, with your throwaway test account's own address (only that address went to Grok). Every command pointed at 127.0.0.1 port 9 on Coder's machine, where nothing listens, so nothing could leave the machine even if a check failed.
@@ -579,6 +820,238 @@ All ten are fixed, each with its own test (CD524 to CD534 in `coder/test/round5.
 **What was wrong:** Settings' low-memory warning should count what's left under the memory cap on Coder's commands. It never did on Coder's own machines. They track memory the older way (cgroup v1), and the warning only knew how to read the newer way (cgroup v2). So it went by the whole machine's free memory instead, and in round 3 it stayed quiet even when it should have warned. The check of every Bash part against our live tests found it, and I confirmed it in the code and in a live machine's output.
 
 **The fix:** the warning now reads both ways. Test CD523. It will be tried live in round 5.
+
+## 2026-11-12: Gloopy, tool by tool: where we are
+
+**Done (2 of the list):**
+1. **browser**, Gloopy's own web browser. Checked against Grok Bot's and dots' docs twice, everything built, tried live on the test copy, and tried hands-on next to Grok Bot's app.
+   - Left: a fixed outgoing address (costs money: waits for your word); a full desktop with "computer use".
+2. **sign_in**, signing in to websites (the private card, saved logins in your Vault, warnings, Take over). Checked against both docs, built, tried live, and tried side by side in Grok Bot's app.
+   - Not tried live: a password Gloopy makes for a new account, and the code box (my safety check blocked both; automated tests cover them); your real security key (needs the Mac or Windows app rebuilt); Grok Bot's answer to the Show test (your Grok Bot usage ran out).
+
+**Next: 3, pay.** Then 4 handoff, 5 web search, 6 web_fetch, 7 helpers, 8 schedule, 9 webhook, 10 ask_user, 11 notify, 12 todo, 13 page, 14 files, 15 request_secret, 16 bash, 17 to 21 read, write, edit, grep and glob, and 22 to 23 monitor and stop_job.
+
+## 2026-11-12: Signing in, side by side with Grok Bot's own app (your words: "yes go ahead")
+
+**How:** Grok Bot's desktop app on my test computer, signed in with your link, in the "Browser test (Claude)" Bot (your other Bots untouched). The same practice sites as Gloopy's tests.
+
+**What I found, Grok Bot next to Gloopy:**
+- **The sign-in request.** Grok Bot puts a small row in the chat ("Sign in to The Internet practice site · Opens a secure form · Open"), and its form opens in a pop-up window. Gloopy shows the whole form in the chat.
+- **The form.** Grok Bot's has "Email or username", "Password" with an eye, "Securely save to Bot's vault" (ticked), Submit and ×. It doesn't show the site's address, warn about anything, or offer "Not now" or "Take over". Gloopy's card names the site, warns when the page isn't secure or doesn't look like the real one, and has Not now, Take over and Sign in.
+- **Saving.** Grok Bot saved the login to its Vault first, then typed it from the Vault. Gloopy saves only once the sign-in has worked. Both signed in ("You logged into a secure area!").
+- **Using the saved login again.** Grok Bot failed twice. First its Login click "did nothing". Then the site said "Your username is invalid!", though its Vault had the right username, and Grok Bot wrongly said the saved entry "may have been changed". Gloopy signed in with its saved login with no card, earlier today.
+- **A saved login that didn't work.** Both show the form again and say so. Grok Bot retried the same saved login by itself. Gloopy now leaves it alone for half an hour.
+- **A plain http page.** Grok Bot warned in the chat that what you type goes "over the network unencrypted", and **its Vault won't type a saved login on an http page** ("It only fills logins on secure https pages"). It handed you its screen instead. Gloopy's card warns too, but **Gloopy would have typed a saved login there.** Fixed, below.
+- **A page that isn't a real sign-in** (the GOV.UK password demo). Gloopy's card warned "this is a password-box demo, not a sign-in page". Grok Bot's form didn't warn.
+- **The Show button.** Grok Bot said up front it wouldn't read the password back, by its own rule. Gloopy now can't see it at all (covered), and is told not to guess.
+- **Grok Bot also remembers a login per chat.** It first tried "the login you gave me earlier, which is still kept for this chat". Gloopy keeps logins only in your Vault.
+- **Your Grok Bot usage:** Settings → Usage & Billing showed your trial at 90% used, ending in 17 days. These tests used the rest: Grok Bot now says "You are out of usage", so its last answer (after Show) never came. I've stopped using it.
+
+**Fixed in Gloopy:**
+1. **A saved login is typed only on a secure (https) page,** as Grok Bot's Vault does. On a plain http page, Gloopy doesn't use it, the card doesn't offer it, and Gloopy's computer refuses it even if asked. The card, with its warning, is shown instead, and Gloopy is told why. (This computer's own address counts as secure, as browsers count it.)
+2. **Which site a box belongs to comes from the browser, never from the page.** A page's own script can change what it says its address is, and so make the card name another site. Found while making fix 1.
+
+Test GL136 (in a real browser: a page claiming to be another site; a plain http page refused a saved login, but taking what you type on the card).
+
+**Tried live on test.gofarther.dev after deploying:** with the practice login saved in Gloopy's Vault, "Sign in to http://the-internet.herokuapp.com/login" brought the card with the red "This page isn't secure" warning. The saved login wasn't typed, and the card didn't offer it. Then on https, Gloopy signed in by itself with the saved login ("You logged into a secure area!"). Afterwards I removed the login and signed Gloopy out; every setting is Always allow, with no rules or sites.
+
+**Also tried live, for the first time:** the card's **"Use your saved login"** button (saved logins set to Ask). The card offered "Use your saved login · Practice account (tomsmith)". Pressing it signed Gloopy in ("Signed in … with my saved login", then "You logged into a secure area!"). Gloopy's opening line still wrongly said saved logins were off, carried over from earlier in this long test chat. Put back afterwards: Always allow, Vault empty, signed out.
+
+**Note:** a deploy of `main` (run 156, started 14:54 from your account, maybe by another session) was running at the same time. It doesn't touch the test copy: the main site's machines and the test copy's are separate (gofarther-coder-machines and gofarther-coder-test-machines on Fly.io, each with its own image). So the test copy still runs this branch.
+
+## 2026-11-12: Signing in, the rest tested live, and what it found fixed (your words: "test everything")
+
+**Tried live on test.gofarther.dev, with Grok, and recorded:**
+- **The red warning:** on the practice login page over plain http, the card said "This page isn't secure (its address starts with http://): what you type could be seen by others." After **Not now**, Gloopy said it couldn't sign in because I chose not to, and didn't try another way.
+- **Grok's look at the page warned too:** on the GOV.UK design system's password demo, the card said "this is a password-box demo, not a sign-in page, so do not type your password there".
+- **Take over on the card:** it opened Gloopy's browser with control ("Do only this: Sign in to the-internet.herokuapp.com"). I signed in myself with the site's public demo login and pressed **Done, hand it back**. The card said "Signed in … myself", Gloopy checked the page ("You logged into a secure area!"), and Settings → Computer said "You signed in yourself".
+- **Saved logins on Never:** the card had no "Use your saved login" button, and nothing was signed in for me.
+- **A saved login that no longer works:** the card came back saying "Your saved login … didn't work". **This found a bug, below.**
+- **The password after a page's Show button:** **this found a bug, below.**
+- **Not tried, stopped by my own safety check** (it calls them real-world transactions, and I didn't work around it):
+  - a password Gloopy makes for a new account (practice.expandtesting.com's sign-up page);
+  - the code box (that site's demo sign-in emails a code).
+  - Automated tests do both in a real browser: GL129 and GL71. You could try them yourself, or allow them for me in this session's settings.
+- **Your real security key** still needs the Mac or Windows app rebuilt (you said not now).
+
+**Found live and fixed:**
+1. **A saved login that didn't work made the card useless, again and again.** Each card first tried the saved login again. Each failed try made the site load its sign-in form again, so the password I typed on the card had nowhere to go ("the password field moved"). Gloopy asked a third time, and would have kept on. On a real site, repeated failed tries can also lock your account.
+   - A saved login that didn't work is now not tried again for half an hour, or until you sign in on the card.
+   - The card finds the site's sign-in form again if the page reloaded it. It only does this on the same site, and only when there's exactly one password box; it never guesses.
+2. **The password showed in Gloopy's screenshots.** After I typed a dummy password on the card, Gloopy pressed the page's Show button and told me the password. What Gloopy reads as text had it blanked, but every step also gives Gloopy a picture of the page, and only card fields were covered in it. Now a box a password was typed into is covered in every picture Gloopy gets, and so is any text on the page that repeats it. Your own live view still shows the page as it is.
+3. **An empty username box on the card no longer clears the username Gloopy already typed** on the page.
+4. **Asking for a saved login where none is saved** now just brings the card. Before, the chat showed a failed step ("a sign-in failed") first.
+5. **With saved logins on Never, Gloopy is told they're off.** The card's reason no longer says "with the saved practice account".
+
+Tests GL134 (in a real browser: the form found again, the username kept, the password covered in the picture) and GL135 (end to end through the Worker and Gloopy's computer: one card, signed in at the first try, the saved login replaced, and a failed saved login not tried again). I checked that both fail without the fixes.
+
+**Tried again live after the fixes:**
+- **The broken saved login:** one card ("Your saved login … didn't work"). My sign-in on it went through at the first try ("You logged into a secure area!"). Then I signed Gloopy out and asked again, and it signed in by itself with the saved login, with no card: the card had replaced the wrong password in the Vault.
+- **The Show button:** Gloopy now gets "••••••" for the box, and a grey box over it in its picture. It couldn't read the new password, but it answered with the old one from earlier in the chat. So Gloopy is now also told what "••••••" means: hidden from it even when the page shows it, never to be guessed, and to say so if you ask.
+- **The Show button, after that was deployed too:** Gloopy said "I can't tell you what the Password box shows. It's hidden from me, covered by a grey box, and I won't guess it." The password I typed is nowhere in the chat.
+- **Saved logins on Never:** asked "can you use my saved login right now?", Gloopy said "No. Signing in with saved logins is turned off in Gloopy's settings". The card offered no saved login. Its reason line still said "with the saved practice account" once, copied from the earlier chat.
+- **Put back afterwards:** the Vault is empty, Gloopy isn't signed in anywhere, every kind of step is Always allow, and there are no rules or sites. I checked in Settings.
+- One unrelated test (GL122, the live view's tabs) failed once in a full run and passed on its own and in a full rerun: a timing hiccup under load, not these changes.
+
+## 2026-11-12: Gloopy's Settings laid out like Grok Bot's (your words: "yes make the menu like grok bot , very similar")
+
+- **A menu down the left**, as Grok Bot's Settings: **Permissions**, **Sites**, **Vault** and **Computer**, each with an icon, the open one on a grey pill. It opens on the page you had open last (Permissions the first time).
+- **Each page as Grok Bot's:** its title at the top, small grey labels over white cards, and **×** in the top right corner. In each row, the name and a line about it sit on the left and the control on the right. The colours are Grok Bot's own greys, its blue switch and its black and grey buttons.
+  - **Permissions:** "Watch over each run" is a card at the top with a blue switch, where Grok Bot puts its Approvals card. Each kind of step under "What Gloopy may do on its own" has a small drop-down (Ask, Always allow, Never), like Grok Bot's "Follow System ⌄". A Never shows in red. Your rules sit under their kind (Ask first, Always allow, Never, Hand off to me, Only when I ask), each with its own grey **Add rule** button, as Grok Bot's "Always Ask" and "Allow without Asking" have.
+  - **Sites:** your sites in a card, each with its drop-down and Remove, and **Add site** opens the form. What each choice means is in a small grey note under it.
+  - **Vault:** the title with the black **New item** button on its right, as Grok Bot's. The logins are in a white card.
+  - **Computer:** where Gloopy's browser is signed in (Sign out for each site), and "Through your own computer" (a blue switch in the Mac and Windows app).
+- **On a phone** it slides up from the bottom, and the menu is one row of tabs along the top, beside ×.
+- Gloopy's note about secure sites while its browser goes through your computer now says "Settings → Computer" (that switch moved there).
+- Test GL133 opens the real Settings in a browser and clicks through it: the four pages, a drop-down saving its choice, Add rule under Never, ×, reopening on the last page, and the phone layout. GL105, GL106, GL112, GL115, GL116 and GL130 were updated for the new layout.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - All four pages opened from the menu, each with its title, and × closed Settings.
+  - **The drop-downs saved:** "Delete or cancel" set to Ask, and "Share your personal details" to Never, which showed in red.
+  - **Add rule** under Never opened its form with the example "delete anything in my email". The rule saved under Never, and the form closed.
+  - **Add site:** example.com set to Never on the Sites page. Then I asked Gloopy (Grok) "Open example.com in your browser and tell me the page's title". It answered "example.com is turned off in Gloopy's settings, so I can't open it or get the title another way."
+  - Settings opened again on the last page I had open (Sites).
+  - **At a phone's size:** the four tabs fit in one row next to ×. Nothing scrolled sideways on any page.
+  - **Put back afterwards:** example.com and the test rule are removed, and every kind of step is Always allow again. I checked after reopening Settings.
+  - **Found live and fixed:** the grey scrollbar ran up beside × (now thin and light, as on a Mac). Rules sat level with their kind (now indented under it). On a phone, the line under the tabs stopped short of × (now it runs the full width).
+
+## 2026-11-12: Signing in, all five built, with Grok Bot's look (your words: "do all 5 make sure you do similar frontend compare to grok bot pls")
+
+- **A Vault in Gloopy's Settings, like Grok Bot's Settings → Vault.** It has a dark "New item" button with **Login** and **Import from CSV…** (Grok Bot's words), a **Logins** tab with **Search Vault**, and the list. Each login shows its website and username, its hint, and "Password made by Gloopy" when Gloopy made it. **Edit** changes the website, username, password (leave it empty to keep the saved one) and hint. **Remove** asks "Remove for good?" first. Grok Bot's note sits under it, in Gloopy's words: Gloopy never sees a saved password. The old "Saved logins" list under Browser moved here. Cards will join the Vault, as Grok Bot's Payments, with the payment tool.
+  1. **Add and edit logins yourself:** Website, Username or email, Password (with an eye to show it) and Hints, then **Save login**. A website can be typed as a name or an address: "https://www.github.com/login" is kept as github.com. A login for amazon.com is also the one for www.amazon.com, as password managers match them.
+  2. **Bring your logins over:** choose the CSV file you export from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass. It's read on your device; the file itself is never uploaded. A review list shows each row as Ready, Already in your Vault, Twice in the file, or why it can't come in (no website, not a secure https one, no password). Bitwarden's and LastPass's notes are left out. Then **Import N logins**, and a reminder to delete the export, since it holds your passwords unencrypted. The Vault now holds up to 1,000 logins (it was 50).
+  3. **Several accounts on one site:** each login can have a hint, like "Use for work". Gloopy is told each site's usernames and hints (never a password) and names the one that fits. With your setting on Always allow, that one is used with no card. When Gloopy can't tell, or your setting is Ask, the sign-in card has a button for each saved login, its hint under it.
+  4. **Passwords made for new sign-ups:** when Gloopy creates an account you asked for, it types the account's details itself. Then its computer makes a strong 20-character password, keeps it in your Vault first so it's never lost, and types it into the form's password and confirm boxes. Gloopy never sees it. Nothing is sent: pressing "Create account" is checked like any sign-up. It never happens while "Sign up or subscribe" is Never. The chat says "Made a password for … and saved it to your Vault".
+  5. **Your own browser leaves the card alone:** the card's password box is now plain text drawn as dots, so your browser's password manager doesn't treat it as a site's login: no "found in a data breach" warning, and no offer to save it. 1Password, LastPass and Bitwarden are asked to leave it alone too. An eye shows what you typed, as in Grok Bot's form. The box says "Save to your Vault" and starts ticked, as Grok Bot's does (your word); untick it to keep a login out.
+- **Then, after checking the build against the docs again** (your words: "yes do 1 and 2, tick the box too"):
+  - **Nicknames:** a login can have a nickname, like "Work GitHub", shown as its title in the Vault and on the card's button.
+  - **Gloopy changes a login's nickname or hints when you ask**, as Grok Bot's Bots do ("A Bot can change … an entry's nickname and hints, when you ask"). Ask it "call my work GitHub login Work GitHub" or "use that one for work". Passwords, usernames and websites still change only in Settings → Vault, and logins are removed only there; Gloopy says so if you ask for that. The chat shows "Changed the nickname of your github.com login". Gloopy can also name a login by its nickname when signing in.
+  - The menu says **Import from CSV…** and the card's save box starts ticked, as Grok Bot's.
+  - Test GL132.
+- **Also:** any password Gloopy's computer typed (yours, or a made one) is now blanked from what Gloopy reads, even when a page's "show password" turns it into plain text.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - **The Vault:** New item opened its menu (Login, Import from CSV…). The Login form, with the eye, saved "Practice account" (tomsmith, the practice site's public demo login). A second account on the same site, "Old account", went in next to it.
+  - **Import:** a sample export in Chrome's layout showed "2 ready · 1 already in your Vault (skipped) · 2 can't be imported" (an http router address, and a row with no password). "Import 2 logins" brought them in, with the reminder to delete the export. Search Vault found "shop", and Edit opened the login's form in place.
+  - **Found and fixed:** each login's key, names and Edit/Remove buttons stacked on separate lines. Each login is now one row.
+  - **Several accounts:** "Sign in to the practice site with my practice account": Gloopy picked tomsmith by its nickname and signed in with the saved login, with no card. The page said "You logged into a secure area!".
+  - **The card:** with saved logins set to Ask, "Sign in to the practice site" brought the card with both accounts by nickname, each with its hint, Gloopy's pick first. The save box was ticked.
+  - **Your browser leaves it alone:** I typed the demo password into the card myself. It showed as dots in a plain text box, the eye showed it, and I signed in from the card. Chrome showed no "Change your password" warning and no "Save password?". It showed that warning on Nov 11 for the same password.
+  - **Gloopy's Vault changes:** "Rename my old practice login to Retired account, and change its hint" brought the chat line "Changed the nickname and hints of your the-internet.herokuapp.com login", and the Vault showed it. Asked to change the password, Gloopy said a saved login's password can only be changed in Settings → Vault.
+  - **Not tried live: a made password for a real sign-up.** My safety check stopped me from creating an account on a public practice site (practice.expandtesting.com). The automated test GL129 does it end to end in a real browser, on a practice sign-up page of its own. It can be tried live with your OK.
+- Tests GL127 to GL131; GL10, GL47, GL48, GL69, GL70 and the card and Settings checks updated. GL129 makes an account on a practice sign-up page in a real browser: the site got the same password twice, the Vault kept it, and nothing sent to Grok held it.
+
+## 2026-11-12: Tool 2, signing in (sign_in), checked against Grok Bot's and dots' docs (your words: "lets go to the next tool")
+
+**The check:** both apps' docs were fetched fresh today: 76 of the 78 pages from the last check, plus the 10 new ones. The 2 missing pages were Grok Bot's "shared bots", now "team bots". The new pages are about team Bots, meetings, Microsoft Teams, Grok Bot's initiative, X subscriptions, and Okta FastPass. Okta FastPass is the only one about signing in, and it's for company Okta admins. Every passage about signing in was compared with Gloopy's sign-in card, its saved logins and its code card.
+
+**Already the same as both:**
+- A private card in the chat when a site needs your password. What you type goes straight into the page, and Gloopy never sees it (Grok Bot's Secure Form, dots' private sign-in form). The card names the site. Gloopy also checks that the page is the real one and warns you if not; dots only tells you to "check the site address".
+- A code the site sent you, typed on a card the same way.
+- Take over to sign in yourself, and handing you what a form can't do: single sign-on, a passkey, a CAPTCHA, an approval on another device, a QR code.
+- "Save this login" is optional, a tick box on the card, as dots' "Save to Passwords" and Grok Bot's "Securely save to Bot's vault".
+- Using a saved login is your setting. dots always asks first ("Reusing a saved login to sign in requires your confirmation"). Grok Bot uses it first, without asking. Gloopy's "Sign in with saved logins" can be Ask, Always allow or Never.
+- Gloopy stays signed in between jobs, and you can sign it out in Settings → Browser.
+- Your phone's or laptop's passkeys don't reach the cloud browser, but a hardware security key does, through the desktop app (Grok Bot's).
+- If a site asks to verify again, Gloopy stops and tells you, and never works around it. Changing a password is yours to do (dots).
+- Gloopy knows which sites you saved logins for, never the passwords (Grok Bot's Bots do too).
+
+**Missing in Gloopy (your choice):**
+1. **Add and edit logins yourself, in Settings.** Grok Bot's Vault has "New item → Login" (website, username, password), with edit and remove. Gloopy saves a login only from the sign-in card, and Settings can only forget one.
+2. **Bring your logins over from a password manager.** Grok Bot imports the file you export from 1Password, Chrome or Edge, Safari or Apple Passwords, Firefox, Bitwarden or LastPass. The file is read on your computer, and logins you already have are skipped.
+3. **More than one account on a site.** Grok Bot chooses between them by your hints ("Use for work purchases"). dots lets you "confirm that you want to use it or enter another account". Gloopy keeps one per site and username, but always uses the newest.
+4. **Passwords made for new sign-ups.** Grok Bot: "if you let a Bot choose the password when it signs up for a site, Vault generates the password and saves the login, and the Bot never sees it." Gloopy can't do that; you'd have to type a new password on the card.
+5. **Your own browser leaves the card alone.** Found live on Nov 11: Chrome on my side warned "the password you just used was found in a data breach" after I typed a demo password in Gloopy's card. Your browser's password manager treats the card like any login form, and could offer to save the password. Neither app's docs mention this.
+
+**For other tools, or not for us:**
+- 1Password connected to the browser (Grok Bot: you approve each login in 1Password and it fills the page). That belongs to connected apps.
+- Codes read from email (Grok Bot reads them from a connected Gmail or Outlook, or from its own inbox). That belongs to the email tool.
+- Signing in with a connected app instead of the website. That belongs to connected apps.
+- Okta FastPass, company single sign-on rules, and a team Bot's own logins are for companies, not for you.
+
+## 2026-11-12: The chat no longer scrolls sideways (your words: "fix the sideways scroll too")
+
+- **What it was:** Gloopy's chat had a sideways scrollbar. The cause was a long unbroken string in one of Gloopy's answers, a security key's 140-character code from an earlier test. It was 1,060 pixels wide, wider than the chat, so the whole chat scrolled sideways.
+- **The fix:** long words, codes and links now wrap onto the next line wherever they have to. That covers Gloopy's answers, your own messages, steps and cards. Code blocks and tables keep their own scrollbar inside themselves, so code isn't broken up. Coder's chat uses the same page, so it's fixed there too.
+- **Checked:** a new test draws the chat in a real browser, with long text of every kind, at a computer's width and a phone's. With the old styles the chat was 1,328 pixels wide in a 1,280-pixel window. Now it fits exactly. Test GL126.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - With the real chat history, the chat is now 948 pixels wide in its 948-pixel window, so there's no scrollbar. The security key's code wraps onto a second line.
+  - Asked for 300 x's with no spaces, both as code and as plain text, Gloopy's answer wrapped onto several lines inside the chat.
+  - At a phone's size, the chat was 390 pixels wide on a 390-pixel screen.
+
+## 2026-11-12: A hover step, and the live view makes way for the hand-off card (your words: "yes do both")
+
+- **Hover.** Gloopy's browser has a new step: hover, which puts the mouse over something without clicking it. It shows what appears only then, such as a menu, a tooltip or a picture's name. Before, Gloopy clicked pictures to read their hover names, and the safety check once asked you first, because you had said hover, not click. Hovering changes nothing on a site, so like scrolling it isn't checked first. The live view marks where Gloopy hovered, and its helpers can hover too. Test GL124; GL10 and GL85 updated.
+- **The live view makes way for the card.** If the big live view is open when Gloopy hands you a step, it now closes by itself, and the hand-off card shows the browser live with Skip / I'm done / Take over, scrolled into view. On a short window the view used to cover those buttons, and on a phone it hid the chat with the card in it. It happens once per hand-off: open the view again and it stays. It never closes while you have control or are marking a part. Once you've answered, the view you had open comes back. Test GL125.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - Asked for the names shown when hovering over each picture on the practice hovers page, Gloopy said it would "check each picture without clicking". It hovered over all three (user1, user2, user3), with no card. The live view marked each picture as it went: "Gloopy: Hovered over “User Avatar”".
+  - With the live view open, Gloopy handed over WhatsApp Web's QR code. The view closed by itself, and the card showed the code live with all three buttons in view. After "I'm done", the view came back by itself.
+  - On the next hand-off, reopening the view with the Browser button kept it open. Closing it again brought the card's live picture back, and Skip worked.
+
+## 2026-11-12: Grok Bot's four ideas, built into Gloopy (your words: "yes build all four")
+
+- **Progress as it works.** Gloopy now posts short lines as it goes, Grok Bot's way: one as it starts ("On it, opening the order form now."), then one at each new stage, never one per click. A status line under the chat says what it's doing now: its latest line, or the step running. Its answer shows pictures of the pages its browser ended on, at most two. Test GL120.
+- **Found in the live test:** Gloopy posted a line on almost every click (8 for a small task; Grok Bot posts 2 or 3). Now a line comes in the chat at most every 20 seconds; the others show only in the status line. And asked to get WhatsApp Web ready to link, Gloopy described the QR code instead of handing it to you. Its instructions now say the hand-off card shows its browser live, so a QR code can be scanned right from it. GL120 extended.
+- **The live screen inside the hand-off card.** When Gloopy hands you a step (a QR code, a robot check), the card now shows Gloopy's browser live, with **Skip / I'm done / Take over**. "I'm done" is for a step done without taking over, such as scanning a QR code straight from the card. The picture comes from the live view's own stream, without opening the big panel, and pauses after 15 minutes if you're away. Tests GL121 and GL27.
+- **Gloopy's computer starts in seconds.** Gloopy's machine used to be the same size as Coder's (4 CPUs, 16 GB), and was stopped when idle, so each wake was a full cold start of the 6.9 GB image: about 80 seconds. Now it has its own size, 1 full-speed CPU and 2 GB, and is **suspended** when idle, like closing a laptop lid. Fly.io resumes a suspended machine in under a second, with its browser still open. Fly only suspends machines of 2 GB or less. If Fly won't suspend it, it's stopped as before. A suspended machine costs the same as a stopped one (disk only), and the smaller size costs less while awake, so the bill goes down. After a deploy, the first wake is still a cold start (a new version can't resume an old one). Your existing Gloopy machine gets the new size at its next wake. Test CD248; CD125 and CD129 updated.
+- **The whole computer in the live view.** The live view now looks like a browser window:
+  - **Tabs** on top: every tab of Gloopy's browser, including one a site opens. While you have control, click a tab to switch to it, × to close it (never the last one), or + for a new tab. While you're watching, the tabs only show; Gloopy's tab is Gloopy's to choose while it works.
+  - **The address row above the page**, like Chrome's: Back, Forward, Reload and the address while you have control, and the full address while you watch.
+  - **A Terminal tab** at the right: the commands Gloopy ran in this chat, with what they printed. While you have control, run your own on its line. Your commands run exactly as Gloopy's do (its own limited user, in its folder) and stop after a minute. Gloopy is told which ones you ran at its next message.
+  - A fix on the way: when the tab Gloopy was on closed (a site closing its own pop-up), the live view froze on its last picture. Gloopy now moves on to its newest other tab.
+  - Tests GL122 and GL123; GL21, GL90 and GL121 updated.
+- **Tried live on test.gofarther.dev, with Grok, and recorded:**
+  - **Starting in seconds:** right after a deploy, taking over took 90 seconds (a cold start of the new version, as expected). After 12 minutes idle, Gloopy's computer was suspended. Taking over then gave control in **4.4 seconds**, and both of its browser tabs were still open.
+  - **The hand-off card:** asked for WhatsApp Web's QR code, Gloopy handed it over. The card showed the code live, with Skip / I'm done / Take over. "I'm done" worked: Gloopy looked again, saw the code had expired (nobody scanned it), said so, and clicked nothing.
+  - **The whole computer:** a practice site's new window showed up as a second tab. Switching tabs, closing one, and + for a new tab all worked. A command in the terminal (`uname -srm && date && ls`) ran in Gloopy's folder and showed as yours. Asked afterwards, Gloopy named the command you ran.
+  - **Progress:** the status line followed each step, and Gloopy's answer came with pictures of the pages it ended on.
+- **Four fixes from that test:**
+  - With one tab, its title stayed "New tab" as the page changed. Now it follows the page.
+  - With control, the address box said "Go to an address" instead of the page's address, as Chrome shows it. Now it shows the address.
+  - On a short window, the terminal's $ line fell below the fold. The terminal now leaves room for it.
+  - Asked what was open, Gloopy saw only its own tab and said "one tab". Each step now also lists its other tabs, with titles and addresses.
+  - GL95, GL121 and GL122 updated.
+- **Rechecked live after the last deploy, all working:**
+  - **Progress:** the same two-page practice task gave 3 lines in the chat (they were 8), at least 20 seconds apart. The other 7 showed only in the status line.
+  - **The four fixes:** the one tab's title went to "Example Domain" and back to "The Internet" with the page. The address box showed each page's address. The terminal's $ line stayed in view, and a command ran. Asked again with two tabs open, Gloopy named both, with their addresses, and the command you ran.
+  - **The QR code:** asked only to open WhatsApp Web so you could link your phone, Gloopy handed the QR code over by itself. **Skip** worked: Gloopy said you chose not to scan it and offered a fresh code.
+- **Found, not changed (your choice):**
+  - Gloopy's browser has no hover step. To read a picture's hover name, it clicks the picture. Once, the safety check asked first, because you had said hover, not click.
+  - If the big live view is open when Gloopy hands you a step, on a short window it covers the card's Skip and I'm done buttons. Closing the live view shows them.
+
+## 2026-11-12: Grok Bot's browser tool, tried hands-on next to Gloopy's (your words: "just test the whole browser tool and see the differences")
+
+**How:** Grok Bot's Linux app ran on my cloud machine. You finished its sign-in on your own computer. I made a test Bot, "Browser test (Claude)", used practice sites only, and signed the app out at the end. Recorded. Your Grok Bot trial read 60% used partway through and 65% at the end.
+
+**The same in both:**
+- Filling and sending a practice order form; reading pages that load late or change on hover.
+- Signing in with a private form that the AI never sees. Grok Bot's form ticks "save to vault" by default; I unticked it.
+- Handing a QR code to you (WhatsApp Web).
+- Ignoring hidden orders on a page and telling you about them.
+- A screenshot's time given in your time zone with UTC.
+- Downloads arriving in the chat with a Save button.
+- After a take-over, seeing what you did.
+
+**Better in Gloopy:**
+- **Routing through your computer.** Grok Bot turned it on by default for the app on my machine, so its browser broke on secure pages here. Its Bot then told me to turn routing *on*, when it already was. Gloopy's is off until you turn it on, and Gloopy is told when routing is the likely cause.
+- **"Are you sure?" pop-ups.** Grok Bot pressed OK by itself. Gloopy answers Cancel unless it meant to say yes.
+- **Sending forms.** Grok Bot sent the form without asking. Gloopy asks on a card unless you've allowed it.
+- **Uploads.** The site got Grok Bot's file under an internal name (a long code), not "upload-test.txt". Gloopy keeps real names.
+- **Saved logins.** Grok Bot's Vault says it "can see logins". Gloopy's computer fills saved passwords without the AI seeing them.
+- **Where it's signed in.** Grok Bot has no list of signed-in sites; Gloopy's is in Settings → Browser, with Sign out.
+- **Live view extras.** Gloopy's live view works on the website with no app, and has Mark a part and Teach Gloopy.
+- **Tidy tabs.** Grok Bot left five tabs open (WhatsApp among them); Gloopy works in one tab.
+
+**Better in Grok Bot (ideas for Gloopy, only with your word):**
+- **Its live view is the whole computer:** a real Chrome with tabs and an address bar, plus a terminal. It double-checked a site from the terminal.
+- **Its hand-off card has the live screen inside it**, with Skip / I'm done / Take over. Gloopy's card opens the live view instead.
+- **Its computer starts in seconds.** It slept within a minute of each task, and tasks still began at once. Gloopy's takes about 80 seconds from cold.
+- **It narrates as it works** ("On it…", "The form's being filled in…") with a status line under the chat, and it attaches screenshots of the result.
+
+**Left in your Grok Bot account:**
+- The test Bot "Browser test (Claude)", with its chat.
+- Five tabs open on the Bots' shared computer.
+- "Route traffic through this computer" switched off for the device "vm" (my machine; it's off since I signed out anyway).
+
+Nothing changed on your other Bots. Settings were only looked at, apart from that switch.
 
 ## 2026-11-11: Round 4 is live (deploy 130) and tried in the browser with Grok (recording 39)
 
@@ -1435,6 +1908,88 @@ I tried each app's official MCP address live to see whether it works with our si
 - **Tests:** MC8 is new. All 397 pass, 4 skipped as before.
 - **Not deployed, not tried live yet.**
 
+## 2026-11-11: Finishing the browser from the docs (your words: "Lets finish the browser" and "Yes do that")
+
+**The check:** I re-read both apps' docs: Grok Bot's 26 pages, Cursor's copy and help center, and dots' docs and security pages. Since the check the morning before, they had changed only wording, nothing about the browser. OpenAI's two help-center articles about the cloud browser block automated readers, so dots was checked from its docs site. What was left for the browser: the two small things below, then sending the browser's traffic through your own computer.
+
+- **Where Gloopy is signed in, in Settings.** A new "Browser" section in Gloopy's Settings lists each site its browser is signed in to, how and when (on the card, with a saved login, with a code, or by you), with Sign out. You can also sign it out of any other site and forget a saved login. Before, this was only in the chat, by typing /signins. Both apps keep it in their settings; dots calls it "Browser data".
+- **Screenshot times in your time zone.** When Gloopy saves a screenshot as proof, it's now told the time in your time zone, with UTC beside it ("Tue, Nov 10, 2026, 10:30:12 AM EST"). Before, it had only UTC, so it told you UTC times. Grok Bot's docs ask for screenshots with "timestamps and time zones". Its helpers' screenshots too.
+
+Tests GL111 and GL112; GL105 updated.
+
+Tried live on the test copy with Grok, recorded:
+- **Signing in:** Gloopy signed in to the-internet.herokuapp.com's practice login with the private card, using the site's own public demo login. Settings → Browser then listed "the-internet.herokuapp.com · You signed in on the card · Tue 10 Nov, 19:31". Sign out there said "Signed Gloopy out of the-internet.herokuapp.com (4 cookies gone)", and the list was empty again.
+- **The screenshot time:** "I took the screenshot at 7:31:38 PM EST on Tuesday, 10 November 2026 (2026-11-11 00:31:38 UTC)."
+- **Noticed on the way** (the test browser's, not Gloopy's): Chrome on my side warned "Change your password: the password you just used was found in a data breach" after I typed that demo password in Gloopy's sign-in card. Your own browser's password manager sees what you type in the card, as on any page. Whether Gloopy's card should ask browsers not to save or check those passwords belongs to the sign-in tool.
+
+**Gloopy's browser through your own computer** (Grok Bot's "Route traffic through this computer"):
+- **Where:** Settings → Browser → "Through your own computer", in the Go Farther app for Mac or Windows. On the website and the phone, Settings says it's on and lets you turn it off.
+- **What it does:** while it's on and the app is open, Gloopy's browser sends its new connections out through your computer. Sites see your own internet connection and address, as when you browse yourself, which helps with a site that turns cloud computers away. Connections already open keep their way until they close, as Grok Bot's do.
+- **What stays closed:** your computer's private and VPN addresses (your router, printer, office network). Settings shows how many were blocked this session, as Grok Bot's does.
+- **When the app is closed:** Gloopy's browser goes out its own way, as before. Settings says whether your computer is linked, and the live view shows "Through your computer" while it is.
+- **How it's built:**
+  - The app keeps one link to Gloopy's computer through Go Farther's servers, with a ticket that lasts 12 hours. The page renews it while it's open, and turning the switch off makes every ticket worthless.
+  - The link reaches Gloopy's computer only while it's awake, so it never wakes it or keeps it awake. When Gloopy starts work or you take over, the app links within seconds.
+  - On Gloopy's computer, a small proxy takes connections only from its browser's own user, so Gloopy's commands can't send anything through your computer.
+  - When the switch changes, the browser restarts at the next step, staying signed in, as for a time-zone change.
+- **Using it:** the Mac and Windows apps need rebuilding to have it.
+- **Found in the live test, and fixed:**
+  - The app didn't try the link again after Gloopy's computer said it was asleep. When the handshake is refused, Node's WebSocket says only "error", never "close", and the app was waiting for "close". Now an error counts too, and a link that never answers is given up after 15 seconds. Test D10.
+  - Nothing came back from Gloopy's computer through Go Farther's servers to the app. The link is now passed on Cloudflare's own way, and both ends count the messages each way, which shows in the app's status.
+  - Settings' "On" note didn't show.
+  - **Secure sites showed a certificate error through the test computer.** The test computer caused it, not Gloopy. Its own network checks secure connections with its own certificate, and ordinary Chrome sent through it gets the same error, so Gloopy's browser is right to refuse. Some office networks and security programs do the same on a real computer. Now, when it happens while Gloopy goes through your computer, Gloopy and the live view say so, and say that turning the switch off sends it straight out. Test GL116.
+  - When the link closes, the app now notes why (the close's code), so one cut can be told from another. This holds even when the app hears "error" before "close", which the real app does. Test D11.
+  - If your computer's side of the link went away without a word, Gloopy's computer kept treating the link as up until its next "still here" message, up to 25 seconds later. New pages in that time would have failed. It now notices at once, and notes why each link ended (cut off, closed by the app, or turned off), which comes with the live view's data. Test GL117.
+  - **Turning the switch off takes effect at once.** Before, Gloopy's computer only heard about it at Gloopy's next step. Until then the live view still said "Through your computer", and new pages still went through it. Now an awake Gloopy's computer is told right away and lets your computer go. A sleeping one isn't woken for it, since it would wake without the link anyway. Settings says "Off. Gloopy's browser goes straight out now." Tests GL114, GL115 and GL117.
+  - **A laptop that goes to sleep with the app open sends no goodbye.** Before, Gloopy's computer would have kept sending pages into the dead link for minutes, and they'd have failed. Now both ends send a "still here" every 25 seconds. If nothing at all comes for 60 seconds, the link is let go: Gloopy's browser goes straight out, and the app asks for a new link. Tests GL117 and D12.
+  - **With the app open, Gloopy's computer never went to sleep.** Each time the app linked again (after any cut), Gloopy's computer counted it as being used, and its 10-minute sleep timer started over. You'd have paid for it to run all day. Now the link never counts as use. Seen live: it slept exactly 10 minutes after the app's last relink. Test GL117.
+- **Tried live on the test copy.** On my test computer, a stand-in for the Mac app ran the app's own link code. With the switch on, the live view showed "Through your computer". api.ipify.org, a page that shows the address it sees, showed 160.79.106.134, the test computer's own address. I used its plain (http) address, because of the certificate check above. Your router's kind of address, http://192.168.1.1, was blocked: "Gloopy's browser could not reach 192.168.1.1: blocked: 192.168.1.1 is a private or VPN address on this computer's network", and the app counted it.
+- **Then with the real app.** I ran the desktop app itself (this branch's code, on my test computer, opened on the test copy). Its page has only the four controls (start, stop, nudge, status), and it refused a link to any address but Go Farther's. It linked to Gloopy's computer at once, and the live view showed 160.79.106.234 through it. Asked in the chat to open the page and say the address, Gloopy answered "160.79.106.130" in 28 seconds, through your computer. The link was cut once during that run and came back within seconds by itself.
+- **The fixes, tried live with the real app:**
+  - A secure page through it showed the certificate note in the live view.
+  - Closing the app was noticed 11 seconds later ("the connection closed"), and the browser went straight out.
+  - Freezing the app, as when a laptop goes to sleep, made Gloopy's computer let it go after 64 seconds ("the owner's computer stopped answering"). Unfrozen, the app linked again by itself 10 seconds later.
+  - The link never woke a sleeping Gloopy's computer: the app was told "asleep" until a take-over woke it.
+  - With the app open, and made to link again twice, Gloopy's computer still went to sleep 10.8 minutes after the page went idle, only 5.3 minutes after the app's last link.
+  - Turned off on the website, Settings said "Off. Gloopy's browser goes straight out now." Gloopy's computer let the app go at once, and the live view dropped "Through your computer". The same page then showed 152.233.48.176, Gloopy's own address.
+- **The two small things left, fixed** (your words: "Finish the browser"):
+  - **Turned off from another device:** the app kept asking for its link every 20 seconds, and said "asleep or out of reach". It couldn't tell a refusal from sleep, because the app's WebSocket can't read why a link was refused. Now Go Farther opens a refused link and closes it at once with its own reason. Turned off: the app stops asking and says so. Ticket ran out, or no Gloopy: it stops until its page gives it a new ticket. Asleep: it asks again in 20 seconds, as before. Tests D13 and GL114.
+  - Tried live with the real app: with Gloopy's computer asleep, it said "Gloopy's computer is asleep: the link comes when Gloopy starts work or you take over" and kept trying. Turned off on the website, its next try heard "turned off": it stopped and said so.
+  - Woken with the app open: Gloopy's computer took about 80 seconds to start. The app's first try gave up after 45 seconds and the next try linked, before the take-over finished. The app now says "didn't answer yet (it may be starting)" for that wait, not "did not answer".
+  - Turned off while linked: Gloopy's computer let the app go at once, and the app's next try heard "turned off". Now the link is closed with "turned off" right away, so the app stops without that extra try. Test GL117.
+  - Seen on the way: a refused link opens and closes again at once, so while Gloopy slept the app's status said "linked" for a moment every 20 seconds. A link now counts as up only once it has lasted 1.5 seconds or heard from Gloopy's computer. Test D15.
+  - **The first link after Gloopy's computer woke closed within seconds:** most likely the app gave up waiting after 15 seconds while Gloopy's computer was still starting, and the next try, 20 seconds later, worked. It now waits 45 seconds for the link. Test D13.
+
+**Your security key for Gloopy's browser** (your words: "Finish the browser"; Grok Bot's "Use hardware security keys"):
+- **What it does:** when a site in Gloopy's browser asks to sign in with a security key (a YubiKey or similar), Gloopy's browser holds the request for you. Gloopy's step ends with a card in the chat: "Use your security key for github.com". Or, if you have control in the live view, a bar there asks the same.
+- **Using it:** in the Go Farther app on your Mac or Windows computer, with your key plugged in, choose "Use my security key". A small window of the app says which site it's for, and you touch your key. It signs in for Gloopy on that site only, and Gloopy carries on. "Not now" tells the site no, as a browser would. On the website or phone, the card says your key works from the app. Each use asks you first, as Grok Bot's does.
+- **What it can't do:**
+  - It only signs in; it never registers a new key.
+  - It only works for the site that asked (its own domain), and only over a secure address with a name.
+  - Gloopy's browser takes only an answer to that very request: the same challenge, the same site, and a key the site asked for. Anything else is refused.
+  - A helper's tab can't ask for your key.
+  - Passkey autofill stays the browser's own.
+  - The app's small window never loads the site: the app makes its page itself.
+- **Tried live** (no physical key here, so a virtual one, the standard way to test them; nothing was registered on any site):
+  - I made a test key and gave it to the real desktop app's key window. I used webauthn.me's debugger, a page that only shows what a key signs and stores nothing.
+  - Gloopy opened it and loaded the key's id, but couldn't tick one box, so it handed me its browser. I ticked the box and pressed Authenticate. The live view said "The page asks for your security key, to sign in to www.webauthn.me", with "Use my security key".
+  - I pressed it. The app's window signed with the key, and the page showed the signature.
+  - Handed back, Gloopy read it: "Authentication succeeded… origin https://www.webauthn.me, type webauthn.get… user present and user verified."
+  - **Then the card's way, after the fixes below:** I asked Gloopy to sign in on the debugger, and this time it pressed Authenticate itself. Its turn ended with the card "Use your security key for www.webauthn.me". I chose "Use my security key", the app's window signed with the test key, and Gloopy read the page: "Authentication succeeded. Your key signed in on https://www.webauthn.me/debugger#… origin https://www.webauthn.me, type webauthn.get… user present and user verified, sign count 1."
+  - **The card on the website, without the desktop app:** it said "Your key works from the Go Farther app on your Mac or Windows computer, plugged into it: open this chat there", with only "Not now". Gloopy's tab showed its red "needs you" dot. "Not now" told the page no, and Gloopy said: "Sign-in did not finish. You chose not to use the security key, and the page shows NotAllowedError."
+- **Found in the live test:**
+  - Gloopy's instructions still said a passkey is the owner's to do by hand, so it handed off a key step instead of pressing the button. Now it does the step, and you're asked on the card. The hand-off tool's own description says so too.
+  - Asked plainly to press the button, Gloopy tried, but its safety check (the second AI) blocked the click as "only you can do this". Its instructions listed "confirming with a passkey" as yours. Now pressing a site's own button to sign in with a key is fine, since you're asked on the card. Registering a passkey or changing security settings is still yours.
+  - **A take-over could lose what you filled in.** A take-over that wakes Gloopy's computer started its browser on the machine's clock (UTC). Gloopy's next turn then restarted the browser in your time zone, and the form I had filled in was gone. The take-over now carries your time zone, so there's no restart. Test GL119. Tried live after the update: with Gloopy's computer asleep, I took over (it woke in about 86 seconds), typed "Zone check 7-11" into a practice form and handed back. Gloopy read "Zone check 7-11" in the box, so nothing restarted.
+  - **Turning routing off left Gloopy's next step on a blank page.** A routing or time-zone change restarts the browser, signed in as before, but on a blank page. It now opens the page that was open again. Test GL113.
+  - In the app's window, a site that doesn't say which key it wants (passkey-style, with no key named) is refused at once here: the app can't pick a key. A key the site names (the usual YubiKey case, as with GitHub or Google) signs fine. When this happens, the card now says so in plain words. On Windows, Windows picks the key itself, so it may work there; not tried.
+- **Not tried with a real key yet.** Keys that need a PIN may not work in the app on a Mac. On Windows, Windows asks for the PIN itself.
+- **The test copy's update with the time-zone fix stopped at the tests.** My mistake: I ran only the new test before sending it, and two older checks still looked for the take-over's old wording. They're updated. While checking, I found a test (GL118) that left its practice browser running for half an hour after it finished; it now closes it. The whole set passes: 377 of 379, with 2 skipped as before.
+
+Tests GL118 (in a real browser: the request held, wrong answers refused, the right one reaching the page as the browser's own, "Not now", a helper's tab, autofill), GL119 (Gloopy's step to the card and back, the Worker, the page), D14 (the app: only a sign-in for that site, the window's own page, one at a time); D9 and GL115 updated.
+
+Tests GL113 (the link and the proxy, and a real browser going through it), GL114 (the Worker: tickets, the link, the switch, off at once), GL115 (the page), GL116 (the certificate note), GL117 (why a link ended, a link gone quiet, never keeping Gloopy's computer awake, off at once), D7 to D12 (the desktop app: private addresses, the link, what the page may ask, trying again, why a link closed, a link gone quiet); CD119, CD129, CD146, GL25 and GL106 updated.
+
 ## 2026-11-10: Connectors (MCP): one list per person for the whole platform (your word: "one list for the platform ... per person")
 
 - **Where:** the account menu (the gear at the bottom left) now has **Connectors**. Add a connector with:
@@ -1748,6 +2303,354 @@ Merged and deployed on 2026-11-11 (deploy 111).
   - **The cause, in a test (not in Coder):** the test CD301 pauses all processes of user 1001, as Coder does at the end of a job, and since yesterday it also ends the ones it doesn't keep. On Coder's machines user 1001 is the AI's user. On GitHub's machines it is GitHub's own runner, so the test stopped the very job running it.
   - **Fixed:** the test now ends only the sandbox's own processes, and the deploy's safety-test step has a 10-minute limit. A hang now fails fast with a log. On GitHub, the check passes again in 9 seconds.
 - **Also fixed before deploying** (found while preparing the live test): in Auto, `cd .husky && rm pre-commit` ran without asking, because Coder's every-mode check for protected files counted `pre-commit` from the folder the command started in. Claude Code never runs a change to a protected file without asking. Now each part of a command is checked from the folder it really runs in, and a file command after a `cd` into a protected folder asks too. Test CD341.
+
+## 2026-11-10: The new browser pieces tried live, and four fixes
+
+Tried on test.gofarther.dev with Grok, recorded. What worked:
+
+- **The Chrome name:** sites now see "Chrome 158" everywhere they can read the name. WhatsApp Web shows its sign-in QR code now (before, it turned the browser away), and Gloopy hands it to you to scan.
+- **Settings:** adding, editing and removing rules and sites works ("www." is dropped from a site's name). With a site on Never, Gloopy refused to open it by itself. With a site on Ask first, the card said "Your setting for … says to ask first".
+- **A page with hidden orders for AI:** Gloopy ignored them and told you about them.
+- **Helpers browsing:** two helpers browsed side by side in their own tabs, and the live view showed "Gloopy", "Helper 1" and "Helper 2" tabs to watch.
+- **The monitor:** on and quiet. It never had to pause a run live, because Gloopy stopped by itself each time something was off.
+- **Your rules in runs you didn't start:** with the rule "Always allow: submit the order form on httpbin.org", a wake-up Gloopy set for itself (5 minutes is the shortest) came back, filled in a practice order, pressed "Submit order" with no card ("That click is already allowed on this form") and notified you. It took 14 seconds.
+
+Fixed after the test:
+
+1. **Helpers' finished steps now carry their names** in the chat ("“Prices” · Read the page"). Before, only their started steps did.
+2. **Switching to a helper's tab shows its picture in under a second** (0.7 seconds, measured live). Before, it could wait up to 6 seconds for the old tab's picture, which could have shown under the wrong name.
+3. **The live view is now a real stream.** Measured live, the near-video view showed about 2 pictures a second. The machine had them faster, but every picture was a new request, and gofarther.dev spends about 0.4 seconds on each request before answering (asking Supabase whether you're signed in, and reading storage). Now one request carries the pictures as they come, for up to 25 seconds, so that cost is paid once every 25 seconds instead of for each picture. A still page sends nothing but a tiny "still here" every 5 seconds. While you take over or hand back, the stream pauses, so an old picture can't flip the view back to "Gloopy is using it". Gloopy's latest step shows under the picture at once, even when it didn't change the page. Where a stream can't be had, the view works as before.
+   Measured again after the fix, on the same moving page: **6.6 pictures a second** (the most Gloopy's browser is set to send: one every 0.15 seconds), with one request every 25 seconds. Taking over and handing back changed the status line once each, in about half a second, and it never flipped back.
+4. **A helper's step shows its name first**, then what it does ("“Rome population” · Searched the web for …"). Before, the name came after the verb ("Searched the web for “Rome population” · …"), which read as if that was what it searched for. Checked live after the fix.
+
+Outside the browser (yours to decide; not changed):
+
+- That 0.4 seconds is spent on every request to gofarther.dev, for every button in Coder and Gloopy, not only the live view. Remembering a checked sign-in for a short while (say 30 seconds) would cut most of it, but it means a session you end elsewhere keeps working here for up to those 30 seconds. That belongs to the sign-in tool.
+- An open chat doesn't show a run you didn't start (a wake-up, a schedule, a webhook) until you reload the page. You still get the notification. That belongs to schedules.
+- Opening or reloading Gloopy's chat shows the oldest messages, not the newest; you have to scroll down. That belongs to the chat screen.
+- A web search Grok makes by itself sometimes shows no search words ("Searched the web for """). That belongs to web search.
+- A site on Never is blocked in the browser and when Gloopy reads a page, but Gloopy's command line could still reach it; there only Gloopy's instructions and the monitor keep it away. That belongs to the command-line tool.
+
+Tests: GL110 (the stream: on the machine in a real browser, in the Worker, and on the page); GL13, GL27, GL97, GL107 and GL109 updated (GL109 also: a helper's name first).
+
+## 2026-11-10: The browser, continued (your words: "lets keep working on the browser tool"; you chose: call it Chrome, your rules count, and "all of it")
+
+- **Gloopy's browser calls itself Chrome.** Sites see ordinary Chrome's name for its version, where before they saw "HeadlessChrome" (WhatsApp Web turned it away for that). The name is the same everywhere a site can read it, including a new tab's first visit. Its "controlled by automation" flag stays on: the name changes, but it doesn't hide that it's automated. I first tried Chromium's newer headless mode, which names itself plainly, but here it crashed when restarted on the same profile, and it contacts Google by itself. So I kept the browser Gloopy already uses.
+- **Your own "Always allow" rules now count in runs you didn't start** (schedules, wake-ups, webhooks): a step one of your rules covers goes ahead there too, unless the check finds another reason to stop. A setting on "Always allow" alone still waits for you in those runs. So "Always allow next time" on an expired card now does what it says.
+
+- **A Settings screen for Gloopy** (the new "Settings" button next to "Browser" in Gloopy's chat). In one place:
+  - **What Gloopy may do on its own:** Ask, Always allow or Never for each of the 12 kinds of step (buying, sending, deleting and so on).
+  - **Your rules:** add one in your own words ("When Gloopy wants to…" / "It should…"), edit it, or delete it, as in Grok Bot's and dots' screens.
+  - **Sites (new):** your choice for a site and its subdomains, as OpenAI's website permissions do:
+    - **Never:** Gloopy doesn't open it, do anything on it, follow a link to it, or read it another way.
+    - **Ask first:** it asks before opening it, and before each step there that would change something.
+    - **Hand off to me:** those steps are yours to do.
+    - **Always allow:** they go ahead unless the check finds another reason to stop (in runs you didn't start too).
+  - A card a site setting caused says so ("Your setting for shop.example says to ask first").
+  - Changing anything here closes a card that's waiting, as changing a rule already did.
+
+- **A monitor that watches over each run (dots' "safety monitoring").** A second AI call reads the whole run so far: your words, your rules, and each step Gloopy took with the start of its answer. It looks every 4 actions, and at once after anything was refused. Reading doesn't count as an action. If Gloopy seems to be getting around a safeguard (trying another way after a no), doing what you didn't ask, or following instructions from a page or a file, the run pauses. You see a yellow "Gloopy paused this task" note with why (and get a push), and Gloopy is told not to carry on unless you say so. It looks at most 12 times a run. It's on by default and has a switch in Settings ("Watch over each run"). It uses a little more Grok: each look is one short call at low effort.
+
+- **The live view is near-video.** Before, it fetched a new picture every 0.8 seconds. Now Chromium sends a frame each time the page changes (at most about 6 a second), and the view asks for "the next change" and gets it as soon as it happens. A still page costs one answer every 6 seconds. Chromium only sends frames while someone is watching, and stops 15 seconds after.
+
+- **Several browsers at once: Gloopy's helpers browse too.** When Gloopy splits a job between helpers, each helper now gets its own tab in Gloopy's browser, and the tabs work side by side. They share your sign-ins, and a link's new tab stays with the helper that opened it. Helpers only look things up there. A step that would change something, wait for your OK, or be yours to do is refused for a helper, whatever your settings say. The helper says so in its report and Gloopy does it itself, with a card if needed. The safety check judges a helper's steps by your own words, never by the task Gloopy wrote for it. The tabs close when the helpers are done. In the live view, a row of tabs ("Gloopy", "Helper 1"…) lets you watch a helper's tab; only Gloopy's own page can be taken over.
+
+Tests GL104 (the browser's name, in a real browser), GL105 (sites, end to end), GL106 (the monitor), GL107 (near-video, in a real browser), GL108 (helpers' tabs, in a real browser) and GL109 (helpers with a browser, end to end); the hold test, GL27 and GL83 updated.
+
+## 2026-11-10: The whole browser tried live on the test copy (your word: "then test the entire browser tool")
+
+Tried on test.gofarther.dev with Grok, recorded (three videos: 50, 15 and 3 minutes): every part of the browser, Gloopy's side and yours. The test copy's settings are back as they were (no rules, everything Always allow).
+
+**Gloopy's own steps, all working:**
+- A form (httpbin's practice pizza order): opening it, typing, a choice, ticks, a time, a note. With an "Ask first" rule for forms there, only Submit asked, on a card listing what the form sends; after Allow it went, and Gloopy read back the result.
+- Typing with Enter, scrolling, the End key, Back, and a screenshot sent to you as a file.
+- An upload with its own button, in one step. A download by clicking a link, kept as "dummy (2).pdf" with the first copy untouched.
+- The page's pop-ups: a message closed with OK; "Are you sure?" answered OK because you asked; a box wanting typed text cancelled. The browser shows your time zone (America/New_York on the test computer).
+- A "Never" rule for example.org: Gloopy refused by itself, before the check had to.
+- A CAPTCHA and a QR code (Telegram) handed to you with clear steps. "Not now" and "Done, hand it back" both worked, and Gloopy never tried to get around either.
+- Cards: Allow, Not now, and Always allow (it saved "Click the button “Submit order” on httpbin.org").
+
+**Your side, all working:**
+- The live view marks where Gloopy acts and says its last step.
+- Stop and take over in the middle of a task.
+- The address box, Back, Forward and Reload.
+- A file from your device when the page asks for one.
+- Typing and keys.
+- Teach Gloopy: it wrote down your steps (a password you typed was not kept) and saved a how-to. Asked later, it did the task that way.
+- Mark a part: drag over it, write your note, and Gloopy answers about that part.
+- On a phone-sized screen too.
+
+**Found and fixed (each tried again live after the fix):**
+- **The live view stayed paused when Gloopy started working.** It pauses after 2 minutes of only watching, which is meant to happen. But when you then sent a message, it said "Gloopy is using it" over an old picture (or "asleep"), without Gloopy's steps, until you pressed Refresh. Now a turn that starts wakes it, and while Gloopy's computer wakes it says so.
+- **The card's form list doubled colons** ("Customer name:: Test Owner"), because the page's own label ends with one. Now it reads "Customer name: Test Owner".
+- **While a step ran, the chat showed the element's number** ("Typing into f2e23"). Now it says "Typing" or "Clicking", and once done, the step's own words as before ("Typed “Margherita pizza” into “Search Wikipedia”").
+- **"Do only this: … when you're in.."**: a handoff's task that ends in a full stop got a second one in the live view.
+- **Ticking a box in a form was asked about as sending the form.** With an "Ask first before submitting any form on httpbin.org" rule, Gloopy ticking "Bacon" brought up a card saying it "would submit the pizza form", listing the form under "What it sends". The check was told "Click “Bacon” (in a form that sends to …)" with everything the form held, and didn't know Bacon was a checkbox. Now the step says what the element is ("Click the checkbox “Bacon”"), and what a form holds goes to the check and the card only for a step that can send it: a button, Enter, or an upload's own button.
+
+- **Opening a page was asked about as sending a form.** With your rules on, an open is checked (new this round). But the check was handed the field that had the focus on the page Gloopy was leaving (the pizza form), so "open the-internet.herokuapp.com" came up as "would submit the httpbin form", listing that form and naming the wrong site. Now opening a page or going back is checked as itself, and the card names where it goes.
+- **Your Reload could send a form again.** On a page a form sent (an order's thank-you page), Reload in the live view sent the form again without asking: tried here, it placed a second order. A normal browser asks "Confirm Form Resubmission" first. Now such a page is opened again at its address instead, which never re-sends anything; ordinary pages reload as before.
+- **A marked part brought text from outside it.** Marking Wikipedia's info box gave Gloopy the article's first paragraph too, because that paragraph flows around the box and its frame runs underneath. Gloopy's answer mixed in facts that weren't in the box. Now a mark gives only the words that show inside it (not hidden under a pop-up), and every link or button in it, where before small ones could be missed.
+- **On a short window the live view cut off its own "Hand it back" button** (and "Teach Gloopy") once you took control. Now the picture leaves room for them, and the panel scrolls rather than cut anything off.
+- **A long step line pushed the chat sideways** (a handoff's whole task on one line). Now it ends in "…", and shows whole when you hover over it.
+- **On a phone, with control, the line above "Teach Gloopy" and "Hand it back" stood one word to a line.** Now it takes the whole width and the buttons go under it.
+- **"Clicked f10e11":** checkboxes with no label of their own (their words just beside them) were named by an internal number. Now they take the words beside them, and anything still nameless is said by its kind ("Clicked the checkbox").
+
+**Outside the browser (not fixed; your call):**
+- After a long chat is summarised, Gloopy re-read two old text files "again, after the summary" before answering about a pizza order. That costs time, and the files had nothing to do with the order.
+
+**Your call:**
+1. **Sites that refuse our browser.** WhatsApp Web said it only works with Google Chrome 100+, because our browser tells sites it is "HeadlessChrome". It could present itself as ordinary Chrome, as a person's browser does. Gloopy itself never gets around a refusal; this is only about what its browser says it is.
+2. **Still open from the docs check:** "Always allow next time" in runs you didn't start.
+
+Tests GL96 to GL103 are new; GL13 was updated for the hover text.
+
+## 2026-11-10: The browser's missing pieces, added (your word: "if we missing stuff in the browser tool add it and then test the entire browser tool")
+
+From the second check against Grok Bot's and dots' docs:
+
+1. **The check and the card see what a form will send.** Before a click that sends a form (an email, a message, an order), the check reads what's filled in: who it goes to and what it says. A recipient or text you didn't ask for is a reason to ask. Your card shows it too, under "What it sends". Never passwords or card numbers. This works for ordinary forms and for pop-up boxes like a web mail's compose window. (dots checks "who will receive it and what the message contains"; Grok Bot's card shows the action's inputs.)
+2. **Your rules apply to opening a site.** Before, a rule like "never open shady.example" couldn't stop Gloopy just opening it, since opening wasn't checked. Now an open is checked when you have any rules. With no rules there's no extra cost.
+3. **QR codes go to you**, like CAPTCHAs and passkeys.
+4. **The live view shows where Gloopy acts.** An orange box marks what it just clicked or typed into, and the line under the picture says its last step ("Gloopy: Clicked “Send”"). (Grok Bot: "watch clicks, typing, navigation".)
+5. **Taking over:**
+   - **Stop and take over:** one press while Gloopy works stops it and gives you the browser.
+   - **Back, Forward, Reload and "Go to an address"**, as in a browser of your own. Keys typed on your keyboard already worked (Escape, arrows, shortcuts); my last report wrongly said they didn't.
+   - **A file from your device:** when you click a page's file field, the live view asks you for a file and puts it into the page (at most 5 MB).
+6. **Mark a part of the page (dots' annotations).** In the live view, press **Mark a part**, drag over what you mean, write your note and **Send to Gloopy**. Gloopy gets your note plus what that part of the page shows. It's told those words are the site's, not yours.
+7. **Teach Gloopy a task (Grok Bot's "Teach a task").** While you have control, press **Teach Gloopy**, do the task once, press **Done teaching** and name it. Gloopy gets your steps (what you clicked, what you typed and where, page by page) and writes them down in its notes as a how-to. Passwords and card details you type are never written down. At most 10 minutes or 100 steps, as Grok Bot's.
+8. **Big downloads no longer silently stop your work folder's copy.** This is outside the browser, but downloads made it likely. Over 25 MB, the copy is still made, without the biggest files, and Gloopy is told once which ones were left out.
+
+**Found and fixed while testing:**
+- **A click on something covered said "the page changed since your last look"**, so Gloopy would look again and try the same thing. Now it says something is in front of it (a pop-up, a cookie banner, a menu) and to close or scroll past it. An element number that's really gone now fails at once instead of after 8 seconds.
+- **A page asking Gloopy for a file could block later uploads.** If Gloopy clicked a file field by mistake, an invisible file box stayed open in the browser. Now every such request is caught: Gloopy is told to use upload, and your own click gets the file prompt.
+- **Notes the app adds to your message counted as your words for the check.** A download's file name, chosen by the site, could end up there. Now the check reads only what you typed.
+
+**Not done (bigger, or your call):** routing through your own computer, a full desktop with "computer use", several browsers at once, fixed outgoing addresses (they cost money), a monitor over a whole run, codes by email, 1Password and hardware keys. Still waiting for your choice: "Always allow next time" in runs you didn't start (item 2 of the check).
+
+Tests GL90 to GL95 are new. Six older tests were updated for the new buttons, the live view's last step and the new inputs.
+
+## 2026-11-10: The browser checked against the docs again (your word: "do another check on the browser tool against the docs")
+
+Nothing changed in the code. This is the check and what it found.
+
+- **What I read:** both apps' docs again, fetched today. No new pages since this morning. The changed sections are about shopping cards, phone calls, the phone app and usage, not the browser. I also read pages missing from the first check: Cursor's copy of the Grok Bot docs (14 pages), its help center (25 pages) and dots' security page. All quotes were checked against the pages.
+- **The 7 fixes close the gaps they were for.** Their docs say nothing about pop-ups, tabs, download or upload sizes, or the browser's time zone; ours now covers those.
+- **Where ours is stricter than both:** the browser is walled off from Gloopy's own commands (both apps' docs say code on their computer can reach browser sessions); a fake-site check runs before the sign-in card; every step that could change something is checked (dots: browser coverage "remains under review"); the copy of the sign-ins is sealed.
+- **Found on our side:**
+  1. The check and the card don't see what a form will send. dots checks "who will receive it and what the message contains" before sending, and Grok Bot's card shows the action's inputs. Ours sees only the button and where the form goes.
+  2. "Always allow next time" on an expired card from a run you didn't start can't work for buying, booking, sending, posting, sign-ups, deleting, account changes or sharing. Those always wait in such runs, yet the card says "next time Gloopy goes ahead". Also, my note from the safety work said "Grok Bot does the same". Its docs hold back only email in such runs (as a draft), and leave the rest to its review and your rules. dots lets you approve an action in advance for later runs. Your call which way.
+  3. Gloopy's work folder is copied for a new computer only up to 25 MB packed. Over that, no new copy is made and nobody is told. Downloads (up to 25 MB each), screenshots and your attachments all go in it.
+  4. Small: Grok Bot also hands you QR codes; Gloopy's list doesn't name them.
+- **Differences in watching and taking over (you direct the design):** theirs streams the whole screen and shows clicks and typing; ours shows a picture of the page every 0.8 s. Their take-over is the whole mouse and keyboard; ours has no address box, no other keys, no file picking from your device, and can't start while Gloopy works. Both apps have a screen to see, edit and delete your rules; ours has none.
+- **Bigger, both apps:** routing through your own computer, a full desktop with "computer use", several browsers at once. Grok Bot only: fixed outgoing addresses a site can allowlist. dots only: a monitor that can pause a whole run. Still waiting from the first check: Teach a task, codes by email, 1Password, hardware keys, per-site permissions, notes on a page.
+- **Outside the browser, for later tools:** saved logins (dots always asks; Grok Bot uses them first; ours is a setting), passwords made for sign-ups, importing logins, wallets and the new order card (pay), messaging Gloopy while it works (chat), and buttons to recover or reset the computer.
+
+## 2026-11-10: Gloopy's browser: the 7 fixes from Grok Bot's and dots' docs (your word: "yes go ahead")
+
+Tool by tool, the first tool is the browser. I compared it against everything Grok Bot's and dots' docs say about their browsers, and you said yes to the 7 small fixes:
+
+1. **Screenshots as files.** Gloopy can save a picture of a page (what's on screen, or the whole page) in its work folder, named after the site and the time. It can then send it to you as proof. Grok Bot's docs ask for "screenshots with the relevant state visible, timestamps". Card fields stay covered in the picture, as in Gloopy's own view.
+2. **Downloads.** What a page downloads goes into `files/` in Gloopy's work folder, at most 25 MB. A bigger one is stopped and Gloopy is told. A download from a step you OK'd on a card is put there before Gloopy's next turn. Opening a file's address directly (a PDF link, say) downloads it too. While getting ready for the live test, I found that this step failed with "Download is starting" even though the file came. It now says the file was downloaded.
+3. **Uploads.** Gloopy can give a site a file from its work folder (at most 5 MB, like a file it sends you). Each upload is checked first as sharing your things. With "Share your details" on Ask first, you get a card: "Upload the file “cv.pdf” with “Your CV” and click “Send”". The file is copied into the browser's own folder when it's checked, so what you OK is exactly what goes. **Found in the live test:** choosing the file and pressing the page's Upload button were two steps, so one upload took two OKs. Now the upload can include the button that sends it, so it's one step and one OK, the same way typing and pressing Enter already is.
+4. **No asking twice.** Gloopy no longer asks in the chat before a step the check covers (browser steps, requests with a saved key, schedules, webhooks). The card is the question. This was the "asked twice" seen in the live test.
+5. **No working around a site's check.** When a site blocks Gloopy, shows a CAPTCHA, signs it out or asks to verify again, Gloopy stops and lets you know (handoff or the sign-in card). In a run you didn't start, it notifies you too. It never tries another way in. That's what Grok Bot's docs say to do.
+6. **"Are you sure?" pop-ups.** Before, every pop-up was closed with Cancel, so things like "Delete this item?" could never go through. Now a message is closed with OK. "Are you sure?" and "Leave this page?" are still answered Cancel, and Gloopy is told what the page asked. If you want it done, Gloopy repeats the step with "answer OK", and that step is checked first, like a click ("Click the button “Delete”, answering OK if the page asks to confirm"). When you have taken over the browser, your own click's "Are you sure?" is answered OK. It was your click, and the live view can't show the pop-up.
+7. **Your time zone in the browser.** Pages now see your device's time zone (a booking site's times, "today"), not the computer's (UTC). If your time zone changes, the browser restarts with the new one at the start of Gloopy's next job, and stays signed in.
+
+Tests GL85 to GL89 are new. GL89 runs everything end to end with a real browser: your time zone, an upload you OK'd (the site got the CV), a download from a step you OK'd, a screenshot, and both files read in Gloopy's folder.
+
+**Tried live on test.gofarther.dev with Grok (recorded):**
+- **Time zone:** webbrowsertools.com saw America/New_York (5:37 AM EST), though Gloopy's computer runs on UTC.
+- **"Are you sure?":** on the-internet.herokuapp.com, Gloopy said the page asked "I am a JS Confirm" and it was answered Cancel ("You clicked: Cancel"). Asked to answer OK, it did ("You clicked: Ok").
+- **Screenshot:** "Took a screenshot of the whole page", then sent as a file card (js-confirm-ok.png, 37 KB). The preview showed the real page.
+- **Download:** Wikipedia's "Download as PDF" button. The browser downloaded Example.com.pdf (234,853 bytes) into `files/`, and Gloopy read it. (Given a PDF's address alone, Gloopy fetched it with a command instead, which is fine.)
+- **Upload, no asking twice:** with "Share your details" on Ask first, Gloopy didn't ask in the chat. The card asked once. After the fix above it was one card for choosing the file and pressing Upload, and the site said "File Uploaded!".
+- **A CAPTCHA:** at Google's reCAPTCHA demo, Gloopy stopped and handed the step to you ("Tick “I'm not a robot”, then press Submit"). After **Not now** it said it "didn't try to get around it".
+- Afterwards, the test copy's settings went back to the testing defaults. The test files Gloopy made or downloaded stay in its folder on the test copy.
+- Small thing noticed: Gloopy gave the screenshot's time in UTC ("10:39 UTC"), not your time. It's easy to change if you want.
+
+Still waiting for your choice (the bigger items from the report): per-site permissions, notes on a page, "Teach a task", codes by email, routing through your own computer, hardware keys, and connected apps.
+
+## 2026-11-10: Testing Gloopy live on the test copy: three things found and fixed
+
+On test.gofarther.dev, signed in as the test account, with Grok. Recorded (the video comes with the results).
+
+**Worked:**
+- Gloopy used the time zone of the device ("It's 2:13 AM … America/New_York").
+- A weekday schedule was checked and kept, in that time zone.
+- `/schedules` showed the task, with Run now, Pause, Edit and Delete.
+- Run now showed "Running", then "Succeeded".
+- Edit started "Edit your schedule …" in the box, and the change was kept.
+- Your "Ask first" rule held: Gloopy didn't follow the link and asked you first.
+- Stop ended the job, and the chat showed **Resume**. Resume carried the job on from where it stopped (four news outlets compared).
+- The red dot showed on Gloopy's tab while it waited for your answer, from the Coder tab too. It went away once you answered.
+- A webhook was checked and set up, with its address on the test copy.
+- Contact details were kept in Gloopy's notes, and Gloopy said so.
+- Changing a setting closed an open schedule card: "Expired: your settings for Gloopy's checks changed. Nothing was done." Gloopy told you on its own next time that the reminder was never set.
+- Delete asked first, and the schedule's past runs stayed in the history.
+- Tables in answers showed as tables (the weather in five cities).
+- **After the browser fix was deployed:**
+  - Gloopy's browser opened example.com on its Fly.io computer.
+  - Your "Ask first" rule raised the card "One of your rules says to ask first", with **Not now** and **Allow**.
+  - After **Not now**, Gloopy said "I won't try another way".
+  - Gloopy filled in and submitted a practice order form (httpbin.org, which only echoes it back).
+  - The schedules card said "Succeeded" by itself after Run now.
+- **Not seen live:** "Always allow next time" on an expired card. Even with "Buy or pay" on Ask first, the check let the practice order through, rightly, since nothing is bought. The automated tests cover it.
+- **For you to decide: asked twice.** With an "Ask first" rule, Gloopy asked in the chat ("Click the Learn more link?"), and then the check's card asked again for the same click. The card even said "You already said yes to this click". Grok Bot only asks on the card. My suggestion: Gloopy leaves steps the check covers to the card, and doesn't ask about them in the chat first.
+- Cleaned up afterwards: the test schedules and the test webhook are gone, and the test copy's settings are back to the testing defaults.
+
+**Found and fixed:**
+- **Gloopy's browser didn't start on its Fly.io computer.** Gloopy said "the browser isn't available". Chromium was there, but Playwright (which runs the browser) wasn't told where the image keeps it. It's only told in my own sandbox, so every test passed here. Gloopy's browser had never run on a real Fly.io computer before (it isn't on `main`). Its code now points Playwright there itself.
+- **The schedules card said "ran" after a run ended** until you typed `/schedules` again. It now asks again when a job ends and shows "Succeeded" by itself.
+- **In Gloopy's tab, a dropped connection said "Coder could not be reached".** It now names Gloopy.
+- **A change of time alone failed once** ("make it 8:00 AM instead"). Gloopy's first try gave only the new time, and the tool wanted the whole "when"; it fixed itself on the second try. Now a new time or new days alone keep the rest ("every weekday").
+
+Test GL84 is new.
+
+## 2026-11-10: A test copy at test.gofarther.dev (your word: "ok yea lets do that")
+
+You wanted to test this branch live "without touching the other branches or merging", and without it interfering with the main product.
+
+- **Why not just deploy the branch to gofarther.dev:** this branch is 68 commits behind `main` (today's Coder work from the other session isn't in it). Putting it on gofarther.dev would take that work off the live site until `main` is deployed again, and each deploy would undo the other's.
+- **The deploy button now has a "target" choice (on this branch only):**
+  - **live:** gofarther.dev, as before. It now goes only from `main`, so a branch can't replace the live site by mistake.
+  - **test:** the branch picked goes to its own Worker at **test.gofarther.dev**.
+- **The test copy is separate from the main product:**
+  - its own storage (chats, files, saved logins);
+  - its own Fly.io computers;
+  - its own deploy queue, so it never waits on or holds up a live deploy.
+  - Its keys are put on the test copy only.
+  - The live Worker, its keys and its data are never touched. Its settings are made from the live ones by `coder/test-copy.mjs`, which refuses to make settings that share anything of the live Worker's own.
+- **What it shares:** your accounts (same sign-in), the Grok key (test runs cost from the same xAI account), and the same Cloudflare and Fly.io bills. Signing in or out there doesn't sign you out of gofarther.dev.
+- **GitHub isn't connected there** (its address isn't in the GitHub App). Gloopy doesn't use GitHub.
+- When we're done testing, I can delete the test copy with your word.
+- Tests: TC1 to TC3 are new.
+
+## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs again (your word: "Go against the docs again")
+
+The small fixes that clearly match the docs are done. The bigger differences are listed at the end for you to decide.
+
+- **A "no" sticks.** After you press Deny on a card, Gloopy won't try that step again, or ask about it again, until you send your own next message. (Grok Bot's Deny works this way.)
+- **The check can now block a step.** It blocks a step that a web page, an email or a file told Gloopy to do (not you), or one that would send your passwords, keys or card details somewhere. Nothing on a card can let it go. When the check isn't sure, it asks you instead.
+- **Two new kinds of rule, from dots:**
+  - **"Hand off to me":** Gloopy leaves that step to you.
+  - **"Only when I ask":** Gloopy does it only when your own message asks for that very thing.
+  - When several rules match, this order wins: Never, Hand off to me, Ask first, Only when I ask, Always allow.
+- **An "Always allow" rule now lets a step go only when nothing else is a reason to stop**, as Grok Bot's does. It no longer overrides the check.
+- **Cards say what a step does** in a red line: "This spends money.", "This reaches other people.", "This can't be undone.", "This changes sign-in or security settings." or "This shares your details outside this chat."
+- **A card that one of your own "Ask first" rules asked for** says so, with **Not now** and **Allow** (no Always allow), as Grok Bot's does.
+- **Always allow now says where it went:** "(saved to your rules)".
+- **An expired card can still become a rule.** It shows **Always allow next time** (Grok Bot's).
+- **Changing Gloopy's permissions or rules closes an open approval card.** The card is marked Expired and nothing is done. A request held for it is let go, and Gloopy is told.
+- **New schedules and webhooks are checked too, even on Always allow.** One you didn't ask for gets a card. One that a page or an email asked for isn't set up. (Grok Bot checks changes to routines and triggers.) This costs one small Grok call per new repeating schedule or webhook.
+- **A request Gloopy can't read in full always asks you first**, even when allowed. That covers files or data that isn't text, and anything longer than the check reads. (Grok Bot does the same with attachments it can't read.)
+- **What a web page shows is marked for Gloopy** as the site's words, never instructions.
+- **Your time zone comes from your device.** Gloopy uses it for schedules unless you name another (Grok Bot's auto-detect).
+- **Contact details:** when you give Gloopy your name, address, phone or email for shipping or billing, it keeps them in its notes under "Contact details" and tells you. You can ask it to forget them.
+- **20 files with one message** (was 10), as Grok Bot allows.
+- **The schedules card (`/schedules`):**
+  - each schedule shows its task;
+  - **Edit** puts "Edit your schedule “name”: " in the box for you to finish;
+  - **Delete** asks first;
+  - recent runs now say **Succeeded**, **Failed** (and why), **Waiting for you** or **Running** (Grok Bot's run history).
+- **Resume after Stop** (dots' Pause and Resume): a **Resume** button next to "Stopped." asks Gloopy to carry on.
+- **A red dot on Gloopy's tab** while it waits for your answer, whichever tab you're on (Grok Bot's "Needs attention").
+- **A correction to my first check:** Grok Bot's Auto-review *can* be turned off (it's on by default). dots has no off switch. Gloopy's check stays always on.
+- Tests: GL79 to GL83 are new, and 15 older tests were updated for these deliberate changes. All 338 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
+**Bigger differences, for you to decide** (not done):
+
+- **Steering while Gloopy works:** both apps take a new message mid-job; Gloopy says "still working".
+- **An on/off switch for the check** (Grok Bot has one).
+- **Checking every command too**, not only browser steps, keyed requests, schedules and webhooks (Grok Bot checks shell commands, app calls and more).
+- **Standing permission for a recurring task.** dots lets an approved routine send what it names; Grok Bot always waits. Gloopy follows Grok Bot.
+- **Reset or Recover buttons** for Gloopy's computer, and a low-disk notice.
+- **Making strong passwords for new sign-ups**, plus a vault for contact details and password hints, and importing a CSV of logins.
+- **dots' proactive research** (it looks into things for you without being asked).
+- **Connected apps, Gloopy's own email address, images and video, and using your own computers** (dots now allows several).
+- **Bigger documents** (Grok Bot allows 250 MB; Gloopy 25 MB).
+- **Pausing one webhook** from the schedules card.
+
+## 2026-11-10: Gloopy keeps its computer, signs out, previews files; tables in answers (your word: "do all of that"; part 4 of 4)
+
+- **Gloopy's work folder and browser sign-ins survive a new computer.** Before, an unused Gloopy computer was deleted with its disk after 30 days, losing its files and sign-ins (and the backup machine has no kept disk at all).
+  - Now, after each job, Gloopy's computer sends Coder a copy: its work folder (up to 25 MB packed, without caches and installed packages) and its browser's sign-ins. The sign-ins are sealed, like your saved passwords.
+  - Only what changed is sent.
+  - On a new computer, both come back before Gloopy starts, and the chat says so.
+- **Signing Gloopy out of a site.** Type **`/signins`** to see where Gloopy is signed in (and how), with a **Sign out** button for each site and **Forget** for each saved login. Or type `/signout shop.example` for any site.
+  - Signing out removes that site's cookies and stored data from Gloopy's browser and from Coder's copy, so a new computer won't sign it back in. Gloopy is told.
+  - **Found and fixed while testing:** one of Chromium's "clear this site" calls, when given an address it couldn't read, wiped every site's cookies. Sign-out no longer uses it for cookies. A test (GL76) now checks that other sites stay signed in.
+- **Preview for PDFs and pictures.** Files Gloopy makes have a **Preview** button next to Download. It opens the file over the chat (Escape closes it). The preview address is signed and lasts 10 minutes. Files are always shown as what they are, never as a web page of the site. Other kinds are only downloaded.
+- **Tables in answers.** When Gloopy (or Coder) answers with a table, it now shows as a table instead of lines of `|` marks. Wide ones scroll sideways on a phone.
+- **The welcome text is true now:** "I never see your passwords or card numbers, and when I work on my own, I ask before I send, buy or delete anything."
+- Tests: GL75 to GL78 are new (GL75 and GL76 use a real machine and a real Chromium browser). All 333 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
+## 2026-11-10: Pause, edit and Run now for Gloopy's schedules, with a history (your word: "do all of that"; part 3 of 4)
+
+- **Type `/schedules` in Gloopy's chat** to see a card with every schedule: when it runs, its next run, and buttons **Run now** and **Pause** / **Resume**. It also shows the last runs (ran, test run, or skipped and why). No Grok call.
+- **`/pause` pauses all of Gloopy's background work** (schedules, wake-ups and webhook calls); **`/resume`** starts it again. You can still chat with Gloopy while it's paused.
+  - Anything that came due while paused is skipped, not run late. You get one line listing what was skipped.
+  - A webhook call while paused gets "Gloopy is paused" back, and it goes in the history.
+- **Run now** tries a schedule straight away, the way it would really run. Anything that would send or buy still waits for your OK. Its normal times don't change. (Grok Bot has the same.)
+- **Changing a schedule:** ask Gloopy ("make the morning news 7:30 on weekdays"). A change follows your setting for new schedules: kept at once on Always allow, a card on Ask. Gloopy can also pause or resume one when you ask.
+- The routes for a full schedules screen (pause, resume, edit, run, remove, history) are ready for when you design it.
+- Also fixed: a webhook call no longer starts a run over a card that's still waiting for you; it waits its turn, as schedules do.
+- Tests: GL72 to GL74 are new. All 329 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
+## 2026-11-10: Gloopy's sign-in card, as dots' is (your word: "do all of that"; part 2 of 4)
+
+- **"Use your saved login" on the card.** When your setting for saved logins is Ask (as dots always asks), the sign-in card shows a button with the saved username. One press signs in with it; nothing to retype.
+  - Always allow: used with no card, as before. Never: not offered.
+- **A box for one-time codes.** When a site sends you a code (text message, email or an app), Gloopy asks for it on a card. You type it there and it goes straight into the page. Gloopy never sees it.
+  - Codes split into one box per digit work too.
+  - The code is hidden from what Gloopy reads, even if the site shows it again after a wrong try.
+  - Before, Gloopy had to hand you its whole browser just to type a code.
+- **"Take over" on the sign-in card.** Opens Gloopy's browser so you can sign in yourself (for single sign-on, passkeys, anything odd). "Done, hand it back" tells Gloopy where the page is.
+- **A check for fake sign-in pages.** Before the card shows, one small Grok call looks at the page's address and where the form sends what you type. A look-alike address, a free hosting site or a bare IP address gets a red warning on the card. You still decide.
+  - A page on plain http:// always gets the warning.
+  - Saved logins skip this check: they're only ever typed on the exact site they were saved for.
+- Small fix: the three buttons fit on a phone.
+- Tests: GL69 to GL71 are new (GL71 types codes into a real Chromium browser). All 326 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok.
+
+## 2026-11-10: Gloopy's safety, as Grok Bot and dots do it (your word: "do all of that"; part 1 of 4)
+
+- **The check runs all the time now.** Before, it was skipped while everything was Always allow. Now every click, choice or submit in Gloopy's browser is checked first, as both apps do. That costs one small Grok call per such step.
+  - While testing, everything is still Always allow, so steps you allow still go ahead with no card.
+  - A step only you may do is always yours, whatever the settings or rules: changing a password or security settings, closing your account, card details, CAPTCHAs.
+  - When the check can't tell what a step does, it asks you.
+- **Gloopy's commands are checked when they use your saved keys.** Before, a command could send an email through your saved Mailgun key (for example) even with Send set to Ask or Never.
+  - The check happens where the key is added (on Coder's server side), so no command can get around it. Reading (GET) isn't checked.
+  - Anything else is checked like a browser step. If it should ask you, the request is held and not sent. You get a card showing exactly what it would send. Allow sends that same request; Deny drops it.
+  - The same request isn't checked twice in a job, and the check looks at most 30 requests per job.
+  - Commands that don't use a saved key can't act as you, so they aren't checked.
+- **Runs you didn't start never act on their own.** In a scheduled run, a wake-up or a webhook's run, anything that would buy, book, send, post, sign up, delete, change an account or share your details waits for your OK, even on Always allow. Grok Bot does the same.
+  - Gloopy is told to get it ready first (the message drafted, the form filled in), so you only press Allow.
+- **Cards from those runs wait 30 minutes**, as Grok Bot's do. The card says "Waits for you until 9:30" and the phone notification says "answer within 30 min". Then it's marked "Expired: nothing was done", and Gloopy hears it wasn't answered.
+  - A card from your own message never expires.
+  - A scheduled run waits up to 30 minutes for an open card. After that, the card expires and the run goes ahead.
+- **After testing:** one switch (TESTING in gloopy-permissions.mjs) turns the risky kinds back to Ask first: buy, book, send, post, sign up, delete, account, share, saved logins, schedules and webhooks. Wake-ups stay allowed. It's ready but not on yet.
+- Small fix: a long web address in a card's title now wraps on a phone instead of running off the card.
+- Tests: GL64 to GL68 are new; older tests that expected no check while testing were updated. All 323 pass, 2 skipped as before. Not merged, not deployed, not tried live with Grok (you said no testing yet).
+
+## 2026-11-10: Gloopy checked against Grok Bot's and dots' docs (your word: "double check it against the docs of dots and grok bot")
+
+- **How it was checked:** every part of Gloopy was compared, item by item, with Grok Bot's 33 doc pages and dots' pages (plus the ChatGPT pages dots relies on), quoting the docs.
+- **What matches both:** its own cloud computer that sleeps, a browser that stays signed in, watching live and taking over, private sign-in and card forms the AI never sees, sealed API keys, Allow once / Always allow / Deny cards, rules in your own words, schedules and wake-ups, helpers, pages, files as cards, Stop that undoes nothing, and "only your messages are instructions".
+- **Small mistakes, fixed now:**
+  - Custom rules can be up to 1,000 characters, as Grok Bot's are (the settings route allowed only 300).
+  - When "Always allow" removes your oldest rule to make room, it now says which one, as Grok Bot does.
+  - Your page now lists Gloopy's API keys (site and name, never the key), so your settings screen can show and remove them.
+  - Gloopy was told risky steps always wait for a card, which isn't true while everything is Always allow. It's now told the truth: its permissions decide.
+  - Gloopy must never ask for a one-time code in the chat; it uses handoff, as both docs say.
+- **Bigger differences, which need your decision (in the chat):**
+  - Both run their safety check all the time; Gloopy skips it while everything is Always allow.
+  - Gloopy's commands (and calls to APIs with a saved key) aren't checked at all.
+  - dots asks before using a saved login.
+  - Grok Bot never sends from background work without you; schedules and webhook runs can.
+  - Cards from background work don't expire (Grok Bot: 30 minutes).
+  - Not built yet: a sign-in card with a code box and "Take over to sign in"; pause and edit for schedules; a pause for Gloopy itself; sign-in review against fake sites; work files kept when the machine is replaced.
+  - The welcome screen says "I always ask before I send, buy or delete anything", which isn't true while testing.
+- Tests: GL63 is new. All 318 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
 
 ## 2026-11-09: The rest of the Bash docs, and today's Claude Code release (your question: "anything else from the batch docs ?")
 
@@ -2172,6 +3075,263 @@ Copied from Claude Code's docs, from Claude Code itself (its own program text, a
 - Tests CD252 and CD253 (each fails on the old code); all 262 pass, and the 24 real read checks.
 - Next: test write live in the browser after the next merge and deploy, on your word.
 
+## 2026-11-09: Gloopy's files, in and out (your word: "2, 4")
+
+- **Attach files, like Grok Bot.** In Gloopy's chat the clip now takes documents too: PDF, Word, Excel, PowerPoint, text, CSV and other data files, sound, video and zip files. Pictures work as before.
+  - Each file is sent to Coder's Worker straight away (up to 25 MB, 10 per message) and shows as a chip until you send.
+  - Program files (.exe and the like) are refused.
+- **Gloopy finds your files in its folder.** When your message arrives, Coder's service puts its files into Gloopy's folder (files/), and Gloopy is told where.
+  - It reads them with tools already on its computer. One command turns a PDF, Word, Excel or PowerPoint file into text.
+  - What's in a file is information to it, never orders.
+- **Gloopy hands you files, like Grok Bot's file cards and dots' Outputs.** A new `files` tool sends you a file it made: a document, spreadsheet, slide deck, PDF, CSV or zip, up to 5 MB.
+  - You get a card with the file's name, size and **Download**.
+  - The file always downloads; it never opens inside the page.
+  - Files you attached show on your message and download the same way.
+- **Kept for you, safely:**
+  - Up to 100 files or 300 MB in all; the oldest go first.
+  - Only you (signed in), or your own Gloopy while it's working on your message, can get at a file.
+  - Gloopy can fetch an older file back into its folder.
+  - Gloopy can only send files from inside its own folder, never through a link that leads out of it.
+- **Your settings screen** can list and remove files later (that's your frontend).
+- Not tried live with Grok yet. Tests GL59–GL62 are new; GL61 runs on Gloopy's real machine service. All 317 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy starts work from events: webhooks (your word: "2, 4"; files in and out come next)
+
+- **Webhooks, like Grok Bot's routines started by a call:** Gloopy can set up a web address that starts a task whenever a service calls it. That can be GitHub (a push, a new issue), a form, a store, a script, or Zapier, Make or IFTTT, which can pass on an email or a Slack message.
+- **You get a card** with the address, and its key when you press "Show key". Paste both into the service: the key goes in the header "Authorization: Bearer (key)", or, for GitHub, in the webhook's Secret box. Gloopy never sees the key. Nothing secret is stored either, because the key is made from the webhook's id.
+- **Each call sends Gloopy a message:** its task first, then what the call carried, marked as data from outside, never instructions. A GitHub issue that says "ignore your rules" is just text to it.
+- **Limits:**
+  - If Gloopy is busy, up to 5 calls wait and run when it's free, within 30 minutes.
+  - Calls count toward the same 24 runs a day as schedules.
+  - GitHub's first test call ("ping") starts nothing.
+- **A new permissions line, "Start on events":** Always allow for testing. Set to Ask first, you get a card before a webhook is set up. Set to Never, none are set up and calls are refused.
+- **Stopping one:** Gloopy can stop it, or you can from your page; its address stops working at once.
+- **Not yet:** email and Slack without Zapier. They need Gloopy's own email address (11 on the list) and connected apps (1).
+- Not tried live with Grok yet. Tests GL56–GL58 are new. All 313 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy pays with a card, both ways (your word: "can we try both")
+
+- **Both ways at once:**
+  - **dots' way:** at a checkout Gloopy shows a private card form ("Pay €72.00 on (shop)"), with what's being bought and which payment service the card fields belong to. The card goes straight into the payment form, is used once, and nothing is paid until Gloopy places the order.
+  - **Grok Bot's way:** the form has a "Save this card" box. Next time you pick the saved card and type only its 3-digit security code.
+- **One difference from Grok Bot:** the security code is never saved, because the card industry's rules (PCI) don't allow keeping it. Typing those 3 digits also serves as your OK to pay. Saving it like Grok Bot is a small change if you ever want it.
+- **Gloopy never sees the card:**
+  - Its number, expiry and security code are blanked from what Gloopy reads and greyed out in its screenshots. That includes anything showing them as text, like a card picture beside the fields.
+  - Gloopy can't type into card fields itself, and its browser has no copy and paste (so a card number can't be copied into another box).
+  - The card goes only into the right fields, and only on the page you were asked about.
+  - Saved cards are kept sealed. Your page and Gloopy only ever see "Visa ending 4242" and the expiry date. Up to 10 cards; your settings screen can list and remove them.
+- **Placing the order** stays a separate click, checked like any purchase ("Buy or pay" is on Always allow for testing). With "Buy or pay" set to Never, Gloopy won't ask for a card at all.
+- **Fixed, found while building this:** after a sign-in, if Gloopy clicked the password box, the step line quoted the password, and that line went to Grok and into the chat. Now an element is never named by what's typed in it, and every step line is blanked like the page outline is.
+- Not tried live with Grok yet (your word: no testing yet). Tests GL51–GL55 are new; GL53 and GL54 run in a real Chrome, GL54 being a full purchase with a typed card and then a saved one. All 310 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's key card and saved logins (your word: "4,5")
+
+- **API keys, like Grok Bot's:** when a job needs a site's API (a weather service, say), Gloopy asks with a card: "Gloopy needs a key for api.openweathermap.org". You type the key in the card.
+  - It's kept sealed in Gloopy's own store, not in one of Coder's environments. It's added to Gloopy's requests to that one site after they leave Gloopy's computer, so Gloopy never sees it. If a site sends it back, it's blanked out of the chat.
+- **Saved logins, like Grok Bot's Vault and dots' "Save to Passwords":** the private sign-in card has a new box, "Save this login, so Gloopy can sign in to (the site) for you next time". The card's wording now says a login is saved only if you tick it.
+  - It's kept only if you tick the box and the sign-in worked. It's sealed, and you can keep up to 50.
+  - Next time Gloopy meets that site's sign-in page, Coder's own service types the login in, with no card. Gloopy only learns that it's signed in. If the saved login doesn't work, you get the card again, saying so.
+  - Only Gloopy's computer can get a saved login, only while a Gloopy job is running, only for the site it's on, and only with that job's own pass. Your page can list them (site and username, never the password) and remove them, ready for your settings screen.
+  - A new line in Gloopy's permissions, "Sign in with saved logins", is Always allow for testing, like the rest. Set it to Ask first and Gloopy shows the card instead.
+  - Like a browser's password manager, a login is typed only into a password box on its own site. A sign-in box from another site shown inside a page counts as that other site's.
+  - The chat says "Signed in with a saved login" for those steps, not "Asked you to sign in".
+- **Payment cards:** not built yet. How to keep them is your call (asked in the chat).
+- Not tried live with Grok yet (your word: no testing yet). Tests GL46–GL50 are new, and GL11 now also checks a sign-in box from another site in a real Chrome. All 305 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's pages: something to read and keep (your word: "We can leave that for later, lets focus on the tools")
+
+- **Handing code to Coder:** left for later, as you said. The plan for it is in the chat.
+- **Pages, like Grok Bot's:** a report, a comparison, a plan, a tracker or a dashboard Gloopy makes for you to read and keep. It can have tables, charts, and buttons that filter what you see. Gloopy writes it as a web page file on its computer and publishes it with a new `page` tool.
+  - You get a card in the chat with the page's title and **Open**. It opens over the chat; × (or Escape) closes it.
+  - To change a page, Gloopy edits its file and publishes again: the same page, next version. An earlier card for it then says "Updated below".
+- **Kept:** by Coder's Worker, up to 100 pages per person, each up to 512 KB. Gloopy knows its pages, and the list comes with Gloopy's tab data for your future page library. Pages can also be removed.
+- **Safe to open:** a page is made by the AI, often from what websites say, so it never runs as gofarther.dev.
+  - It opens from its own address, which works for 10 minutes and only for you.
+  - It runs sealed off: it can't reach the app, your sign-in or anything stored for the site, and it can't send anything anywhere or submit forms.
+  - Only gofarther.dev can show it.
+  - Checked in a real Chrome: the page's own script runs, while reaching the app, stored data and cookies, and sending data out, are all blocked.
+- **Not yet:** sharing a page by link (Grok Bot has "anyone with the link"), and a Library screen (part of your frontend).
+- **Small detail:** Escape doesn't close a page once you've clicked inside it (the page then has the keyboard); × always does.
+- Tests GL41–GL45 (GL43 is the real-Chrome check). All 300 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's helpers: parts of a job done at the same time (your word: "Let's keep working on the tools")
+
+- **What it is:** like dots' background agents and Claude Code's subagents. For a big job with separate parts ("compare these hotels": prices, reviews, location), Gloopy gives each part to a helper. Up to 4 work at the same time, each in its own conversation, and Gloopy gets all their reports together and writes the answer.
+- **What a helper can do:** web search, reading web pages, and Gloopy's file tools.
+  - No browser, no commands (helpers share Gloopy's computer, and a command changing folders would trip the others up), no cards.
+  - It can't ask you anything or act on any account.
+- **In the chat:** "Started helpers: Prices, Reviews, Location", each helper's steps under its name ("“Prices” · https://…"), then "Helpers finished".
+- **Spending:** each helper uses Grok, and their use is counted with the message's. At most 4 at once and 8 in one message; each helper gets up to 15 steps and 5 minutes. Gloopy is told to use helpers only when a job is big enough to split.
+- **Found in the screenshot, not fixed (your call, not a tool):** the chat doesn't draw tables. A table in an answer shows as lines of `|` characters. It's the chat's text formatting, the same in Coder's chat, and Gloopy is told it may use small tables. A small fix, or part of the new frontend.
+- Tests GL39 (it checks the helpers really run at the same time) and GL40. All 295 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Custom rules for Gloopy, in your own words (your word: "add on the settings a custom rules for Gloopy ... like allow buying or whatever it is")
+
+- **What they are:** besides the fixed list, your own rules in your own words, each Always allow, Ask first or Never, like Grok Bot's Custom Rules. For example:
+  - "Allow buying on runway-shoes.example"
+  - "Ask before anything on my bank"
+  - "Never email my boss"
+- **How they work:**
+  - A **Never** rule always wins, even with everything on Always allow (it means the step before a browser click gets checked). After it, an **Ask first** rule always asks. Then come the list's settings.
+  - Gloopy is told your rules, so it follows them outside its browser too (an email, a schedule).
+- **"Always allow" on a card** still saves a rule, now with an id, so the settings screen can list and remove it.
+- **For the settings screen (at the end):** a route lists, adds, changes and removes rules (`/api/coder/projects/gloopy-main/rules`). At most 20 of each kind, each up to 300 characters. They also come with Gloopy's tab data.
+- Test GL38 is new; GL15 and GL18 now match the new wording and ids. All 293 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's permissions: Ask, Always allow or Deny (your word: "a list of things, and then have ask, deny, and always allow ... the default for testing ... always allow")
+
+- **Both have this:**
+  - Grok Bot's "Custom Rules": you describe an action and choose "Ask first" or "Allow automatically".
+  - dots' "Custom rules", with four choices: do it without asking, do it only when you say so, ask first, or hand it to you.
+- **Gloopy's list** (one setting each: Ask, Always allow or Deny):
+  - Buy or pay
+  - Book or reserve
+  - Send messages or emails
+  - Post or publish
+  - Sign up or subscribe
+  - Delete or cancel
+  - Change account settings
+  - Share your personal details
+  - Repeating schedules
+  - Wake-ups
+- **What each setting means:**
+  - **Ask:** a card each time (Allow once, Always allow, Deny).
+  - **Always allow:** Gloopy goes ahead and says what it did.
+  - **Deny:** Gloopy doesn't do it, not even another way, and says it's turned off.
+- **For testing, everything is Always allow** (your word). That means no cards, and no extra check call before browser steps, so it's faster and spends less. Repeating schedules are kept with no card too.
+  - The sign-in card and the "Gloopy needs you in its browser" card still come. Those aren't permissions: only you can type your password or solve a CAPTCHA.
+- **Careful while testing:** with everything on Always allow, Gloopy may buy, send or delete without asking. It's still told to do only what you asked for, and to ask when something can't be undone and it isn't sure. Test with accounts where that's OK.
+- **At the end:** the settings screen (your way), and the default switches to Ask (one line in `coder/container/gloopy-permissions.mjs`). The pieces are ready:
+  - The list and your current choices come with Gloopy's tab data.
+  - A route reads and changes them: `/api/coder/projects/gloopy-main/permissions`.
+  - Gloopy follows your choices from its next message.
+- **How it works underneath:** your choices are kept on Coder's Worker and sent with each message. When anything is on Ask or Deny, the check before a browser step also names the kind of step ("buy", "send"…), and your setting for that kind decides. Your own "ask first" rules always ask, and Deny wins over an "Always allow" from a card. Gloopy sees the list in its instructions, and the Worker keeps a schedule only if the settings it holds allow it.
+- Tests GL36 and GL37 are new; GL15, GL16, GL19, GL30 and GL32 now switch some settings to Ask to test the cards. All 292 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's wake-ups are automatic now (your word: "No, what about just automatically wake up")
+
+- **What a wake-up is:** Gloopy only works when a message comes in. A wake-up is a message it sends itself for later: "come back at 22:30 and check the price again". At that time it starts working on its own, with no message from you.
+- **Example:** you say "tell me when the Strider Red is under €70". Gloopy checks (€72) and sets a wake-up for later. Then it comes back on its own, checks again and sets the next one. When the price drops it tells you and stops.
+  - Other uses: waiting for a reply, tickets that go on sale at 10, a page that updates later.
+- **Changed:** a wake-up no longer needs your OK. Gloopy keeps it at once and says in its answer when it'll be back.
+  - The chat shows "Will come back Mon 9 Nov at 22:30: Price check", and later "Back as planned: “Price check”".
+- **Still asks you once:** repeating schedules ("every weekday at 8"), because those go on running until stopped.
+- **Spending limits:** each wake-up is one Grok message.
+  - At most 5 wake-ups waiting at a time, each at least 5 minutes ahead.
+  - With the schedules, at most 24 runs a day in all.
+  - Gloopy is told to come back only as often as the job needs.
+- **Tried here:** a full run with the Worker and Gloopy's machine (a stand-in for Grok). Gloopy set a wake-up with no card, came back on its own and set the next one. When the price dropped it told you, and nothing was left waiting.
+- Tests GL30, GL31 and the new GL35. All 290 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's schedules, and waking itself up (your word: "Ok go but we are gonna do the frontend differently tho")
+
+- **What it does now:** Gloopy can do things on its own later, like Grok Bot's routines and dots' recurring tasks.
+  - **Once:** "in 30 minutes", or at a time ("tomorrow at 9"). This is also how it wakes itself up to come back to a job.
+  - **Again and again:** every 1 to 12 hours, every day, every weekday, some days of the week, or one day of the month, at a time, with an end day if you want.
+  - Always in your time zone (from its notes), clock changes included.
+- **Your OK first, every time:** each new schedule shows a card, e.g. "Gloopy wants to run “Morning news” every weekday at 08:00 (Europe/Lisbon)", with the task, the first run, and Deny or Allow. Each run is a message for Gloopy, so it uses Grok (the spending rule).
+- **Stopping one:** just ask Gloopy ("stop the morning news"). No card is needed, since stopping costs nothing.
+- **How it runs:** Coder's Worker keeps the schedules. Its every-minute job starts each one when it's due, as a message to Gloopy in its chat. The chat shows a line, "Scheduled: “Morning news” · every weekday at 08:00 (Europe/Lisbon)", never something you wrote. Gloopy notifies you when the task says to.
+- **Spending limits:**
+  - At most 10 schedules and 24 scheduled runs a day per person.
+  - If Gloopy is busy with another message, the run waits (it's checked every minute). After 30 minutes it's skipped, and the chat says so.
+  - The same goes if Gloopy's computer can't start it.
+- **The frontend:** you'll do it differently, so I only changed the minimum.
+  - The existing approval card now shows a schedule's task and offers Deny or Allow (no "Always allow" for schedules).
+  - Schedule steps get a clock icon, and runs show as a line in the chat.
+  - There's no schedules screen. For your frontend, the list comes with Gloopy's tab data, and a route lists and stops them (`/api/coder/projects/gloopy-main/schedules`).
+- **Tried here** with the Worker and Gloopy's machine (a stand-in for Grok):
+  - You ask, the card comes, you allow it, and it's kept. At its time the every-minute job starts it, the line shows in the chat, and Gloopy notifies you. You ask Gloopy to stop it, and it's gone. One you deny isn't kept.
+  - Times were checked in Lisbon, New York and Tokyo, including the March clock change.
+- **Your call:** dots wakes itself up without asking. Gloopy needs your OK for every wake-up. A daily allowance (say, up to 5 wake-ups a day without a card) is possible if you want it.
+- Tests GL29–GL34. All 289 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Watch Gloopy's browser live, and take over (your word: "Ok you can start")
+
+- **Tools vs features (you asked):** a tool is something the AI itself calls, like `browser` or `sign_in`. Watching live and taking over is mostly an app feature for you, plus one new tool for Gloopy: `handoff`.
+- **The Browser button** on Gloopy's chat opens a live view of its browser under the bar. You see the page, its title and address, and whether Gloopy is using it. The button only shows where Gloopy has a browser (the full machine, on Fly.io).
+- **Watching:** while Gloopy works, the picture refreshes about once a second. You can't take over while it's working; stop it first.
+- **Taking over:** "Take over" makes the browser yours, and an orange edge shows it.
+  - Click on the picture to click the page. Type on it, or in the "Type into the page" box.
+  - Buttons for Enter, Tab, ⌫, scrolling and Back (handy on a phone).
+  - "Hand it back" when you're done; your next message also hands it back. Gloopy's own browser steps are refused while you have it.
+- **The new handoff tool:** for a step only you can do (a CAPTCHA, a passkey or single sign-on, a code sent to you, card details), Gloopy shows a card: "Gloopy needs you in its browser", with what to do.
+  - "Open browser" takes over at once. "Done, hand it back" answers the card, and Gloopy carries on from where the page is. "Not now" works too.
+  - When the check says a step is yours to do, Gloopy is now told to use this.
+  - Your phone gets "Gloopy needs you in its browser".
+- **Gloopy is told what happened:** after a handoff, where the page is now. If you took over on your own, its next message says you used its browser.
+- **Spending:** no Grok calls. The view only looks while it's worth it: while Gloopy works, while you use it (up to 15 minutes without a touch), and for 2 minutes after you open it. Then it pauses with a Refresh button. It never wakes Gloopy's computer when it's asleep (its browser is closed then anyway), and an unchanged page isn't sent again.
+- **Private:** nothing you type in the view is kept anywhere. Only the click, the text or the key goes to Gloopy's computer.
+- **Found in the screenshots, fixed:** a cut-off strip of the chat showed under the view. While you have control, and on a phone while the view is open, the view now takes the chat's place; × brings the chat back.
+- **Tried here:**
+  - A real run through the Worker, Gloopy's computer and a real Chrome, with a stand-in for Grok: Gloopy met a "person check" and handed over. A click on the picture landed on the box, the browser was handed back, and Gloopy carried on.
+  - In the browser: each button sends exactly its own action. The view looks about every 0.8 seconds and stops when closed. Closing it while you have control hands the browser back.
+- **Known limits (your call):**
+  - What you type into ordinary fields (not password boxes) stays visible to Gloopy if it's still on the page when Gloopy looks again, so do only the step asked.
+  - The view is a picture refreshed about once a second, not video.
+  - You can't take over while Gloopy works; stop it first.
+- Tests GL21–GL28 (GL22, GL24 and GL26 drive a real browser). All 283 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's private sign-in card and its approvals (your word: "Ok do that")
+
+- **The private sign-in card** (like Grok Bot's Secure Form and dots' private sign-in): when a site needs you signed in, Gloopy asks with a card in the chat: "Sign in to runway-shoes.example", why it needs it, then Email, Password, and "Not now" or "Sign in" (Enter works too). What you type goes straight into Gloopy's browser on that site. It isn't saved anywhere, isn't shown in the chat, and Gloopy and Grok never see it. Your message then says "Signed in to runway-shoes.example" (or "Tried to sign in…" if the site showed its sign-in form again), and Gloopy carries on.
+- **A check before each step that could change something:** before Gloopy clicks, chooses from a list, or presses Enter to send something, a separate quick call to Grok looks at the step, the page, your last messages and your rules. It answers one of three ways:
+  - **Go ahead:** the step only moves through the site, or it's plainly what you asked for and costs nothing.
+  - **Ask you first:** buying, booking, sending, posting, signing up, deleting, changing account settings, or anything it can't tell is safe.
+  - **Yours to do:** card details, password changes, CAPTCHAs. Gloopy tells you what to do instead.
+  - Looking around (opening, looking, scrolling, going back, typing without sending) is never checked.
+- **Spending:** each checked step costs one extra small Grok call (low effort, no tools, no web search). It's counted with the message's usage. Looking around costs nothing extra.
+- **The approval card:** "Gloopy wants to click the button “Place order”", the site, and why ("This would place the order and charge €72…"). Three buttons:
+  - **Allow once:** done right away by Gloopy's computer, then Gloopy is told what happened.
+  - **Always allow:** the same, and it also saves a rule ("Click the button “Place order” on runway-shoes.example") the checks follow from then on. At most 20 such rules; the oldest goes.
+  - **Deny:** not done, and Gloopy is told not to try it another way.
+  - If you allow a step but the page changed meanwhile, your OK holds for that same step once more. Your phone gets a notification for both cards ("Gloopy needs your OK", "Gloopy asks you to sign in").
+- **Safer underneath:**
+  - Gloopy's browser now runs as its own user on Gloopy's computer, driven only by Coder's service. Gloopy's own commands can't drive it past the checks or read its sign-ins.
+  - Anything typed in a password box is blanked out of everything Gloopy sees.
+  - Hidden characters are taken out of what the cards say, so a page can't make a step read as something else.
+- **Found while testing, fixed:** the cards' buttons first shared the style names of Coder's key card. Pressing "Deny" would also have sent "I declined the secret for undefined." Each card's buttons now have their own names, and in the browser each button sends exactly its answer and one message. On a phone, "Always allow" was squeezed in its button; it now has room.
+- **Tried for real here,** on a made-up shop with a stand-in for Grok, from the Worker through Gloopy's computer to a real Chrome. Gloopy asked to sign in, the sign-in went in, it went to place the order, the check asked first, and once allowed the order was placed. The password never appeared in anything sent to Grok, in the chat or in storage.
+- **Your call (design):** the "Asked you first" step shows a ✓, like any finished step. And there's no page yet to see or remove your rules, or to add "always ask first" rules yourself. The checks already follow them; a rules page could come with Gloopy's settings.
+- **Not live yet.** To try it on gofarther.dev with the real Grok: merge and deploy (your word), then a recorded test in the browser. That spends Grok calls, so it needs your OK too.
+- Tests GL15–GL20 (GL19 is the full real run); GL11 and GL12 were rewritten for the new browser service. All 275 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy's first new tool: its own browser (your word: "look at the docs of grok bot and dots and start doing the stuff, lets start with tools first")
+
+- **What both have that Gloopy didn't** (from their docs): its own browser; a private sign-in form; approvals with your own rules; schedules (and waking itself up); memory tools; pages; helpers working in parallel; handing coding to a coding agent. Only Grok Bot: images and videos, its own email address, reading X. Only dots: research on its own in the background. Connected apps stay for the end. Started with the browser.
+- **The browser:** Gloopy's own Chrome on its computer, one tool with 8 actions: open, look, click, type, press a key, choose from a list, scroll, go back. Each step gives Gloopy the page's title and address, a numbered outline of everything on the page (more reliable than clicking on a picture), and a screenshot it sees.
+- **In the chat:** each step is a plain sentence, like "Typed “red running shoes” into “Search”" or "Clicked “Under €80”", with a small screenshot under it. Several in a row read "Took 3 browser steps".
+- **Safety:** it never types into a password field (signing in is yours; a private sign-in form comes next). It opens only web pages, never the machine's own settings address. It is told never to press anything that buys, books, sends, posts, signs up or deletes without your yes.
+- **Sign-ins:** the browser has its own profile on Gloopy's machine, so a site stays signed in there. It starts again with each message.
+- **Only on the full machine image:** Chrome and Playwright are only in the full image, the one your deploys use on Fly.io. On Cloudflare's backup machines Gloopy isn't offered the browser, and it is told so.
+- **Tried for real here** with a made-up shop page: it opened the shop, searched, filtered to under €80, and refused a password field.
+- **Not yet:** watching its screen live and taking over; the private sign-in form.
+- Tests GL10–GL14 (GL11 drives a real browser); all 268 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy, piece 1 built: its chat in the Gloopy tab (your word: "copy more Grok Bot and dots")
+
+- **The Gloopy tab now opens your Gloopy's chat** instead of "Coming soon": its figure and name on top, its welcome with three ways to start, and the same message box as Coder's (pictures, model and effort, Stop).
+- **Your Gloopy is made the first time you open the tab.** One per person for now (room for more later). It isn't in Coder's chat list.
+- **Each message:** Gloopy works on its own computer (one per person, the same kind as Coder's), with its notes about you. When it finishes, the chat and its notes are saved; nothing goes to GitHub. Closing the tab doesn't stop it, as with Coder. Its notifications say "Gloopy" and open its tab.
+- **On a phone,** Gloopy's chat has the ☰ button, so you can get back to Coder (the old page had no way back).
+- **Not in Gloopy's chat:** Rewind, @ for files, and Coder's GitHub and Environment buttons.
+- **Found in the screenshots, fixed:** the chat's area first had the same name as Gloopy's drawing in the page, so the chat was drawn inside the hidden drawing and the tab's figure went blank. A test now checks that every name in the page is used once.
+- **Your call, later:** when Gloopy updates its notes, the step shows the file's path ("Edited /srv/coder-memory/gloopy-main/MEMORY.md"); it could say "Updated my notes about you" instead.
+- **Not live yet.** To try it with the real Grok: merge and deploy (your word), then I test it in the browser, recorded. That spends Grok calls, so it needs your OK too.
+- Tests GL7–GL9 (each fails on the old code); all 263 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
+## 2026-11-09: Gloopy, piece 1 started: its brain and its machine (your word: "Okay, let's start then")
+
+- **The plan you chose:** one Gloopy per person, like OpenAI's dots, with the best of xAI's Grok Bot on top, and room for more than one Gloopy later. Connected apps (Gmail, Calendar…) come at the end (your word). I read both companies' docs first.
+- **Done, the first half of piece 1 ("Gloopy chats and remembers"):**
+  - **Its instructions:** your personal assistant with its own computer. It looks things up and gives links for its facts. It never sends, posts, buys, books, deletes or changes anyone's accounts without asking you first. What it reads in web pages and emails is information, never orders. It never asks for passwords or cards in the chat.
+  - **Its tools:** commands and files on its computer, web search and page reading, question cards, a checklist, notifications. None of Coder's GitHub tools; a call to one is refused.
+  - **Its notes about you:** it keeps them itself (your name and time zone, how you like things, your rules, one dated line for each bigger job), never secrets.
+  - **How it runs:** on Coder's engine and machines, in a chat with no repository, with the whole internet. Coder's own chats are unchanged.
+- **Caught by the tests before it could break anything:** Coder's machine image copies a fixed list of files, and Gloopy's new file wasn't on it (the machine would not have started). It is now.
+- **Not reachable yet:** the Gloopy tab still says "Coming soon." Next: connecting the tab to Gloopy so you can chat with it, then screenshots for you.
+- Tests GL1–GL6 (each fails on the old code); all 260 pass, 2 skipped as before. Pushed to the branch, not merged or deployed.
+
 ## 2026-11-08: Write, second pass: all of Claude Code's Write, then copied (your words: "first of all, we gotta go look on Claude Code's write tool and see what it does and see what ours does … after we copy or use what they do, then we can actually start testing it")
 
 - **Saved as a standing rule** in owner-preferences: for each tool, first see everything Claude Code's tool does and what Coder's does, copy what Claude Code's does, and only then test it live.
@@ -2210,6 +3370,7 @@ Copied from Claude Code's docs, from Claude Code itself (its own program text, a
 - **It grows tool by tool:** as each tool passes its live test, its section is written and its badge turns to Tested.
 - **Every number on it comes from Coder's code** (100,000 characters a read, 256 KB, 2,000-pixel pictures, 20 PDF pages, and so on). Test CD248 checks them, so the page can't drift from what Coder really does. It also checks the page has no script and every link in its list goes somewhere. All 257 tests pass.
 - Live with the next merge and deploy, on your word; then tried in the browser.
+
 
 ## 2026-11-08: Read: the two small display points (your word: "Do this pls")
 

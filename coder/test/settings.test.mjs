@@ -119,7 +119,8 @@ test("CD380c the page: Settings in the gear's menu opens a dialog with the three
   assert.match(read("public/index.html"), /<button type="button" role="menuitem" id="gfSettings">Settings<\/button><button type="button" role="menuitem" id="gfConnectors">Connectors<\/button><button type="button" role="menuitem" id="gfNotify">Notifications<\/button>/);
   assert.match(read("public/app.js"), /\$\('gfSettings'\)\.addEventListener\('click', \(\) => \{ \$\('gfMenu'\)\.hidden = true; [^\n]*new CustomEvent\('gf:settings'\)\); \}\);/);
   const page = read("public/coder.js");
-  assert.match(page, /window\.addEventListener\('gf:settings', \(\) => \{ showSettings\(\); \}\);/);
+  // (Opened by the view that is showing: the page has Coder's and Gloopy's, each listening; merged 2026-11-13.)
+  assert.match(page, /window\.addEventListener\('gf:settings', \(\) => \{ if \(S\.root && S\.root\.isConnected && S\.root\.getClientRects\(\)\.length\) showSettings\(\); \}\);/);
   assert.match(page, /const BG_HOURS = \[2, 4, 8, 12, 24\], DISK_GIB = \[0, 1, 2, 5, 10, 20\], MEM_GIB = \[0, 1, 2, 4, 8\];/);
   assert.match(page, /body: JSON\.stringify\(\{ prefs: \{ \[field\]: value \} \}\)/);
   for (const words of ["Longest one may run", "Stopping one also stops what it started in the background", "Warn Coder when the disk has less than"]) assert.ok(page.includes(words), words);

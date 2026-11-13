@@ -465,7 +465,8 @@ test("CD327 the page: the mode's chip beside the model and effort, its menu like
   assert.match(page, /\{ id: 'auto', name: 'Auto', info: 'Coder handles permission decisions', icon: 'auto' \}/);
   assert.match(page, /\{ id: 'acceptEdits', name: 'Accept edits', info: 'Automatically accept all file edits', icon: 'edits' \}/);
   assert.match(page, /\{ id: 'plan', name: 'Plan', info: 'Create a plan before making changes', icon: 'plan' \}/);
-  assert.match(page, /\(S\.project \? modeHTML\(\) : ''\)/, "in the box's bottom row");
+  // (Not in Gloopy's chat, which has no permission modes: merged 2026-11-13.)
+  assert.match(page, /\(S\.project && !GLOOPY \? modeHTML\(\) : ''\)/, "in the box's bottom row");
   assert.match(page, /if \(\(e\.ctrlKey \|\| e\.metaKey\) && e\.shiftKey && !e\.altKey && \(e\.key === 'M' \|\| e\.key === 'm'\)\)/);
   assert.match(page, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/mode', \{ method: 'POST', body: JSON\.stringify\(\{ mode: m \}\) \}\)/);
   // Claude Code's choices, and the plan's.
