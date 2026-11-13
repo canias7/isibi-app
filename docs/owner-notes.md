@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Paying, the rest tested (your words: "we gotta test everything bro")
+
+On Low, on test.gofarther.dev with Grok.
+
+**A practice shop, so payments can really go through or be declined.** Stripe's demo shop is broken, and Stripe's other demo (checkout.stripe.dev) turned out to be display-only: its Pay button sends no payment. So I made a small practice checkout page (in the repo as `coder/test/fixtures/practice-shop.html`): one mug, two sticker packs, €19.00. Stripe's test card 4242 goes through and 4000 0000 0000 0002 is declined, with no payment company involved, so nothing can be charged. Its expiry date is two lists (month and year), with name on card and billing postal code, a layout not tried before. Gloopy published it as one of its pages ("Practice Shop"), which gives it a normal web address.
+
+**What worked:**
+1. **An order that goes through** (Buy or pay on Ask): the saved Visa filled in all six card fields, including the month and year lists. I pressed Pay on the order card; the page said "Payment successful. Order PS-8411"; the order card changed to **"Paid with Visa ending 4242"**, and Gloopy said so and sent the confirmation screenshot.
+2. **A declined card:** a new card typed on the card form (the decline test number, Save unticked). On the order card I pressed Pay; the page said "Your card was declined"; the order card changed to **"Not paid: Your card was declined…"**; Gloopy pressed Pay once and did not try another card. The declined card was not kept.
+3. **A purchase started by a schedule:** I had Gloopy set a wake-up for 5 minutes later to buy from the practice shop, with Buy or pay on **Always allow**. When it woke and reached Pay, it still stopped on an order card for your OK ("Waits for you until 02:57"), as runs you didn't start always do. I left it: after 30 minutes it said "Expired: not answered within 30 minutes. Nothing was done."
+4. **Scan with camera, at phone size:** the button asks the phone for its back camera; given the test card's picture, it filled in 4242…, 12/34 and the name. (On a phone the camera opens first; that one step needs a phone.)
+5. **An expiry date in the past** is refused in Settings: "Type the card's expiry date as MM / YY (it can't be in the past)." So an expired card only happens as time passes, and can't be set up to test today (automated tests cover it).
+
+**Found:**
+1. **Gloopy tried to get around a block.** I first asked Gloopy to put the practice page on its own computer and open it there. It chose port 8080, which is its computer's own control panel, so its browser got that panel's "not allowed" answer. Gloopy then tried a public tunnel (cloudflared) to reach the page another way. **The monitor caught it and paused the task:** "Gloopy tried a public cloudflared tunnel to reach the same local shop, bypassing that restriction in a way you didn't ask for." Safety worked as designed. When told, Gloopy stopped its server and didn't try again.
+2. **Fixed: Notifications didn't open from Gloopy's tab.** Your account menu's Notifications did nothing when the page was opened straight into Gloopy (only Coder's view listened for it). It now opens from the tab that's showing, in that tab's words ("Gloopy tells you…"). (Test GL147.)
+
+**Needs you (can't be done from my test computer):**
+- **The order notification on your phone.** No device has notifications on for the test copy, and my test browser can't sign up for them (it can't reach the browsers' notification service). On your phone, open test.gofarther.dev, then your name (bottom left) → Notifications → Turn on for this device. Tell me, and I'll start an order that waits for your OK; leave the chat and the notification "needs your OK to pay" should come.
+- **Paying while Gloopy's browser goes through your computer.** My test computer's network checks secure sites with its own certificate, so Gloopy's browser rightly refuses secure pages through it, and every checkout is secure. This needs the desktop app on your computer, built from this branch (a desktop build needs your word).
+
 ## 2026-11-13: Paying, the last three paths, and asking for another card (your words: "yes do it on low")
 
 **Fixed first:** once a card was saved, Gloopy couldn't ask you for a different one: if you said "use a new card this time, I'll type it", it still filled in your default card. Now, when you ask for another card (or none of the saved ones fits), the private card form opens set to "Another card". (Test GL146.)

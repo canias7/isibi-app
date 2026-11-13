@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Shop · checkout</title>
+<style>
+  body { font: 15px/1.5 system-ui, sans-serif; margin: 0; background: #f6f6f4; color: #1f1e1d; }
+  main { max-width: 560px; margin: 24px auto; background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h1 { font-size: 20px; margin: 0 0 4px; } .note { color: #6b6a66; font-size: 13px; margin: 0 0 16px; }
+  table { width: 100%; border-collapse: collapse; margin-bottom: 8px; } td { padding: 6px 0; border-bottom: 1px solid #eee; } td.r { text-align: right; }
+  tr.total td { font-weight: 700; border-bottom: 0; }
+  fieldset { border: 1px solid #e6e4df; border-radius: 10px; margin: 14px 0; padding: 10px 14px; } legend { font-weight: 600; padding: 0 4px; }
+  label { display: block; font-size: 13px; color: #4b4a46; margin: 8px 0 3px; }
+  input, select { width: 100%; box-sizing: border-box; font: inherit; padding: 8px 10px; border: 1px solid #d6d3cc; border-radius: 8px; }
+  .two { display: flex; gap: 10px; } .two > div { flex: 1; }
+  button { width: 100%; font: inherit; font-weight: 700; padding: 12px; border: 0; border-radius: 10px; background: #1f1e1d; color: #fff; cursor: pointer; margin-top: 8px; }
+  button:disabled { opacity: .6; cursor: default; }
+  #result { margin-top: 14px; padding: 12px 14px; border-radius: 10px; display: none; }
+  #result.ok { display: block; background: #ecfdf3; color: #14532d; } #result.no { display: block; background: #fff1f0; color: #9a1c13; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Practice Shop</h1>
+  <p class="note">A practice checkout for testing. No payment company is involved and nothing is charged. Stripe's test card 4242 4242 4242 4242 goes through; 4000 0000 0000 0002 is declined.</p>
+  <table>
+    <tr><td>Gloopy Mug</td><td class="r">1 × €12.00</td></tr>
+    <tr><td>Sticker pack</td><td class="r">2 × €3.50</td></tr>
+    <tr><td>Shipping</td><td class="r">Free</td></tr>
+    <tr class="total"><td>Total</td><td class="r">€19.00</td></tr>
+  </table>
+  <form id="checkout" novalidate>
+    <fieldset>
+      <legend>Shipping</legend>
+      <label for="shipName">Full name</label><input id="shipName" name="shipName" autocomplete="shipping name">
+      <label for="shipAddress">Address</label><input id="shipAddress" name="shipAddress" autocomplete="shipping address-line1">
+      <div class="two"><div><label for="shipCity">City</label><input id="shipCity" name="shipCity" autocomplete="shipping address-level2"></div>
+      <div><label for="shipZip">ZIP / postal code</label><input id="shipZip" name="shipZip" autocomplete="shipping postal-code"></div></div>
+      <label for="shipCountry">Country</label><input id="shipCountry" name="shipCountry" autocomplete="shipping country-name">
+    </fieldset>
+    <fieldset>
+      <legend>Payment</legend>
+      <label for="cardNumber">Card number</label><input id="cardNumber" name="cardnumber" inputmode="numeric" autocomplete="cc-number" placeholder="1234 1234 1234 1234">
+      <label for="cardName">Name on card</label><input id="cardName" name="cardholder" autocomplete="cc-name">
+      <div class="two">
+        <div><label for="expMonth">Expiry month</label><select id="expMonth" name="exp-month" autocomplete="cc-exp-month"><option value="">Month</option></select></div>
+        <div><label for="expYear">Expiry year</label><select id="expYear" name="exp-year" autocomplete="cc-exp-year"><option value="">Year</option></select></div>
+      </div>
+      <div class="two">
+        <div><label for="cvc">Security code (CVC)</label><input id="cvc" name="cvc" inputmode="numeric" autocomplete="cc-csc" maxlength="4"></div>
+        <div><label for="billZip">Billing postal code</label><input id="billZip" name="billZip" autocomplete="billing postal-code"></div>
+      </div>
+    </fieldset>
+    <button type="button" id="pay">Pay €19.00</button>
+  </form>
+  <div id="result" role="status"></div>
+</main>
+<script>
+  const m = document.getElementById('expMonth'), y = document.getElementById('expYear');
+  for (let i = 1; i <= 12; i++) m.add(new Option(String(i).padStart(2, '0'), String(i).padStart(2, '0')));
+  for (let i = 2026; i <= 2040; i++) y.add(new Option(String(i), String(i)));
+  const luhn = (n) => { let s = 0, d = false; for (let i = n.length - 1; i >= 0; i--) { let x = +n[i]; if (d) { x *= 2; if (x > 9) x -= 9; } s += x; d = !d; } return s % 10 === 0; };
+  const brand = (n) => /^4/.test(n) ? 'Visa' : /^5[1-5]/.test(n) ? 'Mastercard' : /^3[47]/.test(n) ? 'American Express' : 'Card';
+  document.getElementById('pay').addEventListener('click', () => {
+    const r = document.getElementById('result'), b = document.getElementById('pay');
+    const f = (id) => document.getElementById(id).value.trim();
+    const n = f('cardNumber').replace(/\D/g, '');
+    r.className = ''; r.textContent = '';
+    const missing = ['shipName', 'shipAddress', 'shipCity', 'shipZip', 'shipCountry'].filter((id) => !f(id));
+    if (missing.length) { r.className = 'no'; r.textContent = 'Please fill in the shipping details.'; return; }
+    if (!/^\d{12,19}$/.test(n) || !luhn(n)) { r.className = 'no'; r.textContent = 'Your card number is incorrect.'; return; }
+    if (!f('expMonth') || !f('expYear')) { r.className = 'no'; r.textContent = 'Please choose the expiry month and year.'; return; }
+    if (!/^\d{3,4}$/.test(f('cvc'))) { r.className = 'no'; r.textContent = "Your card's security code is incomplete."; return; }
+    b.disabled = true; b.textContent = 'Processing…';
+    setTimeout(() => {
+      b.textContent = 'Pay €19.00';
+      if (n.endsWith('0002')) { b.disabled = false; r.className = 'no'; r.textContent = 'Your card was declined. Try another card. Nothing was charged.'; return; }
+      const order = 'PS-' + String(1000 + Math.floor(Math.random() * 9000));
+      r.className = 'ok'; r.textContent = 'Payment successful. Order ' + order + ': €19.00 paid with ' + brand(n) + ' ending ' + n.slice(-4) + '. Thank you!';
+      document.getElementById('checkout').style.display = 'none';
+    }, 1500);
+  });
+</script>
+</body>
+</html>

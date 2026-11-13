@@ -270,6 +270,8 @@
     try { const reg = await navigator.serviceWorker.getRegistration('/'); return reg ? await reg.pushManager.getSubscription() : null; } catch (e) { return null; }
   }
   async function showNotifications() {
+    // Opened from the tab you're on, in its own words (live test, 2026-11-13: from Gloopy's tab it did not open at all).
+    const who = GLOOPY ? 'Gloopy' : 'Coder';
     const r = await call('/push');
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'Notifications could not be opened.'; return draw(); }
     const info = r.data;
@@ -287,14 +289,14 @@
       const local = DESKTOP_APP && 'Notification' in window;
       const localOn = local && Notification.permission === 'granted' && localNotifyOn();
       box.innerHTML = '<div class="cd-sure-title">Notifications</div>' +
-        '<div class="cd-sure-text">Like Claude Code’s: Coder tells you when a long job finishes or when you asked it to, and when it needs your answer. Never about a chat you’re looking at.</div>' +
+        '<div class="cd-sure-text">Like Claude Code’s: ' + who + ' tells you when a long job finishes or when you asked it to, and when it needs your answer. Never about a chat you’re looking at.</div>' +
         '<div class="cd-notify-device">' + (local ? (localOn ? '<span class="cd-notify-on">On in this app</span><button type="button" id="cdLocalOff">Turn off here</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>' : '<button type="button" class="cd-notify-go" id="cdLocalOn">Turn on in this app</button><span class="cd-notify-hint">The desktop app shows them while it’s open (minimized is fine).</span>')
           : !canPush() ? '<span>This browser can’t get notifications. On iPhone, add gofarther.dev to your Home Screen (Share, then Add to Home Screen) and open it from there.</span>'
           : blocked ? '<span>Notifications are blocked for gofarther.dev in this browser’s settings.</span>'
           : sub ? '<span class="cd-notify-on">On for this device</span><button type="button" id="cdNotifyOff">Turn off here</button>'
           : '<button type="button" class="cd-notify-go" id="cdNotifyOn">Turn on for this device</button>') + '</div>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushDecides"' + (info.decides ? ' checked' : '') + '><span><b>Push when Coder decides</b><br>A long job finished, or you asked to be told (“notify me when the tests finish”).</span></label>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushActions"' + (info.actions ? ' checked' : '') + '><span><b>Push when actions are required</b><br>Coder asks you something, or needs a key or your approval.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushDecides"' + (info.decides ? ' checked' : '') + '><span><b>Push when ' + who + ' decides</b><br>A long job finished, or you asked to be told (“notify me when the tests finish”).</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdPushActions"' + (info.actions ? ' checked' : '') + '><span><b>Push when actions are required</b><br>' + who + ' asks you something, or needs a key or your approval.</span></label>' +
         (note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
         '<div class="cd-sure-row">' + (info.devices || localOn ? '<button type="button" id="cdPushTest">Send a test</button>' : '') + '<button type="button" class="cd-notify-done" id="cdNotifyDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
@@ -304,7 +306,7 @@
       $('cdPushActions').onchange = (e) => sw('actions', e.currentTarget);
       if ($('cdPushTest')) $('cdPushTest').onclick = async () => {
         // In the desktop app, a test shows here too; the server's goes to the devices turned on elsewhere.
-        if (localOn) showLocal({ id: '', title: 'Coder', body: 'Notifications are on in this app.' });
+        if (localOn) showLocal({ id: '', title: who, body: 'Notifications are on in this app.' });
         const x = info.devices ? await call('/push/test', { method: 'POST', body: '{}' }) : null;
         note = localOn || (x && x.status === 200 && x.data.sent) ? 'Sent. It should arrive in a few seconds.' : 'Nothing was sent: no device took it.';
         paint();
@@ -318,13 +320,13 @@
           const j = sub.toJSON();
           const x = await call('/push/subscribe', { method: 'POST', body: JSON.stringify({ endpoint: j.endpoint, keys: j.keys }) });
           if (x.status !== 200) { note = (x.data && x.data.error) || 'This device could not be added.'; await sub.unsubscribe().catch(() => {}); sub = null; }
-          else { info.devices = x.data.devices; note = 'On. Coder will notify this device.'; }
+          else { info.devices = x.data.devices; note = 'On. ' + who + ' will notify this device.'; }
         } catch (e) { note = 'This device could not be added: ' + String((e && e.message) || e).slice(0, 120); }
         paint();
       };
       if ($('cdLocalOn')) $('cdLocalOn').onclick = async () => {
         if ((await Notification.requestPermission()) !== 'granted') { note = 'Notifications were not allowed.'; return paint(); }
-        setLocalNotify(true); S.pushInfo = info; startDesktopWatch(); note = 'On. This app will show Coder’s notifications while it’s open.'; paint();
+        setLocalNotify(true); S.pushInfo = info; startDesktopWatch(); note = 'On. This app will show ' + who + '’s notifications while it’s open.'; paint();
       };
       if ($('cdLocalOff')) $('cdLocalOff').onclick = () => { setLocalNotify(false); stopDesktopWatch(); note = 'Off in this app.'; paint(); };
       if ($('cdNotifyOff')) $('cdNotifyOff').onclick = async () => {
@@ -3001,8 +3003,9 @@
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu) { S.reviewMenu = false; draw(); } }); }
       // Escape closes a file's preview (the audit, 2026-11-10).
       if (GLOOPY && !S.viewCloser) { S.viewCloser = true; document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && S.view) { S.view = null; draw(); } }); }
-      // The notifications panel and GitHub's return are Coder's (one of each on the page).
-      if (!S.notifyHook && !GLOOPY) { S.notifyHook = true; window.addEventListener('gf:notify', () => { showNotifications(); }); }
+      // The notifications panel opens from the tab that's showing (live test, 2026-11-13: opened straight into Gloopy, the
+      // menu's Notifications did nothing, as only Coder's view listened). GitHub's return is Coder's.
+      if (!S.notifyHook) { S.notifyHook = true; window.addEventListener('gf:notify', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showNotifications(); }); }
       const q = new URLSearchParams(location.search);
       if (q.has('github') && !GLOOPY) {
         const g = q.get('github');

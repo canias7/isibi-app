@@ -7949,3 +7949,23 @@ test("GL146 (2026-11-13) found while checking what was left to test of paying (o
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.ok(ui.includes("const use = S.payUse && S.payUse.id === e.id ? S.payUse.use : e.another ? '' : (first ? first.id : '');"));
 });
+
+test("GL147 (2026-11-13) found live (test.gofarther.dev, while testing the order notification): opened straight into Gloopy, the menu's Notifications did nothing, as only Coder's view listened for it. It now opens from the tab that's showing, in that tab's words (\"Gloopy tells you…\", \"Push when Gloopy decides\")", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  // Each view listens (Coder's and Gloopy's); only the one showing opens it.
+  const hook = /if \(!S\.notifyHook\) \{ S\.notifyHook = true; window\.addEventListener\('gf:notify', \(\) => \{ (if \(S\.root && S\.root\.isConnected && S\.root\.getClientRects\(\)\.length\)) showNotifications\(\); \}\); \}/.exec(ui);
+  assert.ok(hook, "both views listen");
+  assert.ok(!/if \(!S\.notifyHook && !GLOOPY\)/.test(ui), "not Coder's only any more");
+  const opens = (root) => new Function("S", "return !!(" + hook[1].slice(4, -1) + ");")({ root });
+  assert.equal(opens({ isConnected: true, getClientRects: () => [{}] }), true, "the tab that's showing");
+  assert.equal(opens({ isConnected: true, getClientRects: () => [] }), false, "the hidden one");
+  assert.equal(opens({ isConnected: false, getClientRects: () => [{}] }), false);
+  assert.equal(opens(null), false, "a view not drawn yet");
+  // Its words are the tab's.
+  const a = ui.indexOf("  async function showNotifications() {"), b = ui.indexOf("\n  }\n", a);
+  const dialog = ui.slice(a, b);
+  assert.ok(dialog.includes("const who = GLOOPY ? 'Gloopy' : 'Coder';"));
+  for (const bit of ["'<div class=\"cd-sure-text\">Like Claude Code’s: ' + who + ' tells you when", "<b>Push when ' + who + ' decides</b>", "' + who + ' asks you something", "note = 'On. ' + who + ' will notify this device.';", "title: who, body: 'Notifications are on in this app.'"]) assert.ok(dialog.includes(bit), bit);
+  assert.ok(!/Coder tells you|Push when Coder decides|On\. Coder will notify/.test(dialog), "no fixed Coder words left");
+});
