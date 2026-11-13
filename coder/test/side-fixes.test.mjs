@@ -165,3 +165,51 @@ test("CD570 the page leaves terminal color codes out where it shows output and C
   for (const f of ["container/coder-hooks.mjs", "container/coder-agent.mjs"]) assert.doesNotMatch(read(f), /noColor|\\u001b\\\[/i, f);
 });
 
+
+// FOUND IN THE LIVE TEST OF THE 8 SIDE PATHS (deploy 176; the owner: "yea fix it, merge and deploy then test it on low").
+test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code 2.1.323 gives its model (the hook's own message, \"Permission denied by hook\" when it has none), not the words for the owner's own No; the step says the hook said no, marked for the page; nothing runs, no card, the turn goes on", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const H = await import("../container/coder-hooks.mjs");
+  const P = await import("../container/coder-perms.mjs");
+  assert.equal(A.HOOK_DENIED, "Permission denied by hook");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const run = async (hookOut) => {
+    const steps = [say("", [call("bash", { command: "npm install left-pad" }, "b1")]), say("ok")];
+    let n = 0;
+    const events = [], seen = [], ran = [], cards = [];
+    await A.runCoder({
+      send: async (req) => { seen.push(req); return steps[Math.min(n++, steps.length - 1)]; },
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) return { code: 0, output: hookOut + "\n" + mark[0] + "\n" };
+        if (x.hook === true) return { code: 0, output: "" };
+        ran.push(String(x.command));
+        return { code: 0, output: "" };
+      },
+      emit: (e) => events.push(e), sleep: async () => {},
+      here: () => "/work/shop", root: "/work/shop", home: "/home/dev", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
+      ask: async (pid) => { cards.push(pid); return { choice: "yes" }; },
+    }, { text: "go", mode: "acceptEdits", hooks: H.hooksFrom({ hooks: { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "check.sh" }] }] } }, "settings").list });
+    const told = seen.flatMap((r) => r.messages).find((m) => m.role === "tool" && m.tool_call_id === "b1");
+    return { told: told && told.content, result: events.find((e) => e.type === "result" && e.id === "b1"), ran: ran.filter((c) => /left-pad/.test(c)), cards: cards.length, calls: seen.length };
+  };
+  const deny = (message) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", ...(message ? { message } : {}) } } });
+  // Its own message: given to Coder as it is (Claude Code's tool result is the denial's message), never the owner's No.
+  let t = await run(deny("PS permission hook said no to: npm install left-pad"));
+  assert.equal(t.told, "PS permission hook said no to: npm install left-pad");
+  assert.doesNotMatch(t.told, /owner doesn't want to proceed/);
+  assert.deepEqual([t.result.output, t.result.ran, t.result.hookDenied, t.result.denied], ["Not run: your PermissionRequest hook said no: PS permission hook said no to: npm install left-pad", false, true, undefined]);
+  // (Coder goes on: a second call, then here a third, Coder's own setup-script note for the `npm install` it asked for.)
+  assert.deepEqual([t.ran, t.cards, t.calls >= 2], [[], 0, true], "nothing ran, no card, and Coder went on");
+  // No message: Claude Code's own words.
+  t = await run(deny(""));
+  assert.equal(t.told, "Permission denied by hook");
+  assert.equal(t.result.output, "Not run: your PermissionRequest hook said no.");
+  // (The owner's own No with a note keeps Claude Code's words for it.)
+  assert.ok(P.REJECTED_SAID.startsWith("The owner doesn't want to proceed with this tool use."));
+  // The page marks the step "✕ denied by hook", one that never ran.
+  const ui = read("public/coder.js");
+  assert.match(ui, /hookBlockOf\(r\) \? 'blocked by hook' : r\.hookDenied === true \? 'denied by hook' : r\.denied === true \? 'refused'/);
+  assert.match(ui, /r\.hookBlocked === true \|\| r\.hookDenied === true \|\| r\.denied === true/);
+});

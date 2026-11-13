@@ -984,7 +984,7 @@
   // A STEP THAT NEVER RAN: the server marks its result `ran: false` (Bash docs pass 9, part F); a chat from before is known
   // by the marks it had then (not run, blocked by a hook, refused, blocked by auto mode).
   function neverRan(r) {
-    return !!r && (r.ran === false || (typeof r.notRun === 'string' && !!r.notRun) || r.hookBlocked === true || r.denied === true || !!autoBlockOf(r));
+    return !!r && (r.ran === false || (typeof r.notRun === 'string' && !!r.notRun) || r.hookBlocked === true || r.hookDenied === true || r.denied === true || !!autoBlockOf(r));
   }
   function stepAutoBlock(r) {
     const why = autoBlockOf(r);
@@ -999,7 +999,7 @@
     const tail = state === 'run' ? '<span class="cd-st"><span class="cd-spin" aria-label="working"></span></span>'
       // (Not run because auto mode's check had no usable answer: dim, not an error, as Claude Code shows it; Bash docs pass 8.)
       : state === 'bad' && r && typeof r.notRun === 'string' && r.notRun ? '<span class="cd-st cd-st-notrun">not run</span>'
-      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.denied === true ? 'refused' : r.ran === false ? 'not run' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
+      : state === 'bad' ? '<span class="cd-st cd-st-bad">✕ ' + (r.timedOut ? 'timed out' : autoBlockOf(r) ? 'blocked' : hookBlockOf(r) ? 'blocked by hook' : r.hookDenied === true ? 'denied by hook' : r.denied === true ? 'refused' : r.ran === false ? 'not run' : e.tool ? 'error' : 'exit ' + esc(r.code)) + '</span>'
       : state === 'bg' ? '<span class="cd-st cd-st-bg"><i></i>running</span>'
       : state === 'bgend' ? (/^(exit|ended)/.test(String((S.bgEnded[r.job] || {}).label || '')) ? '<span class="cd-st cd-st-bad">✕ ' + esc(S.bgEnded[r.job].label) + '</span>' : '<span class="cd-st cd-st-stopped">' + esc((S.bgEnded[r.job] || {}).label || 'stopped') + '</span>')
       : state === 'ok' ? '<span class="cd-st cd-st-ok" aria-label="done">✓</span>'

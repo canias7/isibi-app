@@ -11,6 +11,43 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: A PermissionRequest hook's no, in Claude Code's words (your words: "yea fix it, merge and deploy then test it on low")
+
+When one of your PermissionRequest hooks says no to a command:
+- **What Grok is told** is now what Claude Code 2.1.323 tells its AI: just the hook's own message, or "Permission denied by hook" if the hook gave none. Before, Grok got the words for your own No ("The owner doesn't want to proceed with this tool use…") with the hook's message after them.
+- **The step** now reads "Not run: your PermissionRequest hook said no: <its message>" and is marked "✕ denied by hook". Before, it read "Not run: you said no."
+- As before: nothing runs, no card is shown, and Coder carries on (a hook that asks to stop everything still stops it).
+
+Tests: 1 new (`CD571`: with a message, with none, nothing run, no card, the page's mark) and 1 older one updated; all 605 pass. Next: merge, deploy, live test on Low.
+
+**Seen while testing it, not changed (your call):** Coder has its own note to Grok that suggests adding an install command to the environment's setup script ("this job ran `npm install`, which the environment's setup script does not do…"). It counts every install command Grok *asked* for, including ones that were refused and never ran, so the note can say "ran" about something that didn't. It's older than today.
+
+## 2026-11-13: The 8 side paths, tried live on Low (your words: "yea test them all on low")
+
+On gofarther.dev (deploy 176) with Grok on Low, no video, one throwaway chat (deleted after). Coder didn't answer my `!` commands during the test (its `CODER_RESPOND_TO_BASH_COMMANDS=false` setting), so those cost nothing. Your environment's variables and your hooks are back exactly as they were (checked against saved copies). No branch was made.
+
+1. **A PowerShell folder change carries over: works.** `Set-Location cd-test`, then the next command started in `…/cd-test`. It still did after switching Coder's shell from zsh to bash, and `Set-Location ..` carried over too. (My first try used `.git`, which isn't a folder in the project on Coder's machine, so I redid it with a folder made for the test.)
+2. **A PowerShell command in the background: works.** Grok's PowerShell tool ran a loop in the background (it asked first, as Claude Code does for a script block). It finished with exit code 0, printing all 8 lines, `bg-ps-done` and its folder, and Coder woke Grok to say it had ended.
+3. **"Respect the execution policy": works.** Read from PowerShell's own command line: normally `pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command`, and with `CODER_POWERSHELL_RESPECT_EXECUTION_POLICY` set, `pwsh -NoProfile -NonInteractive -Command`. Never `-EncodedCommand`. (On Linux, `Get-ExecutionPolicy` always says "Unrestricted", so it can't show this.)
+4. **zsh: works, and so does bash.** Coder's commands run in the machine's zsh unless you choose otherwise, as in Claude Code's cloud, so every PowerShell test today ran under zsh. With `CODER_SHELL=bash`, PowerShell was started by bash with the same `TERM=xterm-256color NO_COLOR=1 width=80`.
+5. **Your own TERM is kept: works.** With `TERM=vt100` in the environment, PowerShell saw `TERM=vt100` (width 80).
+6. **Color codes hidden: works** in the background-command panel ("bg red words 1/2/3"), a monitor's lines ("mon green words / mon plain words") and Coder's note for a failing hook ("Failed with non-blocking status code: note hook says hello in yellow"). 0 escape characters on the page each time. Red error lines only ever carry Coder's own messages, never a program's output, so there was nothing to try there.
+7. **The hook box cut-off: works.** A hook's 30-line message showed 20 lines and "…"; Grok was given all 30.
+8. **A PowerShell PermissionRequest hook: works.** It read the request and said no, so `curl -sI https://example.com` didn't run, and Grok was told "PS permission hook said no to: curl -sI https://example.com".
+
+**Found, not changed yet (your call):** when a PermissionRequest hook says no, Coder's step reads "Not run: you said no.", though you didn't; the hook did. Grok is also told the words for your own No ("The owner doesn't want to proceed with this tool use…") with the hook's message after them. Claude Code 2.1.323 (I read its code) gives its AI just the hook's message, or "Permission denied by hook" when there is none, marked as the hook's decision.
+
+Cost: a few cents of Grok on Low (5 messages and one wake-up).
+
+## 2026-11-13: Bash docs check 11 (your words: "does our batch tool matches claude code docs ?")
+
+I downloaded all 203 of Claude Code's docs pages again (about 08:40) and compared each with this morning's copies (pass 10, 05:01). 9 pages changed and none of the changes are about the bash tool: a status-line setting was removed (`subagentStatusLine`, also named on the hooks page), plugin pages were reworded, and an error message about plugin files changed. There's no new Claude Code version. Nothing changed in Coder.
+
+Where that leaves the bash tool against the docs:
+- Pass 10 found nothing new to copy. Its two open items (auto mode's checker on read-only commands, and Rewind's "Restore code" leaving files only a command changed) are both done and tested live today.
+- Different on purpose: "Send now" for queued messages (Ctrl+Enter) is terminal-only in Claude Code, and its web version has only the ✕, as Coder does. PowerShell gets a width for its tables on Coder's machine; Claude Code's own cloud machine has none. The page hides color codes, where Claude Code's terminal shows them as colors; the AI is given the same text in both.
+- Outside the bash tool, not part of this check: hook events Coder doesn't have (ConfigChange, InstructionsLoaded, Setup, Worktree, Elicitation and others), a "Recently blocked" list, and re-running a job cut off by a machine restart.
+
 ## 2026-11-13: Color codes hidden on the page; the hook box keeps its lines (your words: "yea fix both, merge and deploy then test it on low")
 
 1. **The page hides terminal color codes.** Codes like `[31;1m` and `[0m` no longer show as text. This covers a step's output and its last lines while it runs, monitors, background commands, Coder's notes and errors, and Grok's own text. What Grok is given stays as it was, the same as Claude Code (which gives its model a hook's output as it is). Cards that ask you to approve something still show their text exactly, so nothing can hide there.
