@@ -953,11 +953,14 @@
     S.comments = []; S.pics = []; S.attach = []; S.mention = null;
     // Your message hands Gloopy's browser back to it (its machine does so as the turn starts).
     if (S.web && S.web.control) S.web.control = false;
+    // ITS OWN ID (live test, 2026-11-12): a browser sends a message again when its connection drops; Coder's Worker then
+    // knows the second copy for the same message, and never starts it twice.
+    const mid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
     S.sending = true; S.error = ''; S.draft = ''; S.unsent = text;
     const base = S.events.length;
     S.events.push({ type: 'user', text: text || (att.length ? '(see the attached file' + (att.length > 1 ? 's' : '') + ')' : pics.length ? '(see the picture)' : '(comments on the changes)'), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}), ...(att.length ? { files: att.map((f) => ({ id: f.id, name: f.name, size: f.size })) } : {}) });
     draw(true);
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
     S.sending = false; S.unsent = '';
     if (r.status !== 200) {
       S.events = S.events.slice(0, base);
@@ -1310,7 +1313,10 @@
     // A CARD STILL OPEN (Gloopy's): no message of the owner's after it, not marked expired, and its time not up (a card
     // from a run the owner did not start waits 30 minutes for them; the audit, 2026-11-10). A card that expired says so.
     const expiredOf = (i, e) => S.events.slice(i + 1).find((x) => x.type === 'expired' && x.id === e.id) || (Number(e.expires) > 0 && Date.now() > Number(e.expires) ? { text: 'Expired: not answered within 30 minutes. Nothing was done.' } : null);
-    const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e);
+    // A CARD YOU ANSWERED IS CLOSED (live test, 2026-11-12: its answer was taken, the message after it failed, and the card
+    // looked open again): in Gloopy's chat, only the one Gloopy is waiting on is open.
+    const waitedOn = (e) => !GLOOPY || !e.id || !S.project || (S.project.pending && S.project.pending.id === e.id);
+    const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e) && waitedOn(e);
     const until = (i, e) => (cardOpen(i, e) && Number(e.expires) > 0 ? '<p class="cd-card-until">Waits for you until ' + esc(new Date(Number(e.expires)).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })) + '</p>' : '');
     const gone = (i, e) => { const x = !S.events.slice(i + 1).some((y) => y.type === 'user') && expiredOf(i, e); return x ? '<p class="cd-card-expired">' + esc(x.text || 'Expired.') + '</p>' : ''; };
     // Redrawn when the soonest open card's time is up.

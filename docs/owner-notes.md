@@ -11,6 +11,27 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Paying (tool 3): first live tests, and two fixes (your words: "Ok lets start testing that tool", "U do it")
+
+**Tried live on test.gofarther.dev,** on Stripe's test-mode demo store with test card numbers only (no real money):
+- Gloopy filled in the shipping details, then asked for a card on the private card form ("Pay €43.94 on stripe-payments-demo.appspot.com"). The form said where the card goes: the page's card fields, which come from js.stripe.com.
+- **Typing the 4242 test card on the form:** it went into the page's card fields. The number never showed in the chat and never reached Gloopy. With "save" ticked, it was kept as "Visa ending 4242".
+- **The next time,** the form offered "Visa ending 4242, 12/34" first, with "Another card" below. Typing only the security code filled it in.
+- Gloopy pressed Pay once each time and never pressed it again.
+- The demo store itself never finished: it stayed on "Processing…" both times. That's the store's own server, not Gloopy. Gloopy said so and sent a screenshot.
+
+**Fixed:**
+1. **Gloopy thought the card area was blocked.** Its screenshots cover card fields with grey boxes, so it never sees a card. It took the boxes for something in the way and gave up instead of asking for the card. It's now told what they are. (Test GL53.)
+2. **After the saved card was used, Gloopy didn't carry on.** The card went in, but the message after it ("Gave my card…") came back "Gloopy is still working on the last message". The failed start then put the chat back over the start before it, so the turn was lost, and I had to tell Gloopy "go on". Now:
+   - **One message starts at a time.** The chat is marked as starting before the slow part (summarizing a long chat), so another message sent meanwhile is told at once that Gloopy is busy.
+   - **The same message sent twice starts once.** A browser sends a message again when its connection drops; both copies now get the same answer.
+   - **A start that fails puts the chat back only if nothing newer happened.**
+   - **Gloopy's computer takes the same start twice as one**, instead of saying "busy".
+   - **A card you've answered stays closed,** even if the message after it fails. Before, it looked open again.
+   - (Test GL137.) Coder's own chats start messages the same way and could hit the same race. They're not changed yet.
+
+**Still to try:** "Buy or pay" set to Ask and to Never; a declined test card; asking Gloopy what the card box shows.
+
 ## 2026-11-12: Gloopy, tool by tool: where we are
 
 **Done (2 of the list):**

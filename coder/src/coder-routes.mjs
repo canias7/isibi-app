@@ -317,6 +317,57 @@ export const STALE_MS = 15 * 60 * 1000;
  * 8 minutes: a machine being made or updated first fetches Coder's image (up to FLY_PULL_MS, 5 minutes), then sets up.
  */
 export const START_GRACE_MS = 8 * 60 * 1000;
+/**
+ * A MESSAGE STILL STARTING (live test, 2026-11-12: after a card's answer, Gloopy's next turn never began; the message came
+ * back "still working" and the failed start put the chat back over the turn's start). Gloopy's chat is marked as starting
+ * before the slow part of a start (a long chat's summary, up to CODER_CALL_MS), so another message meanwhile is told
+ * Gloopy is busy, and the same message sent twice (a browser sends it again when its connection drops) waits for the
+ * first. A start not over in this long (its request was cut off) is undone.
+ */
+export const STARTING_MAX_MS = 6 * 60 * 1000;
+/** The page's id for one message: the same in both copies of a message sent twice. */
+const cleanMid = (x) => (typeof x === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(x) ? x : "");
+/** The start a chat is marked with while one is under way (its turn's own: an old mark left on the chat is no start). */
+export function startingOf(meta) {
+  const s = meta && meta.status === "running" && meta.starting && typeof meta.starting === "object" ? meta.starting : null;
+  return s && typeof s.id === "string" && s.turn === meta.turn ? s : null;
+}
+/**
+ * THE CHAT MARKED AS STARTING message `mid`. `held()`: still this start's (nobody stopped it or undid it meanwhile).
+ * `release()`: the chat as it was before, only while it is still this start's, never over what came after.
+ */
+async function claimStart(bucket, uid, meta, metaKey, mid) {
+  const id = "t" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
+  const at = Date.now();
+  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at } });
+  const ours = (cur) => { const s = startingOf(cur); return !!s && s.id === id; };
+  return {
+    id,
+    held: async () => ours(await getJson(bucket, metaKey, null)),
+    release: async () => {
+      const cur = await getJson(bucket, metaKey, null);
+      if (!ours(cur) && !(cur && cur.status === "running" && cur.start === id)) return false;
+      await saveMeta(bucket, uid, { ...meta, starting: null });
+      return true;
+    },
+  };
+}
+/**
+ * THE SAME MESSAGE AGAIN (`mid`, the page's id for it): while its first copy is starting, this one waits for it; once it
+ * has started, this one answers as it did (`done`). Otherwise the chat as it is now (`meta`), to go on as usual (the first
+ * copy's start failed: this one tries).
+ */
+async function sameMessage(bucket, metaKey, meta, mid, pause = (ms) => new Promise((ok) => setTimeout(ok, ms))) {
+  let cur = meta;
+  for (const until = Date.now() + STARTING_MAX_MS; mid && cur; ) {
+    const s = startingOf(cur);
+    if (!s && cur.mid === mid) return { done: json({ ok: true, project: cur }) };
+    if (!s || s.mid !== mid || Date.now() > until) break;
+    await pause(1000);
+    cur = await getJson(bucket, metaKey, null);
+  }
+  return { meta: cur || meta };
+}
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
 export function capHistory(messages, max = HISTORY_MAX) { return capHistoryInfo(messages, max).messages; }
@@ -1398,7 +1449,13 @@ export async function handleCoder(request, env, ctx, deps) {
  * as in Coder's chats. `g`: what handleCoder knows of the request.
  */
 async function gloopyMessage(g) {
-  const { request, env, bucket, uid, user, id, meta, metaKey, post, summarizeFn } = g;
+  // A start that broke half-way (an error here, before Gloopy's machine took the turn) puts the chat back as it was.
+  const h = { ...g, claim: null };
+  try { return await startGloopy(h); } catch (e) { if (h.claim) await h.claim.release().catch(() => {}); throw e; }
+}
+async function startGloopy(g) {
+  const { request, env, bucket, uid, user, id, metaKey, post, summarizeFn } = g;
+  let meta = g.meta;
   let body = {}; try { body = await request.json(); } catch { body = {}; }
   const text = String(body.text || "").trim();
   const pics = checkImages(body.images);
@@ -1413,6 +1470,9 @@ async function gloopyMessage(g) {
   if (attached.length !== asked.length) return json({ error: "One of those files is gone: attach it again." }, 400);
   if (!text && !pics.images.length && !attached.length) return json({ error: "write something first" }, 400);
   if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
+  // THE SAME MESSAGE AGAIN (live test, 2026-11-12): answered as its first copy was, never started twice.
+  const mid = cleanMid(body.mid);
+  if (mid) { const same = await sameMessage(bucket, metaKey, meta, mid); if (same.done) return same.done; meta = same.meta; }
   if (meta.status === "running") return json({ error: "Gloopy is still working on the last message" }, 409);
   const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(text);
   if (compact && !pics.images.length) {
@@ -1467,6 +1527,11 @@ async function gloopyMessage(g) {
     await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
     return json({ ok: true, project: meta, events: [ev], handled: true });
   }
+  // MARKED AS STARTING FIRST (live test, 2026-11-12): what follows can take a while (a long chat's summary), and another
+  // message meanwhile is told Gloopy is busy. Any way this start ends without Gloopy's machine taking it, the chat is put
+  // back as it was (only while it is still this start's).
+  const claim = await claimStart(bucket, uid, meta, metaKey, mid);
+  g.claim = claim;
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   // A CARD STILL WAITING WHEN A RUN THE OWNER DID NOT START BEGINS (the audit, 2026-11-10; the every-minute check waits
   // for a card up to 30 minutes first): it is over, marked so in the chat, and Gloopy hears it was not answered.
@@ -1511,24 +1576,30 @@ async function gloopyMessage(g) {
   const carried = !sched && (body.card === true || (meta.waiting === "question" && !meta.pending)) ? oldRun : null;
   if (oldRun && !carried) await endRun(bucket, uid, oldRun.id, "failed", sched ? "It was still waiting for you when Gloopy's next run began." : meta.pending ? "Its card closed: you sent a new message instead." : "You sent a new message instead.");
   const run = sched && sched.id ? { id: sched.id } : carried;
-  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, pending: null, note: "", grant: "", used: false, ran: [], marks, bg: !!sched, denied, run, ...(tz ? { tz } : {}) };
+  const next = { ...meta, turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, pending: null, note: "", grant: "", used: false, ran: [], marks, bg: !!sched, denied, run, ...(tz ? { tz } : {}) };
   const rules = await readRules(bucket, uid);
   // GLOOPY'S KEYS (2026-11-09, as Coder's): its machine gets where they apply and this job's pass for the Worker's egress,
   // which adds them; their values are kept sealed here to hide them in its chat.
   const keys = await readEnvData(env, bucket, uid, GLOOPY_ENV);
   const keyValues = keys.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]).filter(Boolean);
   const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
+  // NOT THIS START'S ANY MORE: Gloopy was stopped meanwhile (from another page), or another start took the chat at the same
+  // moment. That one's answer when it is this same message (its other copy); otherwise this one didn't start.
+  if (!(await claim.held())) {
+    const same = await sameMessage(bucket, metaKey, await getJson(bucket, metaKey, null), mid);
+    return same.done || json({ error: "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it." }, 409);
+  }
   if (keyValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, keyValues) }));
   await saveMeta(bucket, uid, next);
   await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
   const notStarted = async () => {
-    await saveMeta(bucket, uid, meta);
+    await claim.release();
     if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {});
     await dropLive(bucket, uid, id).catch(() => {});
   };
   let r;
   try {
-    r = await post("/turn", { agent: "gloopy", background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginList(await readLogins(env, bucket, uid)).map(({ at, ...x }) => x), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
+    r = await post("/turn", { agent: "gloopy", start: claim.id, background: !!sched, denied, ownerZone: tz, secrets: machineKeyRules(keys.secrets), egress, rules: Array.isArray(rules) ? rules : [], sites: await readSites(bucket, uid), monitor: (await readOptions(bucket, uid)).monitor, route: (await readOptions(bucket, uid)).route, grant: typeof meta.grant === "string" ? meta.grant : "", project: id, live, model: await modelAccess(env, uid, id, meta.turn + 1), cwd: typeof meta.cwd === "string" ? meta.cwd : "", text: text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), shown: sched ? (sched.event ? "Event: “" + sched.name + "” · its web address was called" : sched.test ? "Test run: “" + sched.name + "” · " + sched.when : sched.wake ? "Back as planned: “" + sched.name + "”" : "Scheduled: “" + sched.name + "” · " + sched.when) : text || (attached.length ? "(see the attached file" + (attached.length > 1 ? "s" : "") + ")" : "(see the picture)"), opening: sched ? "note" : "user", attached: attached.map((x) => ({ id: x.id, name: x.name, size: x.size })), files: filesForTurn(await readFiles(bucket, uid)), schedules: schedulesForTurn(await readSchedules(bucket, uid)), schedulesPaused: !!(await readSchedules(bucket, uid)).paused, permissions: await readPermissions(bucket, uid), pages: pagesForTurn(await readPages(bucket, uid)), savedLogins: loginList(await readLogins(env, bucket, uid)).map(({ at, ...x }) => x), savedCards: (await readCards(env, bucket, uid)).map(cardLabel), webhooks: webhooksForTurn(env, await readWebhooks(bucket, uid)), images: pics.images, ...(marked ? { marked } : {}), ...(taught ? { taught } : {}), messages, memory, effort: pick.effort, away: messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0 });
   } catch (e) {
     await notStarted();
     return json({ error: "Gloopy's computer could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1539,6 +1610,8 @@ async function gloopyMessage(g) {
     let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
     return json({ error: r.status === 409 ? "Gloopy is still working on the last message" : "Gloopy's computer could not start (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
   }
+  // Gloopy's machine has the turn now: nothing undoes this start any more.
+  g.claim = null;
   // Stopped while its machine was starting (the chat was freed meanwhile): the machine stops it too.
   const nowMeta = await getJson(bucket, metaKey, null);
   if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
@@ -1563,6 +1636,19 @@ async function gloopyState(g) {
     if (!was || was.id !== id || Date.now() - Number(was.at) > 15_000) await putJson(bucket, seenKey(uid), { id, at: Date.now() }).catch(() => {});
   }
   const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+  // A MESSAGE STILL STARTING (claimStart, live test 2026-11-12): nothing to show yet, and Gloopy's machine is not asked (it
+  // knows only the turn before). A start that never finished (its request was cut off half-way) is undone after
+  // STARTING_MAX_MS, and the owner is told to send the message again.
+  const starting = startingOf(meta);
+  if (starting) {
+    if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+    const back = { ...meta, status: typeof starting.was === "string" && starting.was !== "running" ? starting.was : "idle", starting: null, at: Date.now() };
+    const ev = { at: Date.now(), type: "error", text: "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again." };
+    const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
+    await saveMeta(bucket, uid, back);
+    return json({ ok: true, events: [ev], next: since, running: false, project: back });
+  }
   let s = null;
   try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
   const unwatch = () => (typeof bucket.delete === "function" ? bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {}) : null);

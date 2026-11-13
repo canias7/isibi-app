@@ -3111,7 +3111,7 @@ test("GL68 (2026-11-10) runs the owner did not start, on Coder's Worker: the mac
   // The page: a card's time, an expired card, and what a held request sends.
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
-  assert.match(ui, /const cardOpen = \(i, e\) => !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\) && !expiredOf\(i, e\);/);
+  assert.match(ui, /const cardOpen = \(i, e\) => !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\) && !expiredOf\(i, e\) && waitedOn\(e\);/);
   for (const t of ["approval", "signin", "pay", "handoff"]) assert.match(ui, new RegExp("else if \\(e\\.type === '" + t + "'\\) \\{[\\s\\S]{0,700}const live = cardOpen\\(i, e\\);[\\s\\S]{0,4000}until\\(i, e\\) \\+ gone\\(i, e\\)"), t);
   assert.match(ui, /'<p class="cd-card-until">Waits for you until '/);
   // (Since the second docs check, 2026-11-10, also what a browser step's form holds: GL95.)
@@ -7139,4 +7139,171 @@ test("GL136 (2026-11-12) side by side with Grok Bot (owner: \"yes go ahead\"): a
     const typed = await hub.fill({ site: ip.address + ":" + port, passRef: pass, password: "typed-PASSWORD-1" });
     assert.equal(typed.ok, true);
   } finally { site.close(); (await import("node:child_process")).spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]); }
+});
+
+test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after the card's answer, Gloopy's next turn never began (the message after it came back \"still working\" from Gloopy's computer, and that failed start put the chat back over the start before it). One message starts at a time: the chat is marked as starting before a long chat's summary; the same message sent twice (a browser sends it again when its connection drops) is started once; another message meanwhile is told Gloopy is busy; a start stopped or cut off half-way puts the chat back, never over a newer one; Gloopy's computer takes the same start twice as one; a card you answered stays closed", async () => {
+  const { handleCoder, GLOOPY_ID, STARTING_MAX_MS, startingOf } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  // Gloopy's computer, as a stand-in: the turns it is handed, as the real one takes them (one at a time; the same start twice is one).
+  const handed = [], asked = [];
+  let running = null, busyFor = null;
+  const machine = { fetch: async (req) => {
+    const u = new URL(req.url), body = req.method === "POST" ? await req.json().catch(() => ({})) : {};
+    asked.push(u.pathname);
+    if (u.pathname === "/turn") {
+      handed.push(body);
+      if (busyFor) { await busyFor(body); return Response.json({ error: "busy" }, { status: 409 }); }
+      if (running) return running.start && running.start === body.start ? Response.json({ ok: true, again: true }) : Response.json({ error: "busy" }, { status: 409 });
+      running = { start: body.start };
+      return Response.json({ ok: true });
+    }
+    if (u.pathname === "/state") return Response.json({ running: !!running, events: [], next: 0 });
+    if (u.pathname === "/stop") { running = null; return Response.json({ ok: true, running: false }); }
+    return Response.json({ error: "not here" }, { status: 404 });
+  } };
+  // A long chat's summary, made when the test says so.
+  const sums = [];
+  let gate = null;
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }), container: () => machine,
+    summarize: async (m) => { sums.push(m.length); if (gate) await gate.promise; return "The owner and Gloopy talked about a test order."; } };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const send = (o) => go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify(o) });
+  const metaNow = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/meta.json"));
+  const setMeta = (m) => bucket.m.set("coder/u1/" + GLOOPY_ID + "/meta.json", JSON.stringify(m));
+  const open = () => { let ok; const promise = new Promise((r) => { ok = r; }); return { promise, ok }; };
+  const until = async (f) => { for (let i = 0; i < 400; i++) { if (f()) return; await new Promise((r) => setTimeout(r, 10)); } throw new Error("never happened"); };
+  const longChat = () => { const big = "x".repeat(60 * 1024); const m = []; for (let i = 0; i < 6; i++) m.push({ role: "user", content: "Order " + i + " " + big }, { role: "assistant", content: "Done " + i }); bucket.m.set("coder/u1/" + GLOOPY_ID + "/messages.json", JSON.stringify(m)); };
+  const notes = () => JSON.parse(bucket.m.get("coder/u1/" + GLOOPY_ID + "/events.json") || "[]").filter((e) => /^Compacted:/.test(e.text || ""));
+  const idle = () => { const m = metaNow(); running = null; setMeta({ ...m, status: "idle", saved: m.turn, starting: null }); };
+  await go("gloopy");
+  const started = metaNow();
+  assert.equal(started.status, "idle");
+
+  // 1. THE SAME MESSAGE TWICE, the second while the first waits for the summary: started once, both answered as started.
+  longChat(); gate = open();
+  const first = send({ mid: "mCARD0001", text: "Gave my card (Visa ending 4242) to pay €25.96 on shop.example", card: true });
+  await until(() => startingOf(metaNow()));
+  assert.equal(metaNow().status, "running", "marked as starting before the summary");
+  assert.equal(metaNow().starting.mid, "mCARD0001");
+  // Meanwhile the chat says Gloopy is working, and Gloopy's computer isn't asked (it knows only the turn before).
+  const look = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json();
+  assert.deepEqual([look.running, look.events], [true, []]);
+  assert.ok(!asked.includes("/state"), "its computer was not asked");
+  const again = send({ mid: "mCARD0001", text: "Gave my card (Visa ending 4242) to pay €25.96 on shop.example", card: true });
+  // Another message meanwhile: Gloopy is busy, at once (no summary, nothing handed to its computer).
+  const other = await send({ mid: "mOTHER001", text: "And what time is it?" });
+  assert.equal(other.status, 409);
+  assert.equal((await other.json()).error, "Gloopy is still working on the last message");
+  gate.ok();
+  const [a, b] = await Promise.all([first, again]);
+  assert.deepEqual([a.status, b.status], [200, 200]);
+  const pa = (await a.json()).project, pb = (await b.json()).project;
+  assert.deepEqual([pa.status, pb.status, pa.turn, pb.turn], ["running", "running", started.turn + 1, started.turn + 1], "both copies answer with the one turn");
+  assert.equal(handed.length, 1, "Gloopy's computer was handed the turn once");
+  assert.equal(sums.length, 1, "the chat was summarized once");
+  assert.equal(notes().length, 1);
+  const now1 = metaNow();
+  assert.equal(now1.mid, "mCARD0001");
+  assert.equal(now1.start, handed[0].start, "the start's id goes to Gloopy's computer");
+  assert.equal(startingOf(now1), null);
+  // The same message once more, after it started (its answer was lost on the way): answered, not started again.
+  const late = await send({ mid: "mCARD0001", text: "Gave my card (Visa ending 4242) to pay €25.96 on shop.example", card: true });
+  assert.equal(late.status, 200);
+  assert.equal((await late.json()).project.turn, started.turn + 1);
+  assert.equal(handed.length, 1);
+
+  // Both copies at the very same moment (neither had seen the other's mark): started once, both answered as started.
+  idle();
+  const n0 = handed.length;
+  const twin = { mid: "mTWIN00001", text: "Check the order status." };
+  const [t1, t2] = await Promise.all([send(twin), send(twin)]);
+  assert.deepEqual([t1.status, t2.status], [200, 200]);
+  assert.equal(handed.length, n0 + 1, "handed to Gloopy's computer once");
+  // Two different messages at the very same moment: one starts, the other is told it didn't.
+  idle();
+  const n1 = handed.length;
+  const duo = await Promise.all([send({ mid: "mDUO000001", text: "One." }), send({ mid: "mDUO000002", text: "Two." })]);
+  assert.deepEqual(duo.map((r) => r.status).sort(), [200, 409]);
+  assert.equal(handed.length, n1 + 1);
+
+  // 2. STOPPED FROM ANOTHER PAGE while the message was starting: not started, and the chat stays stopped.
+  idle(); longChat(); gate = open();
+  const n2 = handed.length;
+  const stopMe = send({ mid: "mSTOPME01", text: "Book the table." });
+  await until(() => startingOf(metaNow()));
+  assert.equal((await go("projects/" + GLOOPY_ID + "/stop", { method: "POST", body: "{}" })).status, 200);
+  assert.equal(metaNow().status, "idle", "freed by Stop");
+  gate.ok();
+  const stopped = await stopMe;
+  assert.equal(stopped.status, 409);
+  assert.equal((await stopped.json()).error, "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it.");
+  assert.equal(handed.length, n2, "nothing handed to Gloopy's computer");
+  assert.equal(metaNow().status, "idle");
+  gate = null;
+
+  // 3. A FAILED START NEVER PUTS THE CHAT BACK OVER A NEWER ONE (what happened live): Gloopy's computer says busy, and
+  // meanwhile another start took the chat; it is left as that start made it.
+  idle();
+  busyFor = async () => { const m = metaNow(); setMeta({ ...m, status: "running", turn: m.turn + 5, start: "tNEWERSTART0001", starting: null }); };
+  const lost = await send({ mid: "mBUSY0001", text: "Go on." });
+  assert.equal(lost.status, 409);
+  assert.equal((await lost.json()).error, "Gloopy is still working on the last message");
+  assert.equal(metaNow().start, "tNEWERSTART0001", "the newer start's chat is kept");
+  assert.equal(metaNow().status, "running");
+  busyFor = null;
+  // A failed start of its own puts the chat back as it was, with nothing left marked.
+  idle();
+  const before = metaNow();
+  busyFor = async () => {};
+  const refused = await send({ mid: "mBUSY0002", text: "Go on." });
+  assert.equal(refused.status, 409);
+  assert.deepEqual({ ...metaNow(), starting: null }, { ...before, starting: null }, "as it was");
+  assert.equal(startingOf(metaNow()), null);
+  busyFor = null;
+
+  // 4. AN ERROR HALF-WAY (the summary broke): the chat is put back, not left "working".
+  idle(); longChat();
+  deps.summarize = async () => { throw new Error("summary service down"); };
+  await assert.rejects(send({ mid: "mBROKEN01", text: "Hello?" }), /summary service down/);
+  assert.equal(metaNow().status, "idle");
+  assert.equal(startingOf(metaNow()), null);
+  deps.summarize = async () => "A summary.";
+
+  // 5. A START CUT OFF HALF-WAY (its request ended, and nothing put the chat back): undone after STARTING_MAX_MS, and
+  // the owner is told to send the message again.
+  idle();
+  const m5 = metaNow(), long = Date.now() - STARTING_MAX_MS - 1000;
+  setMeta({ ...m5, status: "running", at: long, starting: { id: "tCUTOFF00001", mid: "mCUT00001", turn: m5.turn, was: "idle", at: long } });
+  const fresh = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json();
+  assert.equal(fresh.running, false);
+  assert.equal(fresh.project.status, "idle");
+  assert.equal(fresh.events[0].text, "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again.");
+  assert.equal(startingOf(metaNow()), null);
+  // An old mark left on the chat is no start (its turn is past).
+  setMeta({ ...metaNow(), status: "running", turn: m5.turn + 1, starting: { id: "tOLD0000001", mid: "mOLD00001", turn: m5.turn, was: "idle", at: Date.now() } });
+  assert.equal(startingOf(metaNow()), null);
+
+  // 6. GLOOPY'S COMPUTER takes the same start twice as one start, and another start while one runs is "busy".
+  const { createApp } = await import("../container/server.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "gl137-rw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl137-rg-")), memRoot: await mkdtemp(join(tmpdir(), "gl137-rm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl137-rb-")) };
+  const hold = open();
+  const srv = http.createServer(createApp({ ...roots, send: async () => { await hold.promise; return say("Done."); } }));
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const turn = (start) => fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ agent: "gloopy", project: GLOOPY_ID, text: "Hi", messages: [], ...(start ? { start } : {}) }) });
+  try {
+    assert.equal((await turn("tSAME0000001")).status, 200);
+    const twice = await turn("tSAME0000001");
+    assert.equal(twice.status, 200);
+    assert.deepEqual(await twice.json(), { ok: true, again: true });
+    assert.equal((await turn("tOTHER000001")).status, 409, "another start while it runs");
+    assert.equal((await turn("")).status, 409, "a start without an id while it runs");
+  } finally { hold.ok(); srv.close(); }
+
+  // 7. THE PAGE: each message with its own id; in Gloopy's chat, a card is open only while Gloopy waits on it.
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /const mid = 'm' \+ Date\.now\(\)\.toString\(36\) \+ Math\.random\(\)\.toString\(36\)\.slice\(2, 10\);\n    S\.sending = true;[\s\S]{0,900}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', \{ method: 'POST', body: JSON\.stringify\(\{ mid, text,/);
+  assert.match(ui, /const waitedOn = \(e\) => !GLOOPY \|\| !e\.id \|\| !S\.project \|\| \(S\.project\.pending && S\.project\.pending\.id === e\.id\);/);
 });

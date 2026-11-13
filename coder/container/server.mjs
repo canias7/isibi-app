@@ -1753,12 +1753,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       body = { ...body, setup: { script: "", vars: {}, network: { mode: "full" } }, extra: [], secrets: Array.isArray(body.secrets) ? body.secrets : [] };
     }
     const cur = turns.get(project);
-    if (cur && cur.running) return [409, { error: "busy" }];
+    // THE SAME START TWICE (live test, 2026-11-12): a request from Coder's Worker can reach this machine again when its
+    // first answer was lost on the way (it is then sent once more); the turn already running is that start's own.
+    const start = typeof body.start === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.start) ? body.start : "";
+    if (cur && cur.running) return start && cur.start === start ? [200, { ok: true, again: true }] : [409, { error: "busy" }];
     pending.delete(project);
     // The owner's message hands the browser back to Gloopy.
     if (body.agent === "gloopy") ownerControl = null;
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
-    const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now(), writes: { check: null } };
+    const t = { running: true, stop: false, events: [], result: null, bg: new Set(), started: Date.now(), writes: { check: null }, start };
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
     const live = liveFetch ? liveTarget(body.live) : null;
