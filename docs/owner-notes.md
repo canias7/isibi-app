@@ -13,12 +13,22 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-13: Testing what was never tried live (your words: "test what u are missing to test")
 
-Three things were never tried live. Your answers: yes to a test switch for the gate, and yes to changing the test account's email for the email test.
-- **The network gate failing to start.** Nothing in a chat can make it fail (it runs outside the sandbox), so I added a test switch: the variable `CODER_TEST_NETWORK_GATE_FAIL=1` in an environment makes the gate fail to start for that chat's messages. It only ever takes network away, and only your environment can set it (not a repository's settings). Test CD560; all 594 of Coder's tests pass.
-- **The email check with a quote mark in the address.** For the test, the made-up address `o'brien@example.com` (no mailbox) is added to Coder's allowed users, and your test account's sign-in email is set to it in Supabase. Both go back after the test.
-- **Claude Code's own low-memory stop**, run on my side with Haiku.
+Three things were never tried live. Your answers: yes to a test switch for the gate, and yes to changing the test account's email for the email test. Deploy 165 carried both (Coder's tests passed on GitHub first). No video; two throwaway chats on canias7/testingforclaude, both deleted after.
 
-Results below when done.
+**1. The network gate failing to start: works, live.** Nothing in a chat can make the gate fail (it runs outside the sandbox), so I added a test switch: the variable `CODER_TEST_NETWORK_GATE_FAIL=1` in an environment makes the gate fail to start for that chat's messages. It only ever takes network away, and only your environment can set it, not a repository's settings (test CD560). With your test environment on Limited:
+- Switch on: the chat said in red "The network settings could not be set up on this machine (switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL); commands have no internet in this message." `curl https://registry.npmjs.org/` failed: "curl: (6) Could not resolve host: registry.npmjs.org".
+- Switch off again: the same command got "http 200".
+The switch stays in Coder for later tests; your environment's variables are back exactly as before (checked).
+
+**2. The email check with a quote mark in the address: works, live.** Your test account's sign-in email was set in Supabase to the made-up `o'brien@example.com` (no mailbox, nothing sent), and that address was added to Coder's allowed users. Commands pointed at 127.0.0.1 port 9, where nothing listens:
+- `-H "From: o'brien@example.com"` with a User-Agent: refused, in Claude Code's words ("Permission to use Bash denied by plugin cc-plugin-privacy: This call was refused: it holds the account's email address and what looks like a User-Agent setting. …").
+- `-H 'From: o'"'"'brien@example.com'`, where the shell's quoting means the text never holds `o'brien` as written: refused too. This is the case Claude Code 2.1.323 added.
+- Another address (`someone-else@example.com`): not refused; it asked as usual, ran, and couldn't connect.
+Put back right after: the test account's email (from a copy saved in its own record, never printed), and the made-up address taken off the allowed users (deploy 167).
+
+**3. Claude Code's own low-memory stop**, on my side with Haiku: results in the next entry.
+
+Cost: about 4 cents of Grok (3 messages).
 
 ## 2026-11-13: Your `!` command when the sandbox is down, live (your words: "yea merge and deploy")
 
