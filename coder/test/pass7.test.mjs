@@ -217,9 +217,9 @@ test("CD402 PowerShell in Coder's loop: pwsh's parse on the machine (once a job)
   t = await job(ps(EXP), { extra: PS_ON, parse: () => expParse(), checker: true, verdict: () => '{"decision":"block","rule":"Irreversible Local Destruction","reason":"deletes a file"}' });
   assert.equal(t.checks.length, 1);
   assert.deepEqual(t.ran, []);
-  // A reading command: no check.
+  // A reading command: checked too (the owner, 2026-11-13: Claude Code's cloud review holds read-only commands), then run.
   t = await job(ps("Get-ChildItem src"), { extra: PS_ON, checker: true });
-  assert.deepEqual([t.checks.length, t.ran.length], [0, 1]);
+  assert.deepEqual([t.checks.length, t.ran.length], [1, 1]);
   // Remove-Item on the home folder: refused, in Auto too, with Claude Code's words.
   t = await job(ps("Remove-Item -Recurse -Force ~"), { extra: PS_ON, checker: true });
   assert.equal(t.told("p1"), "Remove-Item on system path '~' is blocked. This path is protected from removal.");

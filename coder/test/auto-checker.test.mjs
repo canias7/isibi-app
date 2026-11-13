@@ -61,13 +61,19 @@ test("CD369 Auto: a command that is not read-only is judged by the checker first
   assert.ok(b.r.usage === undefined || JSON.stringify(b.r).includes("100") || true);
 });
 
-test("CD370 Auto: read-only commands, narrow allow rules and Coder's own every-mode checks never reach the checker; broad allow rules are dropped (Claude Code: \"On entering auto mode, broad allow rules that grant arbitrary code execution are dropped\")", async () => {
+test("CD370 Auto: narrow allow rules and Coder's own every-mode checks never reach the checker; read-only commands do (since 2026-11-13, Claude Code's cloud review); broad allow rules are dropped (Claude Code: \"On entering auto mode, broad allow rules that grant arbitrary code execution are dropped\")", async () => {
   const C = await import("../container/coder-checker.mjs");
+  // (Read-only ones wait for the checker as in Claude Code's cloud sessions, where its review runs on the server: "read-only
+  // and sandboxed shell commands wait for that review and are blocked if it flags them"; the owner, 2026-11-13.)
   for (const command of ["git status", "ls -la", "cat /etc/hostname", "grep -rn cart src"]) {
     const j = await job([say("", [call("bash", { command }, "b1")]), say("ok")]);
-    assert.equal(j.checks.length, 0, command);
+    assert.equal(j.checks.length, 1, command);
+    assert.match(j.checks[0].messages[1].content, new RegExp("THE ACTION TO JUDGE:\\nbash: " + command.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&")));
     assert.deepEqual(j.ran, [command]);
   }
+  const flagged = await job([say("", [call("bash", { command: "cat .env" }, "b1")]), say("ok")], { verdict: () => '{"decision":"block","rule":"Credential Exploration","reason":"reads a secrets file"}' });
+  assert.deepEqual(flagged.ran, [], "a read-only command the checker flags never runs");
+  assert.equal(flagged.results("b1")[0].output, "Blocked by auto mode · [Credential Exploration] reads a secrets file");
   const narrow = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { rules: { allow: ["Bash(npm test *)"] } });
   assert.equal(narrow.checks.length, 0, "a narrow allow rule approves it");
   for (const rule of ["Bash", "Bash(*)", "Bash(python3 *)", "Bash(npm run *)", "Bash(npx *)", "Bash(node:*)"]) assert.equal(C.droppedInAuto(rule), true, rule);

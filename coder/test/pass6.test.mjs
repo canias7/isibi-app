@@ -682,7 +682,9 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   t = await job([say("", [call("powershell", { command: "Remove-Item build", description: "Clean" }, "p1")]), say("ok")], { extra: on, checker: true });
   assert.match(t.checks[0].messages[1].content, /THE ACTION TO JUDGE:\npowershell: Remove-Item build/);
   t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1")]), say("ok")], { extra: on, checker: true });
-  assert.equal(t.checks.length, 0, "read-only: no check");
+  assert.equal(t.checks.length, 1, "read-only: checked too, as Claude Code's cloud review holds it (the owner, 2026-11-13)");
+  t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1")]), say("ok")], { extra: on, checker: true, rules: { allow: ["PowerShell(Get-ChildItem)"], ask: [], deny: [] } });
+  assert.equal(t.checks.length, 0, "approved in full by the owner's allow rule: no check");
   // Start-Sleep blocked in the foreground.
   t = await job([say("", [call("powershell", { command: "Start-Sleep 30", description: "Wait" }, "p1")]), say("ok")], { extra: on });
   assert.match(t.told("p1"), /^Blocked: standalone Start-Sleep 30\. To wait for a condition, use monitor with an until-loop \(e\.g\. `until <check>; do sleep 2; done` \u2014 monitor runs bash\)\./);

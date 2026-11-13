@@ -65,14 +65,14 @@ async function job(steps, { mode = "auto", rules = null, autoMode = null, denyIn
   return { r, events, seen, checks, ran, cards, told };
 }
 
-test("CD386b in Auto, the owner's rules go to every check, and classifyAllShell sends a command a narrow allow rule covers to the checker too (never a read-only one)", async () => {
+test("CD386b in Auto, the owner's rules go to every check, and classifyAllShell sends a command a narrow allow rule covers to the checker too (a read-only one goes there anyway, since 2026-11-13)", async () => {
   let t = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { rules: { allow: ["Bash(npm test)"] } });
   assert.deepEqual([t.checks.length, t.ran], [0, ["npm test"]], "a narrow allow rule: no check");
   t = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { rules: { allow: ["Bash(npm test)"] }, autoMode: { classifyAllShell: true, soft_deny: ["$defaults", "[Tests] Never run the tests on Fridays"] } });
   assert.equal(t.checks.length, 1, "classifyAllShell: checked anyway");
   assert.match(t.checks[0].messages[0].content, /- \[Tests\] Never run the tests on Fridays\n/);
   t = await job([say("", [call("bash", { command: "ls -la" }, "b1")]), say("ok")], { autoMode: { classifyAllShell: true } });
-  assert.equal(t.checks.length, 0, "a read-only command is no shell command the checker needs");
+  assert.equal(t.checks.length, 1, "a read-only command waits for the checker as in Claude Code's cloud review (the owner, 2026-11-13)");
   // The owner's lists reach the page-fetch check too.
   t = await job([say("", [call("web_fetch", { url: "https://unknown.example.net/x", prompt: "read it" }, "f1")]), say("ok")], { autoMode: { hard_deny: ["Never fetch from unknown.example.net"] }, verdict: () => '{"decision":"block","rule":"Never fetch from unknown.example.net","reason":"the owner said so"}' });
   assert.match(t.checks[0].messages[0].content, /HARD BLOCK [^\n]*\n- Never fetch from unknown\.example\.net\n/);

@@ -186,7 +186,8 @@ test("CD168 the page: Rewind's choices like Claude Code's (the code ones only wh
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /const choices = \[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),\n\s+\['sumfrom', 'Summarize from here'\], \.\.\.\(first \? \[\] : \[\['sumupto', 'Summarize up to here'\]\]\)\];/);
-  assert.match(ui, /const changed = \(S\.project\.commits \|\| \[\]\)\.some\(\(c\) => Number\(c\.turn\) >= turn\);/);
+  // (Since 2026-11-13 only a later job that changed a file Coder's file tools changed counts: codeToRestore, rewind-restore.test.mjs.)
+  assert.match(ui, /const commits = S\.project\.commits \|\| \[\];\n\s+const changed = codeToRestore\(commits, turn\);/);
   assert.match(ui, /body = \{ turn, summarize: pick === 'sumfrom' \? 'from' : 'upto', focus \};/);
   assert.match(ui, /if \(\(pick === 'both' \|\| pick === 'chat' \|\| pick === 'sumfrom'\) && said && !S\.draft\) S\.draft = said;/);
   assert.doesNotMatch(ui, /r\.data\.compacted/, "no special case: the job's own events come as a message's do");

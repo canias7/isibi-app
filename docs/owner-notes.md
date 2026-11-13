@@ -11,6 +11,25 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The two left from pass 10, done (your words: "yea do those 2 things merge and deploy then test it")
+
+**1. In Auto, the checker now looks at read-only commands too.** Before, a command that only reads (`ls`, `cat`, `git status`) ran in Auto without the second check. Claude Code's cloud sessions check those too: "read-only and sandboxed shell commands wait for that review and are blocked if it flags them". I read Claude Code 2.1.323's own program to copy it exactly: it holds a command for the check whenever any part of it was allowed only for being read-only ("Auto mode held this command for the server-side classifier to review"), for the bash, PowerShell and Monitor tools. So now:
+- A read-only command in Auto goes to the checker first; if the checker blocks it, it doesn't run (for example `cat .env`).
+- A command your allow rules approve in full (every part), or an exact rule for the whole command, still skips the check, as in Claude Code.
+- A job started from GitHub with Auto mode turned off still runs read-only commands without a check (Claude Code's "default" mode has no check).
+- Cost: one more small Grok call for each read-only command in Auto.
+
+**2. Rewind's "Restore code" now leaves files that only a command changed.** Before, it undid whole jobs, so a file a command made or changed went back too. Claude Code's checkpoints only track what its own file tools change: "A file that only Bash commands changed isn't tracked and stays as it is". Now:
+- Each job remembers which files Coder's write and edit tools changed.
+- "Restore code" puts those files back as they were before your message (a file first made later is removed). A command's later change to one of those files is undone too, as in Claude Code ("Once Claude has edited a file with its file editing tools … /rewind undoes changes that Bash commands make to that file afterward").
+- Files only commands touched stay as they are.
+- The code choices only show when a later job changed such a file; otherwise the box says "Only commands changed files after this message, and those stay as they are, so only the chat can go back."
+- A link or a file with a second name (hard link) is skipped with Claude Code's warning: "Restored the code, but skipped N files: …", naming them.
+- It's one new commit on the branch with the chat's link, never a force push. Coder is told which files went back.
+- Chats with jobs from before today still undo whole jobs, as before (their jobs have no list of files).
+
+Tests: the old tests that expected read-only commands to skip the checker now expect the check (5 of them), and `test/rewind-restore.test.mjs` adds 5 more, one of them with real git (a file the tools changed goes back, a command's file stays, links skipped, pushed with the chat's link). The live test with Grok comes next.
+
 ## 2026-11-13: Bash docs pass 10: what Claude Code's docs have that Coder's bash tool doesn't (your words: "now go look on the claude code docs for the batch tool and see what we missing from them")
 
 I downloaded all 203 of Claude Code's docs pages again and compared each with the copy from pass 9 (2026-11-11). 58 pages changed, almost all outside the bash tool (gateways, Bedrock, the desktop app, plugins). Nothing changed in Coder.
