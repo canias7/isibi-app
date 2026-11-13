@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: All 3 fixes tried live on Low (deploy 174)
+
+On gofarther.dev with Grok on Low, no video. Four throwaway chats plus the GitHub job's chat, all deleted after; your test settings back exactly as they were.
+
+**1. PowerShell** (tool and `!` turned on for that chat only):
+- `!Get-ChildItem` printed the whole table: the "Directory:" line, the column names (UnixMode, User, Group, LastWriteTime, Size, Name) and the row for README.md.
+- `!Get-Item nope-not-here`: "Get-Item: Cannot find path '…/nope-not-here' because it does not exist.", exit 1. Plain words, no CLIXML.
+- `!bash -c 'exit 3'` came back as exit 3; `!param([string]$who = 'world') "hello $who"` printed "hello world".
+- What PowerShell sees now: `TERM=xterm-256color NO_COLOR=1 PYTHONIOENCODING=utf-8:surrogateescape width=80`.
+- Grok's PowerShell tool ran `Get-ChildItem`, got the table, and answered "It listed 1 item: README.md." (Before: "(PowerShell completed with no output)".)
+
+**2. Rewind in a read-only chat** (octocat/Hello-World, after the write tool made `rw/ro.txt`): the box says "It is undone with a new commit kept on Coder's machine (you can't push to this repository, so nothing goes to GitHub)." The choices are as before.
+
+**3. A job from GitHub with Auto mode off** (`@coder` comment on canias7/testingforclaude#19, with "Turn off Auto mode" on for the test account during the step, then off again): `git status --short` ran; `touch gh-auto-off-2.txt` was refused. Grok was told Claude Code's own words ("Permission to use Bash has been denied. IMPORTANT: …"), with no checker in them, and 0 checker calls were made. The chat step says "Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub." and shows "refused".
+
+Cost: a few cents of Grok on Low (about 11 messages). No new test branches (nothing was pushed). Issue #19 stays open, like the earlier test issues.
+
 ## 2026-11-13: PowerShell tables, the real cause (found in the live test on Low, after deploy 173)
 
 The first fix (copying Claude Code's `SetShouldExit` ending) went live, and the tables were still empty on Low: `!Get-ChildItem` gave "(no output)", `| Out-String` only the "Directory:" line, and Grok's PowerShell tool "(PowerShell completed with no output)". The exit codes were right (exit 3 came back as 3, a failing cmdlet as 1) and `param(...)` commands ran.
