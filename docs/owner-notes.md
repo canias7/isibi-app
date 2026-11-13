@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Claude Code 2.1.323 against Coder's bash tool (your words: "Yes do one")
+
+A fresh check. I read Claude Code's changelog for 2.1.323 (about 300 lines; 2.1.322 had 4) and its program, then tried the cases on both sides: Claude Code with Haiku in throwaway folders, and Coder's own checks from main. Nothing is changed yet.
+
+**Differences (Claude Code, then Coder):**
+1. **A deny rule dodged by joining sudo's flags.** With a deny rule for `touch`, Claude Code denies `sudo -nu root touch …`. Coder misses the rule: it asks in Accept edits, and in Auto it runs. Coder catches the 18 other wrapper forms I tried (`sudo`, `env`, `nice`, `timeout`, `nohup`, `xargs`, …).
+2. **An allow rule that names a variable with a wildcard,** `Bash(NODE_ENV*)`: Claude Code now asks for `NODE_ENV=prod node …`. Coder allows it.
+3. **A new warning for a `*` in a variable's value,** like `Bash(PORT=* npm run dev)`: "… has a * in a variable's value. A * also matches spaces, so this rule can also approve a different command that has npm later in the line, without a prompt. Give the variable an exact value instead." Coder says nothing.
+4. **Writes into `.git` or `.claude` from a command:** Claude Code asks every time, whatever the rules (tried with an Edit rule for the file and an exact Bash rule), and 2.1.323 stopped offering "don't ask again" there. Coder offers it, and the saved rule then approves the next one.
+5. **From older versions (found in the last tests):** Auto's 2-minute question for a dangerous delete (2.1.281); the setting that asks about more `-c` scripts that delete (2.1.299); and Claude Code now stops rather than run commands without its sandbox when its sandbox setting is broken (Coder fell back quietly after the full wipe).
+
+**The same in both (tried):** `Bash(ls*)` covers other `ls…` programs; an exact sudo rule doesn't cover the same command with its flags spelled differently; `Bash(sudo -nu root:*)` allows what follows it; the `lsof` options that run without asking (the same list; `+c 15` and `-i :80` run in both); a `cat > file <<EOF` command is shown as a command, never as "Read 1 file".
+
+**Not checked:** changes the notes don't describe enough to try (an `rm` judged from the wrong folder, "missed part of a command"); the terminal, Windows and macOS items; Claude Code's own sandbox (Coder has its own); plugins and sign-in; and Code Mode (a new, experimental way for Claude to call its tools by writing JavaScript, not the bash tool itself).
+
+Cost: about 1 cent of Haiku, no Grok.
+
 ## 2026-11-13: The email check's new words, live (your words: "Yes merge and deploy")
 
 Merged and deployed (deploy 160; Coder's tests passed on GitHub first). No video. One throwaway chat in Auto with your test account's address, commands pointed at 127.0.0.1 port 9 (nothing listens):
