@@ -121,7 +121,7 @@ export const HANDOFF_TOOL = Object.freeze({ type: "function", function: {
   parameters: { type: "object", properties: {
     task: { type: "string", description: "what the owner should do in your browser, in a few words" },
     reason: { type: "string", description: "one sentence: why you need them for it" },
-    signs_in: { type: "boolean", description: "true when the step signs the owner in to the site (single sign-on such as \"Sign in with Google\", or approving a sign-in on their phone): the site is then listed in their Settings → Browser, where they can sign you out of it" },
+    signs_in: { type: "boolean", description: "true when the step signs the owner in to the site (single sign-on such as \"Sign in with Google\", or approving a sign-in on their phone): the site is then listed in their Settings (Computer → Browser), where they can sign you out of it" },
   }, required: ["task", "reason"] },
 } });
 

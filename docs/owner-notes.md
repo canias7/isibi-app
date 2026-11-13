@@ -19,7 +19,7 @@ log (81,000 lines) is in git history.
 
 **Fixed:**
 1. **Captchas are always yours.** The handoff tool said "a CAPTCHA you cannot get past", as if Gloopy might try one first; its rules said a captcha is always yours. Both now say: always yours, never try.
-2. **A sign-in you do on a handoff card is remembered.** Signing Gloopy in with Google (single sign-on) on a handoff card didn't list the site in Settings → Browser, so you couldn't sign Gloopy out of it there. Now Gloopy marks such a step, and once you're done the site is listed ("You signed in yourself").
+2. **A sign-in you do on a handoff card is remembered.** Signing Gloopy in with Google (single sign-on) on a handoff card didn't list the site in Settings → Computer → Browser, so you couldn't sign Gloopy out of it there. Now Gloopy marks such a step, and once you're done the site is listed ("You signed in yourself").
 (Test GL148.)
 
 **Not done (your call):** dots can text you a link (needs a paid texting service); Grok Bot waits about 3 minutes before alerting your phone while its computer app is open (Gloopy alerts at once, never about a chat you're looking at).
@@ -28,7 +28,13 @@ log (81,000 lines) is in git history.
 
 **Found in the live tests (on Low):**
 - Asked to finish the practice order, Gloopy didn't press the bank's button itself: it handed the step to you, with the reason ("only you can do that step").
-- **Fixed: Take over on the card did nothing you could use.** When the card came with the browser view closed, pressing Take over gave you control (the top button said "Browser · You"), then put the browser straight back into the card, so there was nothing to click. Now Take over (and the Browser button) opens the view and it stays open. (Test GL125.)
+- **Fixed: Take over on the card did nothing you could use.** When the card came with the browser view closed, pressing Take over gave you control (the top button said "Browser · You"), then put the browser straight back into the card, so there was nothing to click. Now Take over (and the Browser button) opens the view and it stays open. (Test GL125.) Tried again after the fix: the view opened and stayed.
+- I pressed the bank's button in Gloopy's browser and handed it back; Gloopy looked at the page and said order PS-2001 (€9.00) is paid.
+- Asked to sign in to the practice shop ("approve this sign-in on your phone"), Gloopy handed it to you and marked it as a sign-in. Once done, Settings → Computer → Browser listed test.gofarther.dev, "You signed in yourself", with Sign out, and Gloopy said you're signed in as Jenny Rosen.
+- **Fixed: "Done, hand it back" on that sign-in said "No sign-in is waiting."** My change from this morning (remembering sign-ins done on a handoff card) gave the card the same mark the sign-in card uses, so the page answered the wrong card. ("I'm done" on the card itself worked.) The handoff's mark has its own name now, and the page goes by the card's kind. (Test GL149.)
+- The texts that say where signed-in sites are listed now say Settings → Computer → Browser (where it really is).
+- **QR code:** asked to link your phone, Gloopy handed you the QR code (it shows live in the card, so a phone can scan it from the screen). I pressed "I'm done" without scanning: Gloopy saw the page still waiting and asked once more ("scan it from this live view"). I pressed Skip: "The phone was not linked… I stopped there and did not try another way."
+- **"Press and hold to show you're a person":** Gloopy didn't try it; it handed it to you ("that check is yours"). Skip: "I couldn't get you past the check… I stopped there and did not try another way."
 
 ## 2026-11-13: Paying, the rest tested (your words: "we gotta test everything bro")
 

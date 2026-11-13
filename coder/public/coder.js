@@ -2115,7 +2115,10 @@
     const ho = webHandoff();
     webQuiet(true);
     if (ho) {
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/' + (ho.signin ? 'signin' : 'handoff'), { method: 'POST', body: JSON.stringify(ho.signin ? { id: ho.id, tookOver: true } : { id: ho.id, done: true }) });
+      // (By the card's kind: a hand-off that signs you in is still a hand-off. Found live, 2026-11-13: one marked as a
+      // sign-in was answered as a sign-in card, "No sign-in is waiting.")
+      const asSignin = ho.kind === 'signin';
+      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/' + (asSignin ? 'signin' : 'handoff'), { method: 'POST', body: JSON.stringify(asSignin ? { id: ho.id, tookOver: true } : { id: ho.id, done: true }) });
       webQuiet(false);
       if (r.status !== 200) { w.msg = (r.data && r.data.error) || 'Your answer could not be sent.'; draw(); return webTick(); }
       if (r.data && r.data.project) S.project = r.data.project;

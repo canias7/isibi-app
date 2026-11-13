@@ -1743,10 +1743,10 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
         reply("asked the owner to do this in your browser: " + task + ". Your turn ends here; the next message says how it went and where the page is now.");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you handed your browser to the owner first" });
         // A STEP THAT SIGNS THE OWNER IN (single sign-on, live check 2026-11-13): kept in their list of sites Gloopy is signed
-        // in to (Settings → Browser), where they can sign it out, as the sign-in card's are.
+        // in to (Settings → Computer → Browser), where they can sign it out, as the sign-in card's are.
         const signsIn = args.signs_in === true;
-        emit({ type: "handoff", id, task, reason: plain(scrub(String(args.reason || ""))).slice(0, 300), site, url: where.url || "", ...(signsIn ? { signin: true } : {}) });
-        handoffRequest = { id, task, site, url: where.url || "", ...(signsIn ? { signin: true } : {}) };
+        emit({ type: "handoff", id, task, reason: plain(scrub(String(args.reason || ""))).slice(0, 300), site, url: where.url || "", ...(signsIn ? { signsIn: true } : {}) });
+        handoffRequest = { id, task, site, url: where.url || "", ...(signsIn ? { signsIn: true } : {}) };
         return end("done", { summary: lastSaid || "asked the owner to take over the browser: " + task });
       } else if (RUN_TOOLS[c.name]) {
         // A FILE OR WEB TOOL, run like a command (as `dev`, in the project).

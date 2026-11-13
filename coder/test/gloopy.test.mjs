@@ -3249,7 +3249,7 @@ test("GL70 (2026-11-10) the sign-in card's answers on Coder's Worker: a code goe
   assert.match(ui, /data-signin-take="' \+ esc\(e\.id\) \+ '"' \+ \(S\.webOK \? '' : ' disabled'\)/);
   assert.match(ui, /if \(box\) box\.value = '';\n      cardAnswer\(id, 'signin', \{ code \}, 'The code could not be sent\.'\);/, "the code leaves its box as it is sent");
   assert.match(ui, /p\.kind === 'signin' && S\.signTake === p\.id \? \{ \.\.\.p, task:/);
-  assert.match(ui, /JSON\.stringify\(ho\.signin \? \{ id: ho\.id, tookOver: true \} : \{ id: ho\.id, done: true \}\)/);
+  assert.match(ui, /const asSignin = ho\.kind === 'signin';[\s\S]{0,200}JSON\.stringify\(asSignin \? \{ id: ho\.id, tookOver: true \} : \{ id: ho\.id, done: true \}\)/, "by the card's kind since 2026-11-13 (GL149)");
   assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*\bcode\b(?!\w)/, "a code is never put in the page's state");
   assert.match(css, /\.cd-sign-warn\.is-danger\{/);
   // What Gloopy is told.
@@ -7979,7 +7979,7 @@ test("GL148 (2026-11-13) handoff, after Grok Bot's and dots' docs (owner: \"yes 
   const HANDOFF = GLOOPY_TOOLS.find((t) => t.function.name === "handoff");
   assert.match(HANDOFF.function.description, /for a step only they can do on the site open in it: a CAPTCHA \(always theirs: never try to solve one yourself\), single sign-on,/);
   assert.ok(!/CAPTCHA you cannot get past/.test(HANDOFF.function.description));
-  assert.match(HANDOFF.function.parameters.properties.signs_in.description, /^true when the step signs the owner in to the site \(single sign-on such as "Sign in with Google", or approving a sign-in on their phone\): the site is then listed in their Settings → Browser, where they can sign you out of it$/);
+  assert.match(HANDOFF.function.parameters.properties.signs_in.description, /^true when the step signs the owner in to the site \(single sign-on such as "Sign in with Google", or approving a sign-in on their phone\): the site is then listed in their Settings \(Computer → Browser\), where they can sign you out of it$/);
   assert.match(GLOOPY_SYSTEM, /A step only the owner may do is always theirs, whatever the settings: [^\n]*a CAPTCHA\./);
   // The job: the card says it signs them in only when Gloopy says so.
   const run = async (args) => {
@@ -7988,12 +7988,12 @@ test("GL148 (2026-11-13) handoff, after Grok Bot's and dots' docs (owner: \"yes 
     return { out, card: ev.find((e) => e.type === "handoff") };
   };
   let { out, card } = await run({ task: "Sign in with Google, then come back", reason: "Only you can sign in to your Google account.", signs_in: true });
-  assert.deepEqual([card.signin, out.handoffRequest.signin, card.site], [true, true, "shop.example"]);
+  assert.deepEqual([card.signsIn, out.handoffRequest.signsIn, card.site], [true, true, "shop.example"]);
   ({ out, card } = await run({ task: "Solve the robot check", reason: "Only a person can." }));
-  assert.equal(card.signin, undefined);
-  assert.equal(out.handoffRequest.signin, undefined);
+  assert.equal(card.signsIn, undefined);
+  assert.equal(out.handoffRequest.signsIn, undefined);
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.ok(routes.includes('site: String(s.result.handoffRequest.site || "").slice(0, 200), ...(s.result.handoffRequest.signin === true ? { signin: true } : {}) }'), "kept on the waiting card");
+  assert.ok(routes.includes('site: String(s.result.handoffRequest.site || "").slice(0, 200), ...(s.result.handoffRequest.signsIn === true ? { signsIn: true } : {}) }'), "kept on the waiting card");
   // The Worker: Done on a card that signs them in lists the site; Not now, or a card that doesn't, lists nothing.
   const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
   const bucket = fakeBucket();
@@ -8005,15 +8005,49 @@ test("GL148 (2026-11-13) handoff, after Grok Bot's and dots' docs (owner: \"yes 
   const wait = (p) => { const m = JSON.parse(bucket.m.get(metaKey)); bucket.m.set(metaKey, JSON.stringify({ ...m, status: "idle", waiting: "handoff", pending: { kind: "handoff", task: "Sign in with Google", ...p } })); };
   const sites = async () => (await (await go("projects/" + GLOOPY_ID + "/signins")).json()).sites.map((x) => [x.site, x.how]);
   await go("gloopy");
-  wait({ id: "ho1", site: "shop.example", signin: true });
+  wait({ id: "ho1", site: "shop.example", signsIn: true });
   let r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho1", skip: true }) })).json();
   assert.equal(r.said, "Not now: Sign in with Google");
   assert.deepEqual(await sites(), [], "not done, not listed");
   wait({ id: "ho2", site: "other.example" });
   await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho2", done: true }) });
   assert.deepEqual(await sites(), [], "a step that doesn't sign in");
-  wait({ id: "ho3", site: "shop.example", signin: true });
+  wait({ id: "ho3", site: "shop.example", signsIn: true });
   r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho3", done: true }) })).json();
   assert.equal(r.said, "Done: Sign in with Google");
   assert.deepEqual(await sites(), [["shop.example", "took over"]], "listed (\"You signed in yourself\"), to sign out of later");
+});
+
+test("GL149 (2026-11-13) found in the live handoff test: \"Done, hand it back\" on a hand-off that signs the owner in answers the hand-off (it was taken for a sign-in card, \"No sign-in is waiting.\"); the hand-off's flag is signsIn, never the sign-in card's signin", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  // The page's own webHandoff and webGive, run with what they use.
+  const lineAt = ui.indexOf("  const webHandoff = () =>");
+  const handoffLine = ui.slice(lineAt, ui.indexOf("\n", lineAt));
+  const giveAt = ui.indexOf("  async function webGive() {");
+  const giveSrc = ui.slice(giveAt, ui.indexOf("\n  }\n", giveAt) + 4);
+  const make = new Function("S", "call", "send", "draw", "webTick", "webQuiet", "webPath", handoffLine + "\n" + giveSrc + "\nreturn webGive;");
+  const hand = async (pending, signTake) => {
+    const calls = [], sent = [];
+    const S = { project: { id: "gloopy-main", pending }, web: { control: true }, signTake };
+    const give = make(S, async (path, init) => { calls.push([path, JSON.parse(init.body)]); return { status: 200, data: { said: "Done: it" } }; }, (t, o) => sent.push([t, o]), () => {}, () => {}, () => {}, () => "/projects/gloopy-main/web");
+    await give();
+    return { calls, sent };
+  };
+  // A hand-off that signs them in (Gloopy said signs_in): answered as a hand-off.
+  let r = await hand({ kind: "handoff", id: "ho1", task: "Approve the sign-in", site: "shop.example", signsIn: true });
+  assert.deepEqual(r.calls, [["/projects/gloopy-main/handoff", { id: "ho1", done: true }]]);
+  assert.deepEqual(r.sent, [["Done: it", { card: true }]]);
+  // Even one stored before the rename (signin: true on a hand-off): still a hand-off.
+  r = await hand({ kind: "handoff", id: "ho2", task: "Approve the sign-in", site: "shop.example", signin: true });
+  assert.deepEqual(r.calls, [["/projects/gloopy-main/handoff", { id: "ho2", done: true }]]);
+  // A sign-in card the owner took over: answered as the sign-in card, as before.
+  r = await hand({ kind: "signin", id: "si1", site: "shop.example" }, "si1");
+  assert.deepEqual(r.calls, [["/projects/gloopy-main/signin", { id: "si1", tookOver: true }]]);
+  // The flag's name, end to end: the machine says signsIn, the waiting card keeps signsIn, Done reads signsIn.
+  assert.ok(agent.includes('...(signsIn ? { signsIn: true } : {}) });') && agent.includes('handoffRequest = { id, task, site, url: where.url || "", ...(signsIn ? { signsIn: true } : {}) };'));
+  assert.ok(routes.includes("if (p.signsIn === true) await noteSignin(bucket, uid, p.site, \"took over\");"));
+  assert.ok(!/handoffRequest\.signin\b/.test(routes) && !/ho\.signin\b/.test(ui), "no hand-off reads the sign-in card's flag");
 });
