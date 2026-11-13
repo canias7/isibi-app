@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The seven, live on gofarther.dev (your words: "yea merge and delploy")
+
+Merged and deployed (deploy 162; Coder's tests passed on GitHub first). Then tried live in the browser with Grok: one throwaway chat on canias7/testingforclaude, no video. Grok won't issue dangerous deletes itself, so a hook of yours (on only for the test) swapped harmless marker commands for them, as in the earlier delete test; the folders in those deletes were made-up names that don't exist. Results:
+1. **Deny rule on `touch`, in Auto:** `sudo -nu root touch /tmp/r50-deny.txt` was denied ("Permission to use Bash with command … has been denied."), and the file was not made.
+2. **Allow rule `Bash(NODE_ENV*)`, in Accept edits:** `NODE_ENV=1 node -e …` asked first ("This command requires approval"). I said No; nothing ran.
+3. **The new warning** showed in the rules list for `Bash(PORT=* npm run dev)`, in Claude Code's words, with its short note on the rule's row.
+4. **PowerShell (on for this step only), in Accept edits:** writing to `.bashrc` and to `.claude/settings.json` both asked, with only Yes and No, in Claude Code's words ("…which is a sensitive file." and "…but you haven't granted it yet."). I said No to both; neither file was written. (GitHub said "too many requests" for a moment here; Coder carried on from the chat's own copy, as it should.)
+5. **Auto's delete card:** `sudo -nu root rm -rf /coder-live-not-real` showed the card counting down ("Coder will automatically block this request in 1:57…"). Left alone, it was blocked at 2 minutes ("✕ Blocked · no answer within 2 minutes"), and Grok was told no person approved it. Two more left alone did the same. The fourth got no card: refused at once, "The prompt for such removals has already gone unanswered 3 times in this session, so it was not shown again." This also showed fix 1 catching a delete behind `sudo -nu`.
+6. Nothing to try (no change).
+7. **Sandbox down:** I said Yes to `sudo rm -rf --no-preserve-root /` inside this chat's own sandbox. On the next message the sandbox couldn't start, the chat said why in red, and Grok's `echo still-here` was refused ("The command did not run. Coder's admin sandbox is on, …"). Before this fix, it would have run outside the sandbox. My own `!echo still-here` was refused too.
+
+**One rough edge, fixed on the branch:** that `!` step read "✕ exit -1", and opening it showed the words meant for Grok ("…for the owner to decide, not you"). Now it reads "✕ not run" with "Not run: Coder's admin sandbox could not start on this chat's machine." Grok is still told why. Checked on Coder's real page on my side (screenshot in the chat); test CD559 covers it; all 593 tests pass. Not merged or deployed: say "merge and deploy" and I'll put it live and try it in the browser.
+
+Put back: your hooks as they were, the test's rules removed, Accept edits, and the environment's variables exactly as before (checked against a saved copy). The chat is deleted. Left for you to delete by hand: the branch `coder/testingforclaude-ruqwyywj` on canias7/testingforclaude. Cost: roughly 10 to 15 cents of Grok (an estimate: Coder keeps a chat's cost with the chat, and the chat is deleted).
+
 ## 2026-11-13: The seven Claude Code differences, copied (your words: "Yes all 7")
 
 On the branch, not merged or deployed yet. Each was first read in Claude Code 2.1.323's own program, and tried in its command-line version with Haiku where I could.
