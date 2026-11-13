@@ -131,8 +131,10 @@ test("CD365 rules Claude Code keeps are saved with its warnings (a rule on the c
   const d = (c, rules) => P.bashDecision(c, { mode: "acceptEdits", rules, cwd: W, workdirs: [W] }).verdict;
   assert.equal(d("rm a.txt", { deny: ["Bash(command:rm *)", "Bsh"] }), "allow");
   assert.equal(d("npm test", { allow: ["Bash(command:npm *)", "Bsh(npm *)"] }), "ask");
-  // A tool of Claude Code's that Coder doesn't apply, or an MCP tool: not saved (Coder's own message).
-  for (const r of ["NotebookEdit", "Agent", "mcp__x__y"]) assert.equal(P.ruleSaved(r), false, r);
+  // A tool of Claude Code's that Coder doesn't apply: not saved (Coder's own message). (An MCP tool's rule, mcp__x__y, is saved
+  // since the connectors were merged, 2026-11-13: connectors-merged.test.mjs.)
+  for (const r of ["NotebookEdit", "Agent"]) assert.equal(P.ruleSaved(r), false, r);
+  assert.equal(P.ruleSaved("mcp__x__y"), true);
   // (Read and Edit rules are Coder's own since the file rules: file-rules.test.mjs.)
   for (const r of ["Read", "Edit(src/**)"]) assert.equal(P.ruleSaved(r), true, r);
   // The Worker saves them, with the warning, and the row in the list.

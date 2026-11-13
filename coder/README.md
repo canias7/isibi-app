@@ -18,6 +18,8 @@ code in **each user's own GitHub**.
 | `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
+| `src/coder-mcp.mjs` | Connectors (MCP): each person's list, sign-in to each app (OAuth, kept sealed), its tools, and the machine's connector calls, which go through the Worker (`/api/coder/mcp`) with the job's pass |
+| `test-copy.mjs` | The test copy's settings (jessica.gofarther.dev: its own Worker, storage and Fly.io machines), made from `wrangler.jsonc` for the deploy button's "test" choice |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
 | `container/` | The machine's image (Ubuntu 24.04 with Claude Code's tools; its helpers in `container/tools/`): the agent loop, the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
 | `test/` | `npm test` from this folder |
@@ -2009,6 +2011,26 @@ the same notifications with the same switches (the chat list's `waiting`, what
 a job left for the owner, and `ran`, how long it took), turned on per app. The
 phone app (Capacitor) has none yet: native push needs the owner's Firebase and
 Apple accounts.
+
+**Connectors (MCP)** (built on the jessica copy, 2026-11-10 to 11-11; merged into
+main on 2026-11-13, the owner: "merge carefully so we can have that code"): each
+person's list of MCP servers (the gear's menu, Connectors: Yours, Discover, a page
+per connector with Always allow, Needs approval or Blocked for each tool), switched
+on or off per chat from the chat box. Sign-ins stay sealed on the Worker; the
+machine calls a tool through `/api/coder/mcp` with its job's pass, and the Worker
+adds the sign-in. Grok sees each tool as `mcp__<connector>__<tool>`, after Coder's
+own; jobs started from GitHub get none. What `docs/connectors-vs-claude-code.md`
+lists from Claude Code's MCP docs is done there (tool search, long answers to a
+file, time limits, the server's always-ask, resources and prompts, and the rest).
+Since the merge, a connector's tool goes through what every tool does, as Claude
+Code's MCP tools do (`container/coder-agent.mjs`, `test/connectors-merged.test.mjs`):
+permission rules by its name or its connector's (`mcp__linear__create_issue`,
+`mcp__linear`, `mcp__linear__*`; `parseRule` and `wholeRule` in
+`container/coder-perms.mjs`), PreToolUse, PermissionRequest and PostToolUse hooks by
+its own name (its card shows as "connector", `card.hookTool` carries the name), a No
+that ends the turn, and Plan mode asking before one that changes something.
+Read-only connector tools start side by side only where no hook or rule checks
+each call first.
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.

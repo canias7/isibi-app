@@ -842,6 +842,10 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
 export function parseRule(text) {
   // (A tool name with a wildcard, `*`, `B*`, `mcp__*`: see toolGlob.)
   if (toolGlob(text)) return { tool: String(text).trim(), spec: null, glob: true };
+  // A CONNECTOR'S TOOL BY ITS OWN NAME, mcp__<server>__<tool>, OR ALL OF ONE CONNECTOR'S, mcp__<server> (since the connectors
+  // were merged, 2026-11-13; Claude Code's MCP rules: "mcp__puppeteer matches any tool provided by the puppeteer server",
+  // "mcp__puppeteer__puppeteer_navigate matches the puppeteer_navigate tool"): on the whole tool only, as Claude Code's.
+  if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
   const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
@@ -868,7 +872,8 @@ export function parseRule(text) {
  * literal mcp__<server>__ prefix … An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped and doesn't
  * auto-approve anything"): a bare name with a `*`, matched against Claude Code's name for each of Coder's tools (Bash,
  * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite; Coder's
- * own tools by their own names). Coder has no MCP servers, so an allow one never approves anything.
+ * own tools by their own names). Since the connectors were merged (2026-11-13), an allow one anchored on a connector,
+ * mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
  */
 export const toolGlob = (t) => /^[A-Za-z0-9_-]*\*[A-Za-z0-9_*-]*$/.test(String(t ?? "").trim());
 /** Whether a tool-name wildcard matches a tool's whole name. */
@@ -915,8 +920,9 @@ export function namedForMonitor(dec, rules) {
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
-/** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`), or "". */
-export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && (x.glob ? kind !== "allow" && toolGlobMatches(x.tool, tool) : x.tool === tool); }) || "";
+/** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`; a connector's `mcp__<server>__<tool>`, or `mcp__<server>` for all of
+ * that connector's; an allow rule's wildcard only after a literal mcp__<server>__, as Claude Code's), or "". */
+export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, tool) : x.tool === tool || (x.mcp === true && String(tool).startsWith(x.tool + "__"))); }) || "";
 /**
  * A WEBSOCKET WATCH'S QUESTION (Claude Code's Monitor `ws` source): a rule denying every Bash command refuses it, as one
  * denying Monitor does; one asking for every Bash command asks the owner, and only the owner (or a PermissionRequest hook)
