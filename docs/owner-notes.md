@@ -46,7 +46,13 @@ log (81,000 lines) is in git history.
 6. **The "What it sends" list named the country as "Country Australia Austria Belgium Brazil Canada China Denmar…"**: the label around the drop-down read all its choices. A field is now named by its label's own words (also in a part of the page you mark). (Test GL138.)
 7. **With Buy or pay on Never, Gloopy opened the shop and typed your address in first,** and only learned it couldn't pay at the card. It's now told to say so before starting, and to do the rest only if you still want it.
 
-Buy or pay is back on Always allow (for testing).
+**Tried live after deploying 3 to 7** (the first deploy stopped on an error at Fly's image store; the second went through):
+- **A message whose page went away 0.3 seconds after sending:** Gloopy still started it and answered ("cherry").
+- **Never, said before starting:** "The order was not placed. Buying and paying are turned off in Gloopy's settings, so I can't use your saved card or press Pay, and I won't try another way." It didn't open the shop.
+- **The OK card before Pay** now lists "Country: United States". After the security code, Gloopy again carried on by itself.
+- **The same message twice at the same moment:** started once ("9 times 8 is 72."). The chat didn't need a summary this time, so fix 3 was only checked by its test (GL137).
+
+Buy or pay is back on Always allow (for testing). The 4242 test card is still saved on the test copy, for the next pay work.
 
 ## 2026-11-12: Gloopy, tool by tool: where we are
 
