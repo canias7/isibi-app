@@ -1181,7 +1181,11 @@ Claude Code's docs and its program, 2.1.322. Tests: `test/pass9-a.test.mjs`
   plain tunnel.
 - *The gate fails closed* (CD450): with a limited network, if the gate can't
   start, the wall still goes up and the room has no way out, so commands have
-  no internet for that message.
+  no internet for that message. To try it on a real machine, the environment's
+  own variable `CODER_TEST_NETWORK_GATE_FAIL=1` (never a repository's) makes
+  the gate fail to start for each message, and a network change mid-message
+  that needs the gate fails the same way (`GATE_TEST_FAIL`, CD560; the owner,
+  2026-11-13: "test what u are missing to test"). It only takes network away.
 - *Hooks* (CD451, CD452): a PreToolUse hook's ask stays the owner's in Plan (the
   checker never approves it). A PowerShell hook gets Claude Code's ending
   (`PS_HOOK_EXIT2`), so a program's exit 2 blocks. Rules a PermissionRequest
