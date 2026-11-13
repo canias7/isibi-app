@@ -308,8 +308,9 @@ test("CD559 on a machine made for Coder's admin sandbox, when the sandbox can't 
     const r = { root: await dir("root"), gitRoot: await dir("git"), memRoot: await dir("mem"), bgRoot: await dir("bg"), home: await dir("home") };
     const project = "cc323-box-" + Math.random().toString(36).slice(2, 8);
     let n = 0;
+    const seen = [];
     const steps = [say("", [call("bash", { command: "touch ran-by-coder.txt", description: "Make a file" }, "b1")]), say("Done.")];
-    const app = S.createApp({ ...r, ...(sandbox ? { sandbox: true, data: await dir("data") } : {}), send: async () => (shell ? say("ok") : steps[Math.min(n++, steps.length - 1)]) });
+    const app = S.createApp({ ...r, ...(sandbox ? { sandbox: true, data: await dir("data") } : {}), send: async (req) => { seen.push(req); return shell ? say("ok") : steps[Math.min(n++, steps.length - 1)]; } });
     const srv = http.createServer(app);
     await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
     const base = "http://127.0.0.1:" + srv.address().port;
@@ -319,7 +320,7 @@ test("CD559 on a machine made for Coder's admin sandbox, when the sandbox can't 
       let st;
       for (let i = 0; i < 400; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
       assert.ok(st && st.result, "the message ended");
-      return { events: st.events || [], dir: join(r.root, project) };
+      return { events: st.events || [], dir: join(r.root, project), seen };
     } finally { srv.close(); }
   }
   // (In this test no sealed network room is made, so the sandbox, which runs in one, can't start.)
@@ -334,10 +335,18 @@ test("CD559 on a machine made for Coder's admin sandbox, when the sandbox can't 
   // (Nor the environment's setup script, which runs in the sandbox: said, and Coder is not told a setup failed.)
   assert.ok(down.events.some((e) => e.type === "note" && e.text === "Setup: not run, because Coder's admin sandbox could not start on this chat's machine."));
   assert.equal(existsSync(join(down.dir, "ran-by-setup.txt")), false);
-  // The owner's own ! command: not run either, and its result says why.
+  // The owner's own ! command: not run either. Its step says "not run" in the owner's words, not "exit -1" with the words
+  // meant for the AI (live test, 2026-11-13); the AI, which answers it, is told why in the command's output.
   const own = await message(true, { shell: "touch ran-by-owner.txt" });
   const ownRes = own.events.find((e) => e.type === "result" && /^own/.test(String(e.id)));
-  assert.ok(ownRes && ownRes.output.startsWith("The command did not run. Coder's admin sandbox is on"), JSON.stringify(ownRes));
+  assert.ok(ownRes, JSON.stringify(own.events));
+  assert.equal(ownRes.ran, false);
+  assert.equal(ownRes.output, A.BOX_DOWN_OWN);
+  assert.equal(A.BOX_DOWN_OWN, "Not run: Coder's admin sandbox could not start on this chat's machine.");
+  assert.ok(own.events.some((e) => e.type === "error" && e.text === A.boxDownShown(why)), "the chat says why");
+  const toAi = JSON.stringify((own.seen[0] || {}).messages || []);
+  assert.ok(toAi.includes(JSON.stringify("<bash-input>touch ran-by-owner.txt</bash-input>")), toAi.slice(-600));
+  assert.ok(toAi.includes(JSON.stringify("<bash-stdout>" + A.boxDownTold(why) + "</bash-stdout><bash-stderr></bash-stderr>")), toAi.slice(-900));
   assert.equal(existsSync(join(own.dir, "ran-by-owner.txt")), false);
   // A machine not made for one (this computer, the tests): commands run as before.
   const plain = await message(false);

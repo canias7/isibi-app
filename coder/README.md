@@ -1712,7 +1712,11 @@ where it says so, tried in its command-line version with Haiku.
    sandbox failed to start in this session …"), and the chat says why. The
    environment's setup script, which runs inside the sandbox, waits too ("Setup:
    not run, …"). Coder's helpers and the owner's hooks still run, as Claude Code's
-   hooks run outside its sandbox.
+   hooks run outside its sandbox. The owner's `!` step reads "✕ not run", with
+   "Not run: Coder's admin sandbox could not start on this chat's machine."
+   (`BOX_DOWN_OWN`); the AI, which answers it, gets Claude Code's words in the
+   command's output (live test, 2026-11-13: the step read "exit -1", with the
+   words meant for the AI).
 
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'

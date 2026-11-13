@@ -480,6 +480,7 @@ export const RM_TIMED_OUT = "Not run: no answer within 2 minutes, so Coder block
  */
 export const boxDownTold = (why) => "The command did not run. Coder's admin sandbox is on, so no command may run outside the sandbox, and the sandbox failed to start in this session (" + why + "). The owner can send another message to try starting the sandbox again, or start a new chat. Changing the sandbox is for the owner to decide, not you. So is running this command, or one that does the same, through another tool or program.";
 export const boxDownShown = (why) => "Coder's admin sandbox could not start on this chat's machine (" + why + "), so no command runs in this chat until it does. Send another message to try again; if it keeps failing, start a new chat.";
+export const BOX_DOWN_OWN = "Not run: Coder's admin sandbox could not start on this chat's machine.";
 /**
  * A BACKGROUND COMMAND'S NOTICE (Claude Code 2.1.319's words in a session whose background commands go on after its answer,
  * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
@@ -2063,8 +2064,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const savedOut = !bg && r && typeof r.file === "string" && r.file && Number(r.size) > lim.inlineMax ? bashResultText({ output: printed, isError: false, size: Number(r.size), file: r.file, inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0 }) : "";
     for (const m of shellMessages(command, { output: savedOut || printed, code: bg ? 0 : code, background: said })) convo.push(m);
     if (bg && r.pid && r.log && typeof r.jobId === "string") jobs.set(r.jobId, { pid: r.pid, log: r.log, command, desc: "! " + command.split("\n")[0].slice(0, 120), at: now(), moved: true, cwd: "", done: false });
-    const shownOut = (printed.replace(/\n+$/, "") || (bg ? "" : "(no output)")) + (said ? (printed ? "\n" : "") + said : "") + (!bg && code !== 0 ? "\nExit code " + code : "");
-    emit({ type: "result", id: sid, code, output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}), ...(files ? { files } : {}) });
+    // (One that never started, as when the admin sandbox can't, is "not run" under it, as Coder's own are, in the owner's words;
+    // the AI is told why above. Live test, 2026-11-13: it read "exit -1", with the words meant for the AI.)
+    const never = !bg && !!(r && r.notStarted);
+    const shownOut = never ? BOX_DOWN_OWN : (printed.replace(/\n+$/, "") || (bg ? "" : "(no output)")) + (said ? (printed ? "\n" : "") + said : "") + (!bg && code !== 0 ? "\nExit code " + code : "");
+    emit({ type: "result", id: sid, code, ...(never ? { ran: false } : {}), output: shownOut.length > MAX_OUTPUT_CHARS ? capOutput(shownOut) : shownOut, ...(bg ? { background: true } : {}), ...(r && typeof r.cwdTold === "string" ? { cwd: r.cwdTold } : {}), ...(files ? { files } : {}) });
   }
   // SESSIONSTART HOOKS (Claude Code: their context goes "at the start of the conversation, before the first prompt"): on a
   // chat's first message, as `startup` (and after a summary, as `compact`, below); on the first message after its machine
