@@ -1436,6 +1436,10 @@
     // looked open again): in Gloopy's chat, only the one Gloopy is waiting on is open.
     const waitedOn = (e) => !GLOOPY || !e.id || !S.project || (S.project.pending && S.project.pending.id === e.id);
     const cardOpen = (i, e) => !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user') && !expiredOf(i, e) && waitedOn(e);
+    // ONE ORDER'S EVENTS (live test, 2026-11-13: a later order's "Not paid" showed on an earlier, cancelled order's card, and
+    // that card hid the later order's own line): an order runs from the card filled in for it (its pay event) to the next.
+    const orderAfter = (i) => { const k = S.events.findIndex((x, j) => j > i && x.type === 'pay'); return S.events.slice(i + 1, k < 0 ? S.events.length : k); };
+    const orderBefore = (i) => { let k = i - 1; while (k >= 0 && S.events[k].type !== 'pay') k--; return S.events.slice(k + 1, i); };
     // WHAT BECAME OF A SECURE FORM (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "A filled form says
     // Filled into the page. Secret values were never shown to your Bot", or "Could not fill into the page"): on the card.
     // AN ORDER'S ITEMS AND WHERE IT SHIPS (Grok Bot's order card), as Gloopy read them off the page.
@@ -1534,7 +1538,7 @@
         // you cancel, nothing is charged. Once the order is placed, the card shows what you Paid with"): placing the order
         // waits for you here (Buy or pay on Ask). Pay is Allow once; Cancel is Deny.
         const live = cardOpen(i, e), o = e.order;
-        const after = S.events.slice(i + 1), done = after.find((x) => x.type === 'paid');
+        const after = orderAfter(i), done = after.find((x) => x.type === 'paid');
         const said = after.find((x) => x.type === 'user');
         out.push('<div class="cd-secret cd-order"><div class="cd-secret-icon">' + ICON.card + '</div><b class="cd-secret-t">' + esc(e.site || 'Your order') + '</b>' +
           (o.reason ? '<p class="cd-secret-why">' + esc(o.reason) + '</p>' : '') +
@@ -1653,8 +1657,7 @@
       else if (e.type === 'paid') {
         // HOW THE ORDER WENT (owner, 2026-11-13; Grok Bot's "Once the order is placed, the card shows what you Paid with"):
         // said once. When an order card asked about this order, the card shows it (live test, 2026-11-13: it was said twice).
-        const before = S.events.slice(0, i).reverse().find((x) => x.type === 'paid' || (x.type === 'approval' && x.order && typeof x.order === 'object'));
-        if (before && before.type === 'approval' && (!e.site || before.site === e.site)) return;
+        if (orderBefore(i).some((x) => x.type === 'approval' && x.order && typeof x.order === 'object' && (!e.site || x.site === e.site))) return;
         out.push('<div class="cd-receipt ' + (e.ok ? 'is-ok' : 'is-no') + '">' + (e.ok ? ICON.check : ICON.card) + '<span>' + (e.ok ? 'Paid ' + esc(e.total || '') + ' on ' + esc(e.site || 'the site') + (e.payWith ? ' with ' + esc(e.payWith) : '') : 'Not paid on ' + esc(e.site || 'the site')) + (e.note ? '<small>' + esc(e.note) + '</small>' : '') + '</span></div>');
       }
       else if (e.type === 'file') {

@@ -11,7 +11,7 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-13: Paying with a saved card, tried live, and six fixes (your words: "yes if dots and bot have it do it pls")
+## 2026-11-13: Paying with a saved card, tried live, and seven fixes (your words: "yes if dots and bot have it do it pls")
 
 Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test cards only, no real money).
 
@@ -35,6 +35,11 @@ Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test car
 
 **One more found, and fixed:**
 6. **Gloopy said "Pressing Pay once now. … You'll get a card to confirm" and then stopped,** without pressing anything, so no card came. Grok wrote the line but left out the click, and an answer with no step ends Gloopy's turn. Now (a) its instructions say a line about a step goes with that step, and never to end on a step not taken, and (b) once a turn, if its last words announce a step it didn't take, Gloopy's app tells it so and it carries on. This can't be made to happen on purpose, so it is tested with Grok's exact words from this run (GL143). I also checked it against all 109 answers Gloopy has ended a turn with in the live chat so far: it picks out the 2 that stopped short (this one, and "I'll read the Output…" from the security-key test on 2026-11-12) and none of the others.
+
+**The last run, after deploying fix 6,** with Buy or pay back on Always allow: Gloopy filled in the shipping details and the saved card, pressed Pay itself (no card, as set), waited, saw the demo stuck on "Processing…", and recorded "Not paid", start to end with no stall. The line it added to its notes names the Home contact and "saved Visa 4242", with no address in it.
+
+**And one more found in that run, and fixed:**
+7. **A cancelled order's card got mixed up with the next order.** The new order (no order card, since it was Always allow) had no "Not paid" line, and the earlier cancelled order's card showed the new order's "Not paid". Each order's card and line now keep to that order: an order runs from the card filled in for it to the next one.
 
 **Small, left as is:** Gloopy can read its notes file, but searching its notes folder is refused ("outside the project"). It just read the file instead.
 

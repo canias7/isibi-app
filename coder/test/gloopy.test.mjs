@@ -7763,15 +7763,29 @@ test("GL142 (2026-11-13) found in the live test of paying with a saved card (own
   // The order card shows what the check said, under Gloopy's reason, in a quieter line.
   assert.ok(ui.includes("(o.reason ? '<p class=\"cd-secret-why\">' + esc(o.reason) + '</p>' : '') +\n          // What the check said of placing it (live test, 2026-11-13: Gloopy was told it and the card didn't show it).\n          (e.why ? '<p class=\"cd-secret-why cd-order-check\">' + esc(e.why) + '</p>' : '') + orderBits(o) +"));
   assert.ok(css.includes(".cd-order .cd-order-check{font-size:13px;color:#6b6a66;margin-top:-2px}"));
-  // The receipt is said once: not again under the order card that already shows it.
-  const once = /const before = S\.events\.slice\(0, i\)[^\n]*\n\s*if \(before[^\n]*return;/.exec(ui)[0];
-  const shown = (events, i) => new Function("S", "i", "e", once.replace(/return;$/, "return false;") + " return true;")({ events }, i, events[i]);
-  const card = { type: "approval", id: "a1", site: "shop.example", order: { total: "€39.95" } }, paidEv = { type: "paid", ok: false, site: "shop.example", total: "€39.95" };
-  assert.equal(shown([card, { type: "user", text: "Pay €39.95 on shop.example" }, paidEv], 2), false, "the order card shows it");
-  assert.equal(shown([paidEv], 0), true, "no order card (Buy or pay on Always allow): the receipt line");
-  assert.equal(shown([{ type: "approval", id: "a0", site: "shop.example" }, paidEv], 1), true, "an OK card with no order");
-  assert.equal(shown([card, { ...paidEv, site: "other.example" }], 1), true, "another site's");
-  assert.equal(shown([card, paidEv, { type: "user", text: "again" }, paidEv], 3), true, "after the order card's own");
+  // The receipt is said once: not again under the order card that already shows it. Each order on its own (live test,
+  // 2026-11-13: a cancelled order's card hid the next order's own line, and showed that order's "Not paid").
+  const helpers = /const orderAfter = [^\n]*\n\s*const orderBefore = [^\n]*/.exec(ui)[0];
+  const once = /if \(orderBefore\(i\)\.some\([^\n]*\) return;/.exec(ui)[0];
+  const shown = (events, i) => new Function("S", "i", "e", helpers + "\n" + once.replace(/return;$/, "return false;") + " return true;")({ events }, i, events[i]);
+  const paidOn = (events, i) => new Function("S", "i", helpers + " return orderAfter(i).find((x) => x.type === 'paid') || null;")({ events }, i);
+  assert.ok(ui.includes("const after = orderAfter(i), done = after.find((x) => x.type === 'paid');"), "the order card's own result");
+  const fill = (t) => ({ type: "pay", site: "shop.example", total: t, filled: true });
+  const card = (t) => ({ type: "approval", id: "a" + t, site: "shop.example", order: { total: t } });
+  const paidEv = (t, site = "shop.example") => ({ type: "paid", ok: false, site, total: t });
+  // Asked first, then paid: the card says it; no second line.
+  let evs = [fill("€39.95"), card("€39.95"), { type: "user", text: "Pay €39.95 on shop.example" }, paidEv("€39.95")];
+  assert.equal(shown(evs, 3), false, "the order card shows it");
+  assert.equal(paidOn(evs, 1), evs[3]);
+  // The live sequence: an order cancelled on its card, then the next one placed with Always allow.
+  evs = [fill("€21.97"), card("€21.97"), { type: "user", text: "Cancelled the order on shop.example" }, { type: "done", text: "Not placed." }, fill("€35.95"), paidEv("€35.95")];
+  assert.equal(shown(evs, 5), true, "the next order's own line shows");
+  assert.equal(paidOn(evs, 1), null, "the cancelled card stays “Cancelled”");
+  // No order card (Buy or pay on Always allow), an OK card with no order, another site's card: the line shows.
+  assert.equal(shown([fill("€39.95"), paidEv("€39.95")], 1), true);
+  assert.equal(shown([paidEv("€39.95")], 0), true);
+  assert.equal(shown([fill("€39.95"), { type: "approval", id: "a0", site: "shop.example" }, paidEv("€39.95")], 2), true);
+  assert.equal(shown([fill("€39.95"), card("€39.95"), paidEv("€39.95", "other.example")], 2), true);
 });
 
 test("GL143 (2026-11-13) found live (test.gofarther.dev, paying with a saved card): Gloopy ended its turn on \"Pressing Pay once now. … You'll get a card to confirm before it goes through.\" with no tool call, so no card came and nothing happened. Its instructions say a line about a step goes with that step's tool call; and once a turn, an answer that announces a step it didn't take is sent back to it, and it goes on (Coder's turns are unchanged)", async () => {
