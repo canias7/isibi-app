@@ -135,22 +135,6 @@ export function psSleepWhat(command, min = 25) {
   return rest ? "Start-Sleep " + n + " followed by: " + rest : "standalone Start-Sleep " + n;
 }
 
-/** UTF-16LE base64, for pwsh's -EncodedCommand (without Buffer: this file loads in the Worker too). */
-const B64 = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-export function utf16Base64(text) {
-  const bytes = [];
-  for (const ch of String(text)) {
-    const cp = ch.codePointAt(0);
-    const units = cp > 0xffff ? [0xd800 + ((cp - 0x10000) >> 10), 0xdc00 + ((cp - 0x10000) & 0x3ff)] : [cp];
-    for (const u of units) bytes.push(u & 0xff, u >> 8);
-  }
-  let out = "";
-  for (let i = 0; i < bytes.length; i += 3) {
-    const [a, b, c] = [bytes[i], bytes[i + 1], bytes[i + 2]];
-    out += B64[a >> 2] + B64[((a & 3) << 4) | ((b ?? 0) >> 4)] + (b === undefined ? "=" : B64[((b & 15) << 2) | ((c ?? 0) >> 6)]) + (c === undefined ? "=" : B64[c & 63]);
-  }
-  return out;
-}
 /**
  * CLAUDE CODE'S LINE BEFORE A POWERSHELL COMMAND (2.1.323, its own, word for word): UTF-8 for files and pipes, and output as
  * plain text (Claude Code "captures error output without ANSI escape sequences"), none of it in restricted language mode.
@@ -190,13 +174,38 @@ export function psScript(command) {
     "if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { $host.SetShouldExit($__coderCode) } else { exit $__coderCode }",
   ].join("\n");
 }
+/** A text as one word for Coder's shell (bash, zsh or sh): in single quotes, each ' inside as '\''. */
+export const psShellWord = (s) => "'" + String(s ?? "").replace(/'/g, "'\\''") + "'";
+/**
+ * HOW PWSH STARTS, as Claude Code 2.1.323 starts it for its PowerShell tool and for a PowerShell hook: no profile,
+ * non-interactive, "-ExecutionPolicy Bypass" unless CODER_POWERSHELL_RESPECT_EXECUTION_POLICY, then `-Command` and the script.
+ * (Coder gave the script as -EncodedCommand, which Claude Code uses only inside its sandbox; with it, pwsh wrote its errors
+ * as CLIXML, `#< CLIXML <Objs Version="1.1.0.1" …><S S="Error">…`: live test, 2026-11-13.)
+ */
+export function pwshRun(script, { bypass = true } = {}) {
+  return "pwsh -NoProfile -NonInteractive" + (bypass ? " -ExecutionPolicy Bypass" : "") + " -Command " + psShellWord(script);
+}
+/**
+ * A WIDTH FOR PWSH'S TABLES (live test, 2026-11-13). With no terminal, pwsh takes its width from the description of the
+ * terminal type in TERM. Coder's machine says TERM=linux (so does Claude Code's own cloud machine), whose description has no
+ * width: pwsh's width was -1, and `Get-ChildItem` printed only its "Directory:" line. xterm-256color's (Claude Code's in a usual
+ * terminal) gives 80 columns, and the table prints. Only when TERM is linux, dumb or not set (bash calls an unset TERM dumb
+ * without passing it on); the owner's own TERM is kept.
+ */
+export const PS_TERM = "case \"${TERM:-}\" in ''|linux|dumb) export TERM=xterm-256color;; esac; ";
+/**
+ * THE POWERSHELL TOOL'S VARIABLES, Claude Code 2.1.323's for its PowerShell commands: NO_COLOR=1 unless it is set or FORCE_COLOR
+ * is; PYTHONIOENCODING=utf-8:surrogateescape unless it is set.
+ */
+export const PS_TOOL_ENV = "[ -n \"${PYTHONIOENCODING+x}\" ] || export PYTHONIOENCODING=utf-8:surrogateescape; [ -n \"${NO_COLOR+x}\" ] || [ -n \"${FORCE_COLOR+x}\" ] || export NO_COLOR=1; ";
 /**
  * THE SHELL COMMAND THAT RUNS IT (in Coder's own shell, so its folder, timeouts, background and output work as a bash command's):
- * pwsh with no profile, non-interactive, stdin from /dev/null, the script encoded; then the shell moves to where it ended.
+ * in a subshell of its own (its variables go no further), pwsh started as Claude Code starts it, stdin from /dev/null; then the
+ * shell moves to where it ended.
  */
 export function psCommand(command, { bypass = true } = {}) {
-  return "export CODER_PS_CWD=\"$(mktemp 2>/dev/null || echo /tmp/coder-ps-cwd-$$)\"; pwsh -NoProfile -NonInteractive" + (bypass ? " -ExecutionPolicy Bypass" : "") +
-    " -EncodedCommand " + utf16Base64(psScript(command)) + " </dev/null; __coderPs=$?; __coderTo=\"$(cat \"$CODER_PS_CWD\" 2>/dev/null)\"; rm -f \"$CODER_PS_CWD\"; unset CODER_PS_CWD; " +
+  return "export CODER_PS_CWD=\"$(mktemp 2>/dev/null || echo /tmp/coder-ps-cwd-$$)\"; (" + PS_TERM + PS_TOOL_ENV + "exec " + pwshRun(psScript(command), { bypass }) +
+    " </dev/null); __coderPs=$?; __coderTo=\"$(cat \"$CODER_PS_CWD\" 2>/dev/null)\"; rm -f \"$CODER_PS_CWD\"; unset CODER_PS_CWD; " +
     "if [ -n \"$__coderTo\" ] && [ -d \"$__coderTo\" ]; then cd \"$__coderTo\"; fi; (exit $__coderPs)";
 }
 

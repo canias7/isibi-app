@@ -880,8 +880,13 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
   (What only reads, and the rest of its checks, moved to pass 7.)
   Since 2026-11-13 its script is Claude Code 2.1.323's (`psScript`): its own line before the command (`PS_PREAMBLE`,
   left out before one that must open a script, `psMustLead`), and it ends with `$host.SetShouldExit` (`exit` only in
-  restricted language mode): an `exit` stopped PowerShell before it printed a table (the live test found `Get-ChildItem`
-  giving "(PowerShell completed with no output)"). Test CD566.
+  restricted language mode). Test CD566. pwsh starts as Claude Code starts it (`pwshRun`): `-Command` and the script,
+  not `-EncodedCommand` (Claude Code's only inside its sandbox; with it, pwsh wrote errors as `#< CLIXML <Objs …>`),
+  for the tool, the `!` commands and PowerShell hooks; for the tool, Claude Code's `NO_COLOR=1` and
+  `PYTHONIOENCODING=utf-8:surrogateescape` unless set (`PS_TOOL_ENV`). The tables: the machine says `TERM=linux` (as
+  Claude Code's own cloud machine does), which gives pwsh no width (-1), so `Get-ChildItem` printed only its
+  "Directory:" line; pwsh gets `TERM=xterm-256color` (80 columns) when TERM is linux, dumb or not set (`PS_TERM`).
+  Test CD569 (real bash, zsh and sh, with a stand-in pwsh).
 
 **Bash docs pass 7: the rest, cloud only** (owner, 2026-11-11: "Yea we need to
 build the rest of the batch tool, remember we are not doing local rn with only

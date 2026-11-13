@@ -633,11 +633,11 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // Start-Sleep, in Claude Code's words.
   assert.deepEqual([PS.psSleepWhat("Start-Sleep 30"), PS.psSleepWhat("Start-Sleep -Seconds 40; git status"), PS.psSleepWhat("sleep 5")], ["standalone Start-Sleep 30", "Start-Sleep 40 followed by: git status", ""]);
   // How it runs.
-  for (const t of ["hi", "Get-ChildItem | % { $_.Name }", "é ✓ 😀"]) assert.equal(PS.utf16Base64(t), Buffer.from(t, "utf16le").toString("base64"), t);
   const cmd = PS.psCommand("Set-Location src; Get-ChildItem");
-  assert.match(cmd, /^export CODER_PS_CWD="\$\(mktemp 2>\/dev\/null \|\| echo \/tmp\/coder-ps-cwd-\$\$\)"; pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand [A-Za-z0-9+/=]+ <\/dev\/null; __coderPs=\$\?; /);
+  // (Started as Claude Code starts it, with `-Command`, in a subshell of its own: side-fixes.test.mjs, CD569.)
+  assert.match(cmd, /^export CODER_PS_CWD="\$\(mktemp 2>\/dev\/null \|\| echo \/tmp\/coder-ps-cwd-\$\$\)"; \(case .*exec pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command '[\s\S]*' <\/dev\/null\); __coderPs=\$\?; /);
   assert.match(cmd, /if \[ -n "\$__coderTo" \] && \[ -d "\$__coderTo" \]; then cd "\$__coderTo"; fi; \(exit \$__coderPs\)$/);
-  const script = Buffer.from(/-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(cmd)[1], "base64").toString("utf16le");
+  const script = /-Command '((?:[^']|'\\'')*)'/.exec(cmd)[1].replace(/'\\''/g, "'");
   assert.equal(script, PS.psScript("Set-Location src; Get-ChildItem"));
   // (Claude Code 2.1.323's line before the command, on the same line, and its ending: SetShouldExit, `exit` only in restricted
   // language mode; the live test of 2026-11-13 found `exit` lost Get-ChildItem's table.)
@@ -658,7 +658,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   const hs = H.hooksFrom({ hooks: { Stop: [{ hooks: [{ type: "command", command: "Write-Output 'done'", shell: "powershell" }, { type: "command", command: "x", shell: "fish" }] }] } });
   assert.equal(hs.list[0].shell, "powershell");
   assert.deepEqual(hs.problems, ["Stop: a hook's shell is bash or powershell (not fish)"]);
-  assert.match(H.hookShell(hs.list[0], "<<m>>", "/work/shop"), new RegExp("\\(\\npwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + PS.utf16Base64("Write-Output 'done'" + H.PS_HOOK_EXIT2).replace(/[+/=]/g, "\\$&") + "\\n\\) < \"\\$__in\""));
+  assert.ok(H.hookShell(hs.list[0], "<<m>>", "/work/shop").includes("(\n" + PS.PS_TERM + PS.pwshRun("Write-Output 'done'" + H.PS_HOOK_EXIT2) + "\n) < \"$__in\""));
   assert.equal(H.ccTool("powershell"), "PowerShell");
 
   // CODER'S LOOP.
@@ -674,7 +674,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
   // A reading command in Accept edits: run in pwsh, shown as written, its step marked.
   t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1")]), say("ok")], { mode: "acceptEdits", extra: on });
   const ex = t.execs.find((x) => x.shown === "Get-ChildItem");
-  assert.ok(ex && /pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand /.test(ex.command));
+  assert.ok(ex && /exec pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command 'try \{ /.test(ex.command));
   assert.ok(t.events.some((e) => e.type === "bash" && e.id === "p1" && e.shell === "powershell" && e.command === "Get-ChildItem"));
   // One that changes things, in Plan mode: a PowerShell card (in Accept edits, Claude Code runs a removal inside the
   // project: test/pass7.test.mjs); denied by a rule: refused.

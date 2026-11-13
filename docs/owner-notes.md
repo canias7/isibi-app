@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: PowerShell tables, the real cause (found in the live test on Low, after deploy 173)
+
+The first fix (copying Claude Code's `SetShouldExit` ending) went live, and the tables were still empty on Low: `!Get-ChildItem` gave "(no output)", `| Out-String` only the "Directory:" line, and Grok's PowerShell tool "(PowerShell completed with no output)". The exit codes were right (exit 3 came back as 3, a failing cmdlet as 1) and `param(...)` commands ran.
+
+**The real cause:** Coder's machine says its terminal type is `linux`. With no screen, PowerShell reads its width from that terminal type, and `linux` has none, so PowerShell's width was -1 and it printed the table with no rows. I checked on Coder's machine: with `TERM=xterm-256color` (what a normal terminal says) the width is 80 and the table prints. Claude Code's own cloud machine (the one I run in) also says `TERM=linux`, so this is a spot where Coder now does better, not a copy.
+
+**Also found:** an error came back as a block of code (`#< CLIXML <Objs Version="1.1.0.1" …>`) instead of plain words. Coder started PowerShell with `-EncodedCommand`; I read Claude Code 2.1.323's program, and it starts PowerShell with `-Command` (it uses `-EncodedCommand` only inside its sandbox). It also sets `NO_COLOR=1` and `PYTHONIOENCODING=utf-8:surrogateescape` for its PowerShell commands.
+
+**Changed:**
+- PowerShell now starts the way Claude Code starts it: `-Command` and the script, for Grok's PowerShell tool, your `!` commands and PowerShell hooks. Errors come back as plain words.
+- Grok's PowerShell tool gets Claude Code's `NO_COLOR=1` and `PYTHONIOENCODING` (unless your environment sets them).
+- PowerShell gets `TERM=xterm-256color` when the machine says `linux` (or nothing), so tables print 80 columns wide. Your own `TERM`, if you set one, is kept.
+
+Tests: 1 new (`CD569`, runs the real command in bash, zsh and sh with a stand-in for PowerShell, checking the script arrives exactly, the settings, the exit code and the folder), 5 older ones updated; all 603 pass. Next: merge, deploy, and the live test on Low again.
+
 ## 2026-11-13: The 3 found in the side-case test, fixed (your words: "yea fix all 3, merge and deploy then test it on low pls")
 
 1. **PowerShell prints tables again.** Coder's PowerShell script now starts and ends the way Claude Code 2.1.323's does: Claude Code's own line before the command (UTF-8 and plain text, skipped for a command that has to come first, like `param(` or `using namespace`), and at the end `$host.SetShouldExit(…)` instead of `exit`, which had stopped PowerShell before it printed the table. This covers the PowerShell tool and your `!` command in PowerShell.

@@ -4,7 +4,10 @@
 //   3. A job from GitHub with auto mode off was refused "by the Coder auto mode classifier", though no checker ran.
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdtempSync, mkdirSync, chmodSync, existsSync, rmSync, realpathSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 
@@ -29,7 +32,7 @@ test("CD566 PowerShell's script is Claude Code's (2.1.323): its line before the 
   for (const c of ["Get-ChildItem", "[Math]::Round(2.5)", "Write-Output 'param('", "# param(\nGet-Date", "beginning", "$using = 1"]) assert.equal(PS.psMustLead(c), false, c);
   // The command that runs it (the owner's `!` and the tool alike) carries this script.
   const cmd = PS.psCommand("Get-ChildItem");
-  const sent = Buffer.from(/-EncodedCommand ([A-Za-z0-9+/=]+)/.exec(cmd)[1], "base64").toString("utf16le");
+  const sent = /-Command '((?:[^']|'\\'')*)'/.exec(cmd)[1].replace(/'\\''/g, "'");
   assert.equal(sent, PS.psScript("Get-ChildItem"));
   assert.doesNotMatch(sent, /^exit \$__coderCode$/m);
 });
@@ -63,4 +66,65 @@ test("CD568 a job from GitHub with auto mode off: Grok is told Claude Code's wor
   const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
   assert.equal(told("b2"), C.noPromptDenied("Bash"));
   assert.deepEqual(events.filter((e) => e.type === "result" && e.id === "b2").map((e) => [e.output, e.denied, e.ran]), [[A.AUTO_OFF_GITHUB, true, false]]);
+});
+
+// FOUND IN THE LIVE TEST OF THE FIXES ABOVE (deploy 173, Low effort): the tables were still empty, and an error came back as
+// CLIXML. The cause: Coder's machine says TERM=linux, which gives pwsh no width (-1); and Coder sent the script with
+// -EncodedCommand, which Claude Code uses only inside its sandbox (it starts pwsh with `-Command`).
+test("CD569 pwsh starts as Claude Code starts it (-Command and the script, exactly), with Claude Code's NO_COLOR and PYTHONIOENCODING for the tool, a width for its tables when TERM is linux or not set, and none of it left in Coder's shell; a PowerShell hook the same (no NO_COLOR, as Claude Code)", async () => {
+  const PS = await import("../container/coder-ps.mjs");
+  const H = await import("../container/coder-hooks.mjs");
+  assert.equal(PS.pwshRun("Get-Date"), "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command 'Get-Date'");
+  assert.equal(PS.pwshRun("Get-Date", { bypass: false }), "pwsh -NoProfile -NonInteractive -Command 'Get-Date'");
+  assert.equal(PS.psShellWord("it's"), "'it'\\''s'");
+  assert.doesNotMatch(PS.psCommand("Get-Date"), /EncodedCommand/);
+  assert.doesNotMatch(H.hookShell({ type: "command", shell: "powershell", command: "Get-Date" }, "M", "/w"), /EncodedCommand/);
+  // A stand-in pwsh on the PATH writes down what it was given; real shells run Coder's command.
+  const dir = mkdtempSync(join(tmpdir(), "cd569-"));
+  try {
+    const bin = join(dir, "bin"), out = join(dir, "out"), moved = realpathSync(mkdtempSync(join(tmpdir(), "cd569-moved-")));
+    mkdirSync(bin);
+    writeFileSync(join(bin, "pwsh"), "#!/bin/sh\nfor a in \"$@\"; do printf '%s\\000' \"$a\"; done > \"$FAKE_OUT.args\"\nprintf 'TERM=%s\\nNO_COLOR=%s\\nPYTHONIOENCODING=%s\\n' \"${TERM-unset}\" \"${NO_COLOR-unset}\" \"${PYTHONIOENCODING-unset}\" > \"$FAKE_OUT.env\"\nif [ -n \"${CODER_PS_CWD:-}\" ] && [ -n \"${FAKE_CWD:-}\" ]; then printf '%s' \"$FAKE_CWD\" > \"$CODER_PS_CWD\"; fi\nexit \"${FAKE_EXIT:-0}\"\n");
+    chmodSync(join(bin, "pwsh"), 0o755);
+    const tricky = "Write-Output 'it''s'; \"$env:HOME `t $(Get-Date)\"\n# a note with \\ and ! and \"quotes\"\nparam? no: [Math]::Round(2.5) | % { $_ }\n'@ here @'";
+    const run = (shell, line, env) => {
+      const r = spawnSync(shell, ["-c", line], { env: { PATH: bin + ":" + process.env.PATH, HOME: dir, FAKE_OUT: out, ...env }, encoding: "utf8", cwd: dir });
+      const args = existsSync(out + ".args") ? readFileSync(out + ".args", "utf8").split("\0").slice(0, -1) : [];
+      const seen = existsSync(out + ".env") ? Object.fromEntries(readFileSync(out + ".env", "utf8").trim().split("\n").map((l) => [l.slice(0, l.indexOf("=")), l.slice(l.indexOf("=") + 1)])) : {};
+      rmSync(out + ".args", { force: true }); rmSync(out + ".env", { force: true });
+      return { stdout: r.stdout, stderr: r.stderr, args, seen };
+    };
+    const after = "; echo \"code=$? pwd=$(pwd) TERM=${TERM-unset} NO_COLOR=${NO_COLOR-unset} PYTHONIOENCODING=${PYTHONIOENCODING-unset}\"";
+    const shells = ["bash", ...(spawnSync("zsh", ["-c", "true"]).status === 0 ? ["zsh"] : [])];
+    for (const shell of shells) {
+      // TERM=linux (Coder's machine, and Claude Code's cloud machine): xterm-256color for pwsh alone; NO_COLOR and
+      // PYTHONIOENCODING set for it; its exit code and folder come back; the shell's own variables are as they were.
+      let r = run(shell, PS.psCommand(tricky) + after, { TERM: "linux", FAKE_EXIT: "3", FAKE_CWD: moved });
+      assert.deepEqual(r.args, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", PS.psScript(tricky)], shell);
+      assert.deepEqual(r.seen, { TERM: "xterm-256color", NO_COLOR: "1", PYTHONIOENCODING: "utf-8:surrogateescape" }, shell);
+      assert.equal(r.stdout.trim(), "code=3 pwd=" + moved + " TERM=linux NO_COLOR=unset PYTHONIOENCODING=unset", shell + " " + r.stderr);
+      // No TERM at all (bash then calls it dumb, unexported): the same width.
+      r = run(shell, PS.psCommand("Get-ChildItem", { bypass: false }) + after, {});
+      assert.deepEqual(r.args, ["-NoProfile", "-NonInteractive", "-Command", PS.psScript("Get-ChildItem")], shell);
+      assert.equal(r.seen.TERM, "xterm-256color", shell);
+      assert.match(r.stdout, /^code=0 pwd=/, shell);
+      // The owner's own: their TERM kept; their NO_COLOR and PYTHONIOENCODING kept; FORCE_COLOR set, so no NO_COLOR.
+      r = run(shell, PS.psCommand("Get-ChildItem") + after, { TERM: "screen", NO_COLOR: "", PYTHONIOENCODING: "latin-1" });
+      assert.deepEqual(r.seen, { TERM: "screen", NO_COLOR: "", PYTHONIOENCODING: "latin-1" }, shell);
+      r = run(shell, PS.psCommand("Get-ChildItem") + after, { TERM: "linux", FORCE_COLOR: "1" });
+      assert.deepEqual(r.seen, { TERM: "xterm-256color", NO_COLOR: "unset", PYTHONIOENCODING: "utf-8:surrogateescape" }, shell);
+    }
+    // A PowerShell hook (inside the hook's own subshell, run as Coder runs a hook): -Command and its command with Claude Code's
+    // ending, the width; no NO_COLOR or PYTHONIOENCODING (Claude Code sets those for its tool, not for hooks).
+    const hookPart = (line) => line.slice(line.indexOf("(\n") + 2, line.indexOf("\n) < \"$__in\""));
+    for (const shell of ["bash", "sh"]) {
+      const part = hookPart(H.hookShell({ type: "command", shell: "powershell", command: tricky, event: "PreToolUse" }, "M", "/w"));
+      const r = run(shell, "(" + part + ")" + after, { TERM: "linux", FAKE_EXIT: "2" });
+      assert.deepEqual(r.args, ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", tricky + H.PS_HOOK_EXIT2], shell);
+      assert.deepEqual(r.seen, { TERM: "xterm-256color", NO_COLOR: "unset", PYTHONIOENCODING: "unset" }, shell);
+      assert.match(r.stdout, /^code=2 pwd=\S+ TERM=linux /, shell);
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
