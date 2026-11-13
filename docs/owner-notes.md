@@ -26,9 +26,13 @@ The switch stays in Coder for later tests; your environment's variables are back
 - Another address (`someone-else@example.com`): not refused; it asked as usual, ran, and couldn't connect.
 Put back right after: the test account's email (from a copy saved in its own record, never printed), and the made-up address taken off the allowed users (deploy 167).
 
-**3. Claude Code's own low-memory stop**, on my side with Haiku: results in the next entry.
+**3. Claude Code's own low-memory stop: the same as Coder's.** Run on my side: Claude Code 2.1.323 with Haiku, left idle with a background command that made memory stalls inside a 512 MB memory group of its own. My session's commands are capped at 14 GB of this 16 GB machine, so I couldn't really bring the machine under 10% free: Claude Code alone was shown a memory reading with 7% free (a private view; the rest of the machine saw the real one). The stalls and the 30-minute wait were real. A first try failed: my first memory hog went over that 14 GB cap and was the first thing killed, as planned, so I redid it with the small group.
+- **Before 30 idle minutes**, under heavy stalls: left alone. Its log: "memory-pressure reap skipped: session active in the last 30m". Coder does the same.
+- **After 31 idle minutes**, two seconds into the stalls: stopped. "Background command "Run hog2.py test command in background" was stopped because the system is running low on memory", then it woke its model to report, as Coder wakes Grok.
+- **Its words to the model** are the ones Coder already uses, with Coder's names: "This is not a failure of the command. Claude Code stopped it because the system was critically low on memory while the session was idle, which says nothing about the command or its own memory use, so there is nothing in it to debug. …"
+Nothing to change in Coder. The test's processes, files and memory group are gone.
 
-Cost: about 4 cents of Grok (3 messages).
+Cost: about 4 cents of Grok (3 messages) and about 1 cent of Haiku.
 
 ## 2026-11-13: Your `!` command when the sandbox is down, live (your words: "yea merge and deploy")
 
