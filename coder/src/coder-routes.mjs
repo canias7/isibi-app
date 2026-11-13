@@ -246,8 +246,11 @@ export const chatLinkOf = (env, id) => String((env && env.APP_ORIGIN) || "https:
 export async function emailMark(email) {
   const e = typeof email === "string" ? email.trim().toLowerCase() : "";
   if (!e || !e.includes("@") || e.length > 254) return "";
-  const d = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(e));
-  return e.length + ":" + [...new Uint8Array(d)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  const one = async (x) => x.length + ":" + [...new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(x)))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  // (Claude Code 2.1.323 also looks for the address without its quote marks and backslashes, o'brien@… as obrien@…: then
+  // a second mark, after a comma.)
+  const bare = e.replace(/["'`\\]/g, "");
+  return bare !== e ? (await one(e)) + "," + (await one(bare)) : one(e);
 }
 /**
  * THE CHAT'S LINK ON ITS COMMITS AND PULL REQUESTS (the owner, 2026-11-09: "yes i want that"; Claude Code's cloud sessions add a

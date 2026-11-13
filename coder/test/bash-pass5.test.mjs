@@ -186,7 +186,8 @@ test("CD359 the account's email with a User-Agent is refused, without asking (Cl
     };
     const on = await run({ emailMark: mark });
     assert.deepEqual(on.ran, []);
-    assert.equal(on.result.output, A.ACCOUNT_EMAIL_REFUSED);
+    // (Claude Code 2.1.323 tells its model which tool, and that its privacy plugin refused it: test CD548.)
+    assert.equal(on.result.output, A.accountEmailRefused("Bash"));
     assert.equal(A.ACCOUNT_EMAIL_REFUSED, "This call was refused: it holds the account's email address and what looks like a User-Agent setting. If nobody asked to send the address, run it again without it, with a generic client name. Otherwise run it again without that setting, or run the two in separate calls.");
     const off = await run({});
     assert.equal(off.ran.length, 1);
@@ -199,7 +200,8 @@ test("CD359 the account's email with a User-Agent is refused, without asking (Cl
   assert.equal(turn.body.emailMark, "6:" + createHash("sha256").update("me@x.y").digest("hex"));
   assert.ok(!JSON.stringify(turn.body).toLowerCase().includes("me@x.y"), "never the address itself");
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /emailMark: typeof body\.emailMark === "string" && \/\^\\d\{1,3\}:\[0-9a-f\]\{64\}\$\/\.test\(body\.emailMark\) \? body\.emailMark : "",/);
+  // (One mark, or two after a comma: test CD549.)
+  assert.match(server, /emailMark: typeof body\.emailMark === "string" && \/\^\\d\{1,3\}:\[0-9a-f\]\{64\}\(\?:,\\d\{1,3\}:\[0-9a-f\]\{64\}\)\?\$\/\.test\(body\.emailMark\) \? body\.emailMark : "",/);
   // And Claude Code's privacy rule for the model, in Coder's words.
   assert.match(A.CODER_SYSTEM, /Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to\. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner\./);
 });

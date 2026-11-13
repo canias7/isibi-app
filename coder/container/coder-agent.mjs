@@ -494,6 +494,12 @@ export function monitorEndLabel(e) {
 // call that holds the signed-in account's email address and names a User-Agent", in its words, without asking). The Worker
 // gives the machine the address's length and SHA-256 only (`emailMark`, "<length>:<sha256>"), never the address.
 export const ACCOUNT_EMAIL_REFUSED = "This call was refused: it holds the account's email address and what looks like a User-Agent setting. If nobody asked to send the address, run it again without it, with a generic client name. Otherwise run it again without that setting, or run the two in separate calls.";
+/**
+ * What Grok is told when that check refuses a call, as Claude Code 2.1.323 tells its model (tried side by side, 2026-11-12:
+ * "Permission to use Bash denied by plugin cc-plugin-privacy: This call was refused: …", and the same with Monitor and
+ * PowerShell for theirs). The page shows the same words under the step.
+ */
+export const accountEmailRefused = (tool) => "Permission to use " + tool + " denied by plugin cc-plugin-privacy: " + ACCOUNT_EMAIL_REFUSED;
 /** A tool call's input as Claude Code reads it for that check (its textOf): each string as sent, then without its quotes, backslashes, `$` before a quote and joined lines. */
 export function inputText(v) {
   if (typeof v === "string") return v + "\n" + v.replace(/[\\`]\r?\n/g, "").replace(/\$(?=["'])/g, "").replace(/["'`\\]/g, "");
@@ -505,26 +511,32 @@ const UA_FLAGS = [[/\bcurl(?:ie)?\b/i, /\s[-–-―][a-zA-WYZ0-9#]*A/], [/\bwget
 /**
  * Whether a call's text holds the account's email and names a User-Agent (Claude Code's namesUserAgentWithAddress: the
  * text, or the text with %XX decoded, holds the address in any case; then, with the address taken out, it names a
- * User-Agent: the words, or curl's -A, wget's -U, or a -user… option).
+ * User-Agent: the words, or curl's -A, wget's -U, or a -user… option). Like Claude Code 2.1.323, the address is looked
+ * for as it is and without its quote marks and backslashes (o'brien@… as obrien@…): the mark is "<length>:<sha256>",
+ * or two of them joined by a comma when those differ.
  */
 export function namesUserAgentWithAddress(text, mark) {
-  const m = /^(\d{1,3}):([0-9a-f]{64})$/.exec(String(mark || ""));
+  const marks = String(mark || "").split(",").map((x) => /^(\d{1,3}):([0-9a-f]{64})$/.exec(x)).filter(Boolean);
   const t = String(text || "");
-  if (!m || (!t.includes("@") && !t.includes("%40"))) return false;
-  const len = Number(m[1]), want = m[2];
+  if (!marks.length || (!t.includes("@") && !t.includes("%40"))) return false;
   const decoded = t.replace(/%([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-  let found = "";
-  for (const src of [t.toLowerCase(), decoded.toLowerCase()]) {
-    for (let at = src.indexOf("@"); at >= 0 && !found; at = src.indexOf("@", at + 1)) {
-      for (let j = Math.max(0, at - len + 1); j <= at && !found; j++) {
-        const cand = src.slice(j, j + len);
-        if (cand.length === len && createHash("sha256").update(cand).digest("hex") === want) found = cand;
+  const found = new Set();
+  for (const m of marks) {
+    const len = Number(m[1]), want = m[2];
+    let hit = "";
+    for (const src of [t.toLowerCase(), decoded.toLowerCase()]) {
+      for (let at = src.indexOf("@"); at >= 0 && !hit; at = src.indexOf("@", at + 1)) {
+        for (let j = Math.max(0, at - len + 1); j <= at && !hit; j++) {
+          const cand = src.slice(j, j + len);
+          if (cand.length === len && createHash("sha256").update(cand).digest("hex") === want) hit = cand;
+        }
       }
+      if (hit) break;
     }
-    if (found) break;
+    if (hit) found.add(hit);
   }
-  if (!found) return false;
-  const rest = t.replace(new RegExp(found.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "gi"), " ");
+  if (!found.size) return false;
+  const rest = t.replace(new RegExp([...found].map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi"), " ");
   return UA_WORDS.test(rest) || UA_FLAGS.some(([a, b]) => a.test(rest) && b.test(rest));
 }
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
@@ -2533,8 +2545,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (No checker to review them: run without them, and say so.)
         let hostsUnchecked = false;
         if (hostsFor && !checker && dec.verdict === "allow") { hostsFor = null; hostsUnchecked = true; }
-        // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress).
-        if (emailMark && namesUserAgentWithAddress(inputText(c.args), emailMark)) { refuse(ACCOUNT_EMAIL_REFUSED); continue; }
+        // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress), in
+        // Claude Code's words for the tool (accountEmailRefused); a monitor's own input is what is read, as Claude Code reads it.
+        if (emailMark && namesUserAgentWithAddress(inputText(c.monitor ? c.monitorArgs : c.args), emailMark)) { refuse(accountEmailRefused(c.monitor ? "Monitor" : c.ps ? "PowerShell" : "Bash")); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : null) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
