@@ -243,7 +243,8 @@ test("CD123 closing the tab while the machine sets up (clone, setup script) lose
   assert.equal(bad.status, 502);
   assert.equal(during.meta.status, "running", "running while the machine set up");
   assert.equal(during.watched, true, "watched while the machine set up");
-  assert.deepEqual(JSON.parse(bucket.m.get(mk)), before, "as it was");
+  // (Nothing left marked as starting: `starting: null`, 2026-11-13, as Gloopy's GL137.)
+  assert.deepEqual({ ...JSON.parse(bucket.m.get(mk)), starting: null }, { ...before, starting: null }, "as it was");
   assert.equal(bucket.m.has(W.watchKey(uid, id, 1)), false);
   assert.equal([...bucket.m.keys()].some((k) => k.includes("/live/")), false, "nothing it sent is left");
   // A START THAT WORKS: running and watched before the machine was asked (so a closed tab loses nothing).

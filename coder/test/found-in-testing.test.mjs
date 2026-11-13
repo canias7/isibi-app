@@ -1386,9 +1386,11 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.doesNotMatch(ui, /\/docs|cdSideDocs/, "not inside Coder");
   // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes"), then edit
   // (live, deploy 73; the owner, 2026-11-09: "Yes fix").
+  // Then bash and connectors (both live-tested; the owner, 2026-11-13: "do the docs live now for the tools we have done in
+  // the coder").
   const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(sections, ["read", "write", "edit"]);
-  for (const other of ["Bash", "Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
+  assert.deepEqual(sections, ["read", "write", "edit", "bash", "connectors"]);
+  for (const other of ["Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
   // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
   assert.match(page, /<link rel="stylesheet" href="\/docs\.css" \/>/);
@@ -1396,7 +1398,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.equal(links.length, 21);
+  assert.equal(links.length, 37);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.
@@ -1429,6 +1431,20 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /has\("CODER\.md"\) \? "CODER\.md" : has\("AGENTS\.md"\) \? "AGENTS\.md"/);
   assert.ok(page.includes("a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>)"));
+  // Bash's, from the code too (2026-11-13): its time limits, output limits, background limits, the sleep refusal, a monitor's.
+  const CK = await import("../container/coder-checks.mjs");
+  const BC = await import("../container/coder-bashcheck.mjs");
+  const SV = await import("../container/server.mjs");
+  assert.ok(page.includes("<b>" + CK.DEFAULT_TIMEOUT_S / 60 + " minutes</b> by default") && page.includes("up to <b>" + CK.MAX_TIMEOUT_S / 60 + " minutes</b>"));
+  assert.ok(page.includes("Output over <b>" + n(CK.BASH_INLINE_MAX) + " characters</b>") && page.includes("the first " + n(CK.BASH_PREVIEW) + " characters"));
+  assert.ok(page.includes("a <code>sleep</code> of " + BC.SLEEP_BLOCK_S + " seconds or more is refused"));
+  assert.ok(page.includes("One may run <b>" + SV.BG_LIMIT_MS / 60000 + " minutes</b>, or up to <b>" + SV.BG_LIMIT_MAX_MS / 3600000 + " hours</b>"));
+  assert.ok(page.includes("after " + SV.STALL_QUIET_MS / 1000 + " quiet seconds") && page.includes("passes <b>" + SV.OUTPUT_KILL / 1024 ** 3 + " GB</b>"));
+  assert.ok(page.includes("<b>" + A.MONITOR_MS / 60000 + " minutes</b> by default, up to <b>" + A.MONITOR_MAX_MS / 60000 + "</b>"));
+  // Connectors', from the code too: the Discover list's names, an answer's size, the time before the background.
+  const M = await import("../src/coder-mcp.mjs");
+  for (const name of ["Neon", "Supabase", "Cloudflare", "Sentry", "Linear", "Notion", "Stripe"]) assert.ok(M.CATALOG.some((c) => c.name === name) && page.includes(name), name);
+  assert.ok(page.includes("An answer over <b>" + n(A.CONNECTOR_INLINE_MAX) + " characters</b>") && page.includes("after <b>" + A.CONNECTOR_BG_MS / 60000 + " minutes</b>"));
 });
 
 test("CD249 write does not replace a file that has changed since Coder read or wrote it, as Claude Code's Write (tried for real, 2026-11-08, second pass: \"File has been modified since read, either by the user or by a linter. Read it again before attempting to write it.\"), whether a command or something in the background changed it; only its time changing is no change; once read again, or once the note after a command has shown the change, it may", async () => {

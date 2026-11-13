@@ -112,9 +112,11 @@ test("GM4 one page, two views (Coder's and Gloopy's): the mode and connectors ch
   assert.match(ui, /\(S\.project && !GLOOPY \? '<button type="button" class="cd-pick cd-connchip" id="cdConnChip"/);
   assert.match(ui, /if \(!S\.modeKeys && !GLOOPY\) \{/);
   const shown = "if \\(S\\.root && S\\.root\\.isConnected && S\\.root\\.getClientRects\\(\\)\\.length\\)";
-  for (const [ev, fn] of [["gf:notify", "showNotifications"], ["gf:settings", "showSettings"], ["gf:connectors", "showConnectors"]]) {
+  for (const [ev, fn] of [["gf:notify", "showNotifications"], ["gf:connectors", "showConnectors"]]) {
     assert.match(ui, new RegExp("window\\.addEventListener\\('" + ev + "', \\(\\) => \\{ " + shown + " " + fn + "\\(\\); \\}\\);"), ev);
   }
+  // (Settings: Gloopy's own in Gloopy's tab, Coder's in Coder's: owner, 2026-11-13, "fix 2".)
+  assert.match(ui, new RegExp("window\\.addEventListener\\('gf:settings', \\(\\) => \\{ " + shown + " \\{ if \\(GLOOPY\\) showGloopySettings\\(\\); else showSettings\\(\\); \\} \\}\\);"), "gf:settings");
   assert.match(ui, /if \(back && !GLOOPY\) \{ history\.replaceState/, "a connector's sign-in comes back to Coder's view");
   // Gloopy's Worker still makes /compact's summary itself (Coder's runs on its machine, as a turn).
   assert.match(ui, /if \(r\.data\.compacted \|\| r\.data\.handled\) \{ S\.project = r\.data\.project;/);
@@ -177,7 +179,11 @@ test("GM5 in a real browser: Coder's tab keeps its chips, Gloopy's has neither; 
       await page.click('.gf-tab[data-agent="' + tab + '"]');
       await page.waitForTimeout(300);
       await menu("gfSettings");
-      assert.equal(await count(".cd-settings"), 1, "Settings from " + tab);
+      // (In Gloopy's tab, Gloopy's own Settings, as its Settings button opens: owner, 2026-11-13, "fix 2".)
+      if (tab === "gloopy") {
+        assert.equal(await count(".cd-gset"), 1, "Gloopy's own Settings from Gloopy's tab");
+        assert.equal(await count(".cd-settings"), 0, "not Coder's");
+      } else assert.equal(await count(".cd-settings"), 1, "Settings from " + tab);
       await closeAll();
       await menu("gfConnectors");
       assert.equal(await count(".cx"), 1, "Connectors from " + tab);

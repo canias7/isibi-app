@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Coder Docs · Go Farther</title>
-  <meta name="description" content="How Coder's tools work, starting with read." />
+  <meta name="description" content="How Coder's tools work: read, write, edit, bash and connectors." />
   <!-- CODER'S DOCS (the owner, 2026-11-08): their own page, linked from the landing page's top bar ("put it on the
        landing page … don't put it inside the coding"), and only the tools tested so far ("Just make the docs for what
        we have tested right now, which is the read tool. That's it."). A tool is added once its live test passes.
@@ -43,10 +43,26 @@
       <a class="dc-sub" href="#edit-asks">Files Coder asks you about</a>
       <a class="dc-sub" href="#edit-no">When edit says no</a>
       <a class="dc-sub" href="#edit-kept">What stays as it was</a>
+      <a href="#bash">Bash</a>
+      <a class="dc-sub" href="#bash-see">What you see</a>
+      <a class="dc-sub" href="#bash-time">How long a command may run</a>
+      <a class="dc-sub" href="#bash-bg">Background commands</a>
+      <a class="dc-sub" href="#bash-own">Your own commands with !</a>
+      <a class="dc-sub" href="#bash-monitor">Watching for something</a>
+      <a class="dc-sub" href="#bash-asks">When Coder asks first</a>
+      <a class="dc-sub" href="#bash-rules">Permission rules</a>
+      <a class="dc-sub" href="#bash-settings">Settings and hooks</a>
+      <a class="dc-sub" href="#bash-where">Where commands run</a>
+      <a href="#connectors">Connectors</a>
+      <a class="dc-sub" href="#conn-add">Adding one</a>
+      <a class="dc-sub" href="#conn-perms">What each tool may do</a>
+      <a class="dc-sub" href="#conn-coder">In Coder's chats</a>
+      <a class="dc-sub" href="#conn-gloopy">In Gloopy's chat</a>
+      <a class="dc-sub" href="#conn-more">Prompts, resources and big answers</a>
     </nav>
     <main class="dc-main">
       <h1>Coder docs</h1>
-      <p class="dc-lead">How Coder's tools work: read, write and edit so far, with more on the way.</p>
+      <p class="dc-lead">How Coder's tools work: read, write, edit, bash and connectors so far, with more on the way.</p>
 
       <section id="read">
         <h2>Read</h2>
@@ -179,6 +195,119 @@
         <ul>
           <li>The file's line endings (in a file with mixed ones, every line gets the kind most of its lines have), a UTF-16 file's format, and a byte-order mark.</li>
           <li>A script stays runnable, and a read-only file stays read-only.</li>
+        </ul>
+      </section>
+
+      <section id="bash">
+        <h2>Bash</h2>
+        <p class="dc-lead">Bash runs a command on your chat's own computer, in your project's folder: installs, tests, builds, scripts and git. It's how Coder does what the file tools can't.</p>
+
+        <h3 id="bash-see">What you see</h3>
+        <ul>
+          <li>Each command shows as a step in plain words, such as <code>Run the test suite</code>, with what it printed under it.</li>
+          <li>A <code>cd</code> carries over to Coder's next commands, in later messages too, as long as it stays inside your project.</li>
+          <li>A command that finds nothing isn't a failure: exit code 1 from <code>grep</code>, <code>find</code>, <code>diff</code>, <code>test</code> or <code>git diff</code> counts as an answer.</li>
+          <li>Output over <b>30,000 characters</b> is saved to a file. Coder sees the first 2,000 characters and reads or searches the file for the rest.</li>
+        </ul>
+
+        <h3 id="bash-time">How long a command may run</h3>
+        <ul>
+          <li><b>2 minutes</b> by default. Coder can give a command up to <b>10 minutes</b>.</li>
+          <li>A command still running then isn't lost: it moves to the background and keeps going, and Coder is told where its output is. (A command that starts with <code>sleep</code> is stopped instead.)</li>
+          <li>Coder doesn't wait by sleeping: a <code>sleep</code> of 25 seconds or more is refused, and Coder waits with a monitor instead.</li>
+        </ul>
+
+        <h3 id="bash-bg">Background commands</h3>
+        <ul>
+          <li>A dev server, a watcher or a long build runs in the background. It keeps running after Coder answers, and Coder is told when it ends, even after its answer, so it can tell you how it went.</li>
+          <li>One may run <b>30 minutes</b>, or up to <b>2 hours</b> when Coder asks for longer. Settings can raise that.</li>
+          <li>One that sits waiting for a typed answer, such as <code>(y/n)</code>, is noticed after 45 quiet seconds, and Coder is told.</li>
+          <li>One whose output passes <b>5 GB</b> is stopped.</li>
+        </ul>
+
+        <h3 id="bash-own">Your own commands with !</h3>
+        <ul>
+          <li>Start a message with <code>!</code> to run a command yourself, such as <code>! npm test</code>. It runs right away, as you typed it, with no question first. What it printed shows in the chat, and Coder answers it.</li>
+          <li>While Coder is working, your command waits in the queue for its turn.</li>
+          <li>One that runs past 2 minutes moves to the background, as Coder's do.</li>
+        </ul>
+
+        <h3 id="bash-monitor">Watching for something</h3>
+        <ul>
+          <li>Coder can start a monitor: a command running in the background whose every line comes to Coder as it happens, such as a server's "ready" line or an error in a log. It can listen to a WebSocket too.</li>
+          <li>A monitor runs <b>5 minutes</b> by default, up to <b>30</b>. One that prints too much is slowed down, then stopped.</li>
+        </ul>
+
+        <h3 id="bash-asks">When Coder asks first</h3>
+        <ul>
+          <li>The mode under the message box decides (<code>Ctrl</code>/<code>&#8984;</code> + <code>Shift</code> + <code>M</code>, then 1 to 3):
+            <ul>
+              <li><b>Auto</b>: Coder goes ahead, and a second AI checks each step before it runs.</li>
+              <li><b>Accept edits</b>: file changes, and commands that only read, run without asking. Any other command asks.</li>
+              <li><b>Plan</b>: Coder only looks around, then shows you its plan. Approve it, and Coder goes ahead in Auto or Accept edits.</li>
+            </ul>
+          </li>
+          <li>A question is a card under the step: <b>Yes</b>, <b>Yes, and don't ask again</b> for commands like it, <b>Yes, and switch to auto mode</b>, or <b>No</b> (you can add a note).</li>
+          <li>In every mode, Coder asks before a command writes to a protected file (such as one in <code>.git</code> or <code>.husky</code>), and before a very long command. A dangerous delete asks too. In Auto, its card waits 2 minutes, and then the delete is blocked.</li>
+        </ul>
+
+        <h3 id="bash-rules">Permission rules</h3>
+        <ul>
+          <li>In the mode menu, <b>Permission rules&hellip;</b> lists your rules: <b>Allow</b>, <b>Ask</b> and <b>Deny</b>, such as <code>Bash(npm test *)</code> or <code>WebFetch(domain:docs.example.com)</code>. A Deny wins over an Ask, and an Ask over an Allow.</li>
+          <li><b>Yes, and don't ask again</b> adds an Allow rule for you. Rules are kept per repository.</li>
+          <li>A repository's own <code>.claude/settings.json</code> rules count too, as in Claude Code.</li>
+        </ul>
+
+        <h3 id="bash-settings">Settings and hooks</h3>
+        <ul>
+          <li>In the gear's menu, <b>Settings</b>: how long a background command may run, whether stopping one also stops what it started, a warning for Coder when the disk or memory runs low, your hooks, refusing instead of asking, turning Auto mode off, and Auto mode's rules.</li>
+          <li><b>Hooks</b> are your own commands that run around Coder's steps (before a tool, after it, when a job starts or ends), written as in Claude Code's settings. One can stop a step, change it, or tell Coder something.</li>
+        </ul>
+
+        <h3 id="bash-where">Where commands run</h3>
+        <ul>
+          <li>Each chat has its own computer: Ubuntu 24.04, 4 CPUs and 16 GB of memory, with the tools Claude Code's has, and admin rights inside a sealed sandbox. It sleeps when it's quiet and keeps its disk, so what you installed stays.</li>
+          <li>Commands run with no secrets in them. Your environment's keys are added on the way out, by Coder's server, and only for the sites they're for.</li>
+          <li>What the computer can reach on the internet is set by the chat's environment.</li>
+          <li>PowerShell can be turned on for an environment with <code>CODER_USE_POWERSHELL_TOOL=1</code>.</li>
+        </ul>
+      </section>
+
+      <section id="connectors">
+        <h2>Connectors</h2>
+        <p class="dc-lead">Connectors let Coder use your other services, such as Linear, Notion or Stripe, through their MCP servers. Add one once, and it works in every chat, for Coder and Gloopy.</p>
+
+        <h3 id="conn-add">Adding one</h3>
+        <ul>
+          <li>In the gear's menu, <b>Connectors</b>. <b>Discover</b> lists ready ones (Neon, Supabase, Cloudflare, Sentry, Linear, Notion, Stripe and more), and <b>Add</b> takes any MCP server's address.</li>
+          <li>Some sign you in on the service's own page; others take a key. Sign-ins and keys stay sealed on Coder's server: they never reach the chat's computer, and Coder never sees them.</li>
+        </ul>
+
+        <h3 id="conn-perms">What each tool may do</h3>
+        <ul>
+          <li>A connector's page lists its tools, each set to <b>Always allow</b>, <b>Needs approval</b> or <b>Blocked</b>. Tools that only read start as Always allow, the rest as Needs approval.</li>
+          <li>A Blocked tool is never offered. A tool whose service asks for your OK every time always asks, whatever it's set to.</li>
+        </ul>
+
+        <h3 id="conn-coder">In Coder's chats</h3>
+        <ul>
+          <li>The connectors button by the message box turns each connector on or off for that chat.</li>
+          <li>Needs approval asks first in Accept edits and Plan. In Auto, it runs without asking. In Plan, a tool that changes something asks first, even one set to Always allow.</li>
+          <li>A step shows as <code>Used DeepWiki: Read Wiki Structure</code>, with the answer under it. A job started from GitHub gets no connectors.</li>
+        </ul>
+
+        <h3 id="conn-gloopy">In Gloopy's chat</h3>
+        <ul>
+          <li>Always allow tools run right away. A Needs approval tool asks on Gloopy's card, with what it would send: <b>Allow once</b>, <b>Always allow</b> (which sets that tool to Always allow) or <b>Deny</b>. After a Deny, Gloopy doesn't ask about it again until your next message.</li>
+          <li>Gloopy's helpers get only the Always allow tools, as they can't ask you.</li>
+        </ul>
+
+        <h3 id="conn-more">Prompts, resources and big answers</h3>
+        <ul>
+          <li>Type <code>/linear:triage</code> (a connector's name, then one of its prompts) to send that prompt as your message, or <code>@notion:notion://page/&hellip;</code> to attach one of its resources.</li>
+          <li>An answer over <b>50,000 characters</b> is saved to a file, and Coder reads the part it needs. What a connector sends back is treated as information, never as instructions.</li>
+          <li>A call still running after <b>2 minutes</b> goes on in the background, and Coder is told its answer when it comes.</li>
+          <li>With many connectors, Coder first searches for the tools it needs, so their long descriptions don't crowd its memory.</li>
         </ul>
       </section>
     </main>

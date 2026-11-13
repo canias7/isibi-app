@@ -1154,7 +1154,8 @@ export async function handleCoder(request, env, ctx, deps) {
   const id = parts[1];
   if (!PROJECT_ID.test(id)) return json({ error: "bad project" }, 400);
   const metaKey = keyOf(uid, id, "meta.json");
-  const meta = await getJson(bucket, metaKey, null);
+  // (`let`: a message's start reads the chat again as it goes, 2026-11-13; nothing else changes it.)
+  let meta = await getJson(bucket, metaKey, null);
   if (!meta) return json({ error: "no such project" }, 404);
   // GLOOPY'S MACHINE (2026-11-12): its own size, suspended when idle so it is back in under a second (coder-fly.mjs).
   const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);
@@ -1199,204 +1200,241 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   if (action === "message" && request.method === "POST") {
-    let body = {}; try { body = await request.json(); } catch { body = {}; }
-    // THE MODE THE PAGE SHOWS goes with the message (the page's mode menu also changes it at once, /mode). And /plan (Claude
-    // Code: "prefixing a single prompt with /plan" enters plan mode): the chat goes to Plan mode, and the rest is the
-    // message; /plan alone only changes the mode. Never from GitHub, where strangers write.
-    if (body.fromGithub !== true) {
-      const planned = typeof body.text === "string" ? /^\s*\/plan(?:\s+([\s\S]*))?$/i.exec(body.text) : null;
-      const want = planned ? "plan" : MODES.includes(body.mode) ? noAuto(body.mode, await getJson(bucket, settingsKey(uid), {})) : "";
-      if (planned) body.text = String(planned[1] || "").trim();
-      if (want && want !== normMode(meta.mode)) {
-        const saved = await saveMode(bucket, uid, id, want);
-        if (saved) Object.assign(meta, { mode: saved.mode, modeAt: saved.modeAt });
-        if (meta.status === "running") await post("/mode", { project: id, mode: want }).catch(() => null);
+    // A MESSAGE THAT CAN'T GET STUCK (owner, 2026-11-13: "fix 1", from the note Gloopy's session left: Gloopy's fix of
+    // 2026-11-12/13, the same here): the chat is marked as starting before the slow part (claimStart); the same message sent
+    // twice waits for its first copy (sameMessage); a start that fails puts the chat back only while it is still its own
+    // (release), never over a newer one; and the start goes on when the page goes (Cloudflare lets it finish, up to 30
+    // seconds after). An error half-way puts the chat back too.
+    let claim = null;
+    const startRun = (async () => {
+      let body = {}; try { body = await request.json(); } catch { body = {}; }
+      // THE SAME MESSAGE AGAIN (a browser sends it again when its connection drops; `mid`, the page's id for it): answered as
+      // its first copy was, never started or queued twice.
+      const mid = cleanMid(body.mid);
+      if (mid) { const same = await sameMessage(bucket, metaKey, meta, mid); if (same.done) return same.done; meta = same.meta; }
+      // THE MODE THE PAGE SHOWS goes with the message (the page's mode menu also changes it at once, /mode). And /plan (Claude
+      // Code: "prefixing a single prompt with /plan" enters plan mode): the chat goes to Plan mode, and the rest is the
+      // message; /plan alone only changes the mode. Never from GitHub, where strangers write.
+      if (body.fromGithub !== true) {
+        const planned = typeof body.text === "string" ? /^\s*\/plan(?:\s+([\s\S]*))?$/i.exec(body.text) : null;
+        const want = planned ? "plan" : MODES.includes(body.mode) ? noAuto(body.mode, await getJson(bucket, settingsKey(uid), {})) : "";
+        if (planned) body.text = String(planned[1] || "").trim();
+        if (want && want !== normMode(meta.mode)) {
+          const saved = await saveMode(bucket, uid, id, want);
+          if (saved) Object.assign(meta, { mode: saved.mode, modeAt: saved.modeAt });
+          if (meta.status === "running") await post("/mode", { project: id, mode: want }).catch(() => null);
+        }
+        if (planned && !body.text && !(Array.isArray(body.images) && body.images.length)) return json({ ok: true, project: meta, mode: "plan" });
       }
-      if (planned && !body.text && !(Array.isArray(body.images) && body.images.length)) return json({ ok: true, project: meta, mode: "plan" });
-    }
-    const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
-    // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
-    // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
-    // has something to tell.
-    const wake = body.fromBackground === true && !review;
-    const said = review ? review.label : wake ? "" : String(body.text || "").trim();
-    // THE OWNER'S OWN COMMAND (tool 4, part 3; Claude Code's shell mode: "! npm test" runs it directly, its output goes into
-    // the conversation, and Claude responds to it): a message starting with "!", typed in the page (never from GitHub, where
-    // strangers write), with no pictures or comments. The machine runs it as Coder's commands run.
-    const shell = !review && !wake && body.fromGithub !== true && /^!/.test(said) && !commentsText(body.comments) && !(Array.isArray(body.images) && body.images.length) ? said.replace(/^!\s*/, "") : null;
-    if (shell === "") return json({ error: "write a command after !" }, 400);
-    // A CONNECTOR'S PROMPT ("/linear:triage …") OR RESOURCE ("@notion:notion://page/…") in the owner's own message (never
-    // from GitHub): the prompt's text, or the resource attached (coder-mcp.mjs, expandConnectorRefs).
-    const ref = shell === null && !review && !wake && body.fromGithub !== true && /^\s*\/[a-z0-9_-]+(?::|__)|@[a-z0-9_-]+:[a-z][a-z0-9+.-]*:\/\//i.test(said) ? await expandConnectorRefs(env, bucket, uid, said, { fetchFn }) : null;
-    if (ref && ref.error) return json({ error: ref.error }, 400);
-    const notes = commentsText(body.comments);
-    const asked = ref ? ref.text : said;
-    const text = notes ? notes + (asked ? "\n\n" + asked : "") : asked;
-    const pics = checkImages(body.images);
-    if (pics.error) return json({ error: pics.error }, 400);
-    if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
-    if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
-    if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
-    if (meta.status === "running") {
-      // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
-      // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
-      // reads it when its running tool calls finish, in this turn); a command waits for the job's end. What is left when
-      // the job ends goes out next, by itself (the state route below).
-      const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
-      if (!queueable) return json({ error: pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
-      const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
-      if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
-      const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}) };
-      const waiting = [...queue, entry];
-      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
-      if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
-      return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
-    }
-    // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
-    // optional focus instructions"): the conversation so far becomes one summary for Coder. Made on the chat's machine, as a
-    // job of its own that Coder does not answer, so the owner's PreCompact, PostCompact and SessionStart ("compact") hooks run
-    // around it, as Claude Code's do (round 5 of the live test, 2026-11-12: made here, away from the machine, they never ran).
-    const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
-    const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300) } : null;
-    if (compactJob) {
-      const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-      if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
-    }
-    const t = await userToken(env, bucket, uid, { fetchFn });
-    if (!t) return json({ error: "connect GitHub again: the connection has ended", connect: true }, 409);
-    const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
-    if (running >= maxRunning(env)) return json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429);
-    let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
-    // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
-    let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
-    // (Not before the owner's /compact, which summarizes all of it.)
-    const squeezed = compactJob ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
-    if (squeezed.to) {
-      messages = squeezed.messages;
-      await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
-      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, { at: Date.now(), type: "note", text: "Compacted: the earlier part of this chat is now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows it all." }].slice(-MAX_EVENTS));
-      baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
-    }
-    const saved = await getJson(bucket, settingsKey(uid), {});
-    const pick = pickModel(body.model || saved.model, body.effort || savedEffort(saved));
-    // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
-    const envId = await envIdOf(bucket, uid, meta);
-    const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
-    const setup = await readEnvData(env, bucket, uid, envId);
-    const environment = { name: envEntry.name, isDefault: envId === DEFAULT_ENV };
-    // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like Claude Code's
-    // cache; on Fly.io only): a new chat's disk is made from it (its machine then skips the setup),
-    // and a setup run on a fresh disk is saved as the copy (below, once the machine says it waits).
-    const copyOn = typeof deps.snapshot === "function" && typeof deps.cacheUsable === "function" && !!String(setup.script || "").trim();
-    const setupKey = copyOn ? await setupKeyOf(setup) : "";
-    const copyNow = copyOn ? await readEnvCache(bucket, uid, envId) : null;
-    // ONLY A COPY FLY.IO HAS FINISHED (live test #25, 2026-11-07: a chat started a minute after the copy
-    // was asked for; Fly takes minutes to finish one, and refused it). A chat's first message asks Fly
-    // about one not yet known to be finished; while it is being finished, this chat runs the setup
-    // itself (said in the chat) and makes no second copy.
-    let useCopy = null, copyWait = "";
-    if (copyNow && deps.cacheUsable(copyNow, setupKey)) {
-      if (copyNow.ready === true) useCopy = copyNow;
-      else if (meta.turn === 0 && typeof deps.copyState === "function") {
-        const st = await deps.copyState(copyNow).catch(() => null);
-        if (st && st.status === "created") {
-          useCopy = { ...copyNow, ready: true, ...(st.retention > 0 ? { retention: st.retention } : {}) };
-          await writeEnvCache(bucket, uid, envId, useCopy).catch(() => {});
-        } else if (!(st && st.status === "gone") && Date.now() - Number(copyNow.at) < CACHE_PENDING_MS) {
-          const mins = Math.max(1, Math.round((Date.now() - Number(copyNow.at)) / 60000));
-          copyWait = "Setup: Fly.io is still finishing the environment's saved copy of the setup (asked for " + mins + " minute" + (mins === 1 ? "" : "s") + " ago), so this chat runs the setup script itself. New chats start from the copy once it is finished.";
+      const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
+      // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
+      // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
+      // has something to tell.
+      const wake = body.fromBackground === true && !review;
+      const said = review ? review.label : wake ? "" : String(body.text || "").trim();
+      // THE OWNER'S OWN COMMAND (tool 4, part 3; Claude Code's shell mode: "! npm test" runs it directly, its output goes into
+      // the conversation, and Claude responds to it): a message starting with "!", typed in the page (never from GitHub, where
+      // strangers write), with no pictures or comments. The machine runs it as Coder's commands run.
+      const shell = !review && !wake && body.fromGithub !== true && /^!/.test(said) && !commentsText(body.comments) && !(Array.isArray(body.images) && body.images.length) ? said.replace(/^!\s*/, "") : null;
+      if (shell === "") return json({ error: "write a command after !" }, 400);
+      // A CONNECTOR'S PROMPT ("/linear:triage …") OR RESOURCE ("@notion:notion://page/…") in the owner's own message (never
+      // from GitHub): the prompt's text, or the resource attached (coder-mcp.mjs, expandConnectorRefs).
+      const ref = shell === null && !review && !wake && body.fromGithub !== true && /^\s*\/[a-z0-9_-]+(?::|__)|@[a-z0-9_-]+:[a-z][a-z0-9+.-]*:\/\//i.test(said) ? await expandConnectorRefs(env, bucket, uid, said, { fetchFn }) : null;
+      if (ref && ref.error) return json({ error: ref.error }, 400);
+      const notes = commentsText(body.comments);
+      const asked = ref ? ref.text : said;
+      const text = notes ? notes + (asked ? "\n\n" + asked : "") : asked;
+      const pics = checkImages(body.images);
+      if (pics.error) return json({ error: pics.error }, 400);
+      if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
+      if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
+      if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
+      // (The chat as it is now: another message may have started while this one was read.)
+      meta = (await getJson(bucket, metaKey, null)) || meta;
+      if (meta.status === "running") {
+        // QUEUED WHILE CODER WORKS (Claude Code's queue): the owner's message, or `!` command, typed in the page; not a review,
+        // a /compact, pictures or line comments, nor anything from GitHub. A message goes to the running job at once (Coder
+        // reads it when its running tool calls finish, in this turn); a command waits for the job's end. What is left when
+        // the job ends goes out next, by itself (the state route below).
+        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+        if (!queueable) return json({ error: pics.images.length || notes ? "Coder is still working: send pictures or line comments once it is done" : "Coder is still working on the last message" }, 409);
+        const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+        // (The same message again, already waiting: answered as its first copy was.)
+        const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
+        if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: meta });
+        if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
+        const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
+        const waiting = [...queue, entry];
+        await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+        if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+        return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
+      }
+      // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
+      // optional focus instructions"): the conversation so far becomes one summary for Coder. Made on the chat's machine, as a
+      // job of its own that Coder does not answer, so the owner's PreCompact, PostCompact and SessionStart ("compact") hooks run
+      // around it, as Claude Code's do (round 5 of the live test, 2026-11-12: made here, away from the machine, they never ran).
+      const compact = /^\/compact(?:\s+([\s\S]*))?$/i.exec(said);
+      const compactJob = compact && !notes && !pics.images.length ? { focus: String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300) } : null;
+      if (compactJob) {
+        const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+        if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
+      }
+      // MARKED AS STARTING FIRST (Gloopy's fix, 2026-11-12): what follows can take a while (the GitHub sign-in, a long chat's
+      // summary, the environment), and another message meanwhile waits in the queue. Any way this start ends without Coder's
+      // machine taking it, the chat is put back as it was (only while it is still this start's).
+      claim = await claimStart(bucket, uid, meta, metaKey, mid, said);
+      const unclaimed = async (res) => { await claim.release(); return res; };
+      // NOT THIS START'S ANY MORE: Coder was stopped meanwhile (from another page), or another start took the chat at the same
+      // moment. That one's answer when it is this same message (its other copy); otherwise this one didn't start.
+      const lostStart = async () => {
+        const same = await sameMessage(bucket, metaKey, await getJson(bucket, metaKey, null), mid);
+        return same.done || json({ error: "This message didn't start: Coder was stopped, or another message started first. Send it again if you still want it." }, 409);
+      };
+      const t = await userToken(env, bucket, uid, { fetchFn });
+      if (!t) return unclaimed(json({ error: "connect GitHub again: the connection has ended", connect: true }, 409));
+      const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
+      if (running >= maxRunning(env)) return unclaimed(json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429));
+      let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+      // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
+      // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
+      let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
+      // (Not before the owner's /compact, which summarizes all of it.) Made by one start only (START_SETTLE_MS, Gloopy's).
+      if (!compactJob && Array.isArray(messages) && JSON.stringify(messages).length > COMPACT_HISTORY_AT) {
+        await new Promise((ok) => setTimeout(ok, START_SETTLE_MS));
+        if (!(await claim.held())) return lostStart();
+      }
+      const squeezed = compactJob ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
+      if (squeezed.to) {
+        messages = squeezed.messages;
+        await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
+        const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+        await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, { at: Date.now(), type: "note", text: "Compacted: the earlier part of this chat is now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows it all." }].slice(-MAX_EVENTS));
+        baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
+      }
+      const saved = await getJson(bucket, settingsKey(uid), {});
+      const pick = pickModel(body.model || saved.model, body.effort || savedEffort(saved));
+      // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
+      const envId = await envIdOf(bucket, uid, meta);
+      const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
+      const setup = await readEnvData(env, bucket, uid, envId);
+      const environment = { name: envEntry.name, isDefault: envId === DEFAULT_ENV };
+      // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like Claude Code's
+      // cache; on Fly.io only): a new chat's disk is made from it (its machine then skips the setup),
+      // and a setup run on a fresh disk is saved as the copy (below, once the machine says it waits).
+      const copyOn = typeof deps.snapshot === "function" && typeof deps.cacheUsable === "function" && !!String(setup.script || "").trim();
+      const setupKey = copyOn ? await setupKeyOf(setup) : "";
+      const copyNow = copyOn ? await readEnvCache(bucket, uid, envId) : null;
+      // ONLY A COPY FLY.IO HAS FINISHED (live test #25, 2026-11-07: a chat started a minute after the copy
+      // was asked for; Fly takes minutes to finish one, and refused it). A chat's first message asks Fly
+      // about one not yet known to be finished; while it is being finished, this chat runs the setup
+      // itself (said in the chat) and makes no second copy.
+      let useCopy = null, copyWait = "";
+      if (copyNow && deps.cacheUsable(copyNow, setupKey)) {
+        if (copyNow.ready === true) useCopy = copyNow;
+        else if (meta.turn === 0 && typeof deps.copyState === "function") {
+          const st = await deps.copyState(copyNow).catch(() => null);
+          if (st && st.status === "created") {
+            useCopy = { ...copyNow, ready: true, ...(st.retention > 0 ? { retention: st.retention } : {}) };
+            await writeEnvCache(bucket, uid, envId, useCopy).catch(() => {});
+          } else if (!(st && st.status === "gone") && Date.now() - Number(copyNow.at) < CACHE_PENDING_MS) {
+            const mins = Math.max(1, Math.round((Date.now() - Number(copyNow.at)) / 60000));
+            copyWait = "Setup: Fly.io is still finishing the environment's saved copy of the setup (asked for " + mins + " minute" + (mins === 1 ? "" : "s") + " ago), so this chat runs the setup script itself. New chats start from the copy once it is finished.";
+          }
         }
       }
-    }
-    // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
-    if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
-    // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
-    // THE KEYS STAY HERE (2026-11-06, like Claude Code): the machine gets where they
-    // apply and this job's pass for the Worker's egress; the Worker adds them.
-    const secrets = machineKeyRules(setup.secrets);
-    // This job's key values, kept sealed on our side to hide them in its chat (never sent to the machine).
-    const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
-    const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
-    delete setup.secrets;
-    // THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06): where the machine sends this job's steps, with its own pass.
-    const livePassNow = env.CODER_PUBLIC_URL ? await livePass(env, uid + "/" + id, meta.turn + 1) : "";
-    const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
-    const mo = await bucket.get(memoryKey(uid, meta.repo));
-    const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
-    // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
-    // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
-    const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
-    // (Not for the owner's /compact: no message of the owner's to go back to; its summary moves the marks when it ends.)
-    const marks = compactJob ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
-    // THE REVIEW THREAD AN AUTO-FIX JOB MAY ANSWER IN (owner item 2, like Claude Code's auto-fix: it "may reply
-    // to review comment threads"): only one GitHub's news started the job for; kept for its end.
-    const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
-    const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-    const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
-    const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
-    // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
-    const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
-    // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
-    const lastAtOn = messages.length && Number(meta.at) > 0 ? { lastAt: Number(meta.at) } : {};
-    // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs, jobConnectors): names and descriptions only, never in a job from GitHub.
-    const connOn = await jobConnectors(bucket, uid, id, next.turn, meta, body.fromGithub === true);
-    const connectors = connOn.connectors || [];
-    // Lists older than an hour are read again in the background, for the next job (coder-mcp.mjs, refreshTools).
-    if (connectors.length && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshTools(env, bucket, uid, { fetchFn }).catch(() => {}));
-    // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
-    // the machine sets up first (the clone, the setup script), which can take
-    // minutes, and Cloudflare stops a request whose tab has closed; the watch
-    // list then carries the job on. (Keys added by the Worker work during the
-    // setup too: the job is "running" by then.)
-    await saveMeta(bucket, uid, next);
-    // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
-    // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-    if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
-    // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
-    // is saved when it ends, even after the tab is closed (coder-watch.mjs).
-    await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
-    // Not started after all: the chat is as it was.
-    const notStarted = async () => {
-      await saveMeta(bucket, uid, meta);
-      if (typeof bucket.delete === "function") { if (jobValues.length) await bucket.delete(keyOf(uid, id, "hide.json")).catch(() => {}); await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {}); }
-      await dropLive(bucket, uid, id).catch(() => {});
-    };
-    // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
-    let r;
-    try {
-    r = await post("/turn", { secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
-    } catch (e) {
-      await notStarted();
-      return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
-    }
-    if (!r.ok) {
-      await notStarted();
-      // THE REAL REASON, whatever shape it came in (the container's JSON, or the
-      // platform's own text when the container could not start).
-      const raw = await r.text().catch(() => "");
-      let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
-      return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
-    }
-    // THE COPY IS SAVED NOW: the setup just ran on this chat's fresh disk and worked, and the
-    // machine waits (before Coder starts) while Fly.io saves the disk; then it is told to go.
-    // (Not saved, or no answer: the machine goes on by itself after a while.)
-    let started = null;
-    try { started = await r.json(); } catch { started = null; }
-    if (started && started.held === true) {
-      const snap = copyOn ? await deps.snapshot(uid + "-" + id).catch(() => null) : null;
-      if (snap) await writeEnvCache(bucket, uid, envId, { ...snap, key: setupKey, at: Date.now(), from: id }).catch(() => {});
-      // Said in the chat by the machine, after its setup (like Claude Code's cache, which is otherwise unseen).
-      const note = !copyOn ? "" : snap ? "Setup: Fly.io " + (snap.ready ? "saved" : "is saving") + " a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it" + (snap.ready ? "" : " once it is finished, in a few minutes,") + " and skip the setup." : "Setup: a copy of the setup's result could not be saved this time (Fly.io did not start saving it in time). The next new chat in this environment runs the setup and tries again.";
-      await post("/go", { project: id, ...(note ? { note } : {}) }).catch(() => {});
-    }
-    // Auto-fix tries in a row; a message from the owner starts the count again.
-    await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
-    // STOPPED WHILE THE MACHINE WAS SETTING UP (the chat was freed meanwhile): the machine stops it too.
-    const nowMeta = await getJson(bucket, metaKey, null);
-    if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
-    return json({ ok: true, project: next });
+      // A job started from GitHub (whose text strangers can write) gets the setup script but NOT the owner's variables.
+      if (body.fromGithub === true) { setup.vars = {}; setup.secrets = []; }
+      // NETWORK SECRETS go to the machine's proxy only (never into the AI's text).
+      // THE KEYS STAY HERE (2026-11-06, like Claude Code): the machine gets where they
+      // apply and this job's pass for the Worker's egress; the Worker adds them.
+      const secrets = machineKeyRules(setup.secrets);
+      // This job's key values, kept sealed on our side to hide them in its chat (never sent to the machine).
+      const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
+      const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
+      delete setup.secrets;
+      // THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06): where the machine sends this job's steps, with its own pass.
+      const livePassNow = env.CODER_PUBLIC_URL ? await livePass(env, uid + "/" + id, meta.turn + 1) : "";
+      const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
+      const mo = await bucket.get(memoryKey(uid, meta.repo));
+      const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
+      // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
+      // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
+      const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+      // (Not for the owner's /compact: no message of the owner's to go back to; its summary moves the marks when it ends.)
+      const marks = compactJob ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+      // THE REVIEW THREAD AN AUTO-FIX JOB MAY ANSWER IN (owner item 2, like Claude Code's auto-fix: it "may reply
+      // to review comment threads"): only one GitHub's news started the job for; kept for its end.
+      const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
+      const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
+      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
+      const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
+      // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
+      const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
+      // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
+      const lastAtOn = messages.length && Number(meta.at) > 0 ? { lastAt: Number(meta.at) } : {};
+      // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs, jobConnectors): names and descriptions only, never in a job from GitHub.
+      const connOn = await jobConnectors(bucket, uid, id, next.turn, meta, body.fromGithub === true);
+      const connectors = connOn.connectors || [];
+      // Lists older than an hour are read again in the background, for the next job (coder-mcp.mjs, refreshTools).
+      if (connectors.length && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshTools(env, bucket, uid, { fetchFn }).catch(() => {}));
+      // THE CHAT KNOWS THE JOB HAS STARTED BEFORE THE MACHINE IS ASKED (2026-11-06):
+      // the machine sets up first (the clone, the setup script), which can take
+      // minutes, and Cloudflare stops a request whose tab has closed; the watch
+      // list then carries the job on. (Keys added by the Worker work during the
+      // setup too: the job is "running" by then.) Not if it was stopped meanwhile, or another start took the chat (lostStart).
+      if (!(await claim.held())) return lostStart();
+      await saveMeta(bucket, uid, next);
+      // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
+      // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
+      if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
+      // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
+      // is saved when it ends, even after the tab is closed (coder-watch.mjs).
+      await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
+      // Not started after all: the chat is as it was (only while it is still this start's, never over a newer one).
+      const notStarted = async () => {
+        await claim.release();
+        if (typeof bucket.delete === "function") { if (jobValues.length) await bucket.delete(keyOf(uid, id, "hide.json")).catch(() => {}); await bucket.delete(watchKey(uid, id, next.turn)).catch(() => {}); }
+        await dropLive(bucket, uid, id).catch(() => {});
+      };
+      // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
+      let r;
+      try {
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      } catch (e) {
+        await notStarted();
+        return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
+      }
+      if (!r.ok) {
+        await notStarted();
+        // THE REAL REASON, whatever shape it came in (the container's JSON, or the
+        // platform's own text when the container could not start).
+        const raw = await r.text().catch(() => "");
+        let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
+        return json({ error: r.status === 409 ? "Coder is still working on the last message" : "Coder could not open " + meta.repo + " (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
+      }
+      // Coder's machine has the turn now: nothing undoes this start any more.
+      claim = null;
+      // THE COPY IS SAVED NOW: the setup just ran on this chat's fresh disk and worked, and the
+      // machine waits (before Coder starts) while Fly.io saves the disk; then it is told to go.
+      // (Not saved, or no answer: the machine goes on by itself after a while.)
+      let started = null;
+      try { started = await r.json(); } catch { started = null; }
+      if (started && started.held === true) {
+        const snap = copyOn ? await deps.snapshot(uid + "-" + id).catch(() => null) : null;
+        if (snap) await writeEnvCache(bucket, uid, envId, { ...snap, key: setupKey, at: Date.now(), from: id }).catch(() => {});
+        // Said in the chat by the machine, after its setup (like Claude Code's cache, which is otherwise unseen).
+        const note = !copyOn ? "" : snap ? "Setup: Fly.io " + (snap.ready ? "saved" : "is saving") + " a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it" + (snap.ready ? "" : " once it is finished, in a few minutes,") + " and skip the setup." : "Setup: a copy of the setup's result could not be saved this time (Fly.io did not start saving it in time). The next new chat in this environment runs the setup and tries again.";
+        await post("/go", { project: id, ...(note ? { note } : {}) }).catch(() => {});
+      }
+      // Auto-fix tries in a row; a message from the owner starts the count again.
+      await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
+      // STOPPED WHILE THE MACHINE WAS SETTING UP (the chat was freed meanwhile): the machine stops it too.
+      const nowMeta = await getJson(bucket, metaKey, null);
+      if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
+      return json({ ok: true, project: next });
+    })().catch(async (e) => { if (claim) await claim.release().catch(() => {}); throw e; });
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(startRun.catch(() => {}));
+    return startRun;
   }
 
   // THE CHAT'S PERMISSION MODE, picked in the page's mode menu (Claude Code's cloud sessions: picked "both when you create the
@@ -1447,6 +1485,20 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!was || was.id !== id || Date.now() - Number(was.at) > 15_000) await putJson(bucket, seenKey(uid), { id, at: Date.now() }).catch(() => {});
     }
     const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+    // A MESSAGE STILL STARTING (claimStart, 2026-11-13, as Gloopy's): nothing to show yet, and the chat's machine is not
+    // asked (it knows only the job before). A start that never finished (its request was cut off half-way) is undone after
+    // STARTING_MAX_MS, and the owner is told to send the message again.
+    const starting = startingOf(meta);
+    if (starting) {
+      if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+      const back = { ...meta, status: typeof starting.was === "string" && starting.was !== "running" ? starting.was : "idle", starting: null, at: Date.now() };
+      const said = typeof starting.said === "string" && starting.said ? " (“" + starting.said + "”)" : "";
+      const ev = { at: Date.now(), type: "error", text: "Your last message" + said + " didn't reach Coder: sending it stopped half-way. Send it again." };
+      const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
+      await saveMeta(bucket, uid, back);
+      return json({ ok: true, events: [ev], next: since, running: false, project: back });
+    }
     let s = null;
     try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
     // An ended job leaves the watch list at once (coder-watch.mjs).

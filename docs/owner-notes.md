@@ -17,6 +17,19 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Fixes 1, 2 and 3, and the docs page (your words: "fix 1 ,2,3, and yes do the docs live now for the tools we have done in the coder")
+
+1. **A Coder message can't get stuck any more** (the note Gloopy's session left). If a message was sent twice (a browser does that when its connection drops for a second), or two went at once, the second could fail and put the chat back as it was before, so the first one's work never showed up. Coder's chats now start a message the way Gloopy's do:
+   - the chat is marked as starting before the slow part, so another message waits in the queue
+   - the same message sent twice runs once, and both copies get the same answer
+   - a start that fails never undoes a newer one
+   - a start cut off half-way is undone after a few minutes, and the chat tells you to send it again
+   - the start finishes even if you close the page.
+2. **Settings in Gloopy's tab:** the gear's Settings now opens Gloopy's own Settings there, the same as Gloopy's Settings button. Coder's Settings (background commands, disk and memory warnings, hooks, Auto mode) are in Coder's tab, as they do nothing for Gloopy.
+3. **Gloopy's helpers use connectors:** they get the connector tools you set to Always allow, the way Claude Code's helpers get its MCP tools. They don't get one that needs your OK (they can't show you a card), nor one you just said no to.
+4. **The docs page** (gofarther.dev/docs) now has **Bash** (commands, background commands, your own `!` commands, monitors, when Coder asks first, permission rules, Settings and hooks, where commands run) and **Connectors** (adding one, each tool's setting, in Coder's and Gloopy's chats, prompts and big answers), next to Read, Write and Edit. Every number on it is checked against the code by a test.
+- **Tests:** `coder/test/coder-start.test.mjs` (5 new, for fix 1; all 5 fail on the old code), GC8 in `coder/test/gloopy-connectors.test.mjs` (fix 3), the merge test GM4/GM5 (fix 2), and the docs test (CD248). Four older tests were updated where they pinned an exact line that changed.
+
 ## 2026-11-13: Gloopy's connectors are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
 
 - **Deployed:** deploy 183, from main. It worked the first time (6 minutes).

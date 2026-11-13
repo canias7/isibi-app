@@ -2063,7 +2063,33 @@ message, fenced off as the connector's data (up to 20,000 characters); **Always
 allow** also sets that tool to Always allow on the Connectors page (not offered for
 a tool its server asks about every time); **Deny** calls nothing, and Gloopy is not
 asked about it again until the owner's own next message. **Blocked** tools are never
-offered. Gloopy's helpers get no connectors. Tests: `test/gloopy-connectors.test.mjs`.
+offered. Gloopy's helpers (owner, 2026-11-13: "fix 3") get only the tools set to
+Always allow, not one its server asks about every time nor one the owner just said
+no to, as a helper can't ask on a card (`helperConn` in the agent; Claude Code's
+background subagents deny what isn't allowed beforehand). Tests:
+`test/gloopy-connectors.test.mjs` (GC8 for the helpers).
+
+**A message can't get stuck** (owner, 2026-11-13: "fix 1", from the note Gloopy's
+session left): Coder's chats start a message as Gloopy's do since its fix. The
+chat is marked as starting before the slow part (`claimStart`: the GitHub sign-in,
+a long chat's summary, the environment), so another message meanwhile waits in the
+queue; the same message sent twice (the page's `mid`; a browser sends it again when
+its connection drops) waits for its first copy and is never started or queued twice
+(`sameMessage`); a failed start puts the chat back only while it is still its own
+(`release`), never over a newer start; a long chat's summary is made by one start
+only (`START_SETTLE_MS`); the start's id goes to the machine, which takes the same
+start twice as one; a start cut off half-way is undone by the state check after
+`STARTING_MAX_MS` and said in the chat; and the start goes on when the page goes
+(`ctx.waitUntil`). Tests: `test/coder-start.test.mjs`.
+
+**Settings in Gloopy's tab are Gloopy's** (owner, 2026-11-13: "fix 2"): the gear's
+Settings opens Gloopy's own Settings there, as its header button does; Coder's
+(background commands, disk and memory warnings, hooks, Auto mode) are in Coder's tab.
+
+**The docs page** (`public/docs.html`, gofarther.dev/docs): Read, Write, Edit, Bash and
+Connectors, the tools tested live so far (owner, 2026-11-13: "do the docs live now for
+the tools we have done in the coder"); its numbers are checked against the code
+(`CD248` in `test/found-in-testing.test.mjs`).
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.
