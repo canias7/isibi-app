@@ -2204,9 +2204,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const reviewReplies = [];
   // The review comment(s) this auto-fix job may answer (set by Coder's Worker, never by the AI).
   const replyIds = replyTo && Array.isArray(replyTo.ids) ? replyTo.ids.filter((x) => Number.isInteger(x) && x > 0) : [];
-  // INSTALLS THE SETUP SCRIPT DOES NOT DO YET (owner, 2026-11-06, "2"): Coder is
-  // reminded once, before it finishes, to offer them for the setup script.
-  const installs = new Set(); let nudged = false;
+  // AN INSTALL FOR A SETUP SCRIPT (owner, 2026-11-06, "2"): Coder is reminded once, before it finishes, to offer it for the
+  // setup script. As Claude Code's cloud does it (its environment tools: save the set-up "without waiting to be asked" when
+  // setting up took real work and the environment has no setup script, with "commands you ran yourself in this session and
+  // saw work"): only when this chat's environment has no setup script, and only installs this job ran that worked (live
+  // test, 2026-11-13; the owner: "i dont wanna start making extra stuff": the note counted an `npm install` that was refused
+  // and never ran, and came even when the environment had a setup script).
+  const jobCalls = new Set(); let nudged = false;
   // A SETUP SCRIPT THAT FAILED before this job (live test, 2026-11-06: Coder
   // was told in its instructions, yet answered as if nothing had happened).
   // Like the installs above, it is reminded once, before it finishes, to say
@@ -2388,11 +2392,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nLike Claude Code: before you finish, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose the whole fixed script with propose_env (kind setup_script); if not, don't propose one. Never stand in for what it failed to set up with made-up results.)" });
       continue;
     }
-    const missing = [...installs].filter((x) => !String(setupScript).includes(x));
+    const mine = convo.filter((m) => m && ((m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.some((tc) => tc && jobCalls.has(tc.id))) || (m.role === "tool" && jobCalls.has(m.tool_call_id))));
+    const missing = String(setupScript || "").trim() ? [] : [...new Set(triedCommands(mine).flatMap((cmd) => [...cmd.matchAll(INSTALL_RE)].map((m) => m[1])))];
     if (!calls.length && missing.length && !nudged && !github && !undoRequest) {
       nudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
-      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the environment's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
+      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + " and it worked, and this chat's environment has no setup script. If every new chat will need it, propose a setup script with it, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
       continue;
     }
     // STOP HOOKS: one that blocks (decision "block", or exit 2), or that gives feedback (additionalContext), keeps Coder going,
@@ -2414,8 +2419,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     if (!calls.length) { emit({ type: "done", text: scrub(said) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
     if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
+    for (const c of calls) if (c && c.id) jobCalls.add(c.id);
 
-    for (const c of calls) if (c.name === "bash" && c.args && typeof c.args.command === "string") for (const m of c.args.command.matchAll(INSTALL_RE)) installs.add(m[1]);
     // THE PICTURES THIS ROUND'S READS OPENED (owner item 1): a tool answers in text only (xAI's docs), so
     // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
     const roundPics = [];

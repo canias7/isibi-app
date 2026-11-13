@@ -37,6 +37,12 @@ deleted (the old file is in git history).
   1) see everything Claude Code's tool does (its docs, and trying the real tool on
   real files, case by case); 2) see what Coder's does, the same cases; 3) copy what
   Claude Code's does; 4) only then test it live in the browser. Not before.
+- **Follow Claude Code, nothing extra (2026-11-13, "i also want to make sure we
+  are following claude code docs , i dont wanna start making extra stuff
+  right ?"):** Coder does what Claude Code does: its docs, and its own program
+  where the docs say nothing. Don't add behavior Claude Code doesn't have. Where
+  Coder does more or less than Claude Code, say so plainly and ask before
+  keeping it.
 
 ## Coder (2026-11-05)
 - Same style as the old sites agent's chat, its own folder, Worker and container.

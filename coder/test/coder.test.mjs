@@ -1882,20 +1882,29 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
   assert.doesNotMatch(bad, /<img|href="javascript|"onmouseover/);
 });
 
-test("CD73 (owner '2', live test) after an install the setup script does not do, Coder is reminded once to offer it on the card", async () => {
+test("CD73 (owner '2', live test; Claude Code's rule since 2026-11-13) after an install this job ran and saw work, when this chat's environment has no setup script, Coder is reminded once to offer it on the card; not when the environment has a setup script (Claude Code offers one only when there is none), nor for an install that was refused or failed", async () => {
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "echo ok\nnpm install", reason: "New chats need the packages." })])];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "echo ok" });
-  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install`, which the environment's setup script does not do/);
+  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "New chats need the packages." })])];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "" });
+  assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install` and it worked, and this chat's environment has no setup script/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
   assert.equal(r.status, "done");
-  // Already in the setup script, from GitHub, or no install: no reminder.
-  for (const opts of [{ setupScript: "npm install" }, { setupScript: "", github: true }]) {
+  // A setup script already there (with the install or without it), from GitHub, or no install: no reminder.
+  for (const opts of [{ setupScript: "npm install" }, { setupScript: "echo ok" }, { setupScript: "", github: true }]) {
     let k = 0; const s2 = [];
     const t2 = [say("", [call("bash", { command: "npm install" })]), say("Done.", [])];
     await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "x", ...opts });
     assert.equal(s2.length, 2, JSON.stringify(opts));
+  }
+  // An install that never ran (the owner said no, with a note, so Coder went on) or that failed: no reminder (live test,
+  // 2026-11-13: the note said "this job ran `npm install`" after a refused one).
+  for (const [label, answer, code] of [["refused", { choice: "no", comment: "use pnpm" }, 0], ["failed", { choice: "yes" }, 1]]) {
+    let k = 0; const s4 = []; const ran = [];
+    const t4 = [say("", [call("bash", { command: "npm install left-pad" })]), say("Done.", [])];
+    await runCoder({ send: async (q) => { s4.push(q); return t4[Math.min(k++, t4.length - 1)]; }, exec: async (x) => { ran.push(x.command); return { code, output: code ? "npm ERR! failed" : "" }; }, ask: async () => answer }, { text: "x", mode: "acceptEdits", setupScript: "" });
+    assert.equal(s4.length, 2, label + ": no reminder");
+    assert.doesNotMatch(JSON.stringify(s4.map((q) => q.messages)), /this job ran `npm install/, label);
   }
   let k = 0; const s3 = [];
   const t3 = [say("", [call("bash", { command: "echo npm install is a nice command" })]), say("Done.", [])];
