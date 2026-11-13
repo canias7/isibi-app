@@ -544,8 +544,8 @@ export const basename = (p) => String(p || "").replace(/\/+$/, "").split("/").po
  * builtins command and builtin, and zsh's noglob", and bare `xargs`; deny rules also "match commands wrapped in
  * env/sudo/watch/ionice/setsid and similar exec wrappers"): the words of the command each one runs.
  */
-export function unwrapped(words) {
-  const steps = unwrapSteps(words);
+export function unwrapped(words, { wide = false } = {}) {
+  const steps = unwrapSteps(words, { wide });
   return steps[steps.length - 1];
 }
 // CLAUDE CODE'S WRAPPER TABLES (its program, 2.1.322; Bash docs pass 8, the owner, 2026-11-11: "Yes pls"): for each exec
@@ -670,8 +670,12 @@ const looseWords = (s) => s.trim().split(/\s+/).filter(Boolean).map((t) => ({ te
  * EVERY FORM A COMMAND IS MATCHED AS (Claude Code's deny and ask rules try each: the command, past its settings in front,
  * past each wrapper in turn, and, as the last, the command the wrappers run; its `Yut`, `ier` and `CT`), first to last.
  * Bare `xargs` is taken away too (its docs); `xargs` with settings is matched as itself.
+ * `wide` (Claude Code 2.1.323's second reading for deny and ask rules, its `vze(…, { wide: true })`; the owner, 2026-11-13:
+ * "Yes all 7"): settings written together take a value when their last letter does (`sudo -nu root touch x` is `touch x`,
+ * where `root` was read as the command and a deny rule on touch missed it), and after sudo or env any word with `=` is a
+ * setting (sudo's own, not a path).
  */
-export function unwrapSteps(words) {
+export function unwrapSteps(words, { wide = false } = {}) {
   let w = leadWords(words);
   const steps = [w];
   const push = (x) => { if (x !== steps[steps.length - 1]) steps.push(x); };
@@ -700,9 +704,10 @@ export function unwrapSteps(words) {
         }
         if (K.startsWith("-") && (K !== "-" || y === undefined)) {
           if (r === "command" && /^-[pvV]+$/.test(K) && /[vV]/.test(K)) { stop = true; break; }
-          k += s.includes(K) && k + 1 < w.length ? 2 : 1; continue;
+          const takes = s.includes(K) || (wide && /^-[A-Za-z]+$/.test(K) && K.slice(1).split("").findIndex((c) => s.includes("-" + c)) === K.length - 2);
+          k += takes && k + 1 < w.length ? 2 : 1; continue;
         }
-        if (r === "env" && ASSIGN_WORD.test(K)) { k++; continue; }
+        if (wide ? (r === "env" || (r === "sudo" && !K.startsWith("/"))) && K.includes("=") : r === "env" && ASSIGN_WORD.test(K)) { k++; continue; }
         if (!H && y && y(K) && k + 1 < w.length) { H = true; k++; continue; }
         break;
       }

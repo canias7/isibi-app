@@ -502,6 +502,72 @@ export function psPathArgs(c) {
   return out.filter((p) => p !== "");
 }
 
+// ── WHAT A WRITING CMDLET CHANGES ───────────────────────────────────────────────────────────────────────────────────
+// (Claude Code 2.1.323's write cmdlets, its `Pt`, with Remove-Item and Clear-Content. For each: its settings by name and the
+// slot each fills, the slots its unnamed words fill in order (PowerShell binds an unnamed word to the first slot not already
+// named), and the slots that name what it changes. Copy-Item and Expand-Archive change only where they put things;
+// Set-Content's and Add-Content's text is no path; New-Item's -Name and Rename-Item's new name go with their folder.)
+const P_PATH = { "-path": "path", "-literalpath": "path", "-pspath": "path", "-lp": "path" };
+const PS_WRITES = new Map([
+  ["set-content", { params: { ...P_PATH, "-value": "value" }, pos: ["path", "value"], writes: ["path"] }],
+  ["add-content", { params: { ...P_PATH, "-value": "value" }, pos: ["path", "value"], writes: ["path"] }],
+  ["clear-content", { params: P_PATH, pos: ["path"], rest: "path", writes: ["path"] }],
+  ["remove-item", { params: P_PATH, pos: ["path"], rest: "path", writes: ["path"] }],
+  ["new-item", { params: { ...P_PATH, "-name": "name", "-itemtype": "type", "-value": "value" }, pos: ["path"], writes: ["path"], join: "name" }],
+  ["out-file", { params: { "-filepath": "path", "-literalpath": "path", "-pspath": "path", "-lp": "path", "-path": "path", "-encoding": "enc" }, pos: ["path", "enc"], writes: ["path"] }],
+  ["tee-object", { params: { "-filepath": "path", "-literalpath": "path", "-pspath": "path", "-lp": "path", "-path": "path", "-variable": "var" }, pos: ["path"], writes: ["path"] }],
+  ["export-csv", { params: { ...P_PATH, "-delimiter": "delim" }, pos: ["path", "delim"], writes: ["path"] }],
+  ["export-clixml", { params: P_PATH, pos: ["path"], writes: ["path"] }],
+  ["copy-item", { params: { ...P_PATH, "-destination": "dest" }, pos: ["path", "dest"], writes: ["dest"] }],
+  ["move-item", { params: { ...P_PATH, "-destination": "dest" }, pos: ["path", "dest"], writes: ["path", "dest"] }],
+  ["rename-item", { params: { ...P_PATH, "-newname": "newname" }, pos: ["path", "newname"], writes: ["path"], join: "newname" }],
+  ["expand-archive", { params: { ...P_PATH, "-destinationpath": "dest" }, pos: ["path", "dest"], writes: ["dest"] }],
+  ["invoke-webrequest", { params: { "-uri": "uri", "-outfile": "out" }, pos: ["uri"], writes: ["out"] }],
+  ["invoke-restmethod", { params: { "-uri": "uri", "-outfile": "out" }, pos: ["uri"], writes: ["out"] }],
+]);
+// (Settings that take no value, so the word after one is the next unnamed word.)
+const PS_SWITCHES = new Set(["-force", "-recurse", "-passthru", "-whatif", "-confirm", "-nonewline", "-append", "-noclobber", "-notypeinformation", "-includetypeinformation", "-asbytestream", "-usebasicparsing", "-container", "-wait", "-verbose", "-debug", "-useculture", "-noheader", "-skipheadercheck", "-skipcertificatecheck", "-resume"]);
+/** A typed setting's slot for one cmdlet: its name in full, or the only one of its names it starts (3 letters at least). */
+function slotOf(n, params) {
+  if (Object.hasOwn(params, n)) return params[n];
+  if (n.length < 3) return undefined;
+  const hits = [...new Set(Object.keys(params).filter((k) => k.startsWith(n)).map((k) => params[k]))];
+  return hits.length === 1 ? hits[0] : undefined;
+}
+/**
+ * THE PATHS A WRITING CMDLET CHANGES (fix 4 of the owner's "Yes all 7", 2026-11-13): as typed (a list split at its commas),
+ * New-Item's -Name and Rename-Item's new name joined to their folder; [] for a command that writes nothing.
+ */
+export function psWriteTargets(c) {
+  const spec = PS_WRITES.get(psCmdlet(c && c.name));
+  if (!spec) return [];
+  const args = c.args || [], kinds = c.elementTypes || [];
+  const got = new Map(), loose = [];
+  const put = (slot, v) => { if (!got.has(slot)) got.set(slot, []); got.get(slot).push(v); };
+  for (let a = 0; a < args.length; a++) {
+    const t = args[a];
+    if (isParam(t, kinds[a + 1])) {
+      const n = paramName(t), i = t.indexOf(":"), slot = slotOf(n, spec.params);
+      let v;
+      if (i > 0) v = t.slice(i + 1);
+      else if (!PS_SWITCHES.has(n) && a + 1 < args.length && !isParam(args[a + 1], kinds[a + 2])) { v = args[a + 1]; a++; }
+      if (v !== undefined && slot !== undefined) put(slot, v);
+      continue;
+    }
+    loose.push(t);
+  }
+  const free = spec.pos.filter((slot) => !got.has(slot));
+  loose.forEach((w, k) => { const slot = k < free.length ? free[k] : spec.rest; if (slot) put(slot, w); });
+  const bare = (x) => String(x).replace(/^['"]|['"]$/g, "");
+  const list = spec.writes.flatMap((slot) => got.get(slot) || []).flatMap((x) => String(x).split(",")).map((x) => x.trim()).filter(Boolean);
+  if (spec.join && got.has(spec.join)) {
+    const base = (got.get("path") || ["."])[0];
+    const folder = spec.join === "name" ? bare(base) : (() => { const s = bare(base).replace(/\\/g, "/"); const k = s.lastIndexOf("/"); return k < 0 ? "." : s.slice(0, k) || "/"; })();
+    list.push(folder + "/" + bare(got.get(spec.join)[0]));
+  }
+  return list;
+}
+
 // ── REMOVE-ITEM (Claude Code's "Remove-Item in PowerShell") ─────────────────────────────────────────────────────────
 /** Claude Code's refusal of a removal it never allows. */
 export const psRemovalDenied = (p) => `Remove-Item on system path '${p}' is blocked. This path is protected from removal.`;

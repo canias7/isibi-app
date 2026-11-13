@@ -313,14 +313,14 @@ export const pausedWhy = (row) => "Auto mode paused after " + (row ? AUTO_LIMITS
 const STATES = new Map();
 /** Where a chat's counts are kept (`{ load, save }`, from Coder's machine): Claude Code's total "persists for the session", and the session outlives the machine's sleep. */
 const KEEP = new WeakMap();
-const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, paused: st.paused, byRow: st.byRow }); } catch { /* counted in memory still */ } } };
+const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, paused: st.paused, byRow: st.byRow, rmUnanswered: st.rmUnanswered || 0 }); } catch { /* counted in memory still */ } } };
 export function checkerState(key, keep = null) {
   const k = String(key || "");
   if (!STATES.has(k)) {
     let was = null;
     if (keep && typeof keep.load === "function") { try { was = keep.load(); } catch { was = null; } }
     const n = (x, most) => (Number.isInteger(x) && x >= 0 && x < most ? x : 0);
-    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, AUTO_LIMITS.row + 1), total: n(was.total, AUTO_LIMITS.total), paused: was.paused === true, byRow: was.byRow === true } : { row: 0, total: 0, paused: false, byRow: false });
+    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, AUTO_LIMITS.row + 1), total: n(was.total, AUTO_LIMITS.total), paused: was.paused === true, byRow: was.byRow === true, rmUnanswered: n(was.rmUnanswered, 101) } : { row: 0, total: 0, paused: false, byRow: false, rmUnanswered: 0 });
   }
   const st = STATES.get(k);
   if (keep && !KEEP.has(st)) KEEP.set(st, keep);
@@ -340,6 +340,13 @@ export function countBlock(st) {
   return false;
 }
 export function countAllowed(st) { if (st.row !== 0) { st.row = 0; keepState(st); } }
+/**
+ * AUTO'S QUESTIONS FOR A DANGEROUS REMOVAL THAT NO ONE ANSWERED, in a row (Claude Code 2.1.323: its count goes up when the
+ * 2-minute question times out, and back to 0 when it is answered, Yes or No; at 3, the question is not shown again). Kept
+ * with the chat's other counts.
+ */
+export function rmUnanswered(st) { st.rmUnanswered = (st.rmUnanswered || 0) + 1; keepState(st); return st.rmUnanswered; }
+export function rmAnswered(st) { if (st.rmUnanswered) { st.rmUnanswered = 0; keepState(st); } }
 export function resume(st) { st.paused = false; st.row = 0; keepState(st); }
 
 /**

@@ -160,7 +160,7 @@ test("CD373 after 3 blocks in a row (or 20 in all) auto mode pauses and the owne
   assert.equal(j.cards[0].why, "Auto mode paused after 3 blocks in a row, so this action needs your approval. Approving it resumes auto mode.");
   assert.equal(j.cards[0].rules, undefined, "a one-time Yes");
   assert.deepEqual(j.ran, ["npm test"]);
-  assert.deepEqual(C.checkerState(key), { row: 0, total: 3, paused: false, byRow: true }, "resumed");
+  assert.deepEqual(C.checkerState(key), { row: 0, total: 3, paused: false, byRow: true, rmUnanswered: 0 }, "resumed (with the count of Auto's unanswered questions for a dangerous removal, fix 5)");
   // Three in a row pause; an allowed one in between resets the row, not the total.
   const st = C.checkerState("chat-count");
   assert.deepEqual([C.countBlock(st), C.countBlock(st), C.countBlock(st)], [false, false, true]);

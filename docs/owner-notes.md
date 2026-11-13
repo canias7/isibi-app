@@ -11,6 +11,22 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The seven Claude Code differences, copied (your words: "Yes all 7")
+
+On the branch, not merged or deployed yet. Each was first read in Claude Code 2.1.323's own program, and tried in its command-line version with Haiku where I could.
+
+1. **Deny rules dodged with sudo's joined flags: fixed.** A deny rule on `touch` now catches `sudo -nu root touch x` in every mode (in Auto it used to run). The dangerous-delete check sees through it too: `sudo -nu root rm -rf /` and `env -iu FOO rm -rf ~` had slipped past it.
+2. **`Bash(NODE_ENV*)` and rules like it: fixed.** A `*` stuck to the program's name no longer turns it into something else: `Bash(NODE_ENV*)` asks for `NODE_ENV=1 touch x`, and `Bash(ls*)` asks for `ls=1 touch x` (it still covers `lsof`). Old Coder let 7 such commands through; all 9 cases I tried in Claude Code now give the same answer in Coder.
+3. **The new warning** for a rule like `Bash(PORT=* npm run dev)` shows in your rules list, in Claude Code's words.
+4. **Writes into `.git` or `.claude` from a command.** My earlier note was wrong here: I tested Coder's bash, and it already asks every time with only "Yes" (no "don't ask again"), whatever your rules. But I found a real gap in the PowerShell tool (off unless you turn it on): in Accept edits, `Add-Content .bashrc`, `Set-Content .claude/settings.json` and `Remove-Item .husky/pre-commit` ran without asking. Fixed: they ask like bash does. I also copied Claude Code's own words for its settings file: "…requested permissions to write to …/.claude/settings.json, but you haven't granted it yet."
+5. **Auto's 2-minute question for a dangerous delete: new card** (screenshots in the chat). In Auto, a dangerous delete now asks you, with Claude Code's countdown: "Coder will automatically block this request in 1:59, to avoid holding up an unattended session". No answer in 2 minutes: blocked, and Coder carries on. After 3 unanswered in a row it stops asking and refuses straight away; any answer starts the count again. Tried on Coder's real page and machine code on my side, with a stand-in Grok and a made-up folder (nothing was deleted).
+6. **Claude Code's strict `-c` script setting: nothing to copy.** I tried 11 harmless commands on Claude Code with the setting on and off, and it treated them the same way each time. Coder already treats those 11 the same way (a test keeps it so).
+7. **No commands outside the admin sandbox.** If the sandbox can't start, Coder now refuses commands (yours with `!` too), in Claude Code's words, and the chat says why: "Coder's admin sandbox could not start on this chat's machine (…), so no command runs in this chat until it does. Send another message to try again; if it keeps failing, start a new chat." Your environment's setup script waits too. Before, it quietly ran them outside the sandbox.
+
+Tests: all 593 of Coder's tests pass (10 new ones for these seven, and 6 older ones updated for the new Auto card). Cost: about 2.5 cents of Haiku, no Grok.
+
+Next, with your word: merge and deploy, then try all seven live in the browser with Grok.
+
 ## 2026-11-13: Claude Code 2.1.323 against Coder's bash tool (your words: "Yes do one")
 
 A fresh check. I read Claude Code's changelog for 2.1.323 (about 300 lines; 2.1.322 had 4) and its program, then tried the cases on both sides: Claude Code with Haiku in throwaway folders, and Coder's own checks from main. Nothing is changed yet.

@@ -1053,6 +1053,70 @@ export function starBeforeCommand(spec) {
   return "";
 }
 /**
+ * A BASH ALLOW RULE WITH A * IN A VARIABLE'S VALUE (Claude Code 2.1.323, its `Dh`; the owner, 2026-11-13: "Yes all 7";
+ * its changelog: "Added a start-up warning for Bash allow rules with a * in a variable's value, such as
+ * Bash(PORT=* npm run dev)"): the start of the word after the settings, up to its first *, or "" (no such *, a rule that
+ * ends in :*, or an operator or a redirection after the settings).
+ */
+export function starInSettingValue(spec) {
+  const s = String(spec ?? "");
+  if (s.endsWith(":*")) return "";
+  const words = s.trim().split(/\s+/).filter(Boolean);
+  const r = words.findIndex((w) => !/^[A-Za-z_]\w*\+?=/.test(w));
+  const next = words[r] ?? "";
+  if (/^(?:[|&;<>]|\d+[<>])/.test(next) || !words.slice(0, r).some(hasStar)) return "";
+  const m = /^[^*]+/.exec(next);
+  return m ? m[0] : "";
+}
+// (Claude Code's word patterns for its `qpr`: the letters, marks and digits, and _ . + - : @ % , ~ of a plain word; a shell
+// word with its quotes and backslashes; the whole words in front.)
+const PLAIN_CH = String.raw`\p{L}\p{M}\p{N}_.+\-:@%,~`;
+const PLAIN_WORD = new RegExp(`^[${PLAIN_CH}/]*$`, "u");
+const QUOTE_OR_PATH = new RegExp(`^(?:['"]|(?!\\d+<)[${PLAIN_CH}]*[</])`, "u");
+const SH_WORD = String.raw`(?:\\.|[^\\ '"]|'[^']*'|"(?:\\.|[^"\\])*")*`;
+const LEAD_WORDS = new RegExp(`^(?:${SH_WORD} )*`, "s");
+const ONE_WORD = new RegExp(`^${SH_WORD}$`, "s");
+/** A rule's text as words, as Claude Code reads it (its `kE`): the first command's words, past its settings in front, up to a $. */
+function specWords(text) {
+  const c = parseShell(text).commands[0];
+  if (!c) return [];
+  let w = c.words;
+  while (w.length && !w[0].quoted && /^[A-Za-z_][A-Za-z0-9_]*(\[[^\]]*\])?\+?=/.test(w[0].raw)) w = w.slice(1);
+  const k = w.findIndex((x, i) => i > 0 && (x.expand || x.subst));
+  return k < 0 ? w : w.slice(0, k);
+}
+/**
+ * AN ALLOW RULE WHOSE * IS JOINED TO THE PROGRAM'S NAME (Claude Code 2.1.323, its `qpr`; the owner, 2026-11-13: "Yes all 7";
+ * its changelog: "Fixed Bash allow rules with an attached wildcard, such as Bash(ls*), skipping the permission prompt in
+ * some cases; a rule that names a variable, such as Bash(NODE_ENV*), now asks", and "Fixed Bash allow rules written with
+ * combined sudo flags skipping the permission prompt in some cases"): whether the rule's `*` would stretch the word the
+ * command runs as its program into another kind of word, so that the rule does not approve this form of the command:
+ * `Bash(NODE_ENV*)` meeting `NODE_ENV=1 rm -rf ~` (the word becomes a setting and any program runs after it), or `Bash(ls*)`
+ * meeting `ls=1 rm x`. Letters, digits and _ . + - : @ % , ~ / after it are the same word (`Bash(ls*)` still approves
+ * `lsof`); so is a word that starts with a quote or a path, unless env or sudo comes before it in the rule.
+ */
+export function starStretchesProgram(spec, text) {
+  const r = (/^(?:\\[*\\]|[^*])*/.exec(String(spec ?? "").trim())[0]).replace(/\\([*\\])/g, "$1").replace(/[ \t]+/g, " ").replace(/^(?:xargs )+(?!-)/, "");
+  const s = String(text ?? "").replace(/[ \t]+/g, " ").replace(/^(?:xargs )+(?!-)/, "");
+  const h = r.slice(LEAD_WORDS.exec(r)[0].length);
+  if (h === "" || h.includes("=") || !s.startsWith(r)) return false;
+  const y = s.slice(r.length);
+  const k = ONE_WORD.test(h) ? y.replace(/ .*/s, "") : y;
+  const v = h + k;
+  // (Claude Code also lets through a word holding its own stand-ins for $(…) and ${…}; Coder's command texts hold none.)
+  if (PLAIN_WORD.test(k)) return false;
+  const H = specWords(r);
+  const q = H.findLastIndex((x, i) => i < H.length - 1 && /^(?:env|sudo)$/.test(progName(x.text)));
+  if (q < 0 && QUOTE_OR_PATH.test(v)) return false;
+  const bare = (t) => String(t).replace(/['"\\]/g, "");
+  return [false, true].some((wide) => {
+    const ne = unwrapped(H.slice(Math.max(q, 0)), { wide });
+    return ne.length <= 1 && bare(r).endsWith(bare(ne[0] ? ne[0].text : ""));
+  });
+}
+/** A Bash rule Claude Code reads as a wildcard (its `T5e`): a `*` that is not escaped, and not the `:*` prefix form. */
+const wildcardSpec = (spec) => typeof spec === "string" && !/^[\s\S]+:\*$/.test(spec) && hasStar(spec);
+/**
  * WHAT CLAUDE CODE WARNS ABOUT A BASH RULE THAT IT STILL KEEPS (Bash docs pass 5; its rule check, 2.1.321, and its error
  * reference): `{ warning, notice }` in its words (the warning in full; the notice is its short row, "⚠ Allow rule … allows
  * any option at its * · use an exact value", given only where Claude Code shows that row), or null.
@@ -1092,6 +1156,9 @@ function ruleWarningOf(kind, text) {
   // (Content that starts with a name and a colon, such as git:* status, is not checked, as Claude Code skips it.)
   { const c = g.indexOf(":"); if (c > 0 && /^[A-Za-z_][A-Za-z0-9_]*$/.test(g.slice(0, c).trim()) && !/^[A-Za-z]:[\\/]/.test(g.trim())) return null; }
   if (kind === "allow") {
+    // (First a * in a variable's value, then a * before the rest of the command: Claude Code's order, 2.1.323.)
+    const m = starInSettingValue(g);
+    if (m) return { warning: t + " has a * in a variable's value. A * also matches spaces, so this rule can also approve a different command that has " + m + " later in the line, without a prompt. Give the variable an exact value instead.", notice: t + " allows any command at the * in its value · use an exact value" };
     const prog = starBeforeCommand(g);
     if (prog) {
       const git = prog === "git";
@@ -1191,11 +1258,14 @@ function textsOf(words) {
  * wrappers run, that last also with its program named without a path (`/usr/bin/curl x` as `curl x`, its `II`).
  */
 function denyTexts(cmd) {
-  const steps = unwrapSteps(cmd.words);
   const out = new Set(textsOf(cmd.words));
-  for (const s of steps) for (const t of textsOf(s)) out.add(t);
-  const last = steps[steps.length - 1];
-  if (last && last[0] && progName(last[0].text) !== last[0].text) for (const t of textsOf([{ ...last[0], text: progName(last[0].text), raw: progName(last[0].text) }, ...last.slice(1)])) out.add(t);
+  // (Both of Claude Code 2.1.323's readings, the usual one and the wide one, as it tries both: unwrapSteps.)
+  for (const wide of [false, true]) {
+    const steps = unwrapSteps(cmd.words, { wide });
+    for (const s of steps) for (const t of textsOf(s)) out.add(t);
+    const last = steps[steps.length - 1];
+    if (last && last[0] && progName(last[0].text) !== last[0].text) for (const t of textsOf([{ ...last[0], text: progName(last[0].text), raw: progName(last[0].text) }, ...last.slice(1)])) out.add(t);
+  }
   return [...out];
 }
 /** For allow rules: past the safe wrappers and settings only; none when an unsafe setting is in front. */
@@ -1222,7 +1292,9 @@ function allowTexts(cmd) {
  * Bash(find *) can't auto-approve" them).
  */
 function exactOnly(c) { return !!semanticWhy(c); }
-function ruleApproves(c, x, t) { return (x.spec === null || !x.spec.includes("*") || !exactOnly(c)) && bashSpecMatches(x.spec, t); }
+// (A wildcard rule whose * is joined to the program's name does not approve a form where it stretches that name into another
+// kind of word: starStretchesProgram, Claude Code 2.1.323.)
+function ruleApproves(c, x, t) { return (x.spec === null || !x.spec.includes("*") || !exactOnly(c)) && !(wildcardSpec(x.spec) && starStretchesProgram(x.spec, t)) && bashSpecMatches(x.spec, t); }
 /** Whether one of the owner's allow rules approves this one part of a command (a simple command, coder-shell.mjs's). */
 export function allowRuleCovers(cmd, rules) {
   const allow = rulesFor(rules && rules.allow, "Bash");
@@ -1790,8 +1862,14 @@ export const blockedWhy = (cmd, path, dirs) => cmd + " in '" + path + "' was blo
 export const needsWhy = (what, path, dirs) => what + " '" + path + "' needs approval. The path is outside the working directories for this session (" + dirsText(dirs) + "). Allowing runs the command as written.";
 export const inputBlockedWhy = (path, dirs) => "Input redirection from '" + path + "' was blocked. For security, Coder may only read files in the allowed working directories for this session: " + dirsText(dirs) + ".";
 export const inputUnsureWhy = (raw) => "Input redirection from '" + raw + "' requires manual approval: the file it names depends on glob expansion or a directory change in the same command.";
-/** A protected file ("a sensitive file"), and the link it was reached through. */
-export const sensitiveWhy = (target, from = "") => "Coder requested permissions to edit " + target + " which is a sensitive file." + (from ? " " + from + " resolves through a symlink to " + target + "." : "");
+/**
+ * A protected file ("a sensitive file"), and the link it was reached through. A settings file of Claude Code's (a .claude
+ * folder's settings.json or settings.local.json), or a .claude folder itself, in Claude Code's own other words (its `y9`,
+ * tried with Haiku on 2026-11-13: "Claude requested permissions to write to /tmp/cc-danger/work/.claude/settings.json, but
+ * you haven't granted it yet.").
+ */
+export const settingsFileOf = (target) => /(^|\/)\.claude(\/settings(\.local)?\.json)?\/?$/i.test(String(target ?? ""));
+export const sensitiveWhy = (target, from = "") => (settingsFileOf(target) ? "Coder requested permissions to write to " + target + ", but you haven't granted it yet." : "Coder requested permissions to edit " + target + " which is a sensitive file.") + (from ? " " + from + " resolves through a symlink to " + target + "." : "");
 /** A wildcard before a `..` (Claude Code: "A glob before the '..' in '…' is expanded by the shell before the path is opened, so the target cannot be checked …"). */
 export const globDotDotWhy = (p, against) => "A glob before the '..' in '" + p + "' is expanded by the shell before the path is opened, so the target cannot be checked" + against + ". Spell the path without the glob.";
 export const linkOutWhy = (from, to) => from + " resolves through a symlink to " + to + ", which is outside the allowed working directories";

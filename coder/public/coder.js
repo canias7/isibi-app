@@ -1640,8 +1640,16 @@
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
     if (c === 'auto') return '<span class="cd-perm-ok">✓ Allowed</span> · switched to Auto';
     if (c === 'no') return '<span class="cd-perm-no">✕ Not allowed</span>' + note;
+    if (c === 'none' && Number(e.blockAt) > 0) return '<span class="cd-perm-no">✕ Blocked</span> · no answer within 2 minutes';
     return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
   }
+  // AUTO'S 2-MINUTE QUESTION FOR A DANGEROUS REMOVAL (fix 5 of the owner's "Yes all 7"): Claude Code's line, "Claude Code will
+  // automatically block this request in 1:59, to avoid holding up an unattended session", counted down each second.
+  function blockLeft(at) {
+    const w = Math.max(0, at - Date.now()), m = Math.floor(w / 60000), sec = Math.floor((w % 60000) / 1000);
+    return '⚠ Coder will automatically block this request in ' + m + ':' + String(sec).padStart(2, '0') + ', to avoid holding up an unattended session';
+  }
+  setInterval(() => { document.querySelectorAll('[data-block-at]').forEach((el) => { el.textContent = blockLeft(Number(el.getAttribute('data-block-at'))); }); }, 1000);
   function permHTML(e) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
     const live = S.running && !ans;
@@ -1673,6 +1681,8 @@
       '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b></div>' +
       body +
       (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
+      // (Auto's question for a dangerous removal blocks it by itself after 2 minutes: Claude Code's line, counting down.)
+      (live && Number(e.blockAt) > 0 ? '<p class="cd-perm-timer" data-block-at="' + Number(e.blockAt) + '">' + esc(blockLeft(Number(e.blockAt))) + '</p>' : '') +
       (live
         ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
