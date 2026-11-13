@@ -11,6 +11,26 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: For the Coder session: a message can get stuck the same way Gloopy's did (your words: "note coder i will let the other session know")
+
+Not changed here (you said to leave Coder to the other session).
+
+**The problem:** Coder's chats start a message the same way Gloopy's did before today's fix (`coder/src/coder-routes.mjs`, the `action === "message"` part of `handleCoder`, from "Coder is still working on the last message" down to `post("/turn", …)`):
+1. It checks the chat isn't working.
+2. It summarizes a long chat (this can take a while).
+3. It marks the chat working and asks Coder's machine to start.
+
+Two copies of a message (a browser sends one again when its connection drops), or two messages at once, can both pass step 1. The second machine start then answers "busy", and its `notStarted()` puts the chat back as it was before. That wipes out the start that did begin, so its work never shows up in the chat. And if the page closes half-way, the start is cut off.
+
+**How Gloopy's was fixed** (commits d244e08 and bcb84f8 on `claude/keen-goodall-8ghmph`; test GL137 in `coder/test/gloopy.test.mjs`):
+- The page sends each message with its own id (`mid`; already sent for Coder's chats too, but ignored there).
+- The chat is marked as starting first (`claimStart`); a second copy of the same message waits for the first (`sameMessage`); another message is told the chat is busy.
+- A failed start puts the chat back only while it is still its own (`release`), never over a newer one.
+- Before summarizing a long chat, it waits a moment (`START_SETTLE_MS`) so only one start makes the summary.
+- The machine takes the same start twice as one (`start` in `/turn`, `container/server.mjs`; already shared with Coder's machine).
+- The work goes on for up to 30 seconds after the page closes (`ctx.waitUntil`).
+- A start cut off half-way is undone after 6 minutes, with a note quoting the message (`gloopyState`).
+
 ## 2026-11-13: Paying (tool 3): tried live, and seven fixes (your words: "Ok lets start testing that tool", "U do it")
 
 **Tried live on test.gofarther.dev,** on Stripe's test-mode demo store with test card numbers only (no real money):
