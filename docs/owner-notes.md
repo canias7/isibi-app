@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The email check's new words, live (your words: "Yes merge and deploy")
+
+Merged and deployed (deploy 160; Coder's tests passed on GitHub first). No video. One throwaway chat in Auto with your test account's address, commands pointed at 127.0.0.1 port 9 (nothing listens):
+- **A bash call** with the address next to a User-Agent: not run; Grok was told "Permission to use Bash denied by plugin cc-plugin-privacy: This call was refused: …", Claude Code's words exactly.
+- **A monitor call**, the same: "Permission to use Monitor denied by plugin cc-plugin-privacy: …".
+- No card, nothing ran. The chat is deleted. Cost: about 3 cents.
+- Not tried live: an address with a quote mark (o'brien@…); the test account's address has none. Tests CD548 and CD549 cover it.
+- Seen while deploying: another Claude session deploys its own branch (`claude/keen-goodall-8ghmph`, Gloopy) to the separate test copy at test.gofarther.dev; that never touches gofarther.dev, so the two don't clash.
+
 ## 2026-11-13: The low-memory stop and dangerous deletes, done for real (your words: "Dont leave them out ,we gotta test them bro")
 
 No video. Two throwaway chats on canias7/testingforclaude, both deleted after. For the test, your test environment's memory cap went from 2G to 14600M and Grok's replies to your own `!` commands were turned off; both are back exactly as before (checked). Your hooks and rules are back too.
