@@ -17,6 +17,18 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Gloopy's connectors are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
+
+- **Deployed:** deploy 183, from main. It worked the first time (6 minutes).
+- **Tested live in the browser, Grok on Low, on the test account, in Gloopy's chat:**
+  1. **Adding a connector from Gloopy's tab:** I added DeepWiki (free, no sign-in) on the Connectors page. Its 3 tools came in as Needs approval.
+  2. **Needs approval, Allow once:** Gloopy asked first on its card ("Gloopy wants to use DeepWiki: Read Wiki Structure", showing what it sends: facebook/react). I pressed Allow once, and Gloopy answered "React Repository Overview, Core Reconciler Architecture" (62 seconds).
+  3. **Always allow:** the card again, for vercel/next.js. I pressed Always allow, Gloopy answered "Next.js Repository Overview", and the Connectors page then showed that tool as Always allow.
+  4. **After Always allow:** no card. Gloopy used the tool right away and answered "Node.js Overview" (33 seconds).
+  5. **Deny:** a card for DeepWiki's "Ask Wiki Question", showing the question it would send. I pressed Deny and nothing was sent. Gloopy said: "I would have asked DeepWiki what a fiber is in facebook/react, then given you that answer in one line. You said no, so I stopped."
+  - No errors in Gloopy's chat or on the page.
+- **Everything put back:** DeepWiki is removed, so your connectors list is empty again, as it was before the test.
+
 ## 2026-11-13: Gloopy uses your connectors (your words: "ok i deleted them, now make gloopy use the connectors")
 
 - **What changed:** Gloopy now gets the same connectors as Coder (the Connectors page in the gear's menu), each tool as you set it there:
