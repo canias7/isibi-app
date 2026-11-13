@@ -115,7 +115,8 @@ test("CD380b Stop's choice: on (the default), stopping a background command also
 });
 
 test("CD380c the page: Settings in the gear's menu opens a dialog with the three, each saved when it changes", () => {
-  assert.match(read("public/index.html"), /<button type="button" role="menuitem" id="gfSettings">Settings<\/button><button type="button" role="menuitem" id="gfNotify">Notifications<\/button>/);
+  // (Connectors sits between Settings and Notifications since the connectors work was merged, 2026-11-13.)
+  assert.match(read("public/index.html"), /<button type="button" role="menuitem" id="gfSettings">Settings<\/button><button type="button" role="menuitem" id="gfConnectors">Connectors<\/button><button type="button" role="menuitem" id="gfNotify">Notifications<\/button>/);
   assert.match(read("public/app.js"), /\$\('gfSettings'\)\.addEventListener\('click', \(\) => \{ \$\('gfMenu'\)\.hidden = true; [^\n]*new CustomEvent\('gf:settings'\)\); \}\);/);
   const page = read("public/coder.js");
   assert.match(page, /window\.addEventListener\('gf:settings', \(\) => \{ showSettings\(\); \}\);/);
