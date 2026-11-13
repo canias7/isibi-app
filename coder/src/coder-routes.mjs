@@ -155,6 +155,8 @@ export const isGloopy = (meta) => !!meta && meta.kind === "gloopy";
 const gloopyNotesKey = (uid, id) => ["coder", uid, "gloopy", id + ".md"].join("/");
 /** WHAT GLOOPY MAY DO ON ITS OWN (owner, 2026-11-09: Ask, Always allow or Deny for each kind; gloopy-permissions.mjs). */
 const gloopyPermsKey = (uid) => ["coder", uid, "gloopy", "permissions.json"].join("/");
+/** What the owner changed in Gloopy's settings since its last message (changedNote), kept apart from the chat's own record so a run ending at the same moment is never written over. */
+const gloopyChangedKey = (uid) => ["coder", uid, "gloopy", "changed.json"].join("/");
 const readPermissions = async (bucket, uid) => cleanPermissions(await getJson(bucket, gloopyPermsKey(uid), {}));
 /** THE OWNER'S CUSTOM RULES FOR GLOOPY (2026-11-09: Always allow, Ask first or Never, in their own words), kept here. */
 const gloopyRulesKey = (uid) => ["coder", uid, "gloopy", "rules.json"].join("/");
@@ -1559,9 +1561,10 @@ async function startGloopy(g) {
     const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), { at: Date.now(), type: "expired", id: String(overtaken.id || ""), text: "Expired: not answered before Gloopy's next run. Nothing was done." }].slice(-MAX_EVENTS));
   }
-  // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), and the owner having taken over
-  // Gloopy's browser meanwhile: said to Gloopy just before this message.
-  const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(overtaken ? [unansweredNote(overtaken, "before this run began")] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : [])];
+  // WHAT HAPPENED TO THE LAST CARD (a step the owner allowed or not, a sign-in, a handoff), the owner having taken over
+  // Gloopy's browser meanwhile, and a setting they changed since (changedNote): said to Gloopy just before this message.
+  const changed = await getJson(bucket, gloopyChangedKey(uid), null);
+  const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(overtaken ? [unansweredNote(overtaken, "before this run began")] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : []), ...(changedNote(changed) ? [changedNote(changed)] : [])];
   if (notes.length) messages = [...(Array.isArray(messages) ? messages : []), ...notes.map((content) => ({ role: "user", appNote: true, content }))];
   // A long chat is summarized, not cut (as Coder's), by one start only (START_SETTLE_MS).
   let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
@@ -1628,8 +1631,9 @@ async function startGloopy(g) {
     let why = ""; try { why = String((JSON.parse(raw) || {}).error || ""); } catch { why = raw.replace(/\s+/g, " ").trim(); }
     return json({ error: r.status === 409 ? "Gloopy is still working on the last message" : "Gloopy's computer could not start (" + r.status + (why ? ": " + why.slice(0, 200) : "") + ")" }, r.status === 409 ? 409 : 502);
   }
-  // Gloopy's machine has the turn now: nothing undoes this start any more.
+  // Gloopy's machine has the turn now: nothing undoes this start any more. The settings note was said.
   g.claim = null;
+  if (changed) await bucket.delete(gloopyChangedKey(uid)).catch(() => {});
   // Stopped while its machine was starting (the chat was freed meanwhile): the machine stops it too.
   const nowMeta = await getJson(bucket, metaKey, null);
   if (!nowMeta || nowMeta.status !== "running" || nowMeta.turn !== next.turn) { await post("/stop", { project: id }).catch(() => {}); return json({ ok: true, project: nowMeta || meta }); }
@@ -2146,8 +2150,11 @@ async function gloopyPermissions(g) {
   if (bad || !Object.keys(set).length) return json({ error: "Give set: one or more of " + PERMISSION_KEYS.join(", ") + ", each ask, allow or deny." }, 400);
   const next = cleanPermissions({ ...now, ...set });
   await putJson(bucket, gloopyPermsKey(uid), next);
-  const before = PERMISSION_KEYS.some((k) => next[k] !== now[k]) ? await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta) : null;
+  const diff = Object.fromEntries(PERMISSION_KEYS.filter((k) => next[k] !== now[k]).map((k) => [k, next[k]]));
+  const before = Object.keys(diff).length ? await getJson(bucket, keyOf(uid, g.id, "meta.json"), g.meta) : null;
   const meta = before ? await closeForSettings(bucket, uid, g.id, before) : null;
+  // Kept for Gloopy's next message (changedNote): what the owner changed, as it is now.
+  if (Object.keys(diff).length) { const was = await getJson(bucket, gloopyChangedKey(uid), {}); await putJson(bucket, gloopyChangedKey(uid), { ...(was && typeof was === "object" ? was : {}), ...diff }); }
   return json({ ...(await out(next).json()), ...(meta && meta !== before ? { closed: true, project: meta } : {}) });
 }
 
@@ -2662,6 +2669,16 @@ async function gloopyContacts(g) {
 
 /** Said to Gloopy before the owner's next message when they took over its browser meanwhile. */
 const GLOOPY_USED_NOTE = "(Note from Gloopy's app, not the owner: the owner took over your browser since your last message. The page may have changed: look at it before you go on.)";
+/**
+ * A SETTING THE OWNER CHANGED SINCE GLOOPY'S LAST MESSAGE (live test, 2026-11-13: after "Share your details" was put back
+ * to Always allow, Gloopy went by its own earlier answer, "Share your details is turned off", and refused the order): said
+ * to Gloopy before its next message, as the take-over note is. "" when nothing it knows of changed.
+ */
+const MODE_SAID = { allow: "Always allow", ask: "Ask first", deny: "Never" };
+export function changedNote(changed) {
+  const said = PERMISSIONS.filter((x) => changed && typeof changed === "object" && MODES.includes(changed[x.key])).map((x) => x.label + " is now " + MODE_SAID[changed[x.key]]);
+  return said.length ? "(Note from Gloopy's app, not the owner: the owner changed your settings since your last message: " + said.join("; ") + ". Go by YOUR PERMISSIONS as they are now, not by what was said earlier in this chat.)" : "";
+}
 /** The commands the owner ran in Gloopy's terminal while they had control (2026-11-12), told at its next message. */
 export const ranNote = (ran) => "(Note from Gloopy's app, not the owner: while they had your computer, the owner ran these commands in your terminal, in your folder: " + ran.slice(-20).map((c) => "`" + String(c).replace(/`/g, "'").slice(0, 300) + "`").join(", ") + ". What they changed may be in your folder.)";
 

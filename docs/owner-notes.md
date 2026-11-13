@@ -31,6 +31,7 @@ The parts of paying not yet tried live, on test.gofarther.dev with Grok. From ha
 1. **"Could not fill into the page" showed only after reloading the page.** The open page never got the form's result (nor "Filled into the page" after typing a card or a sign-in). The answer to a form now carries its result, and the card shows it at once. (Test GL144.)
 2. **At phone size, the chat scrolled sideways a little:** a long step line (a helper's "“Rome population” · Searched the web for") pushed its ✓ off the screen. Long step lines now end in "…".
 3. **At phone size in the Vault,** the "Fills in without asking" tag broke over two lines, and the search box pushed "Contact info" onto a second row. Tags now stay whole, and on a phone the search has its own row under the three tabs.
+4. **Gloopy went by an old answer instead of your current settings.** After I put "Share your personal details" back to Always allow, Gloopy refused the next order, saying sharing was turned off, as it had said one message before. A setting you change is now said to Gloopy at the start of its next message ("the owner changed your settings since your last message: Share your personal details is now Always allow. Go by your settings as they are now"), once. (Test GL145.)
 
 ## 2026-11-13: Paying with a saved card, tried live, and seven fixes (your words: "yes if dots and bot have it do it pls")
 

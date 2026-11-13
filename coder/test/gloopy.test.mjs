@@ -6296,7 +6296,7 @@ test("GL122 (2026-11-12) the whole computer in Gloopy's live view, as Grok Bot's
   bucket.m.set(metaKey, JSON.stringify({ ...meta(), status: "running" }));
   assert.equal((await act({ command: "ls" })).status, 409, "not while Gloopy works");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.ok(routes.includes("...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : [])];"), "told at its next message");
+  assert.ok(routes.includes("...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : []), ...(changedNote(changed) ? [changedNote(changed)] : [])];"), "told at its next message (with a setting changed meanwhile, GL145)");
   assert.ok(routes.includes("used: false, ran: [], marks,"), "and then forgotten");
   // The page: the tab strip (Terminal last), the address row above the page (read-only while watching), the terminal.
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
@@ -7880,4 +7880,39 @@ test("GL144 (2026-11-13) found live (test.gofarther.dev, a card filled in after 
   answer.data = { ok: true, said: "Allowed once" };
   await cardAnswer("ap1", "approve", { decision: "once" }, "x");
   assert.equal(S.events.length, n);
+});
+
+test("GL145 (2026-11-13) found live (test.gofarther.dev): after the owner put \"Share your details\" back to Always allow, Gloopy went by its own earlier answer (\"Share your details is turned off\") and refused the order. A setting changed since Gloopy's last message is now said to it before its next one, once", async () => {
+  const { handleCoder, GLOOPY_ID, changedNote } = await import("../src/coder-routes.mjs");
+  assert.equal(changedNote(null), "");
+  assert.equal(changedNote({ share: "allow" }), "(Note from Gloopy's app, not the owner: the owner changed your settings since your last message: Share your personal details is now Always allow. Go by YOUR PERMISSIONS as they are now, not by what was said earlier in this chat.)");
+  assert.match(changedNote({ buy: "ask", share: "deny", nonsense: "allow" }), /: Buy or pay is now Ask first; Share your personal details is now Never\. Go by/);
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const turns = [];
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); const body = req.method === "POST" ? await req.json() : {}; if (u.pathname === "/turn") { turns.push(body); return Response.json({ ok: true }); } return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const post = async (path, body) => go("projects/" + GLOOPY_ID + "/" + path, { method: "POST", body: JSON.stringify(body) });
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const idle = () => { const m = JSON.parse(bucket.m.get(metaKey)); bucket.m.set(metaKey, JSON.stringify({ ...m, status: "idle", starting: null })); };
+  const notes = (t) => (t.messages || []).filter((m) => m.appNote).map((m) => m.content);
+  await go("gloopy");
+  // Off, then on again, between two messages: Gloopy hears how it is now.
+  await post("permissions", { set: { share: "deny" } });
+  await post("permissions", { set: { share: "allow", buy: "ask" } });
+  await post("permissions", { set: { share: "allow" } });
+  assert.deepEqual(JSON.parse(bucket.m.get("coder/u1/gloopy/changed.json")), { share: "allow", buy: "ask" }, "only what changed, as it is now");
+  let r = await post("message", { text: "buy it, ship it to Home" });
+  assert.equal(r.status, 200, await r.clone().text());
+  assert.ok(notes(turns.at(-1)).includes("(Note from Gloopy's app, not the owner: the owner changed your settings since your last message: Buy or pay is now Ask first; Share your personal details is now Always allow. Go by YOUR PERMISSIONS as they are now, not by what was said earlier in this chat.)"), JSON.stringify(notes(turns.at(-1))));
+  assert.equal(bucket.m.has("coder/u1/gloopy/changed.json"), false, "said once");
+  // The next message: nothing changed, nothing said.
+  idle();
+  await post("message", { text: "thanks" });
+  assert.equal(notes(turns.at(-1)).filter((x) => /changed your settings/.test(x)).length, 0);
+  // Setting one to what it already is changes nothing.
+  idle();
+  await post("permissions", { set: { share: "allow" } });
+  assert.equal(bucket.m.has("coder/u1/gloopy/changed.json"), false);
 });
