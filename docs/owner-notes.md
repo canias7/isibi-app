@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Your `!` command when the sandbox is down, live (your words: "yea merge and deploy")
+
+Merged and deployed (deploy 164; Coder's tests passed on GitHub first). Tried live in the browser in a throwaway chat, no video:
+- I broke the chat's own sandbox with a `!` command (the same full delete as last time). Grok's replies to `!` commands were off for that step, so it cost nothing.
+- Then I put your variables back exactly as before and sent `!echo still-here`. The chat said in red why no command can run, and the step read "✕ not run". Opened, it said "Not run: Coder's admin sandbox could not start on this chat's machine." Before the fix it read "✕ exit -1".
+- Grok's answer shows it was told why: "echo still-here never ran. The admin sandbox failed to start, so Coder blocked every command, including that one. … I will not change the sandbox or re-run the wipe."
+- Put back: the environment's variables exactly as before (checked against a saved copy). No hooks or rules were touched. The chat is deleted. Left for you to delete by hand: the branch `coder/testingforclaude-aedl25m6` on canias7/testingforclaude (and `coder/testingforclaude-ruqwyywj` from the test before).
+- Cost: about 1 cent of Grok (one answer).
+
 ## 2026-11-13: The seven, live on gofarther.dev (your words: "yea merge and delploy")
 
 Merged and deployed (deploy 162; Coder's tests passed on GitHub first). Then tried live in the browser with Grok: one throwaway chat on canias7/testingforclaude, no video. Grok won't issue dangerous deletes itself, so a hook of yours (on only for the test) swapped harmless marker commands for them, as in the earlier delete test; the folders in those deletes were made-up names that don't exist. Results:
