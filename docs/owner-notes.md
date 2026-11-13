@@ -22,16 +22,22 @@ The parts of paying not yet tried live, on test.gofarther.dev with Grok. From ha
 - **Asking Gloopy in the chat** to add a phone to the Home contact, and to rename the Work card "Office card" with the hint "only for office supplies": both done, and Settings shows them.
 - **Two saved cards:** for an order said to be office supplies, Gloopy picked the Office card by its hint ("It's office supplies, so I'll fill the Office card"); the order card said "Pay with Mastercard ending 4444". Cancel stopped it.
 - **Changing the default** in Settings moved "Default" from the Visa to the Office card. In the next order (not office supplies), Gloopy still used the Visa, because the Office card's hint says "only for office supplies". Following the hint over the default is right.
-- **A saved card with its code forgotten** (Settings: "Forget its security code"): the card form opened with that card picked and asked only for the security code.
+- **A saved card with its code forgotten** (Settings: "Forget its security code"): the card form opened with that card picked and asked only for the security code. Typing just the code filled the card in ("Filled into the page", on the card at once), and Gloopy went on to the order card ("Pay with Mastercard ending 4444"), where I pressed Cancel.
+- **The card form's "Another card"** shows the number boxes with "Save to your Vault, so next time Gloopy fills it in without asking you" already ticked.
+- **Removing cards and the first card:** I removed both cards in Settings; with none left, the new card form had "Default payment method" already ticked, and the Test Visa came back as "Default · Fills in without asking".
 - **A form that can't fill:** I moved Gloopy's browser to another site (Take over, then a new address, then Hand it back) before filling in the code. It said "Could not fill into the page: the browser is not on stripe-payments-demo.appspot.com any more (it is on example.com), so nothing was typed." Gloopy said the card never went in, looked where its browser was, and didn't pay another way.
 - **"Share your details" on Never:** Gloopy couldn't tell the Home address, and its one try to save a new address was refused by the Vault. It said so, and nothing was saved.
-- **Phone size:** the Vault, its New item menu, the new card form and the order card all fit.
+- **Phone size:** the Vault, its New item menu, the new card form and the order card all fit (after fixes 2 and 3 below, checked again on the deployed page).
 
 **Found and fixed:**
 1. **"Could not fill into the page" showed only after reloading the page.** The open page never got the form's result (nor "Filled into the page" after typing a card or a sign-in). The answer to a form now carries its result, and the card shows it at once. (Test GL144.)
 2. **At phone size, the chat scrolled sideways a little:** a long step line (a helper's "“Rome population” · Searched the web for") pushed its ✓ off the screen. Long step lines now end in "…".
 3. **At phone size in the Vault,** the "Fills in without asking" tag broke over two lines, and the search box pushed "Contact info" onto a second row. Tags now stay whole, and on a phone the search has its own row under the three tabs.
-4. **Gloopy went by an old answer instead of your current settings.** After I put "Share your personal details" back to Always allow, Gloopy refused the next order, saying sharing was turned off, as it had said one message before. A setting you change is now said to Gloopy at the start of its next message ("the owner changed your settings since your last message: Share your personal details is now Always allow. Go by your settings as they are now"), once. (Test GL145.)
+4. **Gloopy went by an old answer instead of your current settings.** After I put "Share your personal details" back to Always allow, Gloopy refused the next order, saying sharing was turned off, as it had said one message before. A setting you change is now said to Gloopy at the start of its next message ("the owner changed your settings since your last message: Share your personal details is now Always allow. Go by your settings as they are now"), once. (Test GL145.) Tried after deploying: I turned sharing off and on again, and Gloopy went ahead with the order this time.
+
+**Left as it was before the tests:** Buy or pay and Share your personal details on Always allow; in the Vault, the Test Visa (Stripe's 4242 test card, default) and the Home contact (Stripe's sample name, now with a test phone and email). Gloopy's chat is on **Low** (your word). The Office card is removed.
+
+**Still can't be tried here:** a declined card or an order that goes through (the demo's server is broken), and "Scan with camera" and the order notification on your phone.
 
 ## 2026-11-13: Paying with a saved card, tried live, and seven fixes (your words: "yes if dots and bot have it do it pls")
 
