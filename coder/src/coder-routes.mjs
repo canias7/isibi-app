@@ -1958,7 +1958,8 @@ async function gloopyCard(g, action) {
   } else if (action === "card") {
     // THE OWNER'S CARD (2026-11-09: "can we try both"): typed on the private card form, or one they saved with only its
     // security code typed. It goes to Gloopy's machine, which types it into the page's card fields; it is never kept
-    // here (only a card they ticked to save, sealed, without its security code), said in the chat or shown to the AI.
+    // here (only a card they ticked to save, sealed, with its security code since 2026-11-13, as Grok Bot's), said in the
+    // chat or shown to the AI.
     const total = String(p.total || "the total");
     const fields = Array.isArray(p.fields) ? p.fields : [];
     if (body.skip === true) {
@@ -1983,7 +1984,8 @@ async function gloopyCard(g, action) {
       const label = saved ? cardLabel(saved) : cardBrand(card.number) + " ending " + card.number.slice(-4);
       try { r = await post("/gloopy/card", { project: id, id: p.id, card, label }).then((x) => x.json()); } catch { r = null; }
       filled = { ok: !!(r && r.ok), why: r && !r.ok ? String(r.why || r.error || "") : !r ? "Gloopy's computer could not be reached" : "" };
-      // SAVED FOR NEXT TIME (when ticked): only a card that went into the page, sealed, without its security code.
+      // SAVED FOR NEXT TIME (when ticked): only a card that went into the page, sealed, with its security code (so it fills
+      // in without the form next time).
       // The first card saved is the default one (Grok Bot's "Default payment method").
       const kept = r && r.ok && !saved && body.save === true ? await saveCard(env, bucket, uid, { ...card, ...((await readCards(env, bucket, uid)).length ? {} : { default: true }) }) : null;
       if (r && r.ok) note = "(Note from Gloopy's app, not the owner: the owner gave their card (" + label + ") through the private card form, and it was typed into the payment form on " + site + ". You never see it." + (kept ? " They saved it in their Vault (as " + cardLabel(kept) + "): next time it fills in at checkout without the card form." : "") + " Nothing is paid until the order is placed: look at the page; if it shows what the owner asked for and the total (" + total + ") with no error, place the order, then tell them what you did (pay with result). Your browser's page is “" + String(r.title || "") + "” at " + String(r.url || "") + ".)";
@@ -2046,16 +2048,19 @@ async function gloopyCard(g, action) {
   // WHAT BECAME OF A SECURE FORM (owner, 2026-11-13; Grok Bot's "A filled form says Filled into the page. Secret values
   // were never shown to your Bot. If it says Could not fill into the page, the page may have moved before the form could
   // fill it"): said on the card in the chat, for a card or a sign-in typed on it.
-  if (filled) {
+  const filledEv = filled ? { at: Date.now(), type: "filled", id: String(p.id || ""), ok: filled.ok === true, ...(filled.ok ? {} : { why: String(filled.why || "").slice(0, 200) }) } : null;
+  if (filledEv) {
     const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), { at: Date.now(), type: "filled", id: String(p.id || ""), ok: filled.ok === true, ...(filled.ok ? {} : { why: String(filled.why || "").slice(0, 200) }) }].slice(-MAX_EVENTS));
+    await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), filledEv].slice(-MAX_EVENTS));
   }
   // A handoff done says where the browser is now, so the plainer "the owner used your browser" note is not needed too.
   // A step the owner said no to is not tried or asked about again until their own next message (the docs, 2026-11-10).
   const saidNo = action === "approve" && !p.schedule && !p.edit && !p.webhook && body.decision !== "once" && body.decision !== "always";
   const next = { ...meta, pending: null, waiting: null, note, grant, ...(action === "handoff" && body.skip !== true ? { used: false } : {}), ...(saidNo ? { denied: [...(Array.isArray(meta.denied) ? meta.denied : []), String(p.step || "")].filter(Boolean).slice(-20) } : {}), at: Date.now() };
   await saveMeta(bucket, uid, next);
-  return json({ ok: true, said, project: next, ...(action === "card" ? { cards: cardList(await readCards(env, bucket, uid)) } : {}) });
+  // The form's result goes back to the open page too, which shows it on the card at once (live test, 2026-11-13: "Could not
+  // fill into the page" showed only after a reload, as the page's chat updates carry the machine's steps, not this).
+  return json({ ok: true, said, project: next, ...(filledEv ? { filled: filledEv } : {}), ...(action === "card" ? { cards: cardList(await readCards(env, bucket, uid)) } : {}) });
 }
 
 /**

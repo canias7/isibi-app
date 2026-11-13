@@ -115,7 +115,8 @@
 .cd-cmd-row { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; text-align: left; min-width: 0; }
 .cd-cmd-row:disabled { cursor: default; }
 .cd-cmd-row:hover:not(:disabled) { color: #4b5563; }
-.cd-cmd-verb { flex: none; }
+/* A long one ends in "…" and leaves room for the step's ✓ (live test at phone size, 2026-11-13: a helper's "“Rome population” · Searched the web for" pushed it off the screen, and the chat scrolled sideways). */
+.cd-cmd-verb { flex: none; max-width: calc(100% - 80px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-cmd-text { font: 14px Inter, system-ui, sans-serif; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cd-caret { flex: none; font-size: 10px; }
 /* The picture a Read step opened, small, under the step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's). */
@@ -832,8 +833,10 @@ label.cd-gset-row{cursor:pointer}
 button.cd-vault-tab{border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer}
 button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-vault-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
-.cd-vault-tag{font-size:11.5px;font-style:normal;color:#4b4a46;background:#f1efe9;border-radius:999px;padding:2px 8px}
+.cd-vault-tag{font-size:11.5px;font-style:normal;color:#4b4a46;background:#f1efe9;border-radius:999px;padding:2px 8px;white-space:nowrap}
 .cd-vault-tag.is-def{color:#0b57d0;background:#e8f0fe;font-weight:600}
+/* At phone size (live test, 2026-11-13): the search on its own row, so the three tabs stay on one line. */
+@media (max-width:640px){.cd-vault-bar{flex-wrap:wrap}.cd-vault-tabs{flex-wrap:nowrap}.cd-vault-q{margin-left:0;width:100%}}
 .cd-vault-cardt{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 6px;font-size:14px;color:#1f1e1d}
 .cd-vault-cardt small{flex-basis:100%;font-size:12px;color:#8a857d}
 .cd-pay-opt em{font-style:normal;font-size:11.5px;font-weight:600;color:#0b57d0;background:#e8f0fe;border-radius:999px;padding:1px 7px}

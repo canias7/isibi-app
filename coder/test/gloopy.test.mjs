@@ -735,7 +735,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   assert.match(css, /\.cd-secret-save,\.cd-card-yes\{/);
   // The password leaves the box as it is sent; the answer goes to the Worker, then its words start Gloopy's next turn.
   assert.match(ui, /const password = pass \? pass\.value : '';\n      if \(!password \|\| !S\.project\) return;\n      e\.currentTarget\.disabled = true;\n[^\n]*\n      if \(pass\) pass\.value = '';\n      const keep = root\.querySelector\('#cdSignSave'\);\n      cardAnswer\(id, 'signin', \{ username: user \? user\.value : '', password, save: !!\(keep && keep\.checked\) \}/);
-  assert.match(ui, /const r = await call\(cardPath\(a\), \{ method: 'POST', body: JSON\.stringify\(\{ id, \.\.\.body \}\) \}\);\n[^\n]*\n      if \(r\.status === 409 && r\.data && r\.data\.expired\) [^\n]*\n      if \(r\.status !== 200\) \{ S\.cardMsg = \{ id, text: \(r\.data && r\.data\.error\) \|\| failed \}; draw\(\); return; \}\n      S\.cardMsg = null; if \(r\.data && r\.data\.project\) S\.project = r\.data\.project;\n      if \(r\.data && Array\.isArray\(r\.data\.cards\)\) S\.cards = r\.data\.cards;\n      send\(\(r\.data && r\.data\.said\) \|\| 'Answered\.', \{ card: true \}\);/);
+  assert.match(ui, /const r = await call\(cardPath\(a\), \{ method: 'POST', body: JSON\.stringify\(\{ id, \.\.\.body \}\) \}\);\n[^\n]*\n      if \(r\.status === 409 && r\.data && r\.data\.expired\) [^\n]*\n      if \(r\.status !== 200\) \{ S\.cardMsg = \{ id, text: \(r\.data && r\.data\.error\) \|\| failed \}; draw\(\); return; \}\n      S\.cardMsg = null; if \(r\.data && r\.data\.project\) S\.project = r\.data\.project;\n      if \(r\.data && Array\.isArray\(r\.data\.cards\)\) S\.cards = r\.data\.cards;\n(?:      \/\/[^\n]*\n)*      const f = r\.data && r\.data\.filled;\n      if \(f [^\n]*\n      send\(\(r\.data && r\.data\.said\) \|\| 'Answered\.', \{ card: true \}\);/);
   assert.match(ui, /S\.cardMsg && S\.cardMsg\.id === e\.id \?/, "an error shows on its own card only");
   assert.doesNotMatch(ui, /S\.\w+ = [^;\n]*password/, "the password is never put in the page's state");
   // The notifications.
@@ -7569,10 +7569,13 @@ test("GL140 (2026-11-13) the Vault's cards and contact info on Coder's Worker (o
   d = await (await post("card", { id: "pc1", use: c2 })).json();
   assert.deepEqual([fills.at(-1).card.cvc, fills.at(-1).label], ["777", "Mastercard ending 4444"], "its kept code; its name");
   assert.deepEqual(events().filter((e) => e.type === "filled").map(({ at, ...x }) => x), [{ type: "filled", id: "pc1", ok: true }]);
+  // ...and it goes back to the open page, which shows it at once (live test, 2026-11-13: only after a reload).
+  assert.deepEqual(d.filled, events().filter((e) => e.type === "filled").at(-1));
   answer = { ok: false, why: "the page moved" };
   waitCard("pc2");
-  await post("card", { id: "pc2", number: "4000 0566 5566 5556", expiry: "12/30", cvc: "321", save: true });
+  d = await (await post("card", { id: "pc2", number: "4000 0566 5566 5556", expiry: "12/30", cvc: "321", save: true })).json();
   assert.deepEqual(events().filter((e) => e.type === "filled").at(-1), { at: events().filter((e) => e.type === "filled").at(-1).at, type: "filled", id: "pc2", ok: false, why: "the page moved" });
+  assert.deepEqual(d.filled, events().filter((e) => e.type === "filled").at(-1));
   assert.equal((await V.readCards(env, bucket, "u1")).length, 2, "not kept: it didn't go in");
   // The order card's answers: "Pay €72.00 on shop.example", or "Cancelled the order on shop.example".
   const waitOrder = (aid) => setMeta({ ...meta(), status: "idle", waiting: "approval", pending: { kind: "approval", id: aid, step: "Click the button “Pay €72.00”", site: "shop.example", order: "€72.00" } });
@@ -7850,4 +7853,31 @@ test("GL143 (2026-11-13) found live (test.gofarther.dev, paying with a saved car
   out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: () => {} }, { text: "fix it" });
   assert.equal(g.seen.length, 1);
   assert.equal(out.status, "done");
+});
+
+test("GL144 (2026-11-13) found live (test.gofarther.dev, a card filled in after Gloopy's browser had left the checkout): the card's \"Could not fill into the page: the browser is not on stripe-payments-demo.appspot.com any more (it is on example.com), so nothing was typed\" showed only after a reload. The page now adds the form's result from the answer it gets, once", async () => {
+  const { readFileSync } = await import("node:fs");
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const a = ui.indexOf("    const cardAnswer = async (id, a, body, failed) => {"), b = ui.indexOf("\n    };\n", a);
+  assert.ok(a > 0 && b > a, "the page has cardAnswer");
+  const make = new Function("S", "call", "cardPath", "send", "reloadChat", "draw", ui.slice(a, b + 7) + " return cardAnswer;");
+  const S = { project: { id: "gloopy-main" }, events: [{ type: "pay", id: "pc9" }] }, sent = [], asked = [];
+  const answer = { status: 200, data: { ok: true, said: "Tried to give my card to pay on shop.example", filled: { at: 5, type: "filled", id: "pc9", ok: false, why: "the browser is not on shop.example any more (it is on example.com), so nothing was typed" } } };
+  const cardAnswer = make(S, async (path, o) => { asked.push([path, JSON.parse(o.body)]); return answer; }, (x) => "/projects/gloopy-main/" + x, (t, o) => sent.push([t, o]), () => {}, () => {});
+  await cardAnswer("pc9", "card", { use: "c1", cvc: "321" }, "Your card could not be sent.");
+  assert.deepEqual(asked, [["/projects/gloopy-main/card", { id: "pc9", use: "c1", cvc: "321" }]]);
+  assert.deepEqual(S.events.at(-1), { at: 5, type: "filled", id: "pc9", ok: false, why: "the browser is not on shop.example any more (it is on example.com), so nothing was typed" }, "on its card at once");
+  assert.deepEqual(sent, [["Tried to give my card to pay on shop.example", { card: true }]]);
+  await cardAnswer("pc9", "card", {}, "x");
+  assert.equal(S.events.filter((e) => e.type === "filled").length, 1, "never twice");
+  // A sign-in's result the same way; one that went in says so with no reason.
+  S.events.push({ type: "signin", id: "si1" });
+  answer.data = { ok: true, said: "Signed in to shop.example", filled: { at: 6, type: "filled", id: "si1", ok: true } };
+  await cardAnswer("si1", "signin", { username: "ana", password: "x" }, "x");
+  assert.deepEqual(S.events.at(-1), { at: 6, type: "filled", id: "si1", ok: true });
+  // An answer with no form result (an OK card) adds nothing.
+  const n = S.events.length;
+  answer.data = { ok: true, said: "Allowed once" };
+  await cardAnswer("ap1", "approve", { decision: "once" }, "x");
+  assert.equal(S.events.length, n);
 });

@@ -2543,6 +2543,10 @@
       if (r.status !== 200) { S.cardMsg = { id, text: (r.data && r.data.error) || failed }; draw(); return; }
       S.cardMsg = null; if (r.data && r.data.project) S.project = r.data.project;
       if (r.data && Array.isArray(r.data.cards)) S.cards = r.data.cards;
+      // What became of a private form ("Filled into the page" / "Could not fill into the page"), on its card at once (live
+      // test, 2026-11-13: it showed only after a reload).
+      const f = r.data && r.data.filled;
+      if (f && typeof f === 'object' && f.type === 'filled' && !S.events.some((x) => x.type === 'filled' && x.id === f.id)) S.events = S.events.concat([{ at: Number(f.at) || Date.now(), type: 'filled', id: String(f.id || id), ok: f.ok === true, ...(f.ok ? {} : { why: String(f.why || '') }) }]);
       send((r.data && r.data.said) || 'Answered.', { card: true });
     };
     on('[data-approve]', 'click', (e) => {
