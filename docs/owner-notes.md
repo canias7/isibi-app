@@ -23,7 +23,14 @@ log (81,000 lines) is in git history.
 
 **Your rule, saved:** "Follow Claude Code, nothing extra" is now in your preferences file: Coder does what Claude Code does (its docs, and its own program where the docs say nothing), and where Coder does more or less, I say so and ask before keeping it.
 
-Tests: `CD73` updated (no setup script: the note; a setup script there, from GitHub, refused, or failed: no note); all 605 pass. Next: merge, deploy, live test on Low.
+Tests: `CD73` updated (no setup script: the note; a setup script there, from GitHub, refused, or failed: no note); all 605 pass. Merged; deploy 179.
+
+**Tried live on Low.** The note is Coder's own message to Grok and isn't shown on the page, but each one costs one more Grok call in that message, so I read the message's call count. Every install used `--no-save`, so no files changed and no branch was made.
+- An install you refused (No, with a note): 2 calls, so no note. Before the fix this was 3, with "this job ran `npm install`" for one that never ran.
+- An install that failed (a package that doesn't exist, exit code 1): 2 calls, no note.
+- An install that worked, in your test environment, which has no setup script ("Not set"): 3 calls, so the note came. The same in a chat on the Default environment (also "Not set"). Grok decided that install wasn't needed by every chat and just said done, so no card.
+- An install that worked with a setup script in the environment: 2 calls, no note. For this one step your test environment got the setup script `echo ready` (it ran first), then went back to "Not set" (checked).
+Two throwaway chats, deleted after; your variables untouched. Cost: a few cents of Grok on Low (5 messages).
 
 ## 2026-11-13: A PermissionRequest hook's no, in Claude Code's words (your words: "yea fix it, merge and deploy then test it on low")
 
