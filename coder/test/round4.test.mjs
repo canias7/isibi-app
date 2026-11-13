@@ -122,9 +122,11 @@ test("CD518 echo <1-3>: the card names Claude Code's check of the whole text, no
   const a = await job("acceptEdits");
   assert.equal(a.cards.length, 1);
   assert.equal(a.cards[0].why, "Contains zsh <N-M> numeric-range glob");
+  // (In Auto: Auto's 2-minute card, with the rm check's own reason, fix 5 of "Yes all 7"; here answered No.)
   const b = await job("auto");
-  assert.equal(b.cards.length, 0);
-  assert.match(b.told, /could not be checked for dangerous rm operations/);
+  assert.equal(b.cards.length, 1);
+  assert.ok(b.cards[0].blockAt > 0);
+  assert.match(b.cards[0].why, /could not be checked for dangerous rm operations/);
   assert.deepEqual(SH.textReasons("echo <1-3>"), ["Contains zsh <N-M> numeric-range glob"]);
 });
 

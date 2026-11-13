@@ -594,6 +594,8 @@
 .cd-perm-note { display: block; width: 100%; box-sizing: border-box; margin-top: 8px; font: inherit; font-size: 13.5px; color: #1f1e1d; border: 1px solid #d9d6cf; border-radius: 10px; padding: 8px 10px; background: #fff; }
 .cd-perm-note:focus { outline: none; border-color: #1f1e1d; }
 .cd-perm-done { font-size: 13px; color: #57534e; margin-top: 4px; overflow-wrap: anywhere; }
+/* Auto's 2-minute question for a dangerous removal: its countdown, in the rules list's warning colours. */
+.cd-perm-timer { font-size: 12.5px; line-height: 1.45; color: #7a4800; background: #fff6e5; border: 1px solid #f1d9a8; border-radius: 8px; padding: 6px 10px; margin: 0 0 8px; font-variant-numeric: tabular-nums; }
 .cd-perm-ok { color: #1d6b3a; font-weight: 600; }
 .cd-perm-no { color: #b3261e; font-weight: 600; }
 .cd-plan .cd-perm-ic { background: #2f5d8a; }

@@ -1668,6 +1668,52 @@ session (its `tengu_splendid_horizon` defaults: `timeoutMs` 120000,
 `CLAUDE_CODE_DISABLE_POWERSHELL_CMD_RM_DENY`, which Coder lacks. Not changed: the
 owner's call.
 
+**Claude Code 2.1.323's bash-tool changes, copied** (owner, 2026-11-13: "Yes all
+7"; `test/cc323.test.mjs`, CD550–CD559). Read in Claude Code's own program and,
+where it says so, tried in its command-line version with Haiku.
+1. *Deny and ask rules past sudo and env with settings written together*
+   (`sudo -nu root touch x`): both of Claude Code's readings are tried, the usual
+   and the wide one (`unwrapSteps(…, { wide: true })`, its `vze`): settings
+   written together take a value when their last letter does, and after sudo or
+   env a word with `=` is a setting. The dangerous-delete check reads both too
+   (`sudo -nu root rm -rf /`, `env -iu FOO rm -rf ~` had passed it).
+2. *An allow rule's `*` joined to the program's name* (`starStretchesProgram`,
+   its `qpr`): `Bash(NODE_ENV*)` no longer approves `NODE_ENV=1 touch x`, nor
+   `Bash(ls*)` `ls=1 touch x`; letters, digits and `_ . + - : @ % , ~ /` after it
+   are the same word (`Bash(ls*)` still approves `lsof`). Also its "combined
+   sudo flags" fix (`Bash(sudo -Eu root NODE_ENV*)`).
+3. *A warning for a `*` in a variable's value* (`starInSettingValue`, its `Dh`),
+   in its words, before the wildcard-before-the-command one.
+4. *Writes into protected places from a command*: bash already asked every time,
+   with only a one-time Yes, whatever the rules (the earlier note was wrong). The
+   PowerShell tool did not: in Accept edits `Add-Content .bashrc x` ran unasked.
+   Now its writing cmdlets (Claude Code's list, with Remove-Item and
+   Clear-Content; `psWriteTargets`) and its redirections ask the same way
+   (`psProtectedAsk`). Claude Code's own other words for its settings files:
+   "… requested permissions to write to …/.claude/settings.json, but you haven't
+   granted it yet."
+5. *Auto's 2-minute question for a dangerous delete* (Claude Code 2.1.281): in
+   Auto, and in Plan where the checker reviews commands, a card with only Yes and
+   No and Claude Code's line, "Coder will automatically block this request in
+   1:59, to avoid holding up an unattended session", counted down each second;
+   unanswered, the delete is blocked and Coder goes on, told Claude Code's words
+   ("… and no person did (the permission prompt timed out, or none was shown)").
+   After 3 in a row went unanswered none is shown ("… already gone unanswered 3
+   times in this session, so it was not shown again"); an answer starts the count
+   again. The count is kept with the chat's other Auto counts.
+   `CODER_DISABLE_DANGEROUS_RM_TIMEOUT` keeps the old way (the checker decides).
+6. *`CLAUDE_CODE_STRICT_INLINE_SHELL_RM_PROMPT`*: Claude Code ran 11 harmless
+   commands whose `-c` script or eval text it can't read the same way with and
+   without it; Coder's check lets all 11 through too (CD558). Nothing to copy.
+7. *No command outside the admin sandbox when it should be on*: on a machine made
+   for one (`sandbox` and a kept disk) where it can't start, the AI's commands and
+   the owner's `!` are refused in Claude Code's words for its strict sandbox mode
+   ("The command did not run. … no command may run outside the sandbox, and the
+   sandbox failed to start in this session …"), and the chat says why. The
+   environment's setup script, which runs inside the sandbox, waits too ("Setup:
+   not run, …"). Coder's helpers and the owner's hooks still run, as Claude Code's
+   hooks run outside its sandbox.
+
 **The sealed room** (owner, 2026-11-07, step 3: a real wall for the network
 setting). Coder's old wall was a firewall rule matched by user (iptables'
 owner match), which Fly.io's machines lack, so there the network setting was a

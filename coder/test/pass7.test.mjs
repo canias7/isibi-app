@@ -237,12 +237,14 @@ test("CD402 PowerShell in Coder's loop: pwsh's parse on the machine (once a job)
 
 test("CD403 a risky rm under the owner's own Ask rule in Auto (Claude Code: \"If an explicit ask rule matches the command, Claude Code asks you instead, even in auto mode and without a time limit\"); CODER_DISABLE_DANGEROUS_RM_TIMEOUT lets the checker decide; the other three switches loosen the check", async () => {
   const rm = [say("", [call("bash", { command: "rm -rf ~", description: "Clean" }, "b1")]), say("ok")];
-  let t = await job(rm, {});
+  let t = await job(rm, { answers: [{ choice: "none" }] });
   assert.match(t.told("b1"), /Dangerous rm operation detected: '~'/);
-  assert.deepEqual([t.cards.length, t.ran.length], [0, 0], "refused in Auto, as before");
+  assert.deepEqual([t.cards.length, t.ran.length], [1, 0], "in Auto, the 2-minute card (fix 5); no answer refuses it");
+  assert.ok(t.cards[0].blockAt > 0);
   t = await job(rm, { rules: { allow: [], deny: [], ask: ["Bash(rm *)"] }, answers: [{ choice: "no" }] });
   assert.equal(t.cards.length, 1, "asked instead");
   assert.match(t.cards[0].why, /Dangerous rm operation detected: '~'/);
+  assert.equal(t.cards[0].blockAt, undefined, "an Ask rule's card has no time limit");
   // The switch: the checker decides (with the checker on); without it, refused all the same.
   // (The git status Coder runs first for the checker, Bash docs pass 8, is not the command.)
   const own = (t0) => t0.ran.filter((x) => !/--porcelain=v1/.test(x));
@@ -280,8 +282,8 @@ test("CD542 CODER_DISABLE_DANGEROUS_RM_TIMEOUT in Auto: the checker's approval o
     assert.match(t.told("b1"), /Irreversible Local Destruction/);
     t = await job(rm, { checker: true, rules: { allow: [], deny: [], ask: ["Bash(rm *)"] }, extra: { rmChecksOff: { timeout: true } }, verdict: () => '{"decision":"allow"}', answers: [{ choice: "no" }] });
     assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [0, 1, 0], command + ": your Ask rule still asks you");
-    t = await job(rm, { checker: true, verdict: () => '{"decision":"allow"}' });
-    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [0, 0, 0], command + ": without the switch, refused");
+    t = await job(rm, { checker: true, verdict: () => '{"decision":"allow"}', answers: [{ choice: "none" }] });
+    assert.deepEqual([t.checks.length, t.cards.length, own(t).length], [0, 1, 0], command + ": without the switch, Auto's 2-minute card (fix 5), not the checker; no answer refuses it");
     assert.match(t.told("b1"), /Dangerous rm operation detected/);
   }
 });

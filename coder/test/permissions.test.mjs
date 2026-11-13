@@ -301,11 +301,14 @@ test("CD320 web pages: Accept edits asks for a site that isn't pre-approved docu
   assert.deepEqual(d.ran, []);
 });
 
-test("CD321 a dangerous removal: refused in Auto (Claude Code's auto mode away from a terminal), asked once in Accept edits; a protected file is asked on the card in every mode, never with 'don't ask again'", async () => {
-  const { RM_REFUSED } = await import("../container/coder-agent.mjs");
+test("CD321 a dangerous removal: in Auto, a card that blocks it by itself after 2 minutes (Claude Code 2.1.281, fix 5 of \"Yes all 7\"), refused when no one answers; asked once in Accept edits; a protected file is asked on the card in every mode, never with 'don't ask again'", async () => {
+  const { RM_REFUSED, RM_TIMED_OUT } = await import("../container/coder-agent.mjs");
   const a = await job([say("", [call("bash", { command: "rm -rf /" }, "b1")]), say("ok")], { mode: "auto" });
   assert.ok(a.r.messages.find((m) => m.tool_call_id === "b1").content.startsWith(RM_REFUSED));
-  assert.equal(a.cards.length, 0);
+  assert.equal(a.cards.length, 1);
+  assert.ok(a.cards[0].blockAt > 0);
+  assert.equal(a.events.find((e) => e.type === "result" && e.id === "b1").output, RM_TIMED_OUT);
+  assert.deepEqual(a.ran, []);
   const b = await job([say("", [call("bash", { command: "rm -rf /" }, "b1")]), say("ok")], { answers: [{ choice: "no", comment: "don't" }] });
   assert.equal(b.cards.length, 1);
   assert.match(b.cards[0].why, /^Dangerous rm operation detected/);

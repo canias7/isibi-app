@@ -33,9 +33,9 @@ import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
-import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE } from "./coder-psparse.mjs";
+import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
-import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait } from "./coder-checker.mjs";
+import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered } from "./coder-checker.mjs";
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedOrReadOnly, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -397,6 +397,40 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   return { kind: "protected", ...(viaLink ? { viaLink: true } : {}), paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files") };
 }
 /**
+ * A POWERSHELL COMMAND THAT WRITES A PROTECTED FILE (fix 4 of the owner's "Yes all 7", 2026-11-13; Claude Code's permission
+ * modes: in Accept edits, Set-Content, Add-Content, Clear-Content and Remove-Item run on in-scope paths and "The same scope
+ * and protected-path rules apply"; its write cmdlets, 2.1.323; and its protected paths: "permissions.allow rules … do not
+ * pre-approve protected-path writes"). Coder had let `Set-Content .claude/settings.json`, `Add-Content .bashrc` and
+ * `Remove-Item .husky/pre-commit` run in Accept edits without asking. Now asked about in every mode, as a bash command's
+ * (commandAsk), with only a one-time Yes; null when it writes none. `abs(word)`: where a word leads (its links followed).
+ * A write into .git by a writing cmdlet or a redirection is left to Claude Code's own question for it, "Command writes to
+ * .git/ — hooks or config planted there execute on the next git operation." (psDecision), which no rule passes either.
+ */
+export function psProtectedAsk(parsed, deps, abs) {
+  if (!parsed || !parsed.valid) return null;
+  const names = [], says = [];
+  const inGit = (w) => /(^|[\\/])\.git([\\/]|$)/i.test(String(w).replace(/^['"]|['"]$/g, ""));
+  const check = (word, gitTold) => {
+    const t = String(word ?? "").trim();
+    if (!t || /[$`]/.test(t) || (gitTold && inGit(t))) return;
+    const full = abs(t);
+    if (!full) return;
+    const name = projectPath(deps, full);
+    if (!name || (!protectedFile(name) && !protectedFile(name + "/x"))) return;
+    if (!names.includes(name)) { names.push(name); says.push(sensitiveWhy(full)); }
+  };
+  for (const r of psFileRedirections(parsed)) check(r.target, true);
+  for (const c of psCommands(parsed)) {
+    if (c.elementType !== "CommandAst") continue;
+    const n = psCmdlet(c.name), told = n !== "remove-item" && n !== "clear-content";
+    for (const w of psWriteTargets(c)) check(w, told);
+  }
+  if (!names.length) return null;
+  const list = names.map((n) => scrub(visibleChars(n)).slice(0, 300));
+  const what = "this command writes " + list.join(", ") + ", " + (list.length === 1 ? "a protected file" : "protected files");
+  return { kind: "protected", paths: list, allow: list.map((n) => allowWriteText(n)), why: says.map((x) => scrub(visibleChars(x)).slice(0, 700)).join(" "), note: what + " (it can make code run on the owner's computer when the branch is pulled, or change how the project is built)", github: what };
+}
+/**
  * CLAUDE CODE'S HEADER FOR A BACKGROUND-TASK EVENT that arrives with no message of the person's (seen in its cloud
  * sessions, 2026-11-11), with Coder's word for them: it is no input, and nothing said earlier makes it an approval.
  */
@@ -420,7 +454,32 @@ export function cardLines(command) {
  * WHAT CLAUDE CODE SAYS WHEN ITS rm CHECK STOPS A COMMAND, away from a terminal (Claude Code 2.1.319's own words, when it
  * stopped one of the assistant's commands on 2026-11-09), with Coder's names. Then what it flagged.
  */
-export const RM_REFUSED = "Permission for this command was denied by a built-in Coder safety check, not by the owner. The check stops removals that can delete far more than intended: a system, home or workspace directory, or a target it cannot resolve, such as a shell variable that, if unset or empty, turns this into `rm -rf /` or `rm -rf /*`. Only a person may approve such a removal, and Coder asks no one about commands. The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the owner's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the owner what you wanted to delete and why, and leave the removal to them. What was flagged: ";
+// (Claude Code 2.1.323's words, its `vgo`: "Only a person may approve such a removal, and no person did (the permission prompt
+// timed out, or none was shown)", and, once its prompt has gone unanswered too often, "The prompt for such removals has
+// already gone unanswered 3 times in this session, so it was not shown again." Fix 5 of the owner's "Yes all 7".)
+const RM_HEAD = "Permission for this command was denied by a built-in Coder safety check, not by the owner. The check stops removals that can delete far more than intended: a system, home or workspace directory, or a target it cannot resolve, such as a shell variable that, if unset or empty, turns this into `rm -rf /` or `rm -rf /*`. Only a person may approve such a removal, and no person did (the permission prompt timed out, or none was shown). ";
+const RM_TAIL = "The command was NOT run; do not claim it succeeded. Do not work around the check by splitting, scripting, or re-issuing the removal through another tool or shell: the check exists because a removal like this can destroy the owner's data, and getting past it would not make it safe. If the text below suggests a safe rewrite, run that instead; it goes through the same check. Otherwise finish the rest of the task without this removal, tell the owner what you wanted to delete and why, and leave the removal to them. What was flagged: ";
+export const RM_REFUSED = RM_HEAD + RM_TAIL;
+/** The refusal of a dangerous removal; `unanswered`: how many of its questions in a row went unanswered, when none was shown for that. */
+export const rmDenied = (why, unanswered) => RM_HEAD + (unanswered !== undefined ? "The prompt for such removals has already gone unanswered " + unanswered + " times in this session, so it was not shown again. " : "") + RM_TAIL + why;
+/**
+ * AUTO'S QUESTION FOR A DANGEROUS REMOVAL (Claude Code 2.1.281, kept in 2.1.323: "Changed the dangerous rm prompt in
+ * --dangerously-skip-permissions and auto mode to wait 2 minutes for an answer, then deny the command with a rewrite hint so
+ * unattended sessions keep going"; its settings: 120,000 ms, and after 3 questions in a row that no one answered, none is
+ * shown; an answer, Yes or No, starts the count again).
+ */
+export const RM_PROMPT_MS = 120_000, RM_PROMPT_MAX = 3;
+/** What the step shows when no one answered in time. */
+export const RM_TIMED_OUT = "Not run: no answer within 2 minutes, so Coder blocked it.";
+/**
+ * NO COMMAND WITHOUT CODER'S ADMIN SANDBOX WHEN IT SHOULD BE ON (fix 7 of the owner's "Yes all 7", 2026-11-13): what Coder is
+ * told, in Claude Code's words for its strict sandbox mode (2.1.323, its `QAe`: "The command did not run. Strict sandbox mode
+ * is on, so no command may run outside the sandbox, and the sandbox failed to start in this session. The user can restart
+ * Claude Code to try starting the sandbox again. Changing sandbox settings is for the user or their administrator to decide,
+ * not you. So is running this command, or one that does the same, through another tool or program."), and what the chat shows.
+ */
+export const boxDownTold = (why) => "The command did not run. Coder's admin sandbox is on, so no command may run outside the sandbox, and the sandbox failed to start in this session (" + why + "). The owner can send another message to try starting the sandbox again, or start a new chat. Changing the sandbox is for the owner to decide, not you. So is running this command, or one that does the same, through another tool or program.";
+export const boxDownShown = (why) => "Coder's admin sandbox could not start on this chat's machine (" + why + "), so no command runs in this chat until it does. Send another message to try again; if it keeps failing, start a new chat.";
 /**
  * A BACKGROUND COMMAND'S NOTICE (Claude Code 2.1.319's words in a session whose background commands go on after its answer,
  * as Coder's do now: tool 4, part 2; the owner, 2026-11-09: "do all of those").
@@ -1452,7 +1511,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
     let a = null;
-    try { a = await deps.ask(pid, { until: started + maxMs }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    // (A card with its own time limit, Auto's question for a dangerous removal, waits until then: card.blockAt.)
+    try { a = await deps.ask(pid, { until: Number(card.blockAt) > 0 ? Math.min(started + maxMs, Number(card.blockAt)) : started + maxMs }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
     const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
@@ -2475,6 +2535,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); };
         const why = commandProblem(command, { powershell: !!c.ps });
         if (why) { refuse(why); continue; }
+        // NOT WITHOUT THE ADMIN SANDBOX (fix 7; deps.boxDown: why it could not start on a machine made for one).
+        if (typeof deps.boxDown === "string" && deps.boxDown) { refuse(boxDownTold(deps.boxDown)); continue; }
         // A FOREGROUND sleep OF 25 SECONDS OR MORE (Claude Code 2.1.319, tried: "Blocked: standalone sleep 30. …").
         const psSleep = c.ps && !inBg ? psSleepWhat(command, SLEEP_BLOCK_S) : "";
         const blocked = inBg ? "" : sleepBlockFor(command, !!c.ps, psSleep);
@@ -2501,7 +2563,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // CODER_DISABLE_DANGEROUS_RM_TIMEOUT the checker decides (Claude Code: "auto: the classifier decides").)
         const rmAskRule = !!rmWhy && rmAuto && canAsk() && !github && !!bashDecision(command, { mode: "auto", rules: { allow: [], deny: [], ask: (ownRules && ownRules.ask) || [] }, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "" }).byRule;
         const rmToChecker = !!rmWhy && rmAuto && !rmAskRule && !!checker && !!(rmChecksOff && rmChecksOff.timeout);
-        if (rmWhy && !rmAskRule && !rmToChecker && (rmAuto || !canAsk())) { refuse(RM_REFUSED + rmWhy); continue; }
+        // AUTO'S 2-MINUTE QUESTION (fix 5 of the owner's "Yes all 7", 2026-11-13; Claude Code 2.1.281: its dangerous rm prompt
+        // in auto mode waits "2 minutes for an answer, then deny the command with a rewrite hint so unattended sessions keep
+        // going"): in Auto, and in Plan where the checker reviews commands, the owner is asked on a card that blocks the removal
+        // by itself after 2 minutes (RM_PROMPT_MS); after 3 such cards in a row that no one answered, none is shown (Claude
+        // Code: "already gone unanswered 3 times in this session, so it was not shown again"). The environment's
+        // CODER_DISABLE_DANGEROUS_RM_TIMEOUT turns the card off, as Claude Code's CLAUDE_CODE_DISABLE_DANGEROUS_RM_TIMEOUT does.
+        const rmTimed = !!rmWhy && rmAuto && !rmAskRule && !rmToChecker && canAsk() && !github && !(rmChecksOff && rmChecksOff.timeout);
+        if (rmTimed) { const st = checkerState(...checkKey()); if ((st.rmUnanswered || 0) >= RM_PROMPT_MAX) { refuse(rmDenied(rmWhy, st.rmUnanswered)); continue; } }
+        if (rmWhy && !rmAskRule && !rmToChecker && !rmTimed && (rmAuto || !canAsk())) { refuse(rmDenied(rmWhy)); continue; }
         // THE OWNER'S RULES AND THE MODE (coder-perms.mjs): a deny rule refuses it; an ask rule, or the mode, asks first.
         // (Each path with its links followed, on this machine: realPath; the call's settings, for a rule on one.)
         // (A monitor's command: Bash's rules and Monitor's, monitorRules.)
@@ -2550,7 +2620,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (emailMark && namesUserAgentWithAddress(inputText(c.monitor ? c.monitorArgs : c.args), emailMark)) { refuse(accountEmailRefused(c.monitor ? "Monitor" : c.ps ? "PowerShell" : "Bash")); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
-        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : null) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
+        // (A PowerShell command's protected writes: psProtectedAsk, fix 4 of "Yes all 7".)
+        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
         // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
@@ -2628,8 +2699,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let approval = null;
         if (rmWhy || ask || dec.verdict === "ask" || pausedCard || switchedCard) {
           const once = !!(rmWhy || ask || dec.byRule || pausedCard || switchedCard);
-          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
+          const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
           approval = await askOwner(card, { hooks: !c.rerun });
+          // (Auto's 2-minute card: no answer by then blocks the removal, and Coder goes on, as in Claude Code; an answer, Yes
+          // or No, starts the count of unanswered ones again.)
+          if (card.blockAt) {
+            const st = checkerState(...checkKey());
+            if (approval.choice === "none" && now() <= started + maxMs) {
+              rmUnanswered(st);
+              emit({ type: "result", id: c.id, code: -1, ran: false, output: RM_TIMED_OUT });
+              reply(rmDenied(rmWhy));
+              continue;
+            }
+            if (approval.choice !== "none" && approval.choice !== "stop") rmAnswered(st);
+          }
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }

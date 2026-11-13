@@ -220,7 +220,19 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       continue;
     }
     if (prog === "popd") { hereKnown = false; cdSeen = true; continue; }
-    if (prog !== "rm" && prog !== "rmdir") continue;
+    // (Read the wide way too, as Claude Code 2.1.323 reads commands for deny and ask rules (unwrapSteps): settings written
+    // together whose last letter takes a value. The owner, 2026-11-13, "Yes all 7": `sudo -nu root rm -rf /` and
+    // `env -iu FOO rm -rf ~` were read as running `root` and `FOO`, so this check never saw the rm, and in Auto they ran.)
+    const ww = unwrapped(c.words, { wide: true });
+    for (const v of ww.length !== w.length || ww.some((x, k) => x !== w[k]) ? [w, ww] : [w]) {
+      const why = rmWhy(v, c);
+      if (why) return why;
+    }
+  }
+  return "";
+  function rmWhy(w, c) {
+    const prog = w[0] ? basename(w[0].text) : "";
+    if (prog !== "rm" && prog !== "rmdir") return "";
     const args = [];
     let opts = true, recursive = prog === "rmdir";
     for (let k = 1; k < w.length; k++) {
@@ -234,8 +246,8 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
       if (why) return why;
     }
+    return "";
   }
-  return "";
 }
 
 function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven = false, off = {} }) {

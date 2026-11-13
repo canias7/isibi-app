@@ -26,7 +26,7 @@ import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName } from "./coder-agent.mjs";
+import { runCoder, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
@@ -3022,7 +3022,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // and the gate's certificates. Null (commands as before) when this machine cannot have one.
   let lowerOk = null, saidWhy = "";
   // Without one, why goes in the machine's log (once for each reason; Fly.io keeps the log).
-  const noBox = (w) => { if (w && w !== saidWhy) { saidWhy = w; console.log("coder: no admin sandbox (" + w + "); commands run as before"); } return null; };
+  // (On a machine made for one, `sandbox` and a kept disk, its commands are refused until it starts: fix 7, t.boxDown.)
+  const noBox = (w) => { if (w && w !== saidWhy) { saidWhy = w; console.log("coder: no admin sandbox (" + w + "); " + (sandbox && data ? "commands are refused until it starts" : "commands run as before")); } return null; };
   const openBox = async () => {
     if (!sandbox || !data) return null;
     if (lowerOk === null) lowerOk = makeLower({ base: sandboxBase() });
@@ -3303,6 +3304,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // One kept from the last message (a background command still runs in it) is used again.
     if (t.room && !BOX) BOX = await openBox();
     t.box = t.room ? BOX : null;
+    // NEVER OUTSIDE THE ADMIN SANDBOX WHEN IT SHOULD BE ON (fix 7 of the owner's "Yes all 7", 2026-11-13; Claude Code's strict
+    // sandbox mode, "no command may run outside the sandbox", and 2.1.323's "Fixed a case where the Bash sandbox could switch
+    // off during a session"). Live test, 2026-11-12: after `sudo rm -rf --no-preserve-root /` in the sandbox, it could not
+    // start again, and Coder ran the next commands outside it, as `dev` without admin rights, without a word. On a machine
+    // made for one (`sandbox`, a kept disk), no command of the AI's or the owner's `!` runs without it now; the chat says why.
+    t.boxDown = sandbox && data && !t.box ? (t.room ? saidWhy || "it failed to start" : "the sealed network room it runs in could not be set up") : "";
+    if (t.boxDown) t.events.push({ at: Date.now(), type: "error", text: boxDownShown(t.boxDown) });
     // FOLDERS AS THE COMMANDS SEE THEM (round 5 of the live test, 2026-11-12: `/tmp/r40-extra`, made by a command, was saved
     // as a working folder and left out without a word, since the machine's own /tmp has no such folder): in the admin
     // sandbox when the commands run there (boxRealDirs), looked up while nothing of the AI's runs yet.
@@ -3361,7 +3369,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         setupCopied = copied;
         t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat started from the environment's saved copy (made " + new Date(copied.at).toISOString().slice(0, 16).replace("T", " ") + " UTC), so the setup script did not run again." });
       }
-      if (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS)) {
+      // (Not without the admin sandbox, where it would run on a machine made for one: fix 7. The chat says why already, and
+      // Coder is not asked to fix a script that never ran; it runs at the next message whose sandbox starts.)
+      if (t.boxDown && (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS))) t.events.push({ at: Date.now(), type: "note", text: "Setup: not run, because Coder's admin sandbox could not start on this chat's machine." });
+      else if (doneSha !== sha || !(Number(doneAt) > Date.now() - SETUP_CACHE_MS)) {
         const id = "setup-" + Date.now();
         setupRan = true;
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
@@ -3473,6 +3484,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
+        // (The admin sandbox could not start on a machine made for one: no command runs. Fix 7.)
+        boxDown: t.boxDown || "",
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
         hookNews: () => hookNews(project),
         // A HOOK'S TEXT PAST 10,000 CHARACTERS, saved in the chat's output folder (Claude Code: "saves the output to a file in
@@ -3502,6 +3515,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
         exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
+          // NOT WITHOUT THE ADMIN SANDBOX (fix 7): a command, the AI's or the owner's `!`, is not started; Coder's own helpers
+          // and the owner's hooks still run, as Claude Code's hooks run outside its sandbox.
+          if (t.boxDown && !tool && !hook) return { code: -1, notStarted: true, output: boxDownTold(t.boxDown) };
           // A FULL DISK DOES NOT STOP A COMMAND FROM STARTING (Claude Code 2.1.322 says "The command was not started: …" only
           // when its output file can't be created; side by side on a full disk, 2026-11-12, it ran `echo hello` and said the
           // output was lost). Coder needs no file to start one (it keeps the output itself, and writes a file only past 30,000
