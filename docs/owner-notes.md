@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Gloopy, tool by tool: where we are (your words: "note that real quick")
+
+**Done (3 of the list):** 1 browser, 2 sign_in, and now **3 pay**: built like Grok Bot's and tested live completely (11 fixes found and made along the way; details in the three paying entries below).
+- Pay, not tried live: a declined card and an order that goes through (the Stripe demo's server is broken; a free Stripe test account of yours would give a working test checkout), and "Scan with camera" and the order notification (they need your phone).
+- From now on, live tests run with Gloopy on **Low** (your word: it was burning usage). Saved in your preferences.
+
+**Next: 4, handoff.** Then 5 web search, 6 web_fetch, 7 helpers, 8 schedule, 9 webhook, 10 ask_user, 11 notify, 12 todo, 13 page, 14 files, 15 request_secret, 16 bash, 17 to 21 read, write, edit, grep and glob, and 22 to 23 monitor and stop_job.
+
 ## 2026-11-13: Paying, the rest tested live (your words: "yes test everything", "please do it on low")
 
 The parts of paying not yet tried live, on test.gofarther.dev with Grok. From halfway through, Gloopy's chat runs on **Low** (your word: it was burning usage). Every test before that ran on High; the quick safety checks always run on Low.

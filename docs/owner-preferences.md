@@ -24,6 +24,9 @@ deleted (the old file is in git history).
   gofarther.dev in the browser, with Grok, and recorded (then the same in Claude
   Code, to compare). Automated tests and checks on Claude's side are not enough
   on their own.
+- **Live tests on Low (2026-11-13, "please do it on low m its burnimng usage like
+  crazy"):** run Gloopy's live tests with its effort set to Low, and keep the runs
+  few and short (group several checks into one run, check what's free first).
 - **Tool by tool (2026-11-08, "Ok do that"):** while going through one tool, keep
   anything that is not that tool in its own list, marked as outside it, and ask
   the owner before fixing it. Something the tool's change breaks elsewhere may be
