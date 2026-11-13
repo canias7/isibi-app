@@ -3000,6 +3000,9 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
   for (const j of jobs || []) if (j && Number.isInteger(j.pid) && j.pid > 0) cont(j.pid);
 }
 
+/** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
+export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
+
 export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false, hookQuietMs = 10_000 } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
@@ -3253,8 +3256,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const net = { ...nn, limited: netWalled(nn) };
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
     t.room = false;
+    // A TEST SWITCH FOR THE GATE (the owner, 2026-11-13: "test what u are missing to test"): CODER_TEST_NETWORK_GATE_FAIL=1 in
+    // the environment's own variables (never a repository's) makes the gate fail to start for this chat's messages, so its
+    // failing closed (below) can be tried on a real machine. It only ever takes network away.
+    t.gateTestFail = varOn(varsGiven.CODER_TEST_NETWORK_GATE_FAIL);
     if (secretList.length || net.limited || githubOn) {
       try {
+        if (t.gateTestFail) throw new Error(GATE_TEST_FAIL);
         px = await proxyFor();
         px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); px.setGithub(githubOn); secretHosts = secretList.length ? px.hosts() : [];
         // (The chat's repositories, whose source archives may be fetched: Claude Code's repository scope.)
@@ -3910,6 +3918,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const nn = normNetwork(body.setup && body.setup.network);
         const net = { ...nn, limited: netWalled(nn) };
         try {
+          // (The test switch holds for the whole message: a change needing the gate fails as the gate would.)
+          if (t.gateTestFail && (list.length || net.limited)) throw new Error(GATE_TEST_FAIL);
           if (list.length || net.limited) {
             const px = await proxyFor();
             px.setNetwork(net); px.setSecrets(list); px.setEgress(body.egress || null);

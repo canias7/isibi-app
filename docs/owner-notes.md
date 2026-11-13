@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Testing what was never tried live (your words: "test what u are missing to test")
+
+Three things were never tried live. Your answers: yes to a test switch for the gate, and yes to changing the test account's email for the email test.
+- **The network gate failing to start.** Nothing in a chat can make it fail (it runs outside the sandbox), so I added a test switch: the variable `CODER_TEST_NETWORK_GATE_FAIL=1` in an environment makes the gate fail to start for that chat's messages. It only ever takes network away, and only your environment can set it (not a repository's settings). Test CD560; all 594 of Coder's tests pass.
+- **The email check with a quote mark in the address.** For the test, the made-up address `o'brien@example.com` (no mailbox) is added to Coder's allowed users, and your test account's sign-in email is set to it in Supabase. Both go back after the test.
+- **Claude Code's own low-memory stop**, run on my side with Haiku.
+
+Results below when done.
+
 ## 2026-11-13: Your `!` command when the sandbox is down, live (your words: "yea merge and deploy")
 
 Merged and deployed (deploy 164; Coder's tests passed on GitHub first). Tried live in the browser in a throwaway chat, no video:
