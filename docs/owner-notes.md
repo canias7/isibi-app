@@ -11,6 +11,14 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The 3 found in the side-case test, fixed (your words: "yea fix all 3, merge and deploy then test it on low pls")
+
+1. **PowerShell prints tables again.** Coder's PowerShell script now starts and ends the way Claude Code 2.1.323's does: Claude Code's own line before the command (UTF-8 and plain text, skipped for a command that has to come first, like `param(` or `using namespace`), and at the end `$host.SetShouldExit(…)` instead of `exit`, which had stopped PowerShell before it printed the table. This covers the PowerShell tool and your `!` command in PowerShell.
+2. **Rewind's box in a read-only chat** now says the undo is "a new commit kept on Coder's machine (you can't push to this repository, so nothing goes to GitHub)".
+3. **A job from GitHub with Auto mode off:** Grok is now told Claude Code's own words for a session that can't ask ("Permission to use Bash has been denied. …"), with no mention of a checker. The chat step says "Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub." and shows "refused".
+
+Tests: 3 new (`test/side-fixes.test.mjs`), 2 older ones updated; all pass. The live test, on Low, comes next.
+
 ## 2026-11-13: The side cases of the two changes, tried live (your words: "yea test them all")
 
 All on gofarther.dev with Grok (deploy 169), no video; six throwaway chats, all deleted after; your test settings back exactly as they were (variables, rules, auto mode rules, and "Turn off Auto mode").

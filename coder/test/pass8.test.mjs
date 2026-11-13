@@ -468,7 +468,11 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   // From GitHub with Auto mode off: nothing can approve, so a command that changes things is refused; a read-only one runs.
   t = await job(one("npm install"), { github: true, autoOff: true });
   assert.deepEqual([t.checks.length, t.ran.length], [0, 0]);
-  assert.match(t.told("b1"), /auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub/);
+  // (Grok is told Claude Code's words for a session that can't ask, not the checker's: none ran. The live test of 2026-11-13.)
+  assert.equal(t.told("b1"), (await import("../container/coder-checker.mjs")).noPromptDenied("Bash"));
+  assert.ok(t.told("b1").startsWith("Permission to use Bash has been denied. IMPORTANT: You *may* attempt"));
+  assert.doesNotMatch(t.told("b1"), /classifier/);
+  assert.deepEqual(t.results("b1").map((e) => [e.output, e.denied]), [["Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub.", true]]);
   assert.deepEqual((await job(one("git status"), { github: true, autoOff: true })).ran, ["git status"]);
   // PROTECTED-PATH WRITES: the checker in Auto and in Plan, told which paths; through a link, still asked.
   t = await job(one("echo x > .git/hooks/pre-commit"), { mode: "plan" });

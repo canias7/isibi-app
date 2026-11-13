@@ -35,7 +35,7 @@ import { capHit } from "./coder-scrub.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
-import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered } from "./coder-checker.mjs";
+import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 
 // THE TOOLS (owner, 2026-11-05: "you can add all of this"): besides bash, the
@@ -175,6 +175,8 @@ export function keepPics(convo) {
   }
   return convo;
 }
+/** What the chat says for a command refused in a job from GitHub while the account has auto mode turned off. */
+export const AUTO_OFF_GITHUB = "Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub.";
 /** The most paths one job's `edited` keeps (past it, `editedCut`: Rewind then reverts the later jobs whole), each at most EDITED_PATH_MAX long. */
 export const EDITED_MAX = 200, EDITED_PATH_MAX = 300;
 /** The file tools after which the service may add something for that file (afterFile). */
@@ -2672,7 +2674,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
         // Code's session then starts in "default", where a run that can't ask is denied what needs approval, and a read-only
         // command runs unreviewed, as no review runs outside auto mode.)
-        if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+        // (Grok is told Claude Code's words for a session that can't ask, noPromptDenied, not the checker's: none ran. The chat
+        // says why, plainly, as a refusal; the live test of 2026-11-13 showed "denied by the Coder auto mode classifier".)
+        if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; emit({ type: "result", id: c.id, code: -1, ran: false, denied: true, output: AUTO_OFF_GITHUB }); reply(noPromptDenied(c.ps ? "PowerShell" : c.monitor ? "Monitor" : "Bash") + await deniedHooks(c, why0)); continue; }
         const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
         const cmdWhat = c.ps ? "this PowerShell command" : "this bash command";
         if (wantsCheck && !checkSt.paused && declinedAgain(c, cmdKey, cmdWhat, reply)) continue;

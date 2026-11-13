@@ -152,18 +152,42 @@ export function utf16Base64(text) {
   return out;
 }
 /**
- * THE SCRIPT A COMMAND RUNS IN: errors as plain text (Claude Code "captures error output without ANSI escape sequences"), the
- * command, then its folder saved for the next command ("Working directory persists between commands") and its exit code: a
- * program's own, else 1 when the last step failed (Claude Code: "the cmdlet failure still causes this tool to report exit 1").
+ * CLAUDE CODE'S LINE BEFORE A POWERSHELL COMMAND (2.1.323, its own, word for word): UTF-8 for files and pipes, and output as
+ * plain text (Claude Code "captures error output without ANSI escape sequences"), none of it in restricted language mode.
+ */
+export const PS_PREAMBLE = "try { $PSDefaultParameterValues['Out-File:Encoding'] = 'utf8' } catch {}; if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { try { $OutputEncoding = [System.Text.UTF8Encoding]::new() } catch {}; if ($null -ne $PSStyle) { try { $PSStyle.OutputRendering = 'PlainText' } catch {} } }; ";
+/**
+ * A COMMAND THAT MUST OPEN ITS SCRIPT, so it gets no line before it (Claude Code 2.1.323 leaves its own out for these): `using`,
+ * `param(`, an attribute such as `[CmdletBinding()]` (not a type like `[Math]::`), or a begin, process, end, clean or
+ * dynamicparam block, after blank space, `;` and comments.
+ */
+export function psMustLead(command) {
+  const e = String(command ?? "");
+  let n = 0;
+  for (;;) {
+    while (n < e.length && /[\s;]/.test(e[n])) n++;
+    if (e[n] === "#") { while (n < e.length && e[n] !== "\n") n++; continue; }
+    if (e.startsWith("<#", n)) { const end = e.indexOf("#>", n + 2); n = end === -1 ? e.length : end + 2; continue; }
+    break;
+  }
+  const r = e.slice(n);
+  return /^using\s+(namespace|module|assembly)\b/i.test(r) || /^param\s*\(/i.test(r) || /^(begin|process|end|clean|dynamicparam)\s*\{/i.test(r) || (/^\[\w/.test(r) && !/^\[[\w.]+\]::/.test(r));
+}
+/**
+ * THE SCRIPT A COMMAND RUNS IN: Claude Code's line, the command, then its folder saved for the next command ("Working directory
+ * persists between commands") and its exit code: a program's own, else 1 when the last step failed (Claude Code: "the cmdlet
+ * failure still causes this tool to report exit 1"). It ends as Claude Code 2.1.323's does, with `$host.SetShouldExit` (`exit`
+ * only in restricted language mode): an `exit` stopped PowerShell before it had printed a table (live test, 2026-11-13: Coder's
+ * `Get-ChildItem` gave "(PowerShell completed with no output)", and `| Out-String` only the "Directory:" heading).
  */
 export function psScript(command) {
+  const c = String(command ?? "");
   return [
-    "try { $PSStyle.OutputRendering = 'PlainText' } catch {}",
-    String(command ?? ""),
+    (psMustLead(c) ? "" : PS_PREAMBLE) + c,
     "$__coderOk = $?",
     "$__coderCode = if (-not $__coderOk) { if ($LASTEXITCODE -is [int] -and $LASTEXITCODE -ne 0) { $LASTEXITCODE } else { 1 } } else { 0 }",
     "if ($env:CODER_PS_CWD) { try { (Get-Location).ProviderPath | Set-Content -NoNewline -LiteralPath $env:CODER_PS_CWD } catch {} }",
-    "exit $__coderCode",
+    "if ($ExecutionContext.SessionState.LanguageMode -eq 'FullLanguage') { $host.SetShouldExit($__coderCode) } else { exit $__coderCode }",
   ].join("\n");
 }
 /**
