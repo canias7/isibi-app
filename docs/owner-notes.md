@@ -15,6 +15,18 @@ log (81,000 lines) is in git history.
 
 **Fixed first:** once a card was saved, Gloopy couldn't ask you for a different one: if you said "use a new card this time, I'll type it", it still filled in your default card. Now, when you ask for another card (or none of the saved ones fits), the private card form opens set to "Another card". (Test GL146.)
 
+**Tried live after deploying, on Low, in one chat** (Buy or pay on Ask, so each order stopped at its card and I pressed Cancel; Stripe test cards, no real money):
+1. **"I'll type a new card myself this time, not my saved one":** with the Test Visa saved, the card form opened on "Another card" (number, expiry, code, Save ticked) instead of filling the Visa in.
+2. **"Not now" on that form:** the chat said "Not now: paying €43.94 on stripe-payments-demo.appspot.com", and Gloopy stopped: "I stopped there and did not use a saved card or press Pay another way."
+3. **A new card with Save unticked:** it filled in ("Filled into the page", on the card at once), and the Vault still held only the Visa: used once, not kept.
+4. **A new card with Save ticked:** it filled in and was kept, with its security code, as "Mastercard ending 4444" (the Visa stayed the default).
+5. **"Now pay with the Mastercard I just saved":** it filled in straight from the Vault, with no form, and the order card said "Pay with Mastercard ending 4444".
+6. **The fix for Gloopy stopping on "Pressing Pay now" (fix 6 above) worked by itself in that last order:** Gloopy wrote "Pressing Pay once…" with no click, which before would have ended its turn with nothing happening; it was told, and three seconds later said "Pressing Pay now" with the click, and the order card came up.
+
+Then I removed the test Mastercard and put Buy or pay back on Always allow. The Vault holds the Test Visa (default) and the Home contact.
+
+**Still not tried (other tools, or needs you):** a purchase started by a schedule (with tool 8, schedules), paying while Gloopy's browser runs through your computer (needs your computer), a declined card or an order that goes through (the demo shop is broken), and the camera scan and the order notification (need your phone).
+
 ## 2026-11-13: Gloopy, tool by tool: where we are (your words: "note that real quick")
 
 **Done (3 of the list):** 1 browser, 2 sign_in, and now **3 pay**: built like Grok Bot's and tested live completely (11 fixes found and made along the way; details in the three paying entries below).
