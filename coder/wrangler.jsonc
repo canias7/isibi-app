@@ -16,9 +16,7 @@
     // address answer 404.
     "CODER_ON": "on",
     // While testing, only these Go Farther accounts may use it (free).
-    // (o'brien@example.com, made up and with no mailbox: only for the live test of the email check with a quote mark in the
-    // address, on the owner's word of 2026-11-13; the test account's sign-in email is set to it for that test. Taken out after.)
-    "CODER_USERS": "aniascristian@gmail.com,aniascapital@gmail.com,cristiananias7@gmail.com,o'brien@example.com",
+    "CODER_USERS": "aniascristian@gmail.com,aniascapital@gmail.com,cristiananias7@gmail.com",
     // Grok's grok-4.7 unless set.
     "CODER_MODEL": "default",
     // Sign-in (Supabase); the anon key is the public one the browser holds.
