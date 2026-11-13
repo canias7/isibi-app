@@ -2254,6 +2254,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
   const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && toolDenied(t.function.name))).map(withHosts), ...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
+  // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
+  // the tools it finds are added here too).
+  const connectorFns = () => chatTools.filter((f) => f && f.function && (mcpByName.has(f.function.name) || (mcpDeferred && f.function.name === "connector_search")));
   // (Grok's own web search is Claude Code's WebSearch: off under a rule denying it.)
   const searchDenied = toolDenied("web_search");
   // SERVER INSTRUCTIONS (Claude Code: a server's instructions, up to 4,096 characters, reach the model at the start), marked
@@ -2702,7 +2706,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? tools : modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -2822,7 +2826,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // its turn below. (Not with hooks, nor under a rule denying or asking for the tool: they check each call in its turn,
     // as main's run-ahead of commands does.)
     const mcpEarly = new Map();
-    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || modeNow() === "auto") && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name); };
+    // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
+    // early; one set to Needs approval waits for its card below. 2026-11-13.)
+    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name); };
     if (calls.filter(quiet).length > 1) for (const c of calls.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
     // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
     const heldEnd = (from) => {
@@ -2857,7 +2863,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
-      if (offered && !offered.has(c.name)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
+      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
       // PRETOOLUSE HOOKS (Claude Code: "Runs after Claude creates tool parameters and before processing the tool call"): before
       // Coder's own checks; one that denies (or exits 2) stops the call, its reason given to Coder in Claude Code's words
       // ("PreToolUse:Bash hook error: [cmd]: …"); one that changes the input changes it; its allow or ask is used below.
@@ -4338,6 +4344,27 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // though not in Plan mode for a tool that may change something; in Plan mode such a tool asks, as Coder's own such tools do; a No,
         // and a PermissionRequest hook's no, are taken as on every other card.)
         const t = mcpByName.get(c.name);
+        // GLOOPY'S OWN CARD (owner, 2026-11-13: "make gloopy use the connectors"): for an agent with its own tools, a connector
+        // tool set to Needs approval, or one its server asks about every time, waits for the owner's OK on Gloopy's card, as its
+        // other steps that need one do, and the turn ends there. Allowed, Coder's Worker makes that one call with the owner's
+        // sign-in, and Gloopy hears its answer with the next message. One the owner said no to is not asked about again until
+        // their own next message. (Always allow runs here at once; Blocked is never offered.)
+        if (offered) {
+          const step = ("Use " + t.label).slice(0, 300);
+          if (denied.has(step)) { emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) }); emit({ type: "result", id: c.id, code: 1, output: noAgain(step) }); reply(noAgain(step)); continue; }
+          if (t.perm === "ask" || t.always) {
+            const id = "ap" + Math.random().toString(36).slice(2, 10);
+            const app = String(t.label).split(":")[0].trim() || "the connector";
+            const args = c.args && typeof c.args === "object" && !Array.isArray(c.args) ? c.args : {};
+            emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) });
+            emit({ type: "result", id: c.id, code: 0, output: "Waiting for your OK: " + step, label: "Asked you first: " + step });
+            reply("asked the owner on a card (" + (t.always ? "this connector's server asks for their OK every time" : "they set this connector tool to Needs approval") + "). Your turn ends here; the next message says what they decided, with the tool's answer if they allowed it, so don't call it again.");
+            for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner first" });
+            emit({ type: "approval", id, step, site: app, url: "", why: t.always ? "This connector's server asks for your approval every time." : "You set this connector tool to Needs approval.", detail: scrub(JSON.stringify(args, null, 2)).slice(0, 1500), request: true, kind: "connector", ...(t.always ? { every: true } : {}) });
+            approvalRequest = { id, kind: "connector", step, site: app, url: "", connector: { tool: c.name, args, ...(t.always ? { every: true } : {}) } };
+            return end("done", { summary: lastSaid || "asked the owner to allow: " + step });
+          }
+        }
         // A tool its server marks "anthropic/requiresUserInteraction" asks every time, in every mode (Claude Code: allow
         // rules and modes do not skip it); where nobody can be asked, it does not run.
         if (t.always && !askedByRule && !canAsk()) { reply("error: this connector tool needs the owner's approval each time, and nobody can be asked here"); continue; }

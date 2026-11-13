@@ -2204,7 +2204,9 @@
         const step = String(e.step || '');
         // A card a rule of the owner's asked for (Grok Bot's: "Allow" and "Not now"); one that offers no rule (a schedule, a
         // webhook, a change to one): "Allow" only. A warning by what the step does (the docs, 2026-11-10).
-        const ruleOffered = !(e.kind === 'schedule' || e.kind === 'webhook');
+        // (A connector tool's card, 2026-11-13: Always allow sets that tool to Always allow on the Connectors page; none for a
+        // tool its server asks about every time.)
+        const ruleOffered = !(e.kind === 'schedule' || e.kind === 'webhook' || (e.kind === 'connector' && e.every === true));
         const yes = e.byRule || !ruleOffered ? 'Allow' : 'Allow once', nay = e.byRule ? 'Not now' : 'Deny';
         out.push('<div class="cd-secret cd-approve"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">Gloopy wants to ' + esc(step.charAt(0).toLowerCase() + step.slice(1)) + '</b>' +
           (e.site ? '<p class="cd-secret-how">On <code>' + esc(e.site) + '</code></p>' : '') +
@@ -2216,8 +2218,8 @@
           ((e.request || e.form) && e.detail ? '<span class="cd-secret-l">What it sends</span><pre class="cd-envchange-pre cd-approve-body">' + esc(e.detail) + '</pre>' : e.detail ? '<p class="cd-secret-p">' + esc(e.detail) + '</p>' : '') +
           until(i, e) + gone(i, e) +
           // EXPIRED, IT CAN STILL BECOME A RULE (Grok Bot's "Always allow next time").
-          (!live && ruleOffered && !e.byRule && expiredOf(i, e) && !S.events.slice(i + 1).some((x) => x.type === 'user') ? (S.ruleSaved === e.id ? '<p class="cd-card-until">Saved: next time Gloopy goes ahead.</p>' : '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-allow-next="' + esc(e.id) + '" data-step="' + esc(step + (e.site ? ' on ' + e.site : '')) + '">Always allow next time</button></div>') : '') +
-          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">' + nay + '</button>' + (!ruleOffered || e.byRule ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="Allow steps like this from now on (a rule Gloopy’s checks follow)">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + yes + '</button></div>' : '') + '</div>');
+          (!live && ruleOffered && !e.byRule && e.kind !== 'connector' && expiredOf(i, e) && !S.events.slice(i + 1).some((x) => x.type === 'user') ? (S.ruleSaved === e.id ? '<p class="cd-card-until">Saved: next time Gloopy goes ahead.</p>' : '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-allow-next="' + esc(e.id) + '" data-step="' + esc(step + (e.site ? ' on ' + e.site : '')) + '">Always allow next time</button></div>') : '') +
+          (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-approve="deny" data-card="' + esc(e.id) + '">' + nay + '</button>' + (!ruleOffered || e.byRule ? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' + esc(e.id) + '" title="' + (e.kind === 'connector' ? 'Set this tool to Always allow, on the Connectors page' : 'Allow steps like this from now on (a rule Gloopy’s checks follow)') + '">Always allow</button>') + '<button type="button" class="cd-card-yes" data-approve="once" data-card="' + esc(e.id) + '">' + yes + '</button></div>' : '') + '</div>');
       }
       else if (e.type === 'key') {
         // YOUR SECURITY KEY FOR GLOOPY'S BROWSER (2026-11-11; Grok Bot's "Use hardware security keys"): a page there asks to

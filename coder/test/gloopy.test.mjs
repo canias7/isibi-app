@@ -722,7 +722,7 @@ test("GL20 (2026-11-09) the cards in the chat: Deny, Always allow and Allow once
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8"), css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(ui, /else if \(e\.type === 'approval'\) \{[\s\S]{0,1600}<b class="cd-secret-t">Gloopy wants to ' \+ esc\(step\.charAt\(0\)\.toLowerCase\(\) \+ step\.slice\(1\)\) \+ '<\/b>'/);
   // (Since 2026-11-10, the docs: a card one of the owner's rules asked for says "Not now" and "Allow", as Grok Bot's.)
-  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook'\);/);
+  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook' \|\| \(e\.kind === 'connector' && e\.every === true\)\);/);
   assert.match(ui, /const yes = e\.byRule \|\| !ruleOffered \? 'Allow' : 'Allow once', nay = e\.byRule \? 'Not now' : 'Deny';/);
   assert.match(ui, /<button type="button" class="cd-card-no" data-approve="deny" data-card="' \+ esc\(e\.id\) \+ '">' \+ nay \+ '<\/button>' \+ \(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always" data-card="' \+ esc\(e\.id\) \+ '"[^>]*>Always allow<\/button>'\) \+ '<button type="button" class="cd-card-yes" data-approve="once" data-card="' \+ esc\(e\.id\) \+ '">' \+ yes \+ '<\/button>/);
   // (Since 2026-11-12, GL131: a field the owner's own browser leaves alone, with an eye; "saved to your Vault".)
@@ -1331,7 +1331,7 @@ test("GL34 (2026-11-09) wiring: the every-minute run starts Gloopy's schedules; 
   assert.match(worker, /job\(runWatchedJobs\(env, \{ coder \}\)[^\n]*\n(?:\s+\/\/[^\n]*\n\s+job\(runBackgroundJobs[^\n]*\n)?\s+\/\/ GLOOPY'S SCHEDULES[^\n]*\n\s+job\(runGloopySchedules\(env, \{ coder \}\)\.catch/);
   assert.match(docker, / gloopy-check\.mjs gloopy-schedule\.mjs /);
   assert.match(ui, /: e\.detail \? '<p class="cd-secret-p">' \+ esc\(e\.detail\) \+ '<\/p>' : ''\)/);
-  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook'\);/);
+  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook' \|\| \(e\.kind === 'connector' && e\.every === true\)\);/);
   assert.match(ui, /\(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always"/);
   assert.match(ui, / schedule: 'M12 22a10 10 0 1 0 0-20 10 10 0 0 0 0 20zM12 6v6l4 2',/);
 });
@@ -2594,7 +2594,7 @@ test("GL58 (2026-11-09) on the page: a webhook's card shows its address, and its
   assert.match(block, /\(key \? '<code class="cd-hook-v">' \+ esc\(key\) \+ '<\/code>' : '<button type="button" class="cd-card-no cd-hook-show" data-hook-key="' \+ esc\(e\.id\) \+ '">Show key<\/button>'\)/);
   assert.match(block, /Send the key as the header <code>Authorization: Bearer &lt;key&gt;<\/code>\. For a GitHub webhook: the address as the Payload URL, content type application\/json, and the key as the Secret\./);
   assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/webhooks', \{ method: 'POST', body: JSON\.stringify\(\{ reveal: id \}\) \}\)/);
-  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook'\);[\s\S]{0,4000}\(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always"/);
+  assert.match(ui, /const ruleOffered = !\(e\.kind === 'schedule' \|\| e\.kind === 'webhook' \|\| \(e\.kind === 'connector' && e\.every === true\)\);[\s\S]{0,4000}\(!ruleOffered \|\| e\.byRule \? '' : '<button type="button" class="cd-card-no" data-approve="always"/);
   const { pushesFor } = await import("../src/coder-push.mjs");
   assert.deepEqual(pushesFor([{ type: "hook", id: "h1", name: "x" }], { kind: "gloopy", title: "Gloopy", at: Date.now() }), [], "no notification for a card that needs nothing");
 });
