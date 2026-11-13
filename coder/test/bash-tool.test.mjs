@@ -448,7 +448,7 @@ test("CD285 (tool 4, changelog pass) Claude Code's later Bash fixes in Coder: a 
   } finally { await new Promise((ok) => srv.close(ok)); }
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /const runWords = \(e\) => 'Running for ' \+ secsWords\(\(Date\.now\(\) - Number\(e\.at \|\| Date\.now\(\)\)\) \/ 1000\) \+ \(Number\(e\.timeoutS\) > 0 \? ' · timeout ' \+ secsWords\(Number\(e\.timeoutS\)\) : ''\);/);
-  assert.match(page, /'<pre class="cd-progress">' \+ esc\(S\.progress\.lines\.join\('\\n'\)\) \+ '<\/pre>'/);
+  assert.match(page, /'<pre class="cd-progress">' \+ esc\(noColor\(S\.progress\.lines\.join\('\\n'\)\)\) \+ '<\/pre>'/);
   assert.match(page, /S\.progress = r\.data\.progress \|\| null;/);
 });
 

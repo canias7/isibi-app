@@ -1938,7 +1938,7 @@ test("CD261 the page keeps a numbered list's own numbers, with blank lines betwe
   const src = readFileSync(HERE("public/coder.js"), "utf8");
   const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  const prose = new Function("esc", grab("noColor") + grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
   // Message 4's answer, as Grok wrote it: steps 2 to 4, a blank line between each.
   const four = prose("All three writes succeeded. Word for word, the write tool said:\n\n2) `The file mod.txt has been updated successfully.`\n\n3) `The file mod.txt has been updated successfully.`\n\n4) `The file touch.txt has been updated successfully.`");
   assert.equal(four, '<p>All three writes succeeded. Word for word, the write tool said:</p><ol start="2"><li><code>The file mod.txt has been updated successfully.</code></li><li><code>The file mod.txt has been updated successfully.</code></li><li><code>The file touch.txt has been updated successfully.</code></li></ol>');
@@ -1970,7 +1970,7 @@ test("CD262 a list item carries on over the lines under it that have no mark of 
   const src = readFileSync(HERE("public/coder.js"), "utf8");
   const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  const prose = new Function("esc", grab("noColor") + grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
   // Grok's answer, word for word (the retest chat, 2026-11-09).
   const said = "2) `error: mod.txt has been modified since read.`\n\n3) `The file mod.txt has been updated successfully.`\n\n4) `error: afolder is a directory, not a file.`\n\n5) `File created successfully at: twice.txt`\n`The file twice.txt has been updated successfully.`\n`File created successfully at: other.txt`";
   assert.equal(prose(said), '<ol start="2"><li><code>error: mod.txt has been modified since read.</code></li><li><code>The file mod.txt has been updated successfully.</code></li><li><code>error: afolder is a directory, not a file.</code></li><li><code>File created successfully at: twice.txt</code><br><code>The file twice.txt has been updated successfully.</code><br><code>File created successfully at: other.txt</code></li></ol>');

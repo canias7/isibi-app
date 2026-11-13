@@ -54,6 +54,14 @@
   };
 
   const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  // TERMINAL COLOR CODES (live test of PowerShell hooks, 2026-11-13; the owner: "yea fix both"). A program or a hook that
+  // prints in color writes codes such as ESC "[31;1m", which a terminal turns into colors and this page showed as text
+  // ("[31;1mGet-Item:"). The page leaves them out wherever it shows output, or Coder's or Grok's words. What Grok is given
+  // keeps them, as Claude Code gives its model a hook's output as it is; a card that asks for an approval shows its text
+  // exactly as it is. (The usual pattern for them, the ansi-regex package's; then any ESC left over.)
+  function noColor(s) {
+    return String(s == null ? '' : s).replace(/[\u001B\u009B][[\]()#;?]*(?:(?:(?:(?:;[-a-zA-Z\d\/#&.:=?%@~_]+)*|[a-zA-Z\d]+(?:;[-a-zA-Z\d\/#&.:=?%@~_]*)*)?\u0007)|(?:(?:\d{1,4}(?:;\d{0,4})*)?[\dA-PR-TZcf-ntqry=><~]))/g, '').replace(/[\u001B\u009B]/g, '');
+  }
   // CODER'S QUESTIONS (owner pick 4, 2026-11-08): 1 to 4 in a card; a card from before has one (text, options, multi).
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
     text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true),
@@ -909,7 +917,7 @@
     return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.map((i) => '<li>' + i + '</li>').join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
-    const parts = String(t || '').split(/```[a-zA-Z0-9_-]*\n?/);
+    const parts = noColor(t).split(/```[a-zA-Z0-9_-]*\n?/);
     return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
   }
 
@@ -936,7 +944,7 @@
     const lines = Array.isArray(m.lines) ? m.lines.filter((l) => typeof l === 'string').slice(-40) : [];
     const end = m.end && typeof m.end === 'object' ? (MONITOR_END[m.end.why] || MONITOR_END.exit)(m.end) : '';
     return '<div class="cd-monev"><div class="cd-monev-head">' + stepIcon({ monitor: true }) + '<span><b>' + (lines.length ? 'Monitor event' : 'Monitor') + '</b> · ' + esc(String(m.desc || '')) + (end ? ' · ' + end : '') + '</span></div>' +
-      (lines.length ? '<pre class="cd-monev-lines">' + esc(lines.join('\n')) + (Number(m.dropped) > 0 ? '\n(' + esc(String(m.dropped)) + ' more left out)' : '') + '</pre>' : '') + '</div>';
+      (lines.length ? '<pre class="cd-monev-lines">' + esc(noColor(lines.join('\n'))) + (Number(m.dropped) > 0 ? '\n(' + esc(String(m.dropped)) + ' more left out)' : '') + '</pre>' : '') + '</div>';
   }
   function stepIcon(e) {
     const k = e.tool === 'monitor' || e.monitor === true ? 'monitor_job' : e.tool && STEP_ICON[e.tool] ? e.tool : 'bash';
@@ -961,7 +969,17 @@
     // ("PreToolUse:Bash hook error: <its reason>", or "… [command hook]: <its stderr>" for one that exited 2: Claude Code's
     // words, 2026-11-11.)
     const m = r && r.hookBlocked === true ? /^(PreToolUse:[A-Za-z_]+) hook error: (\S[\s\S]*)$/.exec(String(r.output || '')) : null;
-    return m ? { event: m[1], why: m[2].replace(/\s+/g, ' ').trim().slice(0, 600) } : null;
+    return m ? { event: m[1], why: hookWords(m[2]) } : null;
+  }
+  // THE HOOK'S WORDS KEEP THEIR LINES (live test of PowerShell hooks, 2026-11-13: a hook's message with a table in it showed
+  // as one run-on paragraph; Claude Code's terminal shows it line by line), without color codes: at most 20 lines and 2,000
+  // characters under the step (all of it is in the step when it is opened).
+  function hookWords(s) {
+    let t = noColor(s).replace(/\r\n?/g, '\n').replace(/[ \t]+$/gm, '').replace(/\n{3,}/g, '\n\n').trim(), cut = false;
+    const lines = t.split('\n');
+    if (lines.length > 20) { t = lines.slice(0, 20).join('\n'); cut = true; }
+    if (t.length > 2000) { t = t.slice(0, 2000); cut = true; }
+    return cut ? t.replace(/\s+$/, '') + '\n…' : t;
   }
   // A STEP THAT NEVER RAN: the server marks its result `ran: false` (Bash docs pass 9, part F); a chat from before is known
   // by the marks it had then (not run, blocked by a hook, refused, blocked by auto mode).
@@ -971,7 +989,7 @@
   function stepAutoBlock(r) {
     const why = autoBlockOf(r);
     const hb = why ? null : hookBlockOf(r);
-    if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
+    if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why cd-hookblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
     return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
   }
   function cmdHTML(e, r, state, key) {
@@ -996,7 +1014,7 @@
       '</button>' +
       // A COMMAND STILL RUNNING: how long it has run and its timeout (Claude Code 2.1.23), its last lines (1.0.48), and a way to
       // move it to the background (Claude Code's Ctrl+B): Coder goes on, and is told when it ends.
-      (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(S.progress.lines.join('\n')) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
+      (state === 'run' && !e.tool && S.running ? '<div class="cd-run-info">' + esc(runWords(e)) + '</div>' + (S.progress && Array.isArray(S.progress.lines) && S.progress.lines.length ? '<pre class="cd-progress">' + esc(noColor(S.progress.lines.join('\n'))) + '</pre>' : '') + (e.noBg ? '' : '<button type="button" class="cd-bgmove" data-bg-move="1" title="Let it run in the background; Coder goes on and is told when it ends">Run in background</button>') : '') +
       // A STEP AUTO MODE'S CHECKER BLOCKED: why, under the step, without opening it (like Claude Code's).
       stepAutoBlock(r) +
       // A STEP NOT RUN BECAUSE AUTO MODE'S CHECK HAD NO USABLE ANSWER: Claude Code's dim row ("Not run · auto mode's check had
@@ -1010,7 +1028,7 @@
       stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
-      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(r.output || '(no output)') + '</pre>' : '') +
+      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>' : '') +
     '</div>';
   }
   /**
@@ -1193,7 +1211,7 @@
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>');
       else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
-      else if (e.type === 'error') out.push('<div class="cd-err">' + esc(e.text) + '</div>');
+      else if (e.type === 'error') out.push('<div class="cd-err">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'question') {
         // CODER'S QUESTIONS, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"; up to 4 in one card, owner pick 4,
         // 2026-11-08): each with its header chip and its choices with their explanations, the recommended
@@ -1282,7 +1300,7 @@
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.</div>');
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
-      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(e.text) + '</div>');
+      else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
     });
     flush();
@@ -1536,7 +1554,7 @@
     if (!o || o.id !== job) return '';
     const body = o.error ? '<div class="cd-bg-outnote">' + esc(o.error) + '</div>'
       : !o.loaded ? '<div class="cd-bg-outnote">Loading…</div>'
-      : (o.lines.length ? '<pre class="cd-bg-outlines">' + esc(o.lines.join('\n')) + '</pre>' : '<div class="cd-bg-outnote">No output yet.</div>');
+      : (o.lines.length ? '<pre class="cd-bg-outlines">' + esc(noColor(o.lines.join('\n'))) + '</pre>' : '<div class="cd-bg-outnote">No output yet.</div>');
     return '<div class="cd-bg-out">' + body + (o.file ? '<div class="cd-bg-file">Full output: <code>' + esc(o.file) + '</code></div>' : '') + '</div>';
   }
   function stopBgOut() { if (S.bgOutTimer) clearTimeout(S.bgOutTimer); S.bgOutTimer = 0; }

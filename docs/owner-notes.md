@@ -11,6 +11,13 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Color codes hidden on the page; the hook box keeps its lines (your words: "yea fix both, merge and deploy then test it on low")
+
+1. **The page hides terminal color codes.** Codes like `[31;1m` and `[0m` no longer show as text. This covers a step's output and its last lines while it runs, monitors, background commands, Coder's notes and errors, and Grok's own text. What Grok is given stays as it was, the same as Claude Code (which gives its model a hook's output as it is). Cards that ask you to approve something still show their text exactly, so nothing can hide there.
+2. **The "Blocked by your hook" box keeps the hook's lines**, in a fixed-width font, so a table in a hook's message stays a table. It shows up to 20 lines (2,000 characters) there; all of it is in the step when you open it.
+
+Tests: 1 new (`CD570`: the live test's own text, other codes, the box, where the page uses it, and that the approval cards and what Grok gets are untouched), 6 older ones updated; all 604 pass. Next: merge, deploy, live test on Low.
+
 ## 2026-11-13: PowerShell hooks tried live on Low (your words: "yea test the powershell hooks live too")
 
 On gofarther.dev with Grok on Low (deploy 174), no video, one throwaway chat (deleted after). Your hooks in Settings were set for the test and put back exactly as they were.

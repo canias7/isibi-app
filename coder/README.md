@@ -1481,7 +1481,16 @@ cases each difference raised (24 runs, 17 cents in all). Tests:
   other line too. A hook is named by its kind (`hookKind`: "command hook",
   "http hook", "prompt hook", "agent hook"), never by its command or address,
   as in Claude Code's cloud (CD514). The page's "Blocked by your hook" box
-  reads both shapes (`hookBlockOf`).
+  reads both shapes (`hookBlockOf`). Since 2026-11-13 it keeps the hook's
+  lines, in a fixed-width font, so a table stays a table (`hookWords`: at most
+  20 lines and 2,000 characters there; all of it in the opened step).
+- *Terminal color codes* (`noColor` in `public/coder.js`, 2026-11-13): the
+  page leaves out codes such as ESC "[31;1m" where it shows output (a step's
+  output and last lines, monitors, background commands), Coder's notes and
+  errors, and Grok's text; they showed as text ("[31;1mGet-Item:") in the
+  live test of PowerShell hooks. What Grok is given keeps them, as Claude Code
+  gives its model a hook's output as it is; cards that ask for an approval
+  show their text exactly (CD570).
 - *A hook answer with no event name* (`wrongEvent`): Claude Code's note word
   for word, "Hook JSON output validation failed — hookSpecificOutput is missing
   required field "hookEventName"", the hook's output and `HOOK_SHAPE` (CD515).

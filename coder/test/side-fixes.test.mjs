@@ -128,3 +128,40 @@ test("CD569 pwsh starts as Claude Code starts it (-Command and the script, exact
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+// FOUND IN THE LIVE TEST OF POWERSHELL HOOKS (deploy 174; the owner: "yea fix both, merge and deploy then test it on low").
+test("CD570 the page leaves terminal color codes out where it shows output and Coder's or Grok's words (cards that ask for an approval show text exactly; what Grok is given is untouched), and the \"Blocked by your hook\" box keeps the hook's lines", () => {
+  const ui = read("public/coder.js"), css = read("public/coder.css");
+  const grab = (name) => ui.slice(ui.indexOf("  function " + name + "("), ui.indexOf("\n  }\n", ui.indexOf("  function " + name + "(")) + 4);
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  const P = new Function("esc", grab("noColor") + grab("autoBlockOf") + grab("hookBlockOf") + grab("hookWords") + grab("stepAutoBlock") + "return { noColor, hookBlockOf, hookWords, stepAutoBlock };")(esc);
+  const E = "\u001b";
+  // What the live test showed: PowerShell's red error and its green table header.
+  assert.equal(P.noColor(E + "[31;1mGet-Item: " + E + "[31;1mCannot find path '/w/nope-hook-file' because it does not exist." + E + "[0m"), "Get-Item: Cannot find path '/w/nope-hook-file' because it does not exist.");
+  assert.equal(P.noColor(E + "[32;1mUnixMode " + E + "[0m" + E + "[32;1m User" + E + "[0m" + E + "[32;1m Group " + E + "[0m"), "UnixMode  User Group ");
+  // Other terminal codes (cursor, a link, a character set), and an ESC alone; text that only looks like a code stays.
+  assert.equal(P.noColor(E + "[?25l" + E + "[2K" + E + "[1Adone " + E + "]8;;https://example.com/a?b=1\u0007link" + E + "]8;;\u0007 " + E + "(Bok" + E), "done link ok");
+  assert.equal(P.noColor("plain [31m text, a\ttab, é ✓"), "plain [31m text, a\ttab, é ✓");
+  assert.equal(P.noColor(null), "");
+  // The live test's hook message: its lines kept, no codes, under the step in a fixed-width font.
+  const msg = "PreToolUse:Bash hook error: [command hook]: PS hook ran: TERM=xterm-256color NO_COLOR=[] width=80\n\n    Directory: /data/work/t-1\n\nUnixMode         User Group         LastWriteTime         Size Name\n--------         ---- -----         -------------         ---- ----\n-rw-r--r--        dev dev        11/13/2026 08:04          146 README.md\n\n" + E + "[31;1mGet-Item: " + E + "[31;1mCannot find path '/data/work/t-1/nope-hook-file' because it does not exist." + E + "[0m\n";
+  const hb = P.hookBlockOf({ code: -1, hookBlocked: true, output: msg });
+  assert.equal(hb.event, "PreToolUse:Bash");
+  assert.equal(hb.why, "[command hook]: PS hook ran: TERM=xterm-256color NO_COLOR=[] width=80\n\n    Directory: /data/work/t-1\n\nUnixMode         User Group         LastWriteTime         Size Name\n--------         ---- -----         -------------         ---- ----\n-rw-r--r--        dev dev        11/13/2026 08:04          146 README.md\n\nGet-Item: Cannot find path '/data/work/t-1/nope-hook-file' because it does not exist.");
+  assert.match(P.stepAutoBlock({ code: -1, hookBlocked: true, output: msg }), /^<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook<\/div><div class="cd-autoblock-why cd-hookblock-why">PreToolUse:Bash hook error: \[command hook\]: PS hook ran: TERM=xterm-256color NO_COLOR=\[\] width=80\n\n    Directory: /);
+  assert.match(css, /\.cd-hookblock-why \{ white-space: pre-wrap; font: 12px\/1\.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; \}/);
+  // Long ones: 20 lines, 2,000 characters, then "…" (the whole of it is in the step when it is opened); blank runs shortened.
+  const long = P.hookWords(Array.from({ length: 30 }, (_, i) => "line " + i).join("\n"));
+  assert.deepEqual([long.split("\n").length, long.split("\n")[19], long.split("\n")[20]], [21, "line 19", "…"]);
+  assert.equal(P.hookWords("x".repeat(2500)).length, 2002);
+  assert.equal(P.hookWords("a  \r\n\n\n\nb\r\n"), "a\n\nb");
+  // Where the page shows output and words: the step's output, its last lines while it runs, a monitor's lines, a background
+  // command's output, Coder's notes and errors, Grok's text.
+  for (const re of [/'<pre class="cd-out">' \+ esc\(noColor\(r\.output\) \|\| '\(no output\)'\)/, /'<pre class="cd-progress">' \+ esc\(noColor\(S\.progress\.lines\.join\('\\n'\)\)\)/, /'<pre class="cd-monev-lines">' \+ esc\(noColor\(lines\.join\('\\n'\)\)\)/, /'<pre class="cd-bg-outlines">' \+ esc\(noColor\(o\.lines\.join\('\\n'\)\)\)/, /'<div class="cd-err">' \+ esc\(noColor\(e\.text\)\)/, /' cd-note-status' : ''\) \+ '">' \+ esc\(noColor\(e\.text\)\)/, /const parts = noColor\(t\)\.split\(/]) assert.match(ui, re);
+  // A card that asks for an approval shows its text exactly as it is (a code there is not hidden).
+  assert.doesNotMatch(ui, /cd-perm-pre">' \+ esc\(noColor/);
+  assert.doesNotMatch(ui, /cd-envchange-pre">' \+ esc\(noColor/);
+  // What Grok is given is untouched (as Claude Code gives its model a hook's output): nothing on Coder's machine leaves them out.
+  for (const f of ["container/coder-hooks.mjs", "container/coder-agent.mjs"]) assert.doesNotMatch(read(f), /noColor|\\u001b\\\[/i, f);
+});
+
