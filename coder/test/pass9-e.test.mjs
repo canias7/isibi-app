@@ -52,7 +52,7 @@ test("CD486 a hook's command runs with `sh -c`, as Claude Code runs it (\"sh -c 
   assert.match(w, /\(\nsh -c 'echo "\$CLAUDE_PROJECT_DIR" \| \.\/check\.sh'\n\) < "\$__in" 2>"\$__err"/);
   assert.match(H.hookShell({ type: "command", command: "it's.sh" }, "MARK", "/w"), /\nsh -c 'it'\\''s\.sh'\n/, "its quotes kept");
   assert.match(H.hookShell({ type: "command", command: "/opt/check", args: ["--fast", "${CLAUDE_PROJECT_DIR}/x"] }, "MARK", "/work/shop"), /\n'\/opt\/check' '--fast' '\/work\/shop\/x'\n/, "exec form: no shell");
-  assert.match(H.hookShell({ type: "command", shell: "powershell", command: "Write-Output hi" }, "MARK", "/w"), /\npwsh -NoProfile /);
+  assert.match(H.hookShell({ type: "command", shell: "powershell", command: "Write-Output hi" }, "MARK", "/w"), /\ncase "\$\{TERM:-\}" in ''\|linux\|dumb\) export TERM=xterm-256color;; esac; pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -Command 'Write-Output hi/);
 });
 
 test("CD487 a PreToolUse hook's additionalContext reaches Coder whatever the call's fate (Claude Code gives it with a hook's deny, and with a call a rule refused), not only when it ran", async () => {

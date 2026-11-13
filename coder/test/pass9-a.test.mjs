@@ -251,7 +251,7 @@ test("CD451 a PreToolUse hook's ask is the owner's to answer in Plan too: the Pl
 
 test("CD452 hooks: a PowerShell hook gets Claude Code's ending, so a program's exit 2 blocks (not for PermissionRequest); rules a PermissionRequest hook adds for the session last the whole chat (the Worker keeps them and sends them with each message), and those for a settings file are saved", async () => {
   const H = await import("../container/coder-hooks.mjs");
-  const decoded = (h) => { const c = H.hookShell(h, "<<m>>", ROOT); return Buffer.from(/EncodedCommand (\S+)/.exec(c)[1], "base64").toString("utf16le"); };
+  const decoded = (h) => { const c = H.hookShell(h, "<<m>>", ROOT); return /-Command '((?:[^']|'\\'')*)'/.exec(c)[1].replace(/'\\''/g, "'"); };
   assert.equal(H.PS_HOOK_EXIT2, "\n; if (-not $?) { if ($LASTEXITCODE -eq 2) { exit 2 } }");
   assert.equal(decoded({ shell: "powershell", command: "node check.js", event: "PreToolUse" }), "node check.js\n; if (-not $?) { if ($LASTEXITCODE -eq 2) { exit 2 } }");
   assert.equal(decoded({ shell: "powershell", command: "node check.js", event: "PermissionRequest" }), "node check.js");

@@ -623,9 +623,9 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   const sh = H.hookShell({ type: "command", command: "node", args: ["${CLAUDE_PROJECT_DIR}/.claude/hooks/check.js", "--fix"] }, "MARK", "/work/shop");
   assert.match(sh, /\n'node' '\/work\/shop\/\.claude\/hooks\/check\.js' '--fix'\n/);
   const pw = H.hookShell({ type: "command", shell: "powershell", command: "& \"${CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" }, "MARK", "/work/shop");
-  const enc = /-EncodedCommand (\S+)/.exec(pw)[1];
+  const enc = /-Command '((?:[^']|'\\'')*)'/.exec(pw)[1].replace(/'\\''/g, "'");
   // (With Claude Code's ending after it, so a program's exit 2 blocks: Bash docs pass 9.)
-  assert.equal(Buffer.from(enc, "base64").toString("utf16le"), "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" + H.PS_HOOK_EXIT2);
+  assert.equal(enc, "& \"${env:CLAUDE_PROJECT_DIR}\\.claude\\hooks\\check.ps1\"" + H.PS_HOOK_EXIT2);
   assert.match(H.hookShell({ type: "command", command: "bash \"${CLAUDE_PROJECT_DIR}\"/x.sh" }, "MARK", "/work/shop"), /\nsh -c 'bash "\$\{CLAUDE_PROJECT_DIR\}"\/x\.sh'\n/, "the shell expands it (sh -c, as Claude Code)");
   // A POWERSHELL CALL IS "PowerShell" after its PreToolUse hooks too; `if: PowerShell(…)` matches its commands.
   t = await loop([say("", [call("powershell", { command: "Get-ChildItem" }, "p1")]), say("ok")], { PostToolUse: [{ matcher: "PowerShell", hooks: [{ type: "command", command: "post.sh" }] }], PreToolUse: [{ matcher: "Bash|PowerShell", hooks: [{ type: "command", if: "PowerShell(Get-ChildItem *)", command: "pre.sh" }] }] }, { ps: true });

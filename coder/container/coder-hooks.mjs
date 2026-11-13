@@ -8,7 +8,7 @@
 // and agent hooks ask Coder's model. Their exit code, stdout and stderr (or answer) say what happens, as in Claude Code. This file
 // is the part with no machine in it: reading the settings, matching, the input, and what a hook's output means. (No node:
 // modules: the Worker checks the owner's hooks with it.)
-import { utf16Base64 } from "./coder-ps.mjs";
+import { pwshRun, PS_TERM } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
 
@@ -749,12 +749,13 @@ export const PS_HOOK_EXIT2 = "\n; if (-not $?) { if ($LASTEXITCODE -eq 2) { exit
 // the same sandbox.
 export const HOOK_SCRATCH_MAKE = "[ -d /tmp/coder-scratch ] || mkdir -m 700 -p /tmp/coder-scratch 2>/dev/null; ";
 export function hookShell(h, mark, root) {
-  // (A PowerShell hook: pwsh with no profile, non-interactive, the command encoded, its stdin the event's JSON.)
+  // (A PowerShell hook: pwsh started as Claude Code starts it, `-Command` and the command (not -EncodedCommand, whose errors came
+  // back as CLIXML), with a width for its tables (PS_TERM), its stdin the event's JSON.)
   // (THE PATH PLACEHOLDER, Bash docs pass 8: in exec form "the resolved script path as one argument with no quoting", in
   // `command` and each of `args`; in a PowerShell shell-form command "rewrites the ${CLAUDE_PROJECT_DIR} … placeholders … to
   // PowerShell's ${env:NAME} form"; in a Bash shell-form command the shell reads the exported variable itself.)
   const put = (x) => String(x).split("${CLAUDE_PROJECT_DIR}").join(String(root));
-  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? "pwsh -NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand " + utf16Base64(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : "sh -c " + shq(String(h.command));
+  const cmd = Array.isArray(h.args) ? [put(h.command), ...h.args.map(put)].map(shq).join(" ") : h.shell === "powershell" ? PS_TERM + pwshRun(String(h.command).split("${CLAUDE_PROJECT_DIR}").join("${env:CLAUDE_PROJECT_DIR}") + (h.event === "PermissionRequest" ? "" : PS_HOOK_EXIT2)) : "sh -c " + shq(String(h.command));
   return HOOK_SCRATCH_MAKE + "__in='@REQUEST'; __in=\"${__in#@}\"; __err=\"$(mktemp 2>/dev/null || echo /tmp/coder-hook-$$)\"; if [ -n \"${CLAUDE_ENV_FILE:-}\" ]; then mkdir -p \"${CLAUDE_ENV_FILE%/*}\" 2>/dev/null; fi; export CLAUDE_PROJECT_DIR=" + shq(root) + " CODER_PROJECT_DIR=" + shq(root) + " CLAUDE_CODE_REMOTE=true; (\n" + cmd + "\n) < \"$__in\" 2>\"$__err\"; __code=$?; printf '\\n%s\\n' '" + mark + "'; cat \"$__err\" 2>/dev/null; rm -f \"$__err\"; exit $__code";
 }
 /** A command hook's output split at its `mark`: `{ stdout, stderr }` (a background one's file ends with Coder's own line). */
