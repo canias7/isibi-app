@@ -200,8 +200,8 @@ test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code 2.1.3
   assert.equal(t.told, "PS permission hook said no to: npm install left-pad");
   assert.doesNotMatch(t.told, /owner doesn't want to proceed/);
   assert.deepEqual([t.result.output, t.result.ran, t.result.hookDenied, t.result.denied], ["Not run: your PermissionRequest hook said no: PS permission hook said no to: npm install left-pad", false, true, undefined]);
-  // (Coder goes on: a second call, then here a third, Coder's own setup-script note for the `npm install` it asked for.)
-  assert.deepEqual([t.ran, t.cards, t.calls >= 2], [[], 0, true], "nothing ran, no card, and Coder went on");
+  // (Coder goes on: its second call. No setup-script note follows for the `npm install` that never ran: CD73.)
+  assert.deepEqual([t.ran, t.cards, t.calls], [[], 0, 2], "nothing ran, no card, and Coder went on");
   // No message: Claude Code's own words.
   t = await run(deny(""));
   assert.equal(t.told, "Permission denied by hook");

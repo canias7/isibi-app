@@ -563,6 +563,14 @@ the job yet is given 8 minutes before the job counts as lost (`START_GRACE_MS`;
 a machine being made or given a new version first fetches the image). The
 setup script never gets the owner's saved keys or variables, like Claude
 Code's: the gate adds no key while it runs.
+Coder is reminded once, before it finishes, to offer an install for a setup
+script (the owner's "2", 2026-11-06) only as Claude Code's cloud does it (its
+environment tools: save the set-up "without waiting to be asked" when the
+environment has no setup script, with "commands you ran yourself in this session
+and saw work"): installs this job ran that worked (`triedCommands`, this job's
+calls only), and only when the chat's environment has no setup script. Since
+2026-11-13 (CD73); it had counted installs that were refused and never ran, and
+came when a setup script was there.
 
 **Sign-in is both steps, every time** (the audit, 2026-11-06). The password
 step gives the page a 15-minute ticket and ends Supabase's own session for it;

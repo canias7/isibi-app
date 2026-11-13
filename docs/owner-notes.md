@@ -11,6 +11,20 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: The setup-script note, now only as Claude Code does it (your words: "yea fix it, merge and deploy then test it on low , i laso want to make sure we are following claude code docs , i dont wanna start making extra stuff right ?")
+
+**Where the note comes from.** It's your item 2 from 2026-11-06 ("After Coder had to install something every chat needs, it proposes adding it to the setup script"). Claude Code's docs pages don't describe it, but Claude Code's cloud does it: its environment tools tell Claude to save the set-up "without waiting to be asked" when setting up took real work and the environment has no setup script, using only "commands you ran yourself in this session and saw work". I can see those instructions in my own cloud session. So the note is a copy of Claude Code, but Coder's version did more than Claude Code in two ways.
+
+**Changed, to match Claude Code exactly:**
+- It counts only installs this job really ran that worked (exit code 0). Before, it counted every install Grok asked for, even refused ones, and said "this job ran `npm install`" about one that never ran.
+- It comes only when the chat's environment has no setup script. Before, it also came when a setup script was there but didn't have that install; Claude Code doesn't offer a change then on its own.
+- Its words now say so: "this job ran `npm install` and it worked, and this chat's environment has no setup script. If every new chat will need it, propose a setup script with it…".
+- The setup-script card itself already only takes lines Coder ran and saw work (unchanged).
+
+**Your rule, saved:** "Follow Claude Code, nothing extra" is now in your preferences file: Coder does what Claude Code does (its docs, and its own program where the docs say nothing), and where Coder does more or less, I say so and ask before keeping it.
+
+Tests: `CD73` updated (no setup script: the note; a setup script there, from GitHub, refused, or failed: no note); all 605 pass. Next: merge, deploy, live test on Low.
+
 ## 2026-11-13: A PermissionRequest hook's no, in Claude Code's words (your words: "yea fix it, merge and deploy then test it on low")
 
 When one of your PermissionRequest hooks says no to a command:
