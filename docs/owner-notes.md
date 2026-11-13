@@ -11,7 +11,7 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-13: Paying with a saved card, tried live, and five fixes (your words: "yes if dots and bot have it do it pls")
+## 2026-11-13: Paying with a saved card, tried live, and six fixes (your words: "yes if dots and bot have it do it pls")
 
 Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test cards only, no real money).
 
@@ -28,9 +28,19 @@ Tried on test.gofarther.dev with Grok, on Stripe's test-mode demo shop (test car
 4. **"Not paid" was said twice:** on the order card, and again on a line under it. Now once, on the order card. Without an order card (Buy or pay on Always allow), the line still shows.
 5. **Gloopy kept the work address twice:** in the Vault, and in its own notes. An older instruction (2026-11-10) told it to keep addresses in its notes, so an address you removed from the Vault would have stayed there. Now addresses, phone numbers and emails are kept only in the Vault; any left in its notes from before move to the Vault when they next come up.
 
+**Tried again after deploying the fixes:**
+- The same chat, reloaded: the lines now say "filled in your saved card", "said how the order went" and "Updated your Vault", and "Not paid" shows once.
+- A new checkout: the check now says "This would place the order and pay €21.97." (no wrong guess about the address), shown on the order card under Gloopy's reason. I pressed **Cancel**: the card says "Cancelled. Nothing was charged.", and Gloopy said it did not press Pay and would not try another way.
+- Gloopy's notes: I asked it to take out the old test address (from 2026-11-10) and the Work address it had copied there; it did, and its notes now hold no contact details.
+
+**One more found, and fixed:**
+6. **Gloopy said "Pressing Pay once now. … You'll get a card to confirm" and then stopped,** without pressing anything, so no card came. Grok wrote the line but left out the click, and an answer with no step ends Gloopy's turn. Now (a) its instructions say a line about a step goes with that step, and never to end on a step not taken, and (b) once a turn, if its last words announce a step it didn't take, Gloopy's app tells it so and it carries on. This can't be made to happen on purpose, so it is tested with Grok's exact words from this run (GL143). I also checked it against all 109 answers Gloopy has ended a turn with in the live chat so far: it picks out the 2 that stopped short (this one, and "I'll read the Output…" from the security-key test on 2026-11-12) and none of the others.
+
+**Small, left as is:** Gloopy can read its notes file, but searching its notes folder is refused ("outside the project"). It just read the file instead.
+
 **Still can't be tried:** a declined card, and an order that goes through. The demo's server fails on every payment, and no other free test shop without sign-up was found.
 
-Tests: GL142 (new), plus GL48, GL80 and CD236 updated.
+Tests: GL142 and GL143 (new), plus GL48, GL80 and CD236 updated.
 
 ## 2026-11-13: Paying, built like Grok Bot's (your words: "yes if dots and bot have it do it pls")
 

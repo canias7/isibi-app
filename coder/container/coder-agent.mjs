@@ -138,6 +138,31 @@ export const RUN_TOOLS = {
 };
 /** GLOOPY'S PAGES (2026-11-09): an id like p1a2b3c4d5e; at most 5 published in one message. */
 export const PAGE_ID = /^p[a-z0-9]{10}$/, PAGES_PER_TURN = 5;
+
+/**
+ * A STEP ANNOUNCED, NOT TAKEN (live test, 2026-11-13: Gloopy ended its turn on "Pressing Pay once now. … You'll get a card
+ * to confirm before it goes through.", with no tool call, so no card came and nothing happened): the sentence of an answer
+ * with no tool call that says what Gloopy is about to do ("I'll press Pay now", "Pressing Pay now", "Email next"), or "".
+ * Not a question, not "let me know", not a promise for later ("I'll check again tomorrow"), not how things now stand.
+ */
+const ACT_VERBS = "press|click|tap|open|type|fill|place|submit|send|check|look|try|go|add|pay|book|sign|scroll|search|select|choose|enter|confirm|take|start|ask|use|save|record|put|read|find|get|make|do";
+const ACT_SAID = new RegExp("\\b(?:I['’]ll|I will|I['’]m going to|I am going to)\\s+(?:now\\s+|first\\s+|then\\s+|just\\s+)?(?:" + ACT_VERBS + ")\\b|^(?:(?:ok|okay|now|next|first|then|so),?\\s+)?let me\\s+(?:now\\s+|first\\s+|just\\s+)?(?:" + ACT_VERBS + ")\\b", "i");
+// How things stand, or what happened, not a step to come: a form of be or have, a past tense, a modal, a contraction of
+// them ("It's €72 now"), or the owner as the subject ("You chose not to sign in just now"). Checked by real answers, 2026-11-13.
+const ACT_NOT = /\b(?:is|are|was|were|has|have|had|be|been|being|can|could|should|would|will|may|might|did|done|isn['’]t|aren['’]t|wasn['’]t|weren['’]t|didn['’]t|can['’]t|won['’]t|chose|brought|took|got|made|went|came|saw|said|gave|left|found|showed|sent|kept|held|told|bought|paid|lost|ran|\w{4,}ed)\b|['’](?:s|re|ve|d)\b|^(?:you|your)\b/i;
+const ACT_GERUND = /^(?:now,? )?(?:Pressing|Clicking|Tapping|Opening|Typing|Filling|Placing|Submitting|Sending|Checking|Looking|Scrolling|Searching|Selecting|Choosing|Entering|Confirming|Adding|Paying|Booking|Signing|Trying|Heading|Going|Moving|Taking|Starting|Asking|Saving|Recording)\b/i;
+export function aboutToAct(text) {
+  // What is quoted or in code is the page's or the owner's words ("choose “Let me select individual events”"), not Gloopy's.
+  const all = String(text || "").replace(/`[^`]*`|“[^”]*”|"[^"]*"|\*\*/g, " ").replace(/\s+/g, " ").trim();
+  for (const s of all ? all.split(/(?<=[.!?…:])\s+/).slice(-4) : []) {
+    if (/\?\s*$/.test(s) || /\blet me know\b/i.test(s)) continue;
+    if (/\b(?:tomorrow|tonight|later|when|whenever|if|until|every|each time|next time|after you|once (?:it|they|you|the|that|this|we|he|she)|at \d|in \d+ ?(?:min|mins|minutes?|hours?|days?|weeks?))\b/i.test(s)) continue;
+    if (ACT_SAID.test(s)) return s;
+    const short = s.split(" ").length <= 12;
+    if (short && !ACT_NOT.test(s) && (ACT_GERUND.test(s) || /\b(?:now|next)[.!…]*$/i.test(s))) return s;
+  }
+  return "";
+}
 /** GLOOPY'S HELPERS (2026-11-09): at most 4 at once, 8 in one message; each up to 15 steps and 5 minutes; each answer up to 6,000 characters. */
 export const HELPERS_MAX = 4, HELPERS_PER_TURN = 8, HELPER_ROUNDS = 15, HELPER_MS = 5 * 60 * 1000, HELPER_ANSWER_MAX = 6000;
 /** GLOOPY'S BROWSER STEP in the chat (2026-11-09): the verb from its action; once done the chat shows what it did ("Clicked “Go”"). */
@@ -802,7 +827,7 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
   // was told in its instructions, yet answered as if nothing had happened).
   // Like the installs above, it is reminded once, before it finishes, to say
   // which command failed and to propose a fix on the card.
-  let setupNudged = false, saidAll = "";
+  let setupNudged = false, saidAll = "", actNudged = false;
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // BACKGROUND JOBS this turn (bash with run_in_background): id → { pid, log, command }.
   const jobs = new Map();
@@ -883,6 +908,14 @@ export async function runCoder(deps, { messages = [], text = "", shown, images =
       nudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + ", which the environment's setup script does not do. If every new chat will need it, propose the whole setup script with it added, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
+      continue;
+    }
+    // A STEP ANNOUNCED, NOT TAKEN (live test, 2026-11-13; aboutToAct): once a turn, Gloopy is told, and goes on.
+    const announced = !calls.length && who === "Gloopy" && !actNudged ? aboutToAct(said) : "";
+    if (announced) {
+      actNudged = true;
+      emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000);
+      convo.push({ role: "user", appNote: true, content: "(Note from Gloopy's app, not the owner: your answer called no tool, so it would end your turn, but it says you are about to take a step: “" + plain(announced).slice(0, 200) + "”. If the job isn't done, take that step now with its tool. If it is done, or you are waiting for the owner, answer again in words, briefly.)" });
       continue;
     }
     if (!calls.length) { emit({ type: "done", text: scrub(said), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }

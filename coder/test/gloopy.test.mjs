@@ -7773,3 +7773,67 @@ test("GL142 (2026-11-13) found in the live test of paying with a saved card (own
   assert.equal(shown([card, { ...paidEv, site: "other.example" }], 1), true, "another site's");
   assert.equal(shown([card, paidEv, { type: "user", text: "again" }, paidEv], 3), true, "after the order card's own");
 });
+
+test("GL143 (2026-11-13) found live (test.gofarther.dev, paying with a saved card): Gloopy ended its turn on \"Pressing Pay once now. … You'll get a card to confirm before it goes through.\" with no tool call, so no card came and nothing happened. Its instructions say a line about a step goes with that step's tool call; and once a turn, an answer that announces a step it didn't take is sent back to it, and it goes on (Coder's turns are unchanged)", async () => {
+  const { aboutToAct } = await import("../container/coder-agent.mjs");
+  // 1. Which answers announce a step not taken: lines from the live runs, and lines that end a turn rightly.
+  const LIVE = "Shipping and the saved card are in, the total is still €21.97, and there’s no error. Pressing Pay once now. This is Stripe’s test-mode demo, so no real charge. You’ll get a card to confirm before it goes through.";
+  assert.equal(aboutToAct(LIVE), "Pressing Pay once now.");
+  for (const [said, step] of [
+    ["Name is in. Email next. The street, city, and ZIP still showing are placeholders.", "Email next."],
+    ["Shipping matches your Home contact. I’ll ask for the saved card now.", "I’ll ask for the saved card now."],
+    ["The saved card is in. I’ll check the page shows the right total and no error, then press Pay.", "I’ll check the page shows the right total and no error, then press Pay."],
+    ["Each item is in the cart. Opening the checkout.", "Opening the checkout."],
+    ["Let me open the order page.", "Let me open the order page."],
+    // The other one among Gloopy's 109 answers in the live chat that ended a turn (the security-key test, 2026-11-12).
+    ["The second press didn’t leave a result I can read. When the browser came back, the page was blank. I’ll read the Output before anything else moves the page.", "I’ll read the Output before anything else moves the page."],
+  ]) assert.equal(aboutToAct(said), step, said);
+  for (const said of [
+    "The order was not paid. Pay was pressed once, and the page stayed on Processing with no confirmation and no error. Nothing was charged. I did not press Pay again.",
+    "Saved in your Vault as “Work”: Gloopy Test Co, 500 Howard St, San Francisco. You can see or remove it in Settings → Vault, or ask me to forget it.",
+    "Done. I set a reminder and I’ll check again tomorrow at 9.",
+    "I’ll tell you once it’s back in stock.",
+    "I’ll let you know when it’s back in stock.",
+    "Done. I’ll check every morning at 8.",
+    "Should I press Pay now?",
+    "Let me know if you want another shop.",
+    "It’s booked. You can see it now.",
+    "The price is €72 now.",
+    "I couldn’t sign in: the site wants a code. I’ll wait for you.",
+    // How things stand (GL30's and GL35's answers), and the live chat's answers the first version took for a step.
+    "It's €72 now. I'll check again in 3 hours and tell you when it's under €70.",
+    "Done. I scrolled once, then pressed End. Going back brought me to the Wikipedia main page, which is what the screenshot shows: https://en.wikipedia.org/wiki/Main_Page.",
+    "I couldn’t sign in. The login page is still open. You chose not to sign in just now.",
+    "No. Signing in with saved logins is turned off in Gloopy’s settings, so I can’t use the practice login on my own.",
+    "The order was not placed. Paying is turned off in Gloopy’s settings, so I can’t use the card form, and I won’t try another way.",
+    "Your webhook is ready. In the GitHub repo, go to **Settings → Webhooks** and paste: - **Events:** choose “Let me select individual events” and check **Issues**",
+    "",
+  ]) assert.equal(aboutToAct(said), "", said);
+  assert.match(GLOOPY_SYSTEM, /\n- A line about a step goes in the same answer as that step's tool call\. An answer with no tool call ends your turn, so\n  never end on a step you haven't taken yet\.\n/);
+
+  // 2. In a run: the announced step is sent back once; Gloopy takes it, and placing the order waits on its card.
+  const BUY = { kind: "buy", decision: "ask", why: "This would place the order and charge your card." };
+  let g = withChecks([say(LIVE), say("", [call("browser", { action: "click", ref: "e5" }, "b1")]), say("Waiting for your OK.")], [BUY]);
+  let ev = [];
+  let out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: fakeBrowser(ELS), emit: (e) => ev.push(e) }, { text: "buy it", ...GLOOPY, permissions: { buy: "ask" } });
+  assert.equal(g.seen.length, 2, "it went on");
+  assert.equal(g.seen[1].messages.at(-1).content, "(Note from Gloopy's app, not the owner: your answer called no tool, so it would end your turn, but it says you are about to take a step: “Pressing Pay once now.”. If the job isn't done, take that step now with its tool. If it is done, or you are waiting for the owner, answer again in words, briefly.)");
+  assert.deepEqual(ev.filter((e) => e.type === "text" || e.type === "done").map((e) => [e.type, e.text]), [["text", LIVE]], "its line is shown; no \"done\" yet");
+  assert.ok(out.approvalRequest && ev.some((e) => e.type === "approval"), "the order card");
+  // Only once a turn: said again, the turn ends on it.
+  g = scripted([say("Pressing Pay now."), say("Pressing Pay now."), say("never")]);
+  ev = [];
+  out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "buy it", ...GLOOPY });
+  assert.equal(g.seen.length, 2);
+  assert.equal(out.status, "done");
+  assert.deepEqual(ev.filter((e) => e.type === "text" || e.type === "done").map((e) => e.type), ["text", "done"]);
+  // An answer that ends the turn rightly ends it at once.
+  g = scripted([say("The order was not paid. Nothing was charged."), say("never")]);
+  out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: () => {} }, { text: "buy it", ...GLOOPY });
+  assert.equal(g.seen.length, 1);
+  // Coder's turns: unchanged.
+  g = scripted([say("I'll open the file now."), say("never")]);
+  out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), emit: () => {} }, { text: "fix it" });
+  assert.equal(g.seen.length, 1);
+  assert.equal(out.status, "done");
+});
