@@ -14,9 +14,12 @@
 
 /* The conversation. */
 .cd-log { flex: 1; min-height: 0; overflow-y: auto; padding: 22px 20px 8px; }
-.cd-thread { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; }
+/* NOTHING IN THE CHAT SCROLLS IT SIDEWAYS (owner, 2026-11-12: "fix the sideways scroll too"; found live: a long unbroken
+   string in an answer, a security key's 140-character code, was wider than the chat): a long word wraps wherever it has to;
+   code blocks and tables scroll inside themselves. */
+.cd-thread { max-width: 760px; margin: 0 auto; display: flex; flex-direction: column; gap: 10px; overflow-wrap: anywhere; }
 .cd-user { display: flex; justify-content: flex-end; margin-top: 8px; }
-.cd-bubble { background: #0d1b2a; color: #fff; border-radius: 16px 16px 4px 16px; padding: 9px 14px; max-width: 78%; white-space: pre-wrap; word-wrap: break-word; }
+.cd-bubble { background: #0d1b2a; color: #fff; border-radius: 16px 16px 4px 16px; padding: 9px 14px; max-width: 78%; white-space: pre-wrap; overflow-wrap: anywhere; }
 .cd-ai p { margin: 0 0 8px; }
 .cd-ai p:last-child { margin-bottom: 0; }
 .cd-ai code, .cd-done code { background: #f0ede7; border-radius: 5px; padding: 1px 5px; font-size: 12.5px; }
@@ -49,6 +52,10 @@
 
 /* Working. */
 .cd-thinking { display: flex; gap: 4px; padding: 6px 2px; }
+/* What Gloopy is doing now, under its chat while it works (2026-11-12, Grok Bot's status line). */
+.cd-status { display: flex; align-items: center; gap: 8px; padding: 6px 2px 10px; color: #6b6660; font-size: 13.5px; }
+.cd-status .cd-spin { flex: none; }
+.cd-status-t { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
 .cd-thinking span { width: 6px; height: 6px; border-radius: 50%; background: #b5b1aa; animation: cd-blink 1.2s infinite ease-in-out; }
 .cd-thinking span:nth-child(2) { animation-delay: .15s; }
 .cd-thinking span:nth-child(3) { animation-delay: .3s; }
@@ -108,7 +115,8 @@
 .cd-cmd-row { display: flex; align-items: center; gap: 6px; width: 100%; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; text-align: left; min-width: 0; }
 .cd-cmd-row:disabled { cursor: default; }
 .cd-cmd-row:hover:not(:disabled) { color: #4b5563; }
-.cd-cmd-verb { flex: none; }
+/* A long one ends in "…" and leaves room for the step's ✓ (live test at phone size, 2026-11-13: a helper's "“Rome population” · Searched the web for" pushed it off the screen, and the chat scrolled sideways). */
+.cd-cmd-verb { flex: none; max-width: calc(100% - 80px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-cmd-text { font: 14px Inter, system-ui, sans-serif; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
 .cd-caret { flex: none; font-size: 10px; }
 /* The picture a Read step opened, small, under the step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's). */
@@ -139,6 +147,9 @@
 .cd-probs-row { display: inline-flex; align-items: center; gap: 10px; border: 1px solid #f3d9a4; background: #fffaf0; color: #92400e; border-radius: 999px; padding: 3px 12px; font: 500 12.5px Inter, system-ui, sans-serif; cursor: pointer; }
 .cd-probs-row span { color: #0f766e; }
 .cd-probs-list { margin: 6px 0 0; padding: 8px 12px; border: 1px solid #f3d9a4; border-radius: 8px; background: #fffdf7; color: #7c2d12; font: 12px/1.55 "Geist Mono", ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-x: auto; }
+/* The pages Gloopy's browser ended on, under its answer (2026-11-12, Grok Bot's result screenshots). */
+.cd-result-pics { display: flex; flex-wrap: wrap; gap: 8px; margin: 2px 0 12px; }
+.cd-result-pics img { display: block; width: min(320px, 100%); height: auto; border: 1px solid #ebe7e0; border-radius: 10px; background: #fff; }
 .cd-cmd .cd-out { margin: 4px 0 8px; border: 1px solid #ebe7e0; border-radius: 10px; background: #fff; color: #4b5563; max-height: 260px; }
 .cd-group-head { display: flex; align-items: center; gap: 6px; border: 0; background: none; padding: 4px 0; font: 14px Inter, system-ui, sans-serif; color: #8a857d; cursor: pointer; }
 .cd-group-head:hover { color: #4b5563; }
@@ -288,19 +299,131 @@
 /* THE SECRET CARD (owner, 2026-11-06): Claude Code's network-secret card, in Coder's colours. */
 .cd-secret{border:1px solid #e5e3dd;border-radius:18px;padding:22px 20px 18px;margin:10px 0;background:#faf9f5;text-align:center}
 .cd-secret-icon{width:52px;height:52px;margin:0 auto 12px;border-radius:12px;background:#1f1e1d;color:#fff;display:flex;align-items:center;justify-content:center}
-.cd-secret-t{display:block;font-size:16px;color:#1f1e1d;margin-bottom:8px}
+.cd-secret-t{display:block;font-size:16px;color:#1f1e1d;margin-bottom:8px;overflow-wrap:anywhere}
 .cd-secret-why{font-size:14px;color:#1f1e1d;margin:0 0 6px;line-height:1.45}
 .cd-secret-how{font-size:12.5px;color:#6b6a66;margin:0 0 8px}.cd-secret-how code{background:#f0ede7;border-radius:5px;padding:1px 6px}
 .cd-secret-p{font-size:13.5px;color:#6b6a66;margin:0 0 14px;line-height:1.5;text-align:left}
 .cd-secret-l{display:block;text-align:left;font-size:13px;color:#6b6a66;margin:0 0 6px 4px}
 .cd-secret-in{width:100%;box-sizing:border-box;font:inherit;font-size:15px;border:1px solid #d9d6cf;border-radius:999px;padding:11px 16px;background:#fff;color:#1f1e1d;outline:none}
 .cd-secret-in:focus{border-color:#1f1e1d}
+/* A field your own browser leaves alone (2026-11-12): typed text drawn as dots, with an eye to show it (Grok Bot's form). */
+.cd-secret-pw{position:relative;display:block}
+.cd-secret-pw .cd-secret-in{padding-right:46px}
+.cd-secret-in.is-masked{-webkit-text-security:disc}
+.cd-secret-eye{position:absolute;right:8px;top:50%;transform:translateY(-50%);display:inline-grid;place-items:center;width:32px;height:32px;border:0;border-radius:999px;background:none;color:#8a8984;cursor:pointer}
+.cd-secret-eye:hover{background:#f1efea;color:#1f1e1d}
+.cd-secret-eye[aria-pressed="true"]{color:#1f1e1d}
+.cd-sign-saved small{display:block;font-size:12px;font-weight:400;opacity:.75;margin-top:2px}
 .cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
 .cd-secret-btns{display:flex;gap:10px;margin-top:16px}
+/* The live screen in a hand-off card (2026-11-12, Grok Bot's card shows its screen). */
+.cd-ho-screen{margin:14px 0 4px;border:1px solid #ebe7e0;border-radius:12px;overflow:hidden;background:#0f0f10;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center}
+.cd-ho-screen img{display:block;width:100%;height:100%;object-fit:contain;background:#fff}
+.cd-ho-screen.is-empty{background:#f6f4f0;color:#78716c;font-size:13.5px;padding:0 16px;text-align:center}
+.cd-ho-screen.is-empty button{flex:none;padding:9px 18px}
 .cd-secret-btns button{flex:1;font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:11px 0;cursor:pointer}
-.cd-secret-no{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
-.cd-secret-save{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
-.cd-secret-save:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
+.cd-secret-no,.cd-card-no{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
+.cd-secret-save,.cd-card-yes{border:1px solid #1f1e1d;background:#1f1e1d;color:#fff}
+.cd-secret-save:disabled,.cd-card-yes:disabled{background:#a9a7a1;border-color:#a9a7a1;cursor:default}
+.cd-card-no:disabled{opacity:.5;cursor:default}
+/* GLOOPY'S BROWSER, LIVE (2026-11-09): the view under Gloopy's bar; an orange edge while you have control. */
+.cd-web-btn { display: inline-flex; align-items: center; gap: 6px; }
+/* The panel scrolls in itself rather than cut off its own foot (Hand it back) on a short window (live test, 2026-11-10). */
+.cd-web { max-width: 900px; margin: 12px auto 0; width: calc(100% - 40px); border: 1px solid #e6e2db; border-radius: 14px; background: #fff; overflow-x: hidden; overflow-y: auto; }
+.cd-web-bar { display: flex; align-items: center; gap: 10px; padding: 8px 10px 8px 14px; border-bottom: 1px solid #efece7; font-size: 13px; }
+.cd-web-st { display: inline-flex; align-items: center; gap: 7px; font-weight: 600; color: #1f1e1d; white-space: nowrap; }
+.cd-web-st i { width: 8px; height: 8px; border-radius: 50%; background: #a9a7a1; }
+.cd-web-st.is-work i { background: #2f9e44; box-shadow: 0 0 0 3px rgba(47,158,68,.18); }
+.cd-web-st.is-you i { background: #e8590c; box-shadow: 0 0 0 3px rgba(232,89,12,.18); }
+.cd-web-addr { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: #6b7280; }
+.cd-web-mini { border: 1px solid #d9d6cf; background: #fff; border-radius: 999px; padding: 3px 10px; font: 600 12px Inter, system-ui, sans-serif; cursor: pointer; }
+.cd-web-x { border: 0; background: none; font-size: 22px; line-height: 1; padding: 0 4px; color: #6b7280; cursor: pointer; }
+.cd-web-screen { display: flex; justify-content: center; background: #f4f2ee; outline: none; }
+/* The picture leaves room in the window for the panel's bar and foot, the chat's first line and your message box. */
+.cd-web-screen img { display: block; max-width: 100%; max-height: max(160px, min(52vh, calc(100vh - 410px))); width: auto; height: auto; user-select: none; -webkit-user-select: none; }
+.cd-web-screen.is-you { box-shadow: inset 0 0 0 3px #e8590c; }
+.cd-web-screen.is-you img { cursor: pointer; }
+/* With control, two rows of tools join it: the picture leaves them, the foot and your message box room in the window. */
+.cd-web-screen.is-you img { max-height: max(160px, min(52vh, calc(100vh - 428px))); }
+.cd-web-screen.is-you:focus-visible { box-shadow: inset 0 0 0 4px #e8590c; }
+.cd-web-empty { margin: 0; padding: 44px 20px; text-align: center; color: #6b7280; font-size: 14px; }
+.cd-web-tools { display: flex; flex-wrap: wrap; gap: 6px; padding: 8px 12px; border-top: 1px solid #efece7; }
+.cd-web-in { flex: 1 1 200px; min-width: 0; font: inherit; font-size: 14px; border: 1px solid #d9d6cf; border-radius: 999px; padding: 7px 12px; outline: none; }
+.cd-web-in:focus { border-color: #1f1e1d; }
+.cd-web-tools button { border: 1px solid #d9d6cf; background: #fff; color: #1f1e1d; border-radius: 999px; padding: 6px 11px; font: 600 13px Inter, system-ui, sans-serif; cursor: pointer; }
+/* Where Gloopy just acted (a mark over the picture), your own way around (Back, Forward, Reload, an address), and a file the page asks you for. */
+.cd-web-pic { position: relative; display: inline-block; line-height: 0; max-width: 100%; }
+.cd-web-mark { position: absolute; border: 2px solid #e8590c; border-radius: 6px; box-shadow: 0 0 0 3px rgba(232,89,12,.18); pointer-events: none; }
+.cd-web-mark[hidden] { display: none; }
+.cd-web-nav { border-top: 0; padding-top: 0; }
+.cd-web-file { align-items: center; font-size: 13px; color: #1f1e1d; }
+.cd-web-file span { flex: 1 1 auto; }
+.cd-web-pick { border: 1px solid #1f1e1d; background: #1f1e1d; color: #fff; border-radius: 999px; padding: 6px 12px; font: 600 13px Inter, system-ui, sans-serif; cursor: pointer; }
+/* Marking a part of the page for Gloopy, and your note about it; naming a task you taught. */
+.cd-web-screen.is-marking img { cursor: crosshair; touch-action: none; }
+.cd-web-sel { position: absolute; border: 2px dashed #1f6feb; background: rgba(31,111,235,.10); border-radius: 4px; pointer-events: none; }
+.cd-web-sel[hidden] { display: none; }
+.cd-web-note { align-items: center; font-size: 13px; color: #1f1e1d; }
+.cd-web-note span { flex: 1 1 auto; color: #6b7280; }
+.cd-web-tools button.cd-web-go { background: #1f1e1d; border-color: #1f1e1d; color: #fff; }
+.cd-web-foot .cd-card-no { border: 1px solid #d9d6cf; background: #fff; color: #1f1e1d; }
+.cd-web-foot { display: flex; align-items: center; gap: 12px; padding: 10px 12px 10px 14px; border-top: 1px solid #efece7; }
+.cd-web-foot p { flex: 1; margin: 0; font-size: 13px; color: #6b7280; }
+.cd-web-foot .cd-web-err { color: #b42318; }
+.cd-web-foot button { border-radius: 999px; padding: 9px 18px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; white-space: nowrap; }
+/* On a phone the foot's words take the whole line and its buttons go under them (live test, 2026-11-10: squeezed beside
+   Teach Gloopy and Hand it back, the words stood one to a line). */
+@media (max-width: 640px) { .cd-web { width: calc(100% - 20px); margin-top: 8px; } .cd-web-screen img { max-height: 40vh; } .cd-web-foot { flex-wrap: wrap; } .cd-web-foot p { flex-basis: 100%; } .cd-web-foot button { flex: 1; } }
+/* While you have control (and on a phone, while the view is open), the view takes the chat's place, so no cut-off strip of
+   the chat shows under it; the message box stays at the bottom. Closing the view (×) brings the chat back. */
+.cd:has(.cd-web-screen.is-you) > .cd-log { display: none; }
+.cd:has(.cd-web-screen.is-you) > .cd-composewrap { margin-top: auto; }
+@media (max-width: 640px) { .cd:has(.cd-web) > .cd-log { display: none; } .cd:has(.cd-web) > .cd-composewrap { margin-top: auto; } .cd:has(.cd-web) .cd-web-screen img { max-height: 46vh; } }
+.cd-sign-save { display: flex; align-items: flex-start; gap: 8px; text-align: left; font-size: 13px; color: #4b5563; margin: 12px 4px 0; cursor: pointer; }
+/* Gloopy's card form (2026-11-09): saved cards to pick from, and the expiry next to the security code. */
+.cd-pay-pick { display: flex; flex-direction: column; gap: 6px; margin: 10px 0 4px; text-align: left; }
+.cd-pay-opt { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border: 1px solid #e5e2dc; border-radius: 12px; background: #fff; font-size: 14px; cursor: pointer; }
+.cd-pay-opt small { margin-left: auto; color: #6b7280; }
+.cd-pay-two { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.cd-pay-two > div { min-width: 0; }
+/* Gloopy's webhook card (2026-11-09): its address and key, to copy. */
+.cd-hook-v { display: block; text-align: left; word-break: break-all; user-select: all; background: #fff; border: 1px solid #e5e2dc; border-radius: 10px; padding: 9px 12px; margin: 4px 0 6px; font-size: 12.5px; }
+.cd-hook-show { display: block; width: 100%; margin: 4px 0 6px; font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 10px 0; cursor: pointer; }
+.cd-hook-how { text-align: left; font-size: 12.5px; color: #6b7280; margin: 8px 4px 0; }
+.cd-hook-how code { font-size: 12px; }
+/* Gloopy's files (2026-11-09): chips for files attached to a message, and a card for a file Gloopy made. */
+.cd-attach-list, .cd-user-files { display: flex; flex-wrap: wrap; gap: 6px; margin: 0 0 8px; }
+.cd-user-files { justify-content: flex-end; }
+.cd-file-chip { display: inline-flex; align-items: center; gap: 6px; max-width: 280px; padding: 6px 10px; border: 1px solid #e5e2dc; border-radius: 12px; background: #fff; color: #1f1e1d; font: inherit; font-size: 13px; cursor: pointer; }
+.cd-file-chip.is-up { opacity: .6; cursor: default; }
+.cd-file-n { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-file-chip small { color: #6b7280; flex: none; }
+.cd-file-chip button { border: 0; background: none; font-size: 16px; line-height: 1; padding: 0 0 0 2px; color: #6b7280; cursor: pointer; }
+.cd-filecard { display: flex; align-items: center; gap: 12px; max-width: 460px; margin: 8px 0; padding: 12px 14px; border: 1px solid #e5e2dc; border-radius: 16px; background: #fff; }
+.cd-filecard-icon { position: relative; flex: none; width: 40px; height: 48px; display: flex; align-items: center; justify-content: center; border-radius: 8px; background: #f3f1ec; color: #4b5563; }
+.cd-filecard-icon svg { width: 22px; height: 22px; }
+.cd-filecard-icon b { position: absolute; bottom: -6px; left: 50%; transform: translateX(-50%); font-size: 9px; letter-spacing: .03em; background: #1f1e1d; color: #fff; border-radius: 4px; padding: 1px 4px; }
+.cd-filecard-t { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cd-filecard-t b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 14px; }
+.cd-filecard-t small { color: #6b7280; font-size: 12.5px; }
+.cd-filecard-get { flex: none; font: inherit; font-size: 14px; font-weight: 600; border-radius: 999px; padding: 8px 16px; cursor: pointer; }
+.cd-sign-save input { margin-top: 2px; }
+/* GLOOPY'S PAGES (2026-11-09): the card in the chat, and the page opened over the chat. */
+.cd-pagecard { display: flex; align-items: center; gap: 12px; border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; padding: 12px 14px; margin: 10px 0; }
+.cd-pagecard-ic { display: inline-flex; align-items: center; justify-content: center; width: 40px; height: 40px; border-radius: 10px; background: #f4f2ee; color: #1f1e1d; flex: none; }
+.cd-pagecard-txt { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.cd-pagecard-txt b { font-size: 15px; color: #1f1e1d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-pagecard-txt span { font-size: 13px; color: #6b7280; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-pagecard-open { border-radius: 999px; padding: 8px 18px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; }
+.cd-pageview { position: fixed; inset: 0; z-index: 60; display: flex; flex-direction: column; background: #fff; }
+.cd-pageview-bar { display: flex; align-items: center; gap: 10px; padding: 10px 14px; border-bottom: 1px solid #ece8e1; background: #faf9f7; font: 14px Inter, system-ui, sans-serif; }
+.cd-pageview-ic { display: inline-flex; color: #1f1e1d; }
+.cd-pageview-t { font-size: 15px; color: #1f1e1d; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cd-pageview-v { color: #6b7280; font-size: 13px; white-space: nowrap; }
+.cd-pageview-x { margin-left: auto; border: 0; background: none; font-size: 26px; line-height: 1; color: #6b7280; cursor: pointer; padding: 0 4px; }
+.cd-pageview-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+/* Three answers on a phone (Gloopy's approval card): a little more room for each word. */
+@media (max-width: 640px) { .cd-approve .cd-secret-btns { gap: 8px; } .cd-approve .cd-secret-btns button { font-size: 14px; padding: 11px 4px; } }
 
 /* Pictures in the chat box and in your messages; @ file suggestions. */
 .cd-compose{position:relative}
@@ -737,3 +860,294 @@
 .cd-set-hint code { font-size: 12px; }
 .cd-set-hooks { width: 100%; box-sizing: border-box; min-height: 130px; resize: vertical; font: 12.5px/1.45 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; padding: 8px 10px; border: 1px solid #e0dbd2; border-radius: 8px; background: #fff; color: #1f1e1d; }
 .cd-set-hooks-row { margin-top: 6px; justify-content: flex-start; }
+/* GLOOPY'S CHAT (owner, 2026-11-09): its figure beside its name on top, and bigger in its welcome. */
+.cd-gl-av { display: inline-flex; align-items: center; height: 26px; }
+.cd-gl-fig { display: flex; justify-content: center; margin-bottom: 10px; }
+.cd-gl-empty p { max-width: 460px; margin-left: auto; margin-right: auto; }
+/* A browser step's sentence ("Clicked “Go”", Gloopy, 2026-11-09): plain words, not code. */
+.cd-cmd-said { font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+/* A step's long words (a handoff's whole task) end in "…" on its one line, not past the chat's edge (live test, 2026-11-10). */
+.cd-cmd-verb:has(> .cd-cmd-said) { flex: 0 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+/* Gloopy's cards from a run the owner did not start wait 30 minutes; one not answered in time says so (the audit, 2026-11-10). */
+.cd-card-until{font-size:12.5px;color:#8a6a00;margin:0 0 10px;text-align:left}
+.cd-card-expired{font-size:13px;color:#6b6a66;background:#f1efe9;border-radius:8px;padding:6px 10px;margin:4px 0 0;text-align:left}
+/* What a request held for the owner's OK sends. */
+.cd-approve-body{margin:2px 0 12px;max-height:200px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+/* The sign-in card's other ways (the audit, 2026-11-10): the login you saved, and a warning when the page may be fake. */
+.cd-sign-saved{display:block;width:100%;margin:2px 0 4px;font:inherit;font-size:15px;font-weight:600;border-radius:999px;padding:11px 12px;cursor:pointer;overflow-wrap:anywhere}
+.cd-sign-saved:disabled{opacity:.6;cursor:default}
+/* Three buttons on the sign-in card (Not now, Take over, Sign in) fit a phone. */
+@media (max-width: 640px) { .cd-signin .cd-secret-btns { gap: 8px; } .cd-signin .cd-secret-btns button { font-size: 14px; padding: 11px 4px; } }
+.cd-sign-or{font-size:12.5px;color:#8a8984;margin:6px 0 2px;text-align:center}
+.cd-sign-warn{font-size:13.5px;line-height:1.45;text-align:left;border-radius:10px;padding:8px 12px;margin:0 0 10px}
+.cd-sign-warn.is-danger{color:#8c1d18;background:#fdecea;border:1px solid #f5c2bd}
+.cd-sign-warn.is-caution{color:#7a5a00;background:#fdf6e3;border:1px solid #f0dfaa}
+.cd-sign-code{letter-spacing:.2em;font-size:18px;text-align:center}
+/* Your schedules, from /schedules (the audit, 2026-11-10): each with Run now and Pause, Pause all, and the recent runs. */
+.cd-sched{border:1px solid #e5e3dd;border-radius:18px;padding:16px 18px;margin:10px 0;background:#faf9f5}
+.cd-sched-head{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:8px}
+.cd-sched-head b{font-size:16px;color:#1f1e1d}
+.cd-sched-paused{font-size:13.5px;color:#7a5a00;background:#fdf6e3;border:1px solid #f0dfaa;border-radius:10px;padding:7px 11px;margin:0 0 8px}
+.cd-sched-row{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:10px 0;border-top:1px solid #ecebe6}
+.cd-sched-row.is-paused .cd-sched-t{opacity:.6}
+.cd-sched-t{display:flex;flex-direction:column;min-width:0}
+.cd-sched-t b{font-size:14.5px;color:#1f1e1d;overflow-wrap:anywhere}
+.cd-sched-t small{font-size:12.5px;color:#6b6a66;margin-top:2px;overflow-wrap:anywhere}
+.cd-sched-btns{display:flex;gap:6px;flex-shrink:0}
+.cd-sched-btn{font:inherit;font-size:13px;font-weight:600;border-radius:999px;padding:6px 12px;cursor:pointer}
+.cd-sched-btn:disabled{opacity:.5;cursor:default}
+.cd-sched-none{font-size:13.5px;color:#6b6a66;margin:4px 0}
+.cd-sched-log{border-top:1px solid #ecebe6;margin-top:6px;padding-top:8px;font-size:12.5px;color:#6b6a66;line-height:1.6}
+.cd-sched-log small{display:block;font-weight:600;color:#4b4a46;margin-bottom:2px}
+@media (max-width: 640px) { .cd-sched-row { flex-direction: column; align-items: stretch; } .cd-sched-btns { justify-content: flex-start; } }
+/* Tables in answers (the audit, 2026-11-10): scrolled sideways when wide. */
+.cd-table{overflow-x:auto;margin:8px 0 10px;border:1px solid #e5e3dd;border-radius:10px}
+.cd-table table{border-collapse:collapse;width:100%;font-size:14px;line-height:1.45}
+.cd-table th,.cd-table td{padding:7px 11px;text-align:left;vertical-align:top;border-bottom:1px solid #ecebe6}
+.cd-table th{background:#f4f3ef;font-weight:600;color:#1f1e1d;white-space:nowrap}
+.cd-table tr:last-child td{border-bottom:0}
+/* A file's preview over the chat, and where Gloopy is signed in (the audit, 2026-11-10). */
+.cd-filecard-view{margin-right:6px}
+.cd-view{position:fixed;inset:0;z-index:60;background:rgba(20,20,18,.55);display:flex;align-items:center;justify-content:center;padding:16px}
+.cd-view-box{background:#fff;border-radius:16px;width:min(980px,100%);height:min(88vh,1100px);display:flex;flex-direction:column;overflow:hidden;box-shadow:0 20px 60px rgba(0,0,0,.25)}
+.cd-view-bar{display:flex;align-items:center;gap:10px;padding:10px 12px 10px 16px;border-bottom:1px solid #ecebe6}
+.cd-view-bar b{flex:1;min-width:0;font-size:14.5px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cd-view-x{font:inherit;font-size:22px;line-height:1;width:34px;height:34px;border:0;border-radius:999px;background:transparent;cursor:pointer;color:#4b4a46}
+.cd-view-x:hover{background:#f1efe9}
+.cd-view-body{flex:1;min-height:0;display:flex;align-items:center;justify-content:center;background:#f4f3ef}
+.cd-view-body iframe{width:100%;height:100%;border:0;background:#fff}
+.cd-view-body img{max-width:100%;max-height:100%;object-fit:contain}
+.cd-signins-saved{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:4px 0}
+/* A card's warning, and a card one of the owner's rules asked for (the docs, 2026-11-10). */
+.cd-card-warn{display:inline-block;font-size:12.5px;font-weight:600;color:#8c1d18;background:#fdecea;border-radius:999px;padding:3px 10px;margin:0 0 8px}
+.cd-card-rule{font-size:12.5px;color:#6b6a66;margin:0 0 8px}
+/* A schedule's task, and how each run went (the docs, 2026-11-10). */
+.cd-sched-task{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;font-size:12.5px;color:#6b6a66;margin-top:2px;white-space:pre-wrap}
+.cd-sched-del{color:#8c1d18}
+.cd-run-ok{color:#1d6b3a;font-weight:600}
+.cd-run-bad{color:#8c1d18;font-weight:600}
+.cd-run-wait{color:#8a5a00;font-weight:600}
+.cd-sched-btns{flex-wrap:wrap;justify-content:flex-end;max-width:56%}
+@media (max-width: 640px) { .cd-sched-btns { max-width: none; justify-content: flex-start; } }
+.cd-note .cd-resume{font:inherit;font-size:13px;font-weight:600;border-radius:999px;padding:5px 14px;margin-left:8px;cursor:pointer;vertical-align:middle}
+
+/* GLOOPY'S SETTINGS (2026-11-10), laid out as Grok Bot's (2026-11-12): a menu down the left (each page an icon and its
+   name, the open one on a grey pill), the page on the right (its title, small grey labels over white cards, each row a
+   name and a line about it with its control on the right), and × in the top corner. Grok Bot's own greys and blue. */
+.cd-sure-box.cd-gset{position:relative;max-width:800px;height:min(624px,88vh);padding:0;display:flex;overflow:hidden;border-radius:14px;background:#fcfcfc;color:#1f1f1f}
+.cd-gset-nav{flex:none;width:176px;box-sizing:border-box;display:flex;flex-direction:column;gap:2px;padding:14px 11px 14px 12px;border-right:1px solid #f0f0f0;overflow-y:auto}
+.cd-gset-navb{display:flex;align-items:center;gap:9px;font:inherit;font-size:13px;color:#1f1f1f;text-align:left;border:0;background:none;border-radius:7px;padding:6px 8px;cursor:pointer;white-space:nowrap}
+.cd-gset-navb svg{flex:none;width:15px;height:15px;color:#3d3d3d}
+.cd-gset-navb:hover{background:#f3f3f3}
+.cd-gset-navb.is-on{background:#eaeaea}
+.cd-gset-navb:focus-visible,.cd-gset-x:focus-visible,.cd-gset-dd:focus-visible{outline:2px solid #1f1f1f;outline-offset:1px}
+.cd-gset-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.cd-gset-body{flex:1;overflow-y:auto;padding:28px 30px 24px}
+.cd-gset-body,.cd-gset-nav{scrollbar-width:thin;scrollbar-color:#d6d6d6 transparent}
+.cd-gset-pt{margin:4px 0 22px 6px;font-size:16px;font-weight:500;color:#1f1f1f}
+.cd-gset-x{position:absolute;top:9px;right:11px;z-index:3;display:grid;place-items:center;width:28px;height:28px;border:0;background:none;border-radius:7px;color:#747474;cursor:pointer}
+.cd-gset-x:hover{background:#efefef;color:#1f1f1f}
+.cd-gset section{margin:0 0 24px}
+.cd-gset h3.cd-gset-sl{margin:0 0 8px 11px;font-size:11.5px;font-weight:400;color:#8b8b8b}
+.cd-gset-card{background:#fff;border:1px solid #f0f0f0;border-radius:11px;padding:2px 13px}
+.cd-gset-cardnote{margin:11px 0 3px;font-size:12px;line-height:1.45;color:#8b8b8b}
+.cd-gset-hint{margin:0 0 10px;font-size:12.5px;line-height:1.45;color:#6b6b6b}
+.cd-gset-row{display:flex;align-items:center;gap:14px;padding:11px 0}
+label.cd-gset-row{cursor:pointer}
+.cd-gset-what{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
+.cd-gset-what b{font-size:13px;font-weight:400;color:#1f1f1f}
+.cd-gset-what small{font-size:12px;line-height:1.4;color:#8b8b8b}
+.cd-gset-kind+.cd-gset-kind{border-top:1px solid #f4f4f4}
+.cd-gset-kind .cd-gset-list{margin:0 0 6px 14px}
+/* Grok Bot's drop-down (its "Follow System ⌄"): no box, the choice and a small arrow. */
+.cd-gset-dd{flex:none;field-sizing:content;max-width:170px;font:inherit;font-size:12.5px;color:#1f1f1f;border:0;border-radius:7px;padding:5px 22px 5px 8px;cursor:pointer;-webkit-appearance:none;appearance:none;background:transparent url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23555' stroke-width='2.6' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E") no-repeat right 7px center}
+.cd-gset-dd:hover{background-color:#f3f3f3}
+.cd-gset-dd.m-deny{color:#b3261e}
+.cd-gset-dd:disabled{cursor:default;opacity:.6}
+/* Grok Bot's switch (its "Check Spelling While Typing"). */
+.cd-gset-tog{flex:none;-webkit-appearance:none;appearance:none;position:relative;width:30px;height:18px;margin:0;border-radius:999px;background:#d9d9d9;cursor:pointer;transition:background .15s}
+.cd-gset-tog::before{content:'';position:absolute;top:2px;left:2px;width:14px;height:14px;border-radius:50%;background:#fff;box-shadow:0 1px 2px rgba(0,0,0,.25);transition:transform .15s}
+.cd-gset-tog:checked{background:#1680f3}
+.cd-gset-tog:checked::before{transform:translateX(12px)}
+.cd-gset-tog:focus-visible{outline:2px solid #1680f3;outline-offset:2px}
+.cd-gset-tog:disabled{cursor:default;opacity:.6}
+/* Grok Bot's grey buttons (its "Add Rule"), and black for the one that saves. */
+.cd-gset .cd-gset-pill,.cd-gset-btns button,.cd-gset-add button,.cd-vault-btns button{flex:none;font:inherit;font-size:12.5px;font-weight:500;border:0;background:#efefef;color:#1f1f1f;border-radius:999px;padding:5px 11px;cursor:pointer;white-space:nowrap}
+.cd-gset .cd-gset-pill:hover,.cd-gset-btns button:hover,.cd-gset-add button:hover,.cd-vault-btns button:hover{background:#e6e6e6}
+.cd-gset button.cd-gset-go{background:#1f1f1f;color:#fff}
+.cd-gset button.cd-gset-go:hover{background:#000}
+.cd-gset button:disabled{cursor:default;opacity:.6}
+.cd-gset-add{display:flex;flex-direction:column;gap:6px;margin:0 0 12px}
+.cd-gset-l{font-size:12px;font-weight:500;color:#5d5d5d}
+.cd-gset-in{font:inherit;font-size:13px;border:1px solid #e3e3e3;border-radius:9px;padding:7px 10px;color:#1f1f1f;background:#fff;box-sizing:border-box;width:100%;resize:vertical}
+.cd-gset-in:focus{outline:none;border-color:#1f1f1f}
+.cd-gset-addrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.cd-gset-siteadd{flex-direction:row;align-items:center;flex-wrap:wrap}
+.cd-gset-siteadd .cd-gset-in{flex:1;min-width:140px;width:auto}
+.cd-gset-list{list-style:none;margin:0 0 6px;padding:0}
+.cd-gset-item{display:flex;align-items:center;gap:10px;padding:9px 0;border-top:1px solid #f4f4f4}
+.cd-gset-item.is-edit form{display:flex;flex-direction:column;gap:6px;width:100%}
+.cd-gset-text{flex:1;min-width:0;font-size:13px;color:#1f1f1f;overflow-wrap:anywhere}
+.cd-gset-host{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+/* The browser's sign-ins (2026-11-11): the site, then how and when it was signed in, under it. */
+.cd-gset-text small{display:block;margin-top:2px;font-size:12px;color:#8b8b8b}
+.cd-gset-text b.cd-gset-host{font-weight:500}
+/* Through your own computer (2026-11-11): how the link is doing, and the live view's tag while it carries the browser. */
+.cd-gset-route{margin:-4px 0 12px;font-size:12px;color:#5d5d5d}
+.cd-web-route{flex:none;font-size:11.5px;font-weight:600;color:#1f6f43;background:#e7f4ec;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.cd-gset-btns{display:inline-flex;gap:6px;flex:none}
+.cd-gset-none{margin:0 0 12px;font-size:12.5px;color:#8b8b8b}
+.cd-gset-foot{margin:-12px 6px 16px;font-size:11.5px;line-height:1.5;color:#8b8b8b}
+.cd-gset-note{padding:10px 30px;border-top:1px solid #f0f0f0;font-size:12.5px;color:#4b4b4b;background:#fff}
+/* On a phone: a sheet from the bottom, the menu a row of tabs along its top. */
+@media (max-width:640px){
+  .cd-gset-wrap{padding:0;align-items:flex-end}
+  .cd-sure-box.cd-gset{flex-direction:column;max-width:none;height:92vh;height:92dvh;border-radius:16px 16px 0 0}
+  .cd-gset-nav{width:auto;flex-direction:row;gap:4px;margin-right:44px;padding:10px 0 10px 12px;border-right:0;overflow-x:auto;overflow-y:hidden;scrollbar-width:none}
+  .cd-gset-main{border-top:1px solid #f0f0f0}
+  .cd-gset-nav::-webkit-scrollbar{display:none}
+  .cd-gset-navb{flex:none;padding:6px 10px}
+  .cd-gset-navb svg{display:none}
+  .cd-vault-new{margin-right:0}
+  .cd-gset-body{padding:18px 16px 20px}
+  .cd-gset-pt{margin:0 0 16px 4px}
+  .cd-gset-x{top:10px;right:10px}
+  .cd-gset-note{padding:10px 16px}
+  .cd-gset-item,.cd-vault-item{flex-wrap:wrap}
+}
+/* ITS MONITOR PAUSED THE RUN (2026-11-10). */
+.cd-paused{max-width:720px;margin:10px auto;border:1px solid #f0d9a8;background:#fdf6e7;border-radius:12px;padding:12px 14px;color:#5c4400}
+.cd-paused b{font-size:14px}
+.cd-paused p{margin:4px 0 0;font-size:14px;line-height:1.45}
+.cd-paused .cd-paused-how{font-size:12.5px;color:#7a6224}
+/* ITS HELPERS' OWN TABS (2026-11-10). */
+.cd-web-lanes{display:inline-flex;gap:2px;border:1px solid #e1ded7;border-radius:999px;padding:2px;background:#f7f6f2;flex:none}
+.cd-web-lane{font:600 12px Inter,system-ui,sans-serif;border:0;background:transparent;color:#4b4a46;border-radius:999px;padding:3px 9px;cursor:pointer;white-space:nowrap}
+.cd-web-lane[aria-pressed="true"]{background:#1f1e1d;color:#fff}
+/* THE WHOLE COMPUTER in Gloopy's live view (2026-11-12, Grok Bot's): its tabs and terminal as a browser's tab strip, the
+   address row above the page, and the terminal in the page's place. */
+.cd-web-tabs{display:flex;align-items:flex-end;gap:2px;padding:6px 8px 0;background:#f1efea;border-bottom:1px solid #e3dfd7;overflow-x:auto;scrollbar-width:none}
+.cd-web-tabs::-webkit-scrollbar{display:none}
+.cd-web-tabwrap{display:inline-flex;align-items:center;min-width:0;max-width:220px;flex:0 1 auto;border-radius:9px 9px 0 0;background:transparent}
+.cd-web-tabwrap.is-on{background:#fff;box-shadow:0 -1px 0 #e3dfd7,1px 0 0 #e3dfd7,-1px 0 0 #e3dfd7}
+.cd-web-tab{display:inline-flex;align-items:center;gap:7px;min-width:0;border:0;background:transparent;color:#57534e;font:500 12.5px Inter,system-ui,sans-serif;padding:7px 10px 8px;border-radius:9px 9px 0 0;cursor:pointer;white-space:nowrap}
+.cd-web-tab span{overflow:hidden;text-overflow:ellipsis;min-width:0}
+.cd-web-tab i{flex:none;width:16px;height:16px;border-radius:4px;background:#e7e4dd;color:#57534e;font:700 10px/16px Inter,system-ui,sans-serif;font-style:normal;text-align:center}
+.cd-web-tabwrap.is-on .cd-web-tab{color:#1f1e1d}
+.cd-web-tab[aria-selected="true"]{color:#1f1e1d}
+.cd-web-tabx{flex:none;border:0;background:transparent;color:#78716c;font-size:15px;line-height:1;width:22px;height:22px;border-radius:6px;margin-right:4px;cursor:pointer}
+.cd-web-tabx:hover{background:#ece9e3;color:#1f1e1d}
+.cd-web-tabnew{flex:none;border:0;background:transparent;color:#57534e;font:500 18px/1 Inter,system-ui,sans-serif;width:28px;height:28px;border-radius:8px;margin:0 2px 3px;cursor:pointer}
+.cd-web-tabnew:hover{background:#e7e4dd}
+.cd-web-termtab{margin-left:auto;border-radius:9px 9px 0 0}
+.cd-web-termtab[aria-selected="true"]{background:#111827;color:#e5e7eb}
+.cd-web-termtab i{background:#1f2937;color:#a7f3d0;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-web-nav{border-top:0;padding-top:8px;border-bottom:1px solid #efece7;align-items:center}
+.cd-web-ro{align-items:center;gap:8px;color:#57534e;font-size:13px}
+.cd-web-lock{flex:none;font-size:12px}
+.cd-web-full{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;background:#f6f4f0;border-radius:999px;padding:6px 12px;color:#44403c;font-size:13px}
+.cd-web-term{background:#0f172a;color:#e2e8f0;font:12.5px/1.5 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;padding:12px 14px;height:max(160px,min(52vh,calc(100vh - 470px)));overflow:auto}
+.cd-web-nav .cd-web-in::placeholder{color:#44403c}
+.cd-term-cmd{white-space:pre-wrap;word-break:break-word;color:#f8fafc}
+.cd-term-who{display:inline-block;min-width:52px;color:#94a3b8}
+.cd-term-p{color:#34d399;font-weight:700}
+.cd-term-out{margin:2px 0 10px 56px;white-space:pre-wrap;word-break:break-word;color:#cbd5e1;font:inherit}
+.cd-term-out.is-bad{color:#fca5a5}
+.cd-term-out.is-run{color:#64748b}
+.cd-term-none{color:#94a3b8;margin:0}
+.cd-web-cmd{align-items:center;background:#0b1220;border-top:1px solid #1e293b}
+.cd-web-cmd .cd-web-in{background:#0f172a;color:#e2e8f0;border-color:#334155;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+.cd-web-cmd .cd-web-in:focus{border-color:#34d399}
+
+/* THE VAULT (2026-11-12, owner: "do all 5 make sure you do similar frontend compare to grok bot"; Grok Bot's Settings →
+   Vault): its title with a dark "New item" button and its menu, a tab row with Search Vault, the logins, a form to add
+   or change one, an export's review, and the note under it. */
+.cd-vault-head{display:flex;align-items:center;gap:10px;margin:0 0 18px}
+.cd-vault-head .cd-gset-pt{margin:0 0 0 6px}
+.cd-vault-new{position:relative;margin:0 20px 0 auto}
+.cd-gset button.cd-vault-newbtn{display:inline-flex;align-items:center;gap:6px;font:inherit;font-size:12.5px;font-weight:500;border:0;background:#1f1e1d;color:#fff;border-radius:999px;padding:6px 12px;cursor:pointer}
+.cd-vault-newbtn svg{transform:rotate(90deg)}
+.cd-vault-newbtn:disabled{opacity:.6;cursor:default}
+.cd-vault-menu{position:absolute;right:0;top:calc(100% + 6px);z-index:5;display:flex;flex-direction:column;min-width:240px;padding:6px;background:#fff;border:1px solid #e6e2db;border-radius:12px;box-shadow:0 10px 30px rgba(15,23,32,.12)}
+.cd-gset .cd-vault-menu button{display:flex;align-items:center;gap:9px;font:inherit;font-size:13.5px;font-weight:500;text-align:left;border:0;background:none;color:#1f1e1d;border-radius:8px;padding:8px 10px;cursor:pointer}
+.cd-gset .cd-vault-menu button:hover{background:#f4f2ee}
+.cd-vault-menu svg{color:#6b6a68;flex:none}
+.cd-vault-bar{display:flex;align-items:center;gap:8px;margin:0 0 10px}
+.cd-vault-tab{display:inline-flex;align-items:center;gap:6px;font-size:13px;color:#4b4a46;border-radius:999px;padding:5px 11px}
+.cd-vault-tab.is-on{background:#efefef;color:#1f1f1f;font-weight:500}
+.cd-vault-tab i{font-style:normal;color:#8a857d;font-weight:500}
+.cd-vault-q{margin-left:auto;width:min(220px,50%);box-sizing:border-box;font:inherit;font-size:13px;border:1px solid #f3f3f3;border-radius:999px;padding:7px 12px 7px 32px;color:#1f1f1f;background:#f3f3f3 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 24 24' fill='none' stroke='%238a857d' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M20 20l-3.5-3.5'/%3E%3C/svg%3E") no-repeat 11px 50%}
+.cd-vault-q:focus{outline:none;border-color:#1f1e1d;background-color:#fff}
+/* Each login one row: its key, its names, Edit and Remove (found live, 2026-11-12: without it they stacked). */
+.cd-vault-item{display:flex;align-items:center;gap:10px;padding:10px 0;border-top:1px solid #f4f4f4}
+.cd-vault-card{padding:0 13px;margin:0 0 14px}
+.cd-vault-card .cd-vault-list{margin:0}
+.cd-vault-item:first-child{border-top:0}
+.cd-vault-ic{display:inline-grid;place-items:center;flex:none;width:30px;height:30px;border-radius:9px;background:#f3f3f3;color:#4b4b4b}
+.cd-vault-hint{font-style:italic}
+.cd-vault-made{color:#0f766e}
+.cd-vault-item.is-open{display:block}
+.cd-vault-form{display:flex;flex-direction:column;gap:6px;margin:0 0 14px;padding:13px;border:1px solid #f0f0f0;border-radius:11px;background:#fff}
+.cd-vault-form .cd-gset-l small{font-weight:400;color:#8a857d}
+.cd-vault-form .cd-secret-pw .cd-secret-in{font-size:14px;border-radius:10px;padding:8px 46px 8px 11px}
+.cd-vault-btns{margin-top:6px}
+.cd-vault-sp{flex:1}
+.cd-gset .cd-vault-btns button.cd-gset-go{margin-left:0}
+.cd-gset .cd-vault-btns .cd-vault-rm{color:#b42318;border-color:#f1c7c2}
+.cd-vault-impt{font-size:14px;color:#1f1e1d}
+.cd-vault-imp .cd-gset-hint{margin:0 0 6px}
+.cd-gset .cd-vault-file{position:relative;align-self:flex-start;display:inline-flex;align-items:center;font-size:13px;font-weight:600;background:#1f1e1d;color:#fff;border-radius:999px;padding:7px 14px;cursor:pointer}
+.cd-vault-file input{position:absolute;inset:0;opacity:0;cursor:pointer}
+.cd-vault-sum{margin:2px 0 6px;font-size:13px;color:#4b4a46;overflow-wrap:anywhere}
+.cd-vault-review{list-style:none;margin:0;padding:0;max-height:220px;overflow:auto;border:1px solid #ece9e3;border-radius:10px;background:#fff}
+.cd-vault-review li{display:flex;align-items:center;gap:10px;padding:7px 10px;border-top:1px solid #f4f2ee;font-size:13px}
+.cd-vault-review li:first-child{border-top:0}
+.cd-vault-review li span{flex:1;min-width:0;overflow-wrap:anywhere}
+.cd-vault-review li b{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-weight:500;font-size:12.5px}
+.cd-vault-review li small{display:block;color:#8a857d}
+.cd-vault-review li em{flex:none;font-style:normal;font-size:12px;color:#8a857d}
+.cd-vault-review li.is-ok em{color:#11845b;font-weight:600}
+.cd-vault-review li.is-skip{opacity:.75}
+.cd-vault-empty{text-align:center;padding:14px 0}
+.cd-vault-foot{margin:4px 6px 12px;font-size:11.5px;line-height:1.5;color:#8b8b8b}
+.cd-vault-nick{font-weight:600;font-size:14px;color:#1f1e1d}
+.cd-gset-text small .cd-gset-host{font-size:12px}
+
+/* THE VAULT'S CARDS AND CONTACT INFO, AND PAYING (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's Vault
+   tabs, its "Filled into the page" line, its order card with the pay button that shows the total, and "Paid with"). */
+.cd-vault-tabs{display:inline-flex;gap:2px;flex-wrap:wrap}
+button.cd-vault-tab{border:0;background:transparent;font:inherit;font-size:13px;cursor:pointer}
+button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
+.cd-vault-tags{display:flex;flex-wrap:wrap;gap:6px;margin-top:4px}
+.cd-vault-tag{font-size:11.5px;font-style:normal;color:#4b4a46;background:#f1efe9;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.cd-vault-tag.is-def{color:#0b57d0;background:#e8f0fe;font-weight:600}
+/* At phone size (live test, 2026-11-13): the search on its own row, so the three tabs stay on one line. */
+@media (max-width:640px){.cd-vault-bar{flex-wrap:wrap}.cd-vault-tabs{flex-wrap:nowrap}.cd-vault-q{margin-left:0;width:100%}}
+.cd-vault-cardt{display:flex;align-items:center;flex-wrap:wrap;gap:8px;margin:0 0 6px;font-size:14px;color:#1f1e1d}
+.cd-vault-cardt small{flex-basis:100%;font-size:12px;color:#8a857d}
+.cd-pay-opt em{font-style:normal;font-size:11.5px;font-weight:600;color:#0b57d0;background:#e8f0fe;border-radius:999px;padding:1px 7px}
+.cd-filled{display:flex;align-items:flex-start;gap:6px;font-size:13px;line-height:1.45;text-align:left;border-radius:10px;padding:8px 10px;margin:4px 0 0}
+.cd-filled svg{flex:none;margin-top:1px}
+.cd-filled.is-ok{color:#14532d;background:#ecfdf3}
+.cd-filled.is-no{color:#7a2e0e;background:#fff4ed}
+.cd-pay.is-filled .cd-secret-p{margin-bottom:8px}
+.cd-order-items{list-style:none;margin:6px 0 4px;padding:0;text-align:left;border-top:1px solid #ece9e2}
+.cd-order-items li{display:flex;gap:12px;justify-content:space-between;font-size:13.5px;color:#1f1e1d;padding:8px 2px;border-bottom:1px solid #ece9e2}
+.cd-order-items li b{font-weight:500;white-space:nowrap}
+.cd-order-row{display:flex;gap:12px;justify-content:space-between;font-size:13.5px;margin:0;padding:8px 2px;border-bottom:1px solid #ece9e2;text-align:left}
+.cd-order-row span{color:#6b6a66;flex:none}
+.cd-order-row b{font-weight:500;color:#1f1e1d;text-align:right;overflow-wrap:anywhere}
+.cd-order-row.is-total{border-bottom:0;margin-bottom:10px}
+.cd-order-row.is-total b{font-size:16px;font-weight:700}
+.cd-order .cd-secret-btns .cd-card-yes{font-weight:700}
+.cd-order .cd-order-check{font-size:13px;color:#6b6a66;margin-top:-2px}
+.cd-receipt{display:flex;align-items:flex-start;gap:8px;font-size:14px;line-height:1.45;border-radius:12px;padding:10px 12px;margin:8px 0}
+.cd-receipt svg{flex:none;margin-top:2px;width:16px;height:16px}
+.cd-receipt span{display:flex;flex-direction:column}
+.cd-receipt small{font-size:12.5px;color:#6b6a66;margin-top:2px}
+.cd-receipt.is-ok{color:#14532d;background:#ecfdf3}
+.cd-receipt.is-no{color:#7a2e0e;background:#fff4ed}
+.cd-vault-scan{display:flex;flex-wrap:wrap;gap:8px;margin:0 0 6px}
+.cd-vault-scan .cd-vault-file{cursor:pointer}
+.cd-gset .cd-vault-scan .cd-vault-file{background:#efefef;color:#1f1f1f;font-weight:500}
+.cd-gset .cd-vault-scan .cd-vault-file:hover{background:#e6e6e6}

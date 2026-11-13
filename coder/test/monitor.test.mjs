@@ -136,5 +136,7 @@ test("CD381c the page shows a monitor's step with the eye, and each event with t
   const { groupWords } = new Function(gw + "return { groupWords };")();
   assert.equal(groupWords([{ tool: "monitor_start" }, { tool: "monitor_start" }, { tool: "" }]).line, "Started 2 monitors, ran 1 command");
   assert.equal(groupWords([{ tool: "monitor" }]).line, "Checked 1 background job");
-  assert.match(src, /tool: !e\.tool && e\.monitor === true \? 'monitor_start' : e\.tool \|\| ''/);
+  // (Any other step's kind is its tool, by kindOf, since Gloopy's chat merged in, 2026-11-13.)
+  assert.match(src, /tool: !e\.tool && e\.monitor === true \? 'monitor_start' : kindOf\(e\)/);
+  assert.match(src, /return 'pay_result'; return e\.tool \|\| ''; \};/);
 });

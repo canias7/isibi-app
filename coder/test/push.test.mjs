@@ -164,8 +164,9 @@ test("CD190 Coder's notify tool (at most 3 a job); the page: Notifications in th
   assert.match(readFileSync(HERE("public/index.html"), "utf8"), /<button type="button" role="menuitem" id="gfNotify">Notifications<\/button><button type="button" role="menuitem" id="gfOut">Sign out<\/button>/);
   assert.match(readFileSync(HERE("public/app.js"), "utf8"), /\$\('gfNotify'\)\.addEventListener\('click', \(\) => \{ \$\('gfMenu'\)\.hidden = true; window\.dispatchEvent\(new CustomEvent\('gf:side', \{ detail: false \}\)\); window\.dispatchEvent\(new CustomEvent\('gf:notify'\)\); \}\);/);
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /window\.addEventListener\('gf:notify', \(\) => \{ showNotifications\(\); \}\)/);
-  assert.match(ui, /<b>Push when Coder decides<\/b>[\s\S]*<b>Push when actions are required<\/b>/);
+  // (2026-11-13: from the tab that's showing, Coder's or Gloopy's; GL147.)
+  assert.match(ui, /window\.addEventListener\('gf:notify', \(\) => \{ if \(S\.root && S\.root\.isConnected && S\.root\.getClientRects\(\)\.length\) showNotifications\(\); \}\)/);
+  assert.match(ui, /<b>Push when ' \+ who \+ ' decides<\/b>[\s\S]*<b>Push when actions are required<\/b>/);
   assert.match(ui, /reg\.pushManager\.subscribe\(\{ userVisibleOnly: true, applicationServerKey: keyBytes\(info\.key\) \}\)/);
   assert.match(ui, /navigator\.serviceWorker\.register\('\/sw\.js'\)/);
   assert.match(ui, /const seen = document\.visibilityState === 'visible' && document\.hasFocus\(\) \? '&seen=1' : '';/);

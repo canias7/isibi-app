@@ -22,8 +22,9 @@ name: deploy coder
 #
 # THE TEST COPY (owner, 2026-11-10: "test what we have live without touching the
 # other branches or merging"): "test" deploys the branch picked to its own
-# Worker at jessica.gofarther.dev, with its own storage, its own machines on Fly.io
-# and its own queue (coder/test-copy.mjs makes its settings from wrangler.jsonc).
+# Worker at test.gofarther.dev ("test") or jessica.gofarther.dev ("jessica"), each with its own storage, its own machines on Fly.io
+# and its own queue (coder/test-copy.mjs makes its settings from wrangler.jsonc). Two copies since the
+# Gloopy and connectors work were merged (2026-11-13); each choice deploys only to its own copy.
 # It never touches gofarther.dev, its Worker, its keys or its data, and it never
 # waits on or holds up a live deploy. "live" (gofarther.dev) goes only from main.
 
@@ -31,9 +32,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "live: gofarther.dev (from main only) · test: a separate copy at jessica.gofarther.dev"
+        description: "live: gofarther.dev (from main only) · test: the copy at test.gofarther.dev · jessica: the copy at jessica.gofarther.dev"
         type: choice
-        options: [live, test]
+        options: [live, test, jessica]
         default: live
       machines:
         description: "Where chats' machines run: fly (needs the FLY_API_TOKEN secret) or cloudflare"
@@ -42,17 +43,19 @@ on:
         default: fly
 
 concurrency:
-  group: ${{ github.event.inputs.target == 'test' && 'deploy-coder-jessica' || 'deploy-coder' }}
+  group: ${{ github.event.inputs.target == 'test' && 'deploy-coder-test' || github.event.inputs.target == 'jessica' && 'deploy-coder-jessica' || 'deploy-coder' }}
   cancel-in-progress: false
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
     env:
-      TARGET: ${{ github.event.inputs.target == 'test' && 'test' || 'live' }}
-      FLY_APP: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-jessica-machines' || 'gofarther-coder-machines' }}
-      BUCKET: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-jessica' || 'gofarther-coder' }}
-      SITE: ${{ github.event.inputs.target == 'test' && 'https://jessica.gofarther.dev' || 'https://coder.gofarther.dev' }}
+      # (TARGET is "test" for either copy; COPY says which one: test or jessica.)
+      TARGET: ${{ (github.event.inputs.target == 'test' || github.event.inputs.target == 'jessica') && 'test' || 'live' }}
+      COPY: ${{ github.event.inputs.target == 'jessica' && 'jessica' || 'test' }}
+      FLY_APP: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test-machines' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica-machines' || 'gofarther-coder-machines' }}
+      BUCKET: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica' || 'gofarther-coder' }}
+      SITE: ${{ github.event.inputs.target == 'test' && 'https://test.gofarther.dev' || github.event.inputs.target == 'jessica' && 'https://jessica.gofarther.dev' || 'https://coder.gofarther.dev' }}
       FLY_ORG: personal
     defaults:
       run:
@@ -63,7 +66,7 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
-          echo "::error::gofarther.dev is deployed only from main. To try the branch $BRANCH, pick test (jessica.gofarther.dev)."
+          echo "::error::gofarther.dev is deployed only from main. To try the branch $BRANCH, pick test (test.gofarther.dev) or jessica (jessica.gofarther.dev)."
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -250,8 +253,8 @@ jobs:
       # THE TEST COPY: every wrangler command here names wrangler.test.json, so none reaches the live Worker.
       - name: "Test copy: its own settings (from wrangler.jsonc)"
         if: env.TARGET == 'test'
-        run: node test-copy.mjs
-      - name: "Test copy: deploy it to jessica.gofarther.dev"
+        run: node test-copy.mjs "$COPY"
+      - name: "Test copy: deploy it to its own address"
         if: env.TARGET == 'test'
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}

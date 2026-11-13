@@ -123,7 +123,8 @@ export async function notifyOwner(env, uid, { kind, title, body, chat = "" }, { 
     if (seen && seen.id === chat && now - Number(seen.at) < PRESENCE_MS) return { sent: 0, why: "watching" };
   }
   const vapid = await vapidKeys(env, bucket);
-  const data = { title: String(title || "Coder").slice(0, 120), body: String(body || "").replace(/\s+/g, " ").trim().slice(0, 240), tag: chat || "coder", url: chat ? "/?chat=" + encodeURIComponent(chat) : "/" };
+  // Gloopy's chat (GLOOPY_ID in coder-routes.mjs) opens in its own tab, /gloopy.
+  const data = { title: String(title || "Coder").slice(0, 120), body: String(body || "").replace(/\s+/g, " ").trim().slice(0, 240), tag: chat || "coder", url: chat === "gloopy-main" ? "/gloopy" : chat ? "/?chat=" + encodeURIComponent(chat) : "/" };
   let sent = 0;
   const gone = [];
   for (const s of cfg.subs) {
@@ -151,20 +152,36 @@ export function permissionLine(e) {
  */
 export function pushesFor(events, meta, now = Date.now()) {
   const name = String((meta && (meta.title || meta.repo)) || "a chat").slice(0, 80);
+  // GLOOPY'S (owner, 2026-11-09): from Gloopy, with no chat name after it (it has one chat); Coder's are as before.
+  const gl = !!meta && meta.kind === "gloopy";
+  const who = gl ? "Gloopy" : "Coder", tail = gl ? "" : " · " + name;
   const out = [];
   for (const e of Array.isArray(events) ? events : []) {
     if (!e || typeof e !== "object") continue;
-    if (e.type === "notify" && e.text) out.push({ kind: "decides", title: "Coder · " + name, body: e.text });
-    else if (e.type === "question") out.push({ kind: "actions", title: "Coder needs your answer · " + name, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
-    else if (e.type === "secret") out.push({ kind: "actions", title: "Coder needs a key · " + name, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
-    else if (e.type === "envchange") out.push({ kind: "actions", title: "Coder asks to change the environment · " + name, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
-    else if (e.type === "writeask") out.push({ kind: "actions", title: "Coder asks to change a protected file · " + name, body: "Allow it to change " + String(e.path || "a file") + "?" });
+    // A card from a run the owner did not start waits 30 minutes for them (the audit, 2026-11-10): the push says so.
+    const until = Number(e.expires) > now ? " · answer within " + Math.max(1, Math.round((Number(e.expires) - now) / 60000)) + " min" : "";
+    // A card filled in from the owner's Vault (2026-11-13) waits for nothing.
+    if (e.type === "pay" && e.filled) continue;
+    if (until && ["approval", "signin", "pay", "handoff"].includes(e.type)) { const one = pushesFor([{ ...e, expires: 0 }], meta, now)[0]; if (one) out.push({ ...one, title: one.title + until }); continue; }
+    if (e.type === "notify" && e.text) out.push({ kind: "decides", title: who + tail, body: e.text });
+    else if (e.type === "question") out.push({ kind: "actions", title: who + " needs your answer" + tail, body: (e.text || "") + (Array.isArray(e.questions) && e.questions.length > 1 ? " (and " + (e.questions.length - 1) + " more)" : "") });
+    // THE ORDER CARD (2026-11-13): what it would pay, and where.
+    else if (e.type === "approval" && e.order && typeof e.order === "object") out.push({ kind: "actions", title: who + " needs your OK to pay" + tail, body: String(e.order.total || "") + (e.site ? " on " + e.site : "") + (e.order.reason ? ": " + e.order.reason : "") });
+    else if (e.type === "approval") out.push({ kind: "actions", title: who + " needs your OK" + tail, body: String(e.step || "") + (e.site ? " on " + e.site : "") + (e.why ? ": " + e.why : "") });
+    else if (e.type === "signin") out.push({ kind: "actions", title: who + " asks you to sign in" + tail, body: "To " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
+    else if (e.type === "pay") out.push({ kind: "actions", title: who + " needs your card" + tail, body: "To pay " + String(e.total || "") + " on " + String(e.site || "a site") + (e.reason ? ": " + e.reason : "") });
+    else if (e.type === "handoff") out.push({ kind: "actions", title: who + " needs you in its browser" + tail, body: String(e.task || "A step only you can do") + (e.site ? " on " + e.site : "") });
+    // ITS MONITOR PAUSED A RUN (2026-11-10): the owner reviews it and says how to carry on.
+    else if (e.type === "paused") out.push({ kind: "actions", title: who + " paused a task" + tail, body: String(e.why || "Something in it looked wrong.") });
+    else if (e.type === "secret") out.push({ kind: "actions", title: who + " needs a key" + tail, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
+    else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
+    else if (e.type === "writeask") out.push({ kind: "actions", title: who + " asks to change a protected file" + tail, body: "Allow it to change " + String(e.path || "a file") + "?" });
     // A COMMAND'S CARD (tool 4): one that writes a protected file, or one over 10,000 characters.
-    else if (e.type === "runask") out.push({ kind: "actions", title: "Coder asks to run a command · " + name, body: Array.isArray(e.paths) && e.paths.length ? "It would change " + e.paths.slice(0, 3).map(String).join(", ") + "." : "It is over 10,000 characters." });
+    else if (e.type === "runask") out.push({ kind: "actions", title: who + " asks to run a command" + tail, body: Array.isArray(e.paths) && e.paths.length ? "It would change " + e.paths.slice(0, 3).map(String).join(", ") + "." : "It is over 10,000 characters." });
     // A STEP WAITING ON THE OWNER'S YES (the permission modes, 2026-11-09; Claude Code's push "when Claude needs your input"):
     // a command, a file, a web page, or the plan to approve.
-    else if (e.type === "permission") out.push({ kind: "actions", title: (e.tool === "plan" ? "Coder's plan is ready · " : "Coder needs your approval · ") + name, body: permissionLine(e) });
-    else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: "Coder finished · " + name, body: e.text || "" });
+    else if (e.type === "permission") out.push({ kind: "actions", title: (e.tool === "plan" ? who + "'s plan is ready" : who + " needs your approval") + tail, body: permissionLine(e) });
+    else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });
   }
   return out.slice(0, NOTIFY_MAX + 1);
 }

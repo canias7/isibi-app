@@ -4,8 +4,9 @@
 // must come back to the app, which holds the sign-in).
 "use strict";
 
-const HOME = "https://gofarther.dev/";
-const APP_HOSTS = new Set(["gofarther.dev", "www.gofarther.dev"]);
+// The test copy for trying the app (2026-11-11): GOFARTHER_HOME=https://test.gofarther.dev/ (only a gofarther.dev address).
+const HOME = /^https:\/\/([a-z0-9-]+\.)?gofarther\.dev\/$/.test(process.env.GOFARTHER_HOME || "") ? process.env.GOFARTHER_HOME : "https://gofarther.dev/";
+const APP_HOSTS = new Set(["gofarther.dev", "www.gofarther.dev", new URL(HOME).hostname]);
 // GitHub's sign-in, two-step check, and app-install pages (Connect GitHub).
 const GITHUB_INSIDE = [/^\/login(\/|$|\?)/, /^\/session(s)?(\/|$|\?)/, /^\/apps\/[\w.-]+\/installations(\/|$|\?)/, /^\/settings\/installations(\/|$|\?)/, /^\/sessions\/two-factor/];
 
@@ -24,4 +25,11 @@ function isSafeOutside(raw) {
   try { const u = new URL(String(raw)); return u.protocol === "https:" || u.protocol === "http:" || u.protocol === "mailto:"; } catch { return false; }
 }
 
-module.exports = { HOME, isInsideApp, isSafeOutside };
+/** Is this one of the app's own pages (gofarther.dev, never GitHub's), which may ask the app for things? */
+function isAppPage(raw) {
+  let u;
+  try { u = new URL(String(raw)); } catch { return false; }
+  return u.protocol === "https:" && !u.username && !u.password && !u.port && APP_HOSTS.has(u.hostname);
+}
+
+module.exports = { HOME, isInsideApp, isSafeOutside, isAppPage };

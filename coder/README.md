@@ -19,9 +19,11 @@ code in **each user's own GitHub**.
 | `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-mcp.mjs` | Connectors (MCP): each person's list, sign-in to each app (OAuth, kept sealed), its tools, and the machine's connector calls, which go through the Worker (`/api/coder/mcp`) with the job's pass |
-| `test-copy.mjs` | The test copy's settings (jessica.gofarther.dev: its own Worker, storage and Fly.io machines), made from `wrangler.jsonc` for the deploy button's "test" choice |
+| `test-copy.mjs` | The two test copies' settings (test.gofarther.dev, where Gloopy was built, and jessica.gofarther.dev, where the connectors were: each its own Worker, storage and Fly.io machines), made from `wrangler.jsonc` for the deploy button's "test" and "jessica" choices |
+| `src/gloopy-*.mjs` | Gloopy's side of the Worker: its schedules (started by the every-minute run) and webhooks, the Vault (saved logins, cards, keys, contact info: sealed), its files in and out, its pages, the backup of its computer, and a card read from a photo |
 | `src/coder-cors.mjs` | Only gofarther.dev may call it from another address |
 | `container/` | The machine's image (Ubuntu 24.04 with Claude Code's tools; its helpers in `container/tools/`): the agent loop, the AI call (Grok 4.7 with an effort level), the safety checks, and the service that clones, runs commands, commits and pushes |
+| `container/gloopy-*.mjs` | Gloopy on its machine: its instructions and tools (`gloopy-agent.mjs`), its own browser (`gloopy-browser.mjs`, Playwright's Chromium), the check before a step that could change something (`gloopy-check.mjs`), what it may do on its own (`gloopy-permissions.mjs`), its browser through the owner's computer (`gloopy-route.mjs`) and its schedules' times (`gloopy-schedule.mjs`) |
 | `test/` | `npm test` from this folder |
 
 ## How it works
@@ -2031,6 +2033,21 @@ its own name (its card shows as "connector", `card.hookTool` carries the name), 
 that ends the turn, and Plan mode asking before one that changes something.
 Read-only connector tools start side by side only where no hook or rule checks
 each call first.
+
+**Gloopy** (built on the test copy, test.gofarther.dev, 2026-11-09 to 11-13; merged
+into main on 2026-11-13, the owner: "merge carefully"): an always-on assistant in
+its own tab, one per person, on Coder's own engine (`runCoder`), with its own
+instructions, tools (its browser, sign-in and paying cards, hand-off, schedules,
+webhooks, files, pages, helpers), its own checks before a step that could change
+something, and its own Settings (what it may do on its own, its rules in the
+owner's words). The page draws both tabs with the same code (`makeView('coder')`,
+`makeView('gloopy')`). What the merge keeps apart (`test/gloopy-merged.test.mjs`):
+a Gloopy turn runs with none of Coder's hooks, Auto checker or permission rules
+(the machine's `gloopyOpts`), and its browser rules go in as `browserRules`, apart
+from Coder's `rules`; the mode chip, its keys and the connectors chip are Coder's
+alone; Settings, Connectors and Notifications open in the tab that is showing.
+Gloopy's chat does not take connectors yet, and its `/compact` is still made by the
+Worker (Coder's runs on its machine, with its hooks).
 
 **While testing:** only the accounts in `CODER_USERS` may use it, and nothing is
 charged. `CODER_ON` `"off"` makes every `/api/coder/` address answer 404.

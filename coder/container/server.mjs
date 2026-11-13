@@ -20,7 +20,7 @@
 import http from "node:http";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
-import { createHash, randomUUID, randomBytes } from "node:crypto";
+import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
 import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
@@ -33,6 +33,9 @@ import { autoModeSetting } from "./coder-checker.mjs";
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
+import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContext } from "./gloopy-agent.mjs";
+import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
+import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
@@ -45,6 +48,51 @@ export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
 
 const RAW_OUTPUT_MAX = 1024 * 1024;
+/** The owner's own command in Gloopy's terminal (2026-11-12) is ended after this many seconds. */
+export const TERM_S = 60;
+/**
+ * THE OWNER'S SAVED LOGINS, AS GLOOPY'S MACHINE IS TOLD THEM (2026-11-12, the Vault): each one's id, site, username and
+ * hint (never a password), all of them (up to the Vault's 1000), so a sign-in finds the site's; an older Worker's plain
+ * list of sites still works.
+ */
+export function savedLoginsOf(body) {
+  const raw = Array.isArray(body && body.savedLogins) ? body.savedLogins.slice(0, 1000) : [];
+  return raw.map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x && typeof x === "object" && typeof x.site === "string" ? { id: typeof x.id === "string" ? x.id.slice(0, 40) : "", site: x.site.slice(0, 260), username: typeof x.username === "string" ? x.username.slice(0, 500) : "", ...(typeof x.nickname === "string" && x.nickname ? { nickname: x.nickname.slice(0, 60) } : {}), ...(typeof x.hint === "string" && x.hint ? { hint: x.hint.slice(0, 200) } : {}), ...(x.made === true ? { made: true } : {}) } : null)).filter(Boolean);
+}
+/**
+ * THE OWNER'S SAVED CARDS AND CONTACT INFO, AS GLOOPY'S MACHINE IS TOLD THEM (owner, 2026-11-13; the Vault): a card's id,
+ * its name ("Visa ending 4242"), expiry, nickname, hints, whether it is the default card and whether it fills in without
+ * the card form (`code`: its security code is kept); never a number or a code (an older Worker's plain names still
+ * work). Contact entries as they are (Gloopy may see them).
+ */
+export function savedCardsOf(body) {
+  const raw = Array.isArray(body && body.savedCards) ? body.savedCards.slice(0, 10) : [];
+  return raw.map((x) => (typeof x === "string" ? { id: "", label: x.slice(0, 60), code: false }
+    : x && typeof x === "object" && typeof x.label === "string" ? { id: typeof x.id === "string" ? x.id.slice(0, 40) : "", label: x.label.slice(0, 60), ...(x.nickname ? { nickname: String(x.nickname).slice(0, 60) } : {}), ...(x.hint ? { hint: String(x.hint).slice(0, 200) } : {}), ...(x.default ? { default: true } : {}), code: x.code === true, ...(x.expired === true ? { expired: true } : {}) } : null)).filter(Boolean);
+}
+const CONTACT_KEYS = ["id", "name", "line1", "line2", "city", "region", "postal", "country", "phone", "email", "nickname", "hint"];
+export function contactsOf(body) {
+  const raw = Array.isArray(body && body.contacts) ? body.contacts.slice(0, 20) : [];
+  return raw.filter((x) => x && typeof x === "object").map((x) => Object.fromEntries(CONTACT_KEYS.filter((k) => typeof x[k] === "string" && x[k]).map((k) => [k, x[k].slice(0, 200)]))).filter((x) => Object.keys(x).length > 1);
+}
+/**
+ * A STRONG PASSWORD FOR A NEW ACCOUNT (2026-11-12): `length` letters, digits (and symbols, unless the site takes none),
+ * at least one of each kind, from the machine's own random source. 20 by default; 12 to 64.
+ */
+/** How long a saved login that didn't work is left alone (found live, 2026-11-12). */
+export const SAVED_FAILED_MS = 30 * 60 * 1000;
+/** How long Gloopy's computer remembers the order it is paying for (for the order card and the receipt line). */
+export const ORDER_MS = 2 * 60 * 60 * 1000;
+export const PASSWORD_SYMBOLS = "!@#$%^&*-_=+?";
+export function makePassword({ length = 20, symbols = true } = {}) {
+  const n = Math.max(12, Math.min(64, Math.round(Number(length) || 20)));
+  const kinds = ["abcdefghijkmnopqrstuvwxyz", "ABCDEFGHJKLMNPQRSTUVWXYZ", "23456789", ...(symbols === false ? [] : [PASSWORD_SYMBOLS])];
+  const all = kinds.join("");
+  const out = kinds.map((k) => k[randomInt(k.length)]);
+  while (out.length < n) out.push(all[randomInt(all.length)]);
+  for (let i = out.length - 1; i > 0; i--) { const j = randomInt(i + 1); [out[i], out[j]] = [out[j], out[i]]; }
+  return out.join("");
+}
 // A FILE TOOL'S ANSWER (read: up to 20 PDF pages, each as a picture, like Claude Code's Read; the owner, 2026-11-08: "Yes fix that too"); a command's output keeps RAW_OUTPUT_MAX.
 export const TOOL_OUTPUT_MAX = 8 * 1024 * 1024;
 // The user the AI's commands run as (the image makes `dev`, 1001); unset in tests.
@@ -2659,6 +2707,69 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
   return { remote, headers: [], token: String((body && body.token) || "") };
 }
 
+// ── GLOOPY'S WORK FOLDER, PACKED FOR ITS COPY (the audit, owner 2026-11-10: "do all of that"; src/gloopy-backup.mjs) ──
+// Packed and unpacked as the AI's own user (`dev`): only what it may read goes in, and nothing comes out anywhere it may
+// not write. Caches and installed packages stay out (they come back by themselves).
+export const WORK_SKIP = Object.freeze(["node_modules", ".cache", "__pycache__", ".venv", "venv", ".npm", ".git", ".coder-pictures"]);
+export const WORK_PACK_MAX = 25 * 1024 * 1024;
+/**
+ * The folder packed (gzip'd tar, the same bytes when nothing changed), or null: empty, over `max`, or it failed.
+ * `leave`: files (paths inside the folder) left out, taken as they are (no wildcards).
+ */
+export function packWork(dir, { uid = RUN_UID, gid = RUN_GID, max = WORK_PACK_MAX, leave = [] } = {}) {
+  return new Promise((done) => {
+    let p;
+    try { p = spawn("tar", ["-czf", "-", ...WORK_SKIP.map((x) => "--exclude=" + x), ...(leave.length ? ["--no-wildcards", ...leave.map((x) => "--exclude=./" + x)] : []), "-C", dir, "."], { stdio: ["ignore", "pipe", "ignore"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch { return done(null); }
+    const chunks = [];
+    let size = 0, over = false;
+    p.stdout.on("data", (c) => { size += c.length; if (size > max) { over = true; p.kill("SIGKILL"); } else chunks.push(c); });
+    p.on("error", () => done(null));
+    p.on("close", (code) => done(over || code !== 0 || !size ? null : Buffer.concat(chunks)));
+  });
+}
+/** The folder's files, biggest first (as `dev`; caches and packages left out as packWork leaves them): [{ path, size }]. */
+export function workFiles(dir, { uid = RUN_UID, gid = RUN_GID } = {}) {
+  const prune = WORK_SKIP.flatMap((x, i) => (i ? ["-o", "-name", x] : ["-name", x]));
+  const r = spawnSync("find", [".", "(", ...prune, ")", "-prune", "-o", "-type", "f", "-printf", "%s\t%P\n"], { cwd: dir, encoding: "utf8", timeout: 30000, maxBuffer: 16 * 1024 * 1024, ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) });
+  if (r.status !== 0 || typeof r.stdout !== "string") return [];
+  return r.stdout.split("\n").map((l) => { const t = l.indexOf("\t"); return t > 0 ? { size: Number(l.slice(0, t)) || 0, path: l.slice(t + 1) } : null; }).filter((x) => x && x.path && !x.path.includes("\n")).sort((a, b) => b.size - a.size);
+}
+/**
+ * A WORK FOLDER OVER THE SIZE KEPT (found 2026-11-10, the second docs check: a big download or attachment stopped every
+ * new copy, and nobody was told): packed without its biggest files, as few as it takes. { pack, left: [{ path, size }] }
+ * (pack null: empty, or it failed even so).
+ */
+export async function packWorkFit(dir, opts = {}) {
+  const whole = await packWork(dir, opts);
+  if (whole) return { pack: whole, left: [] };
+  const files = workFiles(dir, opts);
+  if (!files.length) return { pack: null, left: [] };
+  for (let n = 1; n <= files.length; n = n < 4 ? n + 1 : n * 2) {
+    const left = files.slice(0, n);
+    const pack = await packWork(dir, { ...opts, leave: left.map((f) => f.path) });
+    if (pack) return { pack, left };
+    if (n >= 64) break;
+  }
+  return { pack: null, left: [] };
+}
+/** What Gloopy is told of the files left out of its work folder's copy. */
+export function workLeftNote(left) {
+  return "your work folder is bigger than the " + WORK_PACK_MAX / 1048576 + " MB kept for a new computer, so the copy kept leaves out " + left.map((f) => f.path + " (" + (f.size / 1048576).toFixed(1) + " MB)").join(", ") + ". They are still on this computer. Delete what you no longer need, or tell the owner if it matters.";
+}
+/** A packed folder put back into `dir` (as `dev`; never over its owner or modes): { ok, why }. */
+export function unpackWork(dir, buf, { uid = RUN_UID, gid = RUN_GID } = {}) {
+  return new Promise((done) => {
+    let p;
+    try { p = spawn("tar", ["-xzf", "-", "--no-same-owner", "--no-same-permissions", "--no-overwrite-dir", "-C", dir], { stdio: ["pipe", "ignore", "pipe"], ...(Number.isInteger(uid) ? { uid, gid: gid ?? uid } : {}) }); } catch (e) { return done({ ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
+    let err = "";
+    p.stderr.on("data", (c) => { if (err.length < 2000) err += c; });
+    p.on("error", (e) => done({ ok: false, why: String((e && e.message) || e).slice(0, 200) }));
+    p.on("close", (code) => done({ ok: code === 0, why: err.trim().slice(0, 300) }));
+    p.stdin.on("error", () => {});
+    p.stdin.end(buf);
+  });
+}
+
 // ── ON FLY.IO (owner, 2026-11-07: "YES OPTION 2", "OK LETS START THEN") ───
 // Each chat's machine is a small VM there, stopped when quiet with its disk
 // kept, like Claude Code's. The chat's files live on that kept disk
@@ -2666,6 +2777,12 @@ export function gitFrom(body, { via = false, remote = DEFAULT_REMOTE } = {}) {
 // of the setup script stay on the machine's own disk (SETUP_ROOT), which is
 // fresh after a restart, so the setup (and its installed packages) runs again.
 export const KEEPALIVE_MS = 15000;
+/**
+ * THE LIVE VIEW AS A STREAM (live test, 2026-11-10): one request carries the page's pictures for up to SCREEN_STREAM_MS;
+ * something is sent at least every SCREEN_BEAT_MS (its state, when no picture came); a helper's tab, which has no frames
+ * of its own, is looked at every SCREEN_LANE_MS.
+ */
+export const SCREEN_STREAM_MS = 25_000, SCREEN_BEAT_MS = 5000, SCREEN_LANE_MS = 700;
 export const SETUP_ROOT = "/srv/coder-setup";
 export function dataDirs(data, { setupRoot = SETUP_ROOT, owner = 0, dev = DEV } = {}) {
   if (typeof data !== "string" || !/^\/[\w-]+(\/[\w-]+)*$/.test(data)) return {};
@@ -3096,7 +3213,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
 /** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
 export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false, hookQuietMs = 10_000 } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -3129,18 +3246,125 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const binds = [{ src: root, mode: "rw", mine: true }, ...(home ? [{ src: home, mode: "rw", mine: true }] : []), { src: memRoot, mode: "rw", mine: true }, { src: gitRoot, mode: "ro" }, { src: bgRoot, mode: "ro" }, { src: proxyDir, mode: "ro" }];
     return (await startSandbox({ ...up, binds })) || noBox(sandboxWhy());
   };
+  // GLOOPY'S BROWSER (owner, 2026-11-09: "Ok do that": approvals and the private sign-in form; gloopy-browser.mjs): run by
+  // this service as its own user (the image's gloopyweb), in a folder only that user can read (on the kept disk when there
+  // is one), so the AI's commands, as dev or in the admin sandbox, can neither drive it past the checks nor read its
+  // sign-ins. Started the first time a Gloopy turn uses it; it keeps running between turns (it is not dev's).
+  const webUid = env.GLOOPY_WEB_UID && Number.isInteger(Number(env.GLOOPY_WEB_UID)) ? Number(env.GLOOPY_WEB_UID) : null;
+  const webGid = env.GLOOPY_WEB_GID && Number.isInteger(Number(env.GLOOPY_WEB_GID)) ? Number(env.GLOOPY_WEB_GID) : webUid;
+  let hub = null;
+  // (`routed`: its connections go through the owner's computer now: a certificate refused is said to be likelier theirs.)
+  const browserHub = () => (hub ||= makeBrowserHub({ dir: browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser"), uid: webUid, gid: webGid, env, routed: () => routeWanted && !!routeProxy && tunnel.connected }));
+  // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, or a sign-in), until they answer or a turn starts.
+  const pending = new Map();
+  // A SITE WHOSE SAVED LOGIN JUST DIDN'T WORK (2026-11-12): site → when (signInSaved, below, waits SAVED_FAILED_MS).
+  const savedFailed = new Map();
+  // THE ORDER GLOOPY IS PAYING FOR (owner, 2026-11-13; Grok Bot's order card: "the store, the items, Ship to, Pay with, and
+  // the Total"): project → { site, total, reason, items, shipTo, payWith, at }, from its pay step, with the card that went
+  // in; shown on the card that asks before the order is placed, and on the receipt line after (ORDER_MS at most).
+  const orders = new Map();
+  // What of Gloopy's computer was last sent to its copy (the audit, 2026-11-10): "<project>:work" / ":browser" → its hash.
+  const backups = new Map();
+  // Files left out of the copy of each chat's work folder (too big), for its next turn's note (said once for each set).
+  const workLeft = new Map(), workTold = new Map();
+  const workNoteFor = (project) => {
+    const left = workLeft.get(project);
+    if (!left || !left.length) return "";
+    const sig = left.map((f) => f.path).join("\n");
+    if (workTold.get(project) === sig) return "";
+    workTold.set(project, sig);
+    return workLeftNote(left);
+  };
+  // THE OWNER HAS TAKEN OVER GLOOPY'S BROWSER (owner, 2026-11-09: "Ok you can start"; Grok Bot's Take control, dots'
+  // Take over): only while no Gloopy turn runs; Gloopy's browser steps are refused meanwhile, and the owner's next message
+  // hands it back (Grok Bot: "tell the Bot to continue").
+  let ownerControl = null;
+  const notWhileOwner = () => { if (ownerControl) throw new Error("the owner has taken over your browser: wait for their next message before you use it"); };
+  // THROUGH THE OWNER'S OWN COMPUTER (the owner, 2026-11-11: "Yes do that"; Grok Bot's "Route traffic through this
+  // computer"): the link from their Go Farther desktop app (a WebSocket that comes through Coder's Worker, with this
+  // machine's key), and the proxy Gloopy's browser is started with while routing is on (only the browser's own user may
+  // use it). The owner's switch comes with each turn and take-over (`route`); the browser restarts when it changes.
+  const tunnel = makeTunnel();
+  let routeProxy = null, routeWanted = false;
+  const browserRoute = async (on) => {
+    if (env.CODER_IMAGE !== "full" || ownerControl) return;
+    routeWanted = on === true;
+    // Turned off: the owner's computer is let go too, not only left unused (its app's ticket is worthless by now).
+    if (!routeWanted && tunnel.connected) tunnel.close("routing was turned off", 4403);
+    try {
+      if (routeWanted && !routeProxy) { const p = makeRouteProxy({ tunnel, uid: webUid }); await p.listen(); routeProxy = p; }
+      await browserHub().setRoute(routeWanted && routeProxy ? routeProxy.info : null);
+    } catch { /* the browser goes its own way */ }
+  };
+  // Which way the browser's new connections go now, for the live view: through the owner's computer, or Gloopy's own.
+  const routeNow = () => (routeWanted ? { route: tunnel.connected ? "desktop" : "cloud", link: (({ device, streams, got, sent, cut }) => ({ device, streams, got, sent, ...(cut ? { cut } : {}) }))(tunnel.status()) } : {});
+  // THE LIVE VIEW AS A STREAM (live test, 2026-11-10: each look paid the Worker's sign-in check, about half a second, so
+  // the owner saw about two pictures a second): one request, answered with the page's pictures as Chromium sends them
+  // (an event each, carrying a look's answer), and with its state when that changes or every SCREEN_BEAT_MS, for up to
+  // `streamMs`; then the page asks again. A helper's tab is looked at every SCREEN_LANE_MS. It ends early when the
+  // browser closes or the owner's page goes; a slow connection gets fewer pictures, never a growing queue.
+  const screenStream = async (res, url, project) => {
+    res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache, no-transform", "x-accel-buffering": "no", "x-coder-machine": "1" });
+    let gone = false;
+    res.on("close", () => { gone = true; });
+    const lane = Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0)));
+    let since = String(url.searchParams.get("since") || "").replace(/[^a-f0-9]/g, "").slice(0, 40);
+    const until = Date.now() + Math.max(1000, Number(streamMs) || SCREEN_STREAM_MS);
+    let sentAt = 0, sentKey = "";
+    while (!gone && Date.now() < until) {
+      let r;
+      try { r = await browserHub().screen({ since, wait: lane ? 0 : Math.max(0, Math.min(SCREEN_BEAT_MS, until - Date.now())), lane }); }
+      catch (e) { r = { error: String((e && e.message) || e).slice(0, 300) }; }
+      if (gone) break;
+      const t = turns.get(project);
+      const out = { ...r, control: !!ownerControl, working: !!(t && t.running), ...routeNow() };
+      if (typeof out.hash === "string" && out.hash) since = out.hash;
+      // Its state without the picture (and without how long ago Gloopy's last step was).
+      const key = JSON.stringify({ ...out, shot: undefined, hash: undefined, same: undefined, last: out.last ? { did: out.last.did, box: out.last.box } : undefined });
+      if (out.shot || key !== sentKey || Date.now() - sentAt >= SCREEN_BEAT_MS) {
+        sentKey = key; sentAt = Date.now();
+        if (!res.write("data: " + JSON.stringify(out) + "\n\n")) await new Promise((ok) => { const done = () => { clearTimeout(tm); res.off("drain", done); res.off("close", done); ok(); }; const tm = setTimeout(done, 10_000); res.once("drain", done); res.once("close", done); });
+      }
+      if (out.error || out.off) break;
+      if (lane) await new Promise((ok) => setTimeout(ok, SCREEN_LANE_MS));
+    }
+    if (!res.writableEnded) res.end();
+  };
+  // THE OWNER'S TIME ZONE FOR THE BROWSER (owner, 2026-11-10: "yes go ahead", fix 7), as their device says it (the Worker
+  // sends it each turn): a browser running with another one stops, to start again with it at Gloopy's next step. Never
+  // while the owner has control.
+  const browserZone = async (body) => {
+    if (env.CODER_IMAGE !== "full" || ownerControl || typeof body.ownerZone !== "string" || !body.ownerZone) return;
+    await browserHub().setZone(body.ownerZone.slice(0, 64)).catch(() => {});
+  };
   async function startTurn(body, { copy = "" } = {}) {
     const project = String(body.project || "");
     if (!PROJECT_ID.test(project)) return [400, { error: "bad project" }];
+    // GLOOPY (owner, 2026-11-09: one personal assistant per person, on Coder's engine; container/gloopy-agent.mjs): a
+    // chat with no repository, Gloopy's own instructions, tools and notes, and the whole internet (it has no environment:
+    // no setup script, no variables, no network list, no other repositories).
+    const gloopy = body.agent === "gloopy";
+    if (gloopy) {
+      if (body.repo) return [400, { error: "Gloopy works without a repository" }];
+      // Its keys (2026-11-09): only where they apply, for the proxy; their values stay on Coder's Worker (egress).
+      body = { ...body, setup: { script: "", vars: {}, network: { mode: "full" } }, extra: [], secrets: Array.isArray(body.secrets) ? body.secrets : [] };
+    }
     const cur = turns.get(project);
-    if (cur && cur.running) return [409, { error: "busy" }];
+    // THE SAME START TWICE (live test, 2026-11-12): a request from Coder's Worker can reach this machine again when its
+    // first answer was lost on the way (it is then sent once more); the turn already running is that start's own.
+    const start = typeof body.start === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.start) ? body.start : "";
+    if (cur && cur.running) return start && cur.start === start ? [200, { ok: true, again: true }] : [409, { error: "busy" }];
     // A TURN THAT ONLY TELLS CODER A BACKGROUND COMMAND ENDED (Coder's Worker starts it, like Claude Code, which "re-invokes
     // you when it exits"): not started when there is nothing to tell (another turn told it already).
     if (body.wake === true) { checkJobs(); if (!untoldOf(project).length) return [409, { error: "nothing to tell" }]; }
+    pending.delete(project);
+    // The owner's message hands the browser back to Gloopy.
+    if (body.agent === "gloopy") ownerControl = null;
     // MARKED RUNNING FIRST, so two requests at once cannot both start.
     // (`mode`: the chat's permission mode, which the owner may change while it runs, /mode; `answers`: the owner's answers
     // to its cards, /answer; `asking`: the card a step waits on.)
-    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "" };
+    const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "", writes: { check: null }, start };
+
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
     const live = liveFetch ? liveTarget(body.live) : null;
@@ -3183,6 +3407,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A CHAT WITHOUT A REPOSITORY (the audit, 2026-11-06): its folder is made
         // here, as root, and only that folder is handed to the AI's user.
         const pd = await makeProjectDir(dir, { root, owner: DEV });
+        // Made just now: a new disk (Gloopy's folder comes back from its copy before it starts: restoreGloopy).
+        t.madeDir = pd.made === true;
         if (pd.why) return fail(500, pd.why);
       }
     } catch (e) { return fail(500, String((e && e.message) || e).slice(0, 200)); }
@@ -3360,6 +3586,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         px.setNetwork(net); px.setSecrets(secretList); px.setEgress(body.egress || null); px.setGithub(githubOn); secretHosts = secretList.length ? px.hosts() : [];
         // (The chat's repositories, whose source archives may be fetched: Claude Code's repository scope.)
         if (typeof px.setRepos === "function") px.setRepos([body.repo, ...extras.map((x) => x && x.repo)].filter((x) => typeof x === "string" && x));
+        // GLOOPY'S REQUESTS WITH THE OWNER'S SAVED KEYS (the audit, 2026-11-10): each one but a read is checked by its
+        // turn (runCoder's checkWrites) before it goes on to the Worker; none goes on while no turn of Gloopy's checks it.
+        px.setWriteCheck(gloopy ? (w) => (t.writes && typeof t.writes.check === "function" ? t.writes.check(w) : { go: false, text: "Not sent: Gloopy's check for requests with saved keys is not running." }) : null);
         // web_fetch follows the list too: Claude Code's docs name only GitHub,
         // connectors, sites with a saved secret and its own API as skipping it.
         proxyEnv = { ...px.env(), ...(net.limited ? { CODER_NET_LIMITED: "1" } : {}) };
@@ -3555,6 +3784,148 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
+    // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,
+    // its machine and its network.
+    // Its browser only where the machine has one (Chrome and Playwright are in the full image).
+    const hasBrowser = env.CODER_IMAGE === "full";
+    // Gloopy's pages, as the Worker keeps them (2026-11-09): in its context, and for its page tool.
+    const pages = gloopy && Array.isArray(body.pages) ? body.pages.filter((x) => x && typeof x === "object").slice(0, 100) : [];
+    // Gloopy's schedules, as the Worker keeps them (2026-11-09): in its context, and for its schedule tool.
+    const schedules = gloopy && Array.isArray(body.schedules) ? body.schedules.filter((x) => x && typeof x === "object").slice(0, 20) : [];
+    const permissions = gloopy && body.permissions && typeof body.permissions === "object" ? body.permissions : null;
+    // Gloopy's webhooks, as the Worker keeps them (2026-11-09): in its context, and for its webhook tool, with the public
+    // address they are called at (the Worker's own, as its egress says).
+    const webhooks = gloopy && Array.isArray(body.webhooks) ? body.webhooks.filter((x) => x && typeof x === "object").slice(0, 10) : [];
+    // The files kept for Gloopy (2026-11-09): the owner's attachments and the ones it sent, newest first.
+    const fileList = gloopy && Array.isArray(body.files) ? body.files.filter((x) => x && typeof x.id === "string").slice(0, 30) : [];
+    let hookBase = "/api/coder/gloopy-hook/";
+    try { if (body.egress && typeof body.egress.url === "string" && /^https?:\/\//.test(body.egress.url)) hookBase = new URL(body.egress.url).origin + "/api/coder/gloopy-hook/"; } catch { /* the relative address */ }
+    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, schedulesPaused: body.schedulesPaused === true, ownerZone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 60) : "", permissions, rules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], pages, savedLogins: savedLoginsOf(body), savedCards: savedCardsOf(body), contacts: contactsOf(body), webhooks, files: fileList, background: body.background === true });
+    // A SAVED LOGIN (2026-11-09; src/gloopy-vault.mjs): this service asks Coder's Worker for the one login of the site the
+    // browser is on, with this job's own pass, and types it into the page itself; nothing of it reaches the AI.
+    const eg = body.egress && typeof body.egress === "object" ? body.egress : null;
+    // Several accounts on one site (2026-11-12): the one asked for by its id (Gloopy's pick by the owner's hints).
+    const vaultAsk = (body2) => (vaultFetch || fetch)(new URL(eg.url).origin + "/api/coder/gloopy-vault", { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": String(eg.chat || ""), "x-coder-turn": String(eg.turn || ""), "x-coder-egress": String(eg.pass || "") }, body: JSON.stringify(body2) });
+    const signInSaved = async ({ site, userRef = "", passRef, submitRef = "", id = "" }) => {
+      if (!eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return { ok: false };
+      // A SAVED LOGIN THAT JUST DIDN'T WORK is not tried again for a while (found live, 2026-11-12: each new card tried it
+      // again first, and each failed try made the site load its form again; on a real site, failed tries can lock an
+      // account). Until the owner signs in on the card, or half an hour has gone.
+      const tried = savedFailed.get(site);
+      if (tried && Date.now() - tried < SAVED_FAILED_MS) return { ok: false, again: true };
+      let r;
+      try { r = await vaultAsk({ site, ...(id ? { id } : {}) }); } catch { return { ok: false }; }
+      const login = r && r.ok ? await r.json().catch(() => null) : null;
+      if (!login || typeof login.password !== "string" || !login.password) return { ok: false };
+      const done = await browserHub().fill({ site, userRef, passRef, submitRef, username: String(login.username || ""), password: login.password, secureOnly: true });
+      if (done.still === true) savedFailed.set(site, Date.now()); else savedFailed.delete(site);
+      return { ok: true, still: done.still === true, title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
+    };
+    // A LOGIN'S NICKNAME OR HINTS (owner, 2026-11-12: "yes do 1 and 2"; Grok Bot's "A Bot can change ... an entry's
+    // nickname and hints, when you ask"): changed in the owner's Vault by Coder's Worker; nothing else of it.
+    const vaultEdit = async ({ site, username = "", nickname, hint }) => {
+      let r;
+      try { r = await vaultAsk({ edit: { site, ...(username ? { username } : {}), ...(nickname !== undefined ? { nickname } : {}), ...(hint !== undefined ? { hint } : {}) } }); } catch { return { ok: false, why: "the owner's Vault can't be reached from this computer" }; }
+      const d = await r.json().catch(() => null);
+      return r.ok && d && d.ok ? { ok: true, login: d.login } : { ok: false, why: String((d && d.error) || "the owner's Vault didn't take it").slice(0, 300) };
+    };
+    // A PASSWORD MADE FOR A NEW ACCOUNT (owner, 2026-11-12: "do all 5"; Grok Bot's "Vault generates the password and
+    // saves the login, and the Bot never sees it"): made here, kept in the owner's Vault first (so it is never lost),
+    // then typed into the page's new-password field (and its confirm field). Nothing of it reaches the AI.
+    const makeLogin = async ({ site, username = "", passRef, confirmRef = "", length, symbols }) => {
+      if (!eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return { ok: false, why: "the owner's Vault can't be reached from this computer" };
+      const password = makePassword({ length, symbols });
+      let r;
+      try { r = await vaultAsk({ save: true, site, username: String(username || ""), password }); } catch { r = null; }
+      const kept = r && r.ok ? await r.json().catch(() => null) : null;
+      if (!kept || !kept.ok) return { ok: false, why: r && r.status === 403 ? "the owner's settings say never to sign up" : "the owner's Vault could not keep it, so nothing was typed" };
+      try {
+        const done = await browserHub().fillNew({ site, passRef, confirmRef, password });
+        return { ok: true, id: String(kept.id || ""), title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
+      } catch (e) { return { ok: false, kept: true, why: String((e && e.message) || e).slice(0, 300) }; }
+    };
+    // A SAVED CARD FILLED IN AT CHECKOUT (owner, 2026-11-13: "yes if dots and bot have it do it pls"; Grok Bot's "A card
+    // saved in Vault fills in at checkout without asking you each time"): fetched from the owner's Vault by this service,
+    // with this job's pass (never by the AI), and typed into the page's card fields. One kept without its security code,
+    // on a page that asks for one, is not typed (`needCode`): the card form asks for the code.
+    const payWithSaved = async ({ site, refs = {}, id = "" }) => {
+      if (!eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return { ok: false, why: "the owner's Vault can't be reached from this computer" };
+      let r;
+      try { r = await vaultAsk({ card: { ...(id ? { id } : {}), site } }); } catch { return { ok: false, why: "the owner's Vault can't be reached from this computer" }; }
+      const card = r && r.ok ? await r.json().catch(() => null) : null;
+      if (!card || typeof card.number !== "string" || !card.number) return { ok: false, why: r && r.status === 403 ? "the owner's settings never allow buying or paying" : "no saved card fits" };
+      if (refs.cvc && !card.cvc) return { ok: false, needCode: true, id: String(card.id || ""), label: String(card.label || "") };
+      try {
+        const done = await browserHub().fillCard({ site, card: { number: card.number, month: card.month, year: card.year, cvc: card.cvc || "", name: card.name || "", postal: card.postal || "" }, numberRef: refs.number, expRef: refs.exp || "", monthRef: refs.month || "", yearRef: refs.year || "", cvcRef: refs.cvc || "", nameRef: refs.name || "", postalRef: refs.postal || "" });
+        return { ok: true, id: String(card.id || ""), label: String(card.label || ""), title: String(done.title || "").slice(0, 300), url: String(done.url || "").slice(0, 500) };
+      } catch (e) { return { ok: false, id: String(card.id || ""), label: String(card.label || ""), why: String((e && e.message) || e).slice(0, 300) }; }
+    };
+    // THE OWNER'S CONTACT INFO KEPT OR CHANGED, AND A CARD'S NICKNAME OR HINTS (owner, 2026-11-13; Grok Bot's "A Bot can change
+    // contact info, and an entry's nickname and hints, when you ask"): in the owner's Vault, by Coder's Worker.
+    const vaultSay = async (body2) => {
+      let r;
+      try { r = await vaultAsk(body2); } catch { return { ok: false, why: "the owner's Vault can't be reached from this computer" }; }
+      const d = await r.json().catch(() => null);
+      return r.ok && d && d.ok ? { ok: true, ...d } : { ok: false, why: String((d && d.error) || "the owner's Vault didn't take it").slice(0, 300) };
+    };
+    // GLOOPY'S FILES (2026-11-09: "4"; src/gloopy-files.mjs): this service fetches an attachment of the owner's, or hands
+    // over a file Gloopy made, to and from Coder's Worker with this job's own pass; Gloopy's commands never hold the pass.
+    const jobHeaders = eg ? { "x-coder-chat": String(eg.chat || ""), "x-coder-turn": String(eg.turn || ""), "x-coder-egress": String(eg.pass || "") } : null;
+    const filesAt = (path) => new URL(eg.url).origin + "/api/coder/" + path;
+    const files = gloopy && eg && typeof eg.url === "string" && /^https?:\/\//.test(eg.url) ? {
+      get: async (fid) => {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-file-get"), { method: "POST", headers: { "content-type": "application/json", ...jobHeaders }, body: JSON.stringify({ id: fid }) }).catch(() => null);
+        if (!r || !r.ok) return null;
+        let name = "";
+        try { name = decodeURIComponent(r.headers.get("x-file-name") || ""); } catch { name = ""; }
+        return { name, data: Buffer.from(await r.arrayBuffer()).toString("base64") };
+      },
+      put: async ({ name, data }) => {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-file-put"), { method: "POST", headers: { "content-type": "application/octet-stream", "x-file-name": encodeURIComponent(String(name || "")), ...jobHeaders }, body: Buffer.from(String(data || ""), "base64") }).catch(() => null);
+        const out = r ? await r.json().catch(() => null) : null;
+        if (!r || !r.ok || !out || !out.id) throw new Error((out && out.error) || "Coder's Worker could not keep it");
+        return { id: String(out.id), name: String(out.name || name), size: Number(out.size) || 0 };
+      },
+    } : null;
+    // GLOOPY'S COMPUTER, KEPT WHEN IT IS REPLACED (the audit, 2026-11-10; src/gloopy-backup.mjs): on a new disk, its work
+    // folder and its browser's sign-ins come back from the copy Coder's Worker keeps, before it starts; after each job,
+    // the copy is brought up to date (only what changed is sent).
+    const browserDir = browserRoot || (data ? join(data, "browser") : "/srv/gloopy-browser");
+    const restoreGloopy = async () => {
+      if (!gloopy || !jobHeaders || !eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return;
+      if (t.madeDir) {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-backup-get") + "?part=work", { method: "POST", headers: jobHeaders }).catch(() => null);
+        if (r && r.ok) {
+          const buf = Buffer.from(await r.arrayBuffer());
+          const u = await unpackWork(dir, buf);
+          if (u.ok) { backups.set(project + ":work", createHash("sha256").update(buf).digest("hex")); t.events.push({ at: Date.now(), type: "note", text: "Gloopy's work folder was put back on this new computer." }); }
+        }
+      }
+      if (hasBrowser && !existsSync(join(browserDir, "profile"))) {
+        const r = await (filesFetch || fetch)(filesAt("gloopy-backup-get") + "?part=browser", { method: "POST", headers: jobHeaders }).catch(() => null);
+        const j = r && r.ok ? await r.json().catch(() => null) : null;
+        if (j && j.state && typeof j.state === "object") {
+          // Left in the browser's own folder, only its user's; read once when the browser starts (gloopy-browser.mjs).
+          mkdirSync(browserDir, { recursive: true, mode: 0o700 });
+          if (webUid !== null) chownSync(browserDir, webUid, webGid ?? webUid);
+          const f = join(browserDir, RESTORE_FILE);
+          writeFileSync(f, JSON.stringify(j.state), { mode: 0o600 });
+          if (webUid !== null) chownSync(f, webUid, webGid ?? webUid);
+        }
+      }
+    };
+    const backupGloopy = async () => {
+      if (!gloopy || !jobHeaders || !eg || typeof eg.url !== "string" || !/^https?:\/\//.test(eg.url)) return;
+      const send = async (part, body, type) => { const sum = createHash("sha256").update(body).digest("hex"); if (backups.get(project + ":" + part) === sum) return; const r = await (filesFetch || fetch)(filesAt("gloopy-backup-put") + "?part=" + part, { method: "POST", headers: { "content-type": type, ...jobHeaders }, body }).catch(() => null); if (r && r.ok) backups.set(project + ":" + part, sum); };
+      const { pack, left } = await packWorkFit(dir);
+      if (pack) await send("work", pack, "application/gzip");
+      // Gloopy hears of what was left out, at its next turn on this computer.
+      if (left.length) workLeft.set(project, left.slice(0, 20)); else workLeft.delete(project);
+      if (hasBrowser && (await browserHub().running().catch(() => false))) {
+        const st = await browserHub().state().catch(() => null);
+        if (st && Array.isArray(st.cookies)) await send("browser", Buffer.from(JSON.stringify(st)), "application/json");
+      }
+    };
     const lastSend = async () => { if (sender) await sender.flush(); };
     // (See rulesNow: the repository's files looked at again, and read again only when one changed.)
     const repoOpts = { trust: !!(body.rules && body.rules.trust === true), github: body.github === true, several: extraRepos(body).length > 0 };
@@ -3848,6 +4219,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
           } finally { t.asking = ""; }
         },
+        ...(gloopy ? { freshContext: async () => gloopyNow((await readMemory(memFile)) ?? "") } : {}),
         // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
         afterFile: ({ tool, args }) => {
@@ -3855,12 +4227,30 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return [laterNotes(later, dir, args && args.path, shownNotes), rel && text !== null ? checkEdit(rel, text, secRules, shownSec) : ""].filter(Boolean).join("\n\n");
         },
         emit: (e) => { t.events.push(e); },
+        // Gloopy's browser, through this service (its own user); the sign-in's filling is never the AI's.
+        ...(files ? { files } : {}),
+        ...(gloopy ? { writes: t.writes } : {}),
+        // THE OWNER'S VAULT (owner, 2026-11-12: "yes do 1 and 2"): a login's nickname or hints changed when they ask.
+        ...(gloopy && eg && typeof eg.url === "string" && /^https?:\/\//.test(eg.url) ? { vault: { edit: vaultEdit, contact: (x) => vaultSay({ contact: x }), card: (x) => vaultSay({ cardEdit: x }) } } : {}),
+        // The order Gloopy is paying for (the order card, the receipt line).
+        ...(gloopy ? { order: { get: (site) => { const o = orders.get(project); return o && (!site || o.site === site) && Date.now() - o.at < ORDER_MS ? o : null; }, set: (o) => { orders.set(project, { ...o, at: Date.now() }); }, done: () => { orders.delete(project); } } } : {}),
+        // A file to upload made ready (fix 3, 2026-11-10), and downloads finished since the last step (fix 2): only from a
+        // browser already running (none is started to be asked).
+        ...(gloopy && hasBrowser ? { browser: { act: (a) => { notWhileOwner(); return browserHub().act(a); }, describe: (ref) => { notWhileOwner(); return browserHub().describe(ref); }, signInSaved: (x) => { notWhileOwner(); return signInSaved(x); }, payWithSaved: (x) => { notWhileOwner(); return payWithSaved(x); }, makeLogin: (x) => { notWhileOwner(); return makeLogin(x); }, stage: (x) => { notWhileOwner(); return browserHub().stage(x); }, collect: async () => ((await browserHub().running().catch(() => false)) ? browserHub().collect() : null),
+          // GLOOPY'S HELPERS' OWN TABS (2026-11-10): each helper's steps in a tab of its own; closed when they are done.
+          lane: (k) => ({ act: (a) => browserHub().act(a, k), describe: (ref) => browserHub().describe(ref, k) }),
+          closeLanes: async () => ((await browserHub().running().catch(() => false)) ? browserHub().closeLanes() : null) } } : {}),
       };
       // (Kept for the chat's SessionEnd hooks, run when this machine stops: sessionEnd.)
       t.turnDeps = turnDeps; t.hooksLast = turnHooks; t.home0 = home0; t.fileEdits = repoSet.defaultMode === "acceptEdits";
-      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) })
+      // GLOOPY'S TURN (merged with main, 2026-11-13): its own instructions, tools, cards and settings on the same engine.
+      // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
+      // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
+      const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
-        .then(async (r) => { const memory = await readMemory(memFile); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
+        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
         .then(async (result) => {
           // THE TURN IS OVER: nothing it started keeps running but its background commands (tool 4: like Claude Code's,
@@ -3871,6 +4261,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             await tidyBg(bgDir, project).catch(() => {});
           } finally {
             t.result = { ...result, background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid) };
+            // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,
+            // /gloopy/signin or /gloopy/card; and no request of Gloopy's goes on unchecked once its turn is over.
+            { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest || r.keyRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : r.keyRequest ? { kind: "key", ...r.keyRequest } : { kind: "card", ...r.cardRequest }); }
+            if (t.writes) t.writes.check = null;
             t.ended = Date.now();
             t.running = false;
           }
@@ -3893,6 +4287,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         return [200, { ok: true, held: true }];
       } catch { /* no copy this time */ }
     }
+    if (gloopy) await restoreGloopy().catch(() => {});
+    if (gloopy) await browserZone(body);
+    if (gloopy) await browserRoute(body.route === true);
     begin();
     return [200, { ok: true }];
   }
@@ -3959,6 +4356,21 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (runs.length) await noteSessionEnd(gitRoot, { at: new Date().toISOString(), said, ms: Date.now() - t0 }).catch(() => {});
     return runs.length;
   };
+  // THE LINK FROM THE OWNER'S COMPUTER (2026-11-11): a WebSocket upgrade of /gloopy/route, only with this machine's key
+  // (it comes through Coder's Worker), only on a machine with the browser; the newest link wins.
+  const upgrade = (req, socket, head) => {
+    const u = new URL(req.url, "http://coder");
+    const want = env && env.CODER_CONTROL_KEY;
+    const deny = (code) => { try { socket.end("HTTP/1.1 " + code + "\r\nConnection: close\r\nContent-Length: 0\r\n\r\n"); } catch { /* gone */ } };
+    if (u.pathname !== "/gloopy/route") return deny("404 Not Found");
+    if (!want && env && (env.FLY_MACHINE_ID || env.CODER_DATA)) return deny("503 Service Unavailable");
+    if (want && req.headers["x-coder-key"] !== want) return deny("403 Forbidden");
+    if (env.CODER_IMAGE !== "full") return deny("404 Not Found");
+    // The link is no use of this machine: it never resets the clock that puts it to sleep (found live, 2026-11-11: each
+    // time the app linked again after a cut, the clock started over, so with the app open the machine never slept).
+    const ws = wsAccept(req, socket, head);
+    if (ws) tunnel.attach(ws);
+  };
   const handle = async function handle(req, res) {
     const url = new URL(req.url, "http://coder");
     // A "STILL WORKING" SIGNAL (Fly.io, 2026-11-07): Fly's front door cuts a
@@ -3998,6 +4410,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (want && req.headers["x-coder-key"] !== want) return send(403, { error: "not allowed" });
       // Asked before this machine is put to sleep (busyState), with how long the Worker has not asked it for anything.
       if (url.pathname === "/busy" && req.method === "GET") return send(200, { ...busyState(turns), idleMs: Math.max(0, Date.now() - lastAsked) });
+      // ROUTING TURNED OFF, told by the Worker at once (2026-11-11): the owner's computer is let go now (also while the
+      // owner has control), so new pages go straight out; the browser drops its proxy at its next start. Not counted as
+      // use (it never keeps this machine awake).
+      if (url.pathname === "/gloopy/route" && req.method === "POST") {
+        if (body.on === false) { routeWanted = false; if (tunnel.connected) tunnel.close("routing was turned off", 4403); }
+        return send(200, { ok: true, route: routeWanted, ...routeNow() });
+      }
       lastAsked = Date.now();
       // x-coder-copy: what became of the environment's saved copy (Coder's Worker sets it, with this machine's key).
       if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body, { copy: String(req.headers["x-coder-copy"] || "") }); return send(st, o); }
@@ -4115,6 +4534,135 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         t.claimed = true;
         return send(200, { ok: true });
       }
+      // GLOOPY'S CARDS, ANSWERED (2026-11-09): the browser step the owner allowed, done now by this service, or the owner's
+      // sign-in from the private form, typed into the page here and never kept or said. Only what this chat's last turn
+      // asked for, and once.
+      if (url.pathname === "/gloopy/approve" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (!p || p.kind !== "approval" || p.id !== body.id) return send(409, { error: "nothing is waiting for an OK" });
+        pending.delete(project);
+        if (body.allow !== true) return send(200, { done: false, denied: true });
+        try {
+          // `keep`: what the step downloads waits in the browser, for Gloopy's next turn (fix 2).
+          const r = await browserHub().act({ ...p.args, keep: true });
+          const line = (k) => ((new RegExp("^" + k + ": (.*)$", "m").exec(r.text) || [])[1] || "").slice(0, 500);
+          return send(200, { done: true, did: line("Did"), title: line("Page"), url: line("Address") });
+        } catch (e) { return send(200, { done: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // THE OWNER'S LIVE VIEW OF GLOOPY'S BROWSER, and the owner taking over (2026-11-09): only on a machine with a browser
+      // (the full image); a look never starts the browser; the owner's clicks and typing only while they have control and
+      // Gloopy is not working.
+      if (["/gloopy/screen", "/gloopy/control", "/gloopy/input", "/gloopy/area", "/gloopy/teach", "/gloopy/run"].includes(url.pathname) && env.CODER_IMAGE !== "full") return send(200, { none: true });
+      const working = !!(t && t.running);
+      // Asked for a stream (the Worker then asks without the "still working" signal): the pictures as they come.
+      if (url.pathname === "/gloopy/screen" && req.method === "GET" && url.searchParams.get("stream") === "1" && !keep) return screenStream(res, url, project);
+      if (url.pathname === "/gloopy/screen" && req.method === "GET") {
+        // Asked with wait (2026-11-10), it answers once the page changes (near-video), or after a few seconds.
+        try { return send(200, { ...(await browserHub().screen({ since: url.searchParams.get("since") || "", wait: Number(url.searchParams.get("wait")) || 0, lane: Math.max(0, Math.min(4, Math.round(Number(url.searchParams.get("lane")) || 0))) })), control: !!ownerControl, working: !!(t && t.running), ...routeNow() }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: !!ownerControl, working }); }
+      }
+      if (url.pathname === "/gloopy/control" && req.method === "POST") {
+        if (body.take !== true) {
+          const had = !!ownerControl;
+          ownerControl = null;
+          let where = {};
+          try { if (await browserHub().running()) { const d = await browserHub().describe(""); where = { url: String(d.url || ""), title: String(d.title || "") }; } } catch { where = {}; }
+          return send(200, { control: false, had, ...where });
+        }
+        if (working) return send(409, { error: "Gloopy is working in its browser. Stop it first, then take over." });
+        try { await browserZone(body); await browserRoute(body.route === true); const r = await browserHub().wake(); ownerControl = { since: Date.now() }; return send(200, { ...r, control: true, working: false, ...routeNow() }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300), control: false }); }
+      }
+      // A PART OF THE PAGE THE OWNER MARKED (dots' annotations), while they watch or have control: what is in it. A closed
+      // browser is not started for it.
+      if (url.pathname === "/gloopy/area" && req.method === "POST") {
+        try {
+          if (!(await browserHub().running())) return send(409, { error: "Gloopy’s browser is closed." });
+          return send(200, await browserHub().area({ x: body.x, y: body.y, w: body.w, h: body.h }));
+        } catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // TEACH A TASK (Grok Bot's), while the owner has control: on, then off with the steps written down.
+      if (url.pathname === "/gloopy/teach" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        try { return send(200, await browserHub().teach(body.on === true)); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      if (url.pathname === "/gloopy/input" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        if (working) { ownerControl = null; return send(409, { error: "Gloopy is working in its browser." }); }
+        try { return send(200, { ...(await browserHub().input(body)), control: true, working: false }); }
+        catch (e) { return send(200, { error: String((e && e.message) || e).slice(0, 700), control: true }); }
+      }
+      // A COMMAND OF THE OWNER'S, in Gloopy's terminal while they have control (owner, 2026-11-12: "yes build all four";
+      // Grok Bot's computer has a terminal): run as Gloopy's own commands are (its unprivileged user, in Gloopy's folder,
+      // its home), ended after TERM_S seconds; the end of its output, as a terminal shows it. Kept for Gloopy to be told.
+      if (url.pathname === "/gloopy/run" && req.method === "POST") {
+        if (!ownerControl) return send(409, { error: "Take over first." });
+        if (working) return send(409, { error: "Gloopy is working. Stop it first." });
+        const project = String(body.project || "");
+        const command = typeof body.command === "string" ? body.command.trim() : "";
+        if (!PROJECT_ID.test(project) || !command || command.length > 2000) return send(400, { error: "a command of up to 2000 characters" });
+        const dir = join(root, project);
+        if (!existsSync(dir)) return send(409, { error: "Gloopy's folder isn't on this computer yet: send Gloopy a message first." });
+        const r = await execIn(dir, command, TERM_S, { kill: true, home, bgDir: join(bgRoot, project), outMax: 200_000 });
+        ownerControl.ran = [...(ownerControl.ran || []), command.slice(0, 300)].slice(-20);
+        return send(200, { code: r.code, output: String(r.output || "").slice(-20_000), ...(r.timedOut ? { timedOut: true } : {}), control: true });
+      }
+      if (url.pathname === "/gloopy/signin" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (!p || p.kind !== "signin" || p.id !== body.id) return send(409, { error: "no sign-in is waiting" });
+        pending.delete(project);
+        if (body.skip === true) return send(200, { skipped: true });
+        // A CODE THE SITE SENT THE OWNER (the audit, 2026-11-10), from the same private card, into the page's code field.
+        if (p.code === true) {
+          try {
+            const r = await browserHub().fillCode({ site: p.site, codeRef: p.codeRef, submitRef: p.submitRef, code: String(body.code || "") });
+            return send(200, { ok: true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+          } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+        }
+        try {
+          const r = await browserHub().fill({ site: p.site, userRef: p.userRef, passRef: p.passRef, submitRef: p.submitRef, username: String(body.username || ""), password: String(body.password || ""), ...(body.saved === true ? { secureOnly: true } : {}) });
+          // Signed in on the card: the site's saved login may be tried again (the card may have just saved a new one).
+          if (r.still !== true) savedFailed.delete(p.site);
+          return send(200, { ok: true, still: r.still === true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+        } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // THE OWNER'S SECURITY KEY (2026-11-11; Grok Bot's "Use hardware security keys"): what it signed on their computer
+      // (in the Go Farther app), or "not now", for the page waiting for it: from the card this chat's last turn showed
+      // (`id`), or from their live view while they have control (`control`). Checked there to be for its very request.
+      if (url.pathname === "/gloopy/key" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (body.control === true) { if (!ownerControl) return send(409, { error: "Take over first." }); }
+        else { if (!p || p.kind !== "key" || p.id !== body.id) return send(409, { error: "no security key is waiting" }); pending.delete(project); }
+        try {
+          const r = await browserHub().keyAnswer({ site: body.control === true ? "" : String(p.site || ""), ...(body.skip === true ? { skip: true } : { credential: body.credential }) });
+          return send(200, { ok: r.ok === true, ...(r.skipped ? { skipped: true } : {}), title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+        } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // GLOOPY SIGNED OUT OF A SITE BY THE OWNER (the audit, 2026-11-10): that site's cookies and its pages' storage go from
+      // Gloopy's browser; not while Gloopy works in it.
+      if (url.pathname === "/gloopy/signout" && req.method === "POST") {
+        if (env.CODER_IMAGE !== "full") return send(200, { none: true });
+        if (t && t.running) return send(409, { error: "Gloopy is working. Stop it first, or try again when it is done." });
+        try { return send(200, await browserHub().signOut({ site: String(body.site || "") })); }
+        catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
+      // THE OWNER'S CARD, from the private card form (2026-11-09): typed into the page's card fields here, never kept or
+      // said. Only what this chat's last turn asked for, on the page it asked about, and once.
+      if (url.pathname === "/gloopy/card" && req.method === "POST") {
+        const project = String(body.project || ""), p = pending.get(project);
+        if (!p || p.kind !== "card" || p.id !== body.id) return send(409, { error: "no card is waiting" });
+        pending.delete(project);
+        if (body.skip === true) return send(200, { skipped: true });
+        const refs = p.refs && typeof p.refs === "object" ? p.refs : {};
+        try {
+          const r = await browserHub().fillCard({ site: p.site, card: body.card, numberRef: refs.number, expRef: refs.exp || "", monthRef: refs.month || "", yearRef: refs.year || "", cvcRef: refs.cvc || "", nameRef: refs.name || "", postalRef: refs.postal || "" });
+          // Which card went in, for the order card (the Worker names it: "Visa ending 4242").
+          const o = orders.get(project);
+          if (o && o.site === p.site && typeof body.label === "string" && body.label) orders.set(project, { ...o, payWith: body.label.slice(0, 80) });
+          return send(200, { ok: true, title: String(r.title || "").slice(0, 300), url: String(r.url || "").slice(0, 500) });
+        } catch (e) { return send(200, { ok: false, why: String((e && e.message) || e).slice(0, 300) }); }
+      }
       // THE OWNER'S STOP: the turn's own commands end, its background ones go on (like Claude Code's, which keep running when
       // you interrupt Claude; they end with the background list's Stop, /bgstop); the turn's end ends anything else of the AI's.
       if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
@@ -4226,6 +4774,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     } catch (e) { return send(500, { error: String((e && e.message) || e).slice(0, 200) }); }
   };
   handle.sessionEnd = sessionEnd;
+  // (Gloopy's link from the owner's computer: a WebSocket upgrade, and the tunnel it uses.)
+  handle.upgrade = upgrade;
+  handle.tunnel = tunnel;
   return handle;
 }
 
@@ -4240,7 +4791,10 @@ if (import.meta.url === "file://" + process.argv[1]) {
   console.log("coder: the machine's own disk: " + growOwnDisk());
   // Its commands run as admin in a sandbox of their own (coder-sandbox.mjs), where the machine allows one.
   const app = createApp({ kept: bootKept(), gitVia: true, modelVia: true, room: true, sandbox: true, data: process.env.CODER_DATA || null, image: process.env.CODER_IMAGE_REF || imageId(), liveFetch: (url, init) => fetch(url, init), home: DEV_HOME, ...dataDirs(process.env.CODER_DATA), checker: true });
-  http.createServer(app).listen(8080, () => console.log("coder: listening on 8080"));
+  // The link from the owner's computer (a WebSocket) comes as an upgrade.
+  const srv = http.createServer(app);
+  srv.on("upgrade", app.upgrade);
+  srv.listen(8080, () => console.log("coder: listening on 8080"));
   // WHEN THIS MACHINE IS STOPPED (Fly.io's stop signal): the chats' SessionEnd hooks first, within their budget, then the end.
   let ending = false;
   const stopNow = (sig) => {

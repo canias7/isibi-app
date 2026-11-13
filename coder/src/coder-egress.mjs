@@ -223,28 +223,87 @@ export async function handleEgress(request, env, { fetchFn = fetch } = {}) {
   try { asked = JSON.parse(dec.decode(Uint8Array.from(atob(String(h.get("x-coder-headers") || "e30").replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0)))); } catch { asked = {}; }
   const headers = {};
   for (const [k, v] of Object.entries(asked && typeof asked === "object" ? asked : {})) if (!HOP.test(k) && typeof v === "string" && v.length < 8192) headers[k.toLowerCase()] = v;
-  const set = (name, value) => { headers[name.toLowerCase()] = value; };
   let body = null;
   if (!["GET", "HEAD"].includes(method)) {
     const buf = new Uint8Array(await request.arrayBuffer());
     if (buf.length > BODY_MAX) return text("the request body is over 10 MB", 413);
     body = buf;
   }
+  // HELD FOR THE OWNER'S OK (Gloopy, the audit, 2026-11-10): its turn's check wants the owner to see this request first.
+  // It is kept here as it came (without the key), not sent; the owner's Allow on the card sends it (sendHeld).
+  const hold = String(h.get("x-coder-hold") || "");
+  if (hold) {
+    if (!HOLD_ID.test(hold)) return text("bad hold");
+    if (body && body.length > HELD_MAX) return text("the request is over 1 MB, too big to keep for the owner's OK: not sent", 413);
+    let step = "";
+    try { step = dec.decode(Uint8Array.from(atob(String(h.get("x-coder-step") || "").replace(/-/g, "+").replace(/_/g, "/")), (ch) => ch.charCodeAt(0))).replace(/[\p{Cc}\p{Cf}]/gu, "").slice(0, 300); } catch { step = ""; }
+    let b = ""; if (body) { for (let i = 0; i < body.length; i += 0x8000) b += String.fromCharCode(...body.subarray(i, i + 0x8000)); }
+    await bucket.put(heldKey(uid, id), JSON.stringify({ id: hold, turn: Number(turn), at: Date.now(), method, url: target.toString(), headers, body: body ? btoa(b) : "", step }), { httpMetadata: { contentType: "application/json" } });
+    return new Response("Held for the owner's OK, not sent: " + method + " " + host + target.pathname.slice(0, 150) + ". Gloopy's app shows the owner what it sends on a card; if they allow it, it sends this same request.", { status: 202, headers: { "content-type": "text/plain", "cache-control": "no-store", "x-coder-held": hold } });
+  }
+  const sent = await sendWithKey(s, { method, host, path, target, headers, body }, { fetchFn });
+  if (sent.error) return sent.error;
+  // A site that copies the key into its answer's headers does not hand it back.
+  const back = new Headers();
+  sent.r.headers.forEach((v, k) => { if (!sent.keys.some((x) => v.includes(x)) && !/^(content-encoding|content-length|transfer-encoding|connection)$/i.test(k)) back.append(k, v); });
+  return new Response(sent.r.body, { status: sent.r.status, headers: back });
+}
+
+/** One request sent with the key of secret `s` added, the way its type says: { r, keys } (the key's values, to keep out of what comes back), or { error: Response }. */
+async function sendWithKey(s, { method, host, path, target, headers: given, body: given2 }, { fetchFn = fetch } = {}) {
+  const headers = { ...given };
+  let body = given2;
+  const set = (name, value) => { headers[name.toLowerCase()] = value; };
   let live = "";
   try {
     if (s.kind === "headers") for (const x of s.headers) set(x.name, headerValue(x));
     else if (s.kind === "oauth" || s.kind === "gcp") { live = await bearerFor(s.kind, s.config, { fetchFn }); set("authorization", "Bearer " + live); }
     else if (s.kind === "body") { if (body && body.length || !["GET", "HEAD", "OPTIONS", "DELETE"].includes(method)) { const nb = withBodyParam(headers["content-type"], body || new Uint8Array(0), s.config.param, s.config.value); if (nb) { body = nb; if (!headers["content-type"]) headers["content-type"] = "application/x-www-form-urlencoded"; } } }
     else if (s.kind === "aws") for (const [k, v] of Object.entries(await sigv4({ method, host, path, headers, body: body || new Uint8Array(0) }, s.config))) set(k, v);
-  } catch (e) { return text("Coder could not add the key for " + host + ": " + String((e && e.message) || e).slice(0, 200), 502); }
+  } catch (e) { return { error: text("Coder could not add the key for " + host + ": " + String((e && e.message) || e).slice(0, 200), 502) }; }
   let r;
   try { r = await fetchFn(target.toString(), { method, headers, body, redirect: "manual" }); }
-  catch (e) { return text("Coder could not reach " + host + ": " + String((e && e.message) || e).slice(0, 200), 502); }
-  // A site that copies the key into its answer's headers does not hand it back.
-  const keys = [...valuesOf(s), live].filter((x) => x && x.length >= 8);
-  const back = new Headers();
-  r.headers.forEach((v, k) => { if (!keys.some((x) => v.includes(x)) && !/^(content-encoding|content-length|transfer-encoding|connection)$/i.test(k)) back.append(k, v); });
-  return new Response(r.body, { status: r.status, headers: back });
+  catch (e) { return { error: text("Coder could not reach " + host + ": " + String((e && e.message) || e).slice(0, 200), 502) }; }
+  return { r, keys: [...valuesOf(s), live].filter((x) => x && x.length >= 8) };
+}
+
+/** A held request's id, as Gloopy's turn makes it; the most a held request's body may be. */
+export const HOLD_ID = /^wr[a-z0-9]{6,12}$/, HELD_MAX = 1024 * 1024;
+/** Where a chat's held request is kept (one at a time). */
+export const heldKey = (uid, id) => ["coder", uid, id, "held.json"].join("/");
+
+/** A held request let go without sending it (the owner said no, or did not answer in time). */
+export async function dropHeld(bucket, uid, id) { if (bucket && typeof bucket.delete === "function") await bucket.delete(heldKey(uid, id)).catch(() => {}); }
+
+/**
+ * A HELD REQUEST, SENT ONCE THE OWNER ALLOWS IT (Gloopy, the audit, 2026-11-10): the very request its command sent, with
+ * the key added now, here; checked again as when it came (a key still saved for its site, inside the key's paths), then
+ * no longer kept (it is sent at most once). Answers { ok, status, text } (the answer's start, without the key) or
+ * { ok: false, why }.
+ */
+export async function sendHeld(env, bucket, uid, meta, hold, { fetchFn = fetch } = {}) {
+  let held = null;
+  try { const o = await bucket.get(heldKey(uid, meta.id)); held = o ? JSON.parse(await o.text()) : null; } catch { held = null; }
+  if (!held || held.id !== hold) return { ok: false, why: "it is no longer kept" };
+  await dropHeld(bucket, uid, meta.id);
+  let target;
+  try { target = new URL(String(held.url)); } catch { return { ok: false, why: "its address is not valid" }; }
+  const host = target.hostname.toLowerCase(), path = target.pathname + target.search, method = String(held.method || "").toUpperCase();
+  if (target.protocol !== "https:" || target.username || target.password || target.port || !okHost(host) || !keyAllowed(host) || !/^[A-Z]{1,20}$/.test(method)) return { ok: false, why: "only https to a named site" };
+  const envData = await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta));
+  const s = envData.secrets.find((x) => x.hosts.some((p) => hostMatches(host, p)));
+  if (!s) return { ok: false, why: "no key is saved for " + host + " any more" };
+  if (s.paths.length && !(plainPath(path) && s.paths.some((p) => path.startsWith(p)))) return { ok: false, why: "it is outside the key's paths on " + host };
+  const headers = {};
+  for (const [k, v] of Object.entries(held.headers && typeof held.headers === "object" ? held.headers : {})) if (!HOP.test(k) && typeof v === "string" && v.length < 8192) headers[k.toLowerCase()] = v;
+  let body = null;
+  if (held.body) { const b = atob(held.body); body = new Uint8Array(b.length); for (let i = 0; i < b.length; i++) body[i] = b.charCodeAt(i); }
+  const sent = await sendWithKey(s, { method, host, path, target, headers, body }, { fetchFn });
+  if (sent.error) return { ok: false, why: (await sent.error.text().catch(() => "")).slice(0, 300) || "it could not be sent" };
+  let said = "";
+  try { said = (await sent.r.text()).slice(0, 4000); } catch { said = ""; }
+  for (const k of sent.keys) said = said.split(k).join("[hidden]");
+  return { ok: true, status: sent.r.status, text: said.replace(/[\p{Cc}\p{Cf}]/gu, (ch) => (ch === "\n" || ch === "\t" ? ch : "")).slice(0, 2000) };
 }
 
 /** What a chat's machine gets of the keys now: where they apply, never their values. */

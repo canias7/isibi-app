@@ -224,9 +224,11 @@ test("CD375 Auto: a page fetch is judged too, unless an allow rule or a pre-appr
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /checker, checkerInPlan: !varOff\(rawVars\.CODER_USE_AUTO_MODE_DURING_PLAN\), checkWhere: \{ key: project, repo: String\(body\.repo \|\| ""\), branch: String\(body\.branch \|\| \(body\.repo \? "coder\/" \+ project : ""\)\) \}/);
   // (On in the real machine only; a service made in a test has none unless it asks for it.)
-  assert.match(server, /\.\.\.dataDirs\(process\.env\.CODER_DATA\), checker: true \}\);\n\s+http\.createServer\(app\)\.listen\(8080/);
+  // (Since Gloopy's chat merged in, 2026-11-13, the server is made first, so the link from the owner's computer can come as an upgrade.)
+  assert.match(server, /\.\.\.dataDirs\(process\.env\.CODER_DATA\), checker: true \}\);\n[\s\S]{0,200}const srv = http\.createServer\(app\);\n\s+srv\.on\("upgrade", app\.upgrade\);\n\s+srv\.listen\(8080/);
   assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), / coder-checker\.mjs \.\//, "copied into the image");
-  assert.match(server, /copyNeedsBox = true, checker = false, hookQuietMs = 10_000 \} = \{\}\) \{/);
+  // (Then Gloopy's three, since the merge with main, 2026-11-13.)
+  assert.match(server, /copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null \} = \{\}\) \{/);
 });
 
 test("CD377 a step auto mode's checker blocked shows why under it, as Claude Code shows it (\"Blocked by auto mode\", then \"Auto mode: \" and the rule and reason), with \"✕ blocked\" on its right (live test, 2026-11-10: it showed only \"✕ exit -1\", the reason hidden in the closed step)", async () => {

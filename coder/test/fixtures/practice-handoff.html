@@ -1,0 +1,78 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Practice Account</title>
+<style>
+  body { font: 16px/1.5 system-ui, sans-serif; margin: 0; background: #f6f6f4; color: #1f1e1d; }
+  main { max-width: 720px; margin: 16px auto; background: #fff; border-radius: 12px; padding: 18px 22px; box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  h1 { font-size: 20px; margin: 0 0 4px; } .note { color: #6b6a66; font-size: 13px; margin: 0 0 12px; }
+  .big { display: block; width: 100%; min-height: 260px; font: inherit; font-size: 22px; font-weight: 700; border: 0; border-radius: 14px; background: #1f1e1d; color: #fff; cursor: pointer; margin: 12px 0; }
+  .small { font: inherit; padding: 8px 14px; border-radius: 8px; border: 1px solid #d6d3cc; background: #fff; cursor: pointer; }
+  .box { border: 1px solid #e6e4df; border-radius: 12px; padding: 14px; margin: 10px 0; }
+  .ok { background: #ecfdf3; color: #14532d; padding: 14px; border-radius: 10px; font-weight: 600; }
+  .no { background: #fff1f0; color: #9a1c13; padding: 14px; border-radius: 10px; font-weight: 600; }
+  .qr { width: 220px; height: 220px; margin: 10px auto; display: grid; grid-template-columns: repeat(11, 1fr); gap: 2px; }
+  .qr i { background: #fff; } .qr i.b { background: #111; }
+  section { display: none; } section.on { display: block; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Practice Account</h1>
+  <p class="note">A practice page for testing hand-offs. Nothing here is real: no bank, no account, no app.</p>
+
+  <section id="bank">
+    <div class="box"><b>Order PS-2001 · €9.00</b><br>Your card's bank must confirm this payment before it goes through.</div>
+    <div id="bankStep">
+      <p><b>Confirm with your bank.</b> Open your banking app and approve the payment. (Test: press the big button.)</p>
+      <button class="big" id="bankYes">Complete authentication</button>
+      <button class="small" id="bankNo">Fail authentication</button>
+    </div>
+    <div id="bankOut"></div>
+  </section>
+
+  <section id="sso">
+    <div class="box"><b>Sign in to Practice Shop</b><br>This shop only lets you sign in with Practice ID.</div>
+    <div id="ssoStep">
+      <p><b>Practice ID:</b> approve this sign-in on your phone. (Test: press the big button.)</p>
+      <button class="big" id="ssoYes">Approve sign-in</button>
+    </div>
+    <div id="ssoOut"></div>
+  </section>
+
+  <section id="qr">
+    <div class="box"><b>Link your phone</b><br>Open the Practice app on your phone and scan this code to link it.</div>
+    <div class="qr" id="qrCode"></div>
+    <p id="qrState">Waiting for your phone to scan the code…</p>
+  </section>
+
+  <section id="human">
+    <div class="box"><b>Before you continue</b><br>Press and hold the button for 3 seconds to show you're a person.</div>
+    <button class="big" id="hold">Press and hold</button>
+    <div id="humanOut"></div>
+  </section>
+
+  <div id="none"><p>Open this page with #bank, #sso, #qr or #human at the end of its address.</p></div>
+</main>
+<script>
+  const show = () => {
+    const k = (location.hash || '').slice(1);
+    let any = false;
+    for (const s of document.querySelectorAll('section')) { const on = s.id === k; s.classList.toggle('on', on); any = any || on; }
+    document.getElementById('none').style.display = any ? 'none' : 'block';
+  };
+  window.addEventListener('hashchange', show); show();
+  const out = (id, cls, text) => { const el = document.getElementById(id); el.className = cls; el.textContent = text; };
+  document.getElementById('bankYes').addEventListener('click', () => { document.getElementById('bankStep').style.display = 'none'; out('bankOut', 'ok', 'Payment confirmed by your bank. Order PS-2001 (€9.00) is paid.'); });
+  document.getElementById('bankNo').addEventListener('click', () => { document.getElementById('bankStep').style.display = 'none'; out('bankOut', 'no', 'Your bank could not confirm this payment. Nothing was charged.'); });
+  document.getElementById('ssoYes').addEventListener('click', () => { document.getElementById('ssoStep').style.display = 'none'; out('ssoOut', 'ok', 'Signed in to Practice Shop as Jenny Rosen.'); });
+  const q = document.getElementById('qrCode');
+  for (let i = 0; i < 121; i++) { const c = document.createElement('i'); const x = i % 11, y = Math.floor(i / 11); const finder = (x < 3 && y < 3) || (x > 7 && y < 3) || (x < 3 && y > 7); if (finder || ((x * 7 + y * 13 + x * y) % 3 === 0)) c.className = 'b'; q.appendChild(c); }
+  let t = 0; const hold = document.getElementById('hold');
+  hold.addEventListener('pointerdown', () => { t = Date.now(); hold.textContent = 'Keep holding…'; });
+  hold.addEventListener('pointerup', () => { if (t && Date.now() - t >= 3000) { hold.style.display = 'none'; out('humanOut', 'ok', 'Thanks, you can continue.'); } else hold.textContent = 'Press and hold'; t = 0; });
+</script>
+</body>
+</html>

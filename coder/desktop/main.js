@@ -5,10 +5,12 @@
 // window, a menu with the usual shortcuts, and links that open in the browser.
 "use strict";
 
-const { app, BrowserWindow, Menu, shell, session } = require("electron");
+const { app, BrowserWindow, Menu, shell, session, ipcMain } = require("electron");
 const fs = require("node:fs");
 const path = require("node:path");
-const { HOME, isInsideApp, isSafeOutside } = require("./links");
+const { HOME, isInsideApp, isSafeOutside, isAppPage } = require("./links");
+const { makeRoute } = require("./route");
+const { makeKeys } = require("./key");
 
 // ONE WINDOW: opening the app again brings it to the front.
 if (!app.requestSingleInstanceLock()) app.quit();
@@ -27,7 +29,8 @@ function createWindow() {
     title: "Go Farther", backgroundColor: "#faf9f7", show: false,
     autoHideMenuBar: process.platform !== "darwin",
     // backgroundThrottling off: a minimized window still watches the chats for Coder's notifications (owner item 8).
-    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, backgroundThrottling: false },
+    // preload: only the route controls (preload.js), for gofarther.dev's own pages.
+    webPreferences: { contextIsolation: true, sandbox: true, nodeIntegration: false, spellcheck: true, backgroundThrottling: false, preload: path.join(__dirname, "preload.js") },
   });
   win.once("ready-to-show", () => { if (st.maximized) win.maximize(); win.show(); });
   win.on("close", () => { try { fs.writeFileSync(stateFile(), JSON.stringify({ ...win.getNormalBounds(), maximized: win.isMaximized() })); } catch { /* not saved */ } });
@@ -62,6 +65,21 @@ function buildMenu() {
 
 // THE PAGE KNOWS IT IS IN THE APP (it hides "Download for Mac / Windows").
 app.userAgentFallback = app.userAgentFallback + " GoFartherDesktop/" + app.getVersion();
+
+// GLOOPY'S BROWSER, THROUGH THIS COMPUTER (2026-11-11; route.js): while the switch in Gloopy's Settings is on and the
+// app is open, a link to Gloopy's computer carries its browser's new connections, opened from here (never to a private
+// or VPN address). Only gofarther.dev's own pages may start, stop or read it.
+const route = makeRoute();
+const fromApp = (e) => { try { return isAppPage(e.senderFrame && e.senderFrame.url); } catch { return false; } };
+const allowed = (f) => (e, arg) => { if (!fromApp(e)) throw new Error("not allowed"); return f(arg); };
+ipcMain.handle("route:start", allowed((o) => route.start(o)));
+ipcMain.handle("route:stop", allowed(() => route.stop()));
+ipcMain.handle("route:kick", allowed(() => route.kick()));
+ipcMain.handle("route:status", allowed(() => route.status()));
+// YOUR SECURITY KEY FOR GLOOPY'S BROWSER (2026-11-11; key.js): a page there asked to sign in with a security key and you
+// chose "Use my security key": your key, plugged into this computer, signs that very request for that page's site only.
+const keys = makeKeys({ BrowserWindow, session, parent: () => win });
+ipcMain.handle("key:get", allowed((o) => keys.get(o)));
 
 app.whenReady().then(() => {
   // ONLY WHAT THE SITE NEEDS: notifications and copying; nothing else (camera, location…).

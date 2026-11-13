@@ -94,7 +94,13 @@ export async function envForRepo(bucket, uid, repo, list0) {
 }
 
 /** The environment a chat uses: the one it picked; older chats, their repo's. An archived one keeps working for the chats that use it. */
+/**
+ * GLOOPY'S OWN KEYS (owner, 2026-11-09: "4", Grok Bot's card for API keys): kept like an environment's, sealed, under
+ * this id, which no environment can have (theirs always end in -xxxx); Gloopy's chat uses it, never the Default.
+ */
+export const GLOOPY_ENV = "gloopy";
 export async function envIdOf(bucket, uid, meta) {
+  if (meta && meta.kind === "gloopy") return GLOOPY_ENV;
   const list = await listEnvs(bucket, uid);
   if (meta && meta.envId && list.some((e) => e.id === meta.envId)) return meta.envId;
   return envForRepo(bucket, uid, meta && meta.repo, list);

@@ -449,7 +449,8 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   // The screen offers the same list.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /const r = await call\('\/settings'\);/, "the list comes from the server");
-  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  // (2026-11-09: in Gloopy's chat, the files attached go with it too, by their ids.)
+  assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
   assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,8000}?r = await post\("\/turn", \{ secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
@@ -566,7 +567,8 @@ test("CD20 memory is kept per repo between chats; no limit on chats at once unle
 test("CD21 the screen asks the server: the commands, the model list and pick, and what a command does; comments are sent as they are", () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.doesNotMatch(ui, /slash|runCommand|\/command/, "the slash commands were removed (each has a button)");
-  assert.match(ui, /body: JSON\.stringify\(\{ text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), model: S\.pick\.model, effort: S\.pick\.effort \}\)/);
+  // (2026-11-09: in Gloopy's chat, the files attached go with it too, by their ids.)
+  assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
   // The pick is kept on the account; only the desktop app's own notifications switch (owner item 8) is kept on the device.
   assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, ""), /localStorage/, "the pick is kept on the account");
