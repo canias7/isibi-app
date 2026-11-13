@@ -623,7 +623,10 @@ export async function serve(dir) {
       else value = f.value;
       value = String(value || "").replace(/\s+/g, " ").trim();
       if (!value) continue;
-      const labels = f.labels ? [...f.labels].map((l) => l.innerText).join(" ") : "";
+      // A LABEL AROUND ITS FIELD (live test, 2026-11-13: a country list's label read "Country Australia Austria Belgium …",
+      // all of its choices): the label's own words, never its field's.
+      const own = (l) => { const k = l.cloneNode(true); k.querySelectorAll("select, input, textarea, button, datalist, [contenteditable]").forEach((n) => n.remove()); return k.textContent; };
+      const labels = f.labels ? [...f.labels].map(own).join(" ").replace(/\s+/g, " ").trim() : "";
       const label = String(f.getAttribute("aria-label") || labels || f.getAttribute("placeholder") || f.getAttribute("name") || f.id || f.getAttribute("type") || "field").replace(/\s+/g, " ").trim().slice(0, 60);
       const v = value.slice(0, 300) + (value.length > 300 ? "…" : "");
       out.push({ label, value: v });
@@ -664,7 +667,7 @@ export async function serve(dir) {
         const tag = n.tagName.toLowerCase();
         const what = tag === "a" ? "link" : tag === "button" || n.getAttribute("role") === "button" ? "button" : /^(input|textarea|select)$/.test(tag) ? "field" : tag === "img" ? "picture" : "heading";
         const secret = (n instanceof HTMLInputElement && n.type === "password") || (n.matches && n.matches(cardSel));
-        const name = String(n.getAttribute("aria-label") || (n.labels && n.labels[0] && n.labels[0].innerText) || n.getAttribute("alt") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 100);
+        const name = String(n.getAttribute("aria-label") || (n.labels && n.labels[0] && ((l) => { const k = l.cloneNode(true); k.querySelectorAll("select, input, textarea, button, datalist, [contenteditable]").forEach((x) => x.remove()); return k.textContent.trim(); })(n.labels[0])) || n.getAttribute("alt") || n.innerText || n.getAttribute("placeholder") || n.getAttribute("name") || "").replace(/\s+/g, " ").trim().slice(0, 100);
         if (name) items.push({ what, name: secret ? name + " (its value is not shown)" : name });
       }
       // ITS WORDS: each piece of text whose line shows in the box, and is seen there (not under a pop-up). Never the whole

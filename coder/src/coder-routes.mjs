@@ -50,7 +50,7 @@ import { cleanRules, RULES_MAX, RULE_MAX, CARD_TTL_MS, RULE_MODES, RULE_WORDS, c
 import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageFile } from "./gloopy-pages.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, removeCard, cardList, cardLabel, cardBrand, checkCard } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
-import { summarize, compactHistory, marksAfter } from "./coder-summary.mjs";
+import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
@@ -325,6 +325,12 @@ export const START_GRACE_MS = 8 * 60 * 1000;
  * first. A start not over in this long (its request was cut off) is undone.
  */
 export const STARTING_MAX_MS = 6 * 60 * 1000;
+/**
+ * TWO STARTS AT THE SAME MOMENT, BEFORE A LONG CHAT'S SUMMARY (live test, 2026-11-13: both copies of one message, sent at
+ * once, each made the summary, so it was paid for twice and said twice in the chat): this long for the other's mark to
+ * land, then only the start whose mark stays makes it.
+ */
+export const START_SETTLE_MS = 300;
 /** The page's id for one message: the same in both copies of a message sent twice. */
 const cleanMid = (x) => (typeof x === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(x) ? x : "");
 /** The start a chat is marked with while one is under way (its turn's own: an old mark left on the chat is no start). */
@@ -336,10 +342,10 @@ export function startingOf(meta) {
  * THE CHAT MARKED AS STARTING message `mid`. `held()`: still this start's (nobody stopped it or undid it meanwhile).
  * `release()`: the chat as it was before, only while it is still this start's, never over what came after.
  */
-async function claimStart(bucket, uid, meta, metaKey, mid) {
+async function claimStart(bucket, uid, meta, metaKey, mid, said = "") {
   const id = "t" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const at = Date.now();
-  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at } });
+  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at, ...(said ? { said: String(said).replace(/\s+/g, " ").trim().slice(0, 200) } : {}) } });
   const ours = (cur) => { const s = startingOf(cur); return !!s && s.id === id; };
   return {
     id,
@@ -715,9 +721,13 @@ export async function handleCoder(request, env, ctx, deps) {
     // Whether Gloopy's computer is awake, from Coder's own record of it (never by asking it, which would wake it).
     const awake = typeof deps.awake === "function" ? () => deps.awake(uid + "-" + id) : flyOn(env) ? () => flyAwake(env, uid + "-" + id) : null;
     const g = { request, env, bucket, uid, user, id, meta, metaKey, url, call, post, summarizeFn, awake, fetchFn };
-    if (action === "message" && request.method === "POST") return gloopyMessage(g);
+    // A START, OR A CARD'S ANSWER, GOES ON WHEN THE PAGE GOES (live test, 2026-11-13: the test browser closed while the
+    // message after a card's answer was being started, and the start was cut off half-way with it): Cloudflare lets it
+    // finish, up to 30 seconds after the page has gone.
+    const goOn = (p) => { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p.catch(() => {})); return p; };
+    if (action === "message" && request.method === "POST") return goOn(gloopyMessage(g));
     if (action === "state" && request.method === "GET") return gloopyState(g);
-    if ((action === "approve" || action === "signin" || action === "handoff" || action === "card" || action === "key") && request.method === "POST") return gloopyCard(g, action);
+    if ((action === "approve" || action === "signin" || action === "handoff" || action === "card" || action === "key") && request.method === "POST") return goOn(gloopyCard(g, action));
     if (action === "screen" && request.method === "GET") return gloopyScreen(g);
     if (action === "screen" && request.method === "POST") return gloopyTakeOver(g);
     if (action === "schedules") return gloopySchedules(g);
@@ -1530,8 +1540,14 @@ async function startGloopy(g) {
   // MARKED AS STARTING FIRST (live test, 2026-11-12): what follows can take a while (a long chat's summary), and another
   // message meanwhile is told Gloopy is busy. Any way this start ends without Gloopy's machine taking it, the chat is put
   // back as it was (only while it is still this start's).
-  const claim = await claimStart(bucket, uid, meta, metaKey, mid);
+  const claim = await claimStart(bucket, uid, meta, metaKey, mid, sched ? "" : text);
   g.claim = claim;
+  // NOT THIS START'S ANY MORE: Gloopy was stopped meanwhile (from another page), or another start took the chat at the same
+  // moment. That one's answer when it is this same message (its other copy); otherwise this one didn't start.
+  const lostStart = async () => {
+    const same = await sameMessage(bucket, metaKey, await getJson(bucket, metaKey, null), mid);
+    return same.done || json({ error: "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it." }, 409);
+  };
   let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   // A CARD STILL WAITING WHEN A RUN THE OWNER DID NOT START BEGINS (the audit, 2026-11-10; the every-minute check waits
   // for a card up to 30 minutes first): it is over, marked so in the chat, and Gloopy hears it was not answered.
@@ -1545,8 +1561,12 @@ async function startGloopy(g) {
   // Gloopy's browser meanwhile: said to Gloopy just before this message.
   const notes = [...(typeof meta.note === "string" && meta.note ? [meta.note] : []), ...(overtaken ? [unansweredNote(overtaken, "before this run began")] : []), ...(meta.used === true ? [GLOOPY_USED_NOTE] : []), ...(Array.isArray(meta.ran) && meta.ran.length ? [ranNote(meta.ran)] : [])];
   if (notes.length) messages = [...(Array.isArray(messages) ? messages : []), ...notes.map((content) => ({ role: "user", appNote: true, content }))];
-  // A long chat is summarized, not cut (as Coder's).
+  // A long chat is summarized, not cut (as Coder's), by one start only (START_SETTLE_MS).
   let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
+  if (Array.isArray(messages) && JSON.stringify(messages).length > COMPACT_HISTORY_AT) {
+    await new Promise((ok) => setTimeout(ok, START_SETTLE_MS));
+    if (!(await claim.held())) return lostStart();
+  }
   const squeezed = await compactHistory(messages, summarizeFn);
   if (squeezed.to) {
     messages = squeezed.messages;
@@ -1583,12 +1603,8 @@ async function startGloopy(g) {
   const keys = await readEnvData(env, bucket, uid, GLOOPY_ENV);
   const keyValues = keys.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]).filter(Boolean);
   const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
-  // NOT THIS START'S ANY MORE: Gloopy was stopped meanwhile (from another page), or another start took the chat at the same
-  // moment. That one's answer when it is this same message (its other copy); otherwise this one didn't start.
-  if (!(await claim.held())) {
-    const same = await sameMessage(bucket, metaKey, await getJson(bucket, metaKey, null), mid);
-    return same.done || json({ error: "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it." }, 409);
-  }
+  // Stopped meanwhile, or another start took the chat (lostStart).
+  if (!(await claim.held())) return lostStart();
   if (keyValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, keyValues) }));
   await saveMeta(bucket, uid, next);
   await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
@@ -1643,7 +1659,9 @@ async function gloopyState(g) {
   if (starting) {
     if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
     const back = { ...meta, status: typeof starting.was === "string" && starting.was !== "running" ? starting.was : "idle", starting: null, at: Date.now() };
-    const ev = { at: Date.now(), type: "error", text: "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again." };
+    // Which message (live test, 2026-11-13: the one after a card's answer, which the owner never typed).
+    const said = typeof starting.said === "string" && starting.said ? " (“" + starting.said + "”)" : "";
+    const ev = { at: Date.now(), type: "error", text: "Your last message" + said + " didn't reach Gloopy: sending it stopped half-way. Send it again." };
     const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
     await saveMeta(bucket, uid, back);

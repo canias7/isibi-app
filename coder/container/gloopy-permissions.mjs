@@ -58,6 +58,8 @@ export const permissionLabel = (k) => (PERMISSIONS.find((p) => p.key === k) || {
 /** The owner's settings in Gloopy's context, one line each. */
 export function permissionLines(perms) {
   const p = cleanPermissions(perms);
-  const word = { allow: "always allowed: go ahead, then say what you did", ask: "ask first", deny: "never: don't do it, not even another way" };
+  // NEVER, SAID BEFORE STARTING (live test, 2026-11-13: with Buy or pay on Never, Gloopy opened the shop and typed the
+  // owner's address in, and only learned it couldn't pay at the card): the owner hears it first, and decides.
+  const word = { allow: "always allowed: go ahead, then say what you did", ask: "ask first", deny: "never: don't do it, not even another way. If a task needs it, say so before you start, and do the rest only if the owner still wants it" };
   return PERMISSIONS.map((x) => "- " + x.label + " (" + x.hint.toLowerCase() + "): " + word[p[x.key]]).join("\n");
 }

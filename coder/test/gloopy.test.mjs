@@ -1397,7 +1397,7 @@ test("GL36 (2026-11-09) the permissions list: a setting for each kind of action 
   assert.deepEqual(P.cleanPermissions({ buy: "deny", send: "maybe", nope: "ask" }), { buy: "deny", book: "allow", send: "allow", post: "allow", signup: "allow", delete: "allow", account: "allow", share: "allow", login: "allow", schedule: "allow", wake: "allow", events: "allow" });
   assert.equal(P.allAllowed(null), true);
   assert.equal(P.allAllowed({ send: "ask" }), false);
-  assert.match(P.permissionLines({ buy: "deny", send: "ask" }), /^- Buy or pay \(orders, checkouts, payments, donations\): never: don't do it, not even another way\n- Book or reserve \(tables, tickets, travel, appointments\): always allowed: go ahead, then say what you did\n- Send messages or emails \(to anyone but you\): ask first\n/);
+  assert.match(P.permissionLines({ buy: "deny", send: "ask" }), /^- Buy or pay \(orders, checkouts, payments, donations\): never: don't do it, not even another way\. If a task needs it, say so before you start, and do the rest only if the owner still wants it\n- Book or reserve \(tables, tickets, travel, appointments\): always allowed: go ahead, then say what you did\n- Send messages or emails \(to anyone but you\): ask first\n/);
   // What a checked step comes to: the owner's "ask first" rule always asks; then their setting for the step's kind
   // (Deny over an "allow" rule); a step of no kind is as the check said; a handoff stays the owner's.
   const v = (o) => ({ decision: "ask", why: "", kind: "none", rule: "", ...o });
@@ -7186,6 +7186,7 @@ test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after 
   await until(() => startingOf(metaNow()));
   assert.equal(metaNow().status, "running", "marked as starting before the summary");
   assert.equal(metaNow().starting.mid, "mCARD0001");
+  assert.equal(metaNow().starting.said, "Gave my card (Visa ending 4242) to pay €25.96 on shop.example", "what was said, for if it is cut off");
   // Meanwhile the chat says Gloopy is working, and Gloopy's computer isn't asked (it knows only the turn before).
   const look = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json();
   assert.deepEqual([look.running, look.events], [true, []]);
@@ -7220,6 +7221,15 @@ test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after 
   const [t1, t2] = await Promise.all([send(twin), send(twin)]);
   assert.deepEqual([t1.status, t2.status], [200, 200]);
   assert.equal(handed.length, n0 + 1, "handed to Gloopy's computer once");
+  // ...and in a long chat (live test, 2026-11-13: both copies made the summary): it is made once, and said once.
+  idle(); longChat();
+  const s0 = sums.length, said0 = notes().length, n00 = handed.length;
+  const twin2 = { mid: "mTWIN00002", text: "Check the order status again." };
+  const [u1, u2] = await Promise.all([send(twin2), send(twin2)]);
+  assert.deepEqual([u1.status, u2.status], [200, 200]);
+  assert.equal(sums.length, s0 + 1, "summarized once");
+  assert.equal(notes().length, said0 + 1, "said once in the chat");
+  assert.equal(handed.length, n00 + 1);
   // Two different messages at the very same moment: one starts, the other is told it didn't.
   idle();
   const n1 = handed.length;
@@ -7274,11 +7284,11 @@ test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after 
   // the owner is told to send the message again.
   idle();
   const m5 = metaNow(), long = Date.now() - STARTING_MAX_MS - 1000;
-  setMeta({ ...m5, status: "running", at: long, starting: { id: "tCUTOFF00001", mid: "mCUT00001", turn: m5.turn, was: "idle", at: long } });
+  setMeta({ ...m5, status: "running", at: long, starting: { id: "tCUTOFF00001", mid: "mCUT00001", turn: m5.turn, was: "idle", at: long, said: "Gave my card (Visa ending 4242) to pay €43.94 on shop.example" } });
   const fresh = await (await go("projects/" + GLOOPY_ID + "/state?since=0")).json();
   assert.equal(fresh.running, false);
   assert.equal(fresh.project.status, "idle");
-  assert.equal(fresh.events[0].text, "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again.");
+  assert.equal(fresh.events[0].text, "Your last message (“Gave my card (Visa ending 4242) to pay €43.94 on shop.example”) didn't reach Gloopy: sending it stopped half-way. Send it again.", "it says which message");
   assert.equal(startingOf(metaNow()), null);
   // An old mark left on the chat is no start (its turn is past).
   setMeta({ ...metaNow(), status: "running", turn: m5.turn + 1, starting: { id: "tOLD0000001", mid: "mOLD00001", turn: m5.turn, was: "idle", at: Date.now() } });
@@ -7306,4 +7316,47 @@ test("GL137 (2026-11-13) found in the live pay test (owner: \"U do it\"): after 
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /const mid = 'm' \+ Date\.now\(\)\.toString\(36\) \+ Math\.random\(\)\.toString\(36\)\.slice\(2, 10\);\n    S\.sending = true;[\s\S]{0,900}?\n    const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/message', \{ method: 'POST', body: JSON\.stringify\(\{ mid, text,/);
   assert.match(ui, /const waitedOn = \(e\) => !GLOOPY \|\| !e\.id \|\| !S\.project \|\| \(S\.project\.pending && S\.project\.pending\.id === e\.id\);/);
+
+  // 8. A START, OR A CARD'S ANSWER, GOES ON WHEN THE PAGE GOES (live test, 2026-11-13: the test browser closed while the
+  // message after a card's answer was being started, and the start was cut off half-way): handed to Cloudflare to finish.
+  idle();
+  const kept = [];
+  const ctx = { waitUntil: (p) => kept.push(p) };
+  const keep = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, ctx, deps);
+  const r8 = await keep("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ mid: "mKEEP00001", text: "Hi." }) });
+  assert.equal(r8.status, 200);
+  assert.equal(kept.length, 1, "the start is handed to Cloudflare to finish");
+  idle();
+  await keep("projects/" + GLOOPY_ID + "/card", { method: "POST", body: JSON.stringify({ id: "nothing", skip: true }) });
+  assert.equal(kept.length, 2, "and so is a card's answer");
+  await keep("projects/" + GLOOPY_ID + "/state?since=0");
+  assert.equal(kept.length, 2, "not a look at the chat");
+});
+
+test("GL138 (2026-11-13) found in the live pay test (Buy or pay on Ask): the card asking before \"Pay €35.95\" listed the country as \"Country Australia Austria Belgium Brazil Canada China Denmar: United States\": a label wrapped around its list read all the list's choices. A field's name is its label's own words, never its field's; so too in a part of the page the owner marks", async (t) => {
+  const { makeBrowserHub, hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { spawnSync } = await import("node:child_process");
+  const site = http.createServer((q, r) => {
+    r.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+    r.end('<title>Checkout</title><form action=/pay method=post style="position:absolute;left:10px;top:10px;width:400px">' +
+      '<label><span>Name</span> <input name=name value="Jenny Rosen"></label>' +
+      '<label><span>Country</span> <select name=country><option value=AU>Australia</option><option value=AT>Austria</option><option value=BE>Belgium</option><option value=US selected>United States</option></select></label>' +
+      '<label>Note <textarea name=note>Leave at the door</textarea></label><button>Pay €35.95</button></form>');
+  });
+  const S = await listen(site);
+  const dir = join(await mkdtemp(join(tmpdir(), "gl138-")), "browser");
+  const hub = makeBrowserHub({ dir });
+  try {
+    const a = await hub.act({ action: "open", url: S + "/" });
+    const pay = refOf(a.text, /button "Pay €35\.95"[^\n]*?\[ref=([a-z0-9]+)\]/);
+    assert.deepEqual((await hub.describe(pay)).fields, [{ label: "Name", value: "Jenny Rosen" }, { label: "Country", value: "United States" }, { label: "Note", value: "Leave at the door" }]);
+    const mk = await hub.area({ x: 0, y: 0, w: 600, h: 200 });
+    const list = mk.items.find((x) => x.what === "field" && /Country/.test(x.name));
+    assert.ok(list, JSON.stringify(mk.items));
+    assert.equal(list.name, "Country", "the marked list is named by its label's own words");
+  } finally {
+    spawnSync("pkill", ["-f", "gloopy-browser.mjs serve " + dir]);
+    site.close();
+  }
 });

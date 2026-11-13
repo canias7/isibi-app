@@ -11,7 +11,7 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
-## 2026-11-13: Paying (tool 3): first live tests, and two fixes (your words: "Ok lets start testing that tool", "U do it")
+## 2026-11-13: Paying (tool 3): tried live, and seven fixes (your words: "Ok lets start testing that tool", "U do it")
 
 **Tried live on test.gofarther.dev,** on Stripe's test-mode demo store with test card numbers only (no real money):
 - Gloopy filled in the shipping details, then asked for a card on the private card form ("Pay €43.94 on stripe-payments-demo.appspot.com"). The form said where the card goes: the page's card fields, which come from js.stripe.com.
@@ -30,7 +30,23 @@ log (81,000 lines) is in git history.
    - **A card you've answered stays closed,** even if the message after it fails. Before, it looked open again.
    - (Test GL137.) Coder's own chats start messages the same way and could hit the same race. They're not changed yet.
 
-**Still to try:** "Buy or pay" set to Ask and to Never; a declined test card; asking Gloopy what the card box shows.
+**Tried live after deploying fix 2:**
+- **The same message sent twice at the same moment** (as a browser does): Gloopy started it once and answered once ("7 times 6 is 42.").
+- **Two different messages at the same moment:** one started ("banana"). The other was told "This message didn't start: Gloopy was stopped, or another message started first. Send it again if you still want it."
+- **Buy or pay on Ask:** after the saved card's security code, Gloopy carried on by itself (no "go on" needed). Before pressing Pay it asked on a card: "Gloopy wants to click the button 'Pay €35.95' … This spends money … What it sends" (the shipping details). I pressed **Deny**. Gloopy: "The order was not placed. You said no to Pay €35.95, so I stopped and did not try another way."
+- **Buy or pay on Never:** no card form. Gloopy: "Paying is turned off in Gloopy's settings, so I can't use the card form, and I won't try another way."
+- **Asking Gloopy to read the card boxes:** "Both boxes are hidden from me. The card number and the security code show only as masked dots, covered by grey boxes, so I can't read either one and I won't guess."
+- **A start cut off half-way:** my test computer restarted while the message after a card was starting. The chat showed Gloopy working, then, 6 minutes later, "Your last message didn't reach Gloopy: sending it stopped half-way. Send it again." The card above it stayed closed. After I sent it again, Gloopy knew the card was in and pressed Pay once.
+- **Why the demo store never finishes:** its own server fails to start each payment (an error 500 as the page loads), in any browser. So no order can finish there, and **a declined card can't be tried on it**. I found no other free test checkout that doesn't need making an account first.
+
+**Fixed after those tries:**
+3. **Both copies of one message made the summary of a long chat,** so it was paid for twice and said twice in the chat. Now only one makes it.
+4. **A start, or a card's answer, cut off when the page goes away** (a phone locking, a tab closing). Now it goes on for up to 30 seconds after the page has gone, which is enough for a normal start.
+5. **"Didn't reach Gloopy" now says which message,** e.g. "Your last message (“Gave my card (Visa ending 4242) to pay €43.94 …”) didn't reach Gloopy".
+6. **The "What it sends" list named the country as "Country Australia Austria Belgium Brazil Canada China Denmar…"**: the label around the drop-down read all its choices. A field is now named by its label's own words (also in a part of the page you mark). (Test GL138.)
+7. **With Buy or pay on Never, Gloopy opened the shop and typed your address in first,** and only learned it couldn't pay at the card. It's now told to say so before starting, and to do the rest only if you still want it.
+
+Buy or pay is back on Always allow (for testing).
 
 ## 2026-11-12: Gloopy, tool by tool: where we are
 
