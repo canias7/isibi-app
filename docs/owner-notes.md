@@ -17,6 +17,21 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Connectors and Gloopy are live on gofarther.dev, tested on Low (your words: "yea deploy and test it on low")
+
+- **Deployed:** deploy 182, from main. It worked the first time (16 minutes, the machine's image included).
+- **Tested live in the browser, Grok on Low, on the test account:**
+  1. **A plain Coder turn:** it ran `git log --oneline -1` and said done (2 Grok calls, no errors).
+  2. **A command that writes into `.git` asks first:** "Coder requested permissions to edit … .git/merge-check.txt which is a sensitive file." I said No and nothing ran. This is the check the merge would have broken.
+  3. **A connector, for the first time on gofarther.dev:** I added DeepWiki (a free connector with no sign-in) on the Connectors page. Coder asked first ("You set this connector tool to Needs approval"), then used it and answered ("React Repository Overview, Core Reconciler Architecture"). I removed DeepWiki afterwards.
+  4. **`/compact`:** the summary was made on Coder's machine, as before (1 Grok call).
+  5. **The gear's menu:** Settings, Connectors and Notifications each open once, from Coder's tab and from Gloopy's. Notifications use Gloopy's name in Gloopy's tab.
+  6. **The buttons:** Coder's tab has the mode and Connectors buttons; Gloopy's tab has neither.
+  7. **Gloopy's first run on gofarther.dev:** its computer was made, its browser opened example.com, and it answered "Example Domain" (102 seconds, no errors). Gloopy's own Settings opens too.
+- **Everything put back:** no rules or background commands left; the test environment's variables are as they were.
+- **Found, not changed (your call):** the Connectors page says connectors "work in every chat, for Coder and Gloopy", but Gloopy's chat doesn't use them yet.
+- **The other two branches:** everything on the jessica chat's branch (`claude/dazzling-babbage-gh1aiv`) and the Gloopy chat's branch (`claude/keen-goodall-8ghmph`) is in main. They can be deleted once those two chats are closed.
+
 ## 2026-11-13: Gloopy merged in, carefully (your words: "now this", after "merge carefully so we can have that code , i said carefully cuz theres old code there")
 
 - **What came in:** everything from the Gloopy chat (branch `claude/keen-goodall-8ghmph`, up to its last change, "Done, hand it back answers a sign-in hand-off as a hand-off"). That is Gloopy's tab and chat, its own browser, signing in and paying with your saved logins and cards, hand-off, schedules, webhooks, files, pages, helpers, its Settings and its checks before a step, the desktop app's link to Gloopy's browser and your security key, and the test copy at test.gofarther.dev.
