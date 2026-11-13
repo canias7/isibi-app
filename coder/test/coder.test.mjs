@@ -1869,7 +1869,7 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
   const src = readFileSync(HERE("public/coder.js"), "utf8");
   const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const prose = new Function("esc", grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
+  const prose = new Function("esc", grab("noColor") + grab("inline") + grab("blocks") + grab("prose") + "return prose;")(esc);
   const h = prose("Lead line.\n\n- one `a.js`\n- two **bold**\n\n1. first\n2. second\n\n## Notes\n\nSee [docs](https://x.dev/a) and [[1]](https://y.dev/b), also https://z.dev/c.\n\n```js\nlet a = '<b>';\n```");
   assert.match(h, /<p>Lead line\.<\/p><ul><li>one <code>a\.js<\/code><\/li><li>two <b>bold<\/b><\/li><\/ul><ol><li>first<\/li><li>second<\/li><\/ol><h4>Notes<\/h4>/);
   assert.match(h, /<a href="https:\/\/x\.dev\/a" target="_blank" rel="noopener">docs<\/a>/);

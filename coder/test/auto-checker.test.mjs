@@ -233,7 +233,7 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   const src = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
-  const { autoBlockOf, stepAutoBlock } = new Function("esc", grab("autoBlockOf") + grab("hookBlockOf") + grab("stepAutoBlock") + "return { autoBlockOf, stepAutoBlock };")(esc);
+  const { autoBlockOf, stepAutoBlock } = new Function("esc", grab("noColor") + grab("autoBlockOf") + grab("hookBlockOf") + grab("hookWords") + grab("stepAutoBlock") + "return { autoBlockOf, stepAutoBlock };")(esc);
   const { blockedShown } = await import("../container/coder-checker.mjs");
   // What the server sends for a block (the live test's D1), shown as text only.
   const r = { code: -1, output: blockedShown("Code from External", "Runs ollama.com's install script <b>, which the owner\ndid not name.") };

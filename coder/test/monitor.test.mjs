@@ -123,7 +123,7 @@ test("CD381c the page shows a monitor's step with the eye, and each event with t
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   const ends = src.slice(src.indexOf("  const MONITOR_END = "), src.indexOf("\n", src.indexOf("  const MONITOR_END = ")));
   const STEP_ICON = { bash: "b", monitor_job: "m" };
-  const { monitorHTML } = new Function("esc", "STEP_ICON", ends + grab("stepIcon") + grab("monitorHTML") + "return { monitorHTML };")(esc, STEP_ICON);
+  const { monitorHTML } = new Function("esc", "STEP_ICON", ends + grab("noColor") + grab("stepIcon") + grab("monitorHTML") + "return { monitorHTML };")(esc, STEP_ICON);
   const h = monitorHTML({ job: "job7", desc: "The <server>'s log", lines: ["GET /api 500", "<b>x</b>"], dropped: 2, end: { why: "exit", code: 0 } });
   assert.match(h, /<b>Monitor event<\/b> · The &lt;server&gt;&#39;s log · ended \(exit 0\)/);
   assert.match(h, /<pre class="cd-monev-lines">GET \/api 500\n&lt;b&gt;x&lt;\/b&gt;\n\(2 more left out\)<\/pre>/);

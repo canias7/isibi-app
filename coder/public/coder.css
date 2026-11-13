@@ -538,6 +538,8 @@
 .cd-autoblock { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; }
 .cd-autoblock-head { color: #b3261e; font-weight: 600; }
 .cd-autoblock-why { color: #6b7280; overflow-wrap: anywhere; }
+/* A hook's own words keep their lines, in a fixed-width font, so a table in them stays a table (2026-11-13). */
+.cd-hookblock-why { white-space: pre-wrap; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 /* A step auto mode's check gave no usable answer for: a dim row, not an error (Claude Code's "Not run"). */
 .cd-notrun { margin: -2px 0 8px 30px; font: 13px/1.45 Inter, system-ui, sans-serif; color: #9ca3af; }
 .cd-st-notrun { color: #9ca3af; font-weight: 500; }
