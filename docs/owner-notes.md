@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Bash docs pass 10: what Claude Code's docs have that Coder's bash tool doesn't (your words: "now go look on the claude code docs for the batch tool and see what we missing from them")
+
+I downloaded all 203 of Claude Code's docs pages again and compared each with the copy from pass 9 (2026-11-11). 58 pages changed, almost all outside the bash tool (gateways, Bedrock, the desktop app, plugins). Nothing changed in Coder.
+- **Changed for the bash tool, all checked:** no new behaviour to copy. The rest is rewording: the time limit for a command moved to the background (Coder gives 30 minutes from the move, as Claude Code's cloud does); auto mode's block on `rm -rf "$VAR"` when the variable isn't set anywhere it can see; which settings changes run ConfigChange hooks; two hook examples. The only new Claude Code version since then is 2.1.323, compared this morning.
+- **Doesn't apply to Coder:** Claude Code's denials when a hook changes a call after Anthropic's server reviewed it ("…changed after auto mode reviewed it…"). Coder's checker reviews each command after your hooks have run, so this can't happen.
+- **Still your call, from pass 9:** (1) In Claude Code's cloud, auto mode's checker also reviews commands that only read; Coder skips them. Copying it costs one Grok check per such command. (2) Rewind's "Restore code" also undoes files that only a command changed; Claude Code leaves those alone (rewind, so outside the bash tool).
+- **Found, terminal-only in Claude Code:** "Send now" for queued messages (Ctrl+Enter). It moves running commands to the background so your message reaches the AI at once. Claude Code's web version doesn't list it; it only has the ✕ to take a queued message back, which Coder has.
+- **Outside the bash tool (as in passes 8 and 9, not researched):** hook events Coder doesn't have (ConfigChange, InstructionsLoaded, Setup, Worktree, Elicitation and others), which model does auto mode's check, the file tools' own settings, a "Recently blocked" list, and re-running a job cut off by a machine restart.
+
 ## 2026-11-13: Testing what was never tried live (your words: "test what u are missing to test")
 
 Three things were never tried live. Your answers: yes to a test switch for the gate, and yes to changing the test account's email for the email test. Deploy 165 carried both (Coder's tests passed on GitHub first). No video; two throwaway chats on canias7/testingforclaude, both deleted after.
