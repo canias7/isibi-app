@@ -11,6 +11,15 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Bash docs check 11 (your words: "does our batch tool matches claude code docs ?")
+
+I downloaded all 203 of Claude Code's docs pages again (about 08:40) and compared each with this morning's copies (pass 10, 05:01). 9 pages changed and none of the changes are about the bash tool: a status-line setting was removed (`subagentStatusLine`, also named on the hooks page), plugin pages were reworded, and an error message about plugin files changed. There's no new Claude Code version. Nothing changed in Coder.
+
+Where that leaves the bash tool against the docs:
+- Pass 10 found nothing new to copy. Its two open items (auto mode's checker on read-only commands, and Rewind's "Restore code" leaving files only a command changed) are both done and tested live today.
+- Different on purpose: "Send now" for queued messages (Ctrl+Enter) is terminal-only in Claude Code, and its web version has only the ✕, as Coder does. PowerShell gets a width for its tables on Coder's machine; Claude Code's own cloud machine has none. The page hides color codes, where Claude Code's terminal shows them as colors; the AI is given the same text in both.
+- Outside the bash tool, not part of this check: hook events Coder doesn't have (ConfigChange, InstructionsLoaded, Setup, Worktree, Elicitation and others), a "Recently blocked" list, and re-running a job cut off by a machine restart.
+
 ## 2026-11-13: Color codes hidden on the page; the hook box keeps its lines (your words: "yea fix both, merge and deploy then test it on low")
 
 1. **The page hides terminal color codes.** Codes like `[31;1m` and `[0m` no longer show as text. This covers a step's output and its last lines while it runs, monitors, background commands, Coder's notes and errors, and Grok's own text. What Grok is given stays as it was, the same as Claude Code (which gives its model a hook's output as it is). Cards that ask you to approve something still show their text exactly, so nothing can hide there.
