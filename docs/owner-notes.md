@@ -11,6 +11,23 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: PowerShell hooks tried live on Low (your words: "yea test the powershell hooks live too")
+
+On gofarther.dev with Grok on Low (deploy 174), no video, one throwaway chat (deleted after). Your hooks in Settings were set for the test and put back exactly as they were.
+
+**1. A PowerShell hook that blocks a command** (PreToolUse, `shell: "powershell"`, only for `touch ps-hook-*`, exit 2). Grok's `touch ps-hook-1.txt` was blocked ("blocked by hook") and didn't run. The hook's message reached Grok and the chat in plain words:
+- its settings: `TERM=xterm-256color NO_COLOR=[] width=80` (no NO_COLOR, as in Claude Code, which sets it only for its PowerShell tool)
+- a full table (Get-ChildItem through Out-String): the "Directory:" line, the column names and the README.md row
+- PowerShell's error: "Get-Item: Cannot find path '…/nope-hook-file' because it does not exist." Before deploy 174 this came back as a CLIXML block and the table had no rows.
+
+**2. A PowerShell hook that adds context** (UserPromptSubmit): it read the message from its input, saw the keyword, and printed a table. Coder added it to the message and Grok quoted it back: "PS context hook: the project folder holds:", the "Directory:" line, the column names and the README.md row.
+
+**Found, not changed yet (your call):**
+1. **Color codes show as junk text.** PowerShell colors its error text and the table's header, and those codes show in the chat as `[31;1m`, `[32;1m`, `[0m` (with a small box before each). Grok sees them too, and quoted them. Claude Code passes a hook's output to its model the same way, codes and all (I read its code), but its terminal turns them into colors; Coder's page shows them as text. The same would happen for any program that prints colors.
+2. **The "Blocked by your hook" box joins the lines.** The hook's message is shown as one paragraph, so its table is unreadable there (the full text with its lines is kept, and Grok's quote shows it properly).
+
+Cost: a few cents of Grok on Low (2 messages). No branch was made (the blocked command changed nothing).
+
 ## 2026-11-13: All 3 fixes tried live on Low (deploy 174)
 
 On gofarther.dev with Grok on Low, no video. Four throwaway chats plus the GitHub job's chat, all deleted after; your test settings back exactly as they were.
