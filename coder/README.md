@@ -733,6 +733,12 @@ given ("PreToolUse:Bash hook error: [cmd]: …") are Claude Code's
 (`container/coder-hooks.mjs`). A hook's allow skips a mode's question and the auto
 mode checker, never a deny or ask rule or Coder's own safety checks;
 `disableAllHooks` turns them all off. Tests: `test/hooks.test.mjs`.
+A PermissionRequest hook's no (since 2026-11-13, CD571): Coder is given what
+Claude Code 2.1.323 gives its model, the hook's own message, or `HOOK_DENIED`
+("Permission denied by hook") when it gave none, never the words for the owner's
+own No; the step says "Not run: your PermissionRequest hook said no: …" and is
+marked "✕ denied by hook" on the page; the turn goes on (its `interrupt: true`
+stops Coder, as before).
 
 **The rest of Claude Code's hooks** (owner, 2026-11-10: "yea do all of them").
 Hook kinds: `command`; `http` (the event's JSON posted from Coder's machine through

@@ -176,6 +176,8 @@ export function keepPics(convo) {
   return convo;
 }
 /** What the chat says for a command refused in a job from GitHub while the account has auto mode turned off. */
+/** A PermissionRequest hook's no with no message of its own, in Claude Code 2.1.323's words ("Permission denied by hook"). */
+export const HOOK_DENIED = "Permission denied by hook";
 export const AUTO_OFF_GITHUB = "Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub.";
 /** The most paths one job's `edited` keeps (past it, `editedCut`: Rewind then reverts the later jobs whole), each at most EDITED_PATH_MAX long. */
 export const EDITED_MAX = 200, EDITED_PATH_MAX = 300;
@@ -1499,7 +1501,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o.updatedPermissions) applyUpdates(o.updatedPermissions);
         return { choice: "yes", comment: "", ...(o.updatedInput ? { updatedInput: o.updatedInput } : {}) };
       }
-      if (o && o.decision === "deny") { if (o.stop) return { choice: "stop", comment: "" }; return { choice: "no", comment: "(a PermissionRequest hook of the owner's denied it" + (o.reason ? ": " + scrub(o.reason) : "") + ")" }; }
+      // (A HOOK'S NO: Coder is given what Claude Code 2.1.323 gives its model, the hook's own message, or HOOK_DENIED when it
+      // gave none, and not the words for the owner's own No; the step says the hook said no. Live test, 2026-11-13: the step
+      // read "Not run: you said no." and Coder was told "The owner doesn't want to proceed …" before the hook's message.)
+      if (o && o.decision === "deny") { if (o.stop) return { choice: "stop", comment: "" }; const why = o.reason ? scrub(o.reason) : ""; return { choice: "no", comment: why || HOOK_DENIED, hookDenied: true, hookWhy: why }; }
       notifyTool = tool;
     }
     // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the call is refused at
@@ -1527,8 +1532,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let deniedRow = 0, deniedLast = false;
   // WHAT AN ANSWER MEANS for the step that asked (Claude Code: No without a note stops the turn; No with a note goes on
   // with it; Stop stops; no answer before the job's time limit ends the job; an answer that never came counts as No).
-  const saidReply = (a) => (a && a.denied ? a.comment : REJECTED_SAID + a.comment);
-  const saidShown = (a) => (a && a.denied ? "Not run: refused without asking you (Settings: refuse instead of asking)." : "Not run: you said no.");
+  const saidReply = (a) => (a && (a.denied || a.hookDenied) ? a.comment : REJECTED_SAID + a.comment);
+  const saidShown = (a) => (a && a.hookDenied ? "Not run: your PermissionRequest hook said no" + (a.hookWhy ? ": " + a.hookWhy : ".") : a && a.denied ? "Not run: refused without asking you (Settings: refuse instead of asking)." : "Not run: you said no.");
+  // (What the step carries: refused without asking, or a hook's no, for the page's mark on it.)
+  const saidMarks = (a) => (a && a.hookDenied ? { hookDenied: true } : a && a.denied ? { denied: true } : {});
   const answerOutcome = (a) => (a.choice === "stop" ? "stop" : a.choice === "none" ? (now() - started > maxMs ? "time" : "no") : a.choice === "no" ? (a.comment ? "said" : "no") : "go");
   // The owner's note with a Yes, given to Coder after the step's result (Claude Code: "runs the action, then sends your comment").
   // (A note goes with Yes and No only: Claude Code's "don't ask again" and "switch to auto mode" take none. Bash docs pass 8.)
@@ -1857,7 +1864,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const o = answerOutcome(a);
       if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
       if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
-      if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...(a && a.denied ? { denied: true } : {}) }); reply(saidReply(a)); return null; }
+      if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...saidMarks(a) }); reply(saidReply(a)); return null; }
       if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
       if (dec.paused) resume(dec.paused);
     }
@@ -2735,7 +2742,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto && autoOff !== true) setMode("auto", "card");
@@ -3157,7 +3164,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...(approval && approval.denied ? { denied: true } : {}) }); reply(saidReply(approval)); continue; }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
           if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchPaused) resume(checkStF);

@@ -11,6 +11,17 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: A PermissionRequest hook's no, in Claude Code's words (your words: "yea fix it, merge and deploy then test it on low")
+
+When one of your PermissionRequest hooks says no to a command:
+- **What Grok is told** is now what Claude Code 2.1.323 tells its AI: just the hook's own message, or "Permission denied by hook" if the hook gave none. Before, Grok got the words for your own No ("The owner doesn't want to proceed with this tool use…") with the hook's message after them.
+- **The step** now reads "Not run: your PermissionRequest hook said no: <its message>" and is marked "✕ denied by hook". Before, it read "Not run: you said no."
+- As before: nothing runs, no card is shown, and Coder carries on (a hook that asks to stop everything still stops it).
+
+Tests: 1 new (`CD571`: with a message, with none, nothing run, no card, the page's mark) and 1 older one updated; all 605 pass. Next: merge, deploy, live test on Low.
+
+**Seen while testing it, not changed (your call):** Coder has its own note to Grok that suggests adding an install command to the environment's setup script ("this job ran `npm install`, which the environment's setup script does not do…"). It counts every install command Grok *asked* for, including ones that were refused and never ran, so the note can say "ran" about something that didn't. It's older than today.
+
 ## 2026-11-13: The 8 side paths, tried live on Low (your words: "yea test them all on low")
 
 On gofarther.dev (deploy 176) with Grok on Low, no video, one throwaway chat (deleted after). Coder didn't answer my `!` commands during the test (its `CODER_RESPOND_TO_BASH_COMMANDS=false` setting), so those cost nothing. Your environment's variables and your hooks are back exactly as they were (checked against saved copies). No branch was made.
