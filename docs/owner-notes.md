@@ -18,7 +18,12 @@ When one of your PermissionRequest hooks says no to a command:
 - **The step** now reads "Not run: your PermissionRequest hook said no: <its message>" and is marked "✕ denied by hook". Before, it read "Not run: you said no."
 - As before: nothing runs, no card is shown, and Coder carries on (a hook that asks to stop everything still stops it).
 
-Tests: 1 new (`CD571`: with a message, with none, nothing run, no card, the page's mark) and 1 older one updated; all 605 pass. Next: merge, deploy, live test on Low.
+Tests: 1 new (`CD571`: with a message, with none, nothing run, no card, the page's mark) and 1 older one updated; all 605 pass. Merged; deploy 177.
+
+**Tried live on Low** (one throwaway chat, deleted after; your hooks back exactly as they were; no branch made):
+- A PowerShell PermissionRequest hook that says no with a message naming the command: `curl -sI https://example.com` didn't run and no card showed. The step reads "Not run: your PermissionRequest hook said no: PS permission hook said no to: curl -sI https://example.com", marked "✕ denied by hook". Asked to quote its result word for word, Grok said exactly "PS permission hook said no to: curl -sI https://example.com", with none of the words for your own No.
+- The same with no message: the step reads "Not run: your PermissionRequest hook said no.", and Grok quoted "Permission denied by hook", Claude Code's own words.
+Cost: a few cents of Grok on Low (2 messages).
 
 **Seen while testing it, not changed (your call):** Coder has its own note to Grok that suggests adding an install command to the environment's setup script ("this job ran `npm install`, which the environment's setup script does not do…"). It counts every install command Grok *asked* for, including ones that were refused and never ran, so the note can say "ran" about something that didn't. It's older than today.
 
