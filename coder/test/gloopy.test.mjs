@@ -7969,3 +7969,47 @@ test("GL147 (2026-11-13) found live (test.gofarther.dev, while testing the order
   for (const bit of ["'<div class=\"cd-sure-text\">Like Claude Code’s: ' + who + ' tells you when", "<b>Push when ' + who + ' decides</b>", "' + who + ' asks you something", "note = 'On. ' + who + ' will notify this device.';", "title: who, body: 'Notifications are on in this app.'"]) assert.ok(dialog.includes(bit), bit);
   assert.ok(!/Coder tells you|Push when Coder decides|On\. Coder will notify/.test(dialog), "no fixed Coder words left");
 });
+
+test("GL148 (2026-11-13) handoff, after Grok Bot's and dots' docs (owner: \"yes do it on low\"): a CAPTCHA is always the owner's (the tool said \"a CAPTCHA you cannot get past\", as if Gloopy might try first; its rules say it's always theirs); and a step that signs the owner in (single sign-on) is listed in Settings → Browser, where they can sign Gloopy out, as the sign-in card's are", async () => {
+  const { readFileSync } = await import("node:fs");
+  const HANDOFF = GLOOPY_TOOLS.find((t) => t.function.name === "handoff");
+  assert.match(HANDOFF.function.description, /for a step only they can do on the site open in it: a CAPTCHA \(always theirs: never try to solve one yourself\), single sign-on,/);
+  assert.ok(!/CAPTCHA you cannot get past/.test(HANDOFF.function.description));
+  assert.match(HANDOFF.function.parameters.properties.signs_in.description, /^true when the step signs the owner in to the site \(single sign-on such as "Sign in with Google", or approving a sign-in on their phone\): the site is then listed in their Settings → Browser, where they can sign you out of it$/);
+  assert.match(GLOOPY_SYSTEM, /A step only the owner may do is always theirs, whatever the settings: [^\n]*a CAPTCHA\./);
+  // The job: the card says it signs them in only when Gloopy says so.
+  const run = async (args) => {
+    const ev = [], g = scripted([say("", [call("handoff", args, "h1")]), say("never")]);
+    const out = await runCoder({ send: g.send, exec: async () => ({ code: 0, output: "" }), browser: fakeBrowser({ ...ELS, focus: null }), emit: (e) => ev.push(e) }, { text: "sign in with Google on the shop", ...GLOOPY });
+    return { out, card: ev.find((e) => e.type === "handoff") };
+  };
+  let { out, card } = await run({ task: "Sign in with Google, then come back", reason: "Only you can sign in to your Google account.", signs_in: true });
+  assert.deepEqual([card.signin, out.handoffRequest.signin, card.site], [true, true, "shop.example"]);
+  ({ out, card } = await run({ task: "Solve the robot check", reason: "Only a person can." }));
+  assert.equal(card.signin, undefined);
+  assert.equal(out.handoffRequest.signin, undefined);
+  const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.ok(routes.includes('site: String(s.result.handoffRequest.site || "").slice(0, 200), ...(s.result.handoffRequest.signin === true ? { signin: true } : {}) }'), "kept on the waiting card");
+  // The Worker: Done on a card that signs them in lists the site; Not now, or a card that doesn't, lists nothing.
+  const { handleCoder, GLOOPY_ID } = await import("../src/coder-routes.mjs");
+  const bucket = fakeBucket();
+  const env = { CODER_ON: "on", CODER_USERS: "me@x.y", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_BUCKET: bucket };
+  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: "u1", email: "me@x.y" }),
+    container: () => ({ fetch: async (req) => { const u = new URL(req.url); if (u.pathname === "/gloopy/control") return Response.json({ ok: true, url: "https://shop.example/account", title: "Your account" }); return Response.json({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://coder.gofarther.dev/api/coder/" + path, { ...init, headers: { Authorization: "Bearer ok", "content-type": "application/json" } }), env, {}, deps);
+  const metaKey = "coder/u1/" + GLOOPY_ID + "/meta.json";
+  const wait = (p) => { const m = JSON.parse(bucket.m.get(metaKey)); bucket.m.set(metaKey, JSON.stringify({ ...m, status: "idle", waiting: "handoff", pending: { kind: "handoff", task: "Sign in with Google", ...p } })); };
+  const sites = async () => (await (await go("projects/" + GLOOPY_ID + "/signins")).json()).sites.map((x) => [x.site, x.how]);
+  await go("gloopy");
+  wait({ id: "ho1", site: "shop.example", signin: true });
+  let r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho1", skip: true }) })).json();
+  assert.equal(r.said, "Not now: Sign in with Google");
+  assert.deepEqual(await sites(), [], "not done, not listed");
+  wait({ id: "ho2", site: "other.example" });
+  await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho2", done: true }) });
+  assert.deepEqual(await sites(), [], "a step that doesn't sign in");
+  wait({ id: "ho3", site: "shop.example", signin: true });
+  r = await (await go("projects/" + GLOOPY_ID + "/handoff", { method: "POST", body: JSON.stringify({ id: "ho3", done: true }) })).json();
+  assert.equal(r.said, "Done: Sign in with Google");
+  assert.deepEqual(await sites(), [["shop.example", "took over"]], "listed (\"You signed in yourself\"), to sign out of later");
+});

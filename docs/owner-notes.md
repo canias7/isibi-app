@@ -11,6 +11,21 @@ log (81,000 lines) is in git history.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-13: Handoff (tool 4), compared with Grok Bot and dots, two fixes (your words: "ok lets start tool 4", "yes do it on low")
+
+**What handoff is:** Gloopy hands you a step only a person can do in its browser (a captcha, a bank's check of a payment, "Sign in with Google", approving on your phone, a QR code), then carries on.
+
+**Already the same as Grok Bot and dots:** the same kinds of steps; a card saying what to do and why, with Gloopy's browser live in it, and Skip, I'm done and Take over; Gloopy carries on by itself afterwards (as dots does) and never gets around the step; dots' "Hand off to me" exists as a rule and a site choice; a card from a run you didn't start waits 30 minutes (as Grok Bot's).
+
+**Fixed:**
+1. **Captchas are always yours.** The handoff tool said "a CAPTCHA you cannot get past", as if Gloopy might try one first; its rules said a captcha is always yours. Both now say: always yours, never try.
+2. **A sign-in you do on a handoff card is remembered.** Signing Gloopy in with Google (single sign-on) on a handoff card didn't list the site in Settings → Browser, so you couldn't sign Gloopy out of it there. Now Gloopy marks such a step, and once you're done the site is listed ("You signed in yourself").
+(Test GL148.)
+
+**Not done (your call):** dots can text you a link (needs a paid texting service); Grok Bot waits about 3 minutes before alerting your phone while its computer app is open (Gloopy alerts at once, never about a chat you're looking at).
+
+**For the live tests,** a second practice page (in the repo as `coder/test/fixtures/practice-handoff.html`, nothing real behind it): a bank's "confirm this payment", a "Sign in with Practice ID, approve on your phone", a QR code, and a "press and hold to show you're a person".
+
 ## 2026-11-13: Paying, the rest tested (your words: "we gotta test everything bro")
 
 On Low, on test.gofarther.dev with Grok.

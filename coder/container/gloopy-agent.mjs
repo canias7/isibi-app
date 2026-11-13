@@ -117,10 +117,11 @@ export const PAY_TOOL = Object.freeze({ type: "function", function: {
  */
 export const HANDOFF_TOOL = Object.freeze({ type: "function", function: {
   name: "handoff",
-  description: "Hand your browser to the owner for a step only they can do on the site open in it: a CAPTCHA you cannot get past, single sign-on, an approval on another device or a QR code, a bank's check of a payment, or a site that wants a person (for a code the site sent them, use sign_in with code_ref). Say exactly what to do, in a few words (\"Solve the CAPTCHA, then press Continue\"), and one sentence on why. They see your browser live, take over, do it and hand it back. Your turn ends here; the next message says how it went and where the page is now. Not for signing in with a password (use sign_in) or for a card at a checkout (use pay), and never for a security key or passkey: do the step that asks for one (press the site's button), and the owner is asked on a card; their own key signs in from their computer.",
+  description: "Hand your browser to the owner for a step only they can do on the site open in it: a CAPTCHA (always theirs: never try to solve one yourself), single sign-on, an approval on another device or a QR code, a bank's check of a payment, or a site that wants a person (for a code the site sent them, use sign_in with code_ref). Say exactly what to do, in a few words (\"Solve the CAPTCHA, then press Continue\"), and one sentence on why. They see your browser live, take over, do it and hand it back. Your turn ends here; the next message says how it went and where the page is now. Not for signing in with a password (use sign_in) or for a card at a checkout (use pay), and never for a security key or passkey: do the step that asks for one (press the site's button), and the owner is asked on a card; their own key signs in from their computer.",
   parameters: { type: "object", properties: {
     task: { type: "string", description: "what the owner should do in your browser, in a few words" },
     reason: { type: "string", description: "one sentence: why you need them for it" },
+    signs_in: { type: "boolean", description: "true when the step signs the owner in to the site (single sign-on such as \"Sign in with Google\", or approving a sign-in on their phone): the site is then listed in their Settings → Browser, where they can sign you out of it" },
   }, required: ["task", "reason"] },
 } });
 
