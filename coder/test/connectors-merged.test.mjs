@@ -76,12 +76,13 @@ test("MC18 (2026-11-13, merged with main's rules) a deny rule naming a connector
   const P = await import("../container/coder-perms.mjs");
   assert.deepEqual([P.parseRule("mcp__linear__create_issue"), P.parseRule("mcp__linear"), P.parseRule("mcp__linear(x)")], [{ tool: "mcp__linear__create_issue", spec: null, mcp: true }, { tool: "mcp__linear", spec: null, mcp: true }, null]);
   assert.deepEqual([P.ruleSaved("mcp__linear"), P.ruleWarning("deny", "mcp__linear")], [true, null]);
-  // An allow rule approves a tool on Needs approval (its name, its connector's, or mcp__<server>__*); an unanchored allow
-  // wildcard approves nothing (Claude Code: "An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped"); in Plan
-  // mode an allow rule does not approve a tool that changes something.
-  for (const [allow, cards] of [[["mcp__linear__create_issue"], 0], [["mcp__linear"], 0], [["mcp__linear__*"], 0], [["mcp__*"], 1], [["*"], 1]]) {
+  // No allow rule skips a tool on Needs approval since round 6's follow-up 3 (until then its name, its connector's or
+  // mcp__<server>__* approved it): it asks as Claude Code's ask it can't skip, an organization's "ask" ("allow rules for that
+  // tool don't take effect"), with that ask's line; the owner's Yes runs it. In Plan mode an allow rule does not approve a
+  // tool that changes something either.
+  for (const allow of [["mcp__linear__create_issue"], ["mcp__linear"], ["mcp__linear__*"], ["mcp__*"], ["*"]]) {
     t = await go({ steps: create, rules: { allow } });
-    assert.deepEqual([t.cards.length, t.mcpCalls.length], [cards, 1], allow[0]);
+    assert.deepEqual([t.cards.length, t.cards[0].why, t.mcpCalls.length], [1, "Coder requested permissions to use mcp__linear__create_issue, but you haven't granted it yet.", 1], allow[0]);
   }
   t = await go({ steps: create, mode: "plan", rules: { allow: ["mcp__linear__create_issue"] } });
   assert.equal(t.cards.length, 1, "Plan mode still asks");
@@ -92,7 +93,7 @@ test("MC18 (2026-11-13, merged with main's rules) a deny rule naming a connector
   assert.deepEqual(t.mcpCalls, [["mcp__linear__create_issue", { title: "Bug" }]]);
 });
 
-test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see its own name (mcp__<server>__<tool>): PreToolUse can block it, ask, or approve it (not in Plan mode for one that changes something); PermissionRequest answers its card; PostToolUse follows it", async () => {
+test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see its own name (mcp__<server>__<tool>): PreToolUse can block it or ask (its allow skips no ask: not Needs approval's since round 6's follow-up 3, nor Plan mode's for one that changes something); PermissionRequest answers its card; PostToolUse follows it", async () => {
   const create = [say("", [call("mcp__linear__create_issue", { title: "Bug" }, "k1")]), say("ok")];
   const list = [say("", [call("mcp__linear__list_issues", {}, "k1")]), say("ok")];
   const preHook = { PreToolUse: [{ matcher: "mcp__linear__.*", hooks: [{ type: "command", command: "check.sh" }] }] };
@@ -107,8 +108,11 @@ test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see i
   assert.equal(t.cards.length, 1);
   assert.equal(t.cards[0].why, "check Linear reads");
   assert.equal(t.mcpCalls.length, 1);
-  // A PreToolUse allow approves a tool on Needs approval: no card.
+  // A PreToolUse allow does not skip a tool on Needs approval since round 6's follow-up 3 (until then: no card): Claude Code's
+  // ask it can't skip still asks, with its line; the owner's Yes runs it. On Always allow it runs with no card.
   t = await go({ steps: create, hooks: preHook, hookOut: () => pre("allow", "fine") });
+  assert.deepEqual([t.cards.length, t.cards[0].why, t.mcpCalls.length], [1, "Coder requested permissions to use mcp__linear__create_issue, but you haven't granted it yet.", 1]);
+  t = await go({ steps: list, hooks: preHook, hookOut: () => pre("allow", "fine") });
   assert.deepEqual([t.cards.length, t.mcpCalls.length], [0, 1]);
   // ...but not in Plan mode, for a tool that changes something: Plan mode asks.
   t = await go({ steps: create, mode: "plan", hooks: preHook, hookOut: () => pre("allow", "fine") });

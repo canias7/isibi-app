@@ -141,7 +141,7 @@ const CN = await import("../container/coder-agent.mjs");
 const CHECK = /THE ACTION TO JUDGE:/;
 /** The loop with the auto mode checker on (`verdict(action)` answers it), the mode from `modeFn`, connectors, and cards answered from `answers`. */
 async function checked(steps, { mode = "auto", verdict = () => '{"decision":"allow"}', answers = [], rules = null, github = false, noOne = false, modeFn = null, hooks = null, hookRun = () => ({}), connectors = [], key = "wd-" + Math.random().toString(36).slice(2) } = {}) {
-  const events = [], seen = [], cards = [], checks = [], ran = [], mcpCalls = [];
+  const events = [], seen = [], cards = [], checks = [], ran = [], mcpCalls = [], order = [];
   let n = 0, k = 0;
   const r = await A.runCoder({
     send: async (req) => {
@@ -157,14 +157,14 @@ async function checked(steps, { mode = "auto", verdict = () => '{"decision":"all
     },
     emit: (e) => events.push(e), sleep: async () => {},
     here: () => ROOT, root: ROOT, home: "/home/dev", chatId: "shop-wd", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
-    mcp: async (name, args) => { mcpCalls.push([name, args]); return { text: "done", isError: false }; },
+    mcp: async (name, args) => { mcpCalls.push([name, args]); order.push("call"); return { text: "done", isError: false }; },
     ...(modeFn ? { mode: modeFn } : {}),
     // (The owner answers once the card's PermissionRequest hooks have had their turn, as in connectors-merged.test.mjs: a card one
     // of them answered is withdrawn, `gone`.)
-    ...(github || noOne ? {} : { ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || { choice: "no" }; } }),
+    ...(github || noOne ? {} : { ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); order.push("card"); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || { choice: "no" }; } }),
   }, { text: "go", mode, rules, checker: true, github, connectors, checkWhere: { key, repo: "ana/shop", branch: "coder/shop-1" }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
   const told = (id) => { for (const q of seen) for (const m of q.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content; };
-  return { r, events, seen, cards, checks, told, mcpCalls, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)) };
+  return { r, events, seen, cards, checks, told, mcpCalls, order, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)) };
 }
 const blockAll = () => '{"decision":"block","rule":"Data Exfiltration","reason":"an unknown host"}';
 const fetches = (n) => [say("", Array.from({ length: n }, (_, k) => call("web_fetch", { url: "https://site" + k + ".example.com/a", prompt: "What is it?" }, "f" + k))), say("ok")];
@@ -278,6 +278,59 @@ test("WD8 a connector tool its server marks requiresUserInteraction: no Permissi
   assert.deepEqual([t.cards.length, hookAnswered(t), t.mcpCalls.length], [1, true, 1]);
   t = await checked(pay, { mode: "auto", connectors: tools({ perm: "ask" }), hooks: PR, hookRun: prOut({ behavior: "allow" }), noOne: true });
   assert.deepEqual(t.mcpCalls.length, 1);
+});
+
+test("WD9 a connector tool on Needs approval asks as Claude Code's ask it can't skip (an organization's \"ask\": \"allow rules for that tool don't take effect\"; a PreToolUse hook's \"allow\" \"can't suppress the prompt\"), follow-up 3: no allow rule and no PreToolUse allow skips it, and a read-only one is not started before its card; a PermissionRequest hook's plain allow answers it, as in Claude Code's program, but one with a changed input does not (\"The modified input is re-evaluated against deny and ask rules\"): the owner is asked about the changed call, and where no one can answer it is refused with the ask; so for a whole-tool ask rule's card on a connector tool", async () => {
+  const tools = (o) => CN.connectorTools([{ name: "mcp__bank__pay", label: "Bank: pay", parameters: { type: "object", properties: { amount: { type: "number" } } }, ...o }]);
+  const pay = [say("", [call("mcp__bank__pay", { amount: 50 }, "k1")]), say("ok")];
+  const ASK = "Coder requested permissions to use mcp__bank__pay, but you haven't granted it yet.";
+  const needs = tools({ perm: "ask" });
+  // An allow rule naming it, its connector or every tool of it: still asked, with the ask's line, in Accept edits and Auto.
+  for (const mode of ["acceptEdits", "auto"]) for (const allow of [["mcp__bank__pay"], ["mcp__bank"], ["mcp__bank__*"]]) {
+    const t = await checked(pay, { mode, rules: { allow, ask: [], deny: [] }, connectors: needs, answers: [{ choice: "yes" }] });
+    assert.deepEqual([t.cards.length, t.cards[0] && t.cards[0].why, t.mcpCalls.length], [1, ASK, 1], mode + " " + allow[0]);
+  }
+  // A PreToolUse hook's allow: still asked; on Always allow it runs with no card.
+  const pre = { PreToolUse: [{ matcher: "mcp__bank__pay", hooks: [{ type: "command", command: "ok.sh" }] }] };
+  const preAllow = (x) => (x.hook_event_name === "PreToolUse" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", permissionDecisionReason: "fine" } }) } : {});
+  let t = await checked(pay, { mode: "auto", connectors: needs, hooks: pre, hookRun: preAllow, answers: [{ choice: "yes" }] });
+  assert.deepEqual([t.cards.length, t.cards[0].why, t.mcpCalls.length], [1, ASK, 1]);
+  t = await checked(pay, { mode: "auto", connectors: tools({ perm: "allow" }), hooks: pre, hookRun: preAllow });
+  assert.deepEqual([t.cards.length, t.mcpCalls.length], [0, 1]);
+  // A read-only one a PreToolUse hook allowed, beside another call: not started before its card is answered.
+  const list = CN.connectorTools([{ name: "mcp__bank__balance", label: "Bank: balance", readOnly: true, perm: "ask", parameters: { type: "object", properties: {} } }, { name: "mcp__bank__rates", label: "Bank: rates", readOnly: true, perm: "ask", parameters: { type: "object", properties: {} } }]);
+  const two = [say("", [call("mcp__bank__balance", {}, "r1"), call("mcp__bank__rates", {}, "r2")]), say("ok")];
+  const preBoth = { PreToolUse: [{ matcher: "mcp__bank__.*", hooks: [{ type: "command", command: "ok.sh" }] }] };
+  t = await checked(two, { mode: "auto", connectors: list, hooks: preBoth, hookRun: preAllow, answers: [{ choice: "yes" }, { choice: "yes" }] });
+  assert.deepEqual(t.order, ["card", "call", "card", "call"]);
+  // PermissionRequest hooks: a plain allow answers its card (and approves it where no one can answer).
+  const PR = { PermissionRequest: [{ matcher: "mcp__bank__pay", hooks: [{ type: "command", command: "perm.sh" }] }] };
+  const prOut = (decision) => (x) => (x.hook_event_name === "PermissionRequest" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) } : {});
+  const hookAnswered = (t) => t.events.some((e) => e.type === "permanswer" && e.hook === true);
+  t = await checked(pay, { mode: "acceptEdits", connectors: needs, hooks: PR, hookRun: prOut({ behavior: "allow" }), answers: [{ choice: "no" }] });
+  assert.deepEqual([hookAnswered(t), t.mcpCalls], [true, [["mcp__bank__pay", { amount: 50 }]]]);
+  t = await checked(pay, { mode: "acceptEdits", connectors: needs, hooks: PR, hookRun: prOut({ behavior: "allow" }), noOne: true });
+  assert.deepEqual(t.mcpCalls, [["mcp__bank__pay", { amount: 50 }]]);
+  // ...one with a changed input does not: the owner is asked about the changed call, whose Yes runs it and No does not.
+  const changed = prOut({ behavior: "allow", updatedInput: { amount: 5 } });
+  t = await checked(pay, { mode: "acceptEdits", connectors: needs, hooks: PR, hookRun: changed, answers: [{ choice: "yes" }] });
+  assert.deepEqual([t.cards.length, hookAnswered(t), t.mcpCalls], [1, false, [["mcp__bank__pay", { amount: 5 }]]]);
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === "A PermissionRequest hook changed this call's input. If you allow it, it runs with the changed input."));
+  assert.ok(!("askStays" in t.cards[0]));
+  t = await checked(pay, { mode: "acceptEdits", connectors: needs, hooks: PR, hookRun: changed, answers: [{ choice: "no" }] });
+  assert.deepEqual([t.cards.length, t.mcpCalls.length], [1, 0]);
+  // ...and where no one can answer it is refused with the ask, as Claude Code's run with no one to answer returns it.
+  t = await checked(pay, { mode: "acceptEdits", connectors: needs, hooks: PR, hookRun: changed, noOne: true });
+  assert.deepEqual([t.told("k1"), t.mcpCalls.length], [ASK, 0]);
+  // A whole-tool ask rule's card on a connector tool (Always allow here): the same.
+  const ruled = { allow: [], ask: ["mcp__bank__pay"], deny: [] };
+  t = await checked(pay, { mode: "acceptEdits", rules: ruled, connectors: tools({ perm: "allow" }), hooks: PR, hookRun: changed, noOne: true });
+  assert.deepEqual([t.told("k1"), t.mcpCalls.length], [ASK, 0]);
+  t = await checked(pay, { mode: "acceptEdits", rules: ruled, connectors: tools({ perm: "allow" }), hooks: PR, hookRun: prOut({ behavior: "allow" }), noOne: true });
+  assert.deepEqual(t.mcpCalls, [["mcp__bank__pay", { amount: 50 }]]);
+  // Nothing in the agent lets an allow skip Needs approval any more.
+  const src = read("container/coder-agent.mjs");
+  for (const gone of ["const hookAllows = ", "const ruleAllows = ", "(t.perm === \"allow\" || hookAllow)"]) assert.ok(!src.includes(gone), gone);
 });
 
 test("WD7 a PreToolUse hook's ask on a step that would ask anyway shows the hook's line, as Claude Code's card shows its hook's ask (the hook's reason when it gives one): a command, a write in plan mode or to a protected file, a web search under an ask rule, a WebSocket watch under a Monitor ask rule", async () => {

@@ -2176,8 +2176,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * an allow with a changed input makes the owner's Yes run the changed call (Claude Code shows its prompt again for it, its
    * runHooks' "reprompted"); where no one can answer, the call is refused with its ask, as with no hook (its XVn: the hook's
    * allow becomes a deny with the ask's message). A hook's deny still denies.
+   * AN ASK THAT STAYS (`askStays`, follow-up 3: a connector tool on Needs approval, or under an ask rule): Claude Code's ask it
+   * can't skip, an organization's "ask" or an ask rule. A hook's plain allow answers it, as Claude Code's does (its runHooks
+   * and XVn hold back an allow only for a tool that requires user interaction), but one with a changed input does not: "The
+   * modified input is re-evaluated against deny and ask rules", the ask still applies, and the owner is asked about the changed
+   * call as above (where no one can answer, it is refused with its ask).
    */
-  const hookYesIgnored = (card, h) => !!h && !!card && card.hooksMayAllow === false && !!h.answer && h.answer.choice === "yes";
+  const hookYesIgnored = (card, h) => !!h && !!card && !!h.answer && h.answer.choice === "yes" && (card.hooksMayAllow === false || (card.askStays === true && !!h.answer.updatedInput));
   /** The card's ending as the page shows it, when one of its PermissionRequest hooks decided first: its answer, marked. */
   const hookEnding = (pid, answer) => emit({ type: "permanswer", pid, choice: answer.choice === "yes" || answer.choice === "stop" ? answer.choice : "no", hook: true });
   const askOwner = async (card, { hooks = true } = {}) => {
@@ -2206,8 +2211,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     const shownMode = modeNow();
-    // (`told`, what Coder would be told where no one answers, is not the card's: round 6; nor `hooksMayAllow`: hookYesIgnored.)
-    const { told: _told, hooksMayAllow: _hooksMayAllow, ...shownCard } = card;
+    // (`told`, what Coder would be told where no one answers, is not the card's: round 6; nor `hooksMayAllow` and `askStays`:
+    // hookYesIgnored.)
+    const { told: _told, hooksMayAllow: _hooksMayAllow, askStays: _askStays, ...shownCard } = card;
     if (!owed) emit({ type: "permission", pid, ...shownCard });
     // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner or one of its
     // PermissionRequest hooks answered sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs
@@ -3949,11 +3955,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
     // (`exact`: as runsAhead's, for Coder's groups below.)
-    // (`hooked`, `hookAllow`: its own PreToolUse hooks ran at its group's start and let it go on, or allowed it, which approves
-    // it as its turn takes a hook's allow. Round 5.)
+    // (`hooked`: its own PreToolUse hooks ran at its group's start and let it go on. Round 5.)
     // (Nor, since round 6's follow-up 2, one set to Needs approval in Auto: it asks there too, as Claude Code's ask overrides
-    // auto mode.)
-    const quietWith = (c, exact, hooked = false, hookAllow = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || hookAllow) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    // auto mode; nor, since follow-up 3, one a PreToolUse hook allowed: its allow does not skip that ask.)
+    const quietWith = (c, exact, hooked = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && t.perm === "allow" && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     const quiet = (c) => quietWith(c, false);
     // (A connector's call, as its turn makes it below, or its group's start.)
     // (Through mcpCall: a connector's questions for the owner come as cards, also for a call started early. Round 3.)
@@ -4206,7 +4211,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         return;
       }
       // A CONNECTOR'S READ-ONLY TOOL that asks nothing, as Gloopy's run-ahead takes one.
-      if (mcpByName.has(x.name) && quietWith(x, true, hooked, hookAllow)) early.start(x.id, "mcp\n" + JSON.stringify(x.args), () => mcpRun(x));
+      if (mcpByName.has(x.name) && quietWith(x, true, hooked)) early.start(x.id, "mcp\n" + JSON.stringify(x.args), () => mcpRun(x));
     };
     const startGroup = async (i) => {
       const to = groupEnd(calls, i, isSafe);
@@ -4436,8 +4441,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (In Claude Code's words since round 6: its dialog's line for a rule, "Permission rule … requires confirmation for this
           // tool." (in Auto "Ask rule … overrides auto mode …"); where no one can answer, Coder is told its ask, "Coder requested
           // permissions to use <tool>, but you haven't granted it yet.".)
-          // (A connector tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers it, hookYesIgnored.)
-          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) && mcpByName.get(c.name).always ? { hooksMayAllow: false } : {}) };
+          // (A connector tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers it; any other
+          // connector tool: an allow with a changed input does not, as the rule still asks about it: hookYesIgnored.)
+          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) ? (mcpByName.get(c.name).always ? { hooksMayAllow: false } : { askStays: true }) : {}) };
           // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
           const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
           if (!a) { reply(ruleCard.told); continue; }
@@ -6407,9 +6413,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // never offered). Needs approval asks in every mode, Auto too, as Claude Code's ask overrides auto mode (round 6,
         // follow-up 2; until then it ran in Auto).
         // (With Coder's hooks and rules, merged 2026-11-13: its PreToolUse hooks and a rule on the whole tool came first, as for
-        // any tool. A rule that already asked is not asked again; a PreToolUse hook's ask asks; its allow, or an allow rule, approves,
-        // though not in Plan mode for a tool that may change something; in Plan mode such a tool asks, as Coder's own such tools do; a No,
-        // and a PermissionRequest hook's no, are taken as on every other card.)
+        // any tool. A rule that already asked is not asked again; a PreToolUse hook's ask asks; its allow, or an allow rule, skips
+        // no ask since round 6's follow-up 3 (Needs approval asks as Claude Code's ask it can't skip); in Plan mode a tool that may
+        // change something asks, as Coder's own such tools do; a No, and a PermissionRequest hook's no, are taken as on every other
+        // card.)
         const t = mcpByName.get(c.name);
         // GLOOPY'S OWN CARD (owner, 2026-11-13: "make gloopy use the connectors"): for an agent with its own tools, a connector
         // tool set to Needs approval, or one its server asks about every time, waits for the owner's OK on Gloopy's card, as its
@@ -6437,9 +6444,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // nobody can be asked, it does not run.
         const hookDec = c.hook ? c.hook.decision : "";
         const planNow = modeNow() === "plan";
-        // (An allow rule naming it, mcp__<server>__<tool>, mcp__<server> or mcp__<server>__*, approves it as a hook's allow does.)
-        const ruleAllows = !!wholeRule(ownRules, "allow", c.name);
-        const hookAllows = (hookDec === "allow" || ruleAllows) && !(planNow && !t.readOnly);
+        // (Since follow-up 3, as Claude Code's ask it can't skip, an organization's "ask" or an ask rule: neither an allow rule
+        // naming the tool nor a PreToolUse hook's allow skips Needs approval's ask; only its own setting, Always allow, does.)
         // (In Claude Code 2.1.325's words since round 6: a PreToolUse hook's ask first, its line whatever else would ask, as its
         // card shows its hook's ask; a tool its server marks "anthropic/requiresUserInteraction", its ask, "Claude requested
         // permissions to use <tool>, but you haven't granted it yet."; one the owner set to Needs approval, that same ask, in
@@ -6448,12 +6454,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // ask itself.)
         const askWhy = askedByRule ? "" : hookDec === "ask" ? (c.hook.reason || hookAskWhy(c.name))
           : t.always ? askedWhy(c.name)
-          : hookAllows ? ""
           : planNow && !t.readOnly ? planCallWhy(c.name)
           : t.perm === "ask" ? askedWhy(c.name) : "";
         // (Its display name, Claude Code's display_name for an MCP tool's permission request: round 6, toolDisplayName.)
-        // (A tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers its card, hookYesIgnored.)
-        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy, ...(askWhy && hookDec === "ask" ? { told: c.hook.reason || hookAskTold(c.name) } : {}), ...(t.always ? { hooksMayAllow: false } : {}), displayName: scrub(t.tool ? toolDisplayName(t.connector || (mcpParts(c.name) || {}).server, t.tool) : toolDisplayName("", c.name)).slice(0, 120) };
+        // (A tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers its card; one on Needs
+        // approval: an allow with a changed input does not, hookYesIgnored.)
+        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy, ...(askWhy && hookDec === "ask" ? { told: c.hook.reason || hookAskTold(c.name) } : {}), ...(t.always ? { hooksMayAllow: false } : t.perm === "ask" ? { askStays: true } : {}), displayName: scrub(t.tool ? toolDisplayName(t.connector || (mcpParts(c.name) || {}).server, t.tool) : toolDisplayName("", c.name)).slice(0, 120) };
         // (Where no one can answer, its PermissionRequest hooks decide first, and it is refused only when none does: noOneHooks,
         // fix round 4, D5. Whatever asks, Needs approval too since follow-up 2.)
         const noOneAsks = !canAsk() && !!askWhy;
