@@ -34,6 +34,8 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+// (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
+import { safeCall, groupEnd, earlyRuns } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
@@ -1766,6 +1768,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
   const ranAt = new Map(), doneAt = new Map();
+  // (And when a call started at its group's start ended, for its turn's result: coder-parallel.mjs.)
+  const earlyDone = new Map();
   // (A STEP THAT NEVER RAN — refused by a rule, the checker, a hook, Coder's own checks or the owner's answer — has its
   // result marked `ran: false`. The page takes such a step out of its group and out of the group's count, so "Ran 2
   // commands" counts only commands that ran, as Claude Code takes a step that needs its own row out of its group. Bash
@@ -1776,7 +1780,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // A CARD ANSWERED AFTER ITS JOB PAUSED (coder-park.mjs): the call it waited on, taken up again in this job (`taking`: its id,
   // the card's pid and the owner's answer, used once), and the mode its card was shown in, kept for that call (`modePin`).
   let taking = null, modePin = "";
-  const emit = (e) => { if (taking && !taking.used && e && e.type === "bash" && e.id === taking.callId) return; if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
+  const emit = (e) => { if (taking && !taking.used && e && e.type === "bash" && e.id === taking.callId) return; if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, earlyDone.has(e.id) ? earlyDone.get(e.id) : now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
@@ -3018,7 +3022,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
   // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
-  const end = (status, extra = {}) => ({ status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  // (`jobOver`: the job has given its result, so a call a group started waiting for its verdict does not start after it:
+  // coder-parallel.mjs.)
+  let jobOver = false;
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
 
   // THE OWNER'S /compact [what to keep] (round 5 of the live test, 2026-11-12, the owner: "fix all 10": Coder's server made the
   // summary away from the chat's machine, so its hooks never ran). Claude Code's, here, where the hooks are: PreCompact hooks
@@ -3353,8 +3360,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // allowed even in Plan (no folder change, nothing asked, read block or not) starts as soon as the first of the run
     // does; the loop takes its result in its turn. `ahead`: a call's id → its result to come.
     const ahead = new Map();
-    const runsAhead = (x) => {
-      if (!x || x.name !== "bash" || x.ps || x.monitor || x.rerun || github || hookList.length || !x.args || typeof x.args !== "object") return false;
+    // (`exact`, for Coder's groups below: not with a PreToolUse hook of the owner's that runs for this call, rather than with
+    // any hook at all.)
+    const runsAhead = (x, exact = false) => {
+      if (!x || x.name !== "bash" || x.ps || x.monitor || x.rerun || github || (exact ? preHooked(x, x.args) : hookList.length) || !x.args || typeof x.args !== "object") return false;
       // (Not with the script caps on: they count each command as it is checked, in its turn.)
       if (deps.scriptCaps && deps.scriptCaps.caps) return false;
       const cmd = typeof x.args.command === "string" ? x.args.command : "";
@@ -3378,9 +3387,146 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const mcpEarly = new Map();
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
-    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    // (`exact`: as runsAhead's, for Coder's groups below.)
+    const quietWith = (c, exact) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    const quiet = (c) => quietWith(c, false);
+    // (A connector's call, as its turn makes it below, or its group's start.)
+    const mcpRun = (c) => Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }));
     const notYet = back ? calls.slice(back.at) : calls;
-    if (notYet.filter(quiet).length > 1) for (const c of notYet.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
+    // (Gloopy's: all of a round's at once. Coder's go in Claude Code's groups, below.)
+    if (offered && notYet.filter(quiet).length > 1) for (const c of notYet.filter(quiet)) mcpEarly.set(c.id, mcpRun(c));
+    // A FILE TOOL'S TARGET, in full (its turn's below, and its group's start): a glob's full pattern names its own folder, as
+    // Claude Code's Glob reads one (its getPath, 2.1.325; the owner, 2026-11-14): the folder before the last "/" ahead of its
+    // first wildcard, or, with none, the file's own folder; a pattern starting with "~" is no full one: it is searched as it
+    // is, from the search's folder. A path of "~" or "~/…" is from the home folder, as Claude Code reads a path.
+    const targetFor = (name, args) => {
+      const pat = name === "glob" && typeof args.pattern === "string" && args.pattern.startsWith("/") ? splitPattern(args.pattern).baseDir : "";
+      const named = name === "lsp" ? args.filePath : args.path;
+      const p = pat || (typeof named === "string" && named ? named : ".");
+      return typeof deps.where === "function" ? deps.where((p === "~" || p.startsWith("~/")) && deps.home ? deps.home + p.slice(1) : p) : p;
+    };
+    // ONE CALL OF THE TOOLS SCRIPT FOR A FILE TOOL (its turn's below, and its group's start). THE CHAT'S LANGUAGE SERVERS' KEEPER,
+    // started by Coder's machine the first time a lookup, a write or an edit needs a server (coder-lsp.mjs needsKeeper; Claude
+    // Code starts a server the first time a file it handles is used), and kept for the chat. A lookup goes on without it (its
+    // server then started and stopped for it). Big requests (a long file) travel in a file, not on the command line (the
+    // audit: Linux caps one argument at 128 KB). `here`: a short path counts from where Grok's commands are, and grep and
+    // glob search there by default. (A lookup may take the job's time left: LSP_EXEC_MIN_S.)
+    const toolRun = async (c, req, args) => {
+      if (needsKeeper(c.name, args) && deps.lsp && typeof deps.lsp.start === "function") { try { await deps.lsp.start(); } catch { /* the call goes on */ } }
+      const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+      const search = c.name === "grep" || c.name === "glob";
+      return deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? Math.max(LSP_EXEC_MIN_S, Math.ceil((maxMs - (now() - started)) / 1000)) : search ? searchExecS() : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) });
+    };
+    // (A page fetch, Claude Code's WebFetch its own way: webFetchRun; the tools script's time: the fetch's deadline and a little
+    // more; with no deadline, the job's time left.)
+    const fetchRun = (args) => webFetchRun(deps, { model, effort, args, chat: webCacheKey, settings: webFetch, execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
+    // A REPLY'S CALLS IN CLAUDE CODE'S GROUPS (coder-parallel.mjs; recheck 2's S3 and W3, the owner, 2026-11-14: "yes pls all
+    // of that"): Coder's consecutive calls of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
+    // web_search, a command that only reads, a connector's read-only tool, and the others it marks so) go together, and any
+    // other call alone, in order. At a group's first call, each call of it that needs nothing in its turn but to run starts
+    // at once (no PreToolUse hook of its own, no card, nothing that refuses it); one the auto mode checker must judge has its
+    // verdict asked then, beside the others', as Claude Code asks for each call at its start, and starts once that lets it.
+    // Every call still takes its turn below, in the order asked: its checks are made there as before, and it takes the result
+    // of its early start (`early`) only for that same input. A call that needs a hook, a card or the owner runs in its turn
+    // while the others of its group run. (Gloopy keeps its own run-ahead, above.)
+    const early = earlyRuns({ now, onUsage: (u) => usage.push(u), onTaken: (id, at, done) => { if (at) ranAt.set(id, at); if (done) earlyDone.set(id, done); } });
+    // (A call's own input check made at its group's start, taken again in its turn for that same input: lsp's reads the file.)
+    const preChecked = new Map();
+    // (The calls before this one were put in their groups already.)
+    let groupTo = back ? back.at : 0;
+    const EARLY_CHECKS = new Set(["grep", "glob", "lsp", "web_fetch", "web_search"]);
+    const isSafe = (x) => safeCall(x, {
+      readOnly: (cmd) => !commandProblem(cmd) && wholeReadOnly(cmd),
+      connector: (name) => (mcpByName.has(name) ? mcpByName.get(name).readOnly === true : undefined),
+      inputOk: (name, args) => { const f = inputCheckFor(name); if (!f) return true; try { const v = f({ ...args }, { github: !!github, who, webFetchOff: webFetch.off }); return !(v && typeof v.error === "string"); } catch { return false; } },
+    });
+    /** Whether a PreToolUse hook of the owner's runs for this call, with this input (then the call runs in its turn). */
+    function preHooked(x, args) { return hookList.length > 0 && hooksFor(hookList, "PreToolUse", ccTool(x.name), { tool: ccTool(x.name), input: hookToolInput(x.name, args), ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } }).length > 0; }
+    // (A verdict asked at the group's start for exactly this action, as its turn would ask; then its run, when the verdict lets
+    // it and nothing changed meanwhile: the job still going (no No that ended the turn), the mode, its time, no Stop.)
+    const startChecked = (x, declinedKey, mode0, action, key, run) => {
+      if (!checker || checkerState(...checkKey()).paused || noVerdictRow > 0 || declined.has(declinedKey)) return;
+      const how = mode0 === "plan" ? "plan" : "auto";
+      early.checkThenRun(x.id, how + "\n" + action, () => checkAction(deps, { model, convo, skipId: x.id, context, notes: checkerNotes, action, mode: how, repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode }), key, async (v) => !!v && !v.error && v.decision !== "block" && !jobOver && modeNow() === mode0 && now() - started <= maxMs && !(await stopped()), run);
+    };
+    const startEarly = async (x) => {
+      // (Not the call taken up again after its job paused: its card's answer comes first, in its turn.)
+      if (!x || !x.id || early.has(x.id) || (back && back.call && x.id === back.call.id) || !x.args || typeof x.args !== "object" || Array.isArray(x.args)) return;
+      const mode0 = modeNow();
+      let args = { ...x.args };
+      // (One a hook of the owner's runs for has its own check in its turn, before its hooks, as before.)
+      if (preHooked(x, args)) return;
+      const f = EARLY_CHECKS.has(x.name) ? inputCheckFor(x.name) : null;
+      if (f) {
+        let v;
+        try { v = await f({ ...x.args }, { github: !!github, who, webFetchOff: webFetch.off, lspFile }); } catch { return; }
+        preChecked.set(x.id, { was: JSON.stringify(x.args), v });
+        if (!v || typeof v.error === "string") return;
+        if (v.args && typeof v.args === "object" && !Array.isArray(v.args)) args = { ...v.args };
+      }
+      if (preHooked(x, args)) return;
+      const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
+      // A COMMAND THAT ONLY READS, as main's run-ahead takes one; in Auto, once the checker has let it run (Claude Code's
+      // cloud sessions: "read-only and sandboxed shell commands wait for that review and are blocked if it flags them"),
+      // unless the owner's allow rules cover it.
+      if (x.name === "bash") {
+        if (!runsAhead(x, true) || (emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: here || deps.root || "" }))) return;
+        const command = x.args.command;
+        const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] };
+        if (!checker || mode0 !== "auto" || autoRulesCover(command, ctxB)) { early.start(x.id, "bash\n" + command, () => startAhead(x)); return; }
+        const dec = bashDecision(command, { mode: "auto", rules: ownRules, ...ctxB, input: x.args, byCommand: fileEdits !== false });
+        if (dec.verdict !== "allow" || dec.byRule || discardsWork(command)) return;
+        startChecked(x, "bash\n" + command, mode0, actionShown("bash", { ...x.args, allowed_domains: undefined }), "bash\n" + command, () => startAhead(x));
+        return;
+      }
+      // READ, GREP, GLOB AND LSP: none of the owner's Read rules denying or asking, and the read block off.
+      if (READ_TOOLS.has(x.name)) {
+        if (readBlock) return;
+        if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
+        if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; }
+        const d = github ? null : fileToolDecision(x.name, targetFor(x.name, args), { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (q) => realPath(q), input: args });
+        if (d && (d.verdict === "deny" || d.verdict === "ask")) return;
+        const req = { tool: x.name, args: x.name === "read" ? { ...args, facts: true } : args, ...(x.name === "grep" || x.name === "glob" ? { ctx: searchCtx() } : {}) };
+        early.start(x.id, JSON.stringify(req), () => toolRun(x, req, args));
+        return;
+      }
+      // A PAGE FETCH allowed by a rule or as one of the pre-approved sites, or, where the checker judges it, once it has.
+      if (x.name === "web_fetch") {
+        if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
+        if (emailMark && await emailRefused("WebFetch", args, emailMark)) return;
+        const url = String(args.url || "");
+        if (sites.length) { const never = siteFor(sites, (() => { try { return new URL(url).hostname; } catch { return ""; } })()); if (never && never.mode === "deny") return; }
+        const d = github ? null : fetchDecision(url, { mode: mode0, rules: ownRules });
+        if (d && d.verdict === "deny") return;
+        const key = "web_fetch\n" + JSON.stringify(args);
+        if (!!checker && modeChecks(mode0) && !(d && d.verdict === "ask" && d.byRule) && fetchDecision(url, { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") startChecked(x, "web_fetch\n" + url, mode0, actionShown("web_fetch", args), key, () => fetchRun(args));
+        else if (!d || d.verdict === "allow") early.start(x.id, key, () => fetchRun(args));
+        return;
+      }
+      // A WEB SEARCH allowed by a rule, its search taken from the chat's budget as it starts; or once the checker has let it.
+      if (x.name === "web_search") {
+        const chk = checkSearchInput(args);
+        if (chk.error) return;
+        const sDec = github ? { verdict: checker ? "check" : "allow" } : searchDecision({ mode: mode0, rules: ownRules, planChecks, input: args });
+        const key = "web_search\n" + JSON.stringify(chk.args);
+        const run = () => (webBudget.tryConsume() ? runWebSearch(deps.send, { model, effort, args: chk.args, now }) : null);
+        if (sDec.verdict === "check" && checker) startChecked(x, "web_search\n" + String(args.query || ""), mode0, actionShown("web_search", args), key, run);
+        else if (sDec.verdict === "allow" || sDec.verdict === "check") early.start(x.id, key, run);
+        return;
+      }
+      // A CONNECTOR'S READ-ONLY TOOL that asks nothing, as Gloopy's run-ahead takes one.
+      if (mcpByName.has(x.name) && quietWith(x, true)) early.start(x.id, "mcp\n" + JSON.stringify(x.args), () => mcpRun(x));
+    };
+    const startGroup = async (i) => {
+      const to = groupEnd(calls, i, isSafe);
+      groupTo = to;
+      if (to - i < 2 || now() - started > maxMs || (await stopped())) return;
+      for (let k = i; k < to; k++) {
+        // (Where no one can answer while Coder works, a question or a plan ends the turn in its turn: none after it starts.)
+        if (!canAsk() && (calls[k].name === "ask_user" || calls[k].name === "exit_plan_mode")) break;
+        try { await startEarly(calls[k]); } catch { /* it runs in its turn */ }
+      }
+    };
     // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
     const heldEnd = (from) => {
       const w = writeHold;
@@ -3402,7 +3548,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // time limit is checked before each command starts.)
       // (Not one the account's email check refuses, its scripts read now: coder-privacy.mjs.)
       const okAhead = async (x) => runsAhead(x) && !(emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: (typeof deps.here === "function" ? String(deps.here() || "") : "") || deps.root || "" }));
-      if (!ahead.has((calls[i] || {}).id) && i + 1 < calls.length && await okAhead(calls[i]) && await okAhead(calls[i + 1]) && now() - started <= maxMs && !(await stopped())) {
+      // (Gloopy's run-ahead; Coder's calls go in Claude Code's groups, below.)
+      if (offered && !ahead.has((calls[i] || {}).id) && i + 1 < calls.length && await okAhead(calls[i]) && await okAhead(calls[i + 1]) && now() - started <= maxMs && !(await stopped())) {
         for (let j = i; j < calls.length && await okAhead(calls[j]); j++) ahead.set(calls[j].id, startAhead(calls[j]));
       }
       if (hookStop) return stopByHook(hookStop);
@@ -3410,6 +3557,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!deniedLast) deniedRow = 0;
       deniedLast = false;
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
+      // (Coder's group that starts with this call: its calls that need nothing but to run start now, coder-parallel.mjs.)
+      if (!offered && i >= groupTo) await startGroup(i);
       const c = calls[i];
       // (The call taken up again after its job paused: as it was when its card showed, in the mode its card was shown in,
       // until its step is done.)
@@ -3453,7 +3602,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (inputCheck) {
         let v;
         // (Awaited: lsp's file checks need the chat's files, lspFile.)
-        try { v = await inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off, lspFile }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
+        // (Made at its group's start already for this same input: taken, coder-parallel.mjs.)
+        const pre0 = preChecked.get(c.id);
+        preChecked.delete(c.id);
+        try { v = pre0 && pre0.was === JSON.stringify(c.args) ? pre0.v : await inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off, lspFile }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
           // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call. A tool with no
@@ -3733,16 +3885,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; emit({ type: "result", id: c.id, code: -1, ran: false, denied: true, output: AUTO_OFF_GITHUB }); reply(noPromptDenied(c.ps ? "PowerShell" : c.monitor ? "Monitor" : "Bash") + await deniedHooks(c, why0)); continue; }
         const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
         const cmdWhat = c.ps ? "this PowerShell command" : "this bash command";
-        if (wantsCheck && !checkSt.paused && declinedAgain(c, cmdKey, cmdWhat, reply)) continue;
+        // (Its verdict asked at its group's start, beside the others', for this same action: taken, coder-parallel.mjs.)
+        const cmdAction = wantsCheck ? actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }) + (protToChecker ? "\nIT WRITES PROTECTED PATHS (repository state or Coder's own settings): " + protToChecker.join(", ") : "") : "";
+        const earlyV = wantsCheck ? early.takeCheck(c.id, (modeB === "plan" ? "plan" : "auto") + "\n" + cmdAction) : null;
+        if (wantsCheck && !earlyV && !checkSt.paused && declinedAgain(c, cmdKey, cmdWhat, reply)) continue;
         if (wantsCheck) {
-          if (checkSt.paused) {
+          if (checkSt.paused && !earlyV) {
             if (canAsk()) pausedCard = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
             // (A command that can throw away uncommitted work: git status first, for the checker, gitStatusLine.)
-            const gitSeen = !c.ps && discardsWork(command) ? await gitStatusLine(deps) : "";
-            await pauseMs(noVerdictWait(noVerdictRow));
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }) + (protToChecker ? "\nIT WRITES PROTECTED PATHS (repository state or Coder's own settings): " + protToChecker.join(", ") : "") + (gitSeen ? "\n" + gitSeen : ""), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            const gitSeen = !earlyV && !c.ps && discardsWork(command) ? await gitStatusLine(deps) : "";
+            if (!earlyV) await pauseMs(noVerdictWait(noVerdictRow));
+            const v = earlyV ? await earlyV : await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: cmdAction + (gitSeen ? "\n" + gitSeen : ""), mode: modeB === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             // A MODE SWITCH WHILE IT WAS CHECKED (Bash docs pass 8; Claude Code: "Claude Code discards a verdict the new mode
             // wouldn't have requested. You're prompted for approval instead").
@@ -3806,7 +3961,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit). (One already started with the
         // read-only commands beside it was checked when they started: its result is taken.)
-        if (!ahead.has(c.id) && now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
+        if (!ahead.has(c.id) && !early.has(c.id) && now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // THE SCRIPT CAPS (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SCRIPT_CAPS, here CODER_SCRIPT_CAPS with the
         // scrub on): a command naming a capped script once too often is not run, in Claude Code's words; the count is kept.
         if (deps.scriptCaps && deps.scriptCaps.caps && deps.scriptCaps.counts) {
@@ -3827,7 +3982,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const limitMs = !inBg ? 0 : Number(c.args.timeout) > 0 ? Number(c.args.timeout) : Number(c.args.timeout_s) > 0 ? Number(c.args.timeout_s) * 1000 : 0;
         const snapId = inBg ? "" : await snapBefore(command);
         ranAt.set(c.id, now());
-        try { r = ahead.has(c.id) ? await ahead.get(c.id) : await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command, ps: true } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
+        // (One started at its group's start, coder-parallel.mjs: its result, for this same command.)
+        try { r = ahead.has(c.id) ? await ahead.get(c.id) : (!c.ps && !c.monitor && !inBg && (await early.take(c.id, "bash\n" + command))) || await deps.exec({ command: c.ps ? psCommand(command, { bypass: !powershell || powershell.bypass !== false }) : command, ...(c.ps ? { shown: command, ps: true } : {}), ...(hostsFor ? { hosts: hostsFor } : {}), timeoutS: inBg ? 1 : timeoutS, here: true, follow: !inBg, inBg, sleepFirst: !inBg && leadsWithSleep(command), desc, limitMs, ...(c.monitor ? { monitor: true } : {}) }); }
         catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         const files = await snapAfter(snapId, !(r && (r.background || r.notStarted)));
         // STOPPED WHILE IT RAN (Bash docs pass 9; Claude Code's answer for such a call is its rejection followed by "Correction
@@ -3976,14 +4132,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // THE AUTO MODE CHECKER for it (coder-checker.mjs), as for a page fetch: paused after repeated blocks (then the owner is
           // asked), declined once (then refused again), no verdict, a mode switched while it judged, a block or an allow.
           const checkStS = checkerState(...checkKey());
-          if (checkStS.paused) {
+          // (Its verdict asked at its group's start, beside the others', for this same search: taken, coder-parallel.mjs.)
+          const earlyS = early.takeCheck(c.id, (modeS === "plan" ? "plan" : "auto") + "\n" + actionShown("web_search", args0));
+          if (checkStS.paused && !earlyS) {
             if (canAsk()) { askWhy = pausedWhy(checkStS.byRow); sPaused = checkStS; }
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
             const sKey = "web_search\n" + String(args0.query || "");
-            if (declinedAgain(c, sKey, "this web search", reply)) continue;
-            await pauseMs(noVerdictWait(noVerdictRow));
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_search", args0), mode: modeS === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            if (!earlyS && declinedAgain(c, sKey, "this web search", reply)) continue;
+            if (!earlyS) await pauseMs(noVerdictWait(noVerdictRow));
+            const v = earlyS ? await earlyS : await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_search", args0), mode: modeS === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             const modeAfterS = modeNow();
             if (modeAfterS !== modeS && !modeChecks(modeAfterS)) {
@@ -4022,15 +4180,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // THE CHAT'S BUDGET (Claude Code: "While a session is at the limit, searches appear in the conversation as calls that did
         // nothing. Claude gets a notice telling it to continue with the information already gathered"): no search, its notice.
-        if (!webBudget.tryConsume()) {
+        // (One started at its group's start took its search from the budget then, and has its answer: coder-parallel.mjs.)
+        const searched = await early.take(c.id, "web_search\n" + JSON.stringify(chk.args));
+        if (!searched && !webBudget.tryConsume()) {
           const facts = { query: chk.args.query, results: [usedUpText({ max: webBudget.max(), refills: webBudget.refillsPerHour(), perTurn: !!github })], durationSeconds: 0, searchCount: 0 };
           toolFacts.set(c.id, facts);
           emit({ type: "result", id: c.id, code: 0, output: facts.results[0] });
           reply(searchText(facts) + yesNote(approval));
           continue;
         }
-        ranAt.set(c.id, now());
-        const sr = await runWebSearch(deps.send, { model, effort, args: chk.args, now });
+        if (!searched) ranAt.set(c.id, now());
+        const sr = searched || await runWebSearch(deps.send, { model, effort, args: chk.args, now });
         // (The search's own call is counted with the others: what it used, its searches and its cost.)
         if (sr.usage) usage.push(sr.usage);
         if (sr.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(sr.error).slice(0, 2000) }); reply(sr.error + yesNote(approval)); continue; }
@@ -5014,16 +5174,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // directory"): with the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES on, a read, grep, glob or lsp
         // outside the project (its links followed) is refused; Coder's own folders stay readable ("Files Claude Code itself
         // needs stay readable").
-        // (The file or folder a file tool works on, in full. A glob's full pattern names its own folder, as Claude Code's Glob
-        // reads one (its getPath, 2.1.325; the owner, 2026-11-14): the folder before the last "/" ahead of its first wildcard,
-        // or, with none, the file's own folder; a pattern starting with "~" is no full one: it is searched as it is, from the
-        // search's folder. A path of "~" or "~/…" is from the home folder, as Claude Code reads a path.)
-        const targetOf = () => {
-          const pat = c.name === "glob" && typeof args.pattern === "string" && args.pattern.startsWith("/") ? splitPattern(args.pattern).baseDir : "";
-          const named = c.name === "lsp" ? args.filePath : args.path;
-          const p = pat || (typeof named === "string" && named ? named : ".");
-          return typeof deps.where === "function" ? deps.where((p === "~" || p.startsWith("~/")) && deps.home ? deps.home + p.slice(1) : p) : p;
-        };
+        // (The file or folder a file tool works on, in full: targetFor, above.)
+        const targetOf = () => targetFor(c.name, args);
         // (The chat's plan file stays readable: Claude Code's "Plan files for current session are allowed for reading". 2026-11-14.)
         if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath())) {
           const full = targetOf();
@@ -5079,14 +5231,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let fetchPaused = false, fetchSwitched = false, fetchChecked = false;
         const checkStF = checkerState(...checkKey());
         if (!c.rerun && checker && c.name === "web_fetch" && modeChecks(modeT) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask" && fetchDec.byRule) && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
-          if (checkStF.paused) {
+          // (Its verdict asked at its group's start, beside the others', for this same fetch: taken, coder-parallel.mjs.)
+          const earlyF = early.takeCheck(c.id, (modeT === "plan" ? "plan" : "auto") + "\n" + actionShown("web_fetch", args));
+          if (checkStF.paused && !earlyF) {
             if (canAsk()) fetchPaused = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
             const fetchKey = "web_fetch\n" + String(args.url || "");
-            if (declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
-            await pauseMs(noVerdictWait(noVerdictRow));
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: modeT === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            if (!earlyF && declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
+            if (!earlyF) await pauseMs(noVerdictWait(noVerdictRow));
+            const v = earlyF ? await earlyF : await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: modeT === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             const modeAfterF = modeNow();
             if (modeAfterF !== modeT && !modeChecks(modeAfterF)) {
@@ -5143,8 +5297,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // notes; its result object for the PostToolUse hooks; the reader's use counted with the job's.
         if (c.name === "web_fetch") {
           ranAt.set(c.id, now());
-          // (The tools script's time: the fetch's deadline and a little more; with no deadline, the job's time left.)
-          const wf = await webFetchRun(deps, { model, effort, args, chat: webCacheKey, settings: webFetch, execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
+          // (fetchRun, above; one started at its group's start, coder-parallel.mjs: its result, for this same input.)
+          const wf = (await early.take(c.id, "web_fetch\n" + JSON.stringify(args))) || await fetchRun(args);
           if (wf.usage) usage.push(wf.usage);
           if (wf.facts) toolFacts.set(c.id, wf.facts);
           emit({ type: "result", id: c.id, code: wf.code, output: wf.out.length > MAX_OUTPUT_CHARS ? capOutput(wf.out) : wf.out });
@@ -5162,17 +5316,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
         const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: searchCtx() } : {}) };
-        const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
         let r;
-        // THE CHAT'S LANGUAGE SERVERS' KEEPER, started by Coder's machine the first time a lookup, a write or an edit needs a
-        // server (coder-lsp.mjs needsKeeper; Claude Code starts a server the first time a file it handles is used), and kept
-        // for the chat. A lookup goes on without it (its server then started and stopped for it).
-        if (needsKeeper(c.name, args) && deps.lsp && typeof deps.lsp.start === "function") { try { await deps.lsp.start(); } catch { /* the call goes on */ } }
-        // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
-        // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
-        // (A lookup may take the job's time left: LSP_EXEC_MIN_S.)
+        // (One call of the tools script, toolRun above: the chat's language servers' keeper started first when the call needs
+        // one. One started at its group's start, coder-parallel.mjs: its result, for this same request.)
         ranAt.set(c.id, now());
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? Math.max(LSP_EXEC_MIN_S, Math.ceil((maxMs - (now() - started)) / 1000)) : search ? searchExecS() : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); }
+        try { r = (await early.take(c.id, JSON.stringify(req))) || await toolRun(c, req, args); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -5480,7 +5628,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) });
         let r;
-        const running = mcpEarly.get(c.id) || Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }));
+        // (Gloopy's started with its round, Coder's at its group's start, coder-parallel.mjs; else now: mcpRun, above.)
+        const running = mcpEarly.get(c.id) || early.take(c.id, "mcp\n" + JSON.stringify(c.args)).then((x) => x || mcpRun(c));
         // Still running after two minutes: to the background; Coder goes on and is told the answer when it comes.
         let timer;
         const later = await Promise.race([running.then((x) => ({ x })), new Promise((ok) => { timer = setTimeout(() => ok(null), deps.connectorBgMs || CONNECTOR_BG_MS); })]);

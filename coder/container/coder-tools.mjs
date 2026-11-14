@@ -1146,6 +1146,30 @@ async function seenList(dir) {
   try { const j = JSON.parse(await readFile(join(dir, "index.json"), "utf8")); return Array.isArray(j) ? j.filter((x) => x && typeof x.abs === "string" && isAbsolute(x.abs) && typeof x.hash === "string") : []; } catch { return []; }
 }
 async function seenSave(dir, list) { const tmp = join(dir, "index.json." + process.pid + ".tmp"); await writeFile(tmp, JSON.stringify(list)); await rename(tmp, join(dir, "index.json")); }
+/**
+ * THE RECORD'S LOCK (2026-11-14: a reply's calls side by side, as Claude Code runs them, coder-parallel.mjs). The tools script
+ * runs once per call, so reads made at the same time would each take the record, add their file and save it, and all but the
+ * last would be lost (edit and write would then say a file was never read). Each change of the record holds this lock: a
+ * file made only when it is not there; one older than SEEN_LOCK_STALE_MS was left by a run that was stopped, and is taken
+ * over; after SEEN_LOCK_WAIT_MS the change is made without it, as before.
+ */
+export const SEEN_LOCK_STALE_MS = 10_000, SEEN_LOCK_WAIT_MS = 5_000;
+async function seenLocked(fn) {
+  const dir = seenDir();
+  if (!dir) return fn();
+  const lock = join(dir, "index.lock"), until = Date.now() + SEEN_LOCK_WAIT_MS;
+  let held = false;
+  while (!held) {
+    try { await (await openFile(lock, "wx")).close(); held = true; } catch (e) {
+      if (!e || e.code !== "EEXIST") break;
+      const st = await stat(lock).catch(() => null);
+      if (st && Date.now() - st.mtimeMs > SEEN_LOCK_STALE_MS) { await unlink(lock).catch(() => {}); continue; }
+      if (Date.now() > until) break;
+      await new Promise((ok) => setTimeout(ok, 5 + Math.floor(Math.random() * 20)));
+    }
+  }
+  try { return await fn(); } finally { if (held) await unlink(lock).catch(() => {}); }
+}
 /** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
 function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
 /**
@@ -1156,7 +1180,8 @@ const lineMark = (l) => createHash("sha256").update(l).digest("hex").slice(0, 8)
 const marksOf = (buf) => fileText(buf).split("\n").map(lineMark).join("");
 const marksFile = (dir, abs) => join(dir, "lines-" + fingerprint(Buffer.from(abs)).slice(0, 24) + ".txt");
 /** Notes a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
-async function remember(abs, buf, { whole = true, cmd = false } = {}) {
+async function remember(...a) { return seenLocked(() => rememberNow(...a)); }
+async function rememberNow(abs, buf, { whole = true, cmd = false } = {}) {
   const dir = seenDir();
   const mem = process.env.CODER_MEMORY_FILE;
   if (!dir || (mem && abs === resolve(mem))) return;
@@ -1180,7 +1205,8 @@ async function remember(abs, buf, { whole = true, cmd = false } = {}) {
  * other read, a write or an edit of it makes a new record, without the mark), as Claude Code's Write refuses a file
  * read "only partially with a PARTIAL view notice".
  */
-async function markPartial(abs) {
+async function markPartial(abs) { return seenLocked(() => markPartialNow(abs)); }
+async function markPartialNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1196,7 +1222,8 @@ async function markPartial(abs) {
  * start of this file, and nothing shows that you have since read all of it in one call, so a Write could lose the rest.").
  * A file read whole, written or edited in this chat already stands as it is.
  */
-async function markStart(abs, st) {
+async function markStart(abs, st) { return seenLocked(() => markStartNow(abs, st)); }
+async function markStartNow(abs, st) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1215,7 +1242,8 @@ async function markStart(abs, st) {
  * a file read whole (tried, 2026-11-09: a file read with limit 3 was edited without it). Unlike a PARTIAL view, it does not
  * stop write (Claude Code's Write takes a file read with a limit, on newer models). A whole read makes a new record.
  */
-async function markPart(abs) {
+async function markPart(abs) { return seenLocked(() => markPartNow(abs)); }
+async function markPartNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1225,7 +1253,8 @@ async function markPart(abs) {
   } catch { /* never costs the tool */ }
 }
 /** Read all at once (no offset or limit, nothing left out): no longer shown only in part. */
-async function clearStart(abs) {
+async function clearStart(abs) { return seenLocked(() => clearStartNow(abs)); }
+async function clearStartNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1268,7 +1297,8 @@ function changedLines(was, buf) {
  * { followed, changed: [{ path } | { path, gone: true }] }, and the files brought up to date. A file only touched (the
  * same bytes) is no change; one grown past 256 KB is a change, and is not followed after.
  */
-export async function toolChanged({ reset = false, shown = null } = {}) {
+export async function toolChanged(o) { return seenLocked(() => changedNow(o)); }
+async function changedNow({ reset = false, shown = null } = {}) {
   const dir = seenDir();
   // THE CHANGES CODER'S NOTE HAS NOW SHOWN GROK (its lines, after the round): no longer "changed and not shown", so write
   // may replace them, as Claude Code's Write may once its "changed on disk" note has shown the change.
