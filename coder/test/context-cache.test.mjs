@@ -10,6 +10,10 @@
 // with a message of the owner's has Claude Code 2.1.325's second notification header.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+// (A summary's request: Claude Code's compact request, the conversation with its prompt last, since 2026-11-14; or Coder's own, with no tools.)
+const { isCompactRequest: isCompactReq } = await import("../container/coder-compact.mjs");
+const isSumReq = (q) => isCompactReq(q) || !q.tools || !q.tools.length;
 import http from "node:http";
 import { readFileSync } from "node:fs";
 import { mkdtemp, mkdir, writeFile, realpath } from "node:fs/promises";
@@ -206,7 +210,7 @@ test("CTX4 summaries: after a job's own summary (Claude Code's auto-compact, the
     get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     freshContext: async () => pieces("b"),
     send: async (q) => {
-      if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY"); }
+      if (isSumReq(q)) { summarized = true; return say("SUMMARY"); }
       reqs.push(q); k++;
       return k <= 12 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done.");
     },

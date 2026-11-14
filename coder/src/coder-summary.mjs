@@ -11,9 +11,11 @@ import { summaryRequest, summaryMessage, turnCut, filesTouched } from "../contai
 export const COMPACT_HISTORY_AT = 300 * 1024;
 /**
  * A CODER CHAT'S, A LAST RESORT ONLY (2026-11-14, the owner: "yes copy claude code"): Coder's machine summarizes the chat by
- * Claude Code's auto-compact before its first request, so this only catches one nearing what the machine takes (48 MB).
+ * Claude Code's auto-compact before its first request (some 2 MB of text at most, then), and its pictures are kept apart
+ * (coder-live.mjs), so this only catches a chat far past that: 6 MB, which the Worker's 128 MB reads, summarizes and saves
+ * (test/worker-memory.test.mjs).
  */
-export const CODER_COMPACT_SAFETY = 32 * 1024 * 1024;
+export const CODER_COMPACT_SAFETY = 6 * 1024 * 1024;
 
 /** One summary by Coder's model. Answers its text, or "" when it could not be made. `gloopy`: Gloopy's (its copy as before). */
 export async function summarize(env, messages, focus = "", { fetchFn = fetch, gloopy = false } = {}) {
@@ -43,8 +45,9 @@ export function marksAfter(marks, { from, to, evAt = -1 }) {
  * of the owner's messages stay whole), like Claude Code's auto-compact. Answers { messages, from, to }
  * (to = 0: nothing was summarized; the old cut then still applies when saving). `gloopy`: a Gloopy chat's, in its words as before.
  */
-export async function compactHistory(messages, summarizeFn, { at = COMPACT_HISTORY_AT, gloopy = false } = {}) {
-  if (!Array.isArray(messages) || JSON.stringify(messages).length <= at) return { messages, from: 0, to: 0 };
+export async function compactHistory(messages, summarizeFn, { at = COMPACT_HISTORY_AT, gloopy = false, size = NaN } = {}) {
+  // (`size`: the saved chat's length as stored, when known, so it is not made again here.)
+  if (!Array.isArray(messages) || (Number.isFinite(size) ? size : JSON.stringify(messages).length) <= at) return { messages, from: 0, to: 0 };
   const c = turnCut(messages, 3);
   if (c <= 0) return { messages, from: 0, to: 0 };
   const text = await summarizeFn(messages.slice(0, c), "");

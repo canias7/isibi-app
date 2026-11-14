@@ -26,6 +26,22 @@ export async function cacheKeyFor(chat) {
 export const MODEL_PASS_MS = 3 * 60 * 60 * 1000;
 /** The largest AI call taken (a conversation with pictures). */
 export const MODEL_BODY_MAX = 30 * 1024 * 1024;
+/**
+ * DOES THIS CALL NAME A CACHE KEY OF ITS OWN (`"prompt_cache_key"` as a key: after `{` or `,`, spaces aside)? In a JSON
+ * string a quote is always `\"`, so the words inside a message (a file of Coder's own code, read) never count.
+ */
+export function namesCacheKey(b) {
+  const word = enc.encode('"prompt_cache_key"');
+  for (let i = b.indexOf(34); i >= 0; i = b.indexOf(34, i + 1)) {
+    let k = 0;
+    while (k < word.length && b[i + k] === word[k]) k++;
+    if (k < word.length) continue;
+    let j = i - 1;
+    while (j >= 0 && (b[j] === 32 || b[j] === 9 || b[j] === 10 || b[j] === 13)) j--;
+    if (j >= 0 && (b[j] === 123 || b[j] === 44)) return true;
+  }
+  return false;
+}
 
 const enc = new TextEncoder();
 const b64url = (buf) => { const b = new Uint8Array(buf); let s = ""; for (let i = 0; i < b.length; i++) s += String.fromCharCode(b[i]); return btoa(s).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, ""); };
@@ -72,17 +88,33 @@ export async function handleModel(request, env, { fetchFn = fetch, now = Date.no
   try { const o = await bucket.get("coder/" + uid + "/" + id + "/meta.json"); meta = o ? JSON.parse(await o.text()) : null; } catch { meta = null; }
   if (!meta || String(meta.turn) !== turn) return answer("that chat has moved on", 403);
   if (Number(request.headers.get("content-length")) > MODEL_BODY_MAX) return answer("that AI call is too large", 413);
-  const body = await request.text();
+  // THE CALL PASSED ON AS ITS BYTES (2026-11-14, the Worker's memory): read once, never made a string nor parsed whole (a call
+  // with a chat's pictures is up to 30 MB, and its text, as a string, twice that: the parse and the copy sent on held some
+  // 190 MB, past a Worker's 128 MB). The model is read from its start, as Coder's machine writes it (`{"model":"…",`), and
+  // the chat's cache key put first; a call that starts otherwise, or names a cache key of its own, is read whole, as before.
+  const body = new Uint8Array(await request.arrayBuffer());
   if (body.length > MODEL_BODY_MAX) return answer("that AI call is too large", 413);
-  let model = "", req = null;
-  try { req = JSON.parse(body); model = String((req && req.model) || ""); } catch { return answer("that AI call could not be read", 400); }
-  if (!req || typeof req !== "object" || Array.isArray(req)) return answer("that AI call could not be read", 400);
   const models = new Set([...CODER_MODELS.map((m) => m.id), coderModel(env)]);
-  if (!models.has(model)) return answer("not one of Coder's models", 403);
-  // The chat's own cache key, in place of any the machine sent.
-  req.prompt_cache_key = await cacheKeyFor(chat);
+  const keyNow = await cacheKeyFor(chat);
+  const head = /^\{"model":"([^"\\]{1,100})",/.exec(new TextDecoder().decode(body.subarray(0, 160)));
+  let sendOn;
+  if (head && !namesCacheKey(body)) {
+    if (!models.has(head[1])) return answer("not one of Coder's models", 403);
+    const first = enc.encode('{"prompt_cache_key":' + JSON.stringify(keyNow) + ",");
+    sendOn = new Uint8Array(first.length + body.length - 1);
+    sendOn.set(first, 0);
+    sendOn.set(body.subarray(1), first.length);
+  } else {
+    let model = "", req = null;
+    try { req = JSON.parse(new TextDecoder().decode(body)); model = String((req && req.model) || ""); } catch { return answer("that AI call could not be read", 400); }
+    if (!req || typeof req !== "object" || Array.isArray(req)) return answer("that AI call could not be read", 400);
+    if (!models.has(model)) return answer("not one of Coder's models", 403);
+    // The chat's own cache key, in place of any the machine sent.
+    req.prompt_cache_key = keyNow;
+    sendOn = JSON.stringify(req);
+  }
   let r;
-  try { r = await fetchFn(CODER_ENDPOINT, { method: "POST", body: JSON.stringify(req), headers: { authorization: "Bearer " + key, "content-type": "application/json" } }); }
+  try { r = await fetchFn(CODER_ENDPOINT, { method: "POST", body: sendOn, headers: { authorization: "Bearer " + key, "content-type": "application/json" } }); }
   catch { return answer("xAI could not be reached", 502); }
   // Only xAI's answer and its type come back (nothing of the key).
   return new Response(r.body, { status: r.status, headers: { "content-type": r.headers.get("content-type") || "application/json", "cache-control": "no-store" } });

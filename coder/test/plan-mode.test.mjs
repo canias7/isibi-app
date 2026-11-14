@@ -4,6 +4,10 @@
 // hooks, hooks-guide, permissions, settings-reference, changelog).
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+// (A summary's request: Claude Code's compact request, the conversation with its prompt last, since 2026-11-14; or Coder's own, with no tools.)
+const { isCompactRequest: isCompactReq } = await import("../container/coder-compact.mjs");
+const isSumReq = (q) => isCompactReq(q) || !q.tools || !q.tools.length;
 import { mkdtemp, writeFile, readFile, symlink, link, stat, chown } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -752,7 +756,7 @@ test("PM23 after a summary the chat's plan file is put back in front of Coder, i
   const r = await A.runCoder({
     compactAt: 6000, plan: box,
     send: async (q) => {
-      if (!q.tools || !q.tools.length) return { message: { role: "assistant", content: "SUMMARY" }, usage: { in: 1, out: 1 } };
+      if (isSumReq(q)) return { message: { role: "assistant", content: "SUMMARY" }, usage: { in: 1, out: 1 } };
       n++;
       return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "echo " + n }, "b" + n)] } } : { message: { role: "assistant", content: "All done." } };
     },

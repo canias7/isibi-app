@@ -34,7 +34,7 @@ const asSent = (req) => { const { instructions, input } = M.toResponsesInput(req
  * JSON). Every request to Grok (not the page reader's or a checker's) is kept, in order, labelled "m<message>#<call>".
  */
 function chat() {
-  const sent = [];
+  const sent = [], sums = [];
   let saved = [], k = 0;
   // (`real`: each answer says what its request used, as xAI counts it, 4 characters a token, so Claude Code's auto-compact counts
   // from it.)
@@ -46,7 +46,8 @@ function chat() {
       send: async (req) => {
         const sys = String((req.messages[0] && req.messages[0].content) || "");
         if (sys === A.PAGE_READER || /safety checker/.test(sys)) return { message: { role: "assistant", content: '{"decision":"allow"}' }, usage: { in: 1, out: 1 } };
-        if (!req.tools || !req.tools.length) return { message: { role: "assistant", content: "SUMMARY of what came before" }, usage: { in: 1, out: 1 } };
+        // (A summary's request: Claude Code's compact request, the conversation with its prompt last, or Coder's own.)
+        if (C.isCompactRequest(req) || !req.tools || !req.tools.length) { sums.push({ label: "sum" + (sums.length + 1), req: JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })) }); return { message: { role: "assistant", content: "<analysis>what happened</analysis>\n\n<summary>\nSUMMARY of what came before\n</summary>" }, usage: { in: 1, out: 1 } }; }
         sent.push({ label: "m" + k + "#" + (n + 1), req: JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })) });
         // (The owner's Stop while Grok answers: the answer never comes back.)
         if (stopAnswer) { setTimeout(() => { stopAt = Date.now(); }, 15); await new Promise((ok) => { const t = setTimeout(ok, 3000); if (req.signal) req.signal.addEventListener("abort", () => { clearTimeout(t); ok(); }); }); }
@@ -72,7 +73,7 @@ function chat() {
     const told = (id) => { const m = r.messages.find((x) => x.role === "tool" && x.tool_call_id === id); return m ? m.content : undefined; };
     return { r, events, hookCalls, told };
   };
-  return { sent, run, labels: () => sent.map((s) => s.label), get messages() { return saved; } };
+  return { sent, sums, run, labels: () => sent.map((s) => s.label), get messages() { return saved; } };
 }
 /**
  * The next request starts with the one before it, byte for byte: the same system message, its tools (and, after a load, the
@@ -367,6 +368,13 @@ test("CP10 the cache breaks only at a summary: a job that fills the conversation
   const at = (l) => c.sent.find((x) => x.label === l);
   startsWith(at("m1#1"), at("m2#1"));
   startsWith(at("m2#1"), at("m2#2"));
+  // The summary's own request (Claude Code's compact request, the coordinator's follow-up of 2026-11-14) starts with the last
+  // request, byte for byte, so Grok's cache serves it but for what came after and the compact prompt.
+  assert.equal(c.sums.length, 1);
+  const sumReq = c.sums[0];
+  assert.ok(C.isCompactRequest(sumReq.req));
+  startsWith(at("m2#2"), sumReq);
+  assert.equal(c.messages[0].content.split("\n\nSummary:\n")[1].split("\n")[0], "SUMMARY of what came before", "its <summary> kept, its <analysis> left out");
   // The summary: the system message and the tools the same bytes; the conversation starts again from the summary.
   const before = asSent(at("m2#2").req), after = asSent(at("m2#3").req);
   assert.equal(after.instructions, before.instructions);

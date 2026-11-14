@@ -94,7 +94,8 @@ test("GM3 Gloopy's turn on the machine: its own instructions, tools and settings
   assert.match(line, /, hooks: \[\], checker: false, rules: null, sessionRules: null \} : \{\};$/);
   assert.doesNotMatch(line, /[{ ]rules: Array\.isArray/, "the browser rules never go in as Coder's permission rules");
   // Given last, so they win for Gloopy; a Coder turn gets {} (its own options as before).
-  assert.match(server, /\n      runCoder\(turnDeps, \{ notices, [^\n]*, \.\.\.gloopyOpts \}\)\n/);
+  // (After the saved chat's pictures are put back, in Coder's chats: picsIn, 2026-11-14; Gloopy's has none.)
+  assert.match(server, /\n      picsIn\(Array\.isArray\(body\.messages\) \? body\.messages : \[\], picsTo\)\.then\(\(msgsIn\) => runCoder\(turnDeps, \{ notices, [^\n]*, \.\.\.gloopyOpts \}\)\)\n/);
   // Gloopy's notes are backed up before the end is handed out, and what its turn left waiting is kept before it is over.
   assert.match(server, /\.then\(async \(r\) => \{ const memory = await readMemory\(memFile\); if \(gloopy\) await Promise\.race\(\[backupGloopy\(\)/);
   assert.match(server, /\{ const r = t\.result; if \(gloopy && r && \(r\.approvalRequest \|\| r\.signinRequest \|\| r\.cardRequest \|\| r\.keyRequest\)\) pending\.set\(project, [^\n]*\n\s+if \(t\.writes\) t\.writes\.check = null;\n\s+t\.ended = Date\.now\(\);\n\s+t\.running = false;/);

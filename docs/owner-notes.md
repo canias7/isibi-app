@@ -17,6 +17,37 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Summaries come mostly from the cache, and the Worker never holds a chat's pictures
+
+On my branch, not deployed yet. Two follow-ups to the entry below.
+
+- **Summaries, as Claude Code asks for them:** Coder now asks Grok for a summary with the conversation itself: the same
+  instructions, tools and messages as its other requests, with Claude Code's summary instructions added at the end. So
+  Grok's cache serves almost all of it, and a summary costs mostly cached tokens ($0.50 a million instead of $2.00):
+  about $0.22 at the 441,600 mark, plus its answer. Before, Coder sent a plain-text copy of the chat, all at full price.
+  - If Grok says even that request is too long, Coder leaves out the oldest steps and tries again, up to 3 times, as
+    Claude Code does. The summary then says part of the chat isn't in it. If all 3 fail, the chat says "Conversation too
+    long. Use Rewind to go back a few messages and try again."
+  - If Grok answers with no words, Coder falls back to its old plain-text summary request.
+  - The summaries made on Coder's server (Rewind's, and the last resort before a job) stay plain text: the server doesn't
+    have Coder's instructions and tools.
+- **The Worker's memory:** a Cloudflare Worker has 128 MB. With pictures kept in the saved chat, a chat with 24 pictures
+  is about 20 MB, and I measured what the server held at once with one:
+  - starting a message, saving a job, Undo and Rewind: 108 to 129 MB of memory for the code alone (200 to 275 MB all
+    told), so these would have failed;
+  - each request to Grok passing through the server: 108 MB.
+- **The fix:** each picture is now stored on its own, and the saved chat only names it. Coder's machine sends a job's new
+  pictures at its end and fetches them back at the next message, so Grok gets exactly the same bytes and the cache still
+  holds. The server also passes requests to Grok on without unpacking them. Now each of those fits in under 48 MB,
+  measured with the same 20 MB chat, and a test checks it.
+  - If a picture can't be stored or fetched back, it is left out and the chat says so.
+  - The page never downloads a chat's conversation, only its steps (checked).
+- **Limits now** (instead of the ones in the entry below): a saved chat up to 8 MB of text, the server's last-resort
+  summary past 6 MB, the copy saved while a job runs up to 4 MB.
+- **Gloopy:** unchanged. The 500K window and the 92% stay as they are, waiting for your answer on a smaller window.
+- **Tests:** `test/worker-memory.test.mjs` (new, 5: each server route run with a 48 MB limit), `test/autocompact.test.mjs`
+  AC9 (the summary request and its fallbacks), and the files around them updated and passing.
+
 ## 2026-11-14: The saved chat keeps everything as sent, and long chats are summarized the way Claude Code does it (your words: "yes copy claude code")
 
 On my branch, not deployed yet.
@@ -42,7 +73,8 @@ On my branch, not deployed yet.
   - `DISABLE_AUTO_COMPACT`, or `autoCompactEnabled: false`: a full chat then stops with "Context limit reached".
   - `CODER_AUTO_COMPACT_WINDOW`: a window from 100k to 1M tokens. 200k makes Coder summarize at 165,600.
   - Not the percentage: as in Claude Code's cloud sessions, Coder sets it itself (92), whatever you set.
-- **Limits I raised so nothing in between drops a big chat:**
+- **Limits I raised so nothing in between drops a big chat** (the Worker's ones since lowered again, with the pictures
+  kept apart: see the entry above):
   - Coder's machine now takes 48 MB at once (was 8 MB).
   - The Worker keeps a Coder chat up to 40 MB (was 400 KB). It only summarizes before a job past 32 MB (was 300 KB), as
     a last resort.
@@ -60,8 +92,8 @@ On my branch, not deployed yet.
   - A summary now reads up to 1.4 million characters of the chat (it was 150,000), at full price: at most about $0.90.
     It is usually far less, because each tool answer goes in cut to 1,500 characters. And it only happens near the
     441,600 mark.
-  - Claude Code's own summary request reuses the cached chat. Coder's sends a plain-text copy, so it isn't cached. I can
-    copy that too if you want.
+  - Claude Code's own summary request reuses the cached chat. Coder's sends a plain-text copy, so it isn't cached.
+    (Copied since: see the entry above.)
 - **Tests:** `test/autocompact.test.mjs` (new, 8). `test/cache-prefix.test.mjs`: CP9 (a long read, an @-file, a read's
   picture and yours, then the next message byte for byte) and CP10 (a summary mid-job, the only break).
   `test/live-save.test.mjs`: CD121b (the machine lost after a summary in the job). The files around them were updated

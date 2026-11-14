@@ -36,7 +36,8 @@ function chat({ summary = () => "THE SUMMARY of what came before." } = {}) {
     const r = await A.runCoder({
       send: async (req) => {
         const sys = String((req.messages[0] && req.messages[0].content) || "");
-        if (sys === K.SUMMARY_SYSTEM) { sums.push(req); const s = summary(sums.length); if (s instanceof Error) throw s; return { message: { role: "assistant", content: s }, usage: { in: 100, out: 50 } }; }
+        // (A summary's request: Claude Code's compact request, the conversation with its prompt last; or Coder's own, the fallback.)
+        if (K.isCompactRequest(req) || sys === K.SUMMARY_SYSTEM) { sums.push(JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools }))); const s = summary(sums.length, req); if (s instanceof Error) throw s; return { message: { role: "assistant", content: s }, usage: { in: 100, out: 50 } }; }
         if (sys === A.PAGE_READER || /safety checker/.test(sys)) return { message: { role: "assistant", content: "{}" }, usage: { in: 1, out: 1 } };
         sent.push(JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })));
         if (fail) { const e = fail(sent.length); if (e) throw e; }
@@ -133,8 +134,16 @@ test("AC3 before a message's first request, a chat over the threshold is summari
   assert.equal(c.sums.length, 1, "summarized once, before the first request");
   const pre = seenSum.find((h) => h.hook_event_name === "PreCompact");
   assert.deepEqual([pre.trigger, pre.custom_instructions], ["auto", null]);
-  assert.match(c.sums[0].messages[1].content, /OWNER: read big\.txt[\s\S]*OWNER: now the second part/, "the whole conversation, the new message with it");
-  assert.match(c.sums[0].messages[1].content, /The owner asks it to focus on: keep the API notes/, "PreCompact's output: instructions for the summary");
+  // Claude Code's compact request: the conversation itself, the new message with it, its system message and tools those of the
+  // chat's requests, so all but the prompt is the cached prefix of the last request; its compact prompt last, the PreCompact
+  // hooks' output as Additional Instructions.
+  const sum = c.sums[0], last = c.sent.at(-2);
+  assert.equal(sum.messages[0].content, last.messages[0].content, "the same system message");
+  assert.deepEqual(sum.tools, last.tools, "the same tools");
+  assert.deepEqual(asInput(sum).slice(0, asInput(last).length), asInput(last), "the last request's messages, byte for byte");
+  assert.ok(sum.messages.some((m) => m.role === "user" && m.content === "now the second part"), "the new message with it");
+  assert.equal(sum.messages.at(-1).content, K.compactPrompt("keep the API notes"));
+  assert.match(sum.messages.at(-1).content, /^CRITICAL: Respond with TEXT ONLY\. Do NOT call any tools\.\n\n- Do NOT use read, bash, grep, glob, edit, write, or ANY other tool\.[\s\S]*\n\nAdditional Instructions:\nkeep the API notes\n\nREMINDER: Do NOT call any tools\./);
   const post = seenSum.find((h) => h.hook_event_name === "PostCompact");
   assert.deepEqual([post.trigger, post.compact_summary], ["auto", "THE SUMMARY of what came before."]);
   assert.ok(seenSum.some((h) => h.hook_event_name === "SessionStart" && h.source === "compact"));
@@ -165,7 +174,10 @@ test("AC4 mid-turn, between two rounds: a tool result that fills the conversatio
   assert.ok(!c.sent[0].messages.some((m) => String(m.content).startsWith(K.COMPACT_LEAD)), "the first request went whole");
   assert.match(String(c.sent[1].messages[1].content || ""), /^This chat is being continued/, "the one after the read starts with the summary: the read filled the conversation");
   assert.ok(!c.sent[2].messages.some((m) => /^z{1000}/.test(String(m.content).replace(/^ +1\t/, ""))), "the read's text went with the summary");
-  assert.match(c.sums[0].messages[1].content, /RESULT: [\s\S]{0,20}z{100}/, "the read's result in what was summarized");
+  // (The conversation itself, the read's result in it, with Claude Code's compact prompt last.)
+  assert.ok(c.sums[0].messages.some((m) => m.role === "tool" && m.tool_call_id === "r1" && /z{100}/.test(m.content)), "the read's result in what was summarized");
+  assert.ok(K.isCompactRequest(c.sums[0]));
+  assert.deepEqual(asInput(c.sums[0]).slice(0, asInput(c.sent[0]).length), asInput(c.sent[0]), "the last request's messages first, byte for byte");
   assert.equal(one.r.messages.filter((m) => m.role === "tool" && m.tool_call_id === "b1").length, 1, "the round after it ran and kept its answer");
 });
 
@@ -190,7 +202,9 @@ test("AC6 its breakers: three failed summaries in a row and it tries no more in 
   const c = chat({ summary: () => "" });
   const steps = Array.from({ length: 6 }, (_, i) => say("", [call("read", { path: "big40000-" + i + ".txt" }, "r" + i)]));
   await c.run([...steps, say("done")], { text: "read them all" });
-  assert.equal(c.sums.length, 3, "three tries, then none");
+  // (Each try: Claude Code's compact request, then, its reply empty, Coder's own summary request.)
+  assert.equal(c.sums.filter((q) => K.isCompactRequest(q)).length, 3, "three tries, then none");
+  assert.equal(c.sums.length, 6);
   const t = chat();
   const reads = Array.from({ length: 8 }, (_, i) => say("", [call("read", { path: "big110000-" + i + ".txt" }, "q" + i)]));
   const r = await t.run([...reads, say("done")], { text: "read every big file" });
@@ -229,10 +243,11 @@ test("AC8 the saved chat keeps every answer, note and picture whole (Claude Code
   const L = await import("../src/coder-live.mjs");
   const SUM = await import("../src/coder-summary.mjs");
   assert.equal(S.BODY_MAX, 48 * 1024 * 1024);
-  assert.equal(L.LIVE_BODY_MAX, 16 * 1024 * 1024);
-  assert.equal(R.CODER_HISTORY_MAX, 40 * 1024 * 1024);
+  // (Kept to what the Worker's 128 MB holds, the pictures kept apart: test/worker-memory.test.mjs.)
+  assert.equal(L.LIVE_BODY_MAX, 4 * 1024 * 1024);
+  assert.equal(R.CODER_HISTORY_MAX, 8 * 1024 * 1024);
   assert.equal(R.historyMaxFor({ kind: "gloopy" }), R.HISTORY_MAX, "Gloopy's as before");
-  assert.equal(SUM.CODER_COMPACT_SAFETY, 32 * 1024 * 1024);
+  assert.equal(SUM.CODER_COMPACT_SAFETY, 6 * 1024 * 1024);
   assert.ok(SUM.CODER_COMPACT_SAFETY < S.BODY_MAX && R.CODER_HISTORY_MAX < S.BODY_MAX, "what the Worker keeps, the machine takes");
   assert.deepEqual(Object.keys(S.compactVarsOf({ DISABLE_COMPACT: "1", OTHER: "x", CODER_AUTO_COMPACT_WINDOW: "200k" })), ["DISABLE_COMPACT", "CODER_AUTO_COMPACT_WINDOW"]);
   // The percentage is the machine's own, over the owner's and the repository's, as a Claude Code cloud session's ("That value
@@ -250,4 +265,55 @@ test("AC8 the saved chat keeps every answer, note and picture whole (Claude Code
   await sender.flush();
   assert.equal(sender.sent, 1, "the step sent, not marked too big");
   assert.equal(posts, 2);
+});
+
+test("AC9 Claude Code's compact request (its compactConversation, the coordinator's follow-up of 2026-11-14): the conversation itself with its compact prompt last, so all but the prompt is cached; refused as too long, its oldest rounds left out and sent again, up to 3 times (by the tokens the refusal says it is over, else a fifth of the rounds), the summary then saying part of it is not covered; refused once more, \"Conversation too long\"; failed otherwise or with no words, Coder's own plain-text request; the reply's <summary> kept, its <analysis> left out", async () => {
+  // Its pieces.
+  assert.equal(K.summaryText("<analysis>\nthinking\n</analysis>\n\n<summary>\n1. Asked: fix it.\n\n\n2. Done.\n</summary>"), "1. Asked: fix it.\n\n2. Done.");
+  assert.equal(K.summaryText("Plain words."), "Plain words.");
+  assert.equal(K.tokenGap(new Error("prompt is too long: 210000 tokens > 200000 maximum")), 10_000);
+  assert.equal(K.tokenGap(new Error("This model's maximum prompt length is 500000 but the request contains 512000 tokens.")), 12_000);
+  assert.equal(K.tokenGap(new Error("the prompt is too long")), undefined);
+  const round = (i, n = 400) => [{ role: "assistant", content: "", tool_calls: [call("read", { path: "f" + i }, "c" + i)] }, { role: "tool", tool_call_id: "c" + i, content: "x".repeat(n) }];
+  const convo = [{ role: "user", content: "go" }, ...[1, 2, 3, 4, 5, 6, 7, 8, 9].flatMap((i) => round(i))];
+  const fifth = K.dropOldestRounds(convo);
+  assert.deepEqual([fifth[0], fifth[1].tool_calls[0].id], [{ role: "user", content: K.COMPACT_TRUNCATED }, "c2"], "a fifth of 10 rounds, the line first before an answer");
+  const byGap = K.dropOldestRounds(convo, 250);
+  assert.equal(byGap[1].tool_calls[0].id, "c4", "the oldest rounds that make up the tokens over (the owner's message, then rounds of some 105 tokens)");
+  assert.equal(K.dropOldestRounds(fifth)[1].tool_calls[0].id, "c3", "a second time: the line not counted as a round");
+  assert.equal(K.dropOldestRounds(convo, 1e9).at(-1).tool_call_id, "c9", "never the last round");
+  assert.equal(K.dropOldestRounds([{ role: "user", content: "only" }]), null);
+  // In a job of ten rounds: refused as too long twice (with no count of tokens: a fifth of the rounds left out each time), then
+  // made; the summary says part of the conversation is not in it.
+  const tooLong = () => Object.assign(new Error("AI call failed: 400 prompt is too long"), { status: 400 });
+  const reads = Array.from({ length: 8 }, (_, i) => say("", [call("read", { path: "big2000-" + "abcdefgh"[i] + ".txt" }, "s" + i)]));
+  const c = chat({ summary: (n) => (n <= 2 ? tooLong() : "<analysis>notes</analysis>\n<summary>THE SUMMARY after two tries.</summary>") });
+  // (At 6%, 28,800 tokens: the eight small reads fit with the system message and the tools; the big one does not.)
+  await c.run([...reads, say("", [call("read", { path: "big60000.txt" }, "r1")]), say("All done.")], { text: "read them, then the big file", vars: { CODER_AUTOCOMPACT_PCT_OVERRIDE: "6" } });
+  assert.equal(c.sums.length, 3);
+  assert.ok(c.sums.every((q) => K.isCompactRequest(q)), "each time Claude Code's compact request");
+  assert.ok(c.sums[1].messages.length < c.sums[0].messages.length && c.sums[2].messages.length < c.sums[1].messages.length, "the oldest rounds left out");
+  assert.equal(c.sums[1].messages[1].content, K.COMPACT_TRUNCATED, "its line where the conversation then starts");
+  assert.ok(c.sums[2].messages.some((m) => m.tool_call_id === "r1"), "never the newest round");
+  const sum = c.messages.find((m) => K.isSummary(m));
+  assert.equal(sum.content, K.COMPACT_LEAD + "\n\nSummary:\nTHE SUMMARY after two tries.\n\n" + K.COMPACT_HEAD_CUT + "\n" + K.COMPACT_CONTINUE);
+  // Refused every time (the first try and 3 more): no summary; when Grok had refused the job's own request as too long,
+  // Claude Code's "Conversation too long".
+  const d = chat({ summary: () => tooLong() });
+  await d.run([...reads, say("ok")], { text: "read them", vars: {} });
+  const e = Object.assign(new Error("AI call failed: 400 This model's maximum prompt length is 500000 but the request contains 512000 tokens."), { status: 400 });
+  const r = await d.run([say("Fine.")], { text: "go on", vars: {}, fail: () => e });
+  assert.equal(d.sums.length, 1 + K.COMPACT_PTL_RETRIES);
+  assert.ok(r.events.some((x) => x.type === "error" && x.text === K.COMPACT_TOO_LONG));
+  // The owner's /compact refused every time: the same words.
+  const f = chat({ summary: () => tooLong() });
+  await f.run([...reads, say("ok")], { text: "read them", vars: {} });
+  const fc = await f.run([say("never")], { text: "", vars: {}, opts: { compact: { focus: "" } } });
+  assert.equal(f.sums.length, 1 + K.COMPACT_PTL_RETRIES);
+  assert.ok(fc.events.some((x) => x.type === "error" && x.text === K.COMPACT_TOO_LONG));
+  // No words back (a tool call), or another error: Coder's own plain-text request instead, as Claude Code falls back to its own.
+  const g = chat({ summary: (n, req) => (K.isCompactRequest(req) ? "" : "THE FALLBACK SUMMARY") });
+  await g.run([say("", [call("read", { path: "big60000.txt" }, "r1")]), say("All done.")], { text: "read it" });
+  assert.deepEqual(g.sums.map((q) => (K.isCompactRequest(q) ? "compact" : q.messages[0].content === K.SUMMARY_SYSTEM ? "own" : "?")), ["compact", "own"]);
+  assert.match(g.messages.find((m) => K.isSummary(m)).content, /\nSummary:\nTHE FALLBACK SUMMARY\n/);
 });

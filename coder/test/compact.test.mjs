@@ -4,6 +4,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
+// (A summary's request: Claude Code's compact request, the conversation with its prompt last, since 2026-11-14; or Coder's own, with no tools.)
+const { isCompactRequest: isCompactReq } = await import("../container/coder-compact.mjs");
+const isSumReq = (q) => isCompactReq(q) || !q.tools || !q.tools.length;
+
 const K = await import("../container/coder-compact.mjs");
 
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -56,14 +60,14 @@ test("CD165 the summary's pieces: a plain-text copy (tools cut short), Coder's m
   assert.deepEqual(marksAfter(marks, { from: 0, to: 4, evAt: 5 }), [{ turn: 2, ev: 6, msg: 1 }, { turn: 3, ev: 10, msg: 5 }]);
 });
 
-test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, since 2026-11-14 the whole conversation, as its own: test/autocompact.test.mjs): Coder's model writes it with no tools, before the next request; the chat is told; no tool answer is ever left without its call", async () => {
+test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, since 2026-11-14 the whole conversation, as its own: test/autocompact.test.mjs): Coder's model writes it, asked as Claude Code asks (the conversation itself with its compact prompt last), before the next request; the chat is told; no tool answer is ever left without its call", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
   const history = [{ role: "user", content: "an older job" }, { role: "assistant", content: "done before" }];
   let n = 0; const asked = [];
   const r = await runCoder({
     compactAt: 6000,
     send: async (q) => {
-      if (!q.tools || !q.tools.length) { asked.push(q); return { message: { role: "assistant", content: "SUMMARY " + asked.length }, usage: { in: 1, out: 1 } }; }
+      if (isSumReq(q)) { asked.push(q); return { message: { role: "assistant", content: "SUMMARY " + asked.length }, usage: { in: 1, out: 1 } }; }
       n++;
       return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "echo " + n }, "b" + n)] } } : { message: { role: "assistant", content: "All done." } };
     },
@@ -71,8 +75,10 @@ test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, sin
   }, { messages: history, text: "Do the big job" });
   assert.equal(r.status, "done");
   assert.ok(asked.length >= 1 && asked.length <= 3, "summarized, at most three times: " + asked.length);
-  assert.deepEqual(asked[0].tools, []);
-  assert.match(asked[0].messages[1].content, /OWNER: an older job[\s\S]*OWNER: Do the big job/, "the whole conversation, as Claude Code's");
+  // (Claude Code's compact request: the conversation itself, with the tools of the chat's requests and its prompt last.)
+  assert.ok(K.isCompactRequest(asked[0]) && asked[0].tools.length > 0);
+  assert.deepEqual(asked[0].messages.slice(1, 3).map((m) => m.content), ["an older job", "done before"], "the whole conversation, as Claude Code's");
+  assert.ok(asked[0].messages.some((m) => m.role === "user" && m.content === "Do the big job"));
   assert.ok(K.isSummary(r.messages[0]), "the summary first");
   assert.match(r.messages[0].content, /^This chat is being continued from a previous conversation that ran out of context\. The summary below covers the earlier portion of the conversation\.\n\nSummary:\nSUMMARY \d\nContinue the conversation from where it left off/);
   // No tool answer left without its call.
@@ -80,7 +86,7 @@ test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, sin
   for (const m of r.messages.filter((x) => x.role === "tool")) assert.ok(calls.has(m.tool_call_id), m.tool_call_id);
   // compactAt 0: never.
   n = 0; asked.length = 0;
-  await runCoder({ compactAt: 0, send: async (q) => { if (!q.tools || !q.tools.length) asked.push(q); n++; return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "e" }, "x" + n)] } } : { message: { role: "assistant", content: "Done." } }; }, exec: async () => ({ code: 0, output: "z".repeat(900) }) }, { text: "go" });
+  await runCoder({ compactAt: 0, send: async (q) => { if (isSumReq(q)) asked.push(q); n++; return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "e" }, "x" + n)] } } : { message: { role: "assistant", content: "Done." } }; }, exec: async () => ({ code: 0, output: "z".repeat(900) }) }, { text: "go" });
   assert.equal(asked.length, 0);
 });
 
