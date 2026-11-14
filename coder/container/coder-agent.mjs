@@ -57,7 +57,7 @@ import { outputRewrite, checkHookInput, sameInput } from "./coder-hookcheck.mjs"
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
-import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
+import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
@@ -1091,8 +1091,10 @@ export function commandChangedNote(list) {
  * numbers):" then the lines). One note for a round's commands, after their results, never shown in the chat (Claude
  * Code's is a system note). `x`: a changed file from the `changed` tool ({ path, lines } or { path, big: true }).
  */
-export const changedOnDiskNote = (path, x) => "Note: " + scrub(path).slice(0, 300) + " changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. " +
-  (x && typeof x.lines === "string" ? "Here are the relevant changes (shown with line numbers):\n" + x.lines : "The changes are not shown here; read it again if you need the current content.");
+// (Claude Code 2.1.325's words, from its raw program: "… undoing it yourself — otherwise no need to call it out." and, with no
+// lines shown, "… use Read if you need the current content." with Coder's read. 2026-11-14, round 3.)
+export const changedOnDiskNote = (path, x) => "Note: " + scrub(path).slice(0, 300) + " changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself \u2014 otherwise no need to call it out. " +
+  (x && typeof x.lines === "string" ? "Here are the relevant changes (shown with line numbers):\n" + x.lines : "The changes are not shown here; use read if you need the current content.");
 
 /**
  * HOW LONG AN LSP CALL MAY TAKE ON THE MACHINE: Claude Code's calls have no limit of their own (its requests 60 seconds each,
@@ -1535,7 +1537,7 @@ HOW YOU WORK
 - A message the owner sent while you were working comes in the middle of your turn, after your tool results, starting "The owner sent a new message while you were working:". Read it and take it into account as you go on: change course if it asks you to.
 - A command the owner ran themselves (they typed ! in the chat) comes as <bash-input>the command</bash-input>, then <bash-stdout>what it printed</bash-stdout> (<bash-stderr> has its exit code when it failed). Answer it as their message: say what the output means (what failed and how to fix it, when something did). Do not run it again unless they ask.
 - Stay inside the project folder. Never try to read secrets or the machine's environment.
-- Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of /tmp or other system temp directories; it is this chat's own, isolated from the project, and can generally be used without permission prompts. Only use /tmp if the owner explicitly asks.
+- Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of \`/tmp\` or other system temp directories; it is chat-specific, isolated from the project, and can generally be used without permission prompts. A reboot or routine cleanup can clear it, so anything the owner will want to keep belongs somewhere durable instead. Only use \`/tmp\` if the owner explicitly asks. Whenever you name a file in it to the owner, write the file's complete absolute path in one piece, not a bare filename, a path that starts at the scratchpad folder, or the directory followed by filenames: a shortened path is read against the working directory and leads nowhere.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
@@ -2584,11 +2586,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
         } else {
           const wsKey = "monitor\n" + url;
-          if (declinedAgain(c, wsKey, "this WebSocket watch", reply)) return null;
+          if (declinedAgain(c, wsKey, "monitor", reply)) return null;
           await pauseMs(noVerdictWait(noVerdictRow));
           const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: "monitor: open a WebSocket to " + url + (Array.isArray(ws.protocols) && ws.protocols.length ? " (protocols " + ws.protocols.join(", ") + ")" : "") + (desc ? " (" + desc + ")" : ""), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
           if (v.usage) usage.push(v.usage);
-          if (v.error) { if (await noVerdict(c, v, "this WebSocket watch", wsKey, reply)) return { end: stopNoVerdict(i) }; return null; }
+          if (v.error) { if (await noVerdict(c, v, "monitor", wsKey, reply)) return { end: stopNoVerdict(i) }; return null; }
           noVerdictRow = 0;
           if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
           countAllowed(checkSt);
@@ -2663,26 +2665,34 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let noVerdictRow = 0, noVerdictAt = -1;
   const declined = new Set();
   const pauseMs = (ms) => (ms > 0 ? (typeof deps.sleep === "function" ? deps.sleep(ms) : new Promise((ok) => setTimeout(ok, ms))) : Promise.resolve());
-  /** Step `c` refused with no verdict, said in Claude Code's words (`what`: "this bash command"): true when the turn stops. */
+  /**
+   * Step `c` refused with no verdict, said in Claude Code's words (`what`: the tool's name, "bash", as Claude Code 2.1.325 names
+   * its tool there): true when the turn stops, the step then told so in Claude Code's words for that (its lia).
+   */
   const noVerdict = async (c, v, what, key, reply) => {
     const kind = v.kind === "hard" ? "hard" : v.kind === "transient" ? "transient" : "unavailable";
     if (kind === "hard") declined.add(key);
     else if (noVerdictAt !== rounds) { noVerdictRow++; noVerdictAt = rounds; }
-    const told = kind === "unavailable" ? checkUnavailable(model || "The classifier", what, typeof v.why === "string" ? v.why : "") : noVerdictTold(model || "The classifier", kind, v.error);
+    const stop = kind !== "hard" && noVerdictRow >= NO_VERDICT_STOP;
+    const told = stop ? noVerdictStopTold(what) : kind === "unavailable" ? checkUnavailable(model || "The classifier", what, typeof v.why === "string" ? v.why : "") : noVerdictTold(model || "The classifier", kind, v.error, what);
     emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
-    reply(told + await deniedHooks(c, kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" }));
-    return kind !== "hard" && noVerdictRow >= NO_VERDICT_STOP;
+    reply(told + await deniedHooks(c, stop ? STOPPED_NO_VERDICT : kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" && !stop }));
+    return stop;
   };
-  /** The turn stopped after too many responses in a row with no verdict (Claude Code: "Auto mode unavailable — stopped after …"). */
+  /**
+   * The turn stopped after too many responses in a row with no verdict, in Claude Code 2.1.325's words: each call not run told
+   * "Auto mode is unavailable: … so <tool> was not run and this turn has ended. …" (its lia), the owner "Auto mode is unavailable
+   * — the server returned no safety verdict for the last 10 responses, so Coder stopped. …" (its _Fs).
+   */
   const stopNoVerdict = (i) => {
-    for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + STOPPED_NO_VERDICT });
-    emit({ type: "error", text: STOPPED_NO_VERDICT + ". Try again in a moment, or switch out of Auto mode and approve the steps yourself." });
-    return end("done", { summary: lastSaid || STOPPED_NO_VERDICT });
+    for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: noVerdictStopTold(rest.name) });
+    emit({ type: "error", text: NO_VERDICT_STOP_SHOWN });
+    return end("done", { summary: lastSaid || NO_VERDICT_STOP_SHOWN });
   };
   /** A step the checker declined to judge before: refused again in the same words, with no new check. */
   const declinedAgain = (c, key, what, reply) => {
     if (!declined.has(key)) return false;
-    const told = noVerdictTold(model || "The classifier", "hard", "it declined to judge this action");
+    const told = noVerdictTold(model || "The classifier", "hard", "it declined to judge this action", what);
     emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
     reply(told);
     return true;
@@ -2744,7 +2754,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const b = list.find((t) => t && t.function && t.function.name === "bash");
     if (!b) return list;
     const p = b.function.parameters || {};
-    const ps = { type: "function", function: { name: "powershell", description: psDescription({ defaultMs: (timeouts && timeouts.defaultMs) || 120000, maxMs: (timeouts && timeouts.maxMs) || 600000, outMax: lim.inlineMax, background: noBg !== true }), parameters: { ...p, properties: { ...(p.properties || {}), command: { type: "string", description: "The PowerShell command to execute" } } } } };
+    const ps = { type: "function", function: { name: "powershell", description: psDescription({ defaultMs: (timeouts && timeouts.defaultMs) || 120000, maxMs: (timeouts && timeouts.maxMs) || 600000, outMax: lim.inlineMax, background: noBg !== true, bgDefaultMs: timeouts && timeouts.bgDefaultMs, bgMaxMs: timeouts && timeouts.bgMaxMs }), parameters: { ...p, properties: { ...(p.properties || {}), command: { type: "string", description: "The PowerShell command to execute" } } } } };
     const i = list.indexOf(b);
     return [...list.slice(0, i + 1), ps, ...list.slice(i + 1)];
   };
@@ -4140,7 +4150,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // says why, plainly, as a refusal; the live test of 2026-11-13 showed "denied by the Coder auto mode classifier".)
         if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; emit({ type: "result", id: c.id, code: -1, ran: false, denied: true, output: AUTO_OFF_GITHUB }); reply(noPromptDenied(c.ps ? "PowerShell" : c.monitor ? "Monitor" : "Bash") + await deniedHooks(c, why0)); continue; }
         const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
-        const cmdWhat = c.ps ? "this PowerShell command" : "this bash command";
+        // (The tool's name, as Claude Code 2.1.325 names it in its no-verdict words: noVerdict.)
+        const cmdWhat = c.ps ? "powershell" : c.monitor ? "monitor" : "bash";
         // (Its verdict asked at its group's start, beside the others', for this same action: taken, coder-parallel.mjs.)
         const cmdAction = wantsCheck ? actionShown(c.ps ? "powershell" : "bash", hostsFor ? c.args : { ...c.args, allowed_domains: undefined }) + (protToChecker ? "\nIT WRITES PROTECTED PATHS (repository state or Coder's own settings): " + protToChecker.join(", ") : "") : "";
         const earlyV = wantsCheck ? early.takeCheck(c.id, (modeB === "plan" ? "plan" : "auto") + "\n" + cmdAction) : null;
@@ -4395,7 +4406,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
           } else {
             const sKey = "web_search\n" + String(args0.query || "");
-            if (!earlyS && declinedAgain(c, sKey, "this web search", reply)) continue;
+            if (!earlyS && declinedAgain(c, sKey, "web_search", reply)) continue;
             if (!earlyS) await pauseMs(noVerdictWait(noVerdictRow));
             const v = earlyS ? await earlyS : await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_search", args0), mode: modeS === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
@@ -4404,7 +4415,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               if (!canAsk()) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; }
               askWhy = MODE_SWITCHED;
             } else if (v.error) {
-              if (await noVerdict(c, v, "this web search", sKey, reply)) return stopNoVerdict(i);
+              if (await noVerdict(c, v, "web_search", sKey, reply)) return stopNoVerdict(i);
               continue;
             } else {
               noVerdictRow = 0;
@@ -5499,7 +5510,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
           } else {
             const fetchKey = "web_fetch\n" + String(args.url || "");
-            if (!earlyF && declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
+            if (!earlyF && declinedAgain(c, fetchKey, "web_fetch", reply)) continue;
             if (!earlyF) await pauseMs(noVerdictWait(noVerdictRow));
             const v = earlyF ? await earlyF : await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: modeT === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
@@ -5508,7 +5519,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               if (!canAsk()) { const m = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
               fetchSwitched = true;
             } else if (v.error) {
-              if (await noVerdict(c, v, "this page fetch", fetchKey, reply)) return stopNoVerdict(i);
+              if (await noVerdict(c, v, "web_fetch", fetchKey, reply)) return stopNoVerdict(i);
               continue;
             } else {
             noVerdictRow = 0;

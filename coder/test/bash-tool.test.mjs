@@ -78,7 +78,7 @@ test("CD271 bash: Claude Code's critical-path rm check, every case its docs list
   assert.match(dangerousRm("bash -c \"rm -rf $X/*\"", ctx), /^Dangerous rm operation in a shell -c script: its target is built from a variable or command output known only when it runs, and if that is empty the rm can reach a directory like \/ or your home directory\. .* Pass a literal path, or guard the value with \$\{NAME:\?\}\.$/);
   assert.equal(dangerousRm("rm x 'unterminated", ctx), "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.");
   assert.match(dangerousRm("cd logs && rm -rf a/*", ctx), /This command changes directories before the removal, so the relative glob target cannot be statically resolved\./);
-  assert.match(dangerousRm("rm -rf /mnt/data", ctx), /^Dangerous rm operation on mounted drive path: \/mnt\/data\n\nThis command would remove a mounted drive/);
+  assert.equal(dangerousRm("rm -rf /mnt/data", ctx), "Dangerous rm operation detected: '/mnt/data'\n\nThis command would remove a mounted drive, the folder that holds mounted drives, or a file or folder at the top level of a drive. This requires explicit approval and cannot be auto-allowed by permission rules.\n\nIf you meant something deeper inside, name it by its full path.");
 });
 
 test("CD272 bash: a result in Claude Code's words (tried, 2026-11-09): output as it came, its last line break dropped; \"(Bash completed with no output)\"; past 30,000 characters \"<persisted-output>\\nOutput too large (38KB). Full output saved to: …\\n\\nPreview (first 2KB):\\n…\\n...\\n</persisted-output>\"; a failure \"Exit code N\" with up to 10,000 characters, past that the first and last 5,000 of the first 30,000 with \"... [N characters truncated] ...\"", () => {
@@ -170,7 +170,7 @@ test("CD274 bash in the agent: Claude Code's inputs (description shown in place 
   assert.equal(reply("a2"), "(Bash completed with no output)");
   assert.equal(result("a2").ok, true);
   assert.equal(reply("b1").startsWith("Blocked: standalone sleep 30."), true);
-  assert.equal(reply("b2"), RM_REFUSED + "Dangerous rm operation detected: '\"$DIR\"/*'\n\nIf $DIR is unset or empty, this removes from the filesystem root. Guard it as \"${DIR:?}\"/*, which makes the shell stop with an error instead, or use a literal path. This requires explicit approval and cannot be auto-allowed by permission rules.");
+  assert.equal(reply("b2"), RM_REFUSED + "Dangerous rm operation detected in `rm -rf \"$DIR\"/*`. The target '\"$DIR\"/*' is a shell variable expansion: when $DIR is unset or empty it becomes `/`, `/*` or a top-level path. This requires explicit approval and cannot be auto-allowed by permission rules.\n\nThis check does not fire on a target that cannot expand to the filesystem root: rewrite it as `\"${DIR:?}\"/*`, which makes the shell stop with an error instead of running rm when $DIR is unset or empty, or use a literal absolute path.");
   assert.ok(!execs.some((x) => /sleep 30|rm -rf/.test(x.command)), "neither ran");
   // Background: Claude Code's words, started and moved; the same moved command again is not started.
   assert.equal(reply("c1"), "Command running in background with ID: job1. Output is being written to: /out/bg-1.log. You will be notified when it completes. To check interim output, use read on that file path.");
@@ -220,7 +220,7 @@ test("CD275 bash on the page: a command's description is its step's title and th
   assert.match(readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8"), /\["question", "secret", "envchange", "writeask", "runask"\]\.includes\(e\.type\)/);
   assert.match(readFileSync(new URL("../src/coder-push.mjs", import.meta.url), "utf8"), /else if \(e\.type === "runask"\)/);
   const df = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8");
-  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs coder-freeze\.mjs coder-checker\.mjs \.\//, "the image has the new modules");
+  assert.match(df, /coder-shell\.mjs coder-bashcheck\.mjs coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs coder-freeze\.mjs coder-checker\.mjs (?:\S+ )*\.\//, "the image has the new modules");
 });
 
 test("CD278 (tool 4, part 2) background commands told of in Claude Code's words when they end, whenever: completed, failed, stopped at the time limit (with Claude Code's advice), stopped by the owner; one from an earlier message is known to Coder (said at the start, stopped by its id, told of when it ends, the machine told so); a new one's id comes from the machine; what ended between messages is said at the start, and a turn only to tell it says the owner sent nothing", async () => {
@@ -458,7 +458,8 @@ test("CD285 (tool 4, changelog pass) Claude Code's later Bash fixes in Coder: a 
 
 test("CD290 (docs check: Claude Code's errors page) a command with a raw control character other than tab or newline is refused in Claude Code's words, never run: it would hide part of the command in the chat and on the owner's card", async () => {
   const { commandProblem, CONTROL_REFUSED } = await import("../container/coder-checks.mjs");
-  assert.match(CONTROL_REFUSED, /^Command contains control characters that would be hidden in the approval dialog/);
+  // (Claude Code 2.1.325: a refinement of the `command` input, so an input error with zod's own message, the issue as JSON.)
+  assert.equal(CONTROL_REFUSED, "error: InputValidationError: [\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"command\"\n    ],\n    \"message\": \"command contains control characters that would be hidden in the approval dialog\"\n  }\n]");
   for (const bad of ["echo a\u0001b", "echo \u001b[31mred", "echo a\rb", "rm x\u007f", "echo \u0085", "echo \u0000"]) assert.equal(commandProblem(bad), CONTROL_REFUSED, JSON.stringify(bad));
   for (const ok of ["echo a\tb", "echo a\nb", "printf '\\033[1mhi'", "echo $'\\r'", "echo ​zero-width is no control character"]) assert.equal(commandProblem(ok), "", JSON.stringify(ok));
   const { runCoder } = await import("../container/coder-agent.mjs");

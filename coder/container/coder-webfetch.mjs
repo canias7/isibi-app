@@ -1053,7 +1053,8 @@ export function httpErrorText({ statusCode, retryAfter }) {
 }
 export const pastEndText = (offset, length) => "Nothing left to read from offset " + offset + ": this page's text is " + length + " characters long.";
 export const leadText = (offset, length) => "The content below is one part of a longer page: it starts " + offset + " characters into the page's " + length + ".\n";
-export const readOnNote = (from, to, length) => "\n\n[WebFetch note: this page's text is " + length + " characters long and the answer above covers only characters " + from + " to " + to + "; the final " + (length - to) + " were not read — to read on, call web_fetch again with the same url and offset: " + to + ".]";
+// ("[web_fetch note: …": Claude Code writes its tool's own name there, here Coder's. 2026-11-14, round 3.)
+export const readOnNote = (from, to, length) => "\n\n[web_fetch note: this page's text is " + length + " characters long and the answer above covers only characters " + from + " to " + to + "; the final " + (length - to) + " were not read — to read on, call web_fetch again with the same url and offset: " + to + ".]";
 export const binaryNote = (contentType, size, path) => "\n\n[Binary content (" + typeShown(contentType) + ", " + sizeShown(size) + ") also saved to " + path + "]";
 /** A page's text from `offset` (a pair of surrogates never split), as Claude Code takes it. */
 export function fromOffset(text, offset) {

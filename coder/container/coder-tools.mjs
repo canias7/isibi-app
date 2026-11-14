@@ -602,10 +602,15 @@ export const PARTIAL_HINT = "Do not answer from this part alone if the answer ma
  * lines, as Claude Code's Read says it (the owner, 2026-11-08: "Yea fix that"; tried side by side: "[This file is not
  * valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes
  * show above as U+FFFD. Edit and Write will refuse it: …]"). Before, Coder saw the � with no word of why, and a write
- * then saved the � over the real letters. Coder's edit and write do not refuse such a file (yet), so the note says
- * what they would do.
+ * then saved the � over the real letters. Coder's edit and write refuse such a file now, as Claude Code's do, so the note is
+ * Claude Code 2.1.325's own, word for word from its raw program, with Coder's tool names and "the owner" (2026-11-14, round 3).
  */
-export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD (�). Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding (iconv), or ask the owner whether to convert it to UTF-8.]";
+export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD. edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]";
+/**
+ * WHY WRITE AND EDIT REFUSE A FILE THAT IS NOT VALID UTF-8, in Claude Code 2.1.325's words (its one text for both tools, from
+ * its raw program; the path first, as Coder's file tools name the file), with Coder's tool name and "the owner".
+ */
+export const NOT_UTF8_REFUSED = "is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.";
 
 /**
  * WRITE, WITH CLAUDE CODE'S CHECKS (the owner, 2026-11-08: "Compare it to claude code write ones and make sure they need
@@ -801,7 +806,7 @@ export async function toolWrite(args) {
     const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
     const u = utf16Of(old);
-    if (!u && !isUtf8(old)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+    if (!u && !isUtf8(old)) fail(rel + " " + NOT_UTF8_REFUSED);
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
     if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
     if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
@@ -929,7 +934,8 @@ export async function toolEdit(args) {
   // NOT VALID UTF-8 (an old encoding, or binary): nothing written, as Claude Code's Edit ("File is not valid UTF-8 … This
   // tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written.").
   // Coder's edit wrote it back with every such letter lost ("café" became "caf�").
-  if (!u && !isUtf8(buf)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Edit saves the whole file as UTF-8 (or UTF-16 behind its byte-order mark), which would replace every byte it cannot decode with U+FFFD, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first.");
+  // (In Claude Code 2.1.325's words, its one text for Write and Edit: NOT_UTF8_REFUSED.)
+  if (!u && !isUtf8(buf)) fail(rel + " " + NOT_UTF8_REFUSED);
   const raw = u ? fileText(buf) : buf.toString("utf8");
   const bom = !u && raw.startsWith("\ufeff");
   const text = bom ? raw.slice(1) : raw;

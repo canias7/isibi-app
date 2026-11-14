@@ -544,7 +544,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   // (Less tool search's note on the chat's deferred tools, tool-search.test.mjs, in this test file's note checks.)
-  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
   assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
@@ -1174,7 +1174,7 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   assert.equal(reply("b1"), "apple\nbanana\ncherry");
   assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
   const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content);
-  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
+  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
   const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced && !m.modeNote);
   assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
@@ -1257,7 +1257,8 @@ test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Wi
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.match(NOT_UTF8_NOTE, /^\[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. Its undecodable bytes show above as U\+FFFD \(�\)\. Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding \(iconv\), or ask the owner whether to convert it to UTF-8\.\]$/);
+  // (Claude Code 2.1.325's note, word for word from its raw program, with Coder's tool names: edit and write refuse such a file.)
+  assert.equal(NOT_UTF8_NOTE, "[This file is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD. edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]");
   const dir = await mkdtemp(join(tmpdir(), "coder-enc-"));
   const run = machine(dir);
   const read = async (path, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path, ...args } })).toString("base64") })).output;
@@ -1335,7 +1336,8 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   const write = async (path, content) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
   const old = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
   await writeFile(join(dir, "old.txt"), old);
-  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  // (Claude Code 2.1.325's one text for Write and Edit, from its raw program, the file named first.)
+  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
   assert.deepEqual(await readFile(join(dir, "old.txt")), old, "untouched");
   await unlink(join(dir, "old.txt"));
   assert.match(await write("old.txt", "café\n"), /^File created successfully at: old\.txt \(file state is current in your context — no need to Read it back\)$/, "deleted first: a new file");
@@ -2104,7 +2106,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   assert.match(await tool("edit", { path: "tabs.py", old_string: "2\treturn 1", new_string: "x" }), /^error: String to replace not found in file\./);
   // Encodings: an old one refused with the file as it was; UTF-16 and a UTF-8 mark kept.
   await put("latin1.txt", Buffer.from("caf\xe9 au lait\n", "latin1"));
-  assert.match(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), /^error: latin1\.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. .*so nothing was written\. If the file is text, make the change with a command that reads and writes it in its own encoding \(iconv\), or ask the owner whether to convert it to UTF-8 first\.$/);
+  assert.equal(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), "error: latin1.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
   assert.deepEqual(await readFile(join(dir, "latin1.txt")), Buffer.from("caf\xe9 au lait\n", "latin1"), "untouched (Coder wrote it back as \"caf� noir\")");
   await put("u16.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello utf16\r\n", "utf16le")]));
   assert.equal(await tool("edit", { path: "u16.txt", old_string: "hello", new_string: "hi" }), "The file u16.txt has been updated successfully.");
