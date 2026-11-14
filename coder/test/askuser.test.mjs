@@ -49,11 +49,14 @@ async function job(steps, { hooks = null, hookRun = () => ({}), answers = [], ex
 const hooksOf = (event, cmd = "hook.sh") => ({ [event]: [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: cmd }] }] });
 const out = (event, o) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: event, ...o } }) });
 
-test("AQ1 what Grok is told: Claude Code's AskUserQuestion description and inputs, word for word (\"the user\" as \"the owner\"); no plan-mode note, as Claude Code leaves it out without a tool to enter plan mode; the same from GitHub; Gloopy keeps its own ask_user", async () => {
+test("AQ1 what Grok is told: Claude Code's AskUserQuestion description and inputs, word for word (\"the user\" as \"the owner\"); its plan-mode note naming enter_plan_mode and exit_plan_mode, as Claude Code keeps it in a session with a disk; the same from GitHub; Gloopy keeps its own ask_user", async () => {
   const tool = A.CODER_TOOLS.find((t) => t.function.name === "ask_user").function;
-  assert.equal(tool.description, "Use this tool only when you are blocked on a decision that is genuinely the owner's to make: one you cannot resolve from the request, the code, or sensible defaults.\n\nUsage notes:\n- The owner will always be able to select \"Other\" to provide custom text input\n- Use multiSelect: true to allow multiple answers to be selected for a question\n- If you recommend a specific option, make that the first option in the list and add \"(Recommended)\" at the end of the label\n\nReserve this for decisions where the owner's answer changes what you do next — not for choices with a conventional default or facts you can verify in the codebase yourself. In those cases pick the obvious option, mention it in your response, and proceed.\n\nThe owner may see only the question dialog: tool results and text you wrote earlier in this turn may not be on their screen while it is open. Make each question stand on its own: if it depends on something you found, say so briefly, and name the items you are asking about in the question itself.\n");
-  assert.ok(!A.CODER_TOOLS.some((t) => t.function.name === "enter_plan_mode"), "Coder has no tool to enter plan mode: the plan-mode note stays out");
-  assert.doesNotMatch(tool.description, /plan mode|EnterPlanMode/);
+  assert.equal(tool.description, "Use this tool only when you are blocked on a decision that is genuinely the owner's to make: one you cannot resolve from the request, the code, or sensible defaults.\n\nUsage notes:\n- The owner will always be able to select \"Other\" to provide custom text input\n- Use multiSelect: true to allow multiple answers to be selected for a question\n- If you recommend a specific option, make that the first option in the list and add \"(Recommended)\" at the end of the label\n\nPlan mode note: To switch into plan mode, use enter_plan_mode (not this tool). Once in plan mode, use this tool to clarify requirements or choose between approaches BEFORE finalizing your plan. Do NOT use this tool to ask \"Is my plan ready?\", \"Should I proceed?\", or otherwise reference \"the plan\" in questions — the owner cannot see the plan until you call exit_plan_mode for approval.\n\nReserve this for decisions where the owner's answer changes what you do next — not for choices with a conventional default or facts you can verify in the codebase yourself. In those cases pick the obvious option, mention it in your response, and proceed.\n\nThe owner may see only the question dialog: tool results and text you wrote earlier in this turn may not be on their screen while it is open. Make each question stand on its own: if it depends on something you found, say so briefly, and name the items you are asking about in the question itself.\n");
+  // (Claude Code 2.1.325 leaves the note out only in a session without a disk that lacks EnterPlanMode or ExitPlanMode; Coder
+  // has enter_plan_mode since 2026-11-14.)
+  assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "enter_plan_mode"));
+  assert.equal(Q.PLAN_MODE_NOTE, "Plan mode note: To switch into plan mode, use enter_plan_mode (not this tool). Once in plan mode, use this tool to clarify requirements or choose between approaches BEFORE finalizing your plan. Do NOT use this tool to ask \"Is my plan ready?\", \"Should I proceed?\", or otherwise reference \"the plan\" in questions \u2014 the owner cannot see the plan until you call exit_plan_mode for approval.");
+  assert.doesNotMatch(tool.description, /EnterPlanMode|ExitPlanMode|AskUserQuestion/);
   assert.deepEqual(tool.parameters, { type: "object", properties: Q.ASK_USER_PROPERTIES, required: ["questions"] });
   const p = tool.parameters.properties;
   assert.deepEqual(Object.keys(p), ["questions", "answers", "annotations", "metadata"]);
@@ -329,39 +332,44 @@ test("AQ9 the Worker: a question card's picks reach the step that waits; a job's
   assert.equal(JSON.parse(m.get(mk)).waiting, "question");
 });
 
-test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs and until answered; Submit sends the owner's picks by their place and Skip sends none, to the step that waits (/answer), not as a message; once answered it shows what was chosen and how it ended; older cards as before", async () => {
+test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs and until answered; Submit sends the owner's picks by their place (an option with an empty label in its place too) and Skip sends none, to the step that waits (/answer), not as a message; once answered it shows what was chosen and how it ended; older cards as before", async () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   const start = ui.indexOf("  const askPicks = ");
   const end = ui.indexOf("\n", ui.indexOf("  const askDone = "));
-  const { askPicks, askShown, askDone } = new Function(ui.slice(start, end) + "\nreturn { askPicks, askShown, askDone };")();
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { askPicks, askShown, askDone, askPreviewHTML } = new Function("esc", ui.slice(start, end) + "\nreturn { askPicks, askShown, askDone, askPreviewHTML };")(esc);
   const qs = [{ options: [{ label: "Postgres (Recommended)" }, { label: "SQLite" }] }, { multi: true, options: [{ label: "Email" }, { label: "Google" }, { label: "GitHub" }] }];
-  const a = { qs, answers: [{ picked: ["Postgres (Recommended)"], other: "" }, { picked: ["GitHub", "__other", "Email"], other: "  Apple " }] };
-  assert.deepEqual(askPicks(a), [{ options: [0], other: "" }, { options: [2, 0], other: "Apple" }], "\"(Recommended)\" and all: Coder's own labels, by their place");
+  const a = { qs, answers: [{ picked: ["0"], other: "" }, { picked: ["2", "__other", "0"], other: "  Apple " }] };
+  assert.deepEqual(askPicks(a), [{ options: [0], other: "" }, { options: [2, 0], other: "Apple" }], "each option by its place (the radio's value is its place)");
   assert.deepEqual(askPicks({ qs, answers: [{ picked: ["__other"], other: "x" }, { picked: [], other: "y" }] }), [{ options: [], other: "x" }, { options: [], other: "" }], "Other's text only when Other is chosen");
-  assert.deepEqual(askShown(qs[1], { options: [2, 0], other: "Apple" }), { picked: ["GitHub", "Email", "__other"], other: "Apple" });
-  assert.deepEqual(askShown(qs[0], undefined), { picked: [], other: "" });
+  assert.deepEqual(askShown(qs[1], { options: [2, 0], other: "Apple" }), { picked: ["2", "0", "__other"], other: "Apple", notes: "" });
+  assert.deepEqual(askShown(qs[0], undefined), { picked: [], other: "", notes: "" });
   assert.deepEqual(["answers", "chat", "skip", "stop", "none"].map((choice) => askDone({ choice }).replace(/<[^>]+>/g, "")), ["✓ Answered", "✓ Answered in the chat", "Skipped", "Stopped", "No answer"]);
+  // (An option with an empty label, as Claude Code's schema allows one: kept in its place, so the picks after it stay right.)
+  const blank = [{ options: [{ label: "" }, { label: "B" }, { label: "C" }] }];
+  assert.deepEqual(askPicks({ qs: blank, answers: [{ picked: ["2"], other: "" }] }), [{ options: [2] }].map((x) => ({ ...x, other: "" })));
   // THE CARD AS THE PAGE DRAWS IT (its own code, run with a small chat): live while the job runs and it is unanswered, greyed
   // once its answer is on its way, and once answered, what was chosen and how it ended; an older card as before.
-  const helpers = new Function(ui.slice(ui.indexOf("  const askQuestions = "), ui.indexOf("  };", ui.indexOf("  const askReply = ")) + 4) + "\nreturn { askQuestions };")();
+  const helpers = new Function(ui.slice(ui.indexOf("  const askQuestions = "), ui.indexOf("  };", ui.indexOf("  const askReply = ")) + 4) + "\nreturn { askQuestions, askReply };")();
   const block = ui.slice(ui.indexOf("      else if (e.type === 'question') {") + "      else ".length, ui.indexOf("      else if (e.type === 'writeask') {"));
-  const draw = new Function("S", "esc", "askQuestions", "askShown", "askDone", "e", "i", "out", block);
-  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const draw = new Function("S", "esc", "askQuestions", "askShown", "askDone", "askPreviewHTML", "e", "i", "out", block);
   const card = { type: "question", pid: "p1abcdef", text: "Which database?", header: "Database", options: [{ label: "Postgres (Recommended)", description: "x" }, { label: "SQLite", description: "y" }], questions: [{ text: "Which database?", header: "Database", options: [{ label: "Postgres (Recommended)", description: "x" }, { label: "SQLite", description: "y" }] }, { text: "Which ways?", header: "Sign-in", multi: true, options: [{ label: "Email", description: "" }, { label: "Google", description: "" }] }] };
-  const html = (S, events = [card]) => { S.events = events; const o = []; draw(S, esc, helpers.askQuestions, askShown, askDone, events[0], 0, o); return o.join(""); };
+  const html = (S, events = [card]) => { S.events = events; const o = []; draw(S, esc, helpers.askQuestions, askShown, askDone, askPreviewHTML, events[0], 0, o); return o.join(""); };
   let S0 = { running: true, project: { id: "c1" } };
   let h = html(S0);
   assert.match(h, /^<div class="cd-ask is-live is-many" data-ask="0">/);
   assert.match(h, /<button type="button" class="cd-ask-skip" data-ask-skip="0">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="0">Submit answers <kbd>Ctrl ↵<\/kbd><\/button>/);
   assert.match(h, /<div class="cd-ask-wait">Needs your input<\/div>$/);
-  assert.deepEqual(S0.ask.answers.map((x) => x.picked), [["Postgres (Recommended)"], []], "the recommended (first) choice is already chosen");
+  assert.deepEqual(S0.ask.answers.map((x) => x.picked), [["0"], []], "the recommended (first) choice is already chosen");
+  assert.match(h, /maxlength="32768"/, "an answer as long as Claude Code takes one");
+  assert.doesNotMatch(h, /maxlength="500"/);
   h = html({ ...S0, permSent: { p1abcdef: "answers" } });
   assert.match(h, /data-ask-skip="0" disabled>Skip<\/button>/);
   assert.equal((h.match(/ disabled/g) || []).length, 10, "every choice, each Other box and both buttons wait, greyed");
   h = html({ running: false, project: { id: "c1" } }, [card, { type: "permanswer", pid: "p1abcdef", choice: "answers", picks: [{ options: [1] }, { options: [0], other: "Apple" }] }]);
   assert.match(h, /^<div class="cd-ask is-many" data-ask="0">/);
-  assert.match(h, /value="SQLite" checked disabled>/);
-  assert.match(h, /value="Email" checked disabled>/);
+  assert.match(h, /value="1" checked disabled><span class="cd-ask-t"><b>SQLite<\/b>/);
+  assert.match(h, /value="0" checked disabled><span class="cd-ask-t"><b>Email<\/b>/);
   assert.match(h, /<b>Other<\/b><small>Apple<\/small>/);
   assert.match(h, /<div class="cd-perm-done"><span class="cd-perm-ok">✓ Answered<\/span><\/div>$/);
   assert.doesNotMatch(h, /cd-ask-btns|Needs your input/);
@@ -370,6 +378,12 @@ test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs 
   const old = { type: "question", text: "Which name?", options: ["one.txt", "two.txt"] };
   assert.match(html({ running: false, project: { id: "c1" } }, [old]), /^<div class="cd-ask is-live" data-ask="0">[\s\S]*data-ask-go="0">Submit <kbd>/, "an older card, live once the job ended");
   assert.doesNotMatch(html({ running: true, project: { id: "c1" } }, [old]), /is-live/);
+  // (An older card's answer is still its labels, as a message: askReply, from the choices' places.)
+  assert.equal(helpers.askReply({ qs: helpers.askQuestions(old), answers: [{ picked: ["1"], other: "" }] }), "two.txt");
+  // (A waiting card keeps an option with an empty label in its place; an older one leaves it out, as before.)
+  const withBlank = { ...card, questions: [{ text: "Pick?", options: [{ label: "", description: "nothing" }, { label: "B", description: "" }] }] };
+  assert.match(html({ running: true, project: { id: "c2" } }, [withBlank]), /value="0" checked><span class="cd-ask-t"><b><\/b><small>nothing<\/small>[\s\S]*value="1"><span class="cd-ask-t"><b>B<\/b>/);
+  assert.deepEqual(helpers.askQuestions({ type: "question", text: "Pick?", options: [{ label: "" }, { label: "B" }] })[0].options.map((o) => o.label), ["B"]);
   // Live while the job runs and it is unanswered; an older card (no pid) as before.
   assert.match(ui, /const ans = e\.pid \? S\.events\.find\(\(x\) => x\.type === 'permanswer' && x\.pid === e\.pid\) : null;\n\s+const live = e\.pid \? \(S\.running \|\| !!\(S\.project && S\.project\.parked && S\.project\.parked\.pid === e\.pid\)\) && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);/);
   assert.match(ui, /\(live \? '<div class="cd-ask-wait">Needs your input<\/div>' : ans \? '<div class="cd-perm-done">' \+ askDone\(ans\) \+ '<\/div>' : ''\)/);
@@ -377,8 +391,115 @@ test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs 
   assert.match(ui, /const askSend = \(\) => \{ const w = askWaiting\(\); if \(w\) \{ askAnswer\(w\.pid, 'answers'\); return; \} const t = askReply\(S\.ask\); if \(!t\) return; S\.ask = null; send\(t\); \};/);
   assert.match(ui, /on\('\[data-ask-skip\]', 'click', \(\) => \{ const w = askWaiting\(\); if \(w\) \{ askAnswer\(w\.pid, 'skip'\); return; \}/);
   assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, \.\.\.\(answers \? \{ answers \} : \{\}\) \}\) \}\);/);
-  assert.match(ui, /if \(answers && !answers\.some\(\(p\) => p\.options\.length \|\| p\.other\)\) return;/, "Submit with nothing chosen sends nothing");
-  // The page redraws every 1.5 seconds while Coder works: the Other box keeps its focus and cursor through it.
-  assert.match(ui, /const askAt = askEl && askEl\.closest\('\.cd-ask'\) && askEl\.closest\('\.cd-ask-one'\) \? \{ at: askEl\.closest\('\.cd-ask'\)\.dataset\.ask, q: askEl\.closest\('\.cd-ask-one'\)\.dataset\.q, a: askEl\.selectionStart, b: askEl\.selectionEnd \} : null;/);
-  assert.match(ui, /if \(askAt\) \{ const f = root\.querySelector\('\.cd-ask\[data-ask="' \+ askAt\.at \+ '"\] \.cd-ask-one\[data-q="' \+ askAt\.q \+ '"\] \.cd-ask-in'\); if \(f && !f\.disabled\) \{ f\.focus\(\); try \{ f\.setSelectionRange\(askAt\.a, askAt\.b\); \}/);
+  assert.match(ui, /if \(answers && !answers\.some\(\(p\) => p\.options\.length \|\| p\.other \|\| p\.notes\)\) return;/, "Submit with nothing chosen (no notes either) sends nothing");
+  // The page redraws every 1.5 seconds while Coder works: the Other box and the notes field keep their focus and cursor.
+  assert.match(ui, /const askAt = askEl && askEl\.closest\('\.cd-ask'\) && askEl\.closest\('\.cd-ask-one'\) \? \{ at: askEl\.closest\('\.cd-ask'\)\.dataset\.ask, q: askEl\.closest\('\.cd-ask-one'\)\.dataset\.q, cls: askEl\.classList\.contains\('cd-ask-note'\) \? 'cd-ask-note' : 'cd-ask-in', a: askEl\.selectionStart, b: askEl\.selectionEnd \} : null;/);
+  assert.match(ui, /if \(askAt\) \{ const f = root\.querySelector\('\.cd-ask\[data-ask="' \+ askAt\.at \+ '"\] \.cd-ask-one\[data-q="' \+ askAt\.q \+ '"\] \.' \+ askAt\.cls\); if \(f && !f\.disabled\) \{ f\.focus\(\); try \{ f\.setSelectionRange\(askAt\.a, askAt\.b\); \}/);
+});
+
+// ── 2026-11-14 (the owner: "Fix base on Claude Code docs, please"): Claude Code 2.1.325's notes field and option previews,
+// an option with an empty label, its limits on an answer, and zod's own words when only values are wrong. ─────────────────
+const LAYOUT = { question: "Which layout should the dashboard use?", header: "Layout", options: [{ label: "Compact", description: "Title and number.", preview: "┌──────┐\n│ 1,284│\n└──────┘" }, { label: "Wide", description: "With a chart." }] };
+const LAYOUTQ = LAYOUT.question;
+
+test("AQ11 Claude Code's previews and notes field: a single-select question with previews shows each option's preview on the card; the chosen option's preview and the owner's notes go in the answer (\"selected preview:\", \"notes:\"), notes alone are \"(notes only)\"; a multi-select question has neither; an empty label keeps its place", async () => {
+  const t = await job([say("", [call("ask_user", { questions: [LAYOUT, SIGN] }, "q1")]), say("Done.")], { hooks: hooksOf("PostToolUse", "post.sh"), answers: [{ choice: "answers", picks: [{ options: [0], notes: "  bigger number  " }, { options: [1] }] }] });
+  const card = t.events.find((e) => e.type === "question");
+  assert.deepEqual(card.questions[0], { text: LAYOUTQ, header: "Layout", options: LAYOUT.options, previews: true });
+  assert.deepEqual(card.questions[1], { text: SIGNQ, header: "Sign-in", options: SIGN.options, multi: true }, "a multi-select question shows no previews (Claude Code: \"previews are only supported for single-select questions\")");
+  assert.equal(t.told("q1"), 'The owner answered: "' + LAYOUTQ + '"="Compact" selected preview:\n' + LAYOUT.options[0].preview + ' notes: bigger number, "' + SIGNQ + '"="Google". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.');
+  const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
+  assert.deepEqual(post.tool_response.annotations, { [LAYOUTQ]: { preview: LAYOUT.options[0].preview, notes: "bigger number" } });
+  assert.deepEqual(post.tool_response.answers, { [LAYOUTQ]: "Compact", [SIGNQ]: "Google" });
+  // The chosen option with no preview: none in the answer; its preview alone (no notes): "Your questions have been answered".
+  const keys = Q.answerKeys({ questions: [{ ...LAYOUT, multiSelect: false }, { ...SIGN }] });
+  assert.deepEqual(keys[0].previews, [LAYOUT.options[0].preview, null]);
+  assert.equal(keys[1].previews, null);
+  assert.deepEqual(Q.cardAnswers(keys, [{ options: [1] }, { options: [0] }]), { answers: { [LAYOUTQ]: "Wide", [SIGNQ]: "\"Email, password\"" }, annotations: {} });
+  const only = Q.cardAnswers(keys, [{ options: [0] }, {}]);
+  assert.deepEqual(only.annotations, { [LAYOUTQ]: { preview: LAYOUT.options[0].preview }, [SIGNQ]: { unanswered: "skipped" } });
+  assert.equal(H.answeredText(keys, only.answers, only.annotations).text, 'Your questions have been answered: "' + LAYOUTQ + '"="Compact" selected preview:\n' + LAYOUT.options[0].preview + '. You can now continue with these answers in mind.');
+  // Notes alone: Claude Code's "(notes only)", told as no option selected; Other's text takes no preview; notes on a
+  // multi-select question are not taken (it has no notes field).
+  const notes = Q.cardAnswers(keys, [{ notes: "neither" }, { options: [0], notes: "x" }]);
+  assert.deepEqual(notes, { answers: { [LAYOUTQ]: "(notes only)", [SIGNQ]: "\"Email, password\"" }, annotations: { [LAYOUTQ]: { notes: "neither" } } });
+  assert.match(H.answeredText(keys, notes.answers, notes.annotations).text, /^The owner answered: "Which layout should the dashboard use\?"=\(no option selected\) notes: neither, /);
+  assert.deepEqual(Q.cardAnswers(keys, [{ other: "Tall" }, {}]).annotations[LAYOUTQ], undefined, "an answer typed under Other has no preview");
+  // A preview with nothing visible in it is none (Claude Code's dialog).
+  assert.equal(Q.previewOf({ preview: " \n​ " }), null);
+  assert.equal(Q.hasPreviews({ options: [{ preview: "x" }], multiSelect: true }), false);
+  // AN EMPTY LABEL (Claude Code's schema allows one): the card keeps the option in its place, and a pick after it maps right.
+  const E = { question: "Which one?", header: "One", options: [{ label: "", description: "the empty one" }, { label: "B", description: "b" }, { label: "C", description: "c" }] };
+  const u = await job([say("", [call("ask_user", { questions: [E] }, "q1")]), say("Done.")], { answers: [{ choice: "answers", picks: [{ options: [2] }] }] });
+  assert.deepEqual(u.events.find((e) => e.type === "question").options.map((o) => o.label), ["", "B", "C"]);
+  assert.equal(u.told("q1"), 'Your questions have been answered: "Which one?"="C". You can now continue with these answers in mind.');
+});
+
+test("AQ12 Claude Code's limits on the card: no length cap on a question, a header, a label or a description (its schema sets none; the header's 12 is a hint); an answer up to 32,768 characters, notes up to 8,192, 32,768 for them all; the page's fields take as much", async () => {
+  const long = "Q".repeat(800) + "?", label = "L".repeat(300), desc = "D".repeat(900), header = "A header longer than twelve";
+  const t = await job([say("", [call("ask_user", { questions: [{ question: long, header, options: [{ label, description: desc }, { label: "B", description: "b" }] }] }, "q1")]), say("Done.")], { answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
+  const q = t.events.find((e) => e.type === "question");
+  assert.deepEqual([q.text.length, q.header, q.options[0].label.length, q.options[0].description.length], [801, header, 300, 900]);
+  assert.match(t.told("q1"), new RegExp('="' + label + '"'));
+  // The machine's /answer: within Claude Code's limits.
+  assert.deepEqual(Q.questionPicks([{ options: [0], other: "x".repeat(32768) }]), [{ options: [0], other: "x".repeat(32768) }]);
+  assert.equal(Q.questionPicks([{ other: "x".repeat(32769) }]), null);
+  assert.deepEqual(Q.questionPicks([{ options: [1], notes: "n".repeat(8192) }]), [{ options: [1], other: "", notes: "n".repeat(8192) }]);
+  assert.equal(Q.questionPicks([{ notes: "n".repeat(8193) }]), null);
+  assert.equal(Q.questionPicks([{ other: "x".repeat(30000), notes: "n".repeat(3000) }]), null, "all of them together at most 32,768");
+  assert.equal(Q.questionPicks([{ notes: 3 }]), null);
+  assert.deepEqual([Q.ANSWER_MAX, Q.NOTES_MAX, Q.CARD_FRAME_MAX], [32768, 8192, 48000]);
+  // Gloopy's own card keeps its caps, as before.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /class="cd-ask-in" placeholder="Type your own answer" value="' \+ esc\(a\.other\) \+ '" maxlength="32768"/);
+  assert.match(ui, /class="cd-ask-note" placeholder="Add notes on this design" value="' \+ esc\(a\.notes \|\| ''\) \+ '" maxlength="8192"/);
+});
+
+test("AQ13 the page's previews and notes field, as Claude Code's dialog has them: the chosen option's preview in a monospace box (\"No preview available\" for one with none, none for Other), \"Notes:\" with \"Add notes on this design\", the notes sent with the picks and shown once answered", async () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { askPicks, askShown, askDone, askPreviewHTML } = new Function("esc", ui.slice(ui.indexOf("  const askPicks = "), ui.indexOf("\n", ui.indexOf("  const askDone = "))) + "\nreturn { askPicks, askShown, askDone, askPreviewHTML };")(esc);
+  const helpers = new Function(ui.slice(ui.indexOf("  const askQuestions = "), ui.indexOf("  };", ui.indexOf("  const askReply = ")) + 4) + "\nreturn { askQuestions };")();
+  const block = ui.slice(ui.indexOf("      else if (e.type === 'question') {") + "      else ".length, ui.indexOf("      else if (e.type === 'writeask') {"));
+  const draw = new Function("S", "esc", "askQuestions", "askShown", "askDone", "askPreviewHTML", "e", "i", "out", block);
+  const card = { type: "question", pid: "p2abcdef", text: LAYOUTQ, questions: [{ text: LAYOUTQ, header: "Layout", options: [{ label: "Compact", description: "", preview: "<b>1,284</b>" }, { label: "Wide", description: "" }], previews: true }] };
+  const html = (S, events = [card]) => { S.events = events; const o = []; draw(S, esc, helpers.askQuestions, askShown, askDone, askPreviewHTML, events[0], 0, o); return o.join(""); };
+  const S0 = { running: true, project: { id: "c3" } };
+  let h = html(S0);
+  assert.match(h, /<pre class="cd-ask-pv">&lt;b&gt;1,284&lt;\/b&gt;<\/pre><label class="cd-ask-notes"><span>Notes:<\/span><input type="text" class="cd-ask-note" placeholder="Add notes on this design" value="" maxlength="8192" autocomplete="off"><\/label>/, "the first option, chosen, shows its preview (escaped)");
+  assert.equal(askPreviewHTML(helpers.askQuestions(card)[0], ["1"]), '<pre class="cd-ask-pv"><span class="cd-ask-pv-none">No preview available</span></pre>');
+  assert.equal(askPreviewHTML(helpers.askQuestions(card)[0], ["__other"]), '<pre class="cd-ask-pv" hidden></pre>');
+  S0.ask.answers[0].notes = "  bigger  ";
+  assert.deepEqual(askPicks(S0.ask), [{ options: [0], other: "", notes: "bigger" }]);
+  // Once answered: what was chosen, its preview and the notes.
+  h = html({ running: false, project: { id: "c3" } }, [card, { type: "permanswer", pid: "p2abcdef", choice: "answers", picks: [{ options: [0], notes: "bigger" }] }]);
+  assert.match(h, /value="0" checked disabled>[\s\S]*<pre class="cd-ask-pv">&lt;b&gt;1,284&lt;\/b&gt;<\/pre><p class="cd-ask-notes-said">Notes: bigger<\/p>/);
+  // The preview follows the option chosen, and the notes field is kept through redraws and sends with Enter.
+  assert.match(ui, /if \(pv && q\) pv\.outerHTML = askPreviewHTML\(q, a\.picked\);/);
+  assert.match(ui, /on\('\.cd-ask-note', 'input', \(e\) => \{ const a = askOf\(e\.currentTarget\); if \(a\) a\.notes = e\.currentTarget\.value; \}\);/);
+  // A card that does not wait (no pid) shows no previews.
+  assert.equal(helpers.askQuestions({ type: "question", questions: card.questions })[0].previews, false);
+  // Its style.
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(css, /\.cd-ask-pv\{[^}]*font:12\.5px\/1\.45 ui-monospace/);
+  // (A question, header or option as long as Claude Code takes one wraps inside the card instead of running out of it.)
+  for (const c of [/\.cd-ask-q\{[^}]*overflow-wrap:anywhere\}/, /\.cd-ask-t\{[^}]*overflow-wrap:anywhere\}/, /\.cd-ask-h\{[^}]*max-width:100%;box-sizing:border-box\}/]) assert.match(css, c);
+});
+
+test("AQ14 zod's own words when only values are wrong (Claude Code's w0 and zod 4.6.2's issues, checked against zod itself): a refused call gives the issues as JSON; with a missing, unexpected or wrong-typed parameter, Claude Code's lines, the others after them (each cut at 500 characters, at most 20); keys a question does not know do not stop the check for repeats", () => {
+  const Z = Q.schemaText;
+  assert.equal(Q.checkAskUserInput({ questions: [{ ...DB, options: [DB.options[0], DB.options[0]] }] }).error, "error: InputValidationError: " + JSON.stringify([{ code: "custom", path: [], message: Q.UNIQUE_MESSAGE }], null, 2));
+  // (zod 4.6.2 runs the refine even with keys the object does not know.)
+  assert.equal(Q.checkAskUserInput({ questions: [{ ...DB, options: [DB.options[0], DB.options[0]] }], zz: 1 }).error, "error: InputValidationError: AskUserQuestion failed due to the following issues:\nAn unexpected parameter `zz` was provided\nThe input is invalid: " + Q.UNIQUE_MESSAGE);
+  const many = Array.from({ length: 22 }, (_, k) => ({ code: "custom", path: ["x", k], message: "m" + k }));
+  const t = Z("AskUserQuestion", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received undefined" }, ...many]);
+  assert.match(t, /^AskUserQuestion failed due to the following issues:\nThe required parameter `a` is missing\nThe parameter `x\[0\]` is invalid: m0\n/);
+  assert.match(t, /\nThe parameter `x\[19\]` is invalid: m19\n\(2 more issues not listed\)$/);
+  // (A custom issue marked for the model is listed last, never left as zod's JSON.)
+  const facing = { code: "custom", path: ["x"], message: "Use one question per decision.", params: { modelFacingMessage: true } };
+  assert.equal(Z("T", [facing]), "T failed due to the following issue:\nUse one question per decision.");
+  assert.equal(Z("T", [facing, { code: "custom", path: ["y"], message: "m" }]), "T failed due to the following issues:\nThe parameter `y` is invalid: m\nUse one question per decision.");
+  const cut = Z("T", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received undefined" }, { code: "custom", path: ["b"], message: "y".repeat(600) }]);
+  assert.ok(cut.endsWith("The parameter `b` is invalid: " + "y".repeat(500) + "… [+100 chars]"));
+  assert.ok(Z("T", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received number" }, { code: "invalid_union", errors: [], path: ["s"], message: "Invalid input" }]).endsWith("\nThe parameter `s` matches none of the accepted forms"));
 });

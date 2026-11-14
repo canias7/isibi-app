@@ -92,7 +92,8 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.equal(s.seen[0].messages[0].role, "system");
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
   // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -111,7 +112,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -2344,8 +2345,9 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", header: "Name", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
   // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \[q\.options\[0\]\.label\], other: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
-  assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ esc\(o\.label\) \+ '"/);
+  // (Picks by the options' places since 2026-11-14, so an option with an empty label shifts none: test/askuser.test.mjs.)
+  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \['0'\], other: '', notes: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
+  assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ n \+ '"/);
   assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
   assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
   // (Its buttons wait, greyed, once its answer is on its way to a card Coder waits on: 2026-11-14.)
@@ -2353,7 +2355,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
   assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
   assert.match(ui, /'I skipped your question\. Decide for yourself and go on\.'/);
-  assert.match(ui, /x\.picked\.map\(\(v\) => \(v === '__other' \? x\.other\.trim\(\) : v\.replace\(\/\\s\*\\\(Recommended\\\)\$\/i, ''\)\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together (test/questions.test.mjs tries it)");
+  assert.match(ui, /x\.picked\.map\(\(v\) => \(v === '__other' \? x\.other\.trim\(\) : String\(\(\(a\.qs\[k\] \|\| \{\}\)\.options \|\| \[\]\)\[Number\(v\)\] \? a\.qs\[k\]\.options\[Number\(v\)\]\.label : ''\)\.replace\(\/\\s\*\\\(Recommended\\\)\$\/i, ''\)\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together (test/questions.test.mjs tries it)");
   assert.match(ui, /typeof o === 'string' \? \{ label: o, description: '' \}/, "questions in older chats still show");
   const css = readFileSync(HERE("public/coder.css"), "utf8");
   for (const c of [".cd-ask-row{", ".cd-ask-t small{", ".cd-ask-in{", ".cd-ask-btns{", ".cd-ask-go{", ".cd-ask-wait{"]) assert.ok(css.includes(c), c);

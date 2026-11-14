@@ -17,6 +17,24 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Plan mode, the question card and the task list, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 5 of 6.
+
+- **Coder can switch itself into Plan mode** with a new tool, enter_plan_mode, like Claude Code's EnterPlanMode. It needs no approval (Claude Code doesn't ask either). The chat shows that Coder went into Plan mode, the mode menu follows, and your hooks see it. It isn't offered in GitHub jobs.
+- **The plan card:** words you type are now sent with every Yes, including "Yes, and use auto mode". Before, they were dropped for that button.
+- **After a long chat is summarized,** Coder is reminded of its plan file once, in Claude Code's words, so it keeps working on the plan.
+- **The question card** can show a preview for each option and has a Notes box, like Claude Code's. Answers can be much longer now (up to 32,768 characters), and an option with an empty name no longer shifts the picks.
+- **Smaller ones:**
+  - exit_plan_mode is hidden when your settings say to refuse instead of asking;
+  - the plansDirectory setting is read;
+  - "Exited Plan Mode" is told to Coder as its own note;
+  - the Auto mode note uses Claude Code 2.1.325's text;
+  - a wrong input gets Claude Code's exact error list.
+- **Task list:** the setting CLAUDE_CODE_ENABLE_TASKS=0 switches to Claude Code's older single checklist tool, and CLAUDE_CODE_TASK_LIST_ID names the list. The page now titles the list "Tasks · 2/5 done", as Claude Code does.
+- **Left as they are, on purpose:** the plan card's button names, renaming the chat after a plan, and the clear-the-chat option on approval. Those exist only in Claude Code's terminal or on claude.ai's own page, not in its cloud program.
+- **Tests:** 11 new and many updated. While merging I updated one test to match the hooks fix: hooks no longer get an extra output field. The helper's full run passed 941 of 942 (the one failure only happens in a helper's copy). On the merged branch, all 380 tests in the affected files pass.
+
 ## 2026-11-14: Cards stay open until you answer, like Claude Code (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 4 of 6.

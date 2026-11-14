@@ -18,6 +18,123 @@
  * "Claude", "the owner" for "the user", and Coder's tool names (write, edit, ask_user, exit_plan_mode).
  */
 
+import { inputErrorText, typeIssue, unknownKeysIssue, valueIssue } from "./coder-zodtext.mjs";
+
+// ── ENTER_PLAN_MODE, AS THE MODEL SEES IT (Claude Code's EnterPlanMode; the owner, 2026-11-14: "Fix base on Claude Code docs,
+// please"): its prompt, inputs (none) and result, word for word, with Coder's names (glob, grep, read, ask_user,
+// exit_plan_mode, enter_plan_mode) and "the owner" for "the user". Its "(use the Agent tool instead)" is left out, as Claude
+// Code leaves it out of a session without its Agent tool. ──────────────────────────────────────────────────────────────
+export const ENTER_PLAN_DESC = `Use this tool proactively when you're about to start a non-trivial implementation task. Getting owner sign-off on your approach before writing code prevents wasted effort and ensures alignment. This tool transitions you into plan mode where you can explore the codebase and design an implementation approach for owner approval.
+
+## When to Use This Tool
+
+**Prefer using enter_plan_mode** for implementation tasks unless they're simple. Use it when ANY of these conditions apply:
+
+1. **New Feature Implementation**: Adding meaningful new functionality
+   - Example: "Add a logout button" - where should it go? What should happen on click?
+   - Example: "Add form validation" - what rules? What error messages?
+
+2. **Multiple Valid Approaches**: The task can be solved in several different ways
+   - Example: "Add caching to the API" - could use Redis, in-memory, file-based, etc.
+   - Example: "Improve performance" - many optimization strategies possible
+
+3. **Code Modifications**: Changes that affect existing behavior or structure
+   - Example: "Update the login flow" - what exactly should change?
+   - Example: "Refactor this component" - what's the target architecture?
+
+4. **Architectural Decisions**: The task requires choosing between patterns or technologies
+   - Example: "Add real-time updates" - WebSockets vs SSE vs polling
+   - Example: "Implement state management" - Redux vs Context vs custom solution
+
+5. **Multi-File Changes**: The task will likely touch more than 2-3 files
+   - Example: "Refactor the authentication system"
+   - Example: "Add a new API endpoint with tests"
+
+6. **Unclear Requirements**: You need to explore before understanding the full scope
+   - Example: "Make the app faster" - need to profile and identify bottlenecks
+   - Example: "Fix the bug in checkout" - need to investigate root cause
+
+7. **Owner Preferences Matter**: The implementation could reasonably go multiple ways
+   - If you would use ask_user to clarify the approach, use enter_plan_mode instead
+   - Plan mode lets you explore first, then present options with context
+
+## When NOT to Use This Tool
+
+Only skip enter_plan_mode for simple tasks:
+- Single-line or few-line fixes (typos, obvious bugs, small tweaks)
+- Adding a single function with clear requirements
+- Tasks where the owner has given very specific, detailed instructions
+- Pure research/exploration tasks
+
+## What Happens in Plan Mode
+
+In plan mode, you'll:
+1. Thoroughly explore the codebase using glob, grep, and read
+2. Understand existing patterns and architecture
+3. Design an implementation approach
+4. Present your plan to the owner for approval
+5. Use ask_user if you need to clarify approaches
+6. Exit plan mode with exit_plan_mode when ready to implement
+
+## Examples
+
+### GOOD - Use enter_plan_mode:
+Owner: "Add user authentication to the app"
+- Requires architectural decisions (session vs JWT, where to store tokens, middleware structure)
+
+Owner: "Optimize the database queries"
+- Multiple approaches possible, need to profile first, significant impact
+
+Owner: "Implement dark mode"
+- Architectural decision on theme system, affects many components
+
+Owner: "Add a delete button to the user profile"
+- Seems simple but involves: where to place it, confirmation dialog, API call, error handling, state updates
+
+Owner: "Update the error handling in the API"
+- Affects multiple files, owner should approve the approach
+
+### BAD - Don't use enter_plan_mode:
+Owner: "Fix the typo in the README"
+- Straightforward, no planning needed
+
+Owner: "Add a console.log to debug this function"
+- Simple, obvious implementation
+
+Owner: "What files handle routing?"
+- Research task, not implementation planning
+
+## Important Notes
+
+- This tool REQUIRES owner approval - they must consent to entering plan mode
+- If unsure whether to use it, err on the side of planning - it's better to get alignment upfront than to redo work
+- The owner appreciates being consulted before significant changes are made to their codebase
+`;
+/** Its input: none (Claude Code's strict empty object, so any parameter is refused). */
+export const ENTER_PLAN_TOOL = Object.freeze({ type: "function", function: { name: "enter_plan_mode", description: ENTER_PLAN_DESC, parameters: { type: "object", properties: {}, additionalProperties: false } } });
+/** Its result object (Claude Code's `message`, what its PostToolUse hooks get), and what Coder is told back. */
+export const ENTERED_PLAN = "Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.";
+export const ENTERED_PLAN_TEXT = ENTERED_PLAN + `
+
+In plan mode, you should:
+1. Thoroughly explore the codebase to understand existing patterns
+2. Identify similar features and architectural approaches
+3. Consider multiple approaches and their trade-offs
+4. Use ask_user if you need to clarify the approach
+5. Design a concrete implementation strategy
+6. When ready, use exit_plan_mode to present your plan for approval
+
+Remember: DO NOT write or edit any files yet. This is a read-only exploration and planning phase.`;
+/** What the chat shows (Claude Code's own line for it: "Entered plan mode", then "Claude is now exploring …"). */
+export const ENTERED_PLAN_SHOWN = "Entered plan mode\nCoder is now exploring and designing an implementation approach.";
+/** Its input check (Claude Code's schema, before any hook): `{ args }` or `{ error }` in Claude Code's words. */
+export function checkEnterPlanInput(args) {
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : null;
+  if (!a) return { error: inputErrorText("EnterPlanMode", [typeIssue("object", args, [])]) };
+  const keys = Object.keys(a);
+  return keys.length ? { error: inputErrorText("EnterPlanMode", [unknownKeysIssue(keys, [])]) } : { args: {} };
+}
+
 // ── EXIT_PLAN_MODE, AS THE MODEL SEES IT ─────────────────────────────────────
 /** Its description with a plan file (Claude Code's ExitPlanMode prompt in a session with a disk). */
 export const EXIT_PLAN_DESC = `Use this tool when you are in plan mode and have finished writing your plan to the plan file and are ready for owner approval.
@@ -140,6 +257,11 @@ You are returning to plan mode after having previously exited it. A plan file ex
 4. Continue on with the plan process and most importantly you should always edit the plan file one way or the other before calling exit_plan_mode
 
 Treat this as a fresh planning session. Do not assume the existing plan is relevant without evaluating it first.`;
+/**
+ * THE PLAN AFTER A SUMMARY (Claude Code's plan_file_reference, among what it puts back after compaction whenever the
+ * session's plan file is there, in any mode): where it is and what it says.
+ */
+export const planFileReference = (file, text) => (file ? "A plan file exists from plan mode at: " + file : "A plan exists from plan mode.") + "\n\nPlan contents:\n\n" + String(text) + "\n\nIf this plan is relevant to the current work and not already complete, continue working on it.";
 
 // ── WHAT THE MODEL IS TOLD BACK ──────────────────────────────────────────────
 /**
@@ -155,9 +277,9 @@ export function planApproved(plan, { file = "", edited = false, unsaved = false 
 }
 /**
  * ITS REFUSALS BEFORE ANY HOOK OR CARD (Claude Code's checks; "error: " as Coder's failed calls start). Out of plan mode:
- * Claude Code's words without "To enter plan mode, call the EnterPlanMode tool first.", as Coder has no such tool.
+ * Claude Code's words, enter_plan_mode for its EnterPlanMode (Coder has it since 2026-11-14).
  */
-export const NOT_IN_PLAN_MODE = "error: You are not in plan mode. If your plan was already approved, continue with implementation.";
+export const NOT_IN_PLAN_MODE = "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.";
 export const PLAN_ARG_NEEDED = "error: Pass the whole plan as non-empty text in the `plan` argument, and pass no other argument. This session has no plan file to read it from.";
 /** The most a plan given as `plan` may take, as JSON (Claude Code: what "the user's approval card can carry"). */
 export const PLAN_CARD_BYTES = 32768;
@@ -182,8 +304,32 @@ export function planInput(args, { file = "", text = null } = {}) {
   for (const [k, v] of Object.entries(a)) if (k !== "plan" && k !== "planFilePath") out[k] = v;
   return typeof text === "string" ? { ...out, plan: text, planFilePath: file } : out;
 }
-/** ITS CHECK (Claude Code's validateInput): { error } or { args }. `noFile`: a run with no plan file. */
+/**
+ * ITS SCHEMA (Claude Code's, which takes keys it does not know): `allowedPrompts`, when given, a list of { tool: "Bash",
+ * prompt }; zod 4.6.2's issues, in its order.
+ */
+export function exitPlanIssues(args) {
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : null;
+  if (!a) return [typeIssue("object", args, [])];
+  const v = a.allowedPrompts;
+  if (v === undefined) return [];
+  if (!Array.isArray(v)) return [typeIssue("array", v, ["allowedPrompts"])];
+  const out = [];
+  v.forEach((x, i) => {
+    const at = ["allowedPrompts", i];
+    if (!x || typeof x !== "object" || Array.isArray(x)) { out.push(typeIssue("object", x, at)); return; }
+    if (x.tool !== "Bash") out.push(valueIssue(["Bash"], [...at, "tool"]));
+    if (typeof x.prompt !== "string") out.push(typeIssue("string", x.prompt, [...at, "prompt"]));
+  });
+  return out;
+}
+/**
+ * ITS CHECK (Claude Code's schema, then its validateInput): { error } or { args }. `noFile`: a run with no plan file. A
+ * schema refusal is Claude Code's InputValidationError (its w0, coder-zodtext.mjs).
+ */
 export function checkPlanInput(args, { mode = "", noFile = false } = {}) {
+  const issues = exitPlanIssues(args);
+  if (issues.length) return { error: inputErrorText("ExitPlanMode", issues) };
   if (mode !== "plan") return { error: NOT_IN_PLAN_MODE };
   if (noFile) {
     const p = args && typeof args === "object" ? args.plan : undefined;

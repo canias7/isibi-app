@@ -85,24 +85,29 @@
   // THE OWNER'S TIME ZONE, from this device (the docs, 2026-11-10; Grok Bot's Timezone "Auto-detect follows this computer").
   const deviceZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
   // CODER'S QUESTIONS (owner pick 4, 2026-11-08): 1 to 4 in a card; a card from before has one (text, options, multi).
+  // A card Coder waits on (its pid) keeps every option in its place, one with an empty label too, as Claude Code's schema
+  // allows one, and its previews (2026-11-14); the owner's picks are the options' places.
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
-    text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true),
-    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || '') })).filter((o) => o.label),
+    text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true), previews: !!(e.pid && q && q.previews === true && q.multi !== true),
+    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview } : {}) })).filter((o) => e.pid || o.label),
   }));
   /** The answer a card sends: one question's choices as before; several, each on its own line after its header. */
   const askReply = (a) => {
     if (!a || !Array.isArray(a.answers)) return '';
     // A choice is sent without its "(Recommended)" (that was Coder's own word).
-    const said = a.answers.map((x) => x.picked.map((v) => (v === '__other' ? x.other.trim() : v.replace(/\s*\(Recommended\)$/i, ''))).filter(Boolean).join(', '));
+    const said = a.answers.map((x, k) => x.picked.map((v) => (v === '__other' ? x.other.trim() : String(((a.qs[k] || {}).options || [])[Number(v)] ? a.qs[k].options[Number(v)].label : '').replace(/\s*\(Recommended\)$/i, ''))).filter(Boolean).join(', '));
     if (!said.some(Boolean)) return '';
     if (a.answers.length === 1) return said[0];
     return a.qs.map((q, k) => (q.header || q.text) + ': ' + (said[k] || '(no answer)')).join('\n');
   };
   // A CARD CODER WAITS ON (it has its pid; Claude Code's AskUserQuestion, the owner, 2026-11-14): the owner's picks as its
-  // step takes them, each question's options by their place and what they typed under Other ("(Recommended)" and all: the
-  // step names them by the labels Coder gave); and back, to show them once it is answered.
-  const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '' }; return { options: x.picked.filter((v) => v !== '__other').map((v) => q.options.findIndex((o) => o.label === v)).filter((n) => n >= 0), other: x.picked.includes('__other') ? String(x.other || '').trim() : '' }; });
-  const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).map((n) => (q.options[n] || {}).label).filter(Boolean)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '' });
+  // step takes them, each question's options by their place, what they typed under Other, and their notes (Claude Code's
+  // notes field, on a question with previews); and back, to show them once it is answered.
+  const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '', notes: '' }; const notes = q.previews ? String(x.notes || '').trim() : ''; return { options: x.picked.filter((v) => v !== '__other').map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < q.options.length), other: x.picked.includes('__other') ? String(x.other || '').trim() : '', ...(notes ? { notes } : {}) }; });
+  const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).filter((n) => q.options[n]).map(String)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '', notes: (p && typeof p.notes === 'string' && p.notes) || '' });
+  /** The preview of the option chosen, as Claude Code's dialog shows it beside the options ("No preview available" for one with none). */
+  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? o.preview : null) : undefined; };
+  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : esc(pv || '')) + '</pre>'; };
   /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
   const askDone = (ans) => (ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
@@ -2144,7 +2149,8 @@
     // "Ran 1 shell command" rows when todo/task updates were interleaved between them"): its latest showing is drawn after the
     // group it came in.
     let plan = '';
-    const todoHTML = (e) => '<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>';
+    // (Coder's task list titled as Claude Code titles its own: "Tasks · 2/5 done". Gloopy's checklist keeps "Plan". 2026-11-14.)
+    const todoHTML = (e) => '<div class="cd-todo">' + (GLOOPY ? '<b>Plan</b>' : '<b>Tasks<span class="cd-todo-n"> · ' + (e.items || []).filter((x) => x && x.status === 'done').length + '/' + (e.items || []).length + ' done</span></b>') + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>';
     const flush = () => {
       if (!group.length) { if (plan) { out.push(plan); plan = ''; } return; }
       if (group.length === 1) { const [e, i] = group[0]; out.push(cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))); }
@@ -2203,16 +2209,21 @@
         const qs = askQuestions(e);
         // The choices are kept here, not in the page, so a redraw never loses them.
         const chatId = S.project ? S.project.id : '';
-        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : [q.options[0].label], other: '' })) };
+        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : ['0'], other: '', notes: '' })) };
         const many = qs.length > 1;
         const off = !live || sent ? ' disabled' : '';
         out.push('<div class="cd-ask' + (live ? ' is-live' : '') + (many ? ' is-many' : '') + '" data-ask="' + i + '">' + qs.map((q, k) => {
-          const a = live ? S.ask.answers[k] : ans && ans.choice === 'answers' && Array.isArray(ans.picks) ? askShown(q, ans.picks[k]) : { picked: [], other: '' };
+          const a = live ? S.ask.answers[k] : ans && ans.choice === 'answers' && Array.isArray(ans.picks) ? askShown(q, ans.picks[k]) : { picked: [], other: '', notes: '' };
           const kind = q.multi ? 'checkbox' : 'radio', name = 'cdq' + i + '-' + k;
+          // (An answer as long as Claude Code takes one, 32,768 characters; notes 8,192. 2026-11-14.)
           return '<div class="cd-ask-one" data-q="' + k + '"><div class="cd-ask-q">' + (q.header ? '<span class="cd-ask-h">' + esc(q.header) + '</span>' : '') + '<span class="cd-ask-qt">' + esc(q.text) + '</span>' + (q.multi ? '<span class="cd-ask-multi">Choose any</span>' : '') + '</div><div class="cd-ask-list" role="' + (q.multi ? 'group' : 'radiogroup') + '">' +
-            q.options.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + off + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
-            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + off + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off"' + (sent ? ' disabled' : '') + '>' : a.other ? '<small>' + esc(a.other) + '</small>' : '') + '</span></label>' +
-            '</div></div>';
+            q.options.map((o, n) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + n + '"' + (a.picked.includes(String(n)) ? ' checked' : '') + off + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
+            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + off + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="32768" autocomplete="off"' + (sent ? ' disabled' : '') + '>' : a.other ? '<small>' + esc(a.other) + '</small>' : '') + '</span></label>' +
+            '</div>' +
+            // (CLAUDE CODE'S PREVIEWS AND NOTES FIELD, on a single-select question with previews: the chosen option's preview in
+            // a monospace box, and "Notes:" to add notes on it, which go with the answer. 2026-11-14.)
+            (q.previews ? askPreviewHTML(q, a.picked) + (live ? '<label class="cd-ask-notes"><span>Notes:</span><input type="text" class="cd-ask-note" placeholder="Add notes on this design" value="' + esc(a.notes || '') + '" maxlength="8192" autocomplete="off"' + (sent ? ' disabled' : '') + '></label>' : a.notes ? '<p class="cd-ask-notes-said">Notes: ' + esc(a.notes) + '</p>' : '') : '') +
+            '</div>';
         }).join('') + (live ? (S.permErr && e.pid && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '') + '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '"' + (sent ? ' disabled' : '') + '>Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '"' + (sent ? ' disabled' : '') + '>Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
           (live ? '<div class="cd-ask-wait">Needs your input</div>' : ans ? '<div class="cd-perm-done">' + askDone(ans) + '</div>' : ''));
       }
@@ -3260,7 +3271,9 @@
   function chatMode() {
     const p = S.project || {};
     let m = MODE_LIST.some((x) => x.id === p.mode) ? p.mode : 'auto';
-    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff')).at(-1) : null;
+    // (And Plan when Coder entered it, its enter_plan_mode: Claude Code's EnterPlanMode puts the session in Plan as the mode
+    // menu would. 2026-11-14.)
+    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff' || e.by === 'enterPlan')).at(-1) : null;
     if (sw && MODE_LIST.some((x) => x.id === sw.mode) && Number(sw.at || 0) > Number(p.modeAt || 0)) m = sw.mode;
     return S.autoOff && m === 'auto' ? 'acceptEdits' : m;
   }
@@ -3408,17 +3421,19 @@
         ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
           // (No note on a page fetch's card, as Claude Code's: "WebFetch and browser prompts don't offer the field"; 2026-11-14.)
-          (e.tool === 'web_fetch' ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change (with No, keep planning)' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
+          (e.tool === 'web_fetch' ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
           (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '')
         : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');
   }
   async function answerPerm(pid, choice) {
     if (!S.project || (S.permSent && S.permSent[pid])) return;
-    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none.)
-    const comment = choice === 'always' || choice === 'auto' ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
-    // (A plan approved as the owner edited it: the edited plan goes with the Yes, only when it changed. 2026-11-14.)
+    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none. On a plan's
+    // card the words go with every Yes, "Yes, and use auto mode" too, as Claude Code 2.1.325 sends them: "shift+tab to approve
+    // with this feedback". 2026-11-14.)
     const card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
+    const isPlan = !!(card && card.tool === 'plan');
+    const comment = !isPlan && (choice === 'always' || choice === 'auto') ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
     const edit = S.planEdits && typeof S.planEdits[pid] === 'string' ? S.planEdits[pid] : null;
     const plan = card && card.tool === 'plan' && (choice === 'auto' || choice === 'acceptEdits') && edit !== null && edit !== String(card.plan || '') ? edit : null;
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
@@ -3436,7 +3451,7 @@
   async function askAnswer(pid, choice) {
     if (!S.project || !S.ask || (S.permSent && S.permSent[pid])) return;
     const answers = choice === 'answers' ? askPicks(S.ask) : null;
-    if (answers && !answers.some((p) => p.options.length || p.other)) return;
+    if (answers && !answers.some((p) => p.options.length || p.other || p.notes)) return;
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();
@@ -3600,8 +3615,8 @@
     const keyAt = keyKept && keyKept.contains(document.activeElement) ? { id: document.activeElement.id, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
     // (And a question card's Other box, where its cursor was: a card Coder waits on is live while the page redraws. The owner,
     // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
-    const askEl = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('cd-ask-in') ? document.activeElement : null;
-    const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, a: askEl.selectionStart, b: askEl.selectionEnd } : null;
+    const askEl = document.activeElement && document.activeElement.classList && (document.activeElement.classList.contains('cd-ask-in') || document.activeElement.classList.contains('cd-ask-note')) ? document.activeElement : null;
+    const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, cls: askEl.classList.contains('cd-ask-note') ? 'cd-ask-note' : 'cd-ask-in', a: askEl.selectionStart, b: askEl.selectionEnd } : null;
     // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
     const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
@@ -3619,7 +3634,7 @@
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
-    if (askAt) { const f = root.querySelector('.cd-ask[data-ask="' + askAt.at + '"] .cd-ask-one[data-q="' + askAt.q + '"] .cd-ask-in'); if (f && !f.disabled) { f.focus(); try { f.setSelectionRange(askAt.a, askAt.b); } catch (e) { /* not a text box */ } } }
+    if (askAt) { const f = root.querySelector('.cd-ask[data-ask="' + askAt.at + '"] .cd-ask-one[data-q="' + askAt.q + '"] .' + askAt.cls); if (f && !f.disabled) { f.focus(); try { f.setSelectionRange(askAt.a, askAt.b); } catch (e) { /* not a text box */ } } }
     if (planAt) { const t = root.querySelector('[data-plan-text="' + CSS.escape(planAt.pid) + '"]'); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(planAt.a, planAt.b, planAt.d || 'none'); t.scrollTop = planAt.top; } }
     const term = root.querySelector('#cdWebTerm');
     if (term) term.scrollTop = term.scrollHeight;
@@ -3672,9 +3687,14 @@
       if (!a) return;
       const one = e.currentTarget.closest('.cd-ask-one');
       a.picked = [...one.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')].map((x) => x.value);
+      // (The preview beside a question with previews follows the option chosen.)
+      const pv = one.querySelector('.cd-ask-pv'), q = S.ask && S.ask.qs[Number(one.dataset.q)];
+      if (pv && q) pv.outerHTML = askPreviewHTML(q, a.picked);
       if (e.currentTarget.value === '__other' && e.currentTarget.checked) { const t = one.querySelector('.cd-ask-in'); if (t) t.focus(); }
     });
     on('.cd-ask-in', 'input', (e) => { const a = askOf(e.currentTarget); if (a) a.other = e.currentTarget.value; });
+    on('.cd-ask-note', 'input', (e) => { const a = askOf(e.currentTarget); if (a) a.notes = e.currentTarget.value; });
+    on('.cd-ask-note', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask-in', 'focus', (e) => {
       // Typing your own answer chooses Other.
       const r = e.currentTarget.closest('.cd-ask-row').querySelector('input[value="__other"]');

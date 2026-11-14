@@ -11,9 +11,10 @@
 // Coder's name for it. The list itself is the chat's own, kept between messages (Claude Code keeps a session's in
 // ~/.claude/tasks/: one list a session, its ids counted up from 1 and never used twice); Coder's machine keeps it in a file
 // of root's beside the chat's memory (taskStore).
-import { rename, open as openFile } from "node:fs/promises";
+import { rename, mkdir, open as openFile } from "node:fs/promises";
 import { constants } from "node:fs";
 import { dirname, basename, join } from "node:path";
+import { issuesText, inputErrorText, typeIssue, unknownKeysIssue, valueIssue, unionIssue, tooSmallIssue } from "./coder-zodtext.mjs";
 
 /** Coder's names for the four tools, and Claude Code's (hooks, rules and permission texts use Claude Code's). */
 export const TASK_TOOL_CC = Object.freeze({ task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate" });
@@ -223,8 +224,6 @@ const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 /** A string with something in it (Claude Code's test before it reads one name as another). */
 const filled = (v) => typeof v === "string" && v.trim() !== "";
-/** What a value is, as Claude Code's schema names it in "provided as `…`". */
-const kindOf = (v) => (v === undefined ? "undefined" : v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "nan" : typeof v);
 /** A subject made from a description (Claude Code's: its first line, at most 80 characters, cut at a space past the 40th). */
 export function subjectFrom(description) {
   const first = String(description).split("\n")[0].trim();
@@ -289,26 +288,34 @@ const SHAPES = {
   task_update: { taskId: "string!", subject: "string", description: "string", activeForm: "string", status: "status", addBlocks: "strings", addBlockedBy: "strings", owner: "string", metadata: "record" },
 };
 /**
- * WHAT CLAUDE CODE'S SCHEMA SAYS OF AN INPUT, or "" (its words: the missing inputs, then the unexpected ones, then those of
- * the wrong type, then any other, headed "<Tool> failed due to the following issue(s):").
+ * WHAT CLAUDE CODE'S SCHEMA FINDS IN AN INPUT: zod 4.6.2's issues, in its order (each input in the schema's order, then the
+ * inputs it does not know); TaskUpdate's status is its union of the three statuses and "deleted".
  */
-export function taskSchemaProblem(name, input) {
+export function taskIssues(name, input) {
   const shape = SHAPES[name];
-  if (!shape) return "";
-  const a = isObj(input) ? input : {};
-  const missing = [], unexpected = [], wrong = [], other = [];
-  const type = (k, expected, v) => wrong.push("The parameter `" + k + "` type is expected as `" + expected + "` but provided as `" + kindOf(v) + "`");
+  if (!shape) return [];
+  if (!isObj(input)) return [typeIssue("object", input, [])];
+  const a = input, issues = [];
   for (const [k, kind] of Object.entries(shape)) {
     const v = a[k];
-    if (v === undefined) { if (kind.endsWith("!")) missing.push(k); continue; }
-    if (kind === "string" || kind === "string!") { if (typeof v !== "string") type(k, "string", v); }
-    else if (kind === "record") { if (!isObj(v)) type(k, "record", v); }
-    else if (kind === "strings") { if (!Array.isArray(v)) type(k, "array", v); else v.forEach((x, i) => { if (typeof x !== "string") type(k + "[" + i + "]", "string", x); }); }
-    else if (kind === "status") { if (!(typeof v === "string" && (TASK_STATUSES.includes(v) || v === "deleted"))) other.push("The parameter `" + k + "` matches none of the accepted forms"); }
+    if (v === undefined) { if (kind.endsWith("!")) issues.push(typeIssue("string", v, [k])); continue; }
+    if (kind === "string" || kind === "string!") { if (typeof v !== "string") issues.push(typeIssue("string", v, [k])); }
+    else if (kind === "record") { if (!isObj(v) || (Object.getPrototypeOf(v) !== Object.prototype && Object.getPrototypeOf(v) !== null)) issues.push(typeIssue("record", v, [k])); }
+    else if (kind === "strings") { if (!Array.isArray(v)) issues.push(typeIssue("array", v, [k])); else v.forEach((x, i) => { if (typeof x !== "string") issues.push(typeIssue("string", x, [k, i])); }); }
+    else if (kind === "status") { if (!(typeof v === "string" && (TASK_STATUSES.includes(v) || v === "deleted"))) issues.push(unionIssue([[valueIssue(TASK_STATUSES, [])], [valueIssue(["deleted"], [])]], [k])); }
   }
-  for (const k of Object.keys(a)) if (!has(shape, k)) unexpected.push(k);
-  const lines = [...missing.map((k) => "The required parameter `" + k + "` is missing"), ...unexpected.map((k) => "An unexpected parameter `" + k + "` was provided"), ...wrong, ...other];
-  return lines.length ? TASK_TOOL_CC[name] + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n") : "";
+  const unknown = Object.keys(a).filter((k) => !has(shape, k));
+  if (unknown.length) issues.push(unknownKeysIssue(unknown, []));
+  return issues;
+}
+/**
+ * WHAT CLAUDE CODE SAYS OF THEM, or "" (its w0, coder-zodtext.mjs): the missing inputs, the unexpected ones and those of the
+ * wrong type, then any other, headed "<Tool> failed due to the following issue(s):"; with none of the first three, zod's own
+ * message, its issues as JSON (a status that is none of them alone, say).
+ */
+export function taskSchemaProblem(name, input) {
+  const issues = taskIssues(name, input);
+  return issues.length ? issuesText(TASK_TOOL_CC[name], issues) : "";
 }
 /**
  * CLAUDE CODE'S HINT WITH A REFUSED TASKCREATE (its validationErrorSteer), before the schema's words: a call that sent a list.
@@ -482,7 +489,8 @@ function answerParts(m) {
   return parts;
 }
 /** Whether the reminder is due now (Claude Code's 10 steps since the tools were used, and 10 since the last reminder). */
-export function taskReminderDue(convo, turns = TASK_REMINDER_TURNS) {
+export const taskReminderDue = (convo, turns = TASK_REMINDER_TURNS) => reminderDue(convo, ["task_create", "task_update"], isReminder, turns);
+function reminderDue(convo, tools, isOne, turns) {
   let sinceUse = 0, sinceReminder = 0, used = false, reminded = false;
   for (let i = (Array.isArray(convo) ? convo.length : 0) - 1; i >= 0; i--) {
     const m = convo[i];
@@ -490,11 +498,11 @@ export function taskReminderDue(convo, turns = TASK_REMINDER_TURNS) {
     if (m.role === "assistant") {
       const parts = answerParts(m);
       for (let k = parts.length - 1; k >= 0; k--) {
-        if (!used && (parts[k] === "task_create" || parts[k] === "task_update")) used = true;
+        if (!used && tools.includes(parts[k])) used = true;
         if (!used) sinceUse++;
         if (!reminded) sinceReminder++;
       }
-    } else if (!reminded && isReminder(m)) reminded = true;
+    } else if (!reminded && isOne(m)) reminded = true;
     if (used && reminded) break;
   }
   return sinceUse >= turns && sinceReminder >= turns;
@@ -515,21 +523,102 @@ export function pageItems(st, clean = (s) => s) {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// CLAUDE CODE'S TodoWrite, CODER'S todo_write, WITH CLAUDE_CODE_ENABLE_TASKS=0 (its env-vars reference: "Set to `0` to get the
+// legacy `TodoWrite` tool instead"; Coder's CODER_ENABLE_TASKS in the chat's environment, or the repository's
+// CLAUDE_CODE_ENABLE_TASKS; the owner, 2026-11-14: "Fix base on Claude Code docs, please"). Its prompt for a model it has
+// no older prompt for (its lean one, which Grok gets, as for ask_user), its schema, its answer, its result object and its
+// reminder, all 2.1.325's own. The list is the chat's, kept between messages (todoStore); one whose items are all completed
+// is kept as an empty list, as Claude Code keeps it.
+// ---------------------------------------------------------------------------------------------------------------------
+export const TODO_WRITE_PROMPT = "Create and update a task list for the current session. The list is rendered to the owner as your working plan.\n\n- Each todo has `content`, `status` (\"pending\" | \"in_progress\" | \"completed\"), and `activeForm` (present-tense label shown while in progress).\n- Send the full list each call; it replaces the previous one.\n- Keep one item `in_progress` at a time and mark it `completed` when done.";
+export const TODO_WRITE_TOOL = Object.freeze({ type: "function", function: { name: "todo_write", description: TODO_WRITE_PROMPT, parameters: { type: "object", properties: {
+  todos: { type: "array", description: "The updated todo list", items: { type: "object", properties: {
+    content: { type: "string", minLength: 1 },
+    status: { type: "string", enum: [...TASK_STATUSES] },
+    activeForm: { type: "string", minLength: 1 },
+  }, required: ["content", "status", "activeForm"] } },
+}, required: ["todos"], additionalProperties: false } } });
+/** Its answer (Claude Code's mapToolResultToToolResultBlockParam). */
+export const TODO_WRITE_RESULT = "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable";
+/** Its schema's issues (zod 4.6.2's, in its order: each todo's content, status, activeForm; then keys the call does not know). */
+export function todoIssues(input) {
+  if (!isObj(input)) return [typeIssue("object", input, [])];
+  const issues = [], v = input.todos;
+  if (!Array.isArray(v)) issues.push(typeIssue("array", v, ["todos"]));
+  else v.forEach((t, i) => {
+    const at = ["todos", i];
+    if (!isObj(t)) { issues.push(typeIssue("object", t, at)); return; }
+    if (typeof t.content !== "string") issues.push(typeIssue("string", t.content, [...at, "content"]));
+    else if (t.content.length < 1) issues.push(tooSmallIssue("string", 1, [...at, "content"], "Content cannot be empty"));
+    if (!(typeof t.status === "string" && TASK_STATUSES.includes(t.status))) issues.push(valueIssue(TASK_STATUSES, [...at, "status"]));
+    if (typeof t.activeForm !== "string") issues.push(typeIssue("string", t.activeForm, [...at, "activeForm"]));
+    else if (t.activeForm.length < 1) issues.push(tooSmallIssue("string", 1, [...at, "activeForm"], "Active form cannot be empty"));
+  });
+  const unknown = Object.keys(input).filter((k) => k !== "todos");
+  if (unknown.length) issues.push(unknownKeysIssue(unknown, []));
+  return issues;
+}
+/** Its input checked before any hook: `{ args }` (each todo with only its three fields, as its schema keeps them) or `{ error }`. */
+export function checkTodoInput(args) {
+  const issues = todoIssues(args);
+  if (issues.length) return { error: inputErrorText("TodoWrite", issues) };
+  return { args: { todos: args.todos.map((t) => ({ content: t.content, status: t.status, activeForm: t.activeForm })) } };
+}
+/** A stored list read back (anything else: none). */
+export const readTodos = (saved) => (isObj(saved) && Array.isArray(saved.todos) && !todoIssues({ todos: saved.todos }).length ? saved.todos.map((t) => ({ content: t.content, status: t.status, activeForm: t.activeForm })) : []);
+/** What the owner sees of it (the page's checklist): each todo, in progress by its activeForm. */
+export function todoItems(todos, clean = (x) => x) {
+  return (Array.isArray(todos) ? todos : []).slice(0, PAGE_ITEMS_MAX).map((t) => ({
+    text: String(clean(t.status === "in_progress" && filled(t.activeForm) ? t.activeForm : t.content)).replace(/\s+/g, " ").trim().slice(0, 200),
+    status: t.status === "completed" ? "done" : t.status,
+  }));
+}
+/** Its reminder (Claude Code's todo_reminder): before each answer, after 10 steps without todo_write and 10 since the last one. */
+const TODO_REMINDER_HEAD = "The todo_write tool hasn't been used recently. If you're working on tasks that would benefit from tracking progress, consider using the todo_write tool to track progress. Also consider cleaning up the todo list if has become stale and no longer matches what you are working on. Only use it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable.\n";
+export function todoReminderNote(todos) {
+  let text = TODO_REMINDER_HEAD;
+  const lines = (Array.isArray(todos) ? todos : []).map((t, k) => k + 1 + ". [" + t.status + "] " + t.content).join("\n");
+  if (lines.length) text += "\n\nHere are the existing contents of your todo list:\n\n[" + lines + "]";
+  return NOTE_START + text.replace(/\n+$/, "") + ")";
+}
+const isTodoReminder = (m) => m && m.role === "user" && typeof m.content === "string" && m.content.startsWith(NOTE_START + TODO_REMINDER_HEAD.slice(0, 60));
+export const todoReminderDue = (convo, turns = TASK_REMINDER_TURNS) => reminderDue(convo, ["todo_write"], isTodoReminder, turns);
+/** The chat's todo list, kept between messages: one file of root's, as the task list's (taskStore). */
+export function todoStore(file) {
+  const raw = taskStoreRaw(file);
+  return { load: async () => readTodos(await raw.load()), save: (todos) => raw.save({ todos }) };
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // THE CHAT'S LIST, KEPT BETWEEN MESSAGES: one file of root's beside the chat's memory (its folder is root's, so the AI's
 // commands cannot swap it), written whole each time through a new file then renamed over it, read never through a link.
 // ---------------------------------------------------------------------------------------------------------------------
 export function taskStore(file) {
+  const raw = taskStoreRaw(file);
+  return { load: async () => readTasks(await raw.load()), save: (st) => raw.save({ mark: st.mark, tasks: st.tasks }) };
+}
+/** One JSON file of root's, read never through a link, written whole through a new file renamed over it (its folder made first). */
+function taskStoreRaw(file) {
   return {
     load: async () => {
       let fh;
-      try { fh = await openFile(file, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { return emptyTasks(); }
-      try { return readTasks(JSON.parse(await fh.readFile("utf8"))); } catch { return emptyTasks(); } finally { await fh.close().catch(() => {}); }
+      try { fh = await openFile(file, constants.O_RDONLY | constants.O_NOFOLLOW); } catch { return null; }
+      try { return JSON.parse(await fh.readFile("utf8")); } catch { return null; } finally { await fh.close().catch(() => {}); }
     },
-    save: async (st) => {
+    save: async (value) => {
+      await mkdir(dirname(file), { recursive: true, mode: 0o700 }).catch(() => {});
       const tmp = join(dirname(file), "." + basename(file) + "." + process.pid + "." + Date.now() + ".tmp");
       const fh = await openFile(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
-      try { await fh.writeFile(JSON.stringify({ mark: st.mark, tasks: st.tasks })); } finally { await fh.close(); }
+      try { await fh.writeFile(JSON.stringify(value)); } finally { await fh.close(); }
       await rename(tmp, file);
     },
   };
 }
+/**
+ * WHERE THE CHAT'S TASK LIST IS KEPT (Claude Code: a session's own list, "~/.claude/tasks/<id>", or the one CLAUDE_CODE_TASK_LIST_ID
+ * names, "a named directory in ~/.claude/tasks/", its name with anything but letters, digits, _ and - made "-"): the chat's own
+ * file beside its memory, or the named list's in the memory folder's tasks/ (Coder's CODER_TASK_LIST_ID, or the repository's
+ * CLAUDE_CODE_TASK_LIST_ID). 2026-11-14.
+ */
+export const taskListName = (id) => String(id).replace(/[^a-zA-Z0-9_-]/g, "-");
+export const taskFileFor = (memRoot, chat, listId = "") => (typeof listId === "string" && listId ? join(memRoot, "tasks", taskListName(listId) + ".json") : join(memRoot, chat + ".tasks.json"));

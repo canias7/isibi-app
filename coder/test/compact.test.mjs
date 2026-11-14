@@ -217,7 +217,8 @@ test("CD214 every summary made between messages names the files its part worked 
   assert.deepEqual(filesTouched([summaryMessage("S", "x", ["old.js", "src/c.js"]), ...worked.slice(2)]), ["old.js", "src/b.js", "src/c.js", "src/a.js"], "an earlier summary's files carry on");
   assert.equal(REREAD_LIST_MAX, 50);
   assert.equal(filesTouched(Array.from({ length: 60 }, (_, i) => ({ role: "assistant", content: "", tool_calls: [tc("read", { path: "f" + i }, "r" + i)] }))).length, 50);
-  assert.deepEqual(summaryMessage("S", "x"), { role: "user", content: summaryMessage("S", "x").content }, "no files: as before");
+  // (Every summary owes the chat's plan file to the job that next reads it, Claude Code's plan_file_reference: `planRef`.)
+  assert.deepEqual(summaryMessage("S", "x"), { role: "user", content: summaryMessage("S", "x").content, planRef: true }, "no files: no reread");
   assert.deepEqual(summaryMessage("S", "x", ["a.js"]).reread, ["a.js"]);
   // A long chat summarized before a job.
   const big = [];

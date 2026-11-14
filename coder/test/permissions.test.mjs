@@ -227,7 +227,8 @@ test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same
   assert.equal(b.r.mode, "auto");
   assert.ok(b.events.some((e) => e.type === "mode" && e.mode === "auto" && e.by === "card"));
   assert.ok(b.seen[1].messages.some((m) => m.role === "user" && /The owner's permission mode is now Auto\./.test(m.content)));
-  assert.match(b.seen[1].messages[0].content, /PERMISSION MODE: Auto \(the owner's pick\)\.\nThe owner chose continuous, autonomous execution/);
+  // (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", with Coder's names.)
+  assert.match(b.seen[1].messages[0].content, /PERMISSION MODE: Auto \(the owner's pick\)\.\n## Auto Mode Active\n\nBias toward working without stopping for clarifying questions/);
 });
 
 test("CD316 No stops the turn with Claude Code's words (its other calls are not run); No with a note goes on with the note; Stop while it waits stops", async () => {
@@ -264,7 +265,9 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   assert.equal(cards[1].plan, "1. Add a total() test\n2. Fix the cart");
   assert.deepEqual(ran, ["ls src", "npm test"]);
   const approved = seen[3].messages.find((m) => m.tool_call_id === "x1").content;
-  assert.match(approved, /^The owner has approved your plan\. You can now start coding\. Start with updating your todo list if applicable\n\n## Approved Plan:\n1\. Add a total\(\) test\n2\. Fix the cart\n\n## Exited Plan Mode\n/);
+  assert.equal(approved, "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add a total() test\n2. Fix the cart");
+  // ("## Exited Plan Mode" as its own note after the approval, before the next step, as Claude Code's plan_mode_exit.)
+  assert.match(seen[3].messages.at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
   assert.ok(!seen[3].tools.some((t) => t.function.name === "exit_plan_mode"), "no way out of a mode it is not in");
   assert.match(seen[3].messages[0].content, /PERMISSION MODE: Accept edits/);
   assert.equal(r.mode, "acceptEdits");
@@ -277,7 +280,7 @@ test("CD318 a plan declined with what to change keeps plan mode and Coder revise
   assert.ok(a.seen[1].tools.some((t) => t.function.name === "exit_plan_mode"), "still in plan mode");
   assert.equal(a.r.mode, "auto");
   const b = await job([say("", [call("exit_plan_mode", { plan: "x" }, "x1")]), say("ok")], { mode: "auto" });
-  assert.equal(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, "error: You are not in plan mode. If your plan was already approved, continue with implementation.");
+  assert.equal(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");
 });
 
 test("CD319 the owner changes the mode while Coder works: from its next step on, with Claude Code's '## Exited Plan Mode' note", async () => {
