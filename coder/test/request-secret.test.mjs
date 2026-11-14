@@ -449,3 +449,39 @@ test("RS13 the card's buttons and the page's redraws: Save keeps the key, then t
   // The machine and the Worker take "saved".
   assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip"\]\.includes\(choice\)/);
 });
+
+test("RS14 a PreToolUse hook's rewrite of request_secret's input gets request_secret's own refusal, as the model's input does (Claude Code's request_credential is its MCP server's tool: Claude Code takes its input as any object and the tool checks it when it runs, after the hooks); a good rewrite is used", async () => {
+  const input = { host: "api.stripe.com", reason: "The balance check got 401 from api.stripe.com; a key unblocks it." };
+  const run = async (updated) => {
+    const events = [], asked = [];
+    let n = 0;
+    const steps = [say("", [call("request_secret", input, "k1")]), say("Done.")];
+    const r = await A.runCoder({
+      send: async () => steps[Math.min(n++, steps.length - 1)],
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) {
+          const h = JSON.parse(x.payload);
+          const out = h.hook_event_name === "PreToolUse" ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: updated } }) : "";
+          return { code: 0, output: out + "\n" + mark[0] + "\n" };
+        }
+        return { code: 0, output: "ok\n" };
+      },
+      emit: (e) => events.push(e),
+      ask: async (pid, o) => { asked.push({ pid, o }); return { choice: "saved" }; },
+      here: () => "/work/shop", root: "/work/shop", chatId: "shop-rs14",
+    }, { text: "check my stripe balance", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "request_secret", hooks: [{ type: "command", command: "pre.sh" }] }] } }, "settings").list });
+    return { events, asked, told: String((r.messages.find((m) => m.tool_call_id === "k1") || {}).content || "") };
+  };
+  // A bad rewrite: request_secret's own words (not "failed schema validation"), and no card.
+  // (A number where the host goes: the schema Grok is given would refuse it as "failed schema validation"; the tool refuses it.)
+  let t = await run({ ...input, host: 7 });
+  assert.match(t.told, /host must be the exact hostname the credential is for/);
+  assert.doesNotMatch(t.told, /failed schema validation/);
+  assert.equal(t.events.some((e) => e.type === "secret"), false);
+  assert.deepEqual(t.asked, []);
+  // A good rewrite: the card asks for the hook's host, and the answer comes back in the turn.
+  t = await run({ ...input, host: "api.example.com" });
+  assert.equal(t.events.find((e) => e.type === "secret").host, "api.example.com");
+  assert.equal(t.told, "saved");
+});

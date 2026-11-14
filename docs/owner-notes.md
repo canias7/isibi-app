@@ -17,6 +17,22 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Hooks and search, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 3 of 6. Hooks are your own scripts that run before and after Coder's actions.
+
+- **A hook that changes a tool's result** (PostToolUse) is now checked like Claude Code checks it. If the new result has the wrong shape for that tool, Coder keeps the real result and is told why, in Claude Code's words. Before, Coder took almost anything.
+- **A hook that changes what Coder is about to do** (PreToolUse, or a hook that answers a permission question) is now checked before the action runs. A bad change is refused in Claude Code's words ("failed schema validation" or "the tool refused"), and nothing runs.
+- **Connectors, the environment tools and the key card take any change from a hook**, because in Claude Code these are connector tools that check their own input when they run. A bad change then gets that tool's own refusal. I fixed this part while merging: the new hook check had been refusing changes to the environment tools too early. A new test covers the key card.
+- **Hooks now get Claude Code's result shapes** for read, write, edit and stop_job, and the extra `output` and `code` fields are gone except for bash and powershell.
+- **grep and glob:**
+  - a wrong value now gets Claude Code's exact error list;
+  - a glob pattern starting with `~/` is taken literally, as Claude Code does;
+  - a search killed partway now says its results are incomplete;
+  - the "fixed input" note only shows when the call worked;
+  - a plain "Read" rule now only affects read, not grep, glob or lsp. That is how Claude Code behaves, and the helper checked it in Claude Code's own program.
+- **Tests:** 9 new for hooks and search, plus my new key-card test; the helper's full run passed 935 of 936 (the one failure only happens in a helper's copy of the repo).
+
 ## 2026-11-14: Web tools and the email check, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 2 of 6.

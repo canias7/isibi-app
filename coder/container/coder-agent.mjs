@@ -1882,8 +1882,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    */
   const hookInputCheck = (name, input, event) => {
     const tool = ccTool(name, name === "monitor");
-    // (The schema the agent was given: Coder's tools, or the ones an agent with its own (Gloopy) was offered.)
-    const def = mcpByName.has(name) ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
+    // (The schema the agent was given: Coder's tools, or the ones an agent with its own (Gloopy) was offered. None for
+    // Claude Code's claude-code-remote tools, its environment tools and request_credential (Coder's request_secret): they
+    // are an MCP server's, whose input Claude Code takes as any object; the tool checks it itself when it runs, after the
+    // hooks, so a hook's rewrite gets the tool's own refusal, as the model's input does. 2026-11-14.)
+    const remote = ENV_TOOL_NAMES.includes(name) || name === "request_secret";
+    const def = mcpByName.has(name) || remote ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
     const own0 = inputCheckFor(name);
     const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off })
       : isTaskTool(name) ? (a) => checkTaskInput(name, a)
