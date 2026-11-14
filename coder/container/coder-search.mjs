@@ -564,7 +564,7 @@ export async function grepTool(args, env) {
   const checked = checkedSpellings(env.spellings, target, now);
   // A PATH THAT ISN'T THERE (Claude Code's aMr): "Path does not exist: … Note: your current working directory is …". (Asked
   // only while its links are as checked, as Claude Code's fNr; otherwise its open below refuses it.)
-  if (typeof a.path === "string" && a.path && !now.unresolved && now.spellings.every((q) => checked.includes(q))) {
+  if (typeof a.path === "string" && a.path && now.spellings.every((q) => checked.includes(q))) {
     try { await stat(target); } catch (e) {
       if (!e || (e.code !== "ENOENT" && e.code !== "ENOTDIR")) throw e;
       const guess = await didYouMean(target, base);

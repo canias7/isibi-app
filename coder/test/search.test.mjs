@@ -572,6 +572,8 @@ test("SR16 the search's links are as Coder's permission check saw them, as Claud
   assert.deepEqual(S.pathSpellings(join(d, "link/nope/z")), { spellings: [join(d, "link/nope/z"), join(d, "a/nope/z")], unresolved: false, found: false }, "not there: from the deepest folder that is");
   symlinkSync(join(d, "loop2"), join(d, "loop1")); symlinkSync(join(d, "loop1"), join(d, "loop2"));
   assert.equal(S.pathSpellings(join(d, "loop1")).unresolved, true);
+  // (A loop of links, as checked: Claude Code's look at the path fails as the system says, before its search opens it.)
+  assert.match(await fails(grep(d, { pattern: "x", path: "loop1" })), /^ELOOP: too many (levels of )?symbolic links/i);
   assert.deepEqual(S.checkedAt(join(d, "link")), { path: join(d, "link"), list: [join(d, "link"), join(d, "a")] });
   assert.equal(S.checkedAt(join(d, "nope")), null, "one its view can't follow there: none sent");
   const seen = S.checkedAt(join(d, "link"));
