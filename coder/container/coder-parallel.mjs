@@ -51,8 +51,12 @@
  *   Not after a pause, nor where the turn stopped for its own reasons (a check's denial, below). Coder adds the same, "the
  *   owner" for "user" (coder-agent.mjs closedEnd).
  * - A ROUND STOPPED BY THE AUTO MODE CHECKER (closedAs "checker"): when the checker gave no verdict too many times in a row,
- *   Claude Code's denial for that call ends the turn ("permission-stop"): the calls beside it that started go on and keep what
- *   they return, and each one not started is told SKIPPED_BY_CHECK; no mark follows.
+ *   or refused the 20th call in a row under denyInsteadOfPrompting, Claude Code's denial for that call ends the turn
+ *   ("permission-stop"): a call beside it that had its result keeps it, one still running is aborted (a command goes on in
+ *   the background, as Claude Code moves its Bash there; any other is told INTERRUPTED_TOOL_USE), and each one not started
+ *   is told SKIPPED_BY_CHECK; no mark follows.
+ * - THE OWNER'S STOP WHILE GROK ANSWERS, AND ON THEIR OWN "!" COMMAND: "[Request interrupted by the owner]" (INTERRUPTED),
+ *   with nothing of the answer the Stop cut, and nothing of what the command printed (coder-agent.mjs).
  */
 
 /** Claude Code 2.1.325's own marks of an interrupted turn, "the owner" for "user" as Coder's REJECTED and STOPPED_RUNNING have it. */
@@ -210,8 +214,8 @@ export function earlyRuns({ now = Date.now, onUsage = null, onTaken = null } = {
 
 /**
  * A ROUND THAT ENDS EARLY, thrown from a call's turn (`why`: "no", "stop", "park", or "checker": the auto mode checker's
- * no-verdict denial that ends the turn): Coder's loop answers that call, if its turn did not, and goes on to the next one in
- * closing mode (coder-agent.mjs).
+ * denial that ends the turn, its no-verdict stop or the 20th refusal in a row under denyInsteadOfPrompting): Coder's loop
+ * answers that call, if its turn did not, and goes on to the next one in closing mode (coder-agent.mjs).
  */
 export class RoundClosing {
   constructor(why) { this.why = why; }
@@ -222,13 +226,15 @@ export class RoundClosing {
  * earlyRuns' state), as Claude Code 2.1.325's executor gives it: "turn" when it had its result by then (its turn takes that
  * result, in its words, as on any turn); for a Stop, "stopped-running" when it was running; "rejected" otherwise (Claude Code's
  * rejection after a No, and after a Stop for one that was not running); for a pause, "later": its turn comes when the job is
- * taken up again. After the checker's denial ("checker"): "turn" for one running too (it goes on, and keeps its result), and
- * "skipped" for one not started (SKIPPED_BY_CHECK). (Round 6.)
+ * taken up again. After the checker's denial ("checker", Claude Code's "permission-stop"): "skipped" for one not started
+ * (SKIPPED_BY_CHECK), and "interrupted" for one running, which Claude Code aborts: a command goes on in the background, its
+ * turn taking that answer, and any other call is told INTERRUPTED_TOOL_USE, its tools' answer when aborted (coder-agent.mjs's
+ * closedTurn). (Round 6; the owner, 2026-11-14: "do what claude code does".)
  */
 export function closedAs(why, state) {
   if (state === "done") return "turn";
   if (why === "park") return "later";
-  if (why === "checker") return state === "running" ? "turn" : "skipped";
+  if (why === "checker") return state === "running" ? "interrupted" : "skipped";
   if (why === "stop" && state === "running") return "stopped-running";
   return "rejected";
 }

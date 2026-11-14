@@ -384,10 +384,11 @@ test("PA14 (round 5) a card left open pauses the job: the calls beside it that r
   // A No on the paused card: the unanswered one is rejected, the ones that returned keep their results.
   const no = await job([say("never")], { rules, budget, opts: { text: "", messages: first.r.messages, takeUp: { ...rec, answer: { choice: "no" } } } });
   assert.deepEqual(["r1", "s1", "r2", "r3"].map((id) => no.told(id) === REJECTED ? "rejected" : "kept"), ["rejected", "kept", "kept", "rejected"]);
-  // Stop on the paused card (Coder's Worker closes it): the same.
+  // Stop on the paused card (Coder's Worker closes it): the same, in the words of Claude Code's Stop on a turn it hands back
+  // stopped (NOT_NOW, round 6).
   const closed = PK.closeParked(first.r.messages, rec);
   const said = (id) => closed.filter((m) => m.role === "tool" && m.tool_call_id === id).map((m) => m.content);
-  assert.deepEqual([said("r1"), said("r3")], [[REJECTED], [REJECTED]]);
+  assert.deepEqual([said("r1"), said("r3")], [[NOT_NOW], [NOT_NOW]]);
   assert.deepEqual(said("r2"), ["result of read:fast.txt"]);
 });
 

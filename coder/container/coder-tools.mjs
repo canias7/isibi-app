@@ -10,11 +10,12 @@
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { isUtf8 } from "node:buffer";
-import { resolve, dirname, relative, isAbsolute, sep, extname, join, normalize } from "node:path";
+import { resolve, dirname, relative, isAbsolute, sep, extname, join, normalize, basename } from "node:path";
 import { tmpdir, homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { grepTool, globTool } from "./coder-search.mjs";
+import { secretsIn, memorySecretsRefused } from "./coder-secretscan.mjs";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -588,6 +589,85 @@ export function ccSize(n) {
 }
 /** Edit's words for a missing file (Claude Code's Read and Edit, tried: "File does not exist. Note: your current working directory is …."). */
 const editMissing = () => "File does not exist. Note: your current working directory is " + BASE + ".";
+/**
+ * EDIT'S "DID YOU MEAN …?" FOR A FILE THAT IS NOT THERE (round 6's follow-up; Claude Code 2.1.325's Edit, its RAe and wYe): the
+ * same path under the folder Grok's commands are in, when the one given is under that folder's parent but not under it (a
+ * project folder left out), if that file is there, in full; else a file beside it with the same name and another extension
+ * (or none), by its name. → " Did you mean …?", or "".
+ */
+const SIMILAR_EXT = /^(\.[\p{L}\p{N}_+~#-]{1,32})?$/u;
+async function didYouMean(abs) {
+  const cwd = BASE, parent = dirname(cwd);
+  let c = abs;
+  try { c = join(await realpath(dirname(abs)), basename(abs)); } catch { /* as given */ }
+  const under = parent === "/" ? "/" : parent + "/";
+  if (c.startsWith(under) && !c.startsWith(cwd + "/") && c !== cwd) {
+    const b = join(cwd, relative(parent, c));
+    try { await stat(b); return " Did you mean " + b + "?"; } catch { /* not there */ }
+  }
+  try {
+    const dir = dirname(abs), stem = basename(abs, extname(abs));
+    for (const d of await readdir(dir, { withFileTypes: true })) {
+      const ext = extname(d.name);
+      if (SIMILAR_EXT.test(ext.normalize("NFC")) && basename(d.name, ext) === stem && join(dir, d.name) !== abs) return " Did you mean " + d.name + "?";
+    }
+  } catch { /* no folder */ }
+  return "";
+}
+/** Write's and edit's words for a pipe, a device or a socket (Claude Code 2.1.325's, each tool's sentence after them). */
+export const NOT_REGULAR = "exists but is not a regular file (a device, FIFO or socket).";
+/** Edit's read-first rule, Claude Code 2.1.325's words. */
+export const EDIT_NOT_READ = "File has not been read yet. Read it first before writing to it.";
+/** A Claude Code settings file of a repository's (.claude/settings.json, .claude/settings.local.json), by its full path. */
+const settingsFile = (p) => /(^|\/)\.claude\/settings(\.local)?\.json$/.test(String(p || ""));
+/**
+ * A CLAUDE CODE SETTINGS FILE AFTER AN EDIT (round 6's follow-up; Claude Code 2.1.325's Edit, its EMo and ssi): an edit that
+ * leaves one invalid, when it was valid before, is refused in its words, the problems listed as it lists them ("Invalid JSON:
+ * …"; "Settings validation failed:" then "- <key>: <problem>" lines) and the schema checked after them. Claude Code checks
+ * its whole settings schema; Coder checks what it can be sure Claude Code refuses: JSON, an object, and the types of the
+ * keys Coder reads (SETTINGS_SCHEMA). → the problems, or "".
+ */
+const SETTING_MODES = ["acceptEdits", "auto", "bypassPermissions", "default", "dontAsk", "plan"];
+export const SETTINGS_SCHEMA = JSON.stringify({
+  type: "object",
+  properties: {
+    permissions: { type: "object", properties: { allow: { type: "array", items: { type: "string" } }, deny: { type: "array", items: { type: "string" } }, ask: { type: "array", items: { type: "string" } }, defaultMode: { enum: [...SETTING_MODES, "manual"] }, disableBypassPermissionsMode: { enum: ["disable"] }, disableAutoMode: { enum: ["disable"] }, blockReadsOutsideWorkingDirectories: { type: "boolean" }, blockWritesOutsideWorkingDirectories: { type: "boolean" }, denyInsteadOfPrompting: { type: "boolean" }, additionalDirectories: { type: "array", items: { type: "string" } } } },
+    env: { type: "object" },
+    hooks: { type: "object" },
+    disableAllHooks: { type: "boolean" },
+    disableAutoMode: { enum: ["disable"] },
+    plansDirectory: { type: "string" },
+    respondToBashCommands: { type: "boolean" },
+    defaultShell: { enum: ["bash", "powershell"] },
+  },
+}, null, 2);
+const typeName = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v);
+export function settingsProblem(text) {
+  let j;
+  try { j = JSON.parse(String(text)); } catch (e) { return "Invalid JSON: " + (e instanceof Error ? e.message : "Unknown parsing error"); }
+  const out = [];
+  const want = (path, v, type) => { if (v !== undefined && typeName(v) !== type) out.push("- " + path + ": Expected " + type + ", but received " + typeName(v)); };
+  // (A mode's "manual" is taken for "default", as Claude Code takes it, and not listed.)
+  const oneOf = (path, v, list) => { if (v !== undefined && !list.includes(v) && !(list === SETTING_MODES && v === "manual")) out.push("- " + path + ": Invalid value. Expected one of: " + list.map((x) => '"' + x + '"').join(", ")); };
+  const strings = (path, v) => { want(path, v, "array"); if (Array.isArray(v)) v.forEach((x, i) => want(path + "." + i, x, "string")); };
+  if (typeName(j) !== "object") return "Settings validation failed:\n" + (j === null ? "- : Invalid or malformed JSON" : "- : Expected object, but received " + typeName(j));
+  want("permissions", j.permissions, "object");
+  const p = typeName(j.permissions) === "object" ? j.permissions : {};
+  for (const k of ["allow", "deny", "ask", "additionalDirectories"]) strings("permissions." + k, p[k]);
+  oneOf("permissions.defaultMode", p.defaultMode, SETTING_MODES);
+  oneOf("permissions.disableBypassPermissionsMode", p.disableBypassPermissionsMode, ["disable"]);
+  oneOf("permissions.disableAutoMode", p.disableAutoMode, ["disable"]);
+  for (const k of ["blockReadsOutsideWorkingDirectories", "blockWritesOutsideWorkingDirectories", "denyInsteadOfPrompting"]) want("permissions." + k, p[k], "boolean");
+  want("env", j.env, "object");
+  want("hooks", j.hooks, "object");
+  for (const k of ["disableAllHooks", "respondToBashCommands"]) want(k, j[k], "boolean");
+  want("plansDirectory", j.plansDirectory, "string");
+  oneOf("disableAutoMode", j.disableAutoMode, ["disable"]);
+  oneOf("defaultShell", j.defaultShell, ["bash", "powershell"]);
+  return out.length ? "Settings validation failed:\n" + out.join("\n") : "";
+}
+/** Claude Code 2.1.325's words for it. */
+export const SETTINGS_INVALID = (problems) => "Claude Code settings.json validation failed after edit:\n" + problems + "\n\nFull schema:\n" + SETTINGS_SCHEMA + "\nIMPORTANT: Do not update the env unless explicitly instructed to do so.";
 
 /**
  * THE FILE TOOLS' OWN CHECKS BEFORE THEIR HOOKS (round 6; the owner, 2026-11-14: "do what claude code does"). Claude Code
@@ -610,21 +690,23 @@ const editMissing = () => "File does not exist. Note: your current working direc
  * pipe or a device read or written (its call), a link written (its call), a write's file that is not text (its call).
  * `when`: "before" the owner's deny rules, or "after" them. → the refusal (as the tool's own failure, without "error: "), or "".
  */
-export function fileInputProblem(name, args, when = "before") {
+export function fileInputProblem(name, args, when = "before", { memFile = process.env.CODER_MEMORY_FILE } = {}) {
   const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
   const path = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : undefined;
   if (when === "after") {
     if (name !== "read" || typeof path !== "string" || !path.trim() || path.includes("\0")) return "";
     // (Its kind from the path as the tool opens it, trimmed, ~ the home folder: toolPath, as Claude Code's Read takes it.)
     const q = toolPath(path), ext = extname(q).toLowerCase();
-    return binaryExt(q) && !PIC_KINDS[ext] && ext !== ".pdf" ? BINARY_REFUSED(ext) : "";
+    if (binaryExt(q) && !PIC_KINDS[ext] && ext !== ".pdf") return BINARY_REFUSED(ext);
+    // (Then a device or a process's file, round 6's follow-up: deviceFile.)
+    return deviceFile(q) ? DEVICE_REFUSED(path) : "";
   }
   if (name === "write") {
     let w;
     try { w = writeInputs(a); } catch (e) { if (e instanceof ToolError) return e.message; throw e; }
     if (typeof w.path !== "string" || !w.path.trim()) return "give a path";
     if (typeof w.content !== "string") return "give the file's content";
-    return pathProblem("write", w.path);
+    return pathProblem("write", w.path) || memoryProblem(w.path, w.content, memFile);
   }
   if (name !== "read" && name !== "edit") return "";
   if (typeof path !== "string" || !path.trim()) return "give a path";
@@ -632,10 +714,50 @@ export function fileInputProblem(name, args, when = "before") {
     const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str, new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
     if (typeof old_string !== "string") return "give old_string: the exact text to replace";
     if (typeof new_string !== "string") return "give new_string";
-    return pathProblem("edit", path) || (old_string === new_string ? EDIT_SAME : "");
+    return pathProblem("edit", path) || memoryProblem(path, new_string, memFile) || (old_string === new_string ? EDIT_SAME : "");
   }
   return pathProblem("read", path) || pagesProblem(a.pages);
 }
+/**
+ * WHAT IS WRITTEN TO CODER'S MEMORY FILE, CHECKED FOR SECRETS (round 6's follow-up; coder-secretscan.mjs): Claude Code 2.1.325's
+ * Write and Edit refuse to put a potential secret in a memory file (its Lyt: Write's content, Edit's new_string), after their
+ * path's own checks and before their deny rules. Only Coder's memory file (`memFile`: the tools script's CODER_MEMORY_FILE, or
+ * the one Coder's loop names). → its words, or "".
+ */
+export function memoryProblem(path, text, memFile) {
+  if (typeof memFile !== "string" || !memFile || !isAbsolute(memFile) || typeof text !== "string") return "";
+  if (toolPath(path) !== resolve(memFile)) return "";
+  const found = secretsIn(text);
+  return found.length ? memorySecretsRefused(found) : "";
+}
+/**
+ * A DEVICE OR A PROCESS'S FILE (round 6's follow-up; the owner, 2026-11-14: "do what claude code does"): Claude Code 2.1.325's
+ * Read refuses one in its validateInput, after its binary kinds (its g4t and sP), in its words ("Cannot read '…': this path
+ * names a device or process file that this tool does not read."): /dev/zero and the like, a terminal, a process's open files
+ * and its environ, cmdline, memory maps and status, followed through /proc/…/root and /proc/…/task/…, at most 8 times. A
+ * path through its own /proc/self/cwd counts from where Grok's commands are (BASE), as Claude Code's from its own folder.
+ */
+const DEVICE_FILES = new Set(["/dev/zero", "/dev/random", "/dev/urandom", "/dev/full", "/dev/stdin", "/dev/tty", "/dev/console", "/proc/kmsg", "/proc/kcore", "/proc/vmcore", "/dev/stdout", "/dev/stderr", "/dev/fd/0", "/dev/fd/1", "/dev/fd/2"]);
+const PROC_ROOT = /^\/proc\/[^/]+\/root(?=\/)/, PROC_TASK = /^(\/proc\/[^/]+)\/task\/[^/]+(?=\/)/;
+const PROC_CWD = new RegExp("^/proc/(?:self|" + process.pid + ")/cwd(?=/)");
+const THROUGH_PROC = /^\/proc\/[^/]+\/cwd\/|^\/proc\/[^/]+\/fd\/\d+\/|^\/dev\/fd\/\d+\/|^\/dev\/(?:stdin|stdout|stderr)\/|^\/proc\/[^/]+\/map_files(\/|$)/;
+const OTHERS_FD = new RegExp("^/proc/(?!self/|" + process.pid + "/)[^/]+/fd/\\d+$");
+const TERMINAL = /^\/dev\/(?:pts\/(?:\d+|ptmx)|ptmx|tty[^/]*)$/;
+const PROC_INFO = /^\/proc\/[^/]+\/(environ|cmdline|auxv|maps|smaps|smaps_rollup|numa_maps|pagemap|mem|stat|statm|status|syscall|stack)$/;
+export function deviceFile(p) {
+  let s = normalize(String(p));
+  for (let n = 0; ; n++) {
+    if (PROC_CWD.test(s)) s = normalize(s.replace(PROC_CWD, () => BASE));
+    if (DEVICE_FILES.has(s) || TERMINAL.test(s) || THROUGH_PROC.test(s) || OTHERS_FD.test(s) || (s.startsWith("/proc/") && (s.endsWith("/fd/0") || s.endsWith("/fd/1") || s.endsWith("/fd/2"))) || PROC_INFO.test(s)) return true;
+    const r = s.replace(PROC_ROOT, "").replace(PROC_TASK, "$1");
+    if (r === s) return false;
+    if (n >= 8) return true;
+    s = r;
+  }
+}
+/** A path or a message as Claude Code shows it: a control character written as "&#N;" (its Hc). */
+const shownChars = (x) => String(x).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, (ch) => "&#" + ch.charCodeAt(0) + ";");
+export const DEVICE_REFUSED = (path) => "Cannot read '" + shownChars(path) + "': this path names a device or process file that this tool does not read.";
 /** The longest path read, write and edit take (Claude Code 2.1.325's, its file tools' own limit). */
 export const PATH_MAX = 4096;
 /**
@@ -656,9 +778,9 @@ export function pathProblem(tool, p) {
  * with its own call of this script, "file_check") and again as each runs: "ok", or the refusal. A path these tools refuse
  * after their hooks (outside the project, in .git, a link) is left for then.
  */
-export async function toolFileCheck({ tool = "", args = {} } = {}) {
-  if (tool === "write") await writeFirst(args);
-  else if (tool === "edit") await editFirst(args);
+export async function toolFileCheck({ tool = "", args = {}, guard = false } = {}) {
+  if (tool === "write") await writeFirst(args, { guard: guard === true });
+  else if (tool === "edit") await editFirst(args, { guard: guard === true });
   return "ok";
 }
 
@@ -924,7 +1046,7 @@ function writeInputs(args) {
  * read), then one changed since it was read), each in the words write's run gave it. A new file, a link, or a path refused
  * after the hooks (outside the project, .git) is left to the run.
  */
-async function writeFirst(args) {
+async function writeFirst(args, { guard = false } = {}) {
   const { path } = writeInputs(args);
   let where;
   try { where = await inside(path, { tool: "write" }); } catch (e) { if (e instanceof ToolError) return; throw e; }
@@ -933,11 +1055,15 @@ async function writeFirst(args) {
   try { st = await lstat(abs); } catch { st = null; }
   if (!st || st.isSymbolicLink() || (await brokenLinkOnTheWay(abs))) return;
   if (st.isDirectory()) fail(rel + " is a directory, not a file. To create a file inside it, include the file name in path.");
-  if (!st.isFile()) return;
+  // (A pipe, a device or a socket: refused in Claude Code 2.1.325's words, so writing never waits on one. Round 6's follow-up.)
+  if (!st.isFile()) fail(rel + " " + NOT_REGULAR + " Write only creates or overwrites regular files.");
   const seen = await seenEntry(abs);
   if (seen && seen.start) fail(rel + ": " + WRITE_START);
   if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
   if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+  // (Not read in this chat, where reading it would need a card or be refused, `guard` (Coder's loop knows): Claude Code 2.1.325's
+  // read-first rule, which it waives for newer models only where the file could be read without asking. Round 6's follow-up.)
+  if (seen === null && guard) fail(rel + " " + WRITE_NOT_READ + ".");
   if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
   // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
   if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
@@ -1103,7 +1229,7 @@ const changedSince = (seen, st, buf) => !!seen && (seen.stale === true || ((st.m
  * edit's run gives it. A link, or a path refused after the hooks (outside the project, .git), is left to the run.
  * → { buf } when it read the file (for the run, so it is read once), else null.
  */
-async function editFirst(a) {
+async function editFirst(a, { guard = false } = {}) {
   const path = typeof a.path === "string" ? a.path : a.file_path;
   const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str;
   const new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
@@ -1115,22 +1241,36 @@ async function editFirst(a) {
   let st = null;
   try { st = await lstat(abs); } catch { st = null; }
   if ((st && st.isSymbolicLink()) || (await brokenLinkOnTheWay(abs))) return null;
-  if (!st) { if (old_string !== "") fail(editMissing()); return null; }
+  if (!st) { if (old_string !== "") fail(shownChars(editMissing() + (await didYouMean(abs)))); return null; }
   if (st.size > EDIT_MAX_BYTES) fail(editTooBig(st.size));
   if (st.isDirectory()) fail(folderError(abs));
-  if (!st.isFile()) return null;
+  // (A pipe, a device or a socket: refused in Claude Code 2.1.325's words, so an edit never waits on one. Round 6's follow-up.)
+  if (!st.isFile()) fail(rel + " " + NOT_REGULAR + " Edit only changes regular files.");
   const buf = await readFile(abs);
   const notText = notTextOf(buf);
   const { body } = editBody(buf);
   if (old_string === "") { if (notText || body.trim() !== "") fail(EDIT_EXISTS); return { buf }; }
   if (extname(abs).toLowerCase() === ".ipynb") fail(EDIT_NOTEBOOK);
-  const changed = changedSince(await seenEntry(abs), st, buf);
-  const { at } = editMatch(body, old_string, new_string);
+  const seen = await seenEntry(abs);
+  // (Not read in this chat, or only part of it, where reading it would need a card or be refused, `guard`: Claude Code 2.1.325's
+  // read-first rule, in its words, which it waives for newer models only where the file could be read without asking. Round
+  // 6's follow-up.)
+  if (guard && (!seen || seen.partial)) fail(EDIT_NOT_READ);
+  const changed = changedSince(seen, st, buf);
+  const { at, newN, len } = editMatch(body, old_string, new_string);
   const applies = at.length === 1 || (all && at.length > 0);
   if (changed && !applies) fail(rel + " " + WRITE_CHANGED + ".");
   if (notText) fail(rel + " " + notTextRefused(notText));
   if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
   if (!applies) fail(editMany(at.length) + saidBack(old_string));
+  // (A Claude Code settings file left invalid by the edit, when it was valid before: Claude Code 2.1.325's check, its last
+  // before the edit. Round 6's follow-up: settingsProblem.)
+  if (settingsFile(abs)) {
+    let after = body;
+    for (const k of [...at].reverse().slice(0, all ? at.length : 1)) after = after.slice(0, k) + newN + after.slice(k + len);
+    // (All of it, its schema too, not its first 600 characters: errorLine's `whole`.)
+    if (!settingsProblem(body) && settingsProblem(after)) throw Object.assign(new ToolError(SETTINGS_INVALID(settingsProblem(after))), { whole: true });
+  }
   return { buf };
 }
 export async function toolEdit(args) {
