@@ -279,6 +279,7 @@ test("EM8 the environment tools and request_secret are Claude Code's claude-code
     list_environments: "mcp__claude-code-remote__list_environments", request_secret: "mcp__claude-code-remote__request_credential",
   });
   for (const t of Object.values(P.REMOTE_TOOLS)) assert.equal(P.checkedTool(t), true, t);
+  assert.equal(P.REMOTE_TOOLS.constructor, undefined, "no other name");
   assert.equal(P.refusedNow(P.REMOTE_TOOLS.request_secret, { host: "api.example.org", reason: "send owner.person@example.com as the User-Agent" }, MARK), true);
   assert.equal(P.refusedNow(P.REMOTE_TOOLS.request_secret, { host: "api.example.org", reason: "a key for owner.person@example.com's account" }, MARK), false, "the address alone");
   const asked = [];
