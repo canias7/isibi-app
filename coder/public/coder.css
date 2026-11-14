@@ -832,6 +832,10 @@
 .cd-perm-no { color: #b3261e; font-weight: 600; }
 .cd-plan .cd-perm-ic { background: #2f5d8a; }
 .cd-plan-body { border: 1px solid #ece9e2; border-radius: 10px; padding: 4px 14px; background: #fdfcfa; max-height: 420px; overflow: auto; font-size: 14px; }
+/* The plan edited on its card before it is approved (Claude Code's "edit it directly before Claude proceeds", 2026-11-14). */
+.cd-plan-edit { border: 0; background: none; padding: 6px 0 0; font: 500 12.5px Inter, system-ui, sans-serif; color: #2f5d8a; cursor: pointer; }
+.cd-plan-edit:hover, .cd-plan-edit:focus-visible { text-decoration: underline; outline: none; }
+.cd-plan-text { margin-top: 0; font: 12.5px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 160px; max-height: 420px; }
 .cd-st-wait { color: #9a5b00; font-weight: 600; }
 
 /* THE OWNER'S RULES FOR A REPOSITORY (Claude Code's /permissions). */

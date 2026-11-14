@@ -48,6 +48,9 @@ import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, p
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, pausedWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
+// (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
+// for the notify one".)
+import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD } from "./coder-plan.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
@@ -1277,9 +1280,11 @@ export const CODER_TOOLS = Object.freeze([
 /**
  * PLAN MODE'S WAY OUT (Claude Code's ExitPlanMode: "Presents a plan for approval and exits plan mode"), offered only while
  * the chat is in Plan mode. The owner approves the plan on a card (then Auto or Accept edits, and Coder goes on in the same
- * turn) or declines it with what to change (Coder stays in Plan mode).
+ * turn) or declines it with what to change (Coder stays in Plan mode). Since 2026-11-14 (the owner: "Do all the talk to you
+ * tools execpt for the notify one") as Claude Code's with a disk: it reads the plan from the chat's plan file
+ * (EXIT_PLAN_TOOL, coder-plan.mjs); a run with no plan file takes it as `plan` (EXIT_PLAN_TOOL_NO_FILE).
  */
-export const EXIT_PLAN_TOOL = fn("exit_plan_mode", "Present your plan to the owner for approval and leave plan mode (only while Plan mode is on, once your plan is final). Give the whole plan, in markdown, as `plan`. The owner sees it on an approval card: if they approve, plan mode ends and you are told to start, in this same turn; if they decline, you stay in plan mode and are told what to change: revise the plan and call this again.", { plan: { type: "string", description: "the whole plan, in markdown" } }, ["plan"]);
+export { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE } from "./coder-plan.mjs";
 /** Coder's tools that change something outside the files, asked about in Plan mode: what each card says. */
 /**
  * A COMMAND'S OWN HOSTS IN AUTO MODE (Bash docs pass 6, the owner, 2026-11-10: "yea do all of them"; Claude Code's
@@ -1382,19 +1387,25 @@ export const PLAN_ASKS = Object.freeze({
  * those said "acceptEdits" where a message's said "default").
  */
 export const hookModeName = (mode, fileEdits) => (mode === "acceptEdits" && fileEdits === false ? "default" : mode);
-export function modeSystem(mode, { fileEdits = true } = {}) {
+// (`planFile`, `planExists`: the chat's plan file and whether it is there yet; `exitOffered`: exit_plan_mode is in the
+// round's tools. Claude Code's plan mode reminder, coder-plan.mjs planModeNote, the owner, 2026-11-14.)
+export function modeSystem(mode, { fileEdits = true, planFile = "", planExists = false, exitOffered = true } = {}) {
   const m = normMode(mode);
   if (m === "acceptEdits" && fileEdits === false) return "PERMISSION MODE: Accept edits (the owner's pick): your file edits in the project run without asking; a command that changes files (mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like), any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, wait for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
-  if (m === "plan") return "PERMISSION MODE: Plan (the owner's pick).\n" + PLAN_NOTE;
+  if (m === "plan") return "PERMISSION MODE: Plan (the owner's pick).\n" + (planFile || !exitOffered ? planModeNote({ file: planFile, exists: planExists, exitOffered }) : PLAN_NOTE);
   if (m === "acceptEdits") return "PERMISSION MODE: Accept edits (the owner's pick): your file edits and file commands in the project (mkdir, touch, rm, mv, cp, sed -i) run without asking; any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, waits for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
   return "PERMISSION MODE: Auto (the owner's pick).\n" + AUTO_NOTE;
 }
-/** The note when the owner changes the mode while Coder works (Claude Code's "## Exited Plan Mode" and "## Exited Auto Mode"). */
-export function modeChangeNote(from, to) {
+/**
+ * The note when the owner changes the mode while Coder works (Claude Code's "## Exited Plan Mode" and "## Exited Auto Mode").
+ * `planExited`: plan mode's end with where the chat's plan file is (Claude Code: "The plan file is located at … if you need to
+ * reference it"); `planFile`: the chat has one, so exit_plan_mode reads the plan from it (the owner, 2026-11-14).
+ */
+export function modeChangeNote(from, to, { planExited = PLAN_EXITED, planFile = false } = {}) {
   const parts = [];
-  if (from === "plan") parts.push(PLAN_EXITED);
+  if (from === "plan") parts.push(planExited);
   if (from === "auto") parts.push(AUTO_EXITED);
-  parts.push("The owner's permission mode is now " + MODE_NAMES[normMode(to)] + (to === "plan" ? ": plan mode is active; make no changes, and call exit_plan_mode with your plan when it is final." : "."));
+  parts.push("The owner's permission mode is now " + MODE_NAMES[normMode(to)] + (to === "plan" ? ": plan mode is active; make no changes, and call exit_plan_mode " + (planFile ? "when your plan is final." : "with your plan when it is final.") : "."));
   return "(Note from Coder's app, not the owner:\n" + parts.join("\n\n") + ")";
 }
 
@@ -1900,7 +1911,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // PERMISSIONREQUEST HOOKS (Claude Code: "Runs when the user is shown a permission dialog"; "decision.behavior allow/deny"):
     // one may answer for the owner. A deny goes to Coder with its message (its "interrupt": true stops Coder). Then the
     // NOTIFICATION hooks of a card that waits for the owner ("permission_prompt"), on their own.
-    if (hooks && hookList.length && card && card.tool && card.tool !== "plan") {
+    // (The plan's card too, as ExitPlanMode's prompt in Claude Code, its hooks guide's own example: "auto-approves
+    // ExitPlanMode … For a tool that requires user interaction, such as ExitPlanMode, the allow also needs updatedInput, or
+    // Claude Code ignores it and still shows the prompt". The owner, 2026-11-14.)
+    if (hooks && hookList.length && card && card.tool) {
       // (A monitor's command: its own call, by its own name, as Claude Code's PermissionRequest sees one: Monitor.)
       const call = calls0.find((x) => x.id === card.id) || {};
       // (A connector's card shows as "connector"; its hooks see the tool's own name, mcp__<server>__<tool>: card.hookTool.)
@@ -1910,7 +1924,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // (Its suggestions as Claude Code's entries: "rules is an array of {toolName, ruleContent?} objects".)
       const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
       const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
-      if (o && o.decision === "allow") {
+      if (o && o.decision === "allow" && !(card.tool === "plan" && !o.updatedInput)) {
         emit({ type: "note", text: "A PermissionRequest hook allowed this" + (o.updatedInput ? ", with a changed input." : "."), hook: "PermissionRequest" });
         if (o.updatedPermissions) applyUpdates(o.updatedPermissions);
         return { choice: "yes", comment: "", ...(o.updatedInput ? { updatedInput: o.updatedInput } : {}) };
@@ -1939,8 +1953,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     try { a = await deps.ask(pid, { until: Number(card.blockAt) > 0 ? Math.min(started + maxMs, Number(card.blockAt)) : started + maxMs }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
     const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
-    emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
-    return { choice, comment };
+    // THE PLAN AS THE OWNER EDITED IT ON ITS CARD, with a Yes (Claude Code: on its web card, or with Ctrl+G, "Press Ctrl+G to
+    // open the proposed plan in your default text editor and edit it directly before Claude proceeds"; its result then says
+    // "Approved Plan (edited by user)"). The owner, 2026-11-14.
+    const planEdit = card && card.tool === "plan" && (choice === "auto" || choice === "acceptEdits") && a && typeof a.plan === "string" ? scrub(a.plan.replace(/\r\n?/g, "\n")).slice(0, PLAN_SHOW_MAX) : undefined;
+    emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}), ...(planEdit !== undefined ? { plan: planEdit } : {}) });
+    return { choice, comment, ...(planEdit !== undefined ? { plan: planEdit } : {}) };
   };
   /**
    * CODER'S QUESTIONS, WHILE IT WAITS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
@@ -2711,6 +2729,29 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let rounds = 0;
   // The mode Grok was last told of (the system's note says it each round; a change while Coder works is said in the chat).
   let toldMode = modeNow();
+  // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+  // Claude Code's plan mode with a disk, as in its cloud sessions): kept by Coder's machine outside the repository
+  // (deps.plan), named after the owner's message the first time plan mode is on in this chat ("Plan files are now named after
+  // your prompt"). A run without one plans as Claude Code's sessions without a disk do: the plan goes to exit_plan_mode as
+  // its `plan`. Not for Gloopy, nor a job from GitHub (always Auto).
+  const planBox = !offered && !github && deps.plan && typeof deps.plan === "object" && typeof deps.plan.name === "function" && typeof deps.plan.read === "function" ? deps.plan : null;
+  const planSeed = typeof shown === "string" && shown.trim() ? shown : String(text || "");
+  /** The plan file as plan mode names it, and its text (null while it is not there): Claude Code's planFilePath and plan. */
+  const planNow = async () => {
+    if (!planBox) return null;
+    let file = "";
+    try { file = String((await planBox.name(planSeed)) || ""); } catch { file = ""; }
+    if (!file) return null;
+    let text0 = null;
+    try { const x = await planBox.read(); text0 = typeof x === "string" ? x : null; } catch { text0 = null; }
+    return { file, text: text0 };
+  };
+  // (Claude Code's two session flags, kept with the chat's plan file: `exited`, a plan was approved, for "Re-entering Plan
+  // Mode"; `on`, plan mode was told and its end not yet, so leaving it between two messages is said too.)
+  const planFlags = () => { try { const f = planBox && typeof planBox.flags === "function" ? planBox.flags() : null; return { exited: !!(f && f.exited), on: !!(f && f.on) }; } catch { return { exited: false, on: false }; } };
+  const setPlanFlags = (f) => { try { if (planBox && typeof planBox.setFlags === "function") planBox.setFlags(f); } catch { /* the job goes on */ } };
+  /** The plan file's path once it has a name, else "" (Claude Code: "Plan files for current session are allowed for writing"). */
+  const planPath = () => { try { return planBox && typeof planBox.current === "function" ? String(planBox.current() || "") : ""; } catch { return ""; } };
   let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -2936,9 +2977,29 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // tools haven't been used recently. …", with the tasks on the list.
     if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
     const modeRound = modeNow();
-    if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
+    // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
+    const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
+    if (modeRound !== toldMode) {
+      convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound, { planExited: planExitedNote(planRound ? planRound.file : "", !!(planRound && planRound.text !== null)), planFile: !!planRound }) });
+      if (toldMode === "plan") setPlanFlags({ on: false });
+      toldMode = modeRound;
+    }
+    // PLAN MODE'S OTHER NOTES (Claude Code's plan_mode_exit and plan_mode_reentry; the owner, 2026-11-14): its end when the
+    // owner left it between two messages, as Claude Code says it at the next turn; and, back in it after an approved plan
+    // whose file is still there, "Re-entering Plan Mode", once.
+    if (planBox) {
+      const fl = planFlags();
+      if (modeRound !== "plan" && fl.on) { const pf = await planNow(); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + planExitedNote(pf ? pf.file : "", !!(pf && pf.text !== null)) + ")" }); setPlanFlags({ on: false }); }
+      if (modeRound === "plan" && !fl.on) {
+        if (fl.exited && planRound && planRound.text !== null) { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + planReentryNote(planRound.file) + ")" }); setPlanFlags({ exited: false }); }
+        setPlanFlags({ on: true });
+      }
+    }
+    // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
+    const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode");
+    const planShown = modeRound === "plan" && planRound ? { planFile: planRound.file, planExists: planRound.text !== null } : {};
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -3125,6 +3186,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         if (v && v.args && typeof v.args === "object" && !Array.isArray(v.args)) c.args = v.args;
         if (v && typeof v.note === "string" && v.note) c.inputNote = v.note;
+      }
+      // EXIT_PLAN_MODE'S INPUT AND CHECK, AS CLAUDE CODE'S (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools
+      // execpt for the notify one"): the plan file's text and path put in its input before its check, its hooks and its card
+      // (Claude Code's hooks reference: "Claude Code injects the plan content and file path before passing the input to
+      // hooks"); then refused before any hook ("Validation rejections … happen before hooks run") out of plan mode, or, with no
+      // plan file, without the plan as `plan`. (Its own step here, not coder-inputs.mjs: it reads the file and the mode, and
+      // it has no step in the chat to show a refusal on.)
+      if (c.name === "exit_plan_mode" && !c.rerun && c.args && typeof c.args === "object" && !Array.isArray(c.args)) {
+        const pf = await planNow();
+        if (pf) { c.args = planInput(c.args, pf); c.planFile = pf.file; c.planText = pf.text; }
+        const v = checkPlanInput(c.args, { mode: modeNow(), noFile: !pf });
+        if (v.error) { reply(v.error); continue; }
       }
       // PRETOOLUSE HOOKS (Claude Code: "Runs after Claude creates tool parameters and before processing the tool call"): before
       // Coder's own checks; one that denies (or exits 2) stops the call, its reason given to Coder in Claude Code's words
@@ -4570,7 +4643,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const p = pat || (typeof named === "string" && named ? named : ".");
           return typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
         };
-        if (readBlock && READ_TOOLS.has(c.name)) {
+        // (The chat's plan file stays readable: Claude Code's "Plan files for current session are allowed for reading". 2026-11-14.)
+        if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath())) {
           const full = targetOf();
           // (A folder only the repository's settings add doesn't count, as for the write block: Bash docs pass 9, Claude Code's
           // settings reference lets one through either block only from "your user or managed settings" or /add-dir.)
@@ -4596,10 +4670,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const own = [...dirs, SCRATCH];
           const within = (x) => !!x && own.some((d) => x === d || x.startsWith(d.replace(/\/+$/, "") + "/"));
           const mem = typeof deps.memFile === "string" && deps.memFile ? deps.memFile : "";
-          const to = full === mem ? mem : within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
+          // (And the chat's plan file, as Claude Code's block keeps "its plan files" writable: the owner, 2026-11-14.)
+          const planF = planPath();
+          const kept = (x) => x === mem || (!!planF && x === planF);
+          const to = kept(full) ? full : within(full) ? leadsTo(full, own, (x) => realPath(x)) : "";
           let msg = "";
           if (settingsFile(full) || settingsFile(to)) msg = SETTINGS_WRITE_BLOCKED(full);
-          else if (full !== mem && (!within(full) || !within(to))) msg = WRITE_BLOCKED(within(full) && to ? to : full, dirs);
+          else if (!kept(full) && (!within(full) || !within(to))) msg = WRITE_BLOCKED(within(full) && to ? to : full, dirs);
           if (msg) { emit({ type: "result", id: c.id, code: 1, ran: false, output: msg }); reply(msg); continue; }
         }
         // THE OWNER'S READ AND EDIT RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; fileToolDecision): a deny rule refuses
@@ -4640,7 +4717,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             }
           }
         }
-        const fileAsk = !c.rerun && (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || modeT === "plan");
+        // (In Plan, the chat's plan file is the one file written without asking: Claude Code's plan mode, "NOTE that this is the
+        // only file you are allowed to edit". The owner, 2026-11-14.)
+        const toPlanFile = (c.name === "write" || c.name === "edit") && !!planPath() && targetOf() === planPath();
+        const fileAsk = !c.rerun && (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
         const fetchAsk = !!(fetchDec && fetchDec.verdict === "ask") && !(c.hook && c.hook.decision === "allow" && !fetchDec.byRule) && !(c.rerun && !fetchDec.byRule);
@@ -4744,30 +4824,72 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       } else if (c.name === "exit_plan_mode") {
         // THE PLAN, FOR THE OWNER'S APPROVAL (Claude Code's ExitPlanMode): "Yes, and use auto mode" or "Yes, and accept
         // edits" ends Plan mode and Coder starts in this same turn; "No, keep planning" (with what to change) keeps it on.
-        if (modeNow() !== "plan") { reply("error: plan mode is not on (the owner changed the mode), so there is nothing to approve: carry on with the work as asked."); continue; }
-        const plan = scrub(String(c.args.plan || "")).replace(/\r/g, "").trim().slice(0, 40_000);
-        if (!plan) { reply("error: give the whole plan, in markdown, as `plan`"); continue; }
+        // SINCE 2026-11-14 (the owner: "Do all the talk to you tools execpt for the notify one"; coder-plan.mjs) AS CLAUDE
+        // CODE'S WITH A PLAN FILE: the plan is the file's (its input carries it since its check); a card with none says Coder
+        // wants to exit plan mode (Claude Code's "simplified yes/no dialog when exiting with empty or missing plan"), and one
+        // past 200,000 characters withholds approval; a plan the owner edited on the card (or a hook changed) is saved to
+        // the file; Coder is told Claude Code's answer, with where its plan is kept, and plan mode's end.
+        // (The mode may have changed since its check, while its hooks ran: the same refusal.)
+        if (modeNow() !== "plan") { reply(NOT_IN_PLAN_MODE); continue; }
+        const file = typeof c.planFile === "string" ? c.planFile : "";
+        // (The plan as asked: the file's, unless a PreToolUse hook changed it; with no plan file, Coder's `plan`.)
+        const asked = typeof c.args.plan === "string" ? c.args.plan : "";
+        const fromFile = typeof c.planText === "string" ? c.planText : null;
+        const shownPlan = scrub(asked.replace(/\r\n?/g, "\n"));
+        const tooLarge = shownPlan.length > PLAN_SHOW_MAX;
+        // (Declined, or approval withheld: Claude Code runs no PostToolUse hooks for a call its permission step refused.)
+        const refused = () => resultsSeen.set(c.id, { code: -1, ran: false });
+        // APPROVED: plan mode ends (unless a hook already set the mode), an edited plan is saved to the plan file, and Coder
+        // is told Claude Code's result; its PostToolUse hooks get Claude Code's result object (plan, isAgent, filePath,
+        // planWasEdited).
+        const approve = async (txt, edited, to, how) => {
+          let unsaved = false;
+          if (file && edited) {
+            let ok = false;
+            try { ok = await planBox.write(txt); } catch { ok = false; }
+            unsaved = !ok;
+            if (unsaved) emit({ type: "note", text: "The approved plan could not be saved to " + file + ".", warn: true });
+          }
+          // (Claude Code's flag for "Re-entering Plan Mode" is set only when the tool itself leaves plan mode, not when a hook's
+          // setMode already did.)
+          const leaving = modeNow() === "plan";
+          if (leaving) setMode(to, how);
+          toldMode = modeNow(); // (the approval below says plan mode ended)
+          setPlanFlags({ ...(leaving ? { exited: true } : {}), on: false });
+          let exists = false;
+          if (file) { try { exists = (await planBox.read()) !== null; } catch { exists = false; } }
+          // (What Coder and the hooks get of it, with the owner's values hidden, as before.)
+          const said = scrub(String(txt).replace(/\r\n?/g, "\n"));
+          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, ...(file && !unsaved ? { filePath: file } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
+          return planApproved(said, { file: file && !unsaved ? file : "", edited: !!file && edited, unsaved }) + "\n\n" + planExitedNote(file, exists);
+        };
+        const back = planExit === "acceptEdits" ? "acceptEdits" : "auto";
         // APPROVED BY A HOOK (Claude Code: "If the hook answers ExitPlanMode with "allow" and updatedInput, that tool still runs
         // without a prompt"; plan mode then returns to the mode before it, here the owner's own start mode).
         if (c.hook && c.hook.decision === "allow" && c.hook.updated) {
-          const back = planExit === "acceptEdits" ? "acceptEdits" : "auto";
-          emit({ type: "text", text: plan });
+          if (shownPlan) emit({ type: "text", text: shownPlan.slice(0, PLAN_SHOW_MAX) });
           emit({ type: "note", text: "A PreToolUse hook approved the plan: Plan mode is off (now " + MODE_NAMES[back] + ").", hook: "PreToolUse" });
-          setMode(back, "plan");
-          toldMode = back;
-          reply(planApproved(plan) + "\n\n" + PLAN_EXITED);
+          reply(await approve(asked, !!file && asked !== (fromFile === null ? "" : fromFile), back, "plan"));
           continue;
         }
-        if (!canAsk()) { emit({ type: "text", text: plan }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: plan.slice(0, 4000) }); }
-        const a = await askOwner({ tool: "plan", id: c.id, plan });
+        if (!canAsk()) { if (shownPlan) emit({ type: "text", text: shownPlan.slice(0, PLAN_SHOW_MAX) }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: shownPlan.slice(0, 4000) }); }
+        const a = await askOwner({ tool: "plan", hookTool: "exit_plan_mode", id: c.id, plan: tooLarge ? "" : shownPlan, ...(tooLarge ? { withheld: PLAN_WITHHELD } : {}) });
         const o = answerOutcome(a);
         if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (o === "time") { reply("not approved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-        if (o === "said") { reply(saidReply(a)); continue; }
-        if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits")) { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "the plan was not approved" }); }
-        setMode(a.choice, "plan");
-        toldMode = a.choice; // (the approval below says plan mode ended)
-        reply(planApproved(plan) + "\n\n" + PLAN_EXITED + (a.comment ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
+        if (o === "said") { refused(); reply(saidReply(a)); continue; }
+        // (A PermissionRequest hook's allow, with its input: Claude Code "exits plan mode and restores whatever permission mode
+        // was active before you entered plan mode", or the mode its updatedPermissions set.)
+        if (a.choice === "yes" && a.updatedInput && o === "go") {
+          const hooked = a.updatedInput && typeof a.updatedInput.plan === "string" ? a.updatedInput.plan : asked;
+          reply(await approve(hooked, !!file && hooked !== (fromFile === null ? "" : fromFile), back, "plan"));
+          continue;
+        }
+        if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits") || tooLarge) { refused(); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "the plan was not approved" }); }
+        // (The owner's edit on the card is their plan, saved to the plan file; with no plan file, it is the plan echoed.)
+        const ownerEdit = typeof a.plan === "string" && a.plan !== shownPlan ? a.plan : null;
+        const final = ownerEdit !== null ? ownerEdit : asked;
+        reply(await approve(final, !!file && (ownerEdit !== null || asked !== (fromFile === null ? "" : fromFile)), a.choice, "plan") + (a.comment ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
       } else if (c.name === "todo") {
         // (Gloopy's own checklist: Coder has Claude Code's task list instead, below.)
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);

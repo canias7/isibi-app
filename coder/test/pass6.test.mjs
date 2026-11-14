@@ -88,7 +88,7 @@ test("CD387 Plan mode: a PreToolUse hook's allow has no effect on a command that
   assert.equal(t.cards.length, 0, "no plan card");
   assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => e.mode), ["acceptEdits"]);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "A PreToolUse hook approved the plan: Plan mode is off (now Accept edits)."));
-  assert.equal(t.told("p1"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add the cart test\n2. Run it\n\n## Exited Plan Mode\nYou have exited plan mode. You can now make edits, run tools, and take actions.");
+  assert.equal(t.told("p1"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add the cart test\n2. Run it\n\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.");
   assert.equal(t.hookCalls[0].input.tool_name, "ExitPlanMode");
   // Its allow alone (no new input): the plan card, as before (Claude Code: "ExitPlanMode need[s] updatedInput paired with "allow"").
   t = await job(planCall("1. Add the cart test"), { hooks: { PreToolUse: hk("allow.sh") }, hookRun: ALLOW, mode: "plan", answers: [{ choice: "no" }] });

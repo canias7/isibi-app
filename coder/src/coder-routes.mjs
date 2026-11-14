@@ -1483,7 +1483,9 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     // (A question card's picks go with it, Claude Code's AskUserQuestion; Coder's machine checks them. The owner, 2026-11-14:
     // "Do all the talk to you tools execpt for the notify one".)
-    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}) }).then((r) => r.json()).catch(() => null);
+    // (With a plan's approval, the plan as the owner edited it on its card: Claude Code's "edit it directly before Claude
+    // proceeds"; the owner, 2026-11-14. At most 200,000 characters, as the card shows.)
+    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
     if (!m.ok) return json({ ok: false, error: m.why || "That card is no longer waiting for an answer." }, 409);
     return json({ ok: true });
