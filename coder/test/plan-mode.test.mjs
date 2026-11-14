@@ -52,7 +52,9 @@ async function loop(steps, { mode = "plan", answers = [], hooks = null, hookRun 
     },
     emit: (e) => events.push(e),
     here: () => ROOT, root: ROOT, chatId: "shop-pm", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
-    ask: async (pid) => { if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || null; },
+    // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, o = {}) => { if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || null; },
     ...(box ? { plan: box } : {}),
     ...(modeOf ? { mode: () => modeSet || modeOf(n), setMode: (m) => { modeSet = m; } } : {}),
     // (Which plan tool is offered when, every tool upfront: ENABLE_TOOL_SEARCH=false. Under tool search, Claude Code's
@@ -298,10 +300,12 @@ test("PM9 PermissionRequest hooks answer the plan's card, as Claude Code's hooks
   const stored = async () => { const b = await newStore(); await writeFile(await fileOf(b), PLAN); return b; };
   const PR = (cmd = "pr.sh") => ({ PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: cmd }] }] });
   const out = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
-  // The guide's own: allow with updatedInput = tool_input. No card; back to the start mode (Accept edits here).
+  // The guide's own: allow with updatedInput = tool_input. The card closed with the hook's answer (shown at once beside its
+  // hooks since fix round 4); back to the start mode (Accept edits here).
   let box = await stored();
   let t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { plan: box, hooks: PR(), hookRun: (i) => out({ behavior: "allow", updatedInput: i.tool_input }), extra: { planExit: "acceptEdits" } });
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["yes", true]]);
   const prIn = t.hookCalls.find((h) => h.hook_event_name === "PermissionRequest");
   assert.deepEqual([prIn.tool_name, prIn.tool_input], ["ExitPlanMode", { plan: PLAN, planFilePath: await fileOf(box) }]);
   assert.equal(t.r.mode, "acceptEdits");
@@ -324,7 +328,7 @@ test("PM9 PermissionRequest hooks answer the plan's card, as Claude Code's hooks
   // Its deny: its message to Coder, plan mode stays.
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("ok")], { plan: await stored(), hooks: PR(), hookRun: () => out({ behavior: "deny", message: "Plans need a test step." }) });
   assert.equal(t.told("x1"), "Plans need a test step.");
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1, "shown, then closed with the hook's no");
   assert.equal(t.r.mode, "plan");
   // The card's Notification hook, as Claude Code's "Claude needs your permission to use ExitPlanMode".
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("ok")], { plan: await stored(), hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: "n.sh" }] }] }, answers: [{ choice: "auto" }], askWait: 80, deps: { promptNotifyMs: 10 } });
@@ -687,7 +691,7 @@ test("PM22 enter_plan_mode and the modes around it, as Claude Code's: from Auto 
   const f = await fileOf(box);
   const PR = { PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: "pr.sh" }] }] };
   t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("", [call("write", { path: f, content: PLAN }, "w1")]), say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { mode: "acceptEdits", plan: box, hooks: PR, hookRun: (i) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: i.tool_input } } }) }), extra: { planExit: "auto" } });
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1, "its card closed with the hook's answer (beside its hooks since fix round 4)");
   assert.ok(t.told("x1").startsWith("The owner has approved your plan."));
   assert.equal(t.r.mode, "acceptEdits");
   // Back in Plan after an approved plan whose file is there: Claude Code's re-entry note, once.

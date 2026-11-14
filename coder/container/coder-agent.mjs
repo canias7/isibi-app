@@ -49,7 +49,7 @@ import { withMcpServer } from "./coder-hooks.mjs";
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice } from "./coder-elicit.mjs";
-import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
+import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
 // (A hook's rewrites of a call's input and output, checked as Claude Code checks them: coder-hookcheck.mjs. 2026-11-14.)
@@ -212,7 +212,11 @@ export function keepPics(convo) {
 }
 /** What the chat says for a command refused in a job from GitHub while the account has auto mode turned off. */
 /** A PermissionRequest hook's no with no message of its own, in Claude Code 2.1.323's words ("Permission denied by hook"). */
+// (Where no card shows: a job no one can answer, or Refuse instead of asking; Claude Code 2.1.325's path for a session that
+// can't show a prompt. Beside a card, where its cloud races the hooks with the card, its words are HOOK_DENIED_CARD: D4 of
+// the third recheck, fix round 4, 2026-11-14.)
 export const HOOK_DENIED = "Permission denied by hook";
+export const HOOK_DENIED_CARD = "Permission denied by PermissionRequest hook";
 export const AUTO_OFF_GITHUB = "Not run: auto mode is off in your settings, and no one can approve a command that changes things in a job started from GitHub.";
 /** The most paths one job's `edited` keeps (past it, `editedCut`: Rewind then reverts the later jobs whole), each at most EDITED_PATH_MAX long. */
 export const EDITED_MAX = 200, EDITED_PATH_MAX = 300;
@@ -1354,6 +1358,23 @@ export function connectorCaller(via, fetchFn = fetch) {
   };
 }
 /**
+ * AN MCP_TOOL HOOK'S CALL THROUGH THE WORKER (fix round 4, CL4; coder-hooks.mjs runMcpToolHook): `{ server, tool, args,
+ * timeoutMs }` with the job's AI pass; the Worker checks the chat has that connector and answers as the hook reads it
+ * (src/coder-mcp.mjs hookCall): { ok, body, error?, withheld?, aborted? }.
+ */
+export function connectorHookCaller(via, fetchFn = fetch) {
+  const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/mcp");
+  return async ({ server, tool, args, timeoutMs }) => {
+    const ms = Math.max(1000, Number(timeoutMs) || 600_000);
+    let r;
+    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ hook: { server, tool, args, timeoutMs: ms } }), signal: AbortSignal.timeout(ms + 5_000) }); }
+    catch (e) { return e && e.name === "TimeoutError" ? { ok: false, body: "", aborted: true } : { ok: false, body: "", error: "Coder's server could not be reached" }; }
+    const j = await r.json().catch(() => null);
+    if (!r.ok || !j || typeof j !== "object") return { ok: false, body: "", error: String((j && j.error) || "the connector call failed (" + r.status + ")").slice(0, 2000) };
+    return { ok: j.ok === true, body: typeof j.body === "string" ? j.body : "", ...(typeof j.error === "string" && j.error ? { error: j.error } : {}), ...(j.withheld === true ? { withheld: true } : {}), ...(j.aborted === true ? { aborted: true } : {}) };
+  };
+}
+/**
  * TOOL SEARCH, LIKE CLAUDE CODE'S (its MCP docs: only the tools' names load at the start, and Claude searches for the ones
  * it needs; with ENABLE_TOOL_SEARCH=auto, tools load upfront while their definitions stay under 10% of the context). Here:
  * when the connectors' tools are more than CONNECTOR_UPFRONT_MAX, or their definitions more than CONNECTOR_UPFRONT_CHARS,
@@ -2017,54 +2038,104 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const owedTo = (callId) => { if (!taking || taking.used || !callId || callId !== taking.callId) return null; taking.used = true; return taking; };
   /** The step's job pauses here, its card left open: what the job is saved with (runCoder's catch adds the call). */
   const parkNow = (pid, kind, site, shownMode, card = null) => { throw new Parked({ pid, kind, site, mode: shownMode, at: now(), ...(card ? { card } : {}) }); };
+  /** A card's call by Claude Code's name for its hooks (a monitor's command is Monitor; a connector's, mcp__<server>__<tool>). */
+  const cardHookTool = (card) => { const call = calls0.find((x) => x.id === card.id) || {}; return call.monitor ? "Monitor" : ccTool(card.hookTool || card.tool); };
+  /**
+   * A CARD'S PERMISSIONREQUEST HOOKS (Claude Code: "Runs when the user is shown a permission dialog"; "decision.behavior
+   * allow/deny"), run for its call: what one decided, as the step's answer, { answer, take } (`take`: taking that answer, its
+   * note and its updatedPermissions, done only once it is the answer that counts), or null when none decided. A deny goes to
+   * Coder with its message, or `denied` when it gave none (Claude Code's words differ beside a card, HOOK_DENIED_CARD, and
+   * where none can show, HOOK_DENIED); its "interrupt": true stops Coder.
+   * (The plan's card too, as ExitPlanMode's prompt in Claude Code, its hooks guide's own example: "auto-approves
+   * ExitPlanMode … For a tool that requires user interaction, such as ExitPlanMode, the allow also needs updatedInput, or
+   * Claude Code ignores it and still shows the prompt". The owner, 2026-11-14.)
+   */
+  const cardHooks = async (card, denied) => {
+    // (A monitor's command: its own call, by its own name, as Claude Code's PermissionRequest sees one: Monitor.)
+    const call = calls0.find((x) => x.id === card.id) || {};
+    // (A connector's card shows as "connector"; its hooks see the tool's own name, mcp__<server>__<tool>: card.hookTool.)
+    const tool = cardHookTool(card);
+    const callArgs = call.args || {};
+    const input0 = call.monitor ? hookToolInput("monitor", call.monitorArgs || { command: callArgs.command, description: callArgs.description }) : hookToolInput(card.hookTool || card.tool, callArgs);
+    // (Its suggestions as Claude Code's entries: "rules is an array of {toolName, ruleContent?} objects".)
+    const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
+    const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
+    if (o && o.decision === "allow" && !(card.tool === "plan" && !o.updatedInput)) {
+      // (ITS NEW INPUT, CHECKED BEFORE THE CALL RUNS, as Claude Code checks one: the same as the input shown to the hook, or an
+      // empty one, changes nothing; one its schema or the tool refuses is a no, in Claude Code's words: hookInputCheck. The
+      // plan's card has its own, below. 2026-11-14.)
+      let upd = o.updatedInput;
+      if (upd && card.tool !== "plan") {
+        const name0 = call.monitor ? "monitor" : call.ps ? "powershell" : card.hookTool || card.tool;
+        if (sameInput(upd, input0)) upd = null;
+        else {
+          const r = await hookInputCheck(name0, upd, "PermissionRequest");
+          if (!r.ok) { const why = scrub(r.message); return { answer: { choice: "no", comment: why, hookDenied: true, hookWhy: why } }; }
+          upd = hookToolInput(name0, r.args);
+        }
+      }
+      return { answer: { choice: "yes", comment: "", ...(upd ? { updatedInput: upd } : {}) }, take: () => { emit({ type: "note", text: "A PermissionRequest hook allowed this" + (upd ? ", with a changed input." : "."), hook: "PermissionRequest" }); if (o.updatedPermissions) applyUpdates(o.updatedPermissions); } };
+    }
+    // (A HOOK'S NO: Coder is given what Claude Code gives its model, the hook's own message, or its words for a no with none,
+    // and not the words for the owner's own No; the step says the hook said no. Live test, 2026-11-13: the step read "Not run:
+    // you said no." and Coder was told "The owner doesn't want to proceed …" before the hook's message.)
+    if (o && o.decision === "deny") { if (o.stop) return { answer: { choice: "stop", comment: "" } }; const why = o.reason ? scrub(o.reason) : ""; return { answer: { choice: "no", comment: why || denied, hookDenied: true, hookWhy: why } }; }
+    return null;
+  };
+  /**
+   * THE CARD AND ITS PERMISSIONREQUEST HOOKS AT ONCE (D4 of the third recheck, fix round 4, 2026-11-14; Claude Code's hooks
+   * reference: "For a call that reaches a --permission-prompt-tool or the Agent SDK's canUseTool callback, the hooks run
+   * alongside your host, and whichever decides first applies"; in its cloud the page is that host): the card shows while
+   * `hooksRun` (cardHooks' promise, or null) runs, and the step takes what comes first, the owner's answer ({ owner }) or a
+   * hook's decision ({ hook }). A hook that decides first withdraws the card (Claude Code aborts the card's request), and an
+   * answer the owner gives after it is dropped; a hook still running when the owner answered goes on, and what it decides is
+   * dropped, its updatedPermissions too (Claude Code applies them only while the card waits). The pause of a card left open
+   * (waitFor's park) waits for hooks still deciding, the owner's answer still taken meanwhile.
+   */
+  const cardRace = async (pid, hooksRun, waitArgs) => {
+    let decided = null, settled = !hooksRun, over = false;
+    const fromHooks = hooksRun ? Promise.resolve(hooksRun).then((h) => { settled = true; if (h) decided = h; return h; }, () => { settled = true; return null; }) : Promise.resolve(null);
+    // (With no hooks, the card waits as it always did.)
+    const ask = (args) => Promise.resolve().then(() => deps.ask(pid, hooksRun ? { ...args, gone: () => !!decided || over } : args)).then((a) => ({ owner: a }), () => ({ owner: null }));
+    const hookFirst = fromHooks.then((h) => (h ? { hook: h } : new Promise(() => {})));
+    let first = await Promise.race([ask(waitArgs), hookFirst]);
+    if (first.owner && first.owner.choice === "park" && !settled) {
+      fromHooks.then((h) => { if (!h) over = true; });
+      first = await Promise.race([ask({ until: started + maxMs, ...(waitArgs && waitArgs.chat ? { chat: true } : {}) }), hookFirst]);
+      if (first.owner && first.owner.choice === "gone" && !decided) first = { owner: { choice: "park" } };
+    }
+    return first;
+  };
+  /**
+   * WHERE NO ONE CAN ANSWER (D5 of the third recheck, fix round 4, 2026-11-14; Claude Code: "In sessions that can't show a
+   * prompt, such as background subagents in non-interactive mode, Claude Code still runs these hooks, and if no hook returns
+   * a decision, it denies the tool call"): in a job from GitHub, or one with no way to show a card, the PermissionRequest
+   * hooks the card would have had run without it; what one decided is the answer, as a card's would be (a no with no message
+   * in Claude Code's words for that path, HOOK_DENIED), or null when none did, and the call is refused as before.
+   */
+  const noOneHooks = async (card) => {
+    if (!hookList.length || !card || !card.tool) return null;
+    const h = await cardHooks(card, HOOK_DENIED);
+    if (!h) return null;
+    if (h.take) h.take();
+    return h.answer;
+  };
+  /** The card's ending as the page shows it, when one of its PermissionRequest hooks decided first: its answer, marked. */
+  const hookEnding = (pid, answer) => emit({ type: "permanswer", pid, choice: answer.choice === "yes" || answer.choice === "stop" ? answer.choice : "no", hook: true });
   const askOwner = async (card, { hooks = true } = {}) => {
     // (The card of the call taken up again after its job paused: its answer came with this job, so no hook or card again.)
     const owed = owedTo(card && card.id);
-    // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner answered
-    // sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs pass 9.)
-    let notifyTool = "";
-    // PERMISSIONREQUEST HOOKS (Claude Code: "Runs when the user is shown a permission dialog"; "decision.behavior allow/deny"):
-    // one may answer for the owner. A deny goes to Coder with its message (its "interrupt": true stops Coder). Then the
-    // NOTIFICATION hooks of a card that waits for the owner ("permission_prompt"), on their own.
-    // (The plan's card too, as ExitPlanMode's prompt in Claude Code, its hooks guide's own example: "auto-approves
-    // ExitPlanMode … For a tool that requires user interaction, such as ExitPlanMode, the allow also needs updatedInput, or
-    // Claude Code ignores it and still shows the prompt". The owner, 2026-11-14.)
-    if (!owed && hooks && hookList.length && card && card.tool) {
-      // (A monitor's command: its own call, by its own name, as Claude Code's PermissionRequest sees one: Monitor.)
-      const call = calls0.find((x) => x.id === card.id) || {};
-      // (A connector's card shows as "connector"; its hooks see the tool's own name, mcp__<server>__<tool>: card.hookTool.)
-      const tool = call.monitor ? "Monitor" : ccTool(card.hookTool || card.tool);
-      const callArgs = call.args || {};
-      const input0 = call.monitor ? hookToolInput("monitor", call.monitorArgs || { command: callArgs.command, description: callArgs.description }) : hookToolInput(card.hookTool || card.tool, callArgs);
-      // (Its suggestions as Claude Code's entries: "rules is an array of {toolName, ruleContent?} objects".)
-      const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
-      const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
-      if (o && o.decision === "allow" && !(card.tool === "plan" && !o.updatedInput)) {
-        // (ITS NEW INPUT, CHECKED BEFORE THE CALL RUNS, as Claude Code checks one: the same as the input shown to the hook, or an
-        // empty one, changes nothing; one its schema or the tool refuses is a no, in Claude Code's words: hookInputCheck. The
-        // plan's card has its own, below. 2026-11-14.)
-        let upd = o.updatedInput;
-        if (upd && card.tool !== "plan") {
-          const name0 = call.monitor ? "monitor" : call.ps ? "powershell" : card.hookTool || card.tool;
-          if (sameInput(upd, input0)) upd = null;
-          else {
-            const r = await hookInputCheck(name0, upd, "PermissionRequest");
-            if (!r.ok) { const why = scrub(r.message); return { choice: "no", comment: why, hookDenied: true, hookWhy: why }; }
-            upd = hookToolInput(name0, r.args);
-          }
-        }
-        emit({ type: "note", text: "A PermissionRequest hook allowed this" + (upd ? ", with a changed input." : "."), hook: "PermissionRequest" });
-        if (o.updatedPermissions) applyUpdates(o.updatedPermissions);
-        return { choice: "yes", comment: "", ...(upd ? { updatedInput: upd } : {}) };
-      }
-      // (A HOOK'S NO: Coder is given what Claude Code 2.1.323 gives its model, the hook's own message, or HOOK_DENIED when it
-      // gave none, and not the words for the owner's own No; the step says the hook said no. Live test, 2026-11-13: the step
-      // read "Not run: you said no." and Coder was told "The owner doesn't want to proceed …" before the hook's message.)
-      if (o && o.decision === "deny") { if (o.stop) return { choice: "stop", comment: "" }; const why = o.reason ? scrub(o.reason) : ""; return { choice: "no", comment: why || HOOK_DENIED, hookDenied: true, hookWhy: why }; }
-      notifyTool = tool;
+    // (Its PermissionRequest hooks: cardHooks, beside the card, cardRace.)
+    const hooked = !owed && hooks && hookList.length > 0 && !!card && !!card.tool;
+    // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the card's
+    // PermissionRequest hooks decide first, as where no one can answer (noOneHooks), then the call is refused at once in
+    // Claude Code's words, and Coder goes on; 20 refused in a row end the turn.
+    // (So does a machine with no way to wait for an answer: its card is never answered.)
+    const noSurface = typeof deps.ask !== "function";
+    if (!owed && (denyInstead === true || noSurface)) {
+      const h = hooked ? await cardHooks(card, HOOK_DENIED) : null;
+      if (h) { if (h.take) h.take(); return h.answer; }
     }
-    // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the call is refused at
-    // once in Claude Code's words, and Coder goes on; 20 refused in a row end the turn.
     if (!owed && denyInstead === true) {
       deniedRow++; deniedLast = true;
       const target = Array.isArray(card.lines) && card.lines.length ? card.lines.join("\n").slice(0, 500) : String(card.path || card.url || card.what || "").slice(0, 500);
@@ -2075,12 +2146,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     const shownMode = modeNow();
     if (!owed) emit({ type: "permission", pid, ...card });
+    // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner or one of its
+    // PermissionRequest hooks answered sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs
+    // pass 9; timed from the card since fix round 4, D4.)
+    const notifyTool = hooked ? cardHookTool(card) : "";
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
-    let a = null;
+    let first = null;
     // (A card with its own time limit, Auto's question for a dangerous removal, waits until then: card.blockAt. Any other
     // stays open: this job pauses after a while, waitFor.)
-    try { a = owed ? owed.answer : await deps.ask(pid, Number(card.blockAt) > 0 ? { until: Math.min(started + maxMs, Number(card.blockAt)) } : waitFor()); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    try { first = owed ? { owner: owed.answer } : await cardRace(pid, hooked && !noSurface ? cardHooks(card, HOOK_DENIED_CARD) : null, Number(card.blockAt) > 0 ? { until: Math.min(started + maxMs, Number(card.blockAt)) } : waitFor()); } catch { first = { owner: null }; } finally { if (notify) clearTimeout(notify); }
+    // (One of its PermissionRequest hooks decided first: the card closes with that answer, cardRace.)
+    if (first.hook) { if (first.hook.take) first.hook.take(); hookEnding(pid, first.hook.answer); return first.hook.answer; }
+    const a = first.owner;
     if (a && a.choice === "park") parkNow(pid, "permission", siteOfCard(card), shownMode);
     const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
@@ -2091,34 +2169,46 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}), ...(planEdit !== undefined ? { plan: planEdit } : {}) });
     return { choice, comment, ...(planEdit !== undefined ? { plan: planEdit } : {}) };
   };
+  /** The question card's PermissionRequest hooks (cardHooks' answer for it, or null; `denied`: the words of a no without any). */
+  const questionHooks = async (hookIn, denied) => {
+    const tool = ccTool("ask_user");
+    const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: hookIn }, { tool, input: hookIn, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    if (o && o.decision === "allow" && o.updatedInput) return { answer: { choice: "yes", updatedInput: o.updatedInput }, take: () => { if (o.updatedPermissions) applyUpdates(o.updatedPermissions); } };
+    if (o && o.decision === "deny") { if (o.stop) return { answer: { choice: "stop" } }; const why = o.reason ? scrub(o.reason) : ""; return { answer: { choice: "no", comment: why || denied, hookDenied: true, hookWhy: why } }; }
+    return null;
+  };
   /**
    * CODER'S QUESTIONS, WHILE IT WAITS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
    * Claude Code's AskUserQuestion: its permission prompt is the question dialog, and the owner's answers are the tool's
    * result in the same turn): the card shows in the chat and this step waits for the owner's answers, for a message they
    * type instead (Claude Code's "replied_in_chat"), for the Stop button or for the job's time limit. Its PermissionRequest
-   * hooks first, as for any card (an allow answers it only with updatedInput: Claude Code's "AskUserQuestion and
-   * ExitPlanMode need this field"), and its Notification hooks ("permission_prompt") once it has waited 6 seconds.
-   * Answers: answers (with the owner's picks), skip, chat (with their message), yes (a hook's, with its updatedInput), no (a
-   * hook's), stop, none.
+   * hooks run beside the card, as for any card (cardRace; an allow answers it only with updatedInput: Claude Code's
+   * "AskUserQuestion and ExitPlanMode need this field"), and its Notification hooks ("permission_prompt") once it has waited
+   * 6 seconds. Answers: answers (with the owner's picks), skip, chat (with their message), yes (a hook's, with its
+   * updatedInput), no (a hook's), stop, none.
    */
   const askQuestions = async (event, hookIn, callId = "") => {
     // (The card of the call taken up again after its job paused: its answer came with this job.)
     const owed = owedTo(callId);
-    let notifyTool = "";
-    if (!owed && hookList.length) {
-      const tool = ccTool("ask_user");
-      const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: hookIn }, { tool, input: hookIn, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
-      if (o && o.decision === "allow" && o.updatedInput) { if (o.updatedPermissions) applyUpdates(o.updatedPermissions); return { choice: "yes", updatedInput: o.updatedInput }; }
-      if (o && o.decision === "deny") { if (o.stop) return { choice: "stop" }; const why = o.reason ? scrub(o.reason) : ""; return { choice: "no", comment: why || HOOK_DENIED, hookDenied: true, hookWhy: why }; }
-      notifyTool = tool;
-    }
+    const hooked = !owed && hookList.length > 0;
     const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     const shownMode = modeNow();
     if (!owed) emit({ type: "question", pid, ...event });
+    const notifyTool = hooked ? ccTool("ask_user") : "";
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
-    let a = null;
-    try { a = owed ? owed.answer : await deps.ask(pid, { ...waitFor(), chat: true }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    let first = null;
+    try { first = owed ? { owner: owed.answer } : await cardRace(pid, hooked ? questionHooks(hookIn, HOOK_DENIED_CARD) : null, { ...waitFor(), chat: true }); } catch { first = { owner: null }; } finally { if (notify) clearTimeout(notify); }
+    // (One of its PermissionRequest hooks decided first: the card closes with that answer, a rewrite of the questions the tool
+    // refuses as a no, as Claude Code checks it before it decides: checkHookRewrite.)
+    if (first.hook) {
+      const h = first.hook, upd = h.answer.updatedInput;
+      if (h.take) h.take();
+      const refused = h.answer.choice === "yes" && upd && typeof upd === "object" && Object.keys(upd).length > 0 && !!checkHookRewrite(toolInputFromHook("ask_user", upd) || {}, "PermissionRequest").problem;
+      hookEnding(pid, refused ? { choice: "no" } : h.answer);
+      return h.answer;
+    }
+    const a = first.owner;
     if (a && a.choice === "park") parkNow(pid, "question", "question", shownMode);
     const choice = a && ["answers", "skip", "chat", "stop"].includes(a.choice) ? a.choice : "none";
     const picks = choice === "answers" && Array.isArray(a.picks) ? a.picks : null;
@@ -2150,7 +2240,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // Coder's machine. Each runs as Coder's commands do (its user, its room, the folder its commands are in), the event's JSON on
   // stdin (a file the machine writes, as for a big tool request), its stderr kept apart from its stdout; at once, the matching
   // ones of an event together. The owner sees each one's message and each one that failed; Coder, what it adds or blocks.
-  const okHooks = (list) => (Array.isArray(list) ? list.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : typeof h.command === "string")) : []);
+  const okHooks = (list) => (Array.isArray(list) ? list.filter((h) => h && HOOK_EVENTS.includes(h.event) && (h.type === "http" ? typeof h.url === "string" : h.type === "prompt" || h.type === "agent" ? typeof h.prompt === "string" : h.type === "mcp_tool" ? typeof h.server === "string" && typeof h.tool === "string" : typeof h.command === "string")) : []);
   // (Read again when the repository's settings files change mid-job: freshRules.)
   let hookList = okHooks(hooks);
   // (THE OWNER'S MESSAGE'S ID, Claude Code's prompt_id: "UUID identifying the user prompt currently being processed … Absent
@@ -2162,7 +2252,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const hookMark = () => "<<coder-hook-stderr-" + Math.random().toString(36).slice(2, 12) + ">>";
   /** A command hook's own command (hookShell): the event's JSON on its stdin, its stderr kept apart, Claude Code's variables set. */
   const hookCommand = (h, mark) => hookShell(h, mark, String(deps.root || ""));
-  /** One hook, run: a command hook's `{ code, stdout, stderr, timedOut, quiet }`, an HTTP hook's `{ http }`, a prompt or agent hook's `{ verdict }`. */
+  /** One hook, run: a command hook's `{ code, stdout, stderr, timedOut, quiet }`, an HTTP hook's `{ http }`, a prompt or agent hook's `{ verdict }`, an mcp_tool hook's `{ mcp, code, stdout, stderr }`. */
   /**
    * WHICH HOOK ENV FILE AN EVENT'S HOOKS WRITE (Bash docs pass 8; Claude Code: CwdChanged's and FileChanged's variables
    * "persist into subsequent Bash commands until the next CwdChanged event, when Claude Code clears them"; SessionStart's
@@ -2173,6 +2263,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const event = String(input.hook_event_name || h.event);
     if (h.type === "http") return runHttpHook(h, input, event);
     if (h.type === "prompt" || h.type === "agent") return runModelHook(h, input);
+    // (An mcp_tool hook: a tool of one of the chat's connectors, through the Worker, deps.mcpHook; coder-hooks.mjs
+    // runMcpToolHook. Fix round 4, CL4.)
+    if (h.type === "mcp_tool") return runMcpToolHook(h, input, { call: typeof deps.mcpHook === "function" ? deps.mcpHook : null });
     const mark = hookMark();
     let r;
     try { r = await deps.exec({ command: hookCommand(h, mark), payload: JSON.stringify(input), timeoutS: h.timeout || 600, tool: true, here: true, hook: true, noPrefix: Array.isArray(h.args) || h.shell === "powershell", hookEnv: envKind(event), hookGate: GATING_EVENTS.has(event) }); }
@@ -2602,9 +2695,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       }
     }
     if (dec.verdict === "ask") {
-      if (!canAsk()) { refuse("not run: " + (dec.rule ? "the owner's rule " + dec.rule + " asks them first" : "the owner must approve opening a WebSocket to " + (host || "this address")) + ", and no one can answer here"); return null; }
       // (Claude Code's card has no "don't ask again" for a host.)
-      const a = await askOwner({ tool: "monitor", id: c.id, url: shownUrl, ...(desc ? { desc } : {}), why: dec.why || "Coder wants to open a WebSocket to " + (host || "this address") + " and watch its messages.", ...(dec.byRule ? { byRule: true } : {}) });
+      const wsCard = { tool: "monitor", id: c.id, url: shownUrl, ...(desc ? { desc } : {}), why: dec.why || "Coder wants to open a WebSocket to " + (host || "this address") + " and watch its messages.", ...(dec.byRule ? { byRule: true } : {}) };
+      // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
+      const a = canAsk() ? await askOwner(wsCard) : await noOneHooks(wsCard);
+      if (!a) { refuse("not run: " + (dec.rule ? "the owner's rule " + dec.rule + " asks them first" : "the owner must approve opening a WebSocket to " + (host || "this address")) + ", and no one can answer here"); return null; }
       const o = answerOutcome(a);
       if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
       if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
@@ -4027,8 +4122,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc) || tsRule("ask");
         if (askRule) {
-          if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
-          const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: "Your rule " + askRule + " asks first for " + cc + "." });
+          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: "Your rule " + askRule + " asks first for " + cc + "." };
+          // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
+          const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
+          if (!a) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
           const o = answerOutcome(a);
           if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -4167,9 +4264,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // protected"), and so does one with no checker.
         let protToChecker = null;
         if (ask && ask.kind === "protected" && !ask.viaLink && !github && checker && (modeB === "auto" || (modeB === "plan" && planChecks))) { protToChecker = ask.paths; ask = null; }
-        if (ask && github) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
+        // WHERE NO ONE CAN ANSWER (fix round 4, D5; Claude Code "still runs these hooks, and if no hook returns a decision, it
+        // denies the tool call"): the PermissionRequest hooks its card would have had decide first (noOneHooks); what one
+        // decided is taken below as the card's answer would be (`hookAnswer`), and only when none does is it refused (or asked
+        // as before, on a machine that cannot wait for an answer).
+        const noOneCard = { tool: c.ps ? "powershell" : "bash", id: c.id };
+        let hookAnswer = null;
+        if (ask && !canAsk() && !c.rerun) hookAnswer = await noOneHooks(noOneCard);
+        if (ask && github && !hookAnswer) { refuse("error: " + ask.github + ", so it is not run in a job started from GitHub, where no one can allow it: say so in your answer"); continue; }
         // (A machine that cannot wait for an answer asks as Coder did before the modes: the turn ends with the card.)
-        if (ask && !canAsk()) {
+        if (ask && !canAsk() && !hookAnswer) {
           reply("not run yet: " + (ask.note || ask.why) + ", so the owner is asked first, as Claude Code asks for such commands. Their answer is the next message; when they allow it, run the same command again.");
           for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner to allow a command first" });
           emit({ type: "runask", id: c.id, kind: ask.kind, paths: ask.paths, allow: ask.allow.join("\n"), ...cardLines(command), ...(desc ? { desc } : {}) });
@@ -4186,13 +4290,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let pausedCard = false, switchedCard = false;
         const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        const wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        let wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
         // Code's session then starts in "default", where a run that can't ask is denied what needs approval, and a read-only
         // command runs unreviewed, as no review runs outside auto mode.)
         // (Grok is told Claude Code's words for a session that can't ask, noPromptDenied, not the checker's: none ran. The chat
         // says why, plainly, as a refusal; the live test of 2026-11-13 showed "denied by the Coder auto mode classifier".)
-        if (wantsCheck && github && autoOff === true) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; emit({ type: "result", id: c.id, code: -1, ran: false, denied: true, output: AUTO_OFF_GITHUB }); reply(noPromptDenied(c.ps ? "PowerShell" : c.monitor ? "Monitor" : "Bash") + await deniedHooks(c, why0)); continue; }
+        // (Its PermissionRequest hooks first, as where no one can answer: one that decides is the answer, and no checker is
+        // asked; fix round 4, D5.)
+        if (wantsCheck && github && autoOff === true) {
+          hookAnswer = await noOneHooks(noOneCard);
+          if (!hookAnswer) { const why0 = "auto mode is off in this account's settings, and no one can approve a command that changes things in a job started from GitHub"; emit({ type: "result", id: c.id, code: -1, ran: false, denied: true, output: AUTO_OFF_GITHUB }); reply(noPromptDenied(c.ps ? "PowerShell" : c.monitor ? "Monitor" : "Bash") + await deniedHooks(c, why0)); continue; }
+          wantsCheck = false;
+        }
         const cmdKey = (c.ps ? "powershell" : "bash") + "\n" + command;
         // (The tool's name, as Claude Code 2.1.325 names it in its no-verdict words: noVerdict.)
         const cmdWhat = c.ps ? "powershell" : c.monitor ? "monitor" : "bash";
@@ -4214,7 +4324,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             // wouldn't have requested. You're prompted for approval instead").
             const modeAfter = modeNow();
             if (modeAfter !== modeB && !modeChecks(modeAfter)) {
-              if (!canAsk()) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; }
+              // (Where no one can answer, its PermissionRequest hooks first: noOneHooks, fix round 4, D5.)
+              if (!canAsk()) { hookAnswer = await noOneHooks(noOneCard); if (!hookAnswer) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; } }
               switchedCard = true;
             } else if (v.error) {
               if (await noVerdict(c, v, cmdWhat, cmdKey, reply)) return stopNoVerdict(i);
@@ -4236,10 +4347,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // or one an ask rule asks about (Claude Code: no "don't ask again" when it can't cover it all, and no switch to auto
         // mode on a prompt one of your ask rules forced; none on a PowerShell card at all, as Claude Code 2.1.322 offers none).
         let approval = null;
-        if (rmWhy || ask || dec.verdict === "ask" || pausedCard || switchedCard) {
+        // (Or answered already by its PermissionRequest hooks where no one can answer: `hookAnswer`, above.)
+        if (hookAnswer || rmWhy || ask || dec.verdict === "ask" || pausedCard || switchedCard) {
           const once = !!(rmWhy || ask || dec.byRule || pausedCard || switchedCard);
           const card = { tool: c.ps ? "powershell" : "bash", id: c.id, ...(rmTimed && rmWhy ? { blockAt: now() + RM_PROMPT_MS } : {}), ...cardLines(command), ...(hostsFor ? { hosts: hostsFor.slice(0, 20) } : {}), ...(desc ? { desc } : {}), why: String(rmWhy || (ask ? ask.why : pausedCard ? pausedWhy(checkSt.byRow) : switchedCard ? MODE_SWITCHED : dec.why)).slice(0, 800), ...(!once && dec.suggest ? { rules: dec.suggest } : {}), ...(!once && !c.ps && modeB === "acceptEdits" && autoOff !== true ? { toAuto: true } : {}) };
-          approval = await askOwner(card, { hooks: !c.rerun });
+          approval = hookAnswer || await askOwner(card, { hooks: !c.rerun });
           // (Auto's 2-minute card: no answer by then blocks the removal, and Coder goes on, as in Claude Code; an answer, Yes
           // or No, starts the count of unanswered ones again.)
           if (card.blockAt) {
@@ -4436,7 +4548,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const hookAllow = !!(c.hook && c.hook.decision === "allow");
         const hookAsk = ruled && !c.rerun && !!(c.hook && c.hook.decision === "ask");
         // (Asked on a card: `askWhy` its reason, "" when it has none of its own; null, not asked.)
-        let askWhy = null, offerRule = false, sPaused = null;
+        let askWhy = null, offerRule = false, sPaused = null, noOneWhy = "";
         if (sDec.verdict === "ask" && sDec.byRule) askWhy = sDec.why;
         else if (hookAsk) askWhy = c.hook.reason || "A PreToolUse hook asks first.";
         else if (sDec.verdict === "check" && checker && !c.rerun && !hookAllow) {
@@ -4456,8 +4568,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (v.usage) usage.push(v.usage);
             const modeAfterS = modeNow();
             if (modeAfterS !== modeS && !modeChecks(modeAfterS)) {
-              if (!canAsk()) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; }
+              // (Where no one can answer, its PermissionRequest hooks first, below: fix round 4, D5.)
               askWhy = MODE_SWITCHED;
+              if (!canAsk()) noOneWhy = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here";
             } else if (v.error) {
               if (await noVerdict(c, v, "web_search", sKey, reply)) return stopNoVerdict(i);
               continue;
@@ -4472,9 +4585,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (askWhy !== null) {
           const card = { tool: "web_search", id: c.id, what: scrub(searchAskText(String(args0.query || ""))).slice(0, 600), ...(askWhy ? { why: askWhy } : {}), ...(offerRule && sDec.suggest ? { rules: sDec.suggest } : {}), ...(sDec.byRule && sDec.verdict === "ask" ? { byRule: true } : {}) };
           // (Where no one can answer, a search no rule or hook asks about is refused in Claude Code's words, as a page fetch is,
-          // with nothing in front of them.)
-          if (!canAsk()) { refuse(sDec.byRule && sDec.verdict === "ask" ? "not run: the owner's rule " + sDec.rule + " asks them first, and no one can answer here" : hookAsk ? "not run: a PreToolUse hook asks them first, and no one can answer here" : SEARCH_UNGRANTED); continue; }
-          approval = await askOwner(card, { hooks: !c.rerun });
+          // with nothing in front of them; its PermissionRequest hooks decide first: noOneHooks, fix round 4, D5.)
+          approval = canAsk() ? await askOwner(card, { hooks: !c.rerun }) : c.rerun ? null : await noOneHooks(card);
+          if (!approval) { refuse(noOneWhy || (sDec.byRule && sDec.verdict === "ask" ? "not run: the owner's rule " + sDec.rule + " asks them first, and no one can answer here" : hookAsk ? "not run: a PreToolUse hook asks them first, and no one can answer here" : SEARCH_UNGRANTED)); continue; }
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -4738,9 +4851,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // THE CARD, WHILE CODER WAITS (Claude Code's: the answers are the tool's result, and Coder goes on in the same turn).
         // Coder's own, in a chat the owner can answer while it works; on GitHub, for Gloopy, or with no way to ask, the
-        // card ends the turn as before (below).
-        if (!gl && canAsk()) {
-          const a = await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown), c.id);
+        // card ends the turn as before (below), unless its PermissionRequest hooks decide first (Claude Code "still runs these
+        // hooks" where it can't show a prompt: fix round 4, D5; Gloopy's have none).
+        let noOneAnswer = null;
+        if (!gl && !canAsk() && hookList.length) { const h = await questionHooks(hookToolInput("ask_user", shown), HOOK_DENIED); if (h) { if (h.take) h.take(); noOneAnswer = h.answer; } }
+        if (!gl && (canAsk() || noOneAnswer)) {
+          const a = noOneAnswer || await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown), c.id);
           if (a.choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (a.choice === "none") {
             if (now() - started > maxMs) { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -4759,7 +4875,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             answers = v.value.answers || {};
             annotations = v.value.annotations || {};
             const s0 = answeredText(keys, answers, annotations);
-            emit({ type: "note", text: s0.shown ? scrub("A PermissionRequest hook answered Coder's question" + (qs.length > 1 ? "s" : "") + " for you: " + s0.shown).slice(0, 2000) : "A PermissionRequest hook took Coder's question" + (qs.length > 1 ? "s" : "") + " and gave no answer, so you were not asked.", hook: "PermissionRequest" });
+            // (Its card closed when the hook decided, or never showed where no one can answer: fix round 4, D4 and D5.)
+            emit({ type: "note", text: s0.shown ? scrub("A PermissionRequest hook answered Coder's question" + (qs.length > 1 ? "s" : "") + " for you: " + s0.shown).slice(0, 2000) : "A PermissionRequest hook took Coder's question" + (qs.length > 1 ? "s" : "") + " and gave no answer.", hook: "PermissionRequest" });
           } else if (a.choice === "answers") ({ answers, annotations } = cardAnswers(keys, a.picks));
           else if (a.choice === "skip") annotations = allUnanswered(keys, "skipped");
           else if (a.choice === "chat") {
@@ -5568,7 +5685,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (v.usage) usage.push(v.usage);
             const modeAfterF = modeNow();
             if (modeAfterF !== modeT && !modeChecks(modeAfterF)) {
-              if (!canAsk()) { const m = "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"; emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+              // (Where no one can answer, its PermissionRequest hooks first, below: fix round 4, D5.)
               fetchSwitched = true;
             } else if (v.error) {
               if (await noVerdict(c, v, "web_fetch", fetchKey, reply)) return stopNoVerdict(i);
@@ -5596,9 +5713,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : c.hook.reason || "A PreToolUse hook asks first.", byRule: true }
             : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchSwitched ? MODE_SWITCHED : fetchDec.why, ...(!fetchPaused && !fetchSwitched && fetchDec && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
-          // (Claude Code's words for a page fetch no one can approve, with nothing in front of them.)
-          if (!canAsk()) { const m = !fileAsk && !ruleAsk && fetchAsk ? "Coder requested permissions to use WebFetch, but you haven't granted it yet." : "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + ((fetchDec && fetchDec.host) || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
-          approval = await askOwner(card, { hooks: !c.rerun });
+          // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
+          // decide first: noOneHooks, fix round 4, D5.)
+          approval = canAsk() ? await askOwner(card, { hooks: !c.rerun }) : c.rerun ? null : await noOneHooks(card);
+          if (!approval) { const m = fetchSwitched ? "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here" : !fileAsk && !ruleAsk && fetchAsk ? "Coder requested permissions to use WebFetch, but you haven't granted it yet." : "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + ((fetchDec && fetchDec.host) || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -5763,8 +5881,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           reply(await approve(asked, !!file && asked !== (fromFile === null ? "" : fromFile), back, "plan"));
           continue;
         }
-        if (!canAsk()) { if (shownPlan) emit({ type: "text", text: shownPlan.slice(0, PLAN_SHOW_MAX) }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: shownPlan.slice(0, 4000) }); }
-        const a = await askOwner({ tool: "plan", hookTool: "exit_plan_mode", id: c.id, plan: tooLarge ? "" : shownPlan, ...(tooLarge ? { withheld: PLAN_WITHHELD } : {}) });
+        const planCard = { tool: "plan", hookTool: "exit_plan_mode", id: c.id, plan: tooLarge ? "" : shownPlan, ...(tooLarge ? { withheld: PLAN_WITHHELD } : {}) };
+        // (Where no one can answer, its PermissionRequest hooks decide first: noOneHooks, fix round 4, D5.)
+        const a = canAsk() ? await askOwner(planCard) : await noOneHooks(planCard);
+        if (!a) { if (shownPlan) emit({ type: "text", text: shownPlan.slice(0, PLAN_SHOW_MAX) }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: shownPlan.slice(0, 4000) }); }
         const o = answerOutcome(a);
         if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (o === "time") { reply("not approved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -5934,7 +6054,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // A tool its server marks "anthropic/requiresUserInteraction" asks every time, in every mode (Claude Code: allow
         // rules and modes do not skip it); where nobody can be asked, it does not run.
-        if (t.always && !askedByRule && !canAsk()) { reply("error: this connector tool needs the owner's approval each time, and nobody can be asked here"); continue; }
         const hookDec = c.hook ? c.hook.decision : "";
         const planNow = modeNow() === "plan";
         // (An allow rule naming it, mcp__<server>__<tool>, mcp__<server> or mcp__<server>__*, approves it as a hook's allow does.)
@@ -5945,9 +6064,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           : hookAllows ? ""
           : planNow && !t.readOnly ? "Plan mode is on: Coder changes nothing until you approve its plan."
           : t.perm === "ask" && modeNow() !== "auto" ? "You set this connector tool to Needs approval." : "";
-        if (askWhy && !canAsk() && (hookDec === "ask" || (planNow && !t.readOnly))) { reply("not run: " + askWhy.replace(/[.\s]+$/, "") + ", and no one can answer in this job"); continue; }
-        if (askWhy && canAsk()) {
-          const a = await askOwner({ tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy });
+        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy };
+        // (Where no one can answer, its PermissionRequest hooks decide first, and it is refused only when none does: noOneHooks,
+        // fix round 4, D5.)
+        const noOneAsks = !canAsk() && ((t.always && !askedByRule) || (!!askWhy && (hookDec === "ask" || (planNow && !t.readOnly))));
+        const hookSaid = noOneAsks ? await noOneHooks(connCard) : null;
+        if (noOneAsks && !hookSaid) { reply(t.always && !askedByRule ? "error: this connector tool needs the owner's approval each time, and nobody can be asked here" : "not run: " + askWhy.replace(/[.\s]+$/, "") + ", and no one can answer in this job"); continue; }
+        if (hookSaid || (askWhy && canAsk())) {
+          const a = hookSaid || await askOwner(connCard);
           const o = answerOutcome(a);
           if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }

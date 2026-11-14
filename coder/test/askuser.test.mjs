@@ -40,7 +40,9 @@ async function job(steps, { hooks = null, hookRun = () => ({}), answers = [], ex
     },
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-aq", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid, opts) => { waited.push({ pid, opts, card: events.find((e) => e.pid === pid) }); const a = answers[k++]; return typeof a === "function" ? a() : a || null; },
+    // (With hooks and no answer of the owner's, the card waits for its PermissionRequest hooks: withdrawn when one decides,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, opts) => { waited.push({ pid, opts, card: events.find((e) => e.pid === pid) }); const a = answers[k++]; if (typeof a === "function") return a(); if (a || !hooks) return a || null; for (let w = 0; w < 300 && !(opts && opts.gone && opts.gone()); w++) await new Promise((ok) => setTimeout(ok, 2)); return opts && opts.gone && opts.gone() ? { choice: "gone" } : null; },
     ...deps,
   }, { text: "Build the sign-up page", mode: "auto", messages: [], ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), ...extra });
   const msg = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id);
@@ -199,11 +201,13 @@ test("AQ5 the card's other ways out: Skip (Claude Code's \"The user did not answ
 });
 
 test("AQ6 its hooks as Claude Code's: a PreToolUse rewrite checked as Claude Code checks one; PermissionRequest hooks before the card (an allow answers it only with updatedInput; a deny is told, and Coder goes on); the Notification hook (\"permission_prompt\") once the card has waited", async () => {
-  // PermissionRequest: allow with updatedInput answers it, no card; the hook sees the card's input.
+  // PermissionRequest: allow with updatedInput answers it, the card withdrawn (shown at once beside the hooks, closed with the
+  // hook's answer: fix round 4, D4); the hook sees the card's input.
   const ans = (answers) => () => out("PermissionRequest", { decision: { behavior: "allow", updatedInput: { questions: [READ], answers } } });
   let t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: ans({ [DBQ]: "SQLite" }) });
-  assert.equal(t.waited.length, 0, "no card");
-  assert.ok(!t.events.some((e) => e.type === "question"));
+  assert.equal(t.waited.length, 1, "the card, at once");
+  const qe = t.events.find((e) => e.type === "question");
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.pid, e.choice, e.hook]), [[qe.pid, "yes", true]], "closed with the hook's answer");
   const pr = t.hookCalls.find((x) => x.hook_event_name === "PermissionRequest");
   assert.deepEqual([pr.tool_name, pr.tool_input], ["AskUserQuestion", { questions: [READ] }]);
   assert.equal(t.told("q1"), 'Your questions have been answered: "' + DBQ + '"="SQLite". You can now continue with these answers in mind.');
@@ -214,16 +218,19 @@ test("AQ6 its hooks as Claude Code's: a PreToolUse rewrite checked as Claude Cod
   // A rewrite that fails the schema: refused in Claude Code's words.
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: ans({ [DBQ]: 3 }) });
   assert.equal(t.told("q1"), "PermissionRequest hook for AskUserQuestion returned updatedInput that failed schema validation: AskUserQuestion failed due to the following issue:\nThe parameter `answers." + DBQ + "` type is expected as `string` but provided as `number`\nThe tool input from the model was valid; the hook's rewrite of it was not.");
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["no", true]], "a refused rewrite closes the card as a no");
   // Its allow alone: the card all the same (Claude Code: AskUserQuestion needs updatedInput with "allow").
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "allow" } }), answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
   assert.equal(t.waited.length, 1);
   assert.match(t.told("q1"), /^Your questions have been answered: /);
-  // A deny: its message is told (or Claude Code's "Permission denied by hook"), no card, Coder goes on; interrupt stops.
+  // A deny: its message is told (or Claude Code's words beside a card, "Permission denied by PermissionRequest hook"), the card
+  // closed, Coder goes on; interrupt stops.
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny", message: "Decide yourself in this repo." } }) });
-  assert.deepEqual([t.told("q1"), t.waited.length, t.seen.length], ["Decide yourself in this repo.", 0, 2]);
+  assert.deepEqual([t.told("q1"), t.waited.length, t.seen.length], ["Decide yourself in this repo.", 1, 2]);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["no", true]]);
   assert.equal(t.events.find((e) => e.type === "note" && e.hook === "PermissionRequest").text, "Your PermissionRequest hook said no to Coder's question: Decide yourself in this repo.");
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny" } }) });
-  assert.equal(t.told("q1"), "Permission denied by hook");
+  assert.equal(t.told("q1"), "Permission denied by PermissionRequest hook");
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("never")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny", message: "No.", interrupt: true } }) });
   assert.equal(t.r.status, "stopped");
   // A PreToolUse hook's rewrite, whatever it decided: checked as Claude Code checks it (its keys of its own left aside).

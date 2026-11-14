@@ -26,7 +26,10 @@ const zj = (issues) => JSON.stringify(issues, null, 2);
 const TAIL = "The tool input from the model was valid; the hook's rewrite of it was not.";
 const post = (json) => ({ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", ...json } } } });
 
-async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = async () => ({ choice: "yes" }), mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {}, opts = {} } = {}) {
+// (The owner's Yes, after a card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+// `gone`, as they run beside it since fix round 4.)
+const slowYes = async (pid, o = {}) => { if (o.gone) for (let w = 0; w < 300 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : { choice: "yes" }; };
+async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = slowYes, mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {}, opts = {} } = {}) {
   const events = [], hookCalls = [], requests = [], ran = [];
   let n = 0;
   const r = await A.runCoder({

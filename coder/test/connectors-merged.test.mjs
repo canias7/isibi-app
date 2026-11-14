@@ -37,7 +37,9 @@ async function go({ steps, mode = "acceptEdits", rules = null, hooks = null, hoo
     },
     emit: (e) => events.push(e), sleep: async () => {},
     here: () => "/work/shop", root: "/work/shop", home: "/home/dev", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid) => { const card = events.find((e) => e.type === "permission" && e.pid === pid); cards.push(card); return answer(card); },
+    // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, o = {}) => { const card = events.find((e) => e.type === "permission" && e.pid === pid); cards.push(card); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answer(card); },
     mcp: async (name, args) => {
       mcpCalls.push([name, args]);
       order.push("start:" + name);
@@ -113,12 +115,13 @@ test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see i
   assert.equal(t.cards.length, 1);
   assert.match(t.cards[0].why, /^Plan mode is on/);
   // A PermissionRequest hook sees the tool's own name, not the card's "connector"; its no is given to Coder as its message
-  // (as for every tool since 2026-11-13), no card shows and nothing runs.
+  // (as for every tool since 2026-11-13), its card closed with that no (shown at once beside its hooks since fix round 4) and
+  // nothing runs.
   const permHook = { PermissionRequest: [{ matcher: "mcp__linear__create_issue", hooks: [{ type: "command", command: "perm.sh" }] }] };
   t = await go({ steps: create, hooks: permHook, hookOut: (x) => (x.hook_event_name === "PermissionRequest" ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message: "Linear is read-only here" } } }) : "") });
   assert.equal(t.hookIns.find((x) => x.hook_event_name === "PermissionRequest").tool_name, "mcp__linear__create_issue");
   assert.equal(t.told("k1"), "Linear is read-only here");
-  assert.deepEqual([t.cards.length, t.mcpCalls.length, t.seen.length], [0, 0, 2], "no card, nothing ran, Coder went on");
+  assert.deepEqual([t.cards.length, t.mcpCalls.length, t.seen.length], [1, 0, 2], "the card closed by the hook, nothing ran, Coder went on");
   // PostToolUse runs after the call, by the tool's name.
   t = await go({ steps: list, hooks: { PostToolUse: [{ matcher: "mcp__.*", hooks: [{ type: "command", command: "after.sh" }] }] } });
   const post = t.hookIns.find((x) => x.hook_event_name === "PostToolUse");

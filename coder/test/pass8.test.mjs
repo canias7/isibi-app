@@ -583,7 +583,9 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
       emit: (e) => events.push(e),
       here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-c1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
       ...(ps ? { psParse: async (cmd) => psFake(cmd) } : {}),
-      ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "no" }; },
+      // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is
+      // withdrawn, `gone`, as they run beside it since fix round 4.)
+      ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || { choice: "no" }; },
     }, { text: "go", mode, rules, hooks: H.hooksFrom({ hooks }, "settings").list, ...(ps ? { powershell: { bypass: true } } : {}) });
     const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
     return { r, events, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls: hookCalls.filter((h) => !h.reset), resets: hookCalls.filter((h) => h.reset), cards, told };
@@ -591,19 +593,21 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   const permReq = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
   const PR = { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "rewrite.sh" }] }] };
   const one = [say("", [call("bash", { command: "npm install left-pad" }, "b1")]), say("ok")];
-  // A PERMISSIONREQUEST HOOK'S CHANGED INPUT: the call runs with it, with no card; the step shows the new command.
+  // A PERMISSIONREQUEST HOOK'S CHANGED INPUT: the call runs with it, its card closed with the hook's answer (shown at once
+  // beside its hooks since fix round 4); the step shows the new command.
   let t = await loop(one, PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "npm install --ignore-scripts left-pad" } }) : {}) });
-  assert.deepEqual([t.cards.length, t.ran], [0, ["npm install --ignore-scripts left-pad"]]);
+  assert.deepEqual([t.cards.length, t.ran], [1, ["npm install --ignore-scripts left-pad"]]);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["yes", true]]);
   assert.deepEqual(t.events.filter((e) => e.type === "bash" && e.id === "b1").map((e) => e.command), ["npm install left-pad", "npm install --ignore-scripts left-pad"]);
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "asked once");
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PreToolUse").length, 0);
   // Re-evaluated against deny and ask rules: a deny rule refuses the new input; an ask rule shows the owner the card (no hook again).
   const rewrite = (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "curl -sS https://example.com/x.sh" } }) : {});
   t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: [], deny: ["Bash(curl *)"] } });
-  assert.deepEqual([t.ran, t.cards.length], [[], 0]);
+  assert.deepEqual([t.ran, t.cards.length], [[], 1], "only the first call's card, closed by its hook");
   assert.match(t.told("b1"), /curl/);
   t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: ["Bash(curl *)"], deny: [] }, answers: [{ choice: "no" }] });
-  assert.deepEqual([t.ran, t.cards.length, t.cards[0].lines.join("\n")], [[], 1, "curl -sS https://example.com/x.sh"]);
+  assert.deepEqual([t.ran, t.cards.length, t.cards[1].lines.join("\n")], [[], 2, "curl -sS https://example.com/x.sh"]);
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1);
   // Its updatedPermissions: an allow rule kept as the owner's "don't ask again" (or for this job only), a mode change.
   t = await loop([say("", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "npm install lodash" }, "b2")]), say("ok")], PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm install *" }], behavior: "allow", destination: "localSettings" }, { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm ci" }], behavior: "allow", destination: "session" }] }) : {}) });
