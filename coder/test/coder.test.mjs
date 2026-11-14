@@ -91,8 +91,8 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
-  // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs.)
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "review", "pr_comments", "undo_last_job", "ask_user", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -111,7 +111,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -1255,7 +1255,7 @@ test("CD46 Review and Security review: the request is written on the server; Cod
   assert.doesNotMatch(ui, /data-review="code"/, "no Review menu now: Coder reviews when asked (owner, 2026-11-06)");
 });
 
-test("CD47 the repo's environment: setup script runs once per machine (again if changed); the owner's variables reach commands; values are sealed and never shown back", async () => {
+test("CD47 the repo's environment: setup script runs once per machine (not again when it changes: like Claude Code, a change reaches a chat only on a fresh machine); the owner's variables reach commands; values are sealed and never shown back", async () => {
   const { safeVars } = await import("../container/server.mjs");
   assert.deepEqual(safeVars({ API_KEY: "k", PATH: "/evil", LD_PRELOAD: "x", NODE_OPTIONS: "--require x", "bad name": "y", CODER_CONTROL_KEY: "z" }), { API_KEY: "k" });
   // THE SERVER: names only come back; the stored file has no plain value.
@@ -1299,7 +1299,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
-    assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 1, "again when it changed");
+    assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 0, "not again when it changed (2026-11-14: Claude Code's \"a change to the script reaches an existing session only when its VM was reclaimed and is rebuilt\")");
   } finally { await close(); }
 });
 
@@ -1672,7 +1672,9 @@ test("CD63 request_secret: Coder asks for a key for one host; bad hosts are refu
   assert.ok(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), "what came after the request runs, in the same turn");
   assert.ok(r.messages.some((m) => m.role === "tool" && m.content === "saved"));
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /call request_secret for that exact host RIGHT AWAY[\s\S]*Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
+  // (Since 2026-11-14 as request_secret's description says: "as soon as you know the work needs a key", after "the move its
+  // description calls for", not "RIGHT AWAY".)
+  assert.match(CODER_SYSTEM, /ask with request_secret for that exact host \(e\.g\. api\.stripe\.com, prefix Bearer\) as soon as you know the work needs it, as its description says: first make the move get_environment's description calls for\. Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
 });
 
 test("CD64 the secret route: sealed, never shown back, sent only to the machine's proxy, not for GitHub jobs, hidden in the chat", async () => {
@@ -1783,10 +1785,20 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
     const s = await m.run({ setup: { script: "echo key=[$API_KEY] > seen.txt; cat seen.txt", vars: { API_KEY: "sk-secret-999" } } });
     const out = s.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
     assert.match(out, /key=\[\]/, "no variable in the setup script");
-    const bad = await m.run({ setup: { script: "echo starting; npm-nope ci" } });
-    assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
-    assert.match(JSON.stringify(m.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*update_environment \(setup_script\)/);
   } finally { await m.close(); }
+  // A FAILED SETUP (on a fresh machine: a changed script does not run on one that has had its setup, CD47).
+  const f = await envMachine([say("Done.", [])]);
+  try {
+    const bad = await f.run({ setup: { script: "echo starting; npm-nope ci" } });
+    assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
+    assert.match(JSON.stringify(f.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*update_environment \(setup_script\)/);
+    // Not again at the next message (Claude Code: "After you fix the cause, start a new session so the script runs again"):
+    // Coder is told it failed on this machine.
+    const next = await f.run({ setup: { script: "echo starting; npm-nope ci" } });
+    assert.ok(!next.events.some((e) => e.tool === "setup"), "not run again");
+    assert.match(JSON.stringify(f.seen[0].messages), /THE REPO'S SETUP SCRIPT \(the owner's, already run on this machine: [^;]*; it FAILED there, so what it failed to set up is not here, and it does not run again on this machine \(new chats run it\); its output is in the chat\)/);
+    assert.doesNotMatch(JSON.stringify(f.seen[0].messages), /THE SETUP SCRIPT FAILED this time/);
+  } finally { await f.close(); }
 });
 
 test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment in place of propose_env) a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
@@ -1999,6 +2011,16 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   assert.doesNotMatch(JSON.stringify(sent[0]), /tok_AAAA1111|key_BBBB2222/, "no key value goes to the machine");
   const direct = [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }];
   assert.deepEqual(sent[0].setup.vars, { NODE_ENV: "test", NAME: "Ana B" });
+  // THE ADD SECRET FORM REFUSES A SECOND SECRET FOR A HOST (Claude Code 2.1.317: "the Add secret form now refuses and points
+  // you to the existing secret"): any of its hosts, in any letter case, named with the secret that has it; a host that only
+  // overlaps (another subdomain) is taken, as Claude Code's are.
+  const again = await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ name: "Another", hosts: ["x.com", "API.A.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_CCCC3333" }] }) });
+  assert.equal(again.status, 409);
+  assert.deepEqual(await again.json(), { error: "This environment already has a secret for api.a.com: “Two keys” in Network secrets. To change it, delete it there, then add the new one.", existing: s.secrets[0].id });
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ hosts: ["*.b.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_CCCC3333" }] }) })).status, 409);
+  const other = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ name: "Other", hosts: ["x.b.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_DDDD4444" }] }) })).json();
+  assert.deepEqual(other.secrets.map((x) => x.name), ["Two keys", "Other"]);
+  await go("projects/" + id + "/secret?id=" + encodeURIComponent(other.secrets[1].id), { method: "DELETE" });
   const del = await (await go("projects/" + id + "/secret?id=" + encodeURIComponent(s.secrets[0].id), { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);
   // THE PROXY: both headers, only under the path, on a subdomain
@@ -2038,7 +2060,7 @@ test("CD76 (owner '1-7', Claude Code's docs) four network levels with Trusted as
   assert.equal(normSecret({ kind: "body", hosts: ["api.a.com"], config: { param: "api_key", value: "k123" } }).config.param, "api_key");
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /export const SETUP_MAX_S = 300;/); assert.match(server, /SETUP_CACHE_MS = 7 \* 24 \* 3600 \* 1000/);
-  assert.match(server, /JSON\.stringify\(\{ mode: net\.mode, hosts: net\.hosts, defaults: net\.defaults \}\)/, "the setup runs again when the network setting changes");
+  assert.match(server, /JSON\.stringify\(\{ mode: net\.mode, hosts: net\.hosts, defaults: net\.defaults \}\)/, "the environment's saved copy is made again when the network setting changes (on a chat's machine the setup runs once: test/env-tools.test.mjs EN14)");
   // web_fetch follows the site list like any other request (the docs list only GitHub, connectors, secret sites and Anthropic's API as skipping it).
   for (const f of ["container/coder-proxy.mjs", "container/coder-tools.mjs", "container/server.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /Coder-Fetch|CODER_FETCH_PASS/, f);
   // THE PROXY with a body parameter, AWS signing and an OAuth token; a registry never gets a key.
@@ -2284,10 +2306,15 @@ test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup 
     assert.equal(userMsg(), "go", "the first message on a machine: nothing to tell");
     await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
     assert.equal(userMsg(), "go", "nothing changed: nothing to tell");
+    // (Since 2026-11-14 a changed script does not run on this machine: Claude Code's "a change to the script reaches an
+    // existing session only when its VM was reclaimed and is rebuilt".)
     await m.run({ setup: { script: "echo two", network: { mode: "full" } } });
-    assert.match(userMsg(), /^\(Note from Coder's app, not the owner: since the last message, the owner changed the setup script in Environment\. The setup script now is:\necho two\nIt ran again before this message and worked \(exit code 0\)\. Go by this, not by what the chat said before\.\)\n\ngo$/);
+    assert.match(userMsg(), /^\(Note from Coder's app, not the owner: since the last message, the owner changed the setup script in Environment\. The setup script now is:\necho two\nIt did not run on this machine: like Claude Code, a change to the setup script reaches a chat only on a fresh machine \(new chats run it\), so what it adds is not here unless you install it\. Go by this, not by what the chat said before\.\)\n\ngo$/);
     await m.run({ setup: { script: "echo two\nnope-cmd-xyz", network: { mode: "full" } } });
-    assert.match(userMsg(), /The setup script now is:\necho two\nnope-cmd-xyz\nIt ran again before this message and FAILED \(see THE SETUP SCRIPT FAILED\)\./);
+    assert.match(userMsg(), /The setup script now is:\necho two\nnope-cmd-xyz\nIt did not run on this machine: /);
+    // Back to the one that ran here: said so.
+    await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
+    assert.match(userMsg(), /The setup script now is:\necho one\nIt already ran on this machine\. Go by this/);
     await m.run({ setup: { script: "", network: { mode: "full" } } });
     assert.match(userMsg(), /the owner changed the setup script \(it was removed\) in Environment\. Go by this/);
     const s = await m.run({ setup: { script: "", network: { mode: "trusted" } } });
@@ -2399,7 +2426,15 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   const c = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
   assert.equal(c.envId, t2, "the newest environment for this repo is offered first");
   assert.equal((await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog", envId: "default" }) })).data.project.envId, "default", "or the one you pick");
-  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).data.environment.name, "testing2 2", "names stay unique");
+  // A NAME ANOTHER LISTED ENVIRONMENT HAS: refused, not numbered (Claude Code 2.1.311: "they now refuse a name another listed
+  // environment already has"), in any letter case, when made or renamed; names of 1 to 64 characters, Claude Code's.
+  for (const name of ["testing2", "Testing2 "]) { const dup = await go("environments", { method: "POST", body: JSON.stringify({ name }) }); assert.deepEqual([dup.status, dup.data.error], [409, "another environment is already named “testing2”: pick another name"], name); }
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "n".repeat(65) }) })).data.error, "give it a name (up to 64 characters)");
+  const long = await go("environments", { method: "POST", body: JSON.stringify({ name: "n".repeat(64) }) });
+  assert.equal(long.data.environment.name, "n".repeat(64));
+  assert.deepEqual([(await go("environments/" + long.data.environment.id, { method: "POST", body: JSON.stringify({ name: "TESTING2" }) })).status, (await go("projects/" + b.id + "/env", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).status], [409, 409], "renamed to another's name: refused");
+  assert.equal((await go("environments/" + long.data.environment.id, { method: "POST", body: JSON.stringify({ archive: true }) })).status, 200);
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "Testing2" }) })).data.environment.name, "Testing2", "its own name, in other letters");
   assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "blog env" }) })).data.environment.name, "blog env");
   assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ name: "x" }) })).status, 400);
   assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ archive: true }) })).status, 400);

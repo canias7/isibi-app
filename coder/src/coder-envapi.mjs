@@ -5,7 +5,8 @@
  * Claude Code's get_environment, update_environment, create_environment and switch_environment are answered by its server,
  * which knows the environments as they are now. Here too:
  *   POST ENV_PATH (the machine, with its job's pass, like a connector call): { action: "get", environment_id? } for
- *     get_environment's answer, or { action: "check", tool, args } for a card's content (or why the call is refused);
+ *     get_environment's answer, { action: "list", limit? } for list_environments', or { action: "check", tool, args } for a
+ *     card's content (or why the call is refused);
  *   approveEnvChange (the page, when the owner approves a card: POST /projects/:id/envchange { tool, args }): the same
  *     checks again on the environment as it is then, and the change made; nothing is changed when a check fails.
  * Values of variables and network secrets never leave here for the machine.
@@ -103,7 +104,11 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
     if (p.error) return { error: p.error.replace(/^error: /, "") };
     await writeEnvData(env, bucket, uid, st.envId, p.data);
     let list = st.list;
-    if (p.plan.rename) { const me = list.find((e) => e.id === st.envId); if (me) { me.name = p.plan.rename; await saveEnvList(bucket, uid, list); } }
+    // (Its name and its description, Claude Code's new_name and new_description, are the list's.)
+    if (p.plan.rename || p.plan.description !== null) {
+      const me = list.find((e) => e.id === st.envId);
+      if (me) { if (p.plan.rename) me.name = p.plan.rename; if (p.plan.description !== null) { if (p.plan.description) me.description = p.plan.description; else delete me.description; } await saveEnvList(bucket, uid, list); }
+    }
     if (typeof reachRunning === "function") await reachRunning(p.data).catch(() => 0);
     return { ok: true, said: approvedText({ kind: "update", name: p.name }), envId: st.envId, name: p.plan.rename || p.name, environments: envListOut(list) };
   }
@@ -112,7 +117,8 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
     if (p.error) return { error: p.error.replace(/^error: /, "") };
     const list = st.list;
     const newId = envIdFor(p.entry.name, list);
-    const entry = { id: newId, name: p.entry.name, at, repos: p.entry.repos };
+    // (Its description: Coder's reason, as Claude Code's "Also summarized in the new environment's description".)
+    const entry = { id: newId, name: p.entry.name, at, repos: p.entry.repos, ...(p.entry.description ? { description: p.entry.description } : {}) };
     if (entry.repos.length) entry.used = at; // made for these repos: their next chat starts with it (Coder's pick for a repo's new chat)
     await writeEnvData(env, bucket, uid, newId, p.data);
     list.push(entry);

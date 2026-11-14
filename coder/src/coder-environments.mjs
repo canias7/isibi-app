@@ -11,15 +11,16 @@
 // repo needs them, they move (sealed as they were) into an environment named
 // after the repo, which that repo's chats keep using: nothing set up is lost.
 //
-//   coder/<uid>/environments.json         the list: { list: [{ id, name, at, archived?, repos?, used?, fromRepo? }] }
+//   coder/<uid>/environments.json         the list: { list: [{ id, name, at, archived?, repos?, used?, fromRepo?, description? }] }
 //   coder/<uid>/environments/<id>.json    one environment's settings, sealed like the GitHub token
 
 import { seal, unseal } from "./coder-github.mjs";
 import { normNetwork, normSecret } from "../container/coder-secrets.mjs";
 
 export const ENV_ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
-/** An environment's name: one line, 1 to 40 characters, no markup. */
-export const ENV_NAME = /^[^\u0000-\u001f<>]{1,40}$/;
+/** An environment's name: one line, 1 to 64 characters (Claude Code's: "1–64 characters, plain text"), no markup. */
+export const ENV_NAME = /^[^\u0000-\u001f<>]{1,64}$/;
+export const ENV_NAME_MAX = 64;
 export const MAX_ENVS = 30;
 export const DEFAULT_ENV = "default";
 const indexKey = (uid) => "coder/" + uid + "/environments.json";
@@ -62,14 +63,21 @@ export function envIdFor(name, list, rand = Math.random) {
     if (id !== DEFAULT_ENV && !list.some((e) => e.id === id)) return id;
   }
 }
-/** A name not used yet ("testing2", else "testing2 2", …). */
+/** A name not used yet ("testing2", else "testing2 2", …): only for a name Coder picks itself (a repo's old settings moved). */
 export function uniqueName(name, list) {
-  const n = String(name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40) || "Environment";
+  const n = String(name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, ENV_NAME_MAX) || "Environment";
   const taken = (c) => list.some((e) => !e.archived && e.name.toLowerCase() === c.toLowerCase());
   if (!taken(n)) return n;
-  for (let k = 2; k < 1000; k++) { const c = n.slice(0, 36) + " " + k; if (!taken(c)) return c; }
-  return n.slice(0, 30) + " " + Date.now().toString(36);
+  for (let k = 2; k < 1000; k++) { const c = n.slice(0, ENV_NAME_MAX - 4) + " " + k; if (!taken(c)) return c; }
+  return n.slice(0, ENV_NAME_MAX - 10) + " " + Date.now().toString(36);
 }
+/**
+ * A NAME THE OWNER GIVES THAT ANOTHER LISTED ENVIRONMENT ALREADY HAS (Claude Code 2.1.311: "Fixed cloud environment dialogs,
+ * including the admin dialog, accepting duplicate names; they now refuse a name another listed environment already has"):
+ * that environment (not archived, any letter case), or null. The page's refusal names it.
+ */
+export const nameHolder = (list, name, except = null) => list.find((e) => e && !e.archived && (!except || e.id !== except.id) && String(e.name).toLowerCase() === String(name).trim().toLowerCase()) || null;
+export const nameTakenText = (holder) => "another environment is already named “" + holder.name + "”: pick another name";
 
 /** For a repo's new chat: the environment used (or made) most recently with it, after moving its old settings into one if needed; else Default. */
 export async function envForRepo(bucket, uid, repo, list0) {
@@ -116,8 +124,8 @@ export async function markUsed(bucket, uid, id, repo) {
   await saveEnvList(bucket, uid, list);
 }
 
-/** What the page may see of the list (names only; nothing sealed). */
-export const envListOut = (list) => list.filter((e) => !e.archived).map((e) => ({ id: e.id, name: e.name, isDefault: e.id === DEFAULT_ENV }));
+/** What the page may see of the list (names and descriptions only; nothing sealed). */
+export const envListOut = (list) => list.filter((e) => !e.archived).map((e) => ({ id: e.id, name: e.name, isDefault: e.id === DEFAULT_ENV, ...(typeof e.description === "string" && e.description ? { description: e.description } : {}) }));
 
 // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like
 // Claude Code's environment cache: its docs, read 2026-11-07). The first chat that
