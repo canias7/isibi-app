@@ -12,8 +12,8 @@
  * choice): no path outside the project, and nothing in .git.
  */
 import { spawn } from "node:child_process";
-import { realpathSync } from "node:fs";
-import { stat, lstat, realpath } from "node:fs/promises";
+import { realpathSync, lstatSync, readlinkSync, constants as FS } from "node:fs";
+import { stat, lstat, realpath, open, readlink, access } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, join, dirname, basename, sep } from "node:path";
 import { fileRuleHit, anchorOf, plainPath } from "./coder-filerules.mjs";
@@ -185,12 +185,15 @@ function wholeLines(lines, text) {
   const k = last.lastIndexOf("\u0000");
   return k === -1 ? lines.slice(0, -1) : [...lines.slice(0, -1), last.slice(0, k + 1)];
 }
-/** One run of ripgrep: its exit, what it printed (each kept to RG_OUTPUT_MAX), and whether its time limit or the cap stopped it. */
-function rgOnce(args, target, { cwd, timeoutMs, single }) {
+/**
+ * One run of ripgrep: its exit, what it printed (each kept to RG_OUTPUT_MAX), and whether its time limit or the cap stopped it.
+ * (`inheritFd`: an open file given to it as its file 3, the file searched, as Claude Code 2.1.325 gives it: searchRoot.)
+ */
+function rgOnce(args, target, { cwd, timeoutMs, single, inheritFd }) {
   return new Promise((done) => {
     const argv = ["--no-config", ...(single ? ["-j", "1"] : []), ...args, target];
     let child;
-    try { child = spawn("rg", argv, { cwd, stdio: ["ignore", "pipe", "pipe"] }); } catch (e) { done({ spawnError: e, stdout: "", stderr: "" }); return; }
+    try { child = spawn("rg", argv, { cwd, stdio: ["ignore", "pipe", "pipe", ...(inheritFd !== undefined ? [inheritFd] : [])] }); } catch (e) { done({ spawnError: e, stdout: "", stderr: "" }); return; }
     const out = [], err = [];
     let outBytes = 0, errBytes = 0, capped = false, atLimit = false, finished = false, t2 = null, t3 = null;
     const finish = (r) => {
@@ -224,10 +227,10 @@ function rgOnce(args, target, { cwd, timeoutMs, single }) {
  * a search its time limit stopped keeps what it had read, marked; one that read nothing says so. ripgrep's own config file is
  * never read (`--no-config`, as Claude Code's built-in ripgrep; 2.0.30: "Removed support for custom ripgrep configuration").
  */
-export async function runRipgrep(args, target, { cwd, timeoutMs = SEARCH_TIMEOUT_MS } = {}) {
-  let r = await rgOnce(args, target, { cwd, timeoutMs, single: false });
+export async function runRipgrep(args, target, { cwd, timeoutMs = SEARCH_TIMEOUT_MS, inheritFd } = {}) {
+  let r = await rgOnce(args, target, { cwd, timeoutMs, single: false, inheritFd });
   // (Short of threads: once more, single-threaded, as Claude Code does: "rg EAGAIN error detected, retrying with single-threaded mode (-j 1)".)
-  if (!r.spawnError && !r.capped && r.code !== 0 && r.code !== 1 && /os error 11|Resource temporarily unavailable/.test(r.stderr)) r = await rgOnce(args, target, { cwd, timeoutMs, single: true });
+  if (!r.spawnError && !r.capped && r.code !== 0 && r.code !== 1 && /os error 11|Resource temporarily unavailable/.test(r.stderr)) r = await rgOnce(args, target, { cwd, timeoutMs, single: true, inheritFd });
   if (r.spawnError) {
     const code = r.spawnError.code;
     if (code === "ENOENT") throw new SearchError("ripgrep not found on PATH. Install it (brew install ripgrep / apt install ripgrep / winget install BurntSushi.ripgrep.MSVC).");
@@ -268,8 +271,135 @@ export function fullPath(p, base) {
 /** A result's path as Claude Code shows it (its Kit): from where the commands are, with no "./"; a full path when outside. */
 export const shownPath = (p, base) => { const r = relative(base, p); return r.startsWith("..") ? p : r; };
 const within = (p, dir) => p === dir || p.startsWith(dir.endsWith(sep) ? dir : dir + sep);
-/** Where ripgrep runs (Claude Code's myt): where the commands are when the search is inside it, else the search's own folder. */
-const searchCwd = (target, base, isDir) => (within(target, base) ? base : isDir ? target : base);
+
+// ── WHERE THE SEARCH RUNS (Claude Code 2.1.325's gPo, as on Linux; round 3, 2026-11-14) ─────────────────────────────────
+/**
+ * A PATH'S SPELLINGS (Claude Code's il, what its permission check records of a path): the path as asked for, the path each
+ * link at its end leads to, and where it lands, its links followed (a path not there: its deepest folder that is, followed,
+ * and the rest). `unresolved` when that can't be worked out (a loop of links, a link that can't be read); `found` when it
+ * lands on something there. A folder on the way that can't be entered stops it there, as the path asked for (Claude Code's
+ * "permission" walk does the same, and the search's own open then says why).
+ */
+export function pathSpellings(p, { lstat: ls = lstatSync, readlink: rl = readlinkSync, realpath: rp = realpathSync } = {}) {
+  const asked = resolve(String(p));
+  const out = new Set([asked]);
+  let cur = asked;
+  for (let hops = 0; ; hops++) {
+    let st;
+    try { st = ls(cur); } catch { break; }
+    if (!st.isSymbolicLink()) break;
+    if (hops >= 40) return { spellings: [...out], unresolved: true, found: false };
+    let to;
+    try { to = String(rl(cur)); } catch { return { spellings: [...out], unresolved: true, found: false }; }
+    cur = resolve(dirname(cur), to);
+    out.add(cur);
+  }
+  let landing = "", found = false;
+  try { landing = rp(asked); found = true; } catch (e) {
+    const code = e && e.code;
+    if (code === "ELOOP") return { spellings: [...out], unresolved: true, found: false };
+    if (code !== "ENOENT" && code !== "ENOTDIR") return { spellings: [...out], unresolved: false, found: false };
+    const rest = [];
+    for (let up = asked; ;) {
+      const d = dirname(up);
+      if (d === up) { landing = asked; break; }
+      rest.unshift(basename(up));
+      up = d;
+      try { landing = join(rp(up), ...rest); break; } catch { /* higher up */ }
+    }
+  }
+  out.delete(landing); out.add(landing);
+  return { spellings: [...out], unresolved: false, found };
+}
+/** "Refusing to search …: its symlink resolution changed after permission was checked. …" (Claude Code's words, 2.1.325). */
+export const symlinkChangedText = (p) => "Refusing to search " + p + ": its symlink resolution changed after permission was checked. If a link in the working directory is being rewritten concurrently, stop that and retry.";
+/** A search path that can't be opened (EACCES, EPERM, ELOOP), in Claude Code's words. */
+export const unopenableText = (p, code) => "Refusing to search " + p + ": it could not be opened (" + code + ") — it is unreadable, or is being replaced concurrently.";
+/** A folder its user may read but not enter, in Claude Code's words. */
+export const notTraversableText = (p) => "Cannot search " + p + ": the directory is not traversable (no execute permission).";
+/** The proc path ripgrep reads a searched file through (Claude Code's HYe): the open file is its file 3. */
+const FD3 = "/proc/self/fd/3";
+/**
+ * THE SPELLINGS CODER'S PERMISSION CHECK SAW (Claude Code stashes them at its check, its writePermissionStash): Coder's loop's,
+ * worked out where it checked the owner's rules (`given`: `{ path, list }`), when they are of this same path; else those of
+ * the tools' own check, `inside`, just made (Claude Code's: none stashed, the path's spellings now).
+ */
+export function checkedSpellings(given, path, now) {
+  if (given && typeof given === "object" && given.path === path && Array.isArray(given.list) && given.list.length && given.list.every((x) => typeof x === "string" && x)) return given.list;
+  return now.spellings;
+}
+/**
+ * WHAT CODER'S LOOP SAW OF A SEARCH'S PATH WHERE IT CHECKED THE OWNER'S RULES (Claude Code's stash at its permission check):
+ * `{ path, list }`, or null when its own view could not follow it there (a path not there, or one only the commands' sandbox
+ * has): then the search's own check stands in (checkedSpellings).
+ */
+export function checkedAt(full) {
+  if (typeof full !== "string" || !full.startsWith("/") || full.includes("\0")) return null;
+  const s = pathSpellings(full);
+  return s.unresolved || !s.found ? null : { path: resolve(full), list: s.spellings };
+}
+/**
+ * THE SEARCH'S FOLDER OR FILE, OPENED AS CLAUDE CODE 2.1.325 OPENS IT before ripgrep runs (its gPo, on Linux): its spellings
+ * must be the ones its permission check saw ("Refusing to search …: its symlink resolution changed after permission was
+ * checked …"), and so must where the open one really is; one that can't be opened, or a folder that can't be entered, is
+ * refused in its words, not searched (Coder had said "No files found" for a folder it could not enter). A folder is searched
+ * from inside itself, held open (ripgrep's folder is /proc/self/fd/N, the search "."), so a pattern with a "/" counts from the
+ * search's folder, as in Claude Code (Coder's searched from the chat's folder and found nothing for "src/*.ts" in a subfolder);
+ * a file is given to ripgrep open, as its file 3. Null when it is not there (an empty result, as Claude Code's).
+ */
+export async function searchRoot(e, { base, checked }) {
+  const ok = new Set(checked);
+  const recheck = () => { const now = pathSpellings(e); if (now.unresolved || now.spellings.some((q) => !ok.has(q))) throw new SearchError(symlinkChangedText(e)); };
+  recheck();
+  let fh;
+  try { fh = await open(e, FS.O_RDONLY | FS.O_NONBLOCK); } catch (x) {
+    const code = x && x.code;
+    if (code === "ENOENT" || code === "ENOTDIR") return null;
+    if (code === "EACCES" || code === "EPERM" || code === "ELOOP") throw new SearchError(unopenableText(e, code));
+    throw x;
+  }
+  try {
+    const st = await fh.stat();
+    const fdPath = "/proc/self/fd/" + fh.fd;
+    let real = null;
+    try { real = await readlink(fdPath); } catch { real = null; }
+    const viaProc = real !== null;
+    let canonical = real;
+    if (!viaProc) { try { canonical = realpathSync(e); } catch { throw new SearchError(symlinkChangedText(e)); } }
+    if (!ok.has(canonical)) throw new SearchError(symlinkChangedText(e));
+    const close = () => fh.close().catch(() => {});
+    if (st.isDirectory()) {
+      try { await access(viaProc ? fdPath : canonical, FS.X_OK); } catch { throw new SearchError(notTraversableText(e)); }
+      return { lexical: e, canonical, spawnCwd: viaProc ? fdPath : canonical, target: ".", relativeOutput: true, isDirectory: true, close };
+    }
+    return { lexical: e, canonical, spawnCwd: base, target: viaProc ? FD3 : canonical, ...(viaProc ? { inheritFd: fh.fd } : {}), relativeOutput: false, isDirectory: false, close };
+  } catch (x) { await fh.close().catch(() => {}); throw x; }
+}
+/**
+ * A PATH RIPGREP PRINTED, AS THE ONE ASKED FOR (Claude Code's wNr): "./x" from inside the folder as the folder's path and x;
+ * the file it was given (/proc/self/fd/3, or its real path) as the path asked for. A line of content ("path\0N:text") and a
+ * count ("path:N") keep the rest.
+ */
+export function askedPath(line, root) {
+  const r = root.lexical.endsWith(sep) ? root.lexical : root.lexical + sep;
+  if (root.relativeOutput) return line.startsWith("./") ? r + line.slice(2) : line;
+  for (const s of [root.target, root.canonical]) {
+    const h = s.endsWith(sep) ? s : s + sep;
+    if (line.startsWith(h)) return r + line.slice(h.length);
+    if (line === s) return root.lexical;
+    if (line.startsWith(s + ":") || line.startsWith(s + "\u0000")) return root.lexical + line.slice(s.length);
+  }
+  return line;
+}
+/**
+ * Read deny rules as ripgrep's globs, from where it runs, in both its spellings (Claude Code's DHr and DW): a folder searched
+ * from inside, its path as asked for and its real one; a file's search folder, as it is and followed.
+ */
+const rootDenyGlobs = (deny, root) => {
+  const real = (d) => { try { return realpathSync(d); } catch { return d; } };
+  const from = root.relativeOutput || root.spawnCwd === root.canonical ? [root.canonical, root.lexical] : [root.spawnCwd, real(root.spawnCwd)];
+  return [...new Set(from.flatMap((d) => denyGlobs(deny, d)))];
+};
 /**
  * "Did you mean …?" (Claude Code's $Ee, for a missing path): when the path is beside the folder the commands are in, and the
  * same path from inside that folder exists.
@@ -319,7 +449,8 @@ function denyCheck(deny) {
   const real = (p) => { try { return realpathSync(p); } catch { return ""; } };
   return (p) => {
     // (Path rules only: a rule on the whole Read tool is Read's own, as Claude Code's search reads them. 2026-11-14.)
-    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", home: deny.home || "", sources: deny.sources || null, real, pathOnly: true }));
+    // (A relative rule applies in the chat's other working folders too, `deny.roots`: Claude Code 2.1.325.)
+    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", home: deny.home || "", roots: Array.isArray(deny.roots) ? deny.roots : [], sources: deny.sources || null, real, pathOnly: true }));
     return seen.get(p);
   };
 }
@@ -428,20 +559,23 @@ export async function grepTool(args, env) {
   const target0 = typeof a.path === "string" && a.path ? fullPath(a.path, base) : base;
   // (Coder's own rule, kept: inside the project, never in .git.)
   const { abs: target } = await env.inside(target0, { output: true });
-  // A PATH THAT ISN'T THERE (Claude Code's aMr): "Path does not exist: … Note: your current working directory is …".
-  if (typeof a.path === "string" && a.path) {
+  // (The path's spellings now, and those Coder's permission check saw: checkedSpellings.)
+  const now = pathSpellings(target);
+  const checked = checkedSpellings(env.spellings, target, now);
+  // A PATH THAT ISN'T THERE (Claude Code's aMr): "Path does not exist: … Note: your current working directory is …". (Asked
+  // only while its links are as checked, as Claude Code's fNr; otherwise its open below refuses it.)
+  if (typeof a.path === "string" && a.path && now.spellings.every((q) => checked.includes(q))) {
     try { await stat(target); } catch (e) {
       if (!e || (e.code !== "ENOENT" && e.code !== "ENOTDIR")) throw e;
       const guess = await didYouMean(target, base);
       throw new SearchError("Path does not exist: " + a.path + ". " + NOTE_CWD + " " + base + "." + (guess ? " Did you mean " + guess + "?" : ""));
     }
   }
-  let isDir;
-  try { isDir = (await stat(target)).isDirectory(); } catch {
-    // (Gone since: Claude Code's dMr, an empty result.)
-    return mode === "content" ? done({ mode: "content", numFiles: 0, filenames: [], content: "", numLines: 0, totalLines: 0 }) : mode === "count" ? done({ mode: "count", numFiles: 0, filenames: [], content: "", numMatches: 0 }) : done({ mode: "files_with_matches", filenames: [], numFiles: 0, totalFiles: 0 });
-  }
-  const cwd = searchCwd(target, base, isDir);
+  // OPENED AS CLAUDE CODE OPENS IT (searchRoot): its links as checked, readable, a folder enterable, searched from inside.
+  const root = await searchRoot(target, { base, checked });
+  // (Gone since: Claude Code's dMr, an empty result.)
+  if (!root) return mode === "content" ? done({ mode: "content", numFiles: 0, filenames: [], content: "", numLines: 0, totalLines: 0 }) : mode === "count" ? done({ mode: "count", numFiles: 0, filenames: [], content: "", numMatches: 0 }) : done({ mode: "files_with_matches", filenames: [], numFiles: 0, totalFiles: 0 });
+  const isDir = root.isDirectory;
   // RIPGREP'S ARGUMENTS, IN CLAUDE CODE'S ORDER: hidden files searched, the version-control folders left out, lines cut at
   // 500 columns, then the call's own.
   const rg = ["--hidden"];
@@ -462,11 +596,13 @@ export async function grepTool(args, env) {
   if (a.type) rg.push("--type", a.type);
   // `glob`, split at spaces, and at commas outside braces (Claude Code: "*.{ts,tsx}" is one glob, "*.ts,*.tsx" two).
   if (a.glob) for (const w of a.glob.split(/\s+/)) for (const g of w.includes("{") && w.includes("}") ? [w] : w.split(",")) if (g) rg.push("--glob", g);
-  for (const g of denyGlobs(env.deny, cwd)) rg.push("--iglob", g);
+  for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
   // (And .git once more, last: a later glob of the call's own, such as "*", would take it back, and Coder never searches it.)
   rg.push("--glob", "!.git");
-  const run = await runRipgrep(rg, target, { cwd, timeoutMs: timeoutOf(env) });
-  let lines = mode === "content" ? contentLines(run.lines, { contextBreaks: [a.context, a["-C"], a["-B"], a["-A"]].some((x) => typeof x === "number" && x > 0), onlyMatching: a["-o"] === true }) : nullEntries(run.lines, mode);
+  let run;
+  try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
+  // (Each path as the one asked for: Claude Code's wNr.)
+  let lines = (mode === "content" ? contentLines(run.lines, { contextBreaks: [a.context, a["-C"], a["-B"], a["-A"]].some((x) => typeof x === "number" && x > 0), onlyMatching: a["-o"] === true }) : nullEntries(run.lines, mode)).map((l) => askedPath(l, root));
   // READ DENY RULES AND .git, BEFORE THE PAGE IS CUT: a line, path or count of a file they cover is left out.
   const denied = denyCheck(env.deny);
   const pathOf = (l) => (mode === "content" ? (l === "--" ? null : l.slice(0, Math.max(0, l.indexOf("\u0000")))) : mode === "count" ? l.slice(0, Math.max(0, l.lastIndexOf(":"))) : l);
@@ -583,22 +719,25 @@ export async function globTool(args, env) {
   }
   let rewritten = false;
   if (!own) { const r = droppedRepeat(pattern, dir); if (r !== pattern && !(await droppedExist(dir, pattern, r))) { pattern = r; rewritten = true; } }
-  let isDir;
-  try { isDir = (await stat(dir)).isDirectory(); } catch { return globDone({ files: [], truncated: false, totalMatches: 0, countIsComplete: true, timedOut: false }); }
-  const cwd = searchCwd(dir, base, isDir);
-  // (A rewritten pattern starts at the search folder, which ripgrep's globs count from where it runs: Claude Code's zyn.)
-  if (rewritten && pattern.startsWith("/") && cwd !== dir) {
-    const r = relative(cwd, dir).split(sep).join("/");
+  // OPENED AS CLAUDE CODE OPENS IT (searchRoot; Grep's way): its links as Coder's permission check saw them, readable, a folder
+  // enterable, and searched from inside, so a pattern with a "/" counts from it.
+  const root = await searchRoot(dir, { base, checked: checkedSpellings(env.spellings, dir, pathSpellings(dir)) });
+  if (!root) return globDone({ files: [], truncated: false, totalMatches: 0, countIsComplete: true, timedOut: false });
+  // (A rewritten pattern starts at the search folder, which ripgrep's globs count from where it runs: Claude Code's zyn; a
+  // folder is searched from inside itself, so only a file's search needs it.)
+  if (rewritten && pattern.startsWith("/") && !(root.relativeOutput || root.spawnCwd === root.canonical)) {
+    const r = relative(root.spawnCwd, root.target).split(sep).join("/");
     pattern = r === "" || r === ".." || r.startsWith("../") || isAbsolute(r) ? pattern.slice(1) : "/" + r + pattern;
   }
   // RIPGREP'S ARGUMENTS (Claude Code's CPr): the files, oldest first, gitignored and hidden ones too unless the environment
   // says otherwise; Read deny rules left out; .git never (Coder's).
   const rg = ["--files", "--null", "--glob", pattern, "--sort=modified", ...(env.noIgnore !== false ? ["--no-ignore"] : []), ...(env.hidden !== false ? ["--hidden"] : [])];
-  for (const g of denyGlobs(env.deny, cwd)) rg.push("--iglob", g);
+  for (const g of rootDenyGlobs(env.deny, root)) rg.push("--iglob", g);
   rg.push("--glob", "!.git");
-  const run = await runRipgrep(rg, dir, { cwd, timeoutMs: timeoutOf(env) });
-  // (Nothing in .git, whatever the pattern: Coder's.)
-  const found = nullEntries(run.lines, "files_with_matches").filter((p) => !inGit(p));
+  let run;
+  try { run = await runRipgrep(rg, root.target, { cwd: root.spawnCwd, inheritFd: root.inheritFd, timeoutMs: timeoutOf(env) }); } finally { await root.close(); }
+  // (Each path as the one asked for, Claude Code's Jia; nothing in .git, whatever the pattern: Coder's.)
+  const found = nullEntries(run.lines, "files_with_matches").map((p) => askedPath(p, root)).filter((p) => !inGit(p));
   // THE CAP, PAST READ DENY RULES (Claude Code's CPr: with deny rules, files are judged in order until 100 are kept, so the
   // count past them is only a floor).
   const denied = denyCheck(env.deny);

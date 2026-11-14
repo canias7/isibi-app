@@ -51,6 +51,8 @@ const BASE = (() => { const c = process.env.CODER_CWD; return c && isAbsolute(c)
 
 class ToolError extends Error {}
 const fail = (m) => { throw new ToolError(m); };
+/** The owner's additional working folders, as Coder's machine names them (CODER_WORK_DIRS, full paths, ":" between). */
+export const workDirs = () => String(process.env.CODER_WORK_DIRS || "").split(":").filter((x) => x && isAbsolute(x) && !x.includes("\0")).map((x) => resolve(x));
 
 /** A path inside the project, or an error. Links that lead outside are refused too. */
 /**
@@ -112,13 +114,22 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   }
   // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
   // in one session): their folders, next to this one, count as inside too.
-  const home = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].find((r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); }) || ROOT;
+  const holds = (r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); };
+  const roots = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))];
+  // THE OWNER'S ADDITIONAL WORKING FOLDERS (Claude Code's additionalDirectories; round 3, 2026-11-14): Coder's machine names
+  // them (CODER_WORK_DIRS), and they count as inside too, as Claude Code's "Files in additional directories follow the same
+  // permission rules as the original working directory" (they had been refused as outside the project, while Coder was told to
+  // work in them). The innermost one that holds the path is its own.
+  const work = workDirs().filter(holds).sort((x, y) => y.length - x.length);
+  const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
+  // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
+  if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
   // How the file is named in the tool's answer: from the project's folder, or by its full path when the commands are in
-  // another folder (or it is in the scratch folder).
-  const shown = home === SCRATCH || BASE !== ROOT ? abs : rel;
+  // another folder (or it is in the scratch folder, or one of the owner's working folders).
+  const shown = home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel;
   // The deepest part that exists must really be inside (no link out of the project).
   let probe = abs;
   for (;;) {
