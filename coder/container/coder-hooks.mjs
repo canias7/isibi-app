@@ -99,7 +99,9 @@ export const HOOK_QUIET_MS = 10_000;
 export const AGENT_HOOK_TURNS = 50;
 
 /** Coder's tools by Claude Code's names (what a matcher and a hook's `tool_name` see); Coder's own tools keep their names. */
-export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
+// (web_search is Claude Code's WebSearch since it became Coder's own tool: the owner, 2026-11-14, "start fixing and filling
+// in gaps on those tools"; its tool_input, query and the domain lists, has Claude Code's names already.)
+export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);

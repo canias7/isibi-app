@@ -172,15 +172,15 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   // IN THE LOOP: the tools Grok is offered.
   const names = (t) => (t.seen[0].tools || []).map((x) => x.function.name);
   let t = await job([say("ok")], { rules: { deny: ["*"], ask: [], allow: [] } });
-  assert.deepEqual(names(t), [], "a deny on every tool: none offered");
-  assert.equal(t.seen[0].webSearch, false, "Grok's web search off too");
+  assert.deepEqual(names(t), [], "a deny on every tool: none offered, web_search too");
+  assert.equal(t.seen[0].webSearch, undefined, "and no search of Grok's own in any call (2026-11-14: web_search is a tool)");
   t = await job([say("ok")], { rules: { deny: ["Bash"], ask: [], allow: [] } });
   assert.ok(!names(t).includes("bash") && !names(t).includes("monitor") && names(t).includes("read"));
   t = await job([say("ok")], { rules: { deny: ["TodoWrite", "W*"], ask: [], allow: [] } });
   assert.ok(!names(t).includes("todo") && !names(t).includes("write") && !names(t).includes("web_fetch") && names(t).includes("edit"));
-  assert.equal(t.seen[0].webSearch, false, "W* names WebSearch");
+  assert.ok(!names(t).includes("web_search"), "W* names WebSearch");
   t = await job([say("ok")], { rules: { deny: [], ask: [], allow: ["*"] } });
-  assert.ok(names(t).includes("bash") && t.seen[0].webSearch === undefined, "an allow wildcard takes nothing away");
+  assert.ok(names(t).includes("bash") && names(t).includes("web_search"), "an allow wildcard takes nothing away");
   // A call to a denied tool anyway: refused in Claude Code's words.
   t = await job([say("", [call("todo", { items: [{ text: "a", status: "pending" }] }, "t1")]), say("ok")], { rules: { deny: ["*"], ask: [], allow: [] } });
   assert.equal(t.told("t1"), "Permission to use TodoWrite has been denied.");

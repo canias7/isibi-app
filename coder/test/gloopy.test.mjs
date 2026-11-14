@@ -1549,7 +1549,8 @@ test("GL39 (2026-11-09) helpers: Gloopy splits a job; up to 4 helpers work at th
   const { HELPER_SYSTEM, HELPER_TOOLS, HELPER_TOOL_NAMES, HELPERS_TOOL } = await import("../container/gloopy-agent.mjs");
   const { HELPERS_MAX, HELPERS_PER_TURN } = await import("../container/coder-agent.mjs");
   assert.deepEqual([HELPERS_MAX, HELPERS_PER_TURN], [4, 8]);
-  assert.deepEqual(HELPER_TOOL_NAMES, ["read", "write", "edit", "grep", "glob", "web_fetch"], "no browser, no commands, no cards");
+  // (web_search since 2026-11-14: Claude Code's WebSearch as a tool, each search its own Grok call; it was Grok's own before.)
+  assert.deepEqual(HELPER_TOOL_NAMES, ["read", "write", "edit", "grep", "glob", "web_fetch", "web_search"], "no browser, no commands, no cards");
   const HELP = { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is 2026-11-09 (UTC)." };
   // Each helper waits until all three have started: this finishes only if they really run at the same time.
   let started = 0, release;

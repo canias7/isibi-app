@@ -4,7 +4,9 @@
 // Coder's is one more call to the chat's model (Grok, low effort, no tools) before an action that needs it runs:
 //   - in Auto: a bash command that is not read-only (and that no narrow allow rule of the owner's approves), and a web fetch;
 //   - in Plan: a bash command Plan would otherwise ask about (Claude Code: "the classifier reviews shell commands other than
-//     critical-path removals instead of prompting you. Approved commands run, and rejected ones are blocked").
+//     critical-path removals instead of prompting you. Approved commands run, and rejected ones are blocked");
+//   - in both, a web search that no WebSearch rule settles (2026-11-14; Claude Code's auto mode sends WebSearch to its
+//     classifier with the query, and "during planning … Web searches" too).
 // What it sees, as Claude Code's does: the owner's messages, Coder's earlier actions (not their results: "Tool results are
 // stripped from those requests, so hostile content in a file or web page can't manipulate the classifier directly"), and the
 // project's instructions. Its rules: Claude Code's rule names and the lists its docs give ("What the classifier blocks by
@@ -198,7 +200,8 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
         if (!name || LOOKUPS.has(name) || (skipId && c.id === skipId)) continue;
         let args = f.arguments;
         try { args = typeof args === "string" ? JSON.parse(args) : args; } catch { /* as sent */ }
-        const shown = name === "bash" && args && typeof args.command === "string" ? args.command : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : typeof args === "string" ? args : JSON.stringify(args || {});
+        // (A web search as Claude Code's classifier is shown one: its query, WebSearch's toAutoClassifierInput. 2026-11-14.)
+        const shown = name === "bash" && args && typeof args.command === "string" ? args.command : name === "web_search" && args && typeof args.query === "string" ? args.query : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : typeof args === "string" ? args : JSON.stringify(args || {});
         lines.push("[Coder's action] " + name + ": " + clip(shown, 700));
         // (A hook's note about this action's result, Claude Code's classifierContext: the application's word, not the owner's.)
         const note = notes && typeof notes.get === "function" ? notes.get(c.id) : "";
@@ -224,6 +227,9 @@ export function actionShown(name, args) {
   const a = args && typeof args === "object" ? args : {};
   if (name === "bash" || name === "powershell") return name + ": " + clip(a.command, 6000) + (a.run_in_background ? "\n(run in the background)" : "") + (a.description ? "\n(Coder's description: " + clip(a.description, 200) + ")" : "") + (Array.isArray(a.allowed_domains) && a.allowed_domains.length ? "\n(allowed_domains: the hosts this command asks to reach beyond the chat's network list, for this command alone: " + clip(a.allowed_domains.slice(0, 100).join(", "), 3000) + ")" : "");
   if (name === "web_fetch") return "web_fetch: " + clip(a.url, 2000) + "\n(what Coder asks the page reader: " + clip(a.prompt, 500) + ")";
+  // (A web search: its query, as Claude Code's auto mode classifier is given one, WebSearch's toAutoClassifierInput: the
+  // owner, 2026-11-14, "start fixing and filling in gaps on those tools".)
+  if (name === "web_search") return "web_search: " + clip(a.query, 2000);
   return name + ": " + clip(JSON.stringify(a), 3000);
 }
 

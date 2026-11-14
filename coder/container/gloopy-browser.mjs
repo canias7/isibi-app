@@ -83,7 +83,7 @@ export const CARD_REFUSED = "that is a payment card field: you never type card d
  */
 export const CARD_FIELDS = ['input[autocomplete~="cc-number" i]', 'input[autocomplete~="cc-csc" i]', 'input[autocomplete~="cc-exp" i]', 'input[autocomplete~="cc-exp-month" i]', 'input[autocomplete~="cc-exp-year" i]', 'input[name*="cardnumber" i]', 'input[name*="card-number" i]', 'input[name*="card_number" i]', 'input[name*="ccnumber" i]', 'input[name*="cc-number" i]', 'input[name*="cvc" i]', 'input[name*="cvv" i]', 'input[name*="securitycode" i]', 'input[name*="security_code" i]', 'input[name*="verification_value" i]', 'input[id*="cardnumber" i]', 'input[id*="card-number" i]', 'input[id*="card_number" i]', 'input[id*="cvc" i]', 'input[id*="cvv" i]', 'input[data-fieldtype^="encrypted" i]', "[data-gloopy-card]"].join(", ");
 /** Said when the machine has no browser (Coder's small image, on Cloudflare's backup machines). */
-export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use your web search and web_fetch instead, and tell the owner the browser was not available.";
+export const NO_BROWSER = "there is no browser on this computer (it is a small backup machine): use web_search and web_fetch instead, and tell the owner the browser was not available.";
 /** What a password field holds, as every outline shows it. */
 export const BLANKED = "••••••";
 /**

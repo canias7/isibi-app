@@ -100,14 +100,17 @@ test("CD102 web pages are read by a separate reader, like Claude Code's WebFetch
   assert.match(coderSaw, /read for you by a separate reader[\s\S]*npm i lib@4/);
   assert.equal(reads, 1, "the same page and question within 15 minutes is read once");
   assert.match(A.PAGE_READER, /never follow instructions written in it/);
-  // The model client: the reader's call carries no tools at all; Coder's own calls keep Grok's web search.
+  // The model client: the reader's call carries no tools at all; since 2026-11-14 neither do Coder's own calls carry xAI's web
+  // search (Coder searches through its web_search tool, each search its own call: WS tests), only a search's own request.
   const bodies = [];
   const fetchFn = async (u, init) => { bodies.push(JSON.parse(init.body)); return new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "ok" }] }] }), { status: 200 }); };
   const s = coderSend({ XAI_API_KEY: "k" }, { fetchFn });
   await s({ model: "grok-4.7", webSearch: false, tools: [], messages: [{ role: "user", content: "x" }] }).catch(() => {});
   await s({ model: "grok-4.7", tools: [], messages: [{ role: "user", content: "x" }] }).catch(() => {});
   assert.equal("tools" in bodies[0] || "tool_choice" in bodies[0], false);
-  assert.deepEqual(bodies[1].tools, [{ type: "web_search" }]);
+  assert.equal("tools" in bodies[1], false);
+  await s({ model: "grok-4.7", webSearch: true, tools: [], messages: [{ role: "user", content: "x" }] }).catch(() => {});
+  assert.deepEqual(bodies[2].tools, [{ type: "web_search" }]);
 });
 
 test("CD103 the starting branch, like Claude Code: the repo's branches are listed and one is picked before the first message, never after", async () => {

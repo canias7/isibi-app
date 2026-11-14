@@ -249,8 +249,8 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   assert.match(src, /stepAutoBlock\(r\) \+\n[\s\S]{0,500}?\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.match(css, /\.cd-autoblock-head \{ color: #b3261e; font-weight: 600; \}/, "in the red the page uses for a failed step");
-  // All of the checker's blocks (bash, web_fetch and a WebSocket watch, CD385c) send it in this shape.
+  // All of the checker's blocks (bash, web_fetch, a WebSocket watch, CD385c, and web_search since 2026-11-14) send it in this shape.
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   // (Marked as never run since Bash docs pass 9, part F: `ran: false`.)
-  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 3);
+  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 4);
 });
