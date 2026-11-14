@@ -1719,6 +1719,13 @@ export async function toolSendFile({ path }) {
   return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
 }
 
+/**
+ * A TOOL'S FAILURE AS CODER IS TOLD IT: "error: " and its words, the first 600 characters; a search's (coder-search.mjs's
+ * SearchError, `long`) the first 4,000; a page fetch's own (coder-webfetch.mjs's requestError, `whole`: Claude Code's texts,
+ * such as its words for a host that does not resolve or one the network list blocks, which name the host) all of it.
+ */
+export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
+
 export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
@@ -1739,7 +1746,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
     // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
     try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
-    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, e && e.long === true ? 4000 : 600), 1); }
+    catch (e) { return say(errorLine(e), 1); }
     say(text, 0);
   })();
 }

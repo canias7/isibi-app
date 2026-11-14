@@ -20,6 +20,7 @@ const H = await import("../container/coder-hooks.mjs");
 const P = await import("../container/coder-perms.mjs");
 const C = await import("../container/coder-checker.mjs");
 const I = await import("../container/coder-inputs.mjs");
+const M = await import("../container/coder-model.mjs");
 const TOOLS_SCRIPT = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
 
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -394,11 +395,16 @@ test("WF12 the page reader's message: Claude Code's own prompt (the page between
   const sent = [];
   const deps = { send: async (req) => { sent.push(req); return { message: { role: "assistant", content: "answer" }, usage: { in: 9, out: 2 } }; } };
   assert.deepEqual(await A.readPage(deps, { model: "grok-4.7", prompt: "p", content: "PAGE", lead: "LEAD\n" }), { ok: true, text: "answer", usage: { in: 9, out: 2 } });
-  assert.deepEqual(sent[0], { model: "grok-4.7", webSearch: false, tools: [], messages: [{ role: "system", content: A.PAGE_READER }, { role: "user", content: "LEAD\n" + W.readerMessage("PAGE", "p") }] }, "no effort given: none sent");
+  assert.deepEqual(sent[0], { model: "grok-4.7", webSearch: false, tools: [], emptyOk: true, messages: [{ role: "system", content: A.PAGE_READER }, { role: "user", content: "LEAD\n" + W.readerMessage("PAGE", "p") }] }, "no effort given: none sent");
   // (At the chat's own effort, as Claude Code's reader on the caller's model: test WEB7.)
   await A.readPage(deps, { model: "grok-4.7", effort: "high", prompt: "p", content: "PAGE" });
   assert.equal(sent[1].effort, "high");
-  // Claude Code: an answer with no text is a failed call; so is a reader that fails.
+  // Claude Code: an answer with no text is a failed call ("…gave no answer. Trying again may work."); so is a reader that
+  // fails. What Grok's own client gives for an answer with nothing in it (W4 of the recheck of 2026-11-14: it refused one in
+  // its own words first), and an answer of spaces (Claude Code trims it).
+  const nothing = M.coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify({ output: [{ type: "reasoning", status: "completed" }], usage: { input_tokens: 9, output_tokens: 0 } })) });
+  const empty = await A.readPage({ send: nothing }, { prompt: "p", content: "x" });
+  assert.deepEqual([empty.ok, empty.error, empty.usage.in], [false, "error: The model that reads the content gave no answer. Trying again may work.", 9], "its use counted");
   assert.deepEqual(await A.readPage({ send: async () => ({ message: { content: "  \n" } }) }, { prompt: "p", content: "x" }), { ok: false, error: "error: The model that reads the content gave no answer. Trying again may work.", usage: undefined });
   assert.deepEqual(await A.readPage({ send: async () => { throw new Error("model down"); } }, { prompt: "p", content: "x" }), { ok: false, error: "error: model down" });
 });
@@ -570,7 +576,9 @@ test("WF20 asking first, as Claude Code's WebFetch asks: its words on the card, 
   assert.deepEqual([card.url, card.why, card.rules], ["https://example.com/a", "Coder wants to fetch content from example.com", ["WebFetch(domain:example.com)"]]);
   assert.equal(toolMsg(t, "q1"), "read");
   t = await loop([say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "q2")]), say("done")], { mode: "acceptEdits", tools: { web_fetch: () => pageOut("x") }, deps: { ask: undefined } });
-  assert.equal(toolMsg(t, "q2"), "not run: Coder requested permissions to use WebFetch, but you haven't granted it yet.");
+  // (Claude Code's words with nothing in front of them: W5 of the recheck of 2026-11-14.)
+  assert.equal(toolMsg(t, "q2"), "Coder requested permissions to use WebFetch, but you haven't granted it yet.");
+  assert.equal(t.events.find((e) => e.type === "result" && e.id === "q2").output, "Coder requested permissions to use WebFetch, but you haven't granted it yet.");
   assert.equal(t.execs.length, 0);
   // (Claude Code: "WebFetch and browser prompts don't offer the field".)
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
@@ -691,4 +699,35 @@ test("WEB8 WebFetch(*) is a rule on the whole tool, as Claude Code reads any Too
   assert.deepEqual([t.told("d1"), t.execs.length], ["Permission to use WebFetch has been denied.", 0]);
   const a = await webJob([say("", [call("web_fetch", { url: "https://docs.python.org/3/", prompt: "p" }, "d2")]), say("done")], { mode: "auto", rules: { ask: ["WebFetch(*)"] } });
   assert.equal(a.cards.length, 1, "asked, even for a pre-approved site, in Auto");
+});
+
+test("WEB12 a failed fetch's text in Claude Code's words is told whole (its words for a host that does not resolve, or one the network list blocks, name the host, and run past 600 characters for a long one: W6 of the recheck of 2026-11-14); any other failure as before (600 characters; a search's 4,000)", { timeout: 20000 }, async () => {
+  const label = (c, n) => c.repeat(n);
+  // A host of 152 characters that does not resolve: Claude Code's cloud words, 684 characters.
+  const host = ["a", "b", "c", "d", "e"].map((c) => label(c, 28)).join(".") + ".example";
+  let got = null;
+  await assert.rejects(W.fetchPage({ url: "https://" + host + "/x" }, { request: async () => { throw Object.assign(new Error("getaddrinfo ENOTFOUND " + host), { code: "ENOTFOUND" }); } }), (e) => { got = e; return true; });
+  assert.equal(got.message, W.NOT_RESOLVED("getaddrinfo ENOTFOUND " + host, host));
+  assert.deepEqual([got.message.length, got.whole, got.code], [684, true, "ENOTFOUND"]);
+  assert.equal(T.errorLine(got), "error: " + got.message);
+  // Other failures: cut as before.
+  assert.equal(T.errorLine(new Error("x".repeat(700))), "error: " + "x".repeat(600));
+  assert.equal(T.errorLine(Object.assign(new Error("y".repeat(5000)), { long: true })), "error: " + "y".repeat(4000));
+  assert.equal(T.errorLine("plain"), "error: plain");
+  assert.match(readFileSync(TOOLS_SCRIPT, "utf8"), /catch \(e\) \{ return say\(errorLine\(e\), 1\); \}/);
+  // Coder's tools script, as the agent runs it, with the chat's network list on: a 312-character host blocked by the gate gets
+  // Claude Code's whole JSON (730 characters), not its first 600.
+  const longHost = ["f", "g", "h", "i", "j"].map((c) => label(c, 60)).join(".") + ".example";
+  const gate = http.createServer();
+  gate.on("connect", (req, sock) => { sock.end("HTTP/1.1 403 Forbidden\r\nx-deny-reason: host_not_allowed\r\ncontent-length: 0\r\n\r\n"); });
+  await new Promise((ok) => gate.listen(0, "127.0.0.1", ok));
+  try {
+    const b64 = Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url: "http://" + longHost + "/x", deadline_ms: 20000 } })).toString("base64");
+    const out = await new Promise((ok) => execFile(process.execPath, ["--no-warnings", TOOLS_SCRIPT, b64], { env: { ...process.env, CODER_NET_LIMITED: "1", HTTPS_PROXY: "http://127.0.0.1:" + gate.address().port }, encoding: "utf8" }, (err, stdout) => ok({ code: err ? err.code : 0, stdout })));
+    assert.equal(W.EGRESS_BLOCKED(longHost).length, 730);
+    assert.deepEqual(out, { code: 1, stdout: "error: " + W.EGRESS_BLOCKED(longHost) });
+  } finally { gate.closeAllConnections(); await new Promise((ok) => gate.close(ok)); }
+  // And Coder is told it whole (webFetchRun hands the tools script's failure on as it is).
+  const r = await A.webFetchRun({ exec: async () => ({ code: 1, output: "error: " + got.message }) }, { model: "m", args: { url: "https://" + host + "/x", prompt: "p" }, chat: "chat:w6" });
+  assert.deepEqual([r.code, r.out], [1, "error: " + got.message]);
 });
