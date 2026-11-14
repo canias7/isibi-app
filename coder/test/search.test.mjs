@@ -544,7 +544,7 @@ test("SR15 a folder Coder can't enter or can't read, and a file it can't read, a
   for (const x of ["rnox", "nor", "ok"]) mkdirSync(join(d, x));
   writeFileSync(join(d, "rnox/f.txt"), "word here\n"); writeFileSync(join(d, "nor/g.txt"), "word\n"); writeFileSync(join(d, "ok/h.txt"), "word\n"); writeFileSync(join(d, "secret.txt"), "word\n");
   chmodSync(join(d, "rnox/f.txt"), 0o644); chmodSync(join(d, "ok/h.txt"), 0o644); chmodSync(join(d, "ok"), 0o755);
-  chmodSync(join(d, "rnox"), 0o644); chmodSync(join(d, "nor"), 0o000); chmodSync(join(d, "secret.txt"), 0o600);
+  chmodSync(join(d, "rnox"), 0o644); chmodSync(join(d, "nor"), 0o000); chmodSync(join(d, "secret.txt"), 0o000); // (no one but root may read it: also the owner, when the tests run as one user)
   try {
     const traverse = "error: " + S.notTraversableText(join(d, "rnox"));
     assert.equal(traverse, "error: Cannot search " + join(d, "rnox") + ": the directory is not traversable (no execute permission).");
