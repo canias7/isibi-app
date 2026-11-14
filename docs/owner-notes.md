@@ -32,6 +32,7 @@ On my branch, not deployed yet. Fix 6 of 6. lsp is the tool that asks a language
   - no 10-minute idle stop.
 - **Kept on purpose:** one lookup can't run past the job's time limit, because every Coder command needs a limit.
 - **Tests:** 5 new and others rewritten. The helper's full run passed 930 of 932: the known helper-copy failure, and one Gloopy browser test that only failed while other helpers' test runs shared the computer and passes on its own.
+- **All six together:** after merging all six fixes, the full test suite passed 986 of 986.
 - **Good to know:** problems now come one step later, or with your next message, and the servers keep using memory until the chat's machine sleeps.
 
 ## 2026-11-14: Plan mode, the question card and the task list, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
