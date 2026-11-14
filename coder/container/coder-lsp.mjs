@@ -181,3 +181,6 @@ export function problemsNote(path, list) {
   const row = (p) => "  " + (p.severity === "warning" ? "⚠" : "✘") + " [Line " + p.line + ":" + p.column + "] " + p.message + (p.code ? " [" + p.code + "]" : "") + (p.source ? " (" + p.source + ")" : "");
   return "<new-diagnostics>The following new diagnostic issues were detected:\n\n" + path + ":\n" + list.slice(0, PROBLEMS_SHOWN).map(row).join("\n") + (list.length > PROBLEMS_SHOWN ? "\n  … and " + (list.length - PROBLEMS_SHOWN) + " more" : "") + "\n</new-diagnostics>";
 }
+
+/** The lsp tool's input, as Claude Code takes it (coder-inputs.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"). (A start: the work fills it in.) */
+export function checkInput(args) { return { args }; }

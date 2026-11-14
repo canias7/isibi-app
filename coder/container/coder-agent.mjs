@@ -27,8 +27,9 @@ import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets,
 import { textReasons } from "./coder-shell.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, WRITE_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
+import { inputCheckFor } from "./coder-inputs.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -940,6 +941,18 @@ export function readAnswer(raw) {
   } catch { return { text: "error: the picture could not be read", pics: [], thumb: "", thumbs: [] }; }
 }
 /**
+ * A TOOL'S ANSWER WITH ITS RESULT OBJECT FOR THE HOOKS (FACTS_MARK, coder-tools.mjs; the owner, 2026-11-14): its text for
+ * Grok, and the object, or none (an answer without the mark is all text; a mark whose line is not an object is dropped).
+ */
+export function factsAnswer(raw) {
+  raw = String(raw || "");
+  if (!raw.startsWith(FACTS_MARK)) return { text: raw, facts: null };
+  const nl = raw.indexOf("\n", FACTS_MARK.length);
+  const head = nl < 0 ? raw.slice(FACTS_MARK.length) : raw.slice(FACTS_MARK.length, nl);
+  const text = nl < 0 ? "" : raw.slice(nl + 1);
+  try { const j = JSON.parse(head); return { text, facts: j && typeof j === "object" && !Array.isArray(j) ? j : null }; } catch { return { text, facts: null }; }
+}
+/**
  * A WRITE'S ANSWER: its text for Grok, and what it changed for the chat (WRITE_MARK, coder-tools.mjs), checked again here
  * (numbers, at most WRITE_SHOW_LINES lines of at most 1,001 characters, key-shaped text hidden), or none.
  */
@@ -1567,6 +1580,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (What a command's PostToolUse hooks get beyond its output, in Claude Code's Bash output's names: backgroundTaskId,
   // backgroundedByUser, timedOutAfterMs, returnCodeInterpretation. Bash docs pass 9.)
   const bashFacts = new Map();
+  // (And what the other tools' PostToolUse hooks get beyond their output: their result object, factsAnswer. 2026-11-14.)
+  const toolFacts = new Map();
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
@@ -2019,7 +2034,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
     // (A git command that moves the work tree takes none: Claude Code says so with `skipped: true`. Bash docs pass 9.)
     const diff = c.name === "bash" && !c.monitor ? (editDiff === true && !res.background && !c.ps && movesWorkTree(String((c.args && c.args.command) || "")) ? { skipped: true } : editDiffFor(res.files)) : null;
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}) } : {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}) } : toolFacts.get(c.id) || {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
     if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
     let text = content;
     if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
@@ -2864,6 +2879,24 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
+      // A TOOL'S OWN INPUT CHECK FIRST, as Claude Code's Grep, Glob, LSP, WebFetch and WebSearch (coder-inputs.mjs; the owner,
+      // 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code: "Validation rejections are returned as
+      // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"): the input
+      // fixed as Claude Code fixes it (its note told to Coder with the call's answer), or refused before any hook or card.
+      const inputCheck = !c.rerun && c.args && typeof c.args === "object" ? inputCheckFor(c.name) : null;
+      if (inputCheck) {
+        let v;
+        try { v = inputCheck(c.args, { github: !!github }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
+        if (v && typeof v.error === "string") {
+          const what = RUN_TOOLS[c.name];
+          emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: scrub(String(what ? what.label(c.args) : c.name)).slice(0, 300) });
+          emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
+          reply(v.error);
+          continue;
+        }
+        if (v && v.args && typeof v.args === "object" && !Array.isArray(v.args)) c.args = v.args;
+        if (v && typeof v.note === "string" && v.note) c.inputNote = v.note;
+      }
       // PRETOOLUSE HOOKS (Claude Code: "Runs after Claude creates tool parameters and before processing the tool call"): before
       // Coder's own checks; one that denies (or exits 2) stops the call, its reason given to Coder in Claude Code's words
       // ("PreToolUse:Bash hook error: [cmd]: …"); one that changes the input changes it; its allow or ask is used below.
@@ -4236,6 +4269,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
         let raw = String((r && r.output) || "");
         const code = r && Number.isInteger(r.code) ? r.code : -1;
+        // (A tool's result object for its PostToolUse hooks, behind FACTS_MARK: taken off its answer here. 2026-11-14.)
+        if (code === 0) { const fa = factsAnswer(raw); raw = fa.text; if (fa.facts) toolFacts.set(c.id, fa.facts); }
+        const toolText = raw;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
         let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
@@ -4251,14 +4287,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if ((c.name === "grep" || c.name === "glob") && code === 0 && !github && ownRules.deny.some((r) => /^Read\(/.test(r))) raw = withoutDenied(raw, (x) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(x) : x, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }), c.name === "glob" ? "no files match " + String(args.pattern || "") : "no matches");
         let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
-        if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: String((r && r.output) || "") });
+        if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: toolText });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
         emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
-        reply((out || "(nothing)") + (more ? "\n\n" + more : "") + yesNote(approval));
+        // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs.)
+        reply((out || "(nothing)") + (c.inputNote ? "\n\n" + c.inputNote : "") + (more ? "\n\n" + more : "") + yesNote(approval));
       } else if (c.name === "exit_plan_mode") {
         // THE PLAN, FOR THE OWNER'S APPROVAL (Claude Code's ExitPlanMode): "Yes, and use auto mode" or "Yes, and accept
         // edits" ends Plan mode and Coder starts in this same turn; "No, keep planning" (with what to change) keeps it on.

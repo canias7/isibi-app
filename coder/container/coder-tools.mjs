@@ -622,6 +622,16 @@ const UTF8_HEAD = 8 * 1024 * 1024;
  */
 export const WRITE_MARK = "\u0000coder-write\u0000";
 export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 2 * 1024 * 1024;
+/**
+ * A TOOL'S OWN RESULT OBJECT, FOR THE HOOKS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+ * Claude Code's hooks reference: PostToolUse gets "the tool's structured Output object", such as Grep's mode, numFiles and
+ * filenames). A tool that has one returns { text, facts }: Grok gets `text`; the run prints FACTS_MARK, the facts as one
+ * line of JSON, a newline, then the text (the facts first, so a long text cut short never breaks them); Coder's loop
+ * takes them off (factsAnswer, coder-agent.mjs) and gives them to the PostToolUse hooks with the call's output.
+ */
+export const FACTS_MARK = "\u0000coder-facts\u0000";
+/** What a tool's run prints for its answer: its text, or its facts and text behind FACTS_MARK. */
+export const printedAnswer = (res) => (res && typeof res === "object" && typeof res.text === "string" ? (res.facts && typeof res.facts === "object" ? FACTS_MARK + JSON.stringify(res.facts) + "\n" + res.text : res.text) : String(res));
 /** A text's lines as read counts them: the last line break ends a line, it is not one more. */
 const textLines = (t) => { if (t === "") return []; const a = t.split("\n"); if (a[a.length - 1] === "") a.pop(); return a; };
 async function writeChange(oldText, newText) {
@@ -1733,7 +1743,8 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     const say = (text, code) => process.stdout.write(text, () => process.exit(code));
     if (!fn) return say("error: unknown tool", 2);
     let text;
-    try { text = String(await fn(req.args || {})); }
+    // (A tool with a result object for the hooks returns { text, facts }: printedAnswer.)
+    try { text = printedAnswer(await fn(req.args || {})); }
     catch (e) { return say("error: " + String((e && e.message) || e).slice(0, 600), 1); }
     say(text, 0);
   })();
