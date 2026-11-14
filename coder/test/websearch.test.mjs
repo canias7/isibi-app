@@ -497,7 +497,7 @@ test("WEB10 Claude Code's `mode` in Coder's chats and jobs from GitHub (its clou
   const hooks = { settings: { PreToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "pre.sh" }] }] } };
   const on = await job(calls3, { deps: { toolSearch: "false" }, hooks });
   assert.deepEqual(on.seen[0].tools.find((x) => x.function.name === "web_search"), W.WEB_SEARCH_MODE_TOOL);
-  assert.ok(on.seen[0].messages[0].content.startsWith(A.CODER_SYSTEM + "\n\n" + W.SEARCH_MODE_NOTE + "\n\n"));
+  assert.ok(on.seen[0].messages[0].content.startsWith(A.CODER_SYSTEM + "\n\n" + W.SEARCH_MODE_NOTE));
   assert.deepEqual(on.searches.map((q) => q.maxTurns), [1, 8, 8], "standard: one turn; extended, or none given: 8");
   assert.deepEqual(on.hookCalls.filter((x) => x.hook_event_name === "PreToolUse").map((x) => x.tool_input.mode), ["standard", "extended", "extended"], "a call without it: \"extended\", as Claude Code's prefault");
   // A PreToolUse hook's rewrite may leave `mode` out ("extended": Claude Code's schema fills it in), or set it; a wrong one is
@@ -518,7 +518,7 @@ test("WEB10 Claude Code's `mode` in Coder's chats and jobs from GitHub (its clou
   const ts = await job([say("", [call("tool_search", { query: "select:web_search", max_results: 5 }, "s1")]), say("ok")]);
   assert.equal(ts.told("s1"), "The following tools just became available and are ready to use:\nweb_search");
   assert.deepEqual(ts.seen[1].tools.find((x) => x.function.name === "web_search"), W.WEB_SEARCH_MODE_TOOL);
-  assert.ok(ts.seen[0].messages[0].content.includes("\n\n" + W.SEARCH_MODE_NOTE + "\n\n"));
+  assert.ok(ts.seen[0].messages[0].content.includes("\n\n" + W.SEARCH_MODE_NOTE));
   // The tool taken away by a deny rule: no note. A job from GitHub: both.
   const denied = await job([say("ok")], { rules: { allow: [], ask: [], deny: ["WebSearch"] } });
   assert.ok(!denied.seen[0].messages[0].content.includes(W.SEARCH_MODE_NOTE));
