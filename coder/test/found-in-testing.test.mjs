@@ -168,8 +168,9 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   // A picture over 20 MB (the old limit) is read now: made smaller, as Claude Code does (when ImageMagick is here).
   let hasConvert = true; try { execFileSync("convert", ["-version"]); } catch { hasConvert = false; }
   if (hasConvert) {
-    execFileSync("convert", ["-size", "2700x2700", "xc:red", join(dir, "big.bmp")]);
-    assert.match(read({ path: "big.bmp" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.bmp \(\d+×\d+, BMP, 2\d\.\d MB\)/);
+    // (A PNG of noise, as big as the BMP this was: BMP is refused as binary since round 6, as Claude Code's Read refuses it.)
+    execFileSync("convert", ["-size", "2700x2700", "xc:", "+noise", "Random", "-depth", "8", join(dir, "big.png")]);
+    assert.match(read({ path: "big.png" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.png \(\d+×\d+, PNG, 2\d\.\d MB\)/);
   }
 });
 
@@ -448,7 +449,8 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
+  // (Read's named too since round 6, as Claude Code's "Read file_path cannot contain null bytes …", before its hooks.)
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "read path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), POPPLER ? /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s : /^error: this machine has no PDF reader \(poppler\); use bash$/);
@@ -1437,7 +1439,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("A file over <b>" + T.READ_WHOLE_MAX / 1024 + " KB</b>"));
   assert.ok(page.includes("up to <b>" + n(T.PIC_SIDES[0]) + " pixels</b>"));
   assert.ok(page.includes("up to " + T.PIC_MAX_BYTES / 1048576 + " MB"));
-  assert.ok(page.includes("PNG, JPEG, GIF, WebP, BMP and TIFF") && Object.keys(T.PIC_KINDS).length === 8);
+  assert.ok(page.includes("PNG, JPEG, GIF and WebP") && page.includes("BMP and TIFF files are not opened as pictures (as in Claude Code)") && Object.keys(T.PIC_KINDS).length === 5);
   assert.ok(page.includes("Up to " + T.PDF_PAGES_FREE + " pages are read whole") && page.includes("at most <b>" + T.PDF_PAGES_MAX + " pages</b> at a time"));
   assert.ok(page.includes("<code>" + T.PICTURES + "</code>"));
   assert.equal(A.REREAD_FILES, 5);
@@ -1622,7 +1624,8 @@ test("CD252 write does not replace an instruction file Coder was shown only the 
   await tool("read", { path: "sub/AGENTS.md", offset: 1, limit: 2000 });
   assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused, "a part asked for, even all of its lines, is not a read in one call");
   assert.match(await tool("read", { path: "sub/AGENTS.md" }), /\[PARTIAL view: /);
-  assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^error: sub\/AGENTS\.md has not been read yet/);
+  // (Given only from its start comes first, before a part read, as Claude Code 2.1.325's Write checks them: round 6.)
+  assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused);
   // All of it in one call: allowed.
   assert.doesNotMatch(await tool("read", { path: "sub/AGENTS.md", allow_large: true, max_chars: 400000 }), /PARTIAL view|\[lines /, "allow_large, sized as the agent sizes it");
   assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^The file sub\/AGENTS\.md has been updated successfully\./);

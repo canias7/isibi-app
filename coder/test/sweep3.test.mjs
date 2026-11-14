@@ -81,7 +81,7 @@ test("SW4 coder-checker.mjs: no verdict and the stop after ten, in Claude Code 2
   assert.equal(C.checkUnavailable("grok-4.7", "bash", "rate-limited"), "grok-4.7 is temporarily unavailable (rate-limited), so auto mode cannot determine the safety of bash right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. " + NOTE);
 });
 
-test("SW5 coder-agent.mjs: the changed-on-disk note, the scratchpad line, and Auto's no-verdict words in a job (the tool named; at the tenth, that call and the rest of its response told the stop, the owner shown Claude Code's line)", async () => {
+test("SW5 coder-agent.mjs: the changed-on-disk note, the scratchpad line, and Auto's no-verdict words in a job (the tool named; at the tenth, that call told the stop, one not started after it skipped, the owner shown Claude Code's line)", async () => {
   const A = await import("../container/coder-agent.mjs");
   const C = await import("../container/coder-checker.mjs");
   const lead = "Note: src/a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself \u2014 otherwise no need to call it out. ";
@@ -112,7 +112,8 @@ test("SW5 coder-agent.mjs: the changed-on-disk note, the scratchpad line, and Au
   assert.equal(t.told("c0"), C.noVerdictTold("The classifier", "transient", "its answer could not be read", "bash"));
   assert.ok(t.told("c0").startsWith("The classifier gave no verdict (its answer could not be read), so auto mode cannot determine the safety of bash. This is a transient failure"));
   assert.equal(t.told("c9"), "Auto mode is unavailable: the server returned no safety verdict for 10 responses in a row, so bash was not run and this turn has ended. Wait for the owner's next message before doing anything further.");
-  assert.equal(t.told("f9"), "Auto mode is unavailable: the server returned no safety verdict for 10 responses in a row, so web_fetch was not run and this turn has ended. Wait for the owner's next message before doing anything further.");
+  // (One not started after it: Claude Code 2.1.325's words for a call its check's denial on another call stopped. Round 6.)
+  assert.equal(t.told("f9"), "[Tool call skipped: the turn was stopped before this call ran, by the check whose denial is on another call in this batch. Nothing refused this call and it had no effects; re-run it if still needed.]");
   assert.deepEqual(t.events.filter((e) => e.type === "error").map((e) => e.text), ["Auto mode is unavailable \u2014 the server returned no safety verdict for the last 10 responses, so Coder stopped. Send a message to try again, or switch out of auto mode."]);
 });
 

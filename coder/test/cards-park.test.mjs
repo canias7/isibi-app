@@ -432,7 +432,8 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   const st = await parked();
   const stop = await st.w.go("projects/" + st.w.id + "/stop", { method: "POST" });
   assert.deepEqual(stop.data, { ok: true, reload: true });
-  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }]);
+  // (And Claude Code's mark of the turn its Stop interrupted, after the results: round 6.)
+  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }, { role: "user", appNote: true, content: "[Request interrupted by the owner for tool use]" }]);
   assert.deepEqual(st.w.json("events.json").slice(-3).map((e) => [e.type, e.pid || e.id || "", e.choice || e.output || ""]), [["permanswer", "p1abcdef", "stop"], ["result", "b1", "Not run: stopped."], ["stopped", "", ""]]);
   assert.equal(st.w.turns()[0].text, "and fix what it finds", "sent next, as after any job's end");
   assert.equal(st.w.turns()[0].resume, undefined);

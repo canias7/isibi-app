@@ -237,8 +237,13 @@ export const PIC_ONE_MAX = 900_000;
 export const PDF_PAGES_MAX = 20, PDF_PAGES_FREE = 10;
 /** The text of a PDF's pages, or a notebook's cells, in one read. */
 export const READ_TEXT_MAX = READ_CHARS;
-/** The picture kinds read shows, by the file's ending (ImageMagick is told which: it never guesses from the contents). */
-export const PIC_KINDS = { ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".webp": "webp", ".bmp": "bmp", ".tif": "tiff", ".tiff": "tiff" };
+/**
+ * The picture kinds read shows, by the file's ending (ImageMagick is told which: it never guesses from the contents).
+ * Claude Code 2.1.325's own (its Read's image kinds, png, jpg, jpeg, gif and webp, and PDFs; round 6, the owner, 2026-11-14:
+ * "do what claude code does"): .bmp, .tif and .tiff are on its list of binary kinds, which its Read refuses before its hooks
+ * ("This tool cannot read binary files. The file appears to be a binary .bmp file. …"), so Coder's read refuses them too.
+ */
+export const PIC_KINDS = { ".png": "png", ".jpg": "jpeg", ".jpeg": "jpeg", ".gif": "gif", ".webp": "webp" };
 /**
  * A picture's longest side once shown (a bigger one is made smaller first; then smaller still should it not fit).
  * 2000 like Claude Code's (the owner, 2026-11-08: "Yea fix those 4"; tried side by side: a 6000×4000 picture was
@@ -538,9 +543,9 @@ async function readNotebook(raw, rel) {
  * FILES READ REFUSES BY THEIR KIND: Claude Code 2.1.325's own list, word for word from its raw program, in its order (round 4;
  * the owner, 2026-11-14: "yes pls do both"; its docs: "Read refuses a file whose extension it treats as binary, such as
  * .xlsx, .parquet, .heic, or .zip"), with its words for the refusal (BINARY_REFUSED). Coder's own list, each kind with a way
- * to read it, is gone. Pictures read shows (PIC_KINDS: .bmp, .tif and .tiff too, which Claude Code refuses) and PDFs are
- * read, as there. Any other file is read; one that is not text (a NUL byte in its start, UTF-16BE, not UTF-8) with Claude
- * Code's note after its lines (notTextNote).
+ * to read it, is gone. Pictures read shows (PIC_KINDS, Claude Code's: .bmp, .tif and .tiff refused since round 6) and PDFs
+ * are read, as there. Any other file is read; one that is not text (a NUL byte in its start, UTF-16BE, not UTF-8) with
+ * Claude Code's note after its lines (notTextNote).
  */
 export const BINARY_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif", ".heic", ".heif", ".avif", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg", ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso", ".zst", ".lz4", ".whl", ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib", ".app", ".msi", ".deb", ".rpm", ".dmg", ".apk", ".pdf", ".doc", ".docx", ".docm", ".dotx", ".dotm", ".xls", ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".ppt", ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm", ".odt", ".ods", ".odp", ".numbers", ".epub", ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib", ".sqlite", ".sqlite3", ".db", ".mdb", ".idx", ".parquet", ".feather", ".npy", ".npz", ".pickle", ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max", ".swf", ".fla", ".lockb", ".dat", ".data"]);
 /** A path with one of them, by Claude Code's own rule: what follows its last dot, in lower case. */
@@ -554,8 +559,114 @@ export const BINARY_REFUSED = (ext) => "This tool cannot read binary files. The 
 /** A path in single quotes, for a command shown to Coder. */
 const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
 
+/**
+ * READ'S `pages`, AS CLAUDE CODE 2.1.325'S READ CHECKS IT BEFORE ITS HOOKS (its validateInput, word for word from its raw
+ * program; round 6, the owner, 2026-11-14: "do what claude code does"): one page ("3") or one range ("1-5", or "3-" to the
+ * end), from page 1, at most PDF_PAGES_MAX pages; anything else refused in its words. → the refusal, or "". (An empty one is
+ * taken as none, as Coder took it before: Grok fills an optional input it has no value for with "".)
+ */
+export function pagesProblem(pages) {
+  if (pages === undefined || pages === null) return "";
+  const e = String(pages);
+  if (!e.trim()) return "";
+  const m = /^(\d{1,9})(?:\s*(-)\s*(\d{1,9})?)?$/.exec(e.trim());
+  const first = m ? Number(m[1]) : 0, last = !m ? 0 : m[3] ? Number(m[3]) : m[2] ? Infinity : first;
+  if (!m || first < 1 || last < first) return "Invalid pages parameter: \"" + e + "\". Give one page (\"3\") or one range (\"1-5\"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.";
+  if ((last === Infinity ? PDF_PAGES_MAX + 1 : last - first + 1) > PDF_PAGES_MAX) return "Page range \"" + e + "\" exceeds maximum of " + PDF_PAGES_MAX + " pages per request. Please use a smaller range.";
+  return "";
+}
+/** Edit's size limit, in Claude Code 2.1.325's words for it ("File is too large to edit (…). Maximum editable file size is 1GB."), with Coder's limit. */
+export const editTooBig = (size) => "File is too large to edit (" + ccSize(size) + "). Maximum editable file size is " + ccSize(EDIT_MAX_BYTES) + ".";
+/** A size as Claude Code writes one in those words: "N bytes", "1.5KB", "300MB", "1GB". */
+export function ccSize(n) {
+  const k = n / 1024;
+  if (k < 1) return n + " bytes";
+  if (k < 1024) return k.toFixed(1).replace(/\.0$/, "") + "KB";
+  const m = k / 1024;
+  if (m < 1024) return m.toFixed(1).replace(/\.0$/, "") + "MB";
+  return (m / 1024).toFixed(1).replace(/\.0$/, "") + "GB";
+}
+/** Edit's words for a missing file (Claude Code's Read and Edit, tried: "File does not exist. Note: your current working directory is …."). */
+const editMissing = () => "File does not exist. Note: your current working directory is " + BASE + ".";
+
+/**
+ * THE FILE TOOLS' OWN CHECKS BEFORE THEIR HOOKS (round 6; the owner, 2026-11-14: "do what claude code does"). Claude Code
+ * 2.1.325 checks a call's input (its schema), then the tool's own validateInput, and only then runs the call's PreToolUse
+ * hooks and its permission check ("Validation rejections are returned as tool_use_error results and happen before hooks run,
+ * so they fire neither PreToolUse nor PostToolUseFailure"): a refused call shows no card and runs no hook. Coder made these
+ * checks when the tool ran, after its hooks and its card. Now, in the order of Claude Code's Read, Write and Edit (read from
+ * its raw program), the checks Coder has:
+ * - read: the path given; no null byte in it, not too long, not ending in white space once resolved (pathProblem); a `pages`
+ *   it takes; (the owner's Read deny rule: the agent's denyFirst, round 5); not a kind it refuses as binary (.bmp, .tif and
+ *   .tiff among them);
+ * - write: its inputs (writeInputs), the path and the content given; the path's checks (pathProblem); (the deny rules); then, on the machine
+ *   (writeFirst): a folder, a file given only from its start, one read only in part or a notebook never read, one changed
+ *   since it was read;
+ * - edit: the path and both strings given; the path's checks; "No changes to make: …" (before the deny rules, as there); (the deny
+ *   rules); then, on the machine (editFirst): too big, a folder, missing, "Cannot create new file - file already exists.", a
+ *   notebook, changed since it was read where the edit no longer applies, not text, the string not found, more than one match.
+ * Each in the words its run gave it (Claude Code's, where Coder had copied them; the size limit's and the pages' now too).
+ * What Claude Code checks after its hooks stays after them: a path outside the project or in .git (its permission check), a
+ * pipe or a device read or written (its call), a link written (its call), a write's file that is not text (its call).
+ * `when`: "before" the owner's deny rules, or "after" them. → the refusal (as the tool's own failure, without "error: "), or "".
+ */
+export function fileInputProblem(name, args, when = "before") {
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  const path = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : undefined;
+  if (when === "after") {
+    if (name !== "read" || typeof path !== "string" || !path.trim() || path.includes("\0")) return "";
+    // (Its kind from the path as the tool opens it, trimmed, ~ the home folder: toolPath, as Claude Code's Read takes it.)
+    const q = toolPath(path), ext = extname(q).toLowerCase();
+    return binaryExt(q) && !PIC_KINDS[ext] && ext !== ".pdf" ? BINARY_REFUSED(ext) : "";
+  }
+  if (name === "write") {
+    let w;
+    try { w = writeInputs(a); } catch (e) { if (e instanceof ToolError) return e.message; throw e; }
+    if (typeof w.path !== "string" || !w.path.trim()) return "give a path";
+    if (typeof w.content !== "string") return "give the file's content";
+    return pathProblem("write", w.path);
+  }
+  if (name !== "read" && name !== "edit") return "";
+  if (typeof path !== "string" || !path.trim()) return "give a path";
+  if (name === "edit") {
+    const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str, new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
+    if (typeof old_string !== "string") return "give old_string: the exact text to replace";
+    if (typeof new_string !== "string") return "give new_string";
+    return pathProblem("edit", path) || (old_string === new_string ? EDIT_SAME : "");
+  }
+  return pathProblem("read", path) || pagesProblem(a.pages);
+}
+/** The longest path read, write and edit take (Claude Code 2.1.325's, its file tools' own limit). */
+export const PATH_MAX = 4096;
+/**
+ * A FILE TOOL'S PATH, AS CLAUDE CODE 2.1.325'S READ, WRITE AND EDIT CHECK IT FIRST (their validateInput, in its order and its
+ * words, Coder's tool name and its `path` for theirs; round 6): no null byte; at most PATH_MAX characters; and not one that
+ * ends in white space once its "." and ".." are resolved (its trim takes the white space at the ends of what was given, but
+ * not of a part a "." or ".." leaves last, such as "notes /."): toolPath taken twice gives another path. → the refusal, or "".
+ */
+export function pathProblem(tool, p) {
+  if (p.includes("\0")) return tool + " path cannot contain null bytes (\\0). Remove the null byte and try again.";
+  if (p.length > PATH_MAX) return tool + " path has " + p.length + " characters, and " + tool + " takes at most " + PATH_MAX + ". Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.";
+  const q = toolPath(p);
+  if (toolPath(q) !== q) return tool + " path ends in white space once its \".\" and \"..\" are resolved, and " + tool + " refuses such a path. If the white space is not meant, send the path without it. " + tool + " cannot open a file whose own name ends in white space.";
+  return "";
+}
+/**
+ * THE MACHINE'S PART OF THOSE CHECKS (fileInputProblem), for write and edit, made before their hooks (Coder's loop asks for it
+ * with its own call of this script, "file_check") and again as each runs: "ok", or the refusal. A path these tools refuse
+ * after their hooks (outside the project, in .git, a link) is left for then.
+ */
+export async function toolFileCheck({ tool = "", args = {} } = {}) {
+  if (tool === "write") await writeFirst(args);
+  else if (tool === "edit") await editFirst(args);
+  return "ok";
+}
+
 export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars, facts = false }) {
-  const { abs, rel } = await inside(path, { mustExist: true, output: true });
+  // (Claude Code's checks before its hooks first, in its order: fileInputProblem.)
+  const first = fileInputProblem("read", { path, pages }) || fileInputProblem("read", { path }, "after");
+  if (first) fail(first);
+  const { abs, rel } = await inside(path, { mustExist: true, output: true, tool: "read" });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
   const kind = await stat(abs);
   if (!kind.isFile() && !kind.isDirectory()) fail(rel + " is a pipe or a device, not a file; it cannot be read");
@@ -807,8 +918,35 @@ function writeInputs(args) {
   for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check", "facts"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
   return { ...got, note: said.length ? "\n\nNote: write's parameters are named `path` and `content`. " + said.slice(0, 10).join(" ") : "" };
 }
+/**
+ * WRITE'S CHECKS ON THE MACHINE BEFORE ITS HOOKS (fileInputProblem; round 6), in Claude Code 2.1.325's order (its Write's
+ * validateInput: a folder, then a file given only from its start, then one not read (read only in part; a notebook never
+ * read), then one changed since it was read), each in the words write's run gave it. A new file, a link, or a path refused
+ * after the hooks (outside the project, .git) is left to the run.
+ */
+async function writeFirst(args) {
+  const { path } = writeInputs(args);
+  let where;
+  try { where = await inside(path, { tool: "write" }); } catch (e) { if (e instanceof ToolError) return; throw e; }
+  const abs = where.abs, rel = abs === ROOT || abs.startsWith(ROOT + sep) ? where.rel : abs;
+  let st = null;
+  try { st = await lstat(abs); } catch { st = null; }
+  if (!st || st.isSymbolicLink() || (await brokenLinkOnTheWay(abs))) return;
+  if (st.isDirectory()) fail(rel + " is a directory, not a file. To create a file inside it, include the file name in path.");
+  if (!st.isFile()) return;
+  const seen = await seenEntry(abs);
+  if (seen && seen.start) fail(rel + ": " + WRITE_START);
+  if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
+  if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+  if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
+  // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
+  if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
+}
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
+  // (Claude Code's checks before its hooks first, in its order, as Coder's loop made them already: fileInputProblem.)
+  { const first = fileInputProblem("write", args); if (first) fail(first); }
+  await writeFirst(args);
   // (`check`: true or "sync", the file's new text for its language server; what it reports is taken at Coder's next step, and
   // told only to an agent with a shell, as Claude Code tells it: coder-agent.mjs.)
   const show_change = !!(args && args.show_change === true), check = args && (args.check === true || args.check === "sync") ? args.check : false;
@@ -832,13 +970,7 @@ export async function toolWrite(args) {
   let bytes = Buffer.from(content);
   let oldText = null; // a new file; the text it had, for the chat's view of the change
   if (st && st.isFile()) {
-    const seen = await seenEntry(abs);
-    if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
-    if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
-    if (seen && seen.start) fail(rel + ": " + WRITE_START);
-    if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
-    // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
-    if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");
+    // (Read only in part or from its start, a notebook never read, changed since read: refused by writeFirst, above.)
     // Its encoding, from its first 8 MB (a character cut at the end of that part is not counted against it).
     let old = await readFile(abs);
     const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
@@ -930,6 +1062,77 @@ function positions(hay, needle) {
 }
 /** The line ending most of a text's lines have. */
 function eolOf(x) { const crlf = (x.match(/\r\n/g) || []).length; return crlf > (x.match(/\n/g) || []).length - crlf ? "\r\n" : "\n"; }
+/** A file's text as edit takes it: its encoding (UTF-16LE behind its mark, else UTF-8), a UTF-8 mark kept apart, its line ending, and its body with plain line breaks. */
+function editBody(buf) {
+  const u = utf16Of(buf);
+  const raw = u ? fileText(buf) : buf.toString("utf8");
+  const bom = !u && raw.startsWith("\ufeff");
+  const text = bom ? raw.slice(1) : raw;
+  return { u, bom, text, eol: eolOf(text), body: text.replace(/\r\n/g, "\n") };
+}
+/**
+ * WHERE EDIT'S OLD TEXT IS IN A BODY (not empty): exactly; else with curly quotes for straight ones; else with `\uXXXX` written
+ * out taken for its character. → { at, oldN, newN, len }: the places, and the old and new text as they will be swapped.
+ */
+function editMatch(body, old_string, new_string) {
+  let oldN = old_string.replace(/\r\n/g, "\n"), newN = new_string.replace(/\r\n/g, "\n");
+  let at = positions(body, oldN), len = oldN.length;
+  // Curly quotes in the file, straight ones typed: the same text (one character each way, so places line up).
+  const viaQuotes = (o) => { const q = positions(straighten(body), straighten(o)); return q.length ? q : null; };
+  let curled = false;
+  if (!at.length) { const q = viaQuotes(oldN); if (q) { at = q; curled = true; } }
+  // `é` typed for "é".
+  if (!at.length && ESCAPED.test(oldN)) {
+    ESCAPED.lastIndex = 0;
+    const plain = unescapeU(oldN);
+    let q = positions(body, plain);
+    if (!q.length) { q = viaQuotes(plain) || []; curled = q.length > 0; }
+    if (q.length) { at = q; oldN = plain; len = plain.length; newN = unescapeU(newN); }
+  }
+  ESCAPED.lastIndex = 0;
+  if (curled) { const seenText = body.slice(at[0], at[0] + len); newN = curlify(newN, /[“”]/.test(seenText), /[‘’]/.test(seenText)); }
+  return { at, oldN, newN, len };
+}
+/** Changed on disk since Coder read it (or a command changed it and its note has not shown that yet). */
+const changedSince = (seen, st, buf) => !!seen && (seen.stale === true || ((st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(buf) !== seen.hash)));
+/**
+ * EDIT'S CHECKS ON THE MACHINE BEFORE ITS HOOKS (fileInputProblem; round 6), in Claude Code 2.1.325's order (its Edit's
+ * validateInput): too big ("File is too large to edit …", its words); a folder; missing (with old text to find); with no old
+ * text, a file that has text ("Cannot create new file - file already exists."); a notebook; changed since it was read, where
+ * the edit no longer applies; not text; the old text not found; found more than once without replace_all. Each in the words
+ * edit's run gives it. A link, or a path refused after the hooks (outside the project, .git), is left to the run.
+ * → { buf } when it read the file (for the run, so it is read once), else null.
+ */
+async function editFirst(a) {
+  const path = typeof a.path === "string" ? a.path : a.file_path;
+  const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str;
+  const new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
+  if (typeof old_string !== "string" || typeof new_string !== "string") return null;
+  const all = a.replace_all === true || (typeof a.replace_all === "string" && a.replace_all.trim().toLowerCase() === "true");
+  let where;
+  try { where = await inside(path, { tool: "edit" }); } catch (e) { if (e instanceof ToolError) return null; throw e; }
+  const abs = where.abs, rel = abs === ROOT || abs.startsWith(ROOT + sep) ? where.rel : abs;
+  let st = null;
+  try { st = await lstat(abs); } catch { st = null; }
+  if ((st && st.isSymbolicLink()) || (await brokenLinkOnTheWay(abs))) return null;
+  if (!st) { if (old_string !== "") fail(editMissing()); return null; }
+  if (st.size > EDIT_MAX_BYTES) fail(editTooBig(st.size));
+  if (st.isDirectory()) fail(folderError(abs));
+  if (!st.isFile()) return null;
+  const buf = await readFile(abs);
+  const notText = notTextOf(buf);
+  const { body } = editBody(buf);
+  if (old_string === "") { if (notText || body.trim() !== "") fail(EDIT_EXISTS); return { buf }; }
+  if (extname(abs).toLowerCase() === ".ipynb") fail(EDIT_NOTEBOOK);
+  const changed = changedSince(await seenEntry(abs), st, buf);
+  const { at } = editMatch(body, old_string, new_string);
+  const applies = at.length === 1 || (all && at.length > 0);
+  if (changed && !applies) fail(rel + " " + WRITE_CHANGED + ".");
+  if (notText) fail(rel + " " + notTextRefused(notText));
+  if (!at.length) fail(EDIT_NOT_FOUND + saidBack(old_string));
+  if (!applies) fail(editMany(at.length) + saidBack(old_string));
+  return { buf };
+}
 export async function toolEdit(args) {
   const a = args && typeof args === "object" ? args : {};
   const path = typeof a.path === "string" ? a.path : a.file_path;
@@ -940,6 +1143,9 @@ export async function toolEdit(args) {
   // received string' validation errors on Edit"); Coder took any text, "false" too, for yes and replaced them all.
   const all = a.replace_all === true || (typeof a.replace_all === "string" && a.replace_all.trim().toLowerCase() === "true");
   const show_change = a.show_change === true, check = a.check === true || a.check === "sync" ? a.check : false;
+  // (Claude Code's checks before its hooks first, in its order, as Coder's loop made them already: fileInputProblem.)
+  { const first = fileInputProblem("edit", a); if (first) fail(first); }
+  const held = await editFirst(a);
   const { abs, rel: inRel } = await inside(path, { tool: "edit" });
   // Named in full outside the project's own folder, as write's answers (Claude Code 2.1.304).
   const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
@@ -958,7 +1164,7 @@ export async function toolEdit(args) {
   if (await brokenLinkOnTheWay(abs)) fail("Refusing to write " + rel + ": where it leads on disk could not be determined (a link on the way could not be examined, or the links do not resolve).");
   if (extname(abs).toLowerCase() === ".ipynb" && !(st && st.isDirectory())) fail(EDIT_NOTEBOOK);
   if (!st) {
-    if (old_string !== "") fail("File does not exist. Note: your current working directory is " + BASE + ".");
+    if (old_string !== "") fail(editMissing());
     // NO OLD TEXT, NO FILE: made, with the folders it is in (Claude Code's Edit, tried: "newdir/deeper/made.txt" made).
     const made = Buffer.from(new_string);
     await mkdir(dirname(abs), { recursive: true });
@@ -967,45 +1173,26 @@ export async function toolEdit(args) {
     return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
   }
   if (st.isDirectory()) fail(folderError(abs));
-  if (st.size > EDIT_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
-  const buf = await readFile(abs);
+  if (st.size > EDIT_MAX_BYTES) fail(editTooBig(st.size));
+  // (Read once: editFirst read it for its checks.)
+  const buf = held && held.buf ? held.buf : await readFile(abs);
   // NOT TEXT (an old encoding, binary, NUL bytes, UTF-16 big-endian: notTextOf): nothing written, as Claude Code's Edit, in
   // Claude Code 2.1.325's words, its one text for Write and Edit (notTextRefused); with no old text, "Cannot create new file
   // - file already exists." first, as there. Coder's edit wrote one back with every such letter lost ("café" became "caf�"),
   // refused NUL bytes in its own words, and edited UTF-16BE (round 4).
   const notText = notTextOf(buf);
   if (notText) fail(old_string === "" ? EDIT_EXISTS : rel + " " + notTextRefused(notText));
-  const u = utf16Of(buf);
-  const raw = u ? fileText(buf) : buf.toString("utf8");
-  const bom = !u && raw.startsWith("\ufeff");
-  const text = bom ? raw.slice(1) : raw;
-  const eol = eolOf(text);
-  const body = text.replace(/\r\n/g, "\n");
+  const { u, bom, text, eol, body } = editBody(buf);
   // WHAT CODER KNEW OF IT: changed on disk since it was read (or a command changed it and its note has not shown that yet).
   const seen = await seenEntry(abs);
-  const changed = !!seen && (seen.stale === true || ((st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(buf) !== seen.hash)));
-  let oldN = old_string.replace(/\r\n/g, "\n"), newN = new_string.replace(/\r\n/g, "\n");
-  let at, len = oldN.length;
-  if (oldN === "") {
+  const changed = changedSince(seen, st, buf);
+  let at, len, newN;
+  if (old_string === "") {
     // NO OLD TEXT, A FILE WITH NONE EITHER: filled (Claude Code's Edit, tried, filled an empty file); one with text refused.
     if (body.trim() !== "") fail(EDIT_EXISTS);
-    at = [0]; len = body.length;
+    at = [0]; len = body.length; newN = new_string.replace(/\r\n/g, "\n");
   } else {
-    at = positions(body, oldN);
-    // Curly quotes in the file, straight ones typed: the same text (one character each way, so places line up).
-    const viaQuotes = (o) => { const q = positions(straighten(body), straighten(o)); return q.length ? q : null; };
-    let curled = false;
-    if (!at.length) { const q = viaQuotes(oldN); if (q) { at = q; curled = true; } }
-    // `é` typed for "é".
-    if (!at.length && ESCAPED.test(oldN)) {
-      ESCAPED.lastIndex = 0;
-      const plain = unescapeU(oldN);
-      let q = positions(body, plain);
-      if (!q.length) { q = viaQuotes(plain) || []; curled = q.length > 0; }
-      if (q.length) { at = q; oldN = plain; len = plain.length; newN = unescapeU(newN); }
-    }
-    ESCAPED.lastIndex = 0;
-    if (curled) { const seenText = body.slice(at[0], at[0] + len); newN = curlify(newN, /[“”]/.test(seenText), /[‘’]/.test(seenText)); }
+    ({ at, len, newN } = editMatch(body, old_string, new_string));
     if (!(at.length === 1 || (all && at.length))) {
       // Changed since read, and the old text not there once: read it again (Claude Code's own words for this).
       if (changed) fail(rel + " " + WRITE_CHANGED + ".");
@@ -1812,7 +1999,7 @@ export async function toolSendFile({ path }) {
  */
 export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, file_check: toolFileCheck, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

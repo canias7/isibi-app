@@ -29,6 +29,7 @@
  * No Node modules here: Coder's Worker uses the same record (src/coder-routes.mjs).
  */
 import { REJECTED } from "./coder-perms.mjs";
+import { interruptedNote } from "./coder-parallel.mjs";
 
 /** How long a card waits inside its job before the job pauses ("after a few minutes without activity"). */
 export const PARK_MS = 5 * 60 * 1000;
@@ -173,6 +174,15 @@ export function closeParked(messages, record, said = REJECTED, rest = said) {
   out.push({ role: "tool", tool_call_id: r.call.id, content: said });
   for (const tc of round.msg.tool_calls) if (tc && tc.id !== r.call.id && !replied.has(tc.id)) out.push({ role: "tool", tool_call_id: tc.id, content: rest });
   return out;
+}
+/**
+ * THE CARD CLOSED BY THE OWNER'S STOP (or a Rewind or an Undo, which close it as a Stop does): closeParked, then Claude Code
+ * 2.1.325's mark of the turn its Stop interrupted, "[Request interrupted by the owner for tool use]", after the round's results
+ * (round 6, coder-parallel.mjs). Unchanged when the messages do not end on that round.
+ */
+export function stopParked(messages, record) {
+  const out = closeParked(messages, record);
+  return out === messages || !Array.isArray(messages) ? out : [...out, interruptedNote()];
 }
 /**
  * What the chat shows when the owner's next message closes a paused card (`p`: its record, or the chat's meta.parked): its
