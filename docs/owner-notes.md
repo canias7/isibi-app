@@ -17,6 +17,36 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Round 4: your choices (your words: "On yes start", "yes pls do both")
+
+On my branch, not deployed yet. Five helpers, then two extras you said yes to. All 1,109 tests passed after merging.
+
+- **A bug fixed:** saving the Environment window no longer changes a value with a backslash before "n" (like
+  `C:\new\tmp`, or a key written with `\n`). Every value now comes back exactly as saved.
+- **Environment lookups show as a table** in the chat (the design is ours: Claude Code doesn't publish its table's look).
+- **Cheaper chats:** Coder's opening instructions to Grok now stay exactly the same for the whole chat, as Claude Code's
+  do. What changes (the folder, the date, the repo's instructions, Coder's memory) goes into the chat as short notes,
+  only what changed. So Grok keeps reusing what it already read. Changes to the repo's instructions or memory reach
+  Grok after the chat's machine restarts or after a summary, as in Claude Code.
+- **Hooks:** hooks can call your connectors ("mcp_tool" hooks). A card now shows at once while your permission hooks
+  run, and whichever answers first wins ("Allowed · by your PermissionRequest hook"). In GitHub jobs your permission
+  hooks get to allow or refuse before Coder refuses.
+- **File rules match exactly like Claude Code's:** `Read(src/*)` only matches that place; letter case doesn't matter;
+  `Read(**)` refuses each file instead of taking the read tool away; relative rules count from the folder Coder is in.
+  Coder's own plan file under `.claude/plans` no longer gets the "protected file" card.
+- **Long command output** is saved to a file, and Coder sees its start and end, as Claude Code does (it used to be cut).
+- **Write and edit** refuse UTF-16 files and files with null bytes; **read** refuses Claude Code's 121 binary file
+  types (`.zip`, `.db`, `.bin` …) in its words. Coder still shows `.bmp` and `.tif` pictures.
+- **Small ones:** the background-update heading when news arrives with your message; the shell setup lines and web
+  fetch's "proxy refused the connection" are Claude Code's; Coder's own Accept edits note is gone.
+- **Found wrong, no change:** Claude Code's cloud shows no startup warning for broken rules (it only logs them), so
+  Coder keeps warning when you save one.
+- **For you to decide:** should hooks from a repository's settings be allowed to call your connectors without asking
+  (Claude Code's cloud allows it)? Should a hook be able to call connector tools that normally ask first, including
+  real-money ones, without a card (Claude Code only stops tools set to Blocked)?
+- **Cost to know:** each existing chat re-reads everything once after the deploy, then the savings start.
+- **Not tried live yet:** that's for the next deploy.
+
 ## 2026-11-14: Round 3 is live on gofarther.dev, tested with Grok on Low (your words: "On yes start")
 
 Merged to main and deployed. The first deploy stopped at its own test run: one new test (SR15) expected a file its own

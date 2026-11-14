@@ -421,7 +421,9 @@ code in **each user's own GitHub**.
      see these tools by Claude Code's names (`mcp__claude-code-remote__…`, its three
      server names) with `mcp_server`; after a move Coder is told whether the machine
      took the network; the Environment window lists each environment's repositories.
-     Tests: `test/env-tools.test.mjs`.
+     Round 4: a lookup's answer shows in its opened step as a table (`envTable`), and the
+     Environment window's variables round-trip exactly (`parseEnv`). Tests:
+     `test/env-tools.test.mjs`.
    - *Cards stay open until answered* (`coder-park.mjs`; Claude Code: "Questions stay
      open until you answer them"): a permission, plan, question, key or environment
      card that has waited 5 minutes (the owner: "5 is fine") pauses the job, saved with
@@ -435,7 +437,24 @@ code in **each user's own GitHub**.
      go into the chat as notes (plan mode's reminder in full the first time and every
      5th, a short line between; Auto's once; Exited Plan/Auto Mode), so a mode change
      doesn't make Grok read the whole chat again at full price. Words typed with a Yes
-     reach Coder as typed, after the round's results. Tests: `test/plan-mode.test.mjs`.
+     reach Coder as typed, after the round's results. Round 4: the system message is
+     only Coder's instructions (and the GitHub note in GitHub jobs) for the whole chat;
+     the context (CODER.md, memory, the working folder, the environment, the date) goes
+     into the chat as notes (`coder-context.mjs`): all of it at the first message, then
+     only what changed; instruction files are told again after the machine restarts or
+     a summary, as Claude Code's. Coder's own Accept edits note is gone. Tests:
+     `test/plan-mode.test.mjs`, `test/context-cache.test.mjs`.
+   - *Hooks and cards* (round 4): `mcp_tool` hooks call the chat's connectors through the
+     Worker (`/api/coder/mcp` `{hook}`), as Claude Code's; a card shows at once while its
+     PermissionRequest hooks run, and the first answer wins ("· by your PermissionRequest
+     hook"); where no one can answer, those hooks still run before Coder refuses. Tests:
+     `test/hooks-race.test.mjs`.
+   - *Long output and file kinds* (round 4, Claude Code 2.1.325): a command's long output
+     is saved to a file with Claude Code's preview (first 500 and last 1,500 characters,
+     or the first 2KB); write and edit refuse UTF-16BE files and files with NUL bytes;
+     read refuses Claude Code's 121 binary file types in its words (Coder still shows
+     .bmp and .tif pictures); the shell setup lines are Claude Code's. Tests:
+     `test/fix4-bash.test.mjs`.
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
      Coder's open chat runs, and one line on a hover or a click. Made more real the
@@ -869,7 +888,11 @@ TaskOutput is: Coder reads the output file. Tests: `test/monitor.test.mjs`, CD39
 
 **Read(…) and Edit(…) rules** (Claude Code's file rules; owner, 2026-11-10: "yea do
 all 4"). The rules list takes `Read(path)` and `Edit(path)` besides Bash and
-WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`):
+WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`; since
+round 4 matched exactly as Claude Code matches them, with a port of node-ignore, its
+MIT notice in the file: case-insensitive, `Read(**)` a path rule, relative paths from
+the folder Coder is in, and for deny and ask rules also from the project and the
+working folders; the chat's own plan file needs no protected-file card):
 `//path` from the machine's root, `~/path` from Coder's home, any other path from
 the project (Coder keeps rules per repository, as Claude Code's local settings);
 a bare name matches at any depth; `src/**` matches a `src` folder at any depth in a
