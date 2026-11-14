@@ -17,6 +17,23 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: lsp (code checking) like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 6 of 6. lsp is the tool that asks a language server (a program that understands the code) for errors, definitions and the like.
+
+- **The language servers stay on for the whole chat.** Before, they stopped at the end of every message and had to start cold again, and Coder forgot which problems it had already been told about, so old problems came back as "new". Now they keep running until the chat's machine goes to sleep, like Claude Code's.
+- **Problems reach Coder after every step,** whatever tool it used, as in Claude Code. Problems that come in after Coder's last step reach it with your next message. Writes and edits no longer wait up to 20 seconds for a report.
+- **The chat shows a row** "Found N new diagnostic issues in M files" each time, which you can open.
+- **Like Claude Code:**
+  - a file that doesn't exist is refused before your hooks run;
+  - rules can name one lsp action, like LSP(operation:hover);
+  - a server that can't start shows a warning once;
+  - a server that is still starting isn't waited for;
+  - no 10-minute idle stop.
+- **Kept on purpose:** one lookup can't run past the job's time limit, because every Coder command needs a limit.
+- **Tests:** 5 new and others rewritten. The helper's full run passed 930 of 932: the known helper-copy failure, and one Gloopy browser test that only failed while other helpers' test runs shared the computer and passes on its own.
+- **Good to know:** problems now come one step later, or with your next message, and the servers keep using memory until the chat's machine sleeps.
+
 ## 2026-11-14: Plan mode, the question card and the task list, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 5 of 6.
