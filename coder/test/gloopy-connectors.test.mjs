@@ -91,7 +91,7 @@ test("GC3 (2026-11-13) a tool its server asks about every time asks on Gloopy's 
   assert.match(t.reply("k1"), /^asked the owner on a card \(this connector's server asks for their OK every time\)/);
 });
 
-test("GC4 (2026-11-13) a connector step the owner said no to is not done or asked about again until their next message; read-only tools started side by side never include one set to Needs approval or said no to (Gloopy has no Auto mode); Coder's Auto is as it was", async () => {
+test("GC4 (2026-11-13) a connector step the owner said no to is not done or asked about again until their next message; read-only tools started side by side never include one set to Needs approval or said no to (Gloopy has no Auto mode); Coder's Auto asks about it too since round 6's follow-up 2", async () => {
   // Said no: refused, no card, Gloopy goes on.
   let t = await gloopyTurn([say("", [call("mcp__fake__create_issue", { title: "Bug" }, "k1")]), say("OK, I won't.")], { denied: ["Use Fake: create_issue"] });
   assert.deepEqual(t.ran, []);
@@ -108,13 +108,13 @@ test("GC4 (2026-11-13) a connector step the owner said no to is not done or aske
   t = await gloopyTurn([say("", [call("mcp__fake__list_issues", {}, "k4"), call("mcp__fake__list_docs", {}, "k5")]), say("Done.")], { connectors: two, denied: ["Use Fake: list_issues"] });
   assert.deepEqual(t.ran.map((x) => x[0]), ["mcp__fake__list_docs"]);
   assert.match(t.reply("k4"), /^not done: the owner said no to this just now/);
-  // Coder, in Auto: a read-only tool set to Needs approval still runs there, side by side (Coder's modes, unchanged).
+  // Coder, in Auto: a read-only tool set to Needs approval asks there too since round 6's follow-up 2 (Claude Code's ask
+  // overrides auto mode), so it is never started side by side before its card; the Always allow one still runs at once.
   const c = scripted([say("", [call("mcp__fake__list_issues", {}, "c1"), call("mcp__fake__search_docs", {}, "c2")]), say("Done.")]);
-  const ran = [];
-  let asked = 0;
-  await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), ask: async () => { asked++; return { choice: "yes" }; }, mcp: async (n) => { ran.push(n); return { text: "ok", isError: false }; } }, { text: "x", mode: "auto", checker: false, connectors: CONN });
-  assert.deepEqual(ran.sort(), ["mcp__fake__list_issues", "mcp__fake__search_docs"]);
-  assert.equal(asked, 0);
+  const order = [];
+  await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }), ask: async () => { order.push("ask"); return { choice: "yes" }; }, mcp: async (n) => { order.push(n); return { text: "ok", isError: false }; } }, { text: "x", mode: "auto", checker: false, connectors: CONN });
+  assert.deepEqual(order.filter((x) => x !== "mcp__fake__list_issues"), ["ask", "mcp__fake__search_docs"]);
+  assert.equal(order.filter((x) => x === "mcp__fake__list_issues").length, 1);
 });
 
 test("GC8 (2026-11-13) Gloopy's helpers get the owner's connector tools set to Always allow (owner: \"fix 3\"; Claude Code's subagents get the session's MCP tools): never one that would need a card (Needs approval, or its server asks every time), nor one the owner just said no to", async () => {

@@ -58,7 +58,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
-import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, CONNECTOR_ASK_WHY, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
+import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
 import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
@@ -2164,10 +2164,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const noOneHooks = async (card) => {
     if (!hookList.length || !card || !card.tool) return null;
     const h = await cardHooks(card, HOOK_DENIED);
-    if (!h) return null;
+    if (!h || hookYesIgnored(card, h)) return null;
     if (h.take) h.take();
     return h.answer;
   };
+  /**
+   * A TOOL ITS SERVER MARKS "anthropic/requiresUserInteraction" (round 6, follow-up 2; Claude Code 2.1.325's hooks reference: "a
+   * hook can't skip its approval prompt with "allow", with or without updatedInput, because Claude Code can't confirm the hook
+   * collected the interaction the tool needs"): on its card (`hooksMayAllow: false`, Claude Code's own flag) a PermissionRequest
+   * hook's allow is no answer, and its updatedPermissions are not applied. Beside the card, the card waits for the owner, and
+   * an allow with a changed input makes the owner's Yes run the changed call (Claude Code shows its prompt again for it, its
+   * runHooks' "reprompted"); where no one can answer, the call is refused with its ask, as with no hook (its XVn: the hook's
+   * allow becomes a deny with the ask's message). A hook's deny still denies.
+   */
+  const hookYesIgnored = (card, h) => !!h && !!card && card.hooksMayAllow === false && !!h.answer && h.answer.choice === "yes";
   /** The card's ending as the page shows it, when one of its PermissionRequest hooks decided first: its answer, marked. */
   const hookEnding = (pid, answer) => emit({ type: "permanswer", pid, choice: answer.choice === "yes" || answer.choice === "stop" ? answer.choice : "no", hook: true });
   const askOwner = async (card, { hooks = true } = {}) => {
@@ -2184,7 +2194,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const noSurface = typeof deps.ask !== "function";
     if (!owed && (denyInstead === true || noSurface)) {
       const h = hooked ? await cardHooks(card, HOOK_DENIED) : null;
-      if (h) { if (h.take) h.take(); return h.answer; }
+      if (h && !hookYesIgnored(card, h)) { if (h.take) h.take(); return h.answer; }
     }
     if (!owed && denyInstead === true) {
       deniedRow++; deniedLast = true;
@@ -2196,8 +2206,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
     const shownMode = modeNow();
-    // (`told`, what Coder would be told where no one answers, is not the card's: round 6.)
-    const { told: _told, ...shownCard } = card;
+    // (`told`, what Coder would be told where no one answers, is not the card's: round 6; nor `hooksMayAllow`: hookYesIgnored.)
+    const { told: _told, hooksMayAllow: _hooksMayAllow, ...shownCard } = card;
     if (!owed) emit({ type: "permission", pid, ...shownCard });
     // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner or one of its
     // PermissionRequest hooks answered sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs
@@ -2206,9 +2216,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
     let first = null;
+    // (A hook's allow on a card no hook may answer: no answer; one with a changed input, the call the owner's Yes runs, and a
+    // note says so, as the card does not show a connector's input: hookYesIgnored. Round 6, follow-up 2.)
+    let hookInput = null;
+    const hooksRun = hooked && !noSurface ? cardHooks(card, HOOK_DENIED_CARD).then((h) => {
+      if (!hookYesIgnored(card, h)) return h;
+      if (h.answer.updatedInput) { hookInput = h.answer.updatedInput; emit({ type: "note", text: "A PermissionRequest hook changed this call's input. If you allow it, it runs with the changed input.", hook: "PermissionRequest" }); }
+      return null;
+    }) : null;
     // (A card with its own time limit, Auto's question for a dangerous removal, waits until then: card.blockAt. Any other
     // stays open: this job pauses after a while, waitFor.)
-    try { first = owed ? { owner: owed.answer } : await cardRace(pid, hooked && !noSurface ? cardHooks(card, HOOK_DENIED_CARD) : null, Number(card.blockAt) > 0 ? { until: Math.min(started + maxMs, Number(card.blockAt)) } : waitFor()); } catch { first = { owner: null }; } finally { if (notify) clearTimeout(notify); }
+    try { first = owed ? { owner: owed.answer } : await cardRace(pid, hooksRun, Number(card.blockAt) > 0 ? { until: Math.min(started + maxMs, Number(card.blockAt)) } : waitFor()); } catch { first = { owner: null }; } finally { if (notify) clearTimeout(notify); }
     // (One of its PermissionRequest hooks decided first: the card closes with that answer, cardRace.)
     if (first.hook) { if (first.hook.take) first.hook.take(); hookEnding(pid, first.hook.answer); return first.hook.answer; }
     const a = first.owner;
@@ -2220,7 +2238,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // "Approved Plan (edited by user)"). The owner, 2026-11-14.
     const planEdit = card && card.tool === "plan" && (choice === "auto" || choice === "acceptEdits") && a && typeof a.plan === "string" ? scrub(a.plan.replace(/\r\n?/g, "\n")).slice(0, PLAN_SHOW_MAX) : undefined;
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}), ...(planEdit !== undefined ? { plan: planEdit } : {}) });
-    return { choice, comment, ...(planEdit !== undefined ? { plan: planEdit } : {}) };
+    return { choice, comment, ...(planEdit !== undefined ? { plan: planEdit } : {}), ...(hookInput && choice === "yes" ? { updatedInput: hookInput } : {}) };
   };
   /** The question card's PermissionRequest hooks (cardHooks' answer for it, or null; `denied`: the words of a no without any). */
   const questionHooks = async (hookIn, denied) => {
@@ -3933,7 +3951,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (`exact`: as runsAhead's, for Coder's groups below.)
     // (`hooked`, `hookAllow`: its own PreToolUse hooks ran at its group's start and let it go on, or allowed it, which approves
     // it as its turn takes a hook's allow. Round 5.)
-    const quietWith = (c, exact, hooked = false, hookAllow = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || hookAllow || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    // (Nor, since round 6's follow-up 2, one set to Needs approval in Auto: it asks there too, as Claude Code's ask overrides
+    // auto mode.)
+    const quietWith = (c, exact, hooked = false, hookAllow = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || hookAllow) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     const quiet = (c) => quietWith(c, false);
     // (A connector's call, as its turn makes it below, or its group's start.)
     // (Through mcpCall: a connector's questions for the owner come as cards, also for a call started early. Round 3.)
@@ -4416,7 +4436,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (In Claude Code's words since round 6: its dialog's line for a rule, "Permission rule … requires confirmation for this
           // tool." (in Auto "Ask rule … overrides auto mode …"); where no one can answer, Coder is told its ask, "Coder requested
           // permissions to use <tool>, but you haven't granted it yet.".)
-          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc) };
+          // (A connector tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers it, hookYesIgnored.)
+          const ruleCard = { tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name] ? PLAN_ASKS[c.name](c.args) : "Use " + cc).slice(0, 300), why: ruleAskWhy(askRule, modeNow(), "tool"), told: askedWhy(cc), ...(mcpByName.has(c.name) && mcpByName.get(c.name).always ? { hooksMayAllow: false } : {}) };
           // (Where no one can answer, its PermissionRequest hooks still decide: noOneHooks, fix round 4, D5.)
           const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
           if (!a) { reply(ruleCard.told); continue; }
@@ -6383,7 +6404,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reply(found.length ? "Found and loaded (call them now):\n" + found.map((t) => JSON.stringify({ name: t.name, description: String(t.description).slice(0, CONNECTOR_DESC_FOUND), parameters: t.parameters })).join("\n").slice(0, 90000) : "No connector tool matches that. The names are in connector_search's description.");
       } else if (mcpByName.has(c.name)) {
         // A CONNECTOR'S TOOL (MCP), with the owner's permission for it (like Claude's: Allow, Needs approval, Block; Block is
-        // never offered). Needs approval asks in Accept edits and Plan; in Auto it runs, as Claude's Auto mode does.
+        // never offered). Needs approval asks in every mode, Auto too, as Claude Code's ask overrides auto mode (round 6,
+        // follow-up 2; until then it ran in Auto).
         // (With Coder's hooks and rules, merged 2026-11-13: its PreToolUse hooks and a rule on the whole tool came first, as for
         // any tool. A rule that already asked is not asked again; a PreToolUse hook's ask asks; its allow, or an allow rule, approves,
         // though not in Plan mode for a tool that may change something; in Plan mode such a tool asks, as Coder's own such tools do; a No,
@@ -6411,7 +6433,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           }
         }
         // A tool its server marks "anthropic/requiresUserInteraction" asks every time, in every mode (Claude Code: allow
-        // rules and modes do not skip it); where nobody can be asked, it does not run.
+        // rules and modes do not skip it, nor, since round 6's follow-up 2, its PermissionRequest hooks: hookYesIgnored); where
+        // nobody can be asked, it does not run.
         const hookDec = c.hook ? c.hook.decision : "";
         const planNow = modeNow() === "plan";
         // (An allow rule naming it, mcp__<server>__<tool>, mcp__<server> or mcp__<server>__*, approves it as a hook's allow does.)
@@ -6419,19 +6442,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const hookAllows = (hookDec === "allow" || ruleAllows) && !(planNow && !t.readOnly);
         // (In Claude Code 2.1.325's words since round 6: a PreToolUse hook's ask first, its line whatever else would ask, as its
         // card shows its hook's ask; a tool its server marks "anthropic/requiresUserInteraction", its ask, "Claude requested
-        // permissions to use <tool>, but you haven't granted it yet."; one the owner set to Needs approval, Claude Code's reason
-        // for a connector tool set to ask, "Your organization requires approval for this tool" (its ask's message too); plan
-        // mode's, "Cannot call <tool> while in plan mode.". What Coder is told where no one can answer is that ask itself.)
+        // permissions to use <tool>, but you haven't granted it yet."; one the owner set to Needs approval, that same ask, in
+        // every mode (follow-up 2: the setting is the owner's own, so not Claude Code's "Your organization requires approval for
+        // this tool"); plan mode's, "Cannot call <tool> while in plan mode.". What Coder is told where no one can answer is that
+        // ask itself.)
         const askWhy = askedByRule ? "" : hookDec === "ask" ? (c.hook.reason || hookAskWhy(c.name))
           : t.always ? askedWhy(c.name)
           : hookAllows ? ""
           : planNow && !t.readOnly ? planCallWhy(c.name)
-          : t.perm === "ask" && modeNow() !== "auto" ? CONNECTOR_ASK_WHY : "";
+          : t.perm === "ask" ? askedWhy(c.name) : "";
         // (Its display name, Claude Code's display_name for an MCP tool's permission request: round 6, toolDisplayName.)
-        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy, ...(askWhy && hookDec === "ask" ? { told: c.hook.reason || hookAskTold(c.name) } : {}), displayName: scrub(t.tool ? toolDisplayName(t.connector || (mcpParts(c.name) || {}).server, t.tool) : toolDisplayName("", c.name)).slice(0, 120) };
+        // (A tool its server marks requiresUserInteraction: no PermissionRequest hook's allow answers its card, hookYesIgnored.)
+        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy, ...(askWhy && hookDec === "ask" ? { told: c.hook.reason || hookAskTold(c.name) } : {}), ...(t.always ? { hooksMayAllow: false } : {}), displayName: scrub(t.tool ? toolDisplayName(t.connector || (mcpParts(c.name) || {}).server, t.tool) : toolDisplayName("", c.name)).slice(0, 120) };
         // (Where no one can answer, its PermissionRequest hooks decide first, and it is refused only when none does: noOneHooks,
-        // fix round 4, D5.)
-        const noOneAsks = !canAsk() && ((t.always && !askedByRule) || (!!askWhy && (hookDec === "ask" || (planNow && !t.readOnly))));
+        // fix round 4, D5. Whatever asks, Needs approval too since follow-up 2.)
+        const noOneAsks = !canAsk() && !!askWhy;
         const hookSaid = noOneAsks ? await noOneHooks(connCard) : null;
         // (A hook's or plan mode's ask in Claude Code's words, as its run with no one to answer returns it: round 6.)
         if (noOneAsks && !hookSaid) { reply(connCard.told || askWhy || askedWhy(c.name)); continue; }
