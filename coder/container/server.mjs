@@ -42,6 +42,7 @@ import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
+import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
 import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRIV } from "./coder-room.mjs";
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
@@ -203,10 +204,17 @@ const SNAP_ZSH_LINES = [
 export const SNAPSHOT_TAKE_ZSH = 'd="$HOME/.cache/coder"; mkdir -p "$d" && f="$d/shell-snapshot.zsh" && zsh -i -c \'\n' + SNAP_ZSH_LINES.join("\n") + '\n\' </dev/null 2>/dev/null | sed -n \'/^__CODER_SNAP_A__$/,/^__CODER_SNAP_B__$/p\' | sed \'1d;$d\' | head -c ' + SNAPSHOT_MAX + ' > "$f.new" && mv -f "$f.new" "$f"';
 export const SNAPSHOT_READ_ZSH = '{ if [ -r "$HOME/' + SNAPSHOT_FILE_ZSH + '" ]; then . "$HOME/' + SNAPSHOT_FILE_ZSH + '"; fi; } >/dev/null 2>&1\n';
 /**
- * zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF): Claude Code 2.1.322's own line, `setopt
- * NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL` (a bare glob qualifier such as *(e:…:) runs code), with ksh's patterns off as before.
+ * zsh's extended patterns off in every command, as bash's are (EXTGLOB_OFF): Claude Code 2.1.325's own line, word for word
+ * from its raw program (round 4; the owner: yes): `\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL
+ * NO_MAGIC_EQUAL_SUBST` (a bare glob qualifier such as *(e:…:) runs code; `\builtin` so no alias or function of that name
+ * stands in). Its NO_EQUALS is behind a switch that is off in a cloud session (tengu_goofy_church).
  */
-export const EXTGLOB_OFF_ZSH = "setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_KSH_GLOB 2>/dev/null || true\n";
+export const EXTGLOB_OFF_ZSH = "\\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST 2>/dev/null || true\n";
+/**
+ * WITH THE OWNER'S COMMAND PREFIX (CODER_SHELL_PREFIX, Claude Code's CLAUDE_CODE_SHELL_PREFIX), Claude Code 2.1.325's one line
+ * for either shell, as the prefix may run the command in either: bash's line, else zsh's, quietly.
+ */
+export const EXTGLOB_OFF_PREFIXED = "{ \\builtin shopt -u extglob || \\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST; } >/dev/null 2>&1 || true\n";
 /**
  * THE SHELL CODER'S COMMANDS RUN IN (Claude Code's CLAUDE_CODE_SHELL, under Coder's name CODER_SHELL: "Override automatic shell
  * detection. Useful when your login shell differs from your preferred working shell (for example, bash vs zsh)"): a bash or a
@@ -231,14 +239,16 @@ const isZsh = (shell) => /(^|\/)zsh$/.test(String(shell || ""));
 /**
  * BASH'S EXTENDED PATTERNS OFF, IN EVERY COMMAND (Bash docs pass 5; Claude Code 2.1.321 puts `shopt -u extglob` before each
  * command, after the shell snapshot): `!(…)`, `@(…)` and the like stay a syntax error, so a command runs the way Coder's
- * checks read it, even when the snapshot turned them on (Ubuntu's bash-completion does: `shopt -s extglob progcomp`).
+ * checks read it, even when the snapshot turned them on (Ubuntu's bash-completion does: `shopt -s extglob progcomp`). In
+ * Claude Code 2.1.325's words, `\builtin` first (round 4).
  */
-export const EXTGLOB_OFF = "shopt -u extglob 2>/dev/null || true\n";
+export const EXTGLOB_OFF = "\\builtin shopt -u extglob 2>/dev/null || true\n";
 /**
  * WHAT EVERY COMMAND OF CODER'S (and the owner's own with !) READS FIRST: the shell startup file's snapshot (only where the
  * AI has a home of its own), Claude Code's extended patterns off and its pgrep/pkill/pidwait, then the owner's CODER_ENV_FILE.
+ * (`prefixed`: the owner's command prefix wraps the command, so the line for either shell, EXTGLOB_OFF_PREFIXED.)
  */
-export const commandPrefix = (home, envLine = "", shell = "bash") => (home ? (isZsh(shell) ? SNAPSHOT_READ_ZSH : SNAPSHOT_READ) : "") + (isZsh(shell) ? EXTGLOB_OFF_ZSH : EXTGLOB_OFF) + PROC_WRAPPERS + SCRATCH_MAKE + envLine;
+export const commandPrefix = (home, envLine = "", shell = "bash", prefixed = false) => (home ? (isZsh(shell) ? SNAPSHOT_READ_ZSH : SNAPSHOT_READ) : "") + (prefixed ? EXTGLOB_OFF_PREFIXED : isZsh(shell) ? EXTGLOB_OFF_ZSH : EXTGLOB_OFF) + PROC_WRAPPERS + SCRATCH_MAKE + envLine;
 /**
  * THE CHAT'S SCRATCH FOLDER, there for every command (Bash docs pass 9; Claude Code's scratchpad, "a per-session directory
  * … for temporary files"): made private to the AI's user the first time; a test, no program, when it is there.
@@ -1246,6 +1256,25 @@ export async function keepNewest(dirPath, n) {
     withTimes.sort((a, b) => b.at - a.at);
     for (const { x } of withTimes.slice(n)) await unlink(join(dirPath, x)).catch(() => {});
   } catch { /* none */ }
+}
+/**
+ * THE LAST `n` BYTES OF A COMMAND'S OUTPUT FILE, as Claude Code 2.1.325 reads a long output's end back for its preview
+ * (bashResultText): from the first whole letter in them, `endAt` saying how many bytes come before. {} when the file is no
+ * longer than `n` or cannot be read. (The file is root's own, in the chat's output folder.)
+ */
+export async function outputEnd(file, n) {
+  if (!(Number(n) > 0) || typeof file !== "string" || !file) return {};
+  let fh = null;
+  try {
+    fh = await open(file, constants.O_RDONLY | constants.O_NOFOLLOW);
+    const size = (await fh.stat()).size;
+    if (size <= n) return {};
+    const buf = Buffer.alloc(n);
+    const { bytesRead } = await fh.read(buf, 0, n, size - n);
+    let p = 0;
+    while (p < bytesRead && (buf[p] & 0xc0) === 0x80) p++;
+    return { end: buf.subarray(p, bytesRead).toString("utf8"), endAt: size - n + p };
+  } catch { return {}; } finally { if (fh) await fh.close().catch(() => {}); }
 }
 /** WHILE ROOT WORKS WITH THE AI'S COMMANDS PAUSED (quietly, coder-freeze.mjs), a new command of the AI's waits for the end. */
 let PAUSED = null;
@@ -3660,7 +3689,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // environment variables", "Each Bash command runs the file's contents as shell code before the command itself".)
     // (In the owner's CODER_SHELL: shellOf.)
     t.shell = shellOf(rawVars.CODER_SHELL);
-    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell);
+    t.prefix = commandPrefix(home, envFileLine(rawVars.CODER_ENV_FILE, home0) + (home ? hookEnvLine(project) : ""), t.shell, !!shellPrefixOf(rawVars.CODER_SHELL_PREFIX));
     // (A PowerShell command's: the same, its env files read Claude Code's way, psEnvLine.)
     t.psPrefix = commandPrefix(home, psEnvLine(envFilePaths(rawVars.CODER_ENV_FILE, home0, home ? project : "")), t.shell);
     // THE COMMANDS' TIMEOUTS from the environment's BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS (see bashTimeouts).
@@ -3758,7 +3787,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (t.tmo.defaultMs !== 120_000 || t.tmo.maxMs !== 600_000 || t.tmo.bgDefaultMs !== BG_LIMIT_MS) netNote += "\n\nCOMMAND TIMEOUTS (" + (fromRepo("BASH_DEFAULT_TIMEOUT_MS") || fromRepo("BASH_MAX_TIMEOUT_MS") ? "this repository's .claude/settings.json" : "this chat's environment") + " sets BASH_DEFAULT_TIMEOUT_MS or BASH_MAX_TIMEOUT_MS): a command's timeout is " + t.tmo.defaultMs + " ms by default, at most " + t.tmo.maxMs + " ms; a background command's time limit is " + Math.round(t.tmo.bgDefaultMs / 60000) + " minutes by default, at most " + Math.round(t.tmo.bgMaxMs / 60000) + " minutes.";
     // BACKGROUND COMMANDS OFF, AND OUTPUT SIZES, when the environment sets them (see bashOutputLimits and t.noBg).
     if (t.noBg) netNote += "\n\nBACKGROUND COMMANDS ARE OFF (" + setBy("CODER_DISABLE_BACKGROUND_TASKS") + "): bash has no run_in_background, and a command still running at its timeout is stopped, not moved to the background. Start a server or watcher only for a bounded check (for example `timeout 20 npm run dev`), never to keep it running.";
-    if (t.outLimits.inlineMax !== OUT_INLINE || t.outLimits.readBack !== OUT_INLINE) netNote += "\n\nCOMMAND OUTPUT SIZES (" + setBy(t.outLimits.inlineMax !== OUT_INLINE ? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH") + "): output of a command that worked comes back inline up to " + t.outLimits.inlineMax.toLocaleString("en-US") + " characters, past that as a file and a preview; a failure's excerpt is cut from its first " + t.outLimits.readBack.toLocaleString("en-US") + " characters.";
+    if (t.outLimits.inlineMax !== OUT_INLINE || t.outLimits.readBack !== OUT_INLINE) netNote += "\n\nCOMMAND OUTPUT SIZES (" + setBy(t.outLimits.inlineMax !== OUT_INLINE ? "CODER_BASH_OUTPUT_MAX_CHARS" : "BASH_MAX_OUTPUT_LENGTH") + "): output of a command that worked comes back inline up to " + Math.min(t.outLimits.inlineMax, t.outLimits.readBack).toLocaleString("en-US") + " characters, past that as a file and a preview; a failure's excerpt is cut from its first " + t.outLimits.readBack.toLocaleString("en-US") + " characters.";
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
@@ -4279,7 +4308,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           // (A file tool is told the owner's additional working folders, CODER_WORK_DIRS, which it treats as the project: Claude
           // Code's additionalDirectories, round 3, 2026-11-14.)
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: Math.min(t.outLimits.inlineMax, t.outLimits.readBack), keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          // (Its output file is kept past either size, BASH_MAX_OUTPUT_LENGTH's too: Claude Code 2.1.325 saves such an output
+          // whole, never cut, and a long one's preview ends with the file's last lines, read back here: bashResultText.)
+          if (!tool && r && !r.background && typeof r.file === "string" && r.file && Number(r.size) > t.outLimits.readBack) Object.assign(r, await outputEnd(r.file, bashEndBytes(t.outLimits.readBack)));
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");

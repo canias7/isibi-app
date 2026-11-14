@@ -77,12 +77,12 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, W
   // Too big to show, even made smaller: refused (one read's pictures fit in what the machine passes on).
   const tiny = await T.asPicture(execFileSync("convert", ["-size", "800x800", "plasma:", "png:-"], { maxBuffer: 16 * 1024 * 1024 }), "png", 2000);
   assert.deepEqual(tiny, { why: "it is too big to show, even made smaller" });
-  // A TEXT FILE, as before: its numbered lines; never the mark, whatever it holds (the mark has a NUL in it,
-  // so a file holding it is not text at all, and is refused as before).
+  // A TEXT FILE, as before: its numbered lines; never the mark, whatever it holds (the mark has a NUL in it, so a file
+  // holding it is not text: its lines come with Claude Code 2.1.325's note, each after its number, never as pictures).
   await writeFile(join(dir, "a.txt"), T.PICS_MARK + '{"text":"x","pictures":[]}\nline two\n');
   const forged = read(dir, { path: "a.txt" });
-  assert.deepEqual([forged.code, forged.pictures.length], [1, 0]);
-  assert.match(forged.text, /^error: a\.txt is a binary file/);
+  assert.deepEqual([forged.code, forged.pictures.length], [0, 0]);
+  assert.equal(forged.text, "     1\t" + T.PICS_MARK + '{"text":"x","pictures":[]}\n     2\tline two\n' + T.notTextNote("nul"));
   await writeFile(join(dir, "b.txt"), 'coder-pictures {"text":"x","pictures":[]}\nline two\n');
   const txt = read(dir, { path: "b.txt" });
   assert.equal(txt.code, 0);
