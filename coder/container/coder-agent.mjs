@@ -3960,7 +3960,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // THE FILE TOOLS' OWN CHECKS BEFORE THEIR HOOKS (round 6; the owner, 2026-11-14: "do what claude code does"; coder-tools.mjs
     // fileInputProblem): Claude Code 2.1.325's Read, Write and Edit check a call's input in their validateInput before its
     // PreToolUse hooks and its permission check, so a refused call runs no hook and shows no card. In its order: read, write's
-    // and edit's own input checks (a path given, no null byte, read's `pages`, edit's "No changes to make"), the owner's deny
+    // and edit's own input checks (a path given, with no null byte, not over 4,096 characters, not ending in white space once
+    // resolved; read's `pages`, edit's "No changes to make"), the owner's deny
     // rules (denyFirst), read's binary kinds; then, for write and edit, what their run checks on the machine first
     // (fileCheck): a folder, a file not read or changed since, edit's size, a missing file, its old text not found, and the
     // rest. → the refusal, as the tool's own failure reads ("error: …", or a deny rule's words), or "". (Not Gloopy's.)

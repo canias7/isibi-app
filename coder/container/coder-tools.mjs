@@ -596,12 +596,13 @@ const editMissing = () => "File does not exist. Note: your current working direc
  * so they fire neither PreToolUse nor PostToolUseFailure"): a refused call shows no card and runs no hook. Coder made these
  * checks when the tool ran, after its hooks and its card. Now, in the order of Claude Code's Read, Write and Edit (read from
  * its raw program), the checks Coder has:
- * - read: the path given; no null byte in it; a `pages` it takes; (the owner's Read deny rule: the agent's denyFirst, round
- *   5); not a kind it refuses as binary (.bmp, .tif and .tiff among them);
- * - write: its inputs (writeInputs), the path and the content given; no null byte; (the deny rules); then, on the machine
+ * - read: the path given; no null byte in it, not too long, not ending in white space once resolved (pathProblem); a `pages`
+ *   it takes; (the owner's Read deny rule: the agent's denyFirst, round 5); not a kind it refuses as binary (.bmp, .tif and
+ *   .tiff among them);
+ * - write: its inputs (writeInputs), the path and the content given; the path's checks (pathProblem); (the deny rules); then, on the machine
  *   (writeFirst): a folder, a file given only from its start, one read only in part or a notebook never read, one changed
  *   since it was read;
- * - edit: the path and both strings given; no null byte; "No changes to make: …" (before the deny rules, as there); (the deny
+ * - edit: the path and both strings given; the path's checks; "No changes to make: …" (before the deny rules, as there); (the deny
  *   rules); then, on the machine (editFirst): too big, a folder, missing, "Cannot create new file - file already exists.", a
  *   notebook, changed since it was read where the edit no longer applies, not text, the string not found, more than one match.
  * Each in the words its run gave it (Claude Code's, where Coder had copied them; the size limit's and the pages' now too).
@@ -614,7 +615,8 @@ export function fileInputProblem(name, args, when = "before") {
   const path = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : undefined;
   if (when === "after") {
     if (name !== "read" || typeof path !== "string" || !path.trim() || path.includes("\0")) return "";
-    const q = resolve("/", path), ext = extname(q).toLowerCase();
+    // (Its kind from the path as the tool opens it, trimmed, ~ the home folder: toolPath, as Claude Code's Read takes it.)
+    const q = toolPath(path), ext = extname(q).toLowerCase();
     return binaryExt(q) && !PIC_KINDS[ext] && ext !== ".pdf" ? BINARY_REFUSED(ext) : "";
   }
   if (name === "write") {
@@ -622,7 +624,7 @@ export function fileInputProblem(name, args, when = "before") {
     try { w = writeInputs(a); } catch (e) { if (e instanceof ToolError) return e.message; throw e; }
     if (typeof w.path !== "string" || !w.path.trim()) return "give a path";
     if (typeof w.content !== "string") return "give the file's content";
-    return w.path.includes("\0") ? "write path cannot contain null bytes (\\0). Remove the null byte and try again." : "";
+    return pathProblem("write", w.path);
   }
   if (name !== "read" && name !== "edit") return "";
   if (typeof path !== "string" || !path.trim()) return "give a path";
@@ -630,11 +632,24 @@ export function fileInputProblem(name, args, when = "before") {
     const old_string = typeof a.old_string === "string" ? a.old_string : a.old_str, new_string = typeof a.new_string === "string" ? a.new_string : a.new_str;
     if (typeof old_string !== "string") return "give old_string: the exact text to replace";
     if (typeof new_string !== "string") return "give new_string";
-    if (path.includes("\0")) return "edit path cannot contain null bytes (\\0). Remove the null byte and try again.";
-    return old_string === new_string ? EDIT_SAME : "";
+    return pathProblem("edit", path) || (old_string === new_string ? EDIT_SAME : "");
   }
-  if (path.includes("\0")) return "read path cannot contain null bytes (\\0). Remove the null byte and try again.";
-  return pagesProblem(a.pages);
+  return pathProblem("read", path) || pagesProblem(a.pages);
+}
+/** The longest path read, write and edit take (Claude Code 2.1.325's, its file tools' own limit). */
+export const PATH_MAX = 4096;
+/**
+ * A FILE TOOL'S PATH, AS CLAUDE CODE 2.1.325'S READ, WRITE AND EDIT CHECK IT FIRST (their validateInput, in its order and its
+ * words, Coder's tool name and its `path` for theirs; round 6): no null byte; at most PATH_MAX characters; and not one that
+ * ends in white space once its "." and ".." are resolved (its trim takes the white space at the ends of what was given, but
+ * not of a part a "." or ".." leaves last, such as "notes /."): toolPath taken twice gives another path. → the refusal, or "".
+ */
+export function pathProblem(tool, p) {
+  if (p.includes("\0")) return tool + " path cannot contain null bytes (\\0). Remove the null byte and try again.";
+  if (p.length > PATH_MAX) return tool + " path has " + p.length + " characters, and " + tool + " takes at most " + PATH_MAX + ". Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.";
+  const q = toolPath(p);
+  if (toolPath(q) !== q) return tool + " path ends in white space once its \".\" and \"..\" are resolved, and " + tool + " refuses such a path. If the white space is not meant, send the path without it. " + tool + " cannot open a file whose own name ends in white space.";
+  return "";
 }
 /**
  * THE MACHINE'S PART OF THOSE CHECKS (fileInputProblem), for write and edit, made before their hooks (Coder's loop asks for it

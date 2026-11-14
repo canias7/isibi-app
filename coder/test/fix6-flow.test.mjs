@@ -249,10 +249,19 @@ test("CK1 the auto mode checker's tenth response in a row with no verdict ends t
   assert.equal(last(t).role, "tool");
 });
 
-test("FV1 the file tools' own checks before their hooks, in Claude Code 2.1.325's order and words (its Read, Write and Edit validateInput): the inputs, a null byte, read's pages, edit's 'No changes to make' (before the deny rules), read's binary kinds (after them); pages as its Read takes them", () => {
+test("FV1 the file tools' own checks before their hooks, in Claude Code 2.1.325's order and words (its Read, Write and Edit validateInput): the inputs, a null byte, a path over 4,096 characters or ending in white space once resolved, read's pages, edit's 'No changes to make' (before the deny rules), read's binary kinds (after them); pages as its Read takes them", () => {
   const f = T.fileInputProblem;
   assert.equal(f("read", { path: "" }), "give a path");
   assert.equal(f("read", { path: "a\0.txt" }), "read path cannot contain null bytes (\\0). Remove the null byte and try again.");
+  // A path over 4,096 characters, and one that ends in white space once its "." and ".." are resolved (Claude Code's own two
+  // checks after the null byte; white space around what was given is trimmed, as its tools take a path: toolPath).
+  assert.equal(T.PATH_MAX, 4096);
+  assert.equal(f("read", { path: "a/".repeat(2048) + "b" }), "read path has 4097 characters, and read takes at most 4096. Resolve any \"./\" and \"../\" parts, drop any white space around the path, and send it again.");
+  assert.equal(f("write", { path: "notes /.", content: "x" }), "write path ends in white space once its \".\" and \"..\" are resolved, and write refuses such a path. If the white space is not meant, send the path without it. write cannot open a file whose own name ends in white space.");
+  assert.ok(f("edit", { path: "a.txt /x/..", old_string: "a", new_string: "b" }).startsWith("edit path ends in white space once its \".\" and \"..\" are resolved, and edit refuses such a path."));
+  assert.deepEqual([f("read", { path: " a.txt " }), f("edit", { path: "d /..", old_string: "a", new_string: "b" }), f("read", { path: "~/notes.md" })], ["", "", ""], "trimmed, or a white space that a \"..\" takes away: taken");
+  assert.equal(f("read", { path: "a\0" + "x".repeat(5000) }).slice(0, 34), "read path cannot contain null byte", "the null byte first");
+  assert.equal(f("read", { path: " pic.bmp " }, "after"), T.BINARY_REFUSED(".bmp"), "its kind from the path as the tool opens it");
   assert.equal(f("read", { path: "doc.pdf", pages: "1,3" }), 'Invalid pages parameter: "1,3". Give one page ("3") or one range ("1-5"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.');
   assert.equal(f("read", { path: "a.zip", pages: "0" }).slice(0, 25), "Invalid pages parameter: ", "pages before the binary kind, as there");
   assert.equal(f("read", { path: "pic.bmp" }), "", "the binary kinds come after the deny rules");
@@ -346,6 +355,9 @@ test("FV3 the tools script's part, for real (its file_check and each run, the sa
     assert.equal(chk("edit", { path: "a.txt", old_string: "changed line", new_string: "b" }), "ok");
     // The run's own order is the same (its checks first): a changed file whose old text is gone.
     assert.equal(tool("edit", { path: "a.txt", old_string: "nope", new_string: "b" }), "error: a.txt " + T.WRITE_CHANGED + ".");
+    // Its path's own checks: Claude Code's words, before anything else on the machine.
+    assert.equal(tool("read", { path: "sub /." }), "error: read path ends in white space once its \".\" and \"..\" are resolved, and read refuses such a path. If the white space is not meant, send the path without it. read cannot open a file whose own name ends in white space.");
+    assert.match(tool("write", { path: "x".repeat(5000), content: "a" }), /^error: write path has 5000 characters, and write takes at most 4096\./);
     // Read: binary kinds and pages first, before the path's own checks (a missing .bmp is refused as binary, as there).
     assert.equal(tool("read", { path: "missing.bmp" }), "error: " + T.BINARY_REFUSED(".bmp"));
     assert.equal(tool("read", { path: "missing.pdf", pages: "9-40" }), 'error: Page range "9-40" exceeds maximum of 20 pages per request. Please use a smaller range.');
