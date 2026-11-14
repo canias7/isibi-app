@@ -17,6 +17,18 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Tool search, like Claude Code (the last gaps, part 2)
+
+On my branch, not deployed yet.
+
+- **Coder now holds back the tools it uses less often, as Claude Code does:** lsp, web_fetch, web_search, monitor, stop_job, the task-list tools, the plan-mode tools, and your connectors' tools. A note tells Coder their names. When it needs one, it loads it with a new tool, `tool_search`. Once loaded, a tool stays for the rest of the chat, including after a summary.
+- **Always there, as in Claude Code:** bash, read, edit, write, grep, glob, ask_user, the environment tools, the key card, and Coder's own GitHub tools.
+- **Smaller requests:** a chat's first request to Grok is about 17,600 characters shorter (about a quarter of the tool text). A GitHub job's is about 13,300 shorter.
+- **Cost to know:** Grok keeps a cheaper saved copy of each chat (its cache). Each time Coder loads a tool, that copy is rebuilt once, from that point on. That's about 15 cents in a long chat of 100,000 tokens, and much less early in a chat. If that's ever a problem, Claude Code's own setting `ENABLE_TOOL_SEARCH=false` turns tool search off.
+- **Existing chats** keep all their tools until they're summarized (Claude Code's rule). Connectors' tools are now always held back; before, that only happened when there were very many.
+- **Not tried live with Grok yet:** whether Grok loads tools well. That's for the live test after you say deploy.
+- **Tests:** 18 new, and the tests that listed the tools updated. The helper's full run passed 1,004 of 1,005; the one failure only happens in a helper's copy of the repo.
+
 ## 2026-11-14: The last small gaps from Claude Code's docs, part 1 (your words: "yes start on that")
 
 On my branch, not deployed yet. You asked whether we got everything from Claude Code's docs for these tools. I listed what was still missing, and two helpers started on it. This is the first helper's part.

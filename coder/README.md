@@ -308,9 +308,10 @@ code in **each user's own GitHub**.
      (a mismatch keeps the real output, with Claude Code's notice). The environment
      tools and request_secret, an MCP server's tools in Claude Code, take any object and
      check it themselves when they run, after the hooks. When only a value is wrong, the
-     model gets zod's raw issue list in Claude Code's format. (Three helpers each copied
-     that format the same day: `coder-zod.mjs`, `coder-issues.mjs` for the web tools and
-     `coder-zodtext.mjs` for the rest; they give the same text, and are to be made one.)
+     model gets zod's raw issue list in Claude Code's format, from one source
+     (`coder-zodtext.mjs`, which `coder-zod.mjs`, `coder-issues.mjs` and lsp use). A
+     rewrite of lsp's input gets lsp's file check too (the check is awaited), and
+     EnterPlanMode's and TodoWrite's output shapes are checked like the others.
      Tests: `test/hook-rewrites.test.mjs`.
    - *grep and glob* (`coder-search.mjs`): Claude Code's Grep and Glob on one ripgrep
      runner: their inputs, outputs, pages and limits, notes and errors. Kept, the
@@ -342,8 +343,21 @@ code in **each user's own GitHub**.
    - *The email check* (`coder-privacy.mjs`, Claude Code 2.1.325's): the account's
      email beside what names a client (a User-Agent, identity=, a From: header, …) is
      refused in Claude Code's words, in bash, monitor and powershell calls and up to 8
-     scripts they name, in what write and edit put in a file, in a web_fetch address
-     and in connector calls. Tests: `test/email-check.test.mjs`.
+     scripts they name, in what write and edit put in a file, in a web_fetch address,
+     in connector calls, and (since the afternoon) in the environment tools and
+     request_secret, which Claude Code's check reads as its claude-code-remote MCP tools
+     (`REMOTE_TOOLS`; Coder is told its own tool's name). Tests: `test/email-check.test.mjs`.
+   - *Tool search* (`coder-toolsearch.mjs`, Claude Code's ToolSearch; the owner: "yes
+     start on that"): Coder's chats hold back the tools Claude Code defers (lsp,
+     web_fetch, web_search, monitor, stop_job, todo_write, the task tools, enter_plan_mode,
+     exit_plan_mode) and connector tools not marked alwaysLoad. A note after the owner's
+     message names them; `tool_search` (select:, keywords, +word; max_results 5) returns
+     their definitions in a `<functions>` block, and a loaded tool stays for the chat (the
+     next message, a paused job, every summary). bash, read, edit, write, grep, glob,
+     ask_user, the environment tools, request_secret and Coder's own tools are always
+     sent. `ENABLE_TOOL_SEARCH` (true, false, auto, auto:N) in the chat's environment or
+     the repo's `.claude/settings.json` env; GitHub jobs use it too; Gloopy keeps its
+     connector_search. Tests: `test/tool-search.test.mjs`.
    - *task_create, task_get, task_list, task_update* (`coder-tasks.mjs`) in place of
      `todo`: Claude Code's four Task tools, as its cloud sessions have them; one list
      a chat, kept beside its memory; TaskCreated and TaskCompleted hooks. Gloopy
