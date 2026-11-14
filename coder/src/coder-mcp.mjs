@@ -881,6 +881,61 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
   }
 }
 
+// ── AN MCP_TOOL HOOK'S CALL (CL4 of the third recheck, fix round 4, 2026-11-14) ─────────────────────────────────────────
+
+/**
+ * A TOOL'S ANSWER AS AN MCP_TOOL HOOK READS IT (Claude Code 2.1.325: its text parts, each other part as "[<its type>]", one per
+ * line; "If the tool returns isError: true, the hook produces a non-blocking error", its text the error, else "MCP tool
+ * returned an error"): { ok, body, error? }.
+ */
+export function hookToolText(r) {
+  const body = r && Array.isArray(r.content) ? r.content.map((p) => (p && p.type === "text" ? String(p.text ?? "") : "[" + String((p && p.type) || "") + "]")).join("\n") : "";
+  return r && r.isError ? { ok: false, body, error: body || "MCP tool returned an error" } : { ok: true, body };
+}
+/** Claude Code's words (2.1.325) for an mcp_tool hook's call it does not make: a server not connected, a tool blocked in the session. */
+export const hookNotConnected = (server) => "MCP server '" + server + "' not connected";
+export const hookToolBlocked = (server, tool) => "Hooks can't call '" + tool + "' of MCP server '" + server + "', because that tool is blocked in this session. Remove this mcp_tool hook or point it at another tool.";
+/** And for an answer too large to read ("If a hook error contains one of these messages, Claude Code couldn't read the tool's answer"). */
+export const hookTooLarge = (server, tool) => "MCP tool \"" + tool + "\" on server \"" + server + "\" gave no answer that could be read, because a message from the server was too large, so this hook gave no verdict. If this keeps happening, the tool must send a smaller answer.";
+/**
+ * AN MCP_TOOL HOOK'S CALL FOR A JOB (Claude Code's hooks reference: "call a tool on a configured MCP server";
+ * container/coder-hooks.mjs runMcpToolHook): only a connector this chat has, by the name the owner gave it (its tools' hooks
+ * see it as mcp_server's name): one whose tools this job was given (on for the chat, signed in, working); else Claude Code's
+ * "not connected". A tool the owner set to Block, or switched off in this chat, is refused in Claude Code's words for a tool
+ * "blocked in this session" (`withheld`: the hook gives no verdict, so a PreToolUse one refuses its call). The call is made
+ * with the sign-in (a refused token refreshed once, as for any call), within the hook's own time (`timeoutMs`, at most the
+ * call limit); a question the server asks the owner meanwhile is cancelled (no card for a hook). Its answer as the hook reads
+ * it (hookToolText); one too large to read, Claude Code's words for that, `withheld`. → { ok, body, error?, withheld?, aborted? }.
+ */
+export async function hookCall(env, bucket, uid, id, turn, meta, h, { fetchFn = fetch, now = Date.now() } = {}) {
+  const server = typeof h.server === "string" ? h.server : "", tool = typeof h.tool === "string" ? h.tool : "";
+  const args = h.args && typeof h.args === "object" && !Array.isArray(h.args) ? h.args : {};
+  const kept = await getJson(bucket, jobToolsKey(uid, id), null);
+  const ids = new Set(kept && String(kept.turn) === String(turn) && kept.map && typeof kept.map === "object" ? Object.values(kept.map).map((x) => x && x.id).filter(Boolean) : []);
+  const list = ids.size ? await readConnectors(bucket, uid) : [];
+  const c = list.find((x) => x.name === server && ids.has(x.id) && !x.disabled && x.status !== "auth" && x.status !== "error");
+  if (!c) return { ok: false, body: "", error: hookNotConnected(server) };
+  const t = (Array.isArray(c.tools) ? c.tools : []).find((x) => x && x.name === tool);
+  const toolsOff = meta && Array.isArray(meta.toolsOff) ? meta.toolsOff : [];
+  if ((t && permOf(c, t) === "block") || toolsOff.includes(c.id + ":" + tool)) return { ok: false, body: "", withheld: true, error: hookToolBlocked(server, tool) };
+  const totalMs = Math.max(1000, Math.min(CALL_TOTAL_MS, Number(h.timeoutMs) || CALL_TOTAL_MS));
+  const once = async (force) => {
+    const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
+    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args }]], { fetchFn, idleMs: totalMs, totalMs });
+    return hookToolText(r);
+  };
+  try {
+    try { return await once(false); }
+    catch (e) { if (e instanceof NeedsSignIn && c.auth === "oauth") return await once(true); throw e; }
+  } catch (e) {
+    if (e instanceof NeedsSignIn) { c.status = "auth"; await writeConnectors(bucket, uid, list); return { ok: false, body: "", error: "the " + c.name + " connector needs the owner to sign in again (Settings, Connectors)" }; }
+    const msg = String((e && e.message) || e);
+    if (/answer is too large/.test(msg)) return { ok: false, body: "", withheld: true, error: hookTooLarge(server, tool) };
+    if (e && e.transient && /went on for over|said nothing for/.test(msg)) return { ok: false, body: "", aborted: true };
+    return { ok: false, body: "", error: msg.slice(0, 2000) };
+  }
+}
+
 /** SERVER INSTRUCTIONS (Claude Code: given to the model at the start, up to 4,096 characters): each working connector's. */
 export function connectorNotes(list, off = []) {
   return list.filter((c) => c.status === "ok" && !c.disabled && !off.includes(c.id) && typeof c.instructions === "string" && c.instructions.trim()).slice(0, 10).map((c) => ({ name: c.name, instructions: c.instructions.slice(0, INSTRUCTIONS_MAX) }));
@@ -994,6 +1049,9 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   try { body = JSON.parse((await request.text()).slice(0, 2_000_000)); } catch { body = null; }
   // THE OWNER'S ANSWER TO A CONNECTOR'S QUESTION (MCP elicitation, src/coder-elicit.mjs): kept for the call that waits on it.
   if (body && body.answer && typeof body.answer === "object") { const k = await keepAnswer(bucket, uid, id, body.answer); return answer(k, k.error ? 400 : 200); }
+  // AN MCP_TOOL HOOK'S CALL (fix round 4, CL4): { hook: { server, tool, args, timeoutMs } }, only to a connector this chat
+  // has: hookCall.
+  if (body && body.hook && typeof body.hook === "object" && !Array.isArray(body.hook)) return answer(await hookCall(env, bucket, uid, id, turn, meta, body.hook, { fetchFn, now }));
   if (!body || typeof body.tool !== "string") return answer({ error: "that tool call could not be read" }, 400);
   const which = await jobTool(bucket, uid, id, turn, body.tool);
   if (!which) return answer({ error: "not one of this job's connector tools" }, 403);

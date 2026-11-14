@@ -109,7 +109,8 @@
   const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? o.preview : null) : undefined; };
   const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : esc(pv || '')) + '</pre>'; };
   /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
-  const askDone = (ans) => (ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
+  // (Answered by one of your PermissionRequest hooks before you did: fix round 4, 2026-11-14.)
+  const askDone = (ans) => (ans.hook === true ? (ans.choice === 'yes' ? '<span class="cd-perm-ok">✓ Answered</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : '✕ Not answered') + '</span>') + ' · by your PermissionRequest hook' : ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -3380,6 +3381,9 @@
     // (Closed by the owner's next message while Coder's job was paused on it, as Claude Code closes such a card: no longer
     // answerable, and what it asked for did not run.)
     if (c === 'closed') return '<span class="cd-perm-no">Closed</span> · you sent a new message before answering';
+    // (Answered by one of your PermissionRequest hooks before you did: Claude Code runs them beside the card, and the first
+    // answer counts. Fix round 4, 2026-11-14.)
+    if (ans.hook === true) return (c === 'yes' ? '<span class="cd-perm-ok">✓ ' + (e.tool === 'plan' ? 'Approved' : 'Allowed') + '</span>' : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : '✕ ' + (e.tool === 'plan' ? 'Not approved' : 'Not allowed')) + '</span>') + ' · by your PermissionRequest hook';
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');

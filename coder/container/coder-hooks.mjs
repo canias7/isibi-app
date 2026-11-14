@@ -33,17 +33,18 @@ export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPr
 export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChanged"]);
 
 /**
- * THE KINDS OF HOOK EACH EVENT TAKES (Claude Code's "Prompt-based hooks" lists; Coder has no MCP servers, so no mcp_tool):
- * all four on the events that can stop or steer Coder, no agent on PermissionRequest, command and HTTP on the others, and
- * only command on SessionStart ("SessionStart and Setup support command and mcp_tool hooks").
+ * THE KINDS OF HOOK EACH EVENT TAKES (Claude Code's "Prompt-based hooks" lists): all five on the events that can stop or
+ * steer Coder, no agent on PermissionRequest, command, HTTP and MCP tool on the others, and only command and MCP tool on
+ * SessionStart ("SessionStart and Setup support command and mcp_tool hooks"). (mcp_tool since fix round 4, 2026-11-14: CL4 of
+ * the third recheck; they call a tool of one of the chat's connectors, runMcpToolHook below. Before, Coder had no MCP servers.)
  */
-const ALL_TYPES = ["command", "http", "prompt", "agent"];
+const ALL_TYPES = ["command", "http", "mcp_tool", "prompt", "agent"];
 export function typesFor(event) {
-  if (event === "SessionStart") return ["command"];
+  if (event === "SessionStart") return ["command", "mcp_tool"];
   // (TaskCreated and TaskCompleted too: Claude Code's "Events that support all five hook types".)
   if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
-  if (event === "PermissionRequest") return ["command", "http", "prompt"];
-  return ["command", "http"];
+  if (event === "PermissionRequest") return ["command", "http", "mcp_tool", "prompt"];
+  return ["command", "http", "mcp_tool"];
 }
 
 /**
@@ -124,7 +125,7 @@ const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string"
  * A SETTINGS OBJECT'S HOOKS (Claude Code's shape), each handler on its own line: `{ list, disabled, problems, httpUrls,
  * httpEnvVars }`. A handler: `{ event, matcher, type, timeout, ownTimeout, if, statusMessage, source }` and its kind's own
  * fields: command (`command`, `args`, `async`, `asyncRewake`, `onFailure`), http (`url`, `headers`, `allowedEnvVars`,
- * `onFailure`), prompt (`prompt`, `model`, `continueOnBlock`), agent (`prompt`, `model`). A kind an event doesn't take is named
+ * `onFailure`), mcp_tool (`server`, `tool`, `input`), prompt (`prompt`, `model`, `continueOnBlock`), agent (`prompt`, `model`). A kind an event doesn't take is named
  * in `problems` and left out, as Claude Code skips it. `source`: "settings" (the owner's) or "project" (the repository's).
  * `httpUrls` and `httpEnvVars`: Claude Code's allowedHttpHookUrls and httpHookAllowedEnvVars, when set.
  */
@@ -146,8 +147,7 @@ export function hooksFrom(settings, source = "settings") {
       for (const h of g.hooks) {
         if (!h || typeof h !== "object") continue;
         const type = String(h.type || "");
-        if (type === "mcp_tool") { out.problems.push(event + ": mcp_tool hooks don't run on Coder (it has no MCP servers)"); continue; }
-        if (!ALL_TYPES.includes(type)) { out.problems.push(event + ": a hook's type is command, http, prompt or agent (not " + (type || "no type") + ")"); continue; }
+        if (!ALL_TYPES.includes(type)) { out.problems.push(event + ": a hook's type is command, http, mcp_tool, prompt or agent (not " + (type || "no type") + ")"); continue; }
         if (!typesFor(event).includes(type)) { out.problems.push(event + " doesn't take " + type + " hooks"); continue; }
         const base = { event, matcher, type, timeout: timeoutFor(event, h.timeout, type), ...(Number.isFinite(Number(h.timeout)) && Number(h.timeout) > 0 ? { ownTimeout: true } : {}), ...(typeof h.if === "string" && h.if.trim() ? { if: h.if.trim() } : {}), ...(typeof h.statusMessage === "string" && h.statusMessage.trim() ? { statusMessage: h.statusMessage.trim().slice(0, 200) } : {}), source };
         const onFailure = h.onFailure === "block" ? { onFailure: "block" } : {};
@@ -164,6 +164,12 @@ export function hooksFrom(settings, source = "settings") {
           if (!ok) { out.problems.push(event + ": an http hook needs an http or https url"); continue; }
           const headers = h.headers && typeof h.headers === "object" && !Array.isArray(h.headers) ? Object.fromEntries(Object.entries(h.headers).filter(([k, v]) => /^[A-Za-z0-9-]{1,100}$/.test(k) && typeof v === "string").slice(0, 30)) : null;
           out.list.push({ ...base, url: String(h.url), ...(headers ? { headers } : {}), ...(strList(h.allowedEnvVars) ? { allowedEnvVars: strList(h.allowedEnvVars) } : {}), ...onFailure });
+        } else if (type === "mcp_tool") {
+          // (Claude Code's fields: `server` "Name of an already-configured MCP server to invoke", `tool` "Name of the tool on
+          // that server to call", `input` "Arguments passed to the MCP tool", an object; no onFailure.)
+          if (typeof h.server !== "string" || !h.server.trim() || typeof h.tool !== "string" || !h.tool.trim()) { out.problems.push(event + ": an mcp_tool hook needs its server and tool"); continue; }
+          if (h.input !== undefined && (!h.input || typeof h.input !== "object" || Array.isArray(h.input))) { out.problems.push(event + ": an mcp_tool hook's input is an object of the tool's arguments"); continue; }
+          out.list.push({ ...base, server: h.server, tool: h.tool, ...(h.input !== undefined ? { input: h.input } : {}) });
         } else {
           if (typeof h.prompt !== "string" || !h.prompt.trim()) { out.problems.push(event + ": a " + type + " hook needs its prompt"); continue; }
           out.list.push({ ...base, prompt: h.prompt.slice(0, 20_000), ...(typeof h.model === "string" && h.model.trim() ? { model: h.model.trim() } : {}), ...(type === "prompt" && h.continueOnBlock === true ? { continueOnBlock: true } : {}) });
@@ -211,7 +217,8 @@ export function matcherMatches(matcher, value, narrow = false) {
 // (The same handler is its type, what it runs, and its `if` and shell: two with the same command under different `if` values
 // are two handlers, and each runs when it matches; Claude Code: "If you define the same handler in more than one settings
 // file, it runs once". Bash docs pass 9.)
-const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.prompt) + "\u0000" + String(h.if || "") + "\u0000" + String(h.shell || "");
+// (An mcp_tool hook is its server, tool and input: Claude Code's `mcp_tool\0server\0tool\0input`.)
+const handlerKey = (h) => h.type + "\u0000" + (h.type === "command" ? h.command + "\u0000" + JSON.stringify(h.args || null) : h.type === "http" ? h.url : h.type === "mcp_tool" ? h.server + "\u0000" + h.tool + "\u0000" + JSON.stringify(h.input || {}) : h.prompt) + "\u0000" + String(h.if || "") + "\u0000" + String(h.shell || "");
 
 /**
  * THE HOOKS THAT RUN FOR ONE EVENT, deduplicated: `value` is what the matcher filters (a tool's name, how a session started,
@@ -516,6 +523,19 @@ export function hookResult(event, run, hook = {}) {
     if (!run || !run.verdict) return { kind: "error", json: null, text: "", reason: "", notice: String((run && run.error) || "The model gave no answer").slice(0, 300) };
     return { kind: "ok", json: null, text: "", reason: "", notice: "", verdict: { ok: run.verdict.ok === true, reason: cap(String(run.verdict.reason || "")), impossible: run.verdict.impossible === true } };
   }
+  // AN MCP_TOOL HOOK (runMcpToolHook's run; Claude Code: "The tool's text output is treated like command-hook stdout", "If
+  // the tool returns isError: true, the hook produces a non-blocking error and execution continues"): one that could not
+  // be read or was refused (`withheld`) refuses the call on PreToolUse, in Claude Code's words ("refusing rather than skipping
+  // that gate"; `bare`: the words stand alone after "PreToolUse:<tool> hook error: "), and is an error notice elsewhere; one
+  // that timed out says nothing ("Timed out"); otherwise its text is read as a command hook's stdout on exit 0. (No onFailure.)
+  if (hook.type === "mcp_tool") {
+    const m = run && run.mcp && typeof run.mcp === "object" ? run.mcp : {};
+    const err = String((run && run.stderr) || "");
+    if (m.withheld && event === "PreToolUse") return { kind: "block", json: null, text: "", reason: "a PreToolUse mcp_tool hook could not run (" + err + "); refusing rather than skipping that gate", notice: "", bare: true };
+    if ((run && run.timedOut) || m.aborted) return { kind: "error", json: null, text: "", reason: "", notice: "Timed out" };
+    if (m.ok !== true) return { kind: "error", json: null, text: "", reason: "", notice: err || "MCP tool returned an error" };
+    return hookResult(event, { code: 0, stdout: String((run && run.stdout) || ""), stderr: "" }, { type: "command" });
+  }
   // An HTTP hook (Claude Code's "HTTP response handling").
   if (run && run.http) {
     if (run.timedOut) return fail("timed out") || { kind: "error", json: null, text: "", reason: "", notice: "Timed out" };
@@ -641,8 +661,9 @@ export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
     // the hook's stderr, "No stderr output" when it printed none. A PreToolUse block is "PreToolUse:Bash hook error: …";
     // another event's is "PostToolUse:Bash hook blocking error from command: "command hook": …"; a Stop hook's is "Stop hook
     // feedback:" and a new line, then for a JSON block that other line too, as Claude Code gives the model both.
+    // (An mcp_tool hook that could not run on PreToolUse, `bare`: its words alone, as Claude Code gives them.)
     const blockBy = (why) => {
-      const byExit = result.kind === "block";
+      const byExit = result.kind === "block" && result.bare !== true;
       const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
       const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
       // (TaskCreated and TaskCompleted: "TaskCreated hook feedback:" and a new line, then the same words. 2026-11-14.)
@@ -832,6 +853,50 @@ export function withMcpServer(event, extra, server = "") {
   let name = "";
   try { name = typeof server === "function" ? server(t) : server; } catch { name = ""; }
   return typeof name === "string" && name ? { ...extra, mcp_server: { name, source: "claudeai" } } : extra;
+}
+
+/**
+ * AN MCP_TOOL HOOK'S ARGUMENTS (CL4 of the third recheck, fix round 4, 2026-11-14; Claude Code's hooks reference: "String
+ * values support ${path} substitution from the hook's JSON input, such as "${tool_input.file_path}""): each ${a.b.c} in a
+ * string, at any depth of `input`, is that value of the hook's input, an object or a list as its JSON, nothing when it is not
+ * there or is null, as Claude Code 2.1.325 fills them; no input is {}.
+ */
+export function mcpHookArgs(input, hookIn) {
+  const at = (path) => { let v = hookIn; for (const k of path.split(".")) { if (v === null || v === undefined || typeof v !== "object") return undefined; v = v[k]; } return v; };
+  const fill = (v) => {
+    if (typeof v === "string") return v.replace(/\$\{([a-zA-Z_][a-zA-Z0-9_.]*)\}/g, (_, p) => { const x = at(p); return x === undefined || x === null ? "" : typeof x === "object" ? JSON.stringify(x) : String(x); });
+    if (Array.isArray(v)) return v.map(fill);
+    if (v !== null && typeof v === "object") { const o = {}; for (const [k, x] of Object.entries(v)) o[k] = fill(x); return o; }
+    return v;
+  };
+  return input ? fill(input) : {};
+}
+/** Claude Code's words for an mcp_tool hook it does not call (2.1.325): a chat's start, and a server it has not connected. */
+export const mcpHookNoContext = (event) => "mcp_tool hooks are not available for the '" + event + "' hook event (no MCP client context)";
+export const mcpNotConnected = (server) => "MCP server '" + server + "' not connected";
+/**
+ * AN MCP_TOOL HOOK, RUN (Claude Code: "call a tool on a configured MCP server"): in Coder, a tool of one of the chat's
+ * connectors, called through the Worker, which holds their sign-ins and checks the chat has that connector (`call({ server,
+ * tool, args, timeoutMs })` → { ok, body, error, withheld, aborted }: src/coder-mcp.mjs hookCall). Its input's ${path}s
+ * filled from the hook's (mcpHookArgs); within the hook's timeout (600 seconds unless it sets one; 30 on UserPromptSubmit;
+ * SessionEnd's budget), else timed out; at a chat's start (SessionStart "startup" and "resume") not called, in Claude Code's
+ * words ("SessionStart at launch … fire before the session's MCP servers are available to hooks. Claude Code skips their
+ * mcp_tool hooks without calling the tool"; it runs them after a summary); with no connectors in the job, "not connected".
+ * → a run for hookResult: { mcp: { ok, withheld?, aborted? }, code, stdout (the tool's text), stderr (its error), timedOut? }.
+ */
+export async function runMcpToolHook(h, hookIn, { call = null } = {}) {
+  const event = String((hookIn && hookIn.hook_event_name) || h.event || "");
+  const run = (r) => { const ok = !!r && r.ok === true; return { mcp: { ok, ...(r && r.withheld ? { withheld: true } : {}), ...(r && r.aborted ? { aborted: true } : {}) }, code: ok ? 0 : 1, stdout: ok ? String(r.body || "") : "", stderr: ok ? "" : String((r && r.error) || "") }; };
+  if (event === "SessionStart" && !(hookIn && (hookIn.source === "clear" || hookIn.source === "compact"))) return run({ ok: false, error: mcpHookNoContext(event) });
+  if (typeof call !== "function") return run({ ok: false, error: mcpNotConnected(h.server) });
+  const ms = Math.max(1, Math.round((Number(h.timeout) > 0 ? Number(h.timeout) : HOOK_TIMEOUT_S) * 1000));
+  let timer = null;
+  const late = new Promise((ok) => { timer = setTimeout(() => ok(null), ms); });
+  try {
+    const r = await Promise.race([Promise.resolve().then(() => call({ server: h.server, tool: h.tool, args: mcpHookArgs(h.input, hookIn), timeoutMs: ms })).catch((e) => ({ ok: false, error: String((e && e.message) || e) })), late]);
+    if (r === null || (r && r.aborted)) return { ...run({ ok: false, aborted: true }), timedOut: true };
+    return run(r);
+  } finally { clearTimeout(timer); }
 }
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
 export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {

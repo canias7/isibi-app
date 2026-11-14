@@ -167,11 +167,13 @@ test("CD570 the page leaves terminal color codes out where it shows output and C
 
 
 // FOUND IN THE LIVE TEST OF THE 8 SIDE PATHS (deploy 176; the owner: "yea fix it, merge and deploy then test it on low").
-test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code 2.1.323 gives its model (the hook's own message, \"Permission denied by hook\" when it has none), not the words for the owner's own No; the step says the hook said no, marked for the page; nothing runs, no card, the turn goes on", async () => {
+test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code gives its model (the hook's own message; when it has none, \"Permission denied by PermissionRequest hook\" beside a card, \"Permission denied by hook\" where none shows), not the words for the owner's own No; the step says the hook said no, marked for the page; nothing runs, the card closed with the hook's answer, the turn goes on", async () => {
   const A = await import("../container/coder-agent.mjs");
   const H = await import("../container/coder-hooks.mjs");
   const P = await import("../container/coder-perms.mjs");
   assert.equal(A.HOOK_DENIED, "Permission denied by hook");
+  // (Beside a card, Claude Code 2.1.325's own words in the path its cloud takes, where the hooks race the card: fix round 4, D4.)
+  assert.equal(A.HOOK_DENIED_CARD, "Permission denied by PermissionRequest hook");
   const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
   const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
   const run = async (hookOut) => {
@@ -189,10 +191,11 @@ test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code 2.1.3
       },
       emit: (e) => events.push(e), sleep: async () => {},
       here: () => "/work/shop", root: "/work/shop", home: "/home/dev", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-      ask: async (pid) => { cards.push(pid); return { choice: "yes" }; },
+      // (The owner slower than the hook: the card withdrawn when it decides, `gone`.)
+      ask: async (pid, o = {}) => { cards.push(pid); for (let w = 0; w < 500 && !(o.gone && o.gone()); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : { choice: "yes" }; },
     }, { text: "go", mode: "acceptEdits", hooks: H.hooksFrom({ hooks: { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "check.sh" }] }] } }, "settings").list });
     const told = seen.flatMap((r) => r.messages).find((m) => m.role === "tool" && m.tool_call_id === "b1");
-    return { told: told && told.content, result: events.find((e) => e.type === "result" && e.id === "b1"), ran: ran.filter((c) => /left-pad/.test(c)), cards: cards.length, calls: seen.length };
+    return { told: told && told.content, result: events.find((e) => e.type === "result" && e.id === "b1"), ran: ran.filter((c) => /left-pad/.test(c)), cards: cards.length, calls: seen.length, closed: events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]) };
   };
   const deny = (message) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", ...(message ? { message } : {}) } } });
   // Its own message: given to Coder as it is (Claude Code's tool result is the denial's message), never the owner's No.
@@ -201,10 +204,10 @@ test("CD571 a PermissionRequest hook's no: Coder is given what Claude Code 2.1.3
   assert.doesNotMatch(t.told, /owner doesn't want to proceed/);
   assert.deepEqual([t.result.output, t.result.ran, t.result.hookDenied, t.result.denied], ["Not run: your PermissionRequest hook said no: PS permission hook said no to: npm install left-pad", false, true, undefined]);
   // (Coder goes on: its second call. No setup-script note follows for the `npm install` that never ran: CD73.)
-  assert.deepEqual([t.ran, t.cards, t.calls], [[], 0, 2], "nothing ran, no card, and Coder went on");
-  // No message: Claude Code's own words.
+  assert.deepEqual([t.ran, t.cards, t.calls, t.closed], [[], 1, 2, [["no", true]]], "nothing ran, the card closed with the hook's no, and Coder went on");
+  // No message: Claude Code's own words (beside a card).
   t = await run(deny(""));
-  assert.equal(t.told, "Permission denied by hook");
+  assert.equal(t.told, "Permission denied by PermissionRequest hook");
   assert.equal(t.result.output, "Not run: your PermissionRequest hook said no.");
   // (The owner's own No with a note keeps Claude Code's words for it.)
   assert.ok(P.REJECTED_SAID.startsWith("The owner doesn't want to proceed with this tool use."));

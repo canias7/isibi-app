@@ -26,11 +26,11 @@ import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, connectorTools, connectorCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
+import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
-import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
+import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed, runMcpToolHook } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
@@ -4132,7 +4132,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
-        ...(mcpCall ? { mcp: mcpCall } : {}),
+        // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
+        ...(mcpCall ? { mcp: mcpCall, mcpHook: connectorHookCaller(via) } : {}),
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),
@@ -4558,7 +4559,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const runs = [], said = [], chats = [], t0 = Date.now();
     for (const [project, t] of turns) {
       if (!t || !t.turnDeps || typeof t.turnDeps.exec !== "function" || !Array.isArray(t.hooksLast)) continue;
-      const list = hooksFor(t.hooksLast, "SessionEnd", reason).filter((h) => h.type === "command" || h.type === "http");
+      // (Its mcp_tool hooks too, through the job's connector caller, as long as the Worker still takes its pass: fix round 4, CL4.)
+      const list = hooksFor(t.hooksLast, "SessionEnd", reason).filter((h) => h.type === "command" || h.type === "http" || h.type === "mcp_tool");
       if (!list.length) continue;
       chats.push(project);
       // (Round 6 of the live test, 2026-11-12: the job's admin sandbox is stopped when its job ends, unless a background
@@ -4574,11 +4576,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const allowed = (Array.isArray(h.allowedEnvVars) ? h.allowedEnvVars : []).filter((v) => !Array.isArray(h.envAllowed) || h.envAllowed.includes(v));
         const one = h.type === "http"
           ? { command: "node --no-warnings " + TOOLS_SCRIPT + " @REQUEST", payload: JSON.stringify({ tool: "http_hook", args: { url: h.url, headers: h.headers || {}, allowed, body: JSON.stringify(input), timeoutMs: Math.round(budget * 1000) } }) }
-          : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
+          : h.type === "mcp_tool" ? null : { command: hookShell(h, mark, String(t.home0 || "")), payload: JSON.stringify(input) };
         // (What each did, for the record below.)
-        const name = String((h.type === "http" ? h.url : h.command) || "").slice(0, 80);
+        const name = String((h.type === "http" ? h.url : h.type === "mcp_tool" ? h.server + " " + h.tool : h.command) || "").slice(0, 80);
         let over = false;
-        const ran = Promise.resolve(t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") })).then(
+        const ran = Promise.resolve(one ? t.turnDeps.exec({ ...one, timeoutS: budget, tool: true, here: true, hook: true, noPrefix: h.type === "command" && (Array.isArray(h.args) || h.shell === "powershell") }) : runMcpToolHook({ ...h, timeout: budget }, input, { call: typeof t.turnDeps.mcpHook === "function" ? t.turnDeps.mcpHook : null }).then((m) => ({ code: m.code, ...(m.timedOut ? { timedOut: true } : {}), output: m.stdout || m.stderr }))).then(
           (r) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, code: r && typeof r.code === "number" ? r.code : null, ...(r && r.timedOut ? { timedOut: true } : {}), out: scrub(String((r && r.output) || "")).slice(0, 300) }); },
           (e) => { over = true; said.push({ chat: project, hook: name, ms: Date.now() - t0, error: scrub(String((e && e.message) || e)).slice(0, 200) }); });
         runs.push(Promise.race([ran, new Promise((ok) => { const w = setTimeout(() => { if (!over) said.push({ chat: project, hook: name, ms: Date.now() - t0, late: true }); ok(); }, Math.round(budget * 1000) + 250); if (typeof w.unref === "function") w.unref(); })]));
