@@ -1306,7 +1306,8 @@
       body += sec('Repositories', (e.repos || []).map((r) => plus('For <code>' + esc(r) + '</code>')).join(''));
       if (String(e.script || '').trim()) body += sec('Setup script', box(e.script));
       if (e.leave) body += sec('Network secrets', minus(esc(e.leave)));
-      note = e.moves ? 'This chat moves to it once you approve: its network at once, its variables from the next message; its setup script does not run on this chat\'s machine.' : 'This chat stays on ' + envQuote(e.from) + (e.stayWhy ? ' (' + e.stayWhy + ')' : '') + '. New chats of ' + ((e.repos || []).length ? 'these repositories' : 'its repositories') + ' start with the new one.';
+      const repos = e.repos || [];
+      note = e.moves ? 'This chat moves to it once you approve: its network at once, its variables from the next message; its setup script does not run on this chat\'s machine.' : 'This chat stays on ' + envQuote(e.from) + (e.stayWhy ? ' (' + e.stayWhy + ')' : '') + '.' + (repos.length ? ' New chats of ' + (repos.length === 1 ? repos[0] : 'these repositories') + ' start with the new one.' : '');
     } else {
       title = 'Move this chat to ' + esc(envQuote(e.name)) + '?'; yes = 'Move chat';
       body += sec('What changes', line(esc(e.statement || '')));

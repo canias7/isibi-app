@@ -502,6 +502,10 @@ test("EN11 the page: the cards show exactly what changes and never the reason; A
   assert.match(h, /<small>Network secrets<\/small><div><span class="cd-ne-minus">−<\/span>Network secrets saved on &quot;Default&quot; stop being sent from this chat to: api\.stripe\.com\.<\/div>/);
   assert.match(h, /This chat moves to it once you approve: its network at once, its variables from the next message; its setup script does not run on this chat&#39;s machine\./);
   assert.match(h, />Deny<\/button>[\s\S]*>Create environment<\/button>/);
+  const stays = E.envCard(state(), "create_environment", E.checkCreateInput({ name: "shop-api", scope: "personal", reason, switch_session: "none", repositories: ["ana/shop"] }).args).card;
+  assert.match(envCardHtml(stays, 4, true), /This chat stays on &quot;Default&quot;\. New chats of ana\/shop start with the new one\./);
+  const bare = E.envCard(state(), "create_environment", E.checkCreateInput({ name: "tools", scope: "personal", reason, switch_session: "none" }).args).card;
+  assert.match(envCardHtml(bare, 5, true), /This chat stays on &quot;Default&quot;\.<\/p>/, "for no repository, no word about new chats");
   assert.doesNotMatch(h, new RegExp(reason));
   const swc = E.envCard(st, "switch_environment", { environment_id: "shop-ab12", mode: "network_only", switch_statement: E.envInfo(st, "shop-ab12").switch_statement }).card;
   h = envCardHtml(swc, 3, true);
