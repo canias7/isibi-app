@@ -305,20 +305,6 @@ export const planExitOwed = (messages) => planMarks(messages) === "note";
 export const autoNoteOwed = (messages) => autoMarks(messages) !== "note";
 /** Auto mode's end is owed (out of auto mode): its note is not yet followed by "## Exited Auto Mode". */
 export const autoExitOwed = (messages) => autoMarks(messages) === "note";
-/**
- * Coder's own Accept edits note is owed (Claude Code has none for that mode; Coder's words for it, given once in the mode
- * since fix round 3 instead of in the system message): the conversation's last note of a mode, or of a mode's change or end,
- * is not this same note.
- */
-export function editsNoteOwed(messages, content) {
-  const list = Array.isArray(messages) ? messages : [];
-  for (let i = list.length - 1; i >= 0; i--) {
-    const m = list[i];
-    if (!m || m.role !== "user" || m.appNote !== true) continue;
-    if (m.modeNote || m.planReminder || said(m, "## Exited ") || said(m, "The owner's permission mode is now")) return !(m.modeNote === "acceptEdits" && m.content === content);
-  }
-  return true;
-}
 /** Leaving plan mode (Claude Code's "## Exited Plan Mode"), and where the plan file is, when there is one. */
 export const PLAN_EXITED = "## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.";
 export const planExitedNote = (file = "", exists = false) => PLAN_EXITED + (file && exists ? " The plan file is located at " + file + " if you need to reference it." : "");

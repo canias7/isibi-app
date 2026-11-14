@@ -806,21 +806,25 @@ test("CD221 a PDF's own page count is not trusted (Claude Code 2.1.317: \"Fixed 
 test("CD222 after a job's summary, Coder's instructions and memory come fresh from disk (Claude Code's docs, \"What survives compaction\": \"Project-root CLAUDE.md and unscoped rules | Re-injected from disk\", \"Auto memory | Re-injected from disk\"; its 2.1.311: \"Fixed Claude seeing stale MEMORY.md and CLAUDE.md content right after automatic compaction when those files were edited earlier in the session\")", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
   let k = 0, summarized = false, fresh = 0;
-  const systems = [];
+  const systems = [], reqs = [];
   await runCoder({
     get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     freshContext: async () => { fresh++; return "CONTEXT FROM DISK: CODER.md now says use tabs"; },
     send: async (q) => {
       if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY"); }
-      systems.push(q.messages[0].content); k++;
+      systems.push(q.messages[0].content); reqs.push(q.messages); k++;
       return k <= 12 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done.");
     },
     emit: () => {},
     exec: async () => ({ code: 0, output: "z".repeat(3000) }),
   }, { text: "go", context: "CONTEXT AT THE START: CODER.md says use spaces" });
   assert.equal(fresh, 1, "once, after the summary");
-  assert.ok(systems.slice(0, 12).every((c) => c.endsWith("CONTEXT AT THE START: CODER.md says use spaces")));
-  assert.ok(systems.at(-1).endsWith("CONTEXT FROM DISK: CODER.md now says use tabs"), "the next step has it fresh");
+  // (Since fix round 4 the context is told in the conversation, and the system message never changes: context-cache.test.mjs.)
+  assert.ok(systems.every((c) => c === systems[0]) && !systems[0].includes("CONTEXT AT THE START"));
+  const ctxNotes = (msgs) => msgs.filter((m) => m.ctx).map((m) => m.content);
+  assert.deepEqual(ctxNotes(reqs[0]), ["(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nCONTEXT AT THE START: CODER.md says use spaces)"]);
+  assert.ok(reqs.slice(0, 12).every((msgs) => ctxNotes(msgs).length === 1));
+  assert.equal(ctxNotes(reqs.at(-1)).at(-1), "(Note from Coder's app, not the owner:\nThe chat context has changed; these values replace the earlier ones:\nCONTEXT FROM DISK: CODER.md now says use tabs)", "the next step has it fresh");
   // On Coder's machine it is made again from the repository's files and the memory file (server.mjs).
   const src = (await import("node:fs")).readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(src, /freshContext: async \(\) => contextFor\(await topNotes\(dir, notes\), \(await readMemory\(memFile\)\) \?\? "", later\),/);

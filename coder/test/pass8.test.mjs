@@ -139,10 +139,9 @@ test("CD411 Accept edits is Claude Code's cloud \"default\" for commands (its pe
   const { fakeParse } = await import("./ps-fake.mjs");
   const ps = (c, byCommand) => P.psDecision(c, { mode: "acceptEdits", rules: R("allow", []), parsed: fakeParse(c), cwd: ROOT, pathAbs: (x) => ROOT + "/" + x, inside: () => true, byCommand });
   assert.deepEqual([ps("Set-Content notes.txt hi", false).verdict, ps("Set-Content notes.txt hi", true).verdict], ["ask", "allow"]);
-  // What Coder is told.
+  // What Coder is told: nothing of its own since fix round 4 (Claude Code has no note for Accept edits; the owner's choice).
   const A = await import("../container/coder-agent.mjs");
-  assert.match(A.modeSystem("acceptEdits", { fileEdits: false }), /your file edits in the project run without asking; a command that changes files \(mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like\), any other command that is not read-only/);
-  assert.match(A.modeSystem("acceptEdits"), /your file edits and file commands in the project \(mkdir, touch, rm, mv, cp, sed -i\) run without asking/);
+  assert.equal(A.modeSystem, undefined);
   // The repository's defaultMode.
   const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");

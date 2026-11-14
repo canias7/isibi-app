@@ -156,6 +156,7 @@ test("CD386e on a real machine: a working folder of the owner's is one of the ch
     assert.equal((await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "wf-t1", text: "go", messages: [], rules: { allow: [], ask: [], deny: [], dirs: [shared, "/nope/at/all"] } }) })).status, 200);
     let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=wf-t1&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     assert.equal(st.events.find((e) => e.type === "result" && e.id === "c2").output, shared, "the cd carried over");
-    assert.match(seen[0].messages[0].content, new RegExp("THE OWNER'S ADDITIONAL WORKING DIRECTORIES \\(Claude Code's additionalDirectories\\): " + shared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\."));
+    // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), new RegExp("THE OWNER'S ADDITIONAL WORKING DIRECTORIES \\(Claude Code's additionalDirectories\\): " + shared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\."));
   } finally { srv.close(); }
 });

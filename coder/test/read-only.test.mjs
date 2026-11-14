@@ -239,7 +239,8 @@ test("CD180 Coder is told when a repository is read-only, and its pull_request a
   assert.equal(readOnlyNote({ repo: "ana/shop" }), "");
   assert.match(extrasNote([{ repo: "oss/other", dir: "/work/x-x1", base: "main", readOnly: true }]), /- oss\/other in \/work\/x-x1 \(from main\) \(READ-ONLY for the owner: kept on this machine, never sent to GitHub; no pull request\)/);
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /extrasNote\(extras\) \+ gitNote\(body\) \+ readOnlyNote\(body\) \+/);
+  // (Pieces of the chat's context, told in the conversation since fix round 4.)
+  assert.match(server, /piece\("s:THIS CHAT'S OTHER REPOSITORIES", extrasNote\(extras\)\),\n\s+piece\("s:GIT", gitNote\(body\)\),\n\s+piece\("s:READ-ONLY REPOSITORY", readOnlyNote\(body\)\),/);
   assert.match(server, /readOnly: \{ main: body\.readOnly === true, extra: extras\.filter\(\(x\) => x\.readOnly\)\.map\(\(x\) => x\.repo\.toLowerCase\(\)\) \}/);
 });
 

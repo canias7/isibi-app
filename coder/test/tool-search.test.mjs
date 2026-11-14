@@ -613,7 +613,8 @@ test("TS28 CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH (the chat's CODER_MAX_MCP_DESC
   const notes = [{ name: "Linear", instructions: "i".repeat(6000) }];
   const run = (v) => job([say("", [call("tool_search", { query: "select:mcp__linear__tool_1", max_results: 5 }, "s1")]), say("done")], { deps: { mcp: mcpOk, ...(v !== undefined ? { mcpDescMax: v } : {}) }, extra: { connectors: tools, connectorNotes: notes } });
   const desc = (req, n) => req.tools.find((t) => t.function.name === n).function.description.length;
-  const told = (req) => /- Linear: (i+)/.exec(req.messages[0].content)[1].length;
+  // (The servers' instructions are a piece of the chat's context, told in the conversation since fix round 4.)
+  const told = (req) => /- Linear: (i+)/.exec(req.messages.filter((m) => m.ctx).map((m) => m.content).join("\n"))[1].length;
   const dflt = await run();
   assert.deepEqual([desc(dflt.seen[0], "mcp__linear__tool_2"), desc(dflt.seen[1], "mcp__linear__tool_1"), told(dflt.seen[0])], [4096, 16384, 4096]);
   const set = await run("8192");
