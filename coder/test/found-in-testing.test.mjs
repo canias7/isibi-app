@@ -372,7 +372,9 @@ test("CD210 after a long job is summarized, the files it was working on are read
     emit: (e) => events.push(e),
     exec: machine(dir, (command) => ({ code: 0, output: command === "cat e.js" ? "e\n" : "ok" })),
   };
-  await runCoder(deps, { text: "work on the files" });
+  // (No task_update, so no task reminder after the 10th step: its note would change which steps fit in the kept room. Claude
+  // Code sends none without TaskUpdate. 2026-11-14.)
+  await runCoder(deps, { text: "work on the files", rules: { allow: [], ask: [], deny: ["TaskUpdate"] } });
   assert.equal(summarized, true);
   const last = seen.at(-1).messages;
   const sum = last[2];
@@ -542,7 +544,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   let k2 = 0;
   const seen2 = [];
   const out2 = await runCoder({ ...deps, send: async (q) => { seen2.push(q); k2++; return k2 === 1 ? say("", [call("bash", { command: "echo first" }, "f1")]) : k2 === 2 ? say("", [call("edit", { path: "c.js", old_string: "5", new_string: "6" }, "e2"), call("bash", { command: "echo after" }, "f3")]) : say("Done."); } }, { messages: out.messages, text: "next" });
-  assert.equal(seen2[0].messages.at(-1).content, "next", "no note before the first step");
+  // (Claude Code's task reminder may follow the owner's message: the first job took 10 steps without the task tools. 2026-11-14.)
+  assert.equal(seen2[0].messages.filter((m) => !(m.appNote && /^\(Note from Coder's app, not the owner:\nThe task tools haven't been used recently\./.test(m.content))).at(-1).content, "next", "no note before the first step");
   assert.equal(reply(out2.messages, "f1"), "first");
   assert.equal(reply(out2.messages, "f3"), "after", "Coder's own edit is no news");
   // Only on a machine that follows the files: otherwise the job is as before (no extra steps at all).

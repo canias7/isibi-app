@@ -846,7 +846,9 @@ export function parseRule(text) {
   // were merged, 2026-11-13; Claude Code's MCP rules: "mcp__puppeteer matches any tool provided by the puppeteer server",
   // "mcp__puppeteer__puppeteer_navigate matches the puppeteer_navigate tool"): on the whole tool only, as Claude Code's.
   if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
+  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -861,7 +863,7 @@ export function parseRule(text) {
     return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
   }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
-  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**
@@ -871,9 +873,9 @@ export function parseRule(text) {
  * deny rule is removed from Claude's context, the same as a bare tool name"; "Allow rules accept tool-name globs only after a
  * literal mcp__<server>__ prefix … An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped and doesn't
  * auto-approve anything"): a bare name with a `*`, matched against Claude Code's name for each of Coder's tools (Bash,
- * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite; Coder's
- * own tools by their own names). Since the connectors were merged (2026-11-13), an allow one anchored on a connector,
- * mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
+ * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite, TaskCreate,
+ * TaskGet, TaskList, TaskUpdate; Coder's own tools by their own names). Since the connectors were merged (2026-11-13), an allow
+ * one anchored on a connector, mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
  */
 export const toolGlob = (t) => /^[A-Za-z0-9_-]*\*[A-Za-z0-9_*-]*$/.test(String(t ?? "").trim());
 /** Whether a tool-name wildcard matches a tool's whole name. */

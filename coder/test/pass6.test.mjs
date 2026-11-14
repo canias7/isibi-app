@@ -176,20 +176,21 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.equal(t.seen[0].webSearch, false, "Grok's web search off too");
   t = await job([say("ok")], { rules: { deny: ["Bash"], ask: [], allow: [] } });
   assert.ok(!names(t).includes("bash") && !names(t).includes("monitor") && names(t).includes("read"));
-  t = await job([say("ok")], { rules: { deny: ["TodoWrite", "W*"], ask: [], allow: [] } });
-  assert.ok(!names(t).includes("todo") && !names(t).includes("write") && !names(t).includes("web_fetch") && names(t).includes("edit"));
+  // (Coder's task list, Claude Code's TaskCreate and the rest, since 2026-11-14: Coder's todo before.)
+  t = await job([say("ok")], { rules: { deny: ["TaskCreate", "W*"], ask: [], allow: [] } });
+  assert.ok(!names(t).includes("task_create") && names(t).includes("task_update") && !names(t).includes("write") && !names(t).includes("web_fetch") && names(t).includes("edit"));
   assert.equal(t.seen[0].webSearch, false, "W* names WebSearch");
   t = await job([say("ok")], { rules: { deny: [], ask: [], allow: ["*"] } });
   assert.ok(names(t).includes("bash") && t.seen[0].webSearch === undefined, "an allow wildcard takes nothing away");
   // A call to a denied tool anyway: refused in Claude Code's words.
-  t = await job([say("", [call("todo", { items: [{ text: "a", status: "pending" }] }, "t1")]), say("ok")], { rules: { deny: ["*"], ask: [], allow: [] } });
-  assert.equal(t.told("t1"), "Permission to use TodoWrite has been denied.");
+  t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: ["*"], ask: [], allow: [] } });
+  assert.equal(t.told("t1"), "Permission to use TaskCreate has been denied.");
   assert.ok(!t.events.some((e) => e.type === "todo"));
   // An ask rule on Coder's other tools: a card first; Yes runs it, No stops.
-  t = await job([say("", [call("todo", { items: [{ text: "a", status: "pending" }] }, "t1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] } });
-  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "todo", "Use TodoWrite", "Your rule * asks first for TodoWrite."]);
+  t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] } });
+  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "task_create", "Use TaskCreate", "Your rule * asks first for TaskCreate."]);
   assert.ok(t.events.some((e) => e.type === "todo"));
-  t = await job([say("", [call("todo", { items: [{ text: "a", status: "pending" }] }, "t1")]), say("ok")], { rules: { deny: [], ask: ["TodoWrite"], allow: [] }, answers: [{ choice: "no" }] });
+  t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["TaskCreate"], allow: [] }, answers: [{ choice: "no" }] });
   assert.ok(!t.events.some((e) => e.type === "todo"));
   // Its own question is the question for ask_user: no card first.
   t = await job([say("", [call("ask_user", { question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }, "q1")])], { rules: { deny: [], ask: ["*"], allow: [] } });

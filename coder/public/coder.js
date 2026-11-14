@@ -2062,8 +2062,14 @@
     const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
+    // CODER'S CHECKLIST DOESN'T SPLIT A RUN OF COMMANDS (Claude Code's task list, the owner, 2026-11-14: "Do all the talk to
+    // you tools execpt for the notify one"; Claude Code's changelog: "Fixed consecutive shell commands splitting into multiple
+    // "Ran 1 shell command" rows when todo/task updates were interleaved between them"): its latest showing is drawn after the
+    // group it came in.
+    let plan = '';
+    const todoHTML = (e) => '<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>';
     const flush = () => {
-      if (!group.length) return;
+      if (!group.length) { if (plan) { out.push(plan); plan = ''; } return; }
       if (group.length === 1) { const [e, i] = group[0]; out.push(cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))); }
       else {
         const gk = 'g' + String(group[0][0].id || group[0][1]);
@@ -2079,6 +2085,7 @@
         '</div>');
       }
       group = [];
+      if (plan) { out.push(plan); plan = ''; }
     };
     // (A step shown again with a changed command, after a PermissionRequest hook changed it: its last showing only.)
     const lastStep = {};
@@ -2094,6 +2101,7 @@
         return;
       }
       if (e.type === 'result') return;
+      if (e.type === 'todo' && !GLOOPY) { if (!S.events.slice(i + 1).some((x) => x.type === 'todo')) plan = todoHTML(e); if (!group.length) flush(); return; }
       // A line of Gloopy's said soon after another: the status line only (SAY_EVERY_MS), not the chat.
       if (e.type === 'text' && e.quiet === true) return;
       flush();
@@ -2400,7 +2408,7 @@
             '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
           : '') + '</div>');
       }
-      else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
+      else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push(todoHTML(e)); }
       // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
       // on Gloopy's last stop, while nothing came after it, a Resume button.
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.' + (GLOOPY && !S.running && !S.sending && i === S.events.length - 1 ? ' <button type="button" class="cd-card-no cd-resume" data-resume="1">Resume</button>' : '') + '</div>');

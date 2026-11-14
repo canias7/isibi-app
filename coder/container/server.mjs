@@ -43,6 +43,8 @@ import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRI
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
+// (The chat's task list, Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate: the owner, 2026-11-14.)
+import { taskStore } from "./coder-tasks.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -3975,6 +3977,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return file;
         },
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
+        // THE CHAT'S TASK LIST, kept between messages (Claude Code keeps a session's in ~/.claude/tasks/; the owner, 2026-11-14:
+        // "Do all the talk to you tools execpt for the notify one"): root's own file beside the chat's memory, on the kept disk
+        // on Fly.io (coder-tasks.mjs, taskStore).
+        tasks: taskStore(join(memRoot, project + ".tasks.json")),
         // (The chat's id: a hook's session_id.)
         chatId: project,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free

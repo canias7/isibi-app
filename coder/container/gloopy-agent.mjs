@@ -235,7 +235,15 @@ export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit",
  * requests to that site after they leave its computer, so Gloopy (and anything on its computer) never sees it.
  */
 const GLOOPY_SECRET_WORDS = "Ask the owner for an API key (or token) for ONE site's API (e.g. api.openweathermap.org) when a job needs real calls to that API and no key is saved for it. A private card pops up for the owner; the key is kept sealed by Coder, and it is added to your HTTPS requests to that host after they leave your computer, so you never see it (call the API with curl or a script as if no key were needed; leave the key out). Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.";
-export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS } } : t)), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
+/**
+ * GLOOPY'S CHECKLIST, its own todo (Gloopy follows Grok Bot and dots, not Claude Code): Coder's todo was this one until
+ * 2026-11-14, when Coder took Claude Code's task list in its place (the owner: "Do all the talk to you tools execpt for the
+ * notify one"; coder-tasks.mjs). Gloopy keeps it, where it was among Coder's tools (after ask_user).
+ */
+export const TODO_TOOL = Object.freeze({ type: "function", function: { name: "todo", description: "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, required: ["items"] } } });
+const FROM_CODER = CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS } } : t));
+const TODO_AT = FROM_CODER.findIndex((t) => t.function.name === "ask_user") + 1;
+export const GLOOPY_TOOLS = Object.freeze([...FROM_CODER.slice(0, TODO_AT), TODO_TOOL, ...FROM_CODER.slice(TODO_AT), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
 /** The tools that need a browser on the machine. */
 export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in", "pay", "handoff"]);
 

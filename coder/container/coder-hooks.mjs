@@ -13,14 +13,18 @@ import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
+// (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
+// owner: "Do all the talk to you tools execpt for the notify one"; coder-tasks.mjs.)
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
 export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]);
 /** The events whose matcher Claude Code ignores ("If you add a matcher field to an event without matcher support, it is silently ignored"). */
-const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged"]);
+const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);
+/** The task list's events (Claude Code: "TaskCreated hooks don't support matchers and fire on every occurrence"; TaskCompleted's the same). */
+export const TASK_EVENTS = new Set(["TaskCreated", "TaskCompleted"]);
 /** "FileChanged and StopFailure use a narrower exact-match set of letters, digits, _, and | only." */
 const NARROW = new Set(["FileChanged", "StopFailure"]);
 /** The events whose hooks can block or change an action (never under the memory cap: Claude Code's "Permission-gating hooks"). */
-export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure"]);
+export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted"]);
 /** The events whose hooks get the chat's hook env file (Claude Code: "CLAUDE_ENV_FILE is available for SessionStart, Setup, CwdChanged, and FileChanged hooks"). */
 export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChanged"]);
 
@@ -32,7 +36,8 @@ export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChang
 const ALL_TYPES = ["command", "http", "prompt", "agent"];
 export function typesFor(event) {
   if (event === "SessionStart") return ["command"];
-  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"].includes(event)) return ALL_TYPES;
+  // (TaskCreated and TaskCompleted too: Claude Code's "Events that support all five hook types".)
+  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
   if (event === "PermissionRequest") return ["command", "http", "prompt"];
   return ["command", "http"];
 }
@@ -99,7 +104,8 @@ export const HOOK_QUIET_MS = 10_000;
 export const AGENT_HOOK_TURNS = 50;
 
 /** Coder's tools by Claude Code's names (what a matcher and a hook's `tool_name` see); Coder's own tools keep their names. */
-export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
+// (The task list's four since 2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one".)
+export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
@@ -583,6 +589,9 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUseFailure") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; }
       else if (event === "PostToolBatch" || event === "UserPromptSubmit") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; out.endTurn = out.endTurn || why; }
+      // (TaskCreated and TaskCompleted: the task is not made, or not completed, and the call's answer is Claude Code's
+      // "<Event> hook feedback:" and a new line, then the hook's words; the turn goes on, continueOnBlock or not. 2026-11-14.)
+      else if (TASK_EVENTS.has(event)) { out.decision = "block"; out.blocks.push(event + " hook feedback:\n" + err); out.reason = out.reason || why; }
       continue;
     }
     const j = result.json || {};
@@ -606,7 +615,8 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       const byExit = result.kind === "block";
       const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
       const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
-      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : fromCommand);
+      // (TaskCreated and TaskCompleted: "TaskCreated hook feedback:" and a new line, then the same words. 2026-11-14.)
+      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : TASK_EVENTS.has(event) ? event + " hook feedback:\n" + text : fromCommand);
     };
     if (event === "PermissionDenied") { if (spec.retry === true) out.retry = true; continue; }
     if (event === "PreToolUse") {
@@ -769,5 +779,6 @@ export function splitHookOut(out, mark) {
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
 export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
-  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+  // (No permission_mode on TaskCreated and TaskCompleted: Claude Code's TaskCreate and TaskUpdate give their hooks none. 2026-11-14.)
+  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(TASK_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

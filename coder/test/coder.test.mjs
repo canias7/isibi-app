@@ -84,7 +84,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -103,7 +103,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -918,7 +918,7 @@ test("CD35 web fetch: public addresses only; pages become text; there is no free
 });
 
 test("CD36 the loop runs a file tool like a command (as dev, in the project) and shows what it did", async () => {
-  const s = scripted([say("", [call("edit", { path: "a.js", old_string: "1", new_string: "2" }), call("todo", { items: [{ text: "Fix a.js", status: "done" }] })]), say("Fixed.", [])]);
+  const s = scripted([say("", [call("edit", { path: "a.js", old_string: "1", new_string: "2" }), call("task_create", { subject: "Fix a.js", description: "Fix a.js" })]), say("Fixed.", [])]);
   const runs = []; const events = [];
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { runs.push(x); return { code: 0, output: "edited a.js (1 place)" }; } }, { text: "fix it" });
   assert.equal(r.status, "done");
@@ -929,7 +929,8 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true } });
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
-  assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
+  // (Coder's checklist is Claude Code's task list since 2026-11-14: the chat shows its tasks.)
+  assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "pending" }]);
 });
 
 test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown", async () => {
