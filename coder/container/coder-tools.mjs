@@ -10,8 +10,8 @@
 import { readFile, writeFile, mkdir, realpath, stat, lstat, unlink, open as openFile, mkdtemp, rm, readdir, rename, chmod } from "node:fs/promises";
 import { createHash, randomBytes } from "node:crypto";
 import { isUtf8 } from "node:buffer";
-import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node:path";
-import { tmpdir } from "node:os";
+import { resolve, dirname, relative, isAbsolute, sep, extname, join, normalize } from "node:path";
+import { tmpdir, homedir } from "node:os";
 import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { grepTool, globTool } from "./coder-search.mjs";
@@ -66,13 +66,29 @@ export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
 const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
+/**
+ * A PATH AS CLAUDE CODE 2.1.325'S FILE TOOLS OPEN IT (its St: its Read, Write, Edit and LSP take their path with it before
+ * they use it, as its Grep and Glob take theirs, coder-search.mjs fullPath; round 6, 2026-11-14, the owner: "do what claude
+ * code does"): trimmed; `~` and `~/…` the home folder; a full one made plain (a `/` at its end kept); a short one from where
+ * Grok's commands are (BASE); an empty one, that folder. Coder had taken it as written ("~/notes.md" a folder named "~" in
+ * the project, " a.txt" a file whose name starts with a space). Coder's machine runs this script with the AI's own home.
+ */
+export function toolPath(p) {
+  const n = String(p ?? "").trim();
+  if (!n) return BASE;
+  const home = process.env.HOME || homedir();
+  if (n === "~") return home;
+  if (n.startsWith("~/")) return join(home, n.slice(2));
+  return isAbsolute(n) ? normalize(n) : resolve(BASE, n);
+}
 async function inside(p, { mustExist = false, tool = "", output = false } = {}) {
   if (typeof p !== "string" || !p.trim()) fail("give a path");
   // Named by its tool and argument, as Claude Code's are ("Read file_path cannot contain null bytes …"): write's so far
   // (the owner, 2026-11-09, write's docs pass); the other tools keep "the path" until their turn.
   noNul(p, tool ? tool + " path" : "the path");
-  // A short path counts from where Grok's commands are (BASE).
-  const abs = resolve(BASE, p);
+  // A short path counts from where Grok's commands are (BASE); trimmed, and ~ is the home folder, as Claude Code's tools take
+  // a path (toolPath, round 6).
+  const abs = toolPath(p);
   // CODER'S OWN MEMORY FILE (owner, 2026-11-06): the one file outside the project
   // the file tools may open, so remembering doesn't show a failed step. Only that
   // exact path, and never through a link.
@@ -1130,7 +1146,7 @@ export async function toolLspFile(args) {
   const filePath = args && typeof args.filePath === "string" ? args.filePath : "";
   // (A null byte is the tool's own refusal, `inside`; an empty path is the folder the commands are in, as Claude Code resolves it.)
   if (filePath.includes("\0")) return "ok";
-  const why = await fileProblem(filePath, filePath === "" ? BASE : resolve(BASE, filePath));
+  const why = await fileProblem(filePath, toolPath(filePath));
   if (why) fail(why);
   return "ok";
 }
