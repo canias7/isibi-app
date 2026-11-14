@@ -84,7 +84,8 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -103,7 +104,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -914,7 +915,7 @@ test("CD35 web fetch: public addresses only; pages become text; there is no free
   await assert.rejects(toolWebFetch({ url: "http://127.0.0.1:8080/state" }, async () => { throw new Error("must not fetch"); }), /private network/);
   await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /only http and https/);
   assert.equal(htmlToText("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n there");
-  assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's own");
+  assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's (since 2026-11-14 through Coder's web_search tool, run in the loop: coder-websearch.mjs)");
 });
 
 test("CD36 the loop runs a file tool like a command (as dev, in the project) and shows what it did", async () => {
@@ -932,7 +933,7 @@ test("CD36 the loop runs a file tool like a command (as dev, in the project) and
   assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
 });
 
-test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown", async () => {
+test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown (since 2026-11-14 only in a web_search call's own request)", async () => {
   const { toResponsesInput, toResponsesTools, fromResponsesOutput, coderSend } = await import("../container/coder-model.mjs");
   const msgs = [
     { role: "system", content: "SYS" },
@@ -946,7 +947,10 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
     { type: "function_call", call_id: "c1", name: "read", arguments: "{\"path\":\"a.js\"}" },
     { type: "function_call_output", call_id: "c1", output: "1\tx" },
   ] });
-  const tools = toResponsesTools([{ type: "function", function: { name: "read", description: "d", parameters: { type: "object" } } }]);
+  // (xAI's search only in a request that asks for it: web_search's own, coder-websearch.mjs; Coder's calls search through the tool.)
+  const fnTools = [{ type: "function", function: { name: "read", description: "d", parameters: { type: "object" } } }];
+  assert.deepEqual(toResponsesTools(fnTools), [{ type: "function", name: "read", description: "d", parameters: { type: "object" } }]);
+  const tools = toResponsesTools(fnTools, { webSearch: true });
   assert.deepEqual(tools, [{ type: "web_search" }, { type: "function", name: "read", description: "d", parameters: { type: "object" } }]);
   // The answer from the real test call (2026-11-05), shortened.
   const answer = { output: [
@@ -960,10 +964,11 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify(answer)) });
   const r = await send({ model: "grok-4.7", messages: msgs, tools: [] });
   assert.deepEqual(r.usage, { in: 2314, out: 116, searches: 1, cost_ticks: 78280000, cached: 0, reasoning: 0, effort: "" });
-  // The loop shows the search like a step.
+  // The loop shows the search like a step: Grok's web_search call, run as its own request (here the real answer's search).
   const events = [];
   let n = 0;
-  await runCoder({ send: async () => (n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "" , tool_calls: [] }, searches: o.searches }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
+  const searchCall = { id: "w1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "latest stable Node.js version" }) } };
+  await runCoder({ send: async (req) => (req.webSearch ? { message: { role: "assistant", content: "Node 24." }, output: [answer.output[1], { type: "message", content: [{ type: "output_text", text: "Node 24 is the latest." }] }], usage: { in: 1, out: 1, searches: 1 } } : n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "", tool_calls: [searchCall] } }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
   const ws = events.find((e) => e.tool === "web_search");
   assert.deepEqual([ws.verb, ws.command], ["Searched the web for", "\"latest stable Node.js version\""]);
 });

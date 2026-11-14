@@ -4,7 +4,8 @@
 // Code's file and web tools, 2026-11-05):
 //
 //   bash  run one command in the project's folder and read what it printed
-//   read, edit, write, grep, glob, web_fetch  (coder-tools.mjs); web search is Grok's own (xAI)
+//   read, edit, write, grep, glob, web_fetch  (coder-tools.mjs)
+//   web_search  Claude Code's WebSearch: each search its own Grok call (coder-websearch.mjs)
 //   todo  a checklist the owner sees;  pull_request  only when asked
 //
 // It finishes the way a person does: it stops running commands and answers in
@@ -30,6 +31,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -198,6 +200,8 @@ export const RUN_TOOLS = {
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
   lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
+  // (Its own branch runs it, before this list's: coder-websearch.mjs. Its step reads as before, "Searched the web for".)
+  web_search: { verb: "Searched the web for", label: (a) => JSON.stringify(a.query === undefined ? "" : a.query) },
 };
 /** GLOOPY'S PAGES (2026-11-09): an id like p1a2b3c4d5e; at most 5 published in one message. */
 export const PAGE_ID = /^p[a-z0-9]{10}$/, PAGES_PER_TURN = 5;
@@ -1139,6 +1143,9 @@ export const CODER_TOOLS = Object.freeze([
   // Coder's question from the page, so a page's text, and any tricks hidden in
   // it, never reach Coder itself.
   fn("web_fetch", "Read a public web page (documentation, an API's reference). A separate reader reads the page and answers your prompt from it; the page itself is not shown to you. Ask for exactly what you need, e.g. 'the install command and the supported Node versions'.", { url: { type: "string" }, prompt: { type: "string" } }, ["url", "prompt"]),
+  // CLAUDE CODE'S WEBSEARCH (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; web search was
+  // Grok's own, inside each call; now a tool like Claude Code's, each search its own Grok call: coder-websearch.mjs).
+  WEB_SEARCH_TOOL,
   // CLAUDE CODE'S MONITOR (Bash docs, the owner, 2026-11-10: "yea do all 4"; its tools reference: "Runs a command in the
   // background and feeds each output line back to Claude, so it can react to log entries, file changes, or polled status
   // mid-conversation"). It took the place of Coder's old monitor, which looked at a background command's output: Claude Code
@@ -1216,7 +1223,8 @@ export const HOSTS_UNWALLED = "allowed_domains applies only to a command that ru
 export const HOSTS_ONLY_COMMAND = "allowed_domains applies only to a command monitor";
 export const HOSTS_UNCHECKED = "(Its allowed_domains were not opened: no one approved those hosts, and auto mode does not check hosts in this chat \u2014 do not retry them this turn; the owner can allow them in the environment's network settings.)";
 /** The tools whose calls Coder's permission rules check one by one (the others: only a rule on the whole tool, below). */
-const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "grep", "glob", "lsp", "web_fetch"]);
+// (web_search checks its own rule on the whole tool, WebSearch, in its own branch: coder-websearch.mjs, 2026-11-14.)
+const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "grep", "glob", "lsp", "web_fetch", "web_search"]);
 /**
  * THE OWNER'S CONNECTORS (MCP, owner 2026-11-10: "one list for the platform ... per person"): the tools the Worker sent for
  * this job, checked (names Grok can call, a description, an object schema), at most 80.
@@ -1399,7 +1407,7 @@ export const CODER_SYSTEM = `You are Coder, a software developer working for the
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web search (built into you: search whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
@@ -1530,7 +1538,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "" } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1582,6 +1590,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const bashFacts = new Map();
   // (And what the other tools' PostToolUse hooks get beyond their output: their result object, factsAnswer. 2026-11-14.)
   const toolFacts = new Map();
+  // THE CHAT'S WEB SEARCH BUDGET (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code's
+  // "limit of 200 WebSearch calls" that "refills at about 100 calls per hour", shared by "Searches from the main conversation
+  // and from subagents"; coder-websearch.mjs): kept with the chat by Coder's machine (deps.searchKeep), its settings the
+  // environment's CODER_MAX_WEB_SEARCHES_PER_SESSION and CODER_WEB_SEARCH_REFILLS_PER_HOUR (`searchLimits`); a helper uses
+  // the one of the run that started it (deps.searchBudget).
+  const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: deps.searchKeep || null, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills), now });
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
@@ -2225,8 +2239,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // A TOOL A DENY RULE NAMES BARE, OR BY A WILDCARD, IS NOT OFFERED AT ALL (Bash docs pass 6; Claude Code: "A bare tool name
   // like Bash removes the tool from Claude's context entirely, so Claude never sees it"; "A tool matched by a bare-name glob
   // deny rule is removed from Claude's context, the same as a bare tool name"). A call to one anyway is refused below.
-  const ccName = (name) => (name === "web_search" ? "WebSearch" : ccTool(name));
-  const toolDenied = (name) => !github && !!(name && (wholeRule(ownRules, "deny", ccName(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
+  // (web_search is Claude Code's WebSearch: CC_TOOL, since it became Coder's own tool, 2026-11-14.)
+  const toolDenied = (name) => !github && !!(name && (wholeRule(ownRules, "deny", ccTool(name)) || (name === "monitor" && wholeRule(ownRules, "deny", "Bash"))));
   // (Where Coder's gate can open hosts for one command, bash and monitor take allowed_domains: HOSTS_DESC.)
   const withHosts = (t) => {
     if (hostLists !== "on" || github || !t || !t.function || !["bash", "monitor", "powershell"].includes(t.function.name)) return t;
@@ -2273,8 +2287,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
   const connectorFns = () => chatTools.filter((f) => f && f.function && (mcpByName.has(f.function.name) || (mcpDeferred && f.function.name === "connector_search")));
-  // (Grok's own web search is Claude Code's WebSearch: off under a rule denying it.)
-  const searchDenied = toolDenied("web_search");
   // SERVER INSTRUCTIONS (Claude Code: a server's instructions, up to 4,096 characters, reach the model at the start), marked
   // as the servers' own words, not the owner's.
   const mcpNotes = mcpTools.length ? (Array.isArray(connectorNotes) ? connectorNotes : []).filter((n) => n && typeof n.instructions === "string" && n.instructions.trim()).slice(0, 10) : [];
@@ -2721,7 +2733,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, ...(searchDenied ? { webSearch: false } : {}), tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : modeRound === "plan" && !toolDenied("exit_plan_mode") ? [...chatTools, EXIT_PLAN_TOOL] : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -2733,12 +2745,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
     // steps). They leave only the SAVED history (see end()).
-    // GROK'S OWN WEB SEARCHES (done on xAI's side) are shown like the other steps.
-    for (const sr of Array.isArray(answer && answer.searches) ? answer.searches : []) {
-      const id = "ws" + Math.random().toString(36).slice(2, 9);
-      emit({ type: "bash", id, tool: "web_search", verb: "Searched the web for", command: scrub(JSON.stringify(sr.query || "")).slice(0, 300) });
-      emit({ type: "result", id, code: 0, output: (sr.sources || []).join("\n") || "(searched)" });
-    }
+    // (Grok searches only through its web_search tool since 2026-11-14, each search a step of its own: no search of Grok's own
+    // comes with its answer any more.)
     const msg = answer && answer.message ? answer.message : null;
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
     const said = typeof msg.content === "string" ? msg.content.trim() : "";
@@ -2878,7 +2886,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
-      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + ", plus your own web search; to finish, answer in words)"); continue; }
+      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
       // A TOOL'S OWN INPUT CHECK FIRST, as Claude Code's Grep, Glob, LSP, WebFetch and WebSearch (coder-inputs.mjs; the owner,
       // 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code: "Validation rejections are returned as
       // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"): the input
@@ -3332,6 +3340,95 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // says "stopped", not "running"; live test after deploy 123.)
         emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: shown, ...(stoppedNow ? { stoppedJob: name } : {}) });
         reply(out || "(nothing yet)");
+      } else if (c.name === "web_search") {
+        // CLAUDE CODE'S WEBSEARCH (the owner, 2026-11-14: "start fixing and filling in gaps on those tools", and web search "a
+        // tool like Claude Code's WebSearch (each search its own Grok call)"; coder-websearch.mjs). Its permission is Claude
+        // Code's ("Web search | WebSearch | Yes | Permanently per repository"): a deny rule took the tool away, and a call to it
+        // anyway is refused in Claude Code's words; an ask rule asks in every mode; an allow rule runs it; a PreToolUse hook's
+        // ask asks and its allow runs it; with no rule the checker judges it in Auto (and in Plan with Plan's checker on, "during
+        // planning … Web searches"), and the owner is asked otherwise, on a card in Claude Code's words ("Claude wants to search
+        // the web for: …"), where "Yes, and don't ask again" saves a WebSearch allow rule for the repository. Gloopy and its
+        // helpers keep to Gloopy's own permission settings: no card for their searches. Then the chat's budget, then the search:
+        // one separate Grok call.
+        const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(m).slice(0, 2000) }); reply(m); };
+        const ruled = !offered && !github;
+        const sDec = ruled ? searchDecision({ mode: modeNow(), rules: ownRules, planChecks }) : { verdict: github && checker ? "check" : "allow" };
+        const args0 = c.args || {};
+        emit({ type: "bash", id: c.id, tool: "web_search", verb: RUN_TOOLS.web_search.verb, command: scrub(String(RUN_TOOLS.web_search.label(args0))).slice(0, 300) });
+        // (Refused, it never ran: no PostToolUse hook, as Claude Code's "Permission denials fire PreToolUse but not this event".)
+        if (sDec.verdict === "deny") { refuse(sDec.why); continue; }
+        const modeS = modeNow();
+        const hookAllow = !!(c.hook && c.hook.decision === "allow");
+        const hookAsk = ruled && !c.rerun && !!(c.hook && c.hook.decision === "ask");
+        // (Asked on a card: `askWhy` its reason, "" when it has none of its own; null, not asked.)
+        let askWhy = null, offerRule = false, sPaused = null;
+        if (sDec.verdict === "ask" && sDec.byRule) askWhy = sDec.why;
+        else if (hookAsk) askWhy = c.hook.reason || "A PreToolUse hook asks first.";
+        else if (sDec.verdict === "check" && checker && !c.rerun && !hookAllow) {
+          // THE AUTO MODE CHECKER for it (coder-checker.mjs), as for a page fetch: paused after repeated blocks (then the owner is
+          // asked), declined once (then refused again), no verdict, a mode switched while it judged, a block or an allow.
+          const checkStS = checkerState(...checkKey());
+          if (checkStS.paused) {
+            if (canAsk()) { askWhy = pausedWhy(checkStS.byRow); sPaused = checkStS; }
+            else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; refuse(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+          } else {
+            const sKey = "web_search\n" + String(args0.query || "");
+            if (declinedAgain(c, sKey, "this web search", reply)) continue;
+            await pauseMs(noVerdictWait(noVerdictRow));
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_search", args0), mode: modeS === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            if (v.usage) usage.push(v.usage);
+            const modeAfterS = modeNow();
+            if (modeAfterS !== modeS && !modeChecks(modeAfterS)) {
+              if (!canAsk()) { refuse("not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here"); continue; }
+              askWhy = MODE_SWITCHED;
+            } else if (v.error) {
+              if (await noVerdict(c, v, "this web search", sKey, reply)) return stopNoVerdict(i);
+              continue;
+            } else {
+              noVerdictRow = 0;
+              if (v.decision === "block") { countBlock(checkStS); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              countAllowed(checkStS);
+            }
+          }
+        } else if (sDec.verdict === "ask" && !hookAllow && !c.rerun) { askWhy = ""; offerRule = true; }
+        let approval = null;
+        if (askWhy !== null) {
+          const card = { tool: "web_search", id: c.id, what: scrub(searchAskText(String(args0.query || ""))).slice(0, 600), ...(askWhy ? { why: askWhy } : {}), ...(offerRule && sDec.suggest ? { rules: sDec.suggest } : {}), ...(sDec.byRule && sDec.verdict === "ask" ? { byRule: true } : {}) };
+          if (!canAsk()) { refuse("not run: " + (sDec.byRule && sDec.verdict === "ask" ? "the owner's rule " + sDec.rule + " asks them first" : hookAsk ? "a PreToolUse hook asks them first" : "the owner must approve this web search") + ", and no one can answer here"); continue; }
+          approval = await askOwner(card, { hooks: !c.rerun });
+          const o = answerOutcome(approval);
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+          if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
+          if (sPaused) resume(sPaused);
+          // (A PermissionRequest hook's changed input: the call goes through again with it, as for the other tools.)
+          if (approval.updatedInput && !c.rerun) { const ni = toolInputFromHook(c.name, approval.updatedInput); if (ni) { c.args = ni; c.rerun = true; postFor = null; i--; continue; } }
+        }
+        // (An input a hook changed is checked as the call's own was, before it runs.)
+        const chk = checkSearchInput(c.args);
+        if (chk.error) { refuse(chk.error); continue; }
+        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
+        // THE CHAT'S BUDGET (Claude Code: "While a session is at the limit, searches appear in the conversation as calls that did
+        // nothing. Claude gets a notice telling it to continue with the information already gathered"): no search, its notice.
+        if (!webBudget.tryConsume()) {
+          const facts = { query: chk.args.query, results: [usedUpText({ max: webBudget.max(), refills: webBudget.refillsPerHour() })], durationSeconds: 0, searchCount: 0 };
+          toolFacts.set(c.id, facts);
+          emit({ type: "result", id: c.id, code: 0, output: facts.results[0] });
+          reply(searchText(facts) + yesNote(approval));
+          continue;
+        }
+        ranAt.set(c.id, now());
+        const sr = await runWebSearch(deps.send, { model, effort, args: chk.args, now });
+        // (The search's own call is counted with the others: what it used, its searches and its cost.)
+        if (sr.usage) usage.push(sr.usage);
+        if (sr.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(sr.error).slice(0, 2000) }); reply(sr.error + yesNote(approval)); continue; }
+        // (Its result object, Claude Code's WebSearchOutput, for its PostToolUse hooks.)
+        toolFacts.set(c.id, sr.facts);
+        emit({ type: "result", id: c.id, code: 0, output: scrub(searchShown(sr.facts)).slice(0, MAX_OUTPUT_CHARS) });
+        reply(sr.text + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval));
       } else if (c.name === "request_secret") {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner; the turn ends here.
         if (github) { reply("error: keys cannot be asked for in a job started from GitHub (it is public and gets no saved keys); say in your answer that the owner can give one in Coder's chat"); continue; }
@@ -3455,7 +3552,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "bash", id: c.id, tool: "browser", verb: BROWSER_STEP.verb(args), command: scrub(visibleChars(String(BROWSER_STEP.label(args) || ""))).slice(0, 300) });
         const no = (m) => { emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); };
         const hub = deps.browser;
-        if (!hub || typeof hub.act !== "function") { no("error: there is no browser on this computer: use your web search and web_fetch instead"); continue; }
+        if (!hub || typeof hub.act !== "function") { no("error: there is no browser on this computer: use web_search and web_fetch instead"); continue; }
         if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // AN UPLOAD (owner, 2026-11-10: "yes go ahead", fix 3): the file read from the work folder as `dev` (readOwnFile),
@@ -3869,7 +3966,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // A done step's own words keep its helper's name too (live test, 2026-11-10: "Opened …" said not whose step it was).
           const hemit = (e) => { if (e && (e.type === "bash" || e.type === "result")) emit({ ...e, id: tag + e.id, ...(e.type === "bash" ? { command: "“" + t.name + "” · " + String(e.command || "") } : {}), ...(e.type === "result" && typeof e.label === "string" && e.label ? { label: "“" + t.name + "” · " + e.label } : {}) }); else if (e && e.type === "paused") emit({ ...e, why: "Its helper “" + t.name + "”: " + String(e.why || "") }); };
           const lane = lanes ? lanes.lane((k % HELPERS_MAX) + 1) : null;
-          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, ...(lane ? { browser: lane } : {}), ...(helperConn.length ? { mcp: deps.mcp } : {}) }, { text: t.task, system: helper.system, ...(helperConn.length ? { connectors: helperConn, connectorNotes } : {}), tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, browserRules, permissions: perms, sites, background, monitor, model, effort, zone, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
+          // (A helper's web searches count in its chat's budget, as Claude Code's subagents' count in their session's.)
+          return runCoder({ send: deps.send, exec: deps.exec, now: deps.now, stopped: deps.stopped, emit: hemit, compactAt: deps.compactAt, searchBudget: webBudget, ...(lane ? { browser: lane } : {}), ...(helperConn.length ? { mcp: deps.mcp } : {}) }, { text: t.task, system: helper.system, ...(helperConn.length ? { connectors: helperConn, connectorNotes } : {}), tools: lane ? [...helper.tools, helper.browserTool] : helper.tools, context: String(helper.context || ""), nudges: false, who: "Gloopy's helper “" + t.name + "”", asHelper: true, ownerSaid: said, browserRules, permissions: perms, sites, background, monitor, model, effort, zone, github: false, maxRounds: HELPER_ROUNDS, maxMs: Math.min(HELPER_MS, left) })
             .catch((e) => ({ status: "error", messages: [], usage: [], summary: String((e && e.message) || e).slice(0, 300) }));
         }));
         for (const r of runs) for (const u of r.usage || []) usage.push(u);
@@ -4467,7 +4565,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request; to finish, answer in words)");
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);
@@ -4537,7 +4635,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const a = c.args || {};
         const what = c.name === "browser" ? "browser " + [a.action, a.url, a.ref, a.text !== undefined ? JSON.stringify(String(a.text).slice(0, 80)) : "", a.key, a.option, a.path].filter(Boolean).join(" ") : c.name + " " + scrub(JSON.stringify(a)).slice(0, 200);
         trail.push(scrub(what).slice(0, 260) + " → " + answer.slice(0, 200));
-        const reads = (c.name === "browser" && ["look", "hover", "scroll", "screenshot"].includes(a.action)) || ["read", "grep", "glob", "lsp", "todo", "web_fetch"].includes(c.name);
+        // (A web search only reads, as Grok's own searches did before they became its web_search tool: 2026-11-14.)
+        const reads = (c.name === "browser" && ["look", "hover", "scroll", "screenshot"].includes(a.action)) || ["read", "grep", "glob", "lsp", "todo", "web_fetch", "web_search"].includes(c.name);
         if (!reads) sinceReview++;
         if (/^not done\b/.test(answer)) refused = true;
       }

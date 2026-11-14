@@ -56,11 +56,20 @@ export function toResponsesInput(messages) {
   }
   return { instructions: sys.join("\n\n"), input };
 }
-/** Coder's function tools in the Responses shape, plus Grok's own web search. */
-export function toResponsesTools(tools, { webSearch = true } = {}) {
+/**
+ * Coder's function tools in the Responses shape, and xAI's own web search only for a request that asks for it (`webSearch`:
+ * true, or its domain filters, { allowed_domains } or { excluded_domains }). Since web search became Coder's own tool, like
+ * Claude Code's WebSearch (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; coder-websearch.mjs),
+ * only that tool's own request asks: every other call, Coder's and Gloopy's included, searches only through the tool.
+ */
+export function toResponsesTools(tools, { webSearch = false } = {}) {
   const out = (Array.isArray(tools) ? tools : []).filter((x) => x && x.type === "function" && x.function).map((x) => ({ type: "function", name: x.function.name, description: x.function.description, parameters: x.function.parameters }));
-  // The separate page reader (web_fetch) gets no tools at all, not even web search.
-  return webSearch ? [{ type: "web_search" }, ...out] : out;
+  if (!webSearch) return out;
+  // (xAI's filters: "allowed_domains cannot be set together with excluded_domains in the same request".)
+  const w = typeof webSearch === "object" ? webSearch : {};
+  const list = (k) => (Array.isArray(w[k]) ? w[k].filter((x) => typeof x === "string" && x) : []);
+  const filters = list("allowed_domains").length ? { allowed_domains: list("allowed_domains") } : list("excluded_domains").length ? { excluded_domains: list("excluded_domains") } : null;
+  return [{ type: "web_search", ...(filters ? { filters } : {}) }, ...out];
 }
 /** A Responses answer as `{ message, searches }`: the chat-shaped message, and the web searches Grok made. */
 export function fromResponsesOutput(j) {
@@ -118,7 +127,9 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
     if (!via && !key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
     let withEffort = !!req.effort;
     const { instructions, input } = toResponsesInput(req.messages);
-    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch !== false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
+    // (A web search's own request, coder-websearch.mjs: xAI's search with its filters, its turns limited, max_turns, and
+    // its sources asked for, include. 2026-11-14.)
+    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch || false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), ...(Number.isInteger(req.maxTurns) && req.maxTurns > 0 ? { max_turns: req.maxTurns } : {}), ...(Array.isArray(req.include) && req.include.length ? { include: req.include.filter((x) => typeof x === "string") } : {}), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
     let attempt = 0, effortAsked = false;
     const again = async (ms, error) => {
@@ -164,7 +175,8 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       // out) and the effort xAI's answer says it used (its `reasoning.effort`, when it says).
       const num = (x) => (Number.isFinite(Number(x)) && Number(x) > 0 ? Math.round(Number(x)) : 0);
       const said = j.reasoning && typeof j.reasoning.effort === "string" ? j.reasoning.effort.slice(0, 20) : "";
-      return { message, searches, usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
+      // (xAI's own items too, in order, for a web search's result: its words before and after each search, coder-websearch.mjs.)
+      return { message, searches, output: Array.isArray(j.output) ? j.output : [], usage: { in: u.input_tokens || 0, out: u.output_tokens || 0, searches: web || 0, cost_ticks: u.cost_in_usd_ticks || 0, cached: num(u.input_tokens_details && u.input_tokens_details.cached_tokens), reasoning: num(u.output_tokens_details && u.output_tokens_details.reasoning_tokens), effort: withEffort ? String(req.effort) : "", ...(said ? { effortSaid: said } : {}) } };
     }
   };
 }
