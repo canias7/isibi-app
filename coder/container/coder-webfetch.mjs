@@ -20,6 +20,7 @@ import { isIP } from "node:net";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { docSitePath } from "./coder-webfetch-sites.mjs";
+import { issuesText, typeIssue, keysIssue } from "./coder-issues.mjs";
 
 // ── LIMITS ───────────────────────────────────────────────────────────────────
 // Claude Code 2.1.323's own: a URL of at most 2,000 characters; a download of at most 10,485,760 bytes; 60 seconds for each
@@ -59,8 +60,25 @@ export const EGRESS_BLOCKED = (host) => JSON.stringify({ error_type: "EGRESS_BLO
 /** Coder's own refusal, kept (Claude Code refuses only a host without a dot). */
 export const PRIVATE_ADDRESS = "that address is on a private network";
 // (Claude Code's "The small, fast model that reads the content gave no answer. Trying again may work.": Coder's reader is
-// the chat's own model at low effort, so its kind is left out.)
+// the chat's own model at the chat's effort, so its kind is left out.)
 export const NO_ANSWER = "The model that reads the content gave no answer. Trying again may work.";
+/**
+ * A CLAUDE.AI SHARED CHAT (Claude Code 2.1.325: "Fixed WebFetch describing claude.ai shared-chat links as empty pages; it now
+ * says shared chats can't be read and to paste the conversation instead"): its link (http or https; claude.ai, www.claude.ai
+ * or preview.claude.ai, a trailing dot aside; /share/<its id>), or null. Answered without fetching, in its words, "the owner"
+ * for its "the user"; its result's code 0, "Not Fetched".
+ */
+const SHARE_HOSTS = new Set(["claude.ai", "www.claude.ai", "preview.claude.ai"]);
+const SHARE_PATH = /^\/share\/([0-9a-fA-F]{8}(?:-[0-9a-fA-F]{4}){3}-[0-9a-fA-F]{12})\/?$/;
+export function sharedChat(url) {
+  let u;
+  try { u = new URL(String(url)); } catch { return null; }
+  if ((u.protocol !== "https:" && u.protocol !== "http:") || !SHARE_HOSTS.has(u.hostname.replace(/\.$/, ""))) return null;
+  const m = SHARE_PATH.exec(u.pathname);
+  return m ? { snapshotId: m[1].toLowerCase() } : null;
+}
+export const sharedChatText = ({ snapshotId }) => "https://claude.ai/share/" + snapshotId + " is a shared claude.ai chat. Its content is rendered in the browser, so it is not fetchable from here \u2014 a plain fetch returns only the claude.ai app shell. The owner can paste or export the conversation instead.";
+export const NOT_FETCHED = "Not Fetched";
 
 /** The minutes in "Responses are cached for 15 minutes per URL", from the cache's time (Claude Code: at least 1). */
 export function cacheWords(ttlMs = WEBFETCH_CACHE_TTL_MS) {
@@ -95,32 +113,33 @@ export const WEBFETCH_PARAMS = Object.freeze({
 // calls can send null for a field they leave out).
 const STRAY_FIELDS = ["text_content_token_limit", "html_extraction_method", "web_fetch_pdf_extract_text"];
 const INPUT_FIELDS = ["url", "prompt", "offset"];
-const kindOf = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "NaN" : typeof v);
 export function checkInput(args, ctx = {}) {
   const a = args && typeof args === "object" && !Array.isArray(args) ? { ...args } : {};
   for (const k of STRAY_FIELDS) delete a[k];
   if (a.offset === null) delete a.offset;
   if (typeof a.offset === "string") { const t = a.offset.trim(); if (/^[-+]?\d+(\.\d+)?$/.test(t) && Number.isFinite(Number(t))) a.offset = Number(t); }
-  const missing = [], unexpected = [], types = [], other = [];
+  // (zod's issues, as Claude Code's schema makes them, in its order: url, prompt, offset, then any stray field; and its words
+  // for them, coder-issues.mjs: when only a value is wrong, such as a URL that does not parse or an offset under 0, the
+  // issues themselves, as Claude Code gives them.)
+  const issues = [];
   let url = a.url;
-  if (url === undefined) missing.push("url");
-  else if (typeof url !== "string") types.push(["url", "string", kindOf(url)]);
-  else { url = url.trim(); if (!URL.canParse(url)) other.push("The parameter `url` is invalid: Invalid URL"); }
-  if (a.prompt === undefined) missing.push("prompt");
-  else if (typeof a.prompt !== "string") types.push(["prompt", "string", kindOf(a.prompt)]);
+  if (typeof url !== "string") issues.push(typeIssue("string", url, ["url"]));
+  else { url = url.trim(); if (!URL.canParse(url)) issues.push({ code: "invalid_format", format: "url", path: ["url"], message: INVALID_URL }); }
+  if (typeof a.prompt !== "string") issues.push(typeIssue("string", a.prompt, ["prompt"]));
   if (a.offset !== undefined) {
-    if (typeof a.offset !== "number" || Number.isNaN(a.offset)) types.push(["offset", "number", kindOf(a.offset)]);
-    else if (!Number.isSafeInteger(a.offset)) types.push(["offset", "int", "number"]);
-    else if (a.offset < 0) other.push("The parameter `offset` is invalid: Too small: expected number to be >=0");
+    const o = a.offset;
+    if (typeof o !== "number" || !Number.isFinite(o)) issues.push(typeIssue("number", o, ["offset"]));
+    else if (!Number.isInteger(o)) issues.push({ expected: "int", format: "safeint", code: "invalid_type", path: ["offset"], message: "Invalid input: expected int, received number" });
+    else {
+      const SAFE = "Integers must be within the safe integer range.";
+      if (o > Number.MAX_SAFE_INTEGER) issues.push({ code: "too_big", maximum: Number.MAX_SAFE_INTEGER, note: SAFE, origin: "int", inclusive: true, path: ["offset"], message: "Too big: expected int to be <=" + Number.MAX_SAFE_INTEGER });
+      else if (o < Number.MIN_SAFE_INTEGER) issues.push({ code: "too_small", minimum: Number.MIN_SAFE_INTEGER, note: SAFE, origin: "int", inclusive: true, path: ["offset"], message: "Too small: expected int to be >=" + Number.MIN_SAFE_INTEGER });
+      if (o < 0) issues.push({ origin: "number", code: "too_small", minimum: 0, inclusive: true, path: ["offset"], message: "Too small: expected number to be >=0" });
+    }
   }
-  for (const k of Object.keys(a)) if (!INPUT_FIELDS.includes(k)) unexpected.push(k);
-  const lines = [
-    ...missing.map((p) => "The required parameter `" + p + "` is missing"),
-    ...unexpected.map((p) => "An unexpected parameter `" + p + "` was provided"),
-    ...types.map(([p, e, r]) => "The parameter `" + p + "` type is expected as `" + e + "` but provided as `" + r + "`"),
-    ...other,
-  ];
-  if (lines.length) return { error: "error: InputValidationError: web_fetch failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n") };
+  const unknown = Object.keys(a).filter((k) => !INPUT_FIELDS.includes(k));
+  if (unknown.length) issues.push(keysIssue(unknown));
+  if (issues.length) return { error: "error: InputValidationError: " + issuesText("web_fetch", issues) };
   if (ctx && typeof ctx.webFetchOff === "string" && ctx.webFetchOff) return { error: "error: WebFetch is turned off by " + ctx.webFetchOff + "." };
   return { args: { url, prompt: a.prompt, ...(a.offset !== undefined ? { offset: a.offset } : {}) } };
 }

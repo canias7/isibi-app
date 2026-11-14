@@ -27,6 +27,7 @@ import { retryLine } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
+import { accountEmailRefused, emailRefused, refusedNow } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
@@ -35,11 +36,11 @@ import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from 
 import { inputCheckFor } from "./coder-inputs.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
-import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
+import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
-import { webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
+import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
@@ -612,56 +613,11 @@ export function monitorEndLabel(e) {
   if (why === "exit") return code === 0 ? { ok: true, label: "" } : { ok: false, label: code === null ? "ended" : "exit " + code };
   return { ok: false, label: why === "limit" ? "deadline" : why === "flood" ? "too many lines" : why === "size" ? "over 5 GB" : why === "memory" ? "low memory" : "stopped" };
 }
+// ── THE ACCOUNT'S EMAIL AS A CLIENT'S IDENTITY (Claude Code 2.1.325's privacy check, coder-privacy.mjs: a shell call and the
+// scripts it names, Write and Edit content, a web_fetch url, a connector call). The Worker gives the machine the address's
+// length and SHA-256 only (`emailMark`, "<length>:<sha256>"), never the address.
+export { ACCOUNT_EMAIL_REFUSED, accountEmailRefused, inputText, namesUserAgentWithAddress } from "./coder-privacy.mjs";
 /** The file tools the read block covers (Claude Code: "Read, Grep, Glob, and LSP"), and what Coder is told (its words, with Coder's names). */
-// ── THE ACCOUNT'S EMAIL WITH A USER-AGENT (Bash docs pass 5; Claude Code's built-in "privacy" check, 2.1.321: "refuses a shell
-// call that holds the signed-in account's email address and names a User-Agent", in its words, without asking). The Worker
-// gives the machine the address's length and SHA-256 only (`emailMark`, "<length>:<sha256>"), never the address.
-export const ACCOUNT_EMAIL_REFUSED = "This call was refused: it holds the account's email address and what looks like a User-Agent setting. If nobody asked to send the address, run it again without it, with a generic client name. Otherwise run it again without that setting, or run the two in separate calls.";
-/**
- * What Grok is told when that check refuses a call, as Claude Code 2.1.323 tells its model (tried side by side, 2026-11-12:
- * "Permission to use Bash denied by plugin cc-plugin-privacy: This call was refused: …", and the same with Monitor and
- * PowerShell for theirs). The page shows the same words under the step.
- */
-export const accountEmailRefused = (tool) => "Permission to use " + tool + " denied by plugin cc-plugin-privacy: " + ACCOUNT_EMAIL_REFUSED;
-/** A tool call's input as Claude Code reads it for that check (its textOf): each string as sent, then without its quotes, backslashes, `$` before a quote and joined lines. */
-export function inputText(v) {
-  if (typeof v === "string") return v + "\n" + v.replace(/[\\`]\r?\n/g, "").replace(/\$(?=["'])/g, "").replace(/["'`\\]/g, "");
-  if (typeof v !== "object" || v === null) return "";
-  return Object.values(v).map(inputText).join(Array.isArray(v) ? " " : "\n");
-}
-const UA_WORDS = /user[-_]?agent|[-–-―]-user-(?:a(?:g[a-z]*)?)?(?![a-z-])|[-–-―]usera(?:g[a-z]*)?(?![a-z])|\bua\s*[:=]/i;
-const UA_FLAGS = [[/\bcurl(?:ie)?\b/i, /\s[-–-―][a-zA-WYZ0-9#]*A/], [/\bwget2?\b/i, /\s[-–-―][a-zA-Z0-9]*U/], [/\b(?:curl|wget|iwr|irm|invoke-webrequest|invoke-restmethod)\b/i, /\s[-–-―]user(?![\w=-])/i]];
-/**
- * Whether a call's text holds the account's email and names a User-Agent (Claude Code's namesUserAgentWithAddress: the
- * text, or the text with %XX decoded, holds the address in any case; then, with the address taken out, it names a
- * User-Agent: the words, or curl's -A, wget's -U, or a -user… option). Like Claude Code 2.1.323, the address is looked
- * for as it is and without its quote marks and backslashes (o'brien@… as obrien@…): the mark is "<length>:<sha256>",
- * or two of them joined by a comma when those differ.
- */
-export function namesUserAgentWithAddress(text, mark) {
-  const marks = String(mark || "").split(",").map((x) => /^(\d{1,3}):([0-9a-f]{64})$/.exec(x)).filter(Boolean);
-  const t = String(text || "");
-  if (!marks.length || (!t.includes("@") && !t.includes("%40"))) return false;
-  const decoded = t.replace(/%([0-9a-fA-F]{2})/g, (_, h) => String.fromCharCode(parseInt(h, 16)));
-  const found = new Set();
-  for (const m of marks) {
-    const len = Number(m[1]), want = m[2];
-    let hit = "";
-    for (const src of [t.toLowerCase(), decoded.toLowerCase()]) {
-      for (let at = src.indexOf("@"); at >= 0 && !hit; at = src.indexOf("@", at + 1)) {
-        for (let j = Math.max(0, at - len + 1); j <= at && !hit; j++) {
-          const cand = src.slice(j, j + len);
-          if (cand.length === len && createHash("sha256").update(cand).digest("hex") === want) hit = cand;
-        }
-      }
-      if (hit) break;
-    }
-    if (hit) found.add(hit);
-  }
-  if (!found.size) return false;
-  const rest = t.replace(new RegExp([...found].map((f) => f.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|"), "gi"), " ");
-  return UA_WORDS.test(rest) || UA_FLAGS.some(([a, b]) => a.test(rest) && b.test(rest));
-}
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
 /** Coder's file tools the owner's Read and Edit rules (and whole-tool Write, Grep, Glob, LSP rules) apply to. */
 const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit"]);
@@ -1598,10 +1554,12 @@ export function webFetchTools(list, settings = {}) {
  * One read of a page's text (from where Coder asked), for Coder's prompt: `{ ok, text, usage }`, or `{ ok: false, error }`
  * (Claude Code: an answer with no text is a failed call, 2.1.321; a reader that fails fails the call).
  */
-export async function readPage(deps, { model = "", prompt = "", content = "", preapproved = false, lead = "" } = {}) {
+export async function readPage(deps, { model = "", effort = "", prompt = "", content = "", preapproved = false, lead = "" } = {}) {
   let a;
   try {
-    a = await deps.send({ model, effort: "low", webSearch: false, tools: [], messages: [
+    // (At the chat's own effort: Claude Code 2.1.325's "WebFetch page reads … pick their effort as web searches do: the
+    // caller's level on the caller's own model", and Coder's reader is the chat's own model.)
+    a = await deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, tools: [], messages: [
       { role: "system", content: PAGE_READER },
       { role: "user", content: lead + readerMessage(content, prompt, preapproved) },
     ] });
@@ -1620,9 +1578,12 @@ export async function readPage(deps, { model = "", prompt = "", content = "", pr
  * `facts` is Claude Code's result object for the PostToolUse hooks ({ bytes, code, codeText, result, durationMs, url }).
  * `settings`: the chat's CODER_WEBFETCH_… values (coder-webfetch.mjs's webFetchSettings); `chat`: whose page cache.
  */
-export async function webFetchRun(deps, { model = "", args = {}, chat = "", settings = {}, execS = 0, now = Date.now } = {}) {
+export async function webFetchRun(deps, { model = "", effort = "", args = {}, chat = "", settings = {}, execS = 0, now = Date.now } = {}) {
   const t0 = now();
   const url = String(args.url ?? ""), prompt = String(args.prompt ?? ""), offset = Number.isSafeInteger(args.offset) && args.offset > 0 ? args.offset : 0;
+  // A CLAUDE.AI SHARED CHAT: answered without fetching, in Claude Code's words (coder-webfetch.mjs's sharedChat).
+  const share = sharedChat(url);
+  if (share) { const text = sharedChatText(share); return { code: 0, out: text, facts: { bytes: Buffer.byteLength(text), code: 0, codeText: NOT_FETCHED, result: text, durationMs: now() - t0, url } }; }
   const deadlineMs = Number.isFinite(settings.deadlineMs) ? settings.deadlineMs : WEBFETCH_DEADLINE_MS;
   const ttl = Number.isFinite(settings.cacheTtlMs) && settings.cacheTtlMs > 0 ? settings.cacheTtlMs : WEBFETCH_CACHE_TTL_MS;
   const key = String(chat) + "\n" + url;
@@ -1654,7 +1615,7 @@ export async function webFetchRun(deps, { model = "", args = {}, chat = "", sett
   if (offset > 0 && rest === "") text = pastEndText(offset, total);
   else if (docSite(url) && page.contentType.includes("text/markdown") && rest.length < WEBFETCH_READ_CHARS) text = rest;
   else {
-    const rd = await readPage(deps, { model, prompt, content: rest, preapproved: docSite(url), lead: offset > 0 ? leadText(offset, total) : "" });
+    const rd = await readPage(deps, { model, effort, prompt, content: rest, preapproved: docSite(url), lead: offset > 0 ? leadText(offset, total) : "" });
     usage = rd.usage || null;
     if (!rd.ok) return { code: 1, out: rd.error, usage };
     text = rd.text;
@@ -1759,8 +1720,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // "limit of 200 WebSearch calls" that "refills at about 100 calls per hour", shared by "Searches from the main conversation
   // and from subagents"; coder-websearch.mjs): kept with the chat by Coder's machine (deps.searchKeep), its settings the
   // environment's CODER_MAX_WEB_SEARCHES_PER_SESSION and CODER_WEB_SEARCH_REFILLS_PER_HOUR (`searchLimits`); a helper uses
-  // the one of the run that started it (deps.searchBudget).
-  const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: deps.searchKeep || null, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills), now });
+  // the one of the run that started it (deps.searchBudget). A job started from GitHub counts its own searches, from none, with
+  // no refill unless the setting gives one, as Claude Code's non-interactive runs ("the limit applies per turn, not per
+  // session"; CLAUDE_CODE_WEB_SEARCH_REFILLS_PER_HOUR: "In a non-interactive session the default is 0").
+  const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: github ? null : deps.searchKeep || null, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills, github ? 0 : undefined), now });
   // THE CHAT'S TASK LIST (Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate; the owner, 2026-11-14: "Do all the talk
   // to you tools execpt for the notify one"; coder-tasks.mjs): read once a job, when first needed, from the chat's own file
   // (deps.tasks), and written back after each change, as Claude Code keeps a session's list between turns; a job with no file
@@ -2298,6 +2261,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const modeW = modeNow();
     let dec = github ? { verdict: "check" } : wsDecision({ rules: ownRules, mode: modeW });
     if (dec.verdict === "deny") { refuse(dec.why); return null; }
+    // (The account's email as a client's identity in its input: refused, as for any Monitor call; coder-privacy.mjs.)
+    if (emailMark && await emailRefused("Monitor", c.args, emailMark)) { refuse(accountEmailRefused("Monitor")); return null; }
     // A PreToolUse hook's ask asks; its allow approves, never under a rule asking for every Bash command, and never in Plan
     // mode (a watch isn't read-only; Claude Code's "Hook approvals in plan mode").
     if (c.hook && c.hook.decision === "ask" && !github) dec = { verdict: "ask", byRule: true, why: c.hook.reason || (dec.verdict === "ask" && dec.why) || "A PreToolUse hook asks first." };
@@ -3103,7 +3068,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!cmd.trim() || x.args.run_in_background === true || x.args.run_in_background === "true" || x.args.allowed_domains !== undefined) return false;
       if (commandProblem(cmd) || leadsWithSleep(cmd) || sleepBlockFor(cmd, false, "") || !wholeReadOnly(cmd)) return false;
       if (readCommand(cmd).cmds.some((k) => ["cd", "pushd", "popd", "chdir"].includes(String(((k.words || [])[0] || {}).text || "").split("/").pop()))) return false;
-      if (emailMark && namesUserAgentWithAddress(inputText(x.args), emailMark)) return false;
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
       if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH], exists: (q) => pathExists(q) })) return false;
@@ -3121,7 +3085,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const mcpEarly = new Map();
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
-    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name); };
+    const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     if (calls.filter(quiet).length > 1) for (const c of calls.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
     // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
     const heldEnd = (from) => {
@@ -3142,8 +3106,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (writeHold && writeHold.held) return heldEnd(i);
       // (The run starts in the order asked, this one first, and only while the job has time left and was not stopped: the
       // time limit is checked before each command starts.)
-      if (!ahead.has((calls[i] || {}).id) && i + 1 < calls.length && runsAhead(calls[i]) && runsAhead(calls[i + 1]) && now() - started <= maxMs && !(await stopped())) {
-        for (let j = i; j < calls.length && runsAhead(calls[j]); j++) ahead.set(calls[j].id, startAhead(calls[j]));
+      // (Not one the account's email check refuses, its scripts read now: coder-privacy.mjs.)
+      const okAhead = async (x) => runsAhead(x) && !(emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: (typeof deps.here === "function" ? String(deps.here() || "") : "") || deps.root || "" }));
+      if (!ahead.has((calls[i] || {}).id) && i + 1 < calls.length && await okAhead(calls[i]) && await okAhead(calls[i + 1]) && now() - started <= maxMs && !(await stopped())) {
+        for (let j = i; j < calls.length && await okAhead(calls[j]); j++) ahead.set(calls[j].id, startAhead(calls[j]));
       }
       if (hookStop) return stopByHook(hookStop);
       if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + m }); return end("done", { summary: lastSaid || m }); }
@@ -3259,6 +3225,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!github && !RULED_TOOLS.has(c.name)) {
         const cc = ccTool(c.name);
         if (toolDenied(c.name)) { const m = "Permission to use " + cc + " has been denied."; emit({ type: "note", text: m, warn: true }); reply(m); continue; }
+        // (A connector call that holds the account's email as a client's identity: refused, as Claude Code's privacy check refuses
+        // such an MCP call, after the deny rules and before any card; coder-privacy.mjs.)
+        if (emailMark && mcpByName.has(c.name) && refusedNow(c.name, c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(c.name).label).slice(0, 200) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc);
         if (askRule) {
           if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
@@ -3375,9 +3344,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (No checker to review them: run without them, and say so.)
         let hostsUnchecked = false;
         if (hostsFor && !checker && dec.verdict === "allow") { hostsFor = null; hostsUnchecked = true; }
-        // THE ACCOUNT'S EMAIL WITH A USER-AGENT: refused, without asking, in every mode (see namesUserAgentWithAddress), in
-        // Claude Code's words for the tool (accountEmailRefused); a monitor's own input is what is read, as Claude Code reads it.
-        if (emailMark && namesUserAgentWithAddress(inputText(c.monitor ? c.monitorArgs : c.args), emailMark)) { refuse(accountEmailRefused(c.monitor ? "Monitor" : c.ps ? "PowerShell" : "Bash")); continue; }
+        // THE ACCOUNT'S EMAIL AS A CLIENT'S IDENTITY: refused, without asking, in every mode (coder-privacy.mjs, Claude Code
+        // 2.1.325), in Claude Code's words for the tool (accountEmailRefused); a monitor's own input is what is read, as Claude
+        // Code reads it, and the scripts the command names, from the folder it runs in.
+        if (emailMark && await emailRefused(c.monitor ? "Monitor" : c.ps ? "PowerShell" : "Bash", c.monitor ? c.monitorArgs : c.args, emailMark, { cwd: where0 || deps.root || "" })) { refuse(accountEmailRefused(c.monitor ? "Monitor" : c.ps ? "PowerShell" : "Bash")); continue; }
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         // (A PowerShell command's protected writes: psProtectedAsk, fix 4 of "Yes all 7".)
@@ -3651,7 +3621,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // one separate Grok call.
         const refuse = (m) => { emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(m).slice(0, 2000) }); reply(m); };
         const ruled = !offered && !github;
-        const sDec = ruled ? searchDecision({ mode: modeNow(), rules: ownRules, planChecks }) : { verdict: github && checker ? "check" : "allow" };
+        const sDec = ruled ? searchDecision({ mode: modeNow(), rules: ownRules, planChecks, input: c.args }) : { verdict: github && checker ? "check" : "allow" };
         const args0 = c.args || {};
         emit({ type: "bash", id: c.id, tool: "web_search", verb: RUN_TOOLS.web_search.verb, command: scrub(String(RUN_TOOLS.web_search.label(args0))).slice(0, 300) });
         // (Refused, it never ran: no PostToolUse hook, as Claude Code's "Permission denials fire PreToolUse but not this event".)
@@ -3693,7 +3663,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let approval = null;
         if (askWhy !== null) {
           const card = { tool: "web_search", id: c.id, what: scrub(searchAskText(String(args0.query || ""))).slice(0, 600), ...(askWhy ? { why: askWhy } : {}), ...(offerRule && sDec.suggest ? { rules: sDec.suggest } : {}), ...(sDec.byRule && sDec.verdict === "ask" ? { byRule: true } : {}) };
-          if (!canAsk()) { refuse("not run: " + (sDec.byRule && sDec.verdict === "ask" ? "the owner's rule " + sDec.rule + " asks them first" : hookAsk ? "a PreToolUse hook asks them first" : "the owner must approve this web search") + ", and no one can answer here"); continue; }
+          // (Where no one can answer, a search no rule or hook asks about is refused in Claude Code's words, as a page fetch is.)
+          if (!canAsk()) { refuse("not run: " + (sDec.byRule && sDec.verdict === "ask" ? "the owner's rule " + sDec.rule + " asks them first, and no one can answer here" : hookAsk ? "a PreToolUse hook asks them first, and no one can answer here" : SEARCH_UNGRANTED)); continue; }
           approval = await askOwner(card, { hooks: !c.rerun });
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -3713,7 +3684,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // THE CHAT'S BUDGET (Claude Code: "While a session is at the limit, searches appear in the conversation as calls that did
         // nothing. Claude gets a notice telling it to continue with the information already gathered"): no search, its notice.
         if (!webBudget.tryConsume()) {
-          const facts = { query: chk.args.query, results: [usedUpText({ max: webBudget.max(), refills: webBudget.refillsPerHour() })], durationSeconds: 0, searchCount: 0 };
+          const facts = { query: chk.args.query, results: [usedUpText({ max: webBudget.max(), refills: webBudget.refillsPerHour(), perTurn: !!github })], durationSeconds: 0, searchCount: 0 };
           toolFacts.set(c.id, facts);
           emit({ type: "result", id: c.id, code: 0, output: facts.results[0] });
           reply(searchText(facts) + yesNote(approval));
@@ -4607,6 +4578,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
         if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
+        // THE ACCOUNT'S EMAIL AS A CLIENT'S IDENTITY in what a write or an edit puts in a file, or the address in a page's URL
+        // (Claude Code 2.1.325's privacy check, coder-privacy.mjs: Write's content, Edit's new_string, WebFetch's url): refused
+        // below, after the owner's deny rules, with no card first.
+        const emailTool = c.name === "write" ? "Write" : c.name === "edit" ? "Edit" : c.name === "web_fetch" ? "WebFetch" : "";
+        const emailNo = !!emailMark && !!emailTool && await emailRefused(emailTool, args, emailMark);
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
         const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? projectPath(deps, args.path) : "";
         const why = guarded ? protectedFile(guarded) : "";
@@ -4622,7 +4598,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const all = [...gone.map((l) => "-" + cut(l)), ...come.map((l) => "+" + cut(l))];
           return { kind: c.name === "edit" ? "update" : "create", add: come.length, del: gone.length, lines: all.slice(0, 40), ...(all.length > 40 ? { more: all.length - 40 } : {}) };
         };
-        if (why && !ownerAllowed(convo, guarded) && (github || !canAsk())) {
+        if (why && !ownerAllowed(convo, guarded) && (github || !canAsk()) && !emailNo) {
           const shownPath = scrub(visibleChars(guarded)).slice(0, 300);
           if (github) {
             const m = "error: " + shownPath + " is a protected file (it can make code run on the owner's computer, or change how the project is built), so it is not changed in a job started from GitHub, where no one can allow it: say so in your answer";
@@ -4700,11 +4676,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const modeT = modeNow();
         const fetchDec = c.name === "web_fetch" && !github ? fetchDecision(String(args.url || ""), { mode: modeT, rules: ownRules }) : null;
         if (fetchDec && fetchDec.verdict === "deny") { emit({ type: "result", id: c.id, code: -1, ran: false, output: fetchDec.why }); reply(fetchDec.why); continue; }
+        if (emailNo) { const m = accountEmailRefused(emailTool); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         // THE AUTO MODE CHECKER FOR A PAGE FETCH (coder-checker.mjs): in Auto, or a job from GitHub, a fetch that no allow rule
-        // and none of the pre-approved documentation sites cover is judged before it runs (an address can carry data out).
-        let fetchPaused = false, fetchSwitched = false;
+        // and none of the pre-approved documentation sites cover is judged before it runs (an address can carry data out). In
+        // Plan too, with Plan's checker on (Claude Code: "When auto mode is available, Claude Code sends these calls during
+        // planning to auto mode's classifier for review instead of to your callback, when no allow rule approves them: … Web
+        // fetches"; "Any other WebFetch call that no allow rule approves | Goes to the classifier"); an ask rule still asks.
+        let fetchPaused = false, fetchSwitched = false, fetchChecked = false;
         const checkStF = checkerState(...checkKey());
-        if (!c.rerun && checker && c.name === "web_fetch" && (modeT === "auto" || github) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask") && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
+        if (!c.rerun && checker && c.name === "web_fetch" && modeChecks(modeT) && !(c.hook && c.hook.decision === "allow") && !(fetchDec && fetchDec.verdict === "ask" && fetchDec.byRule) && fetchDecision(String(args.url || ""), { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") {
           if (checkStF.paused) {
             if (canAsk()) fetchPaused = true;
             else { const why0 = "auto mode is paused after repeated blocks, and no one can approve actions in this job"; const m = autoDenied(why0); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m + await deniedHooks(c, why0)); continue; }
@@ -4712,7 +4692,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             const fetchKey = "web_fetch\n" + String(args.url || "");
             if (declinedAgain(c, fetchKey, "this page fetch", reply)) continue;
             await pauseMs(noVerdictWait(noVerdictRow));
-            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
+            const v = await checkAction(deps, { model, convo, skipId: c.id, context, notes: checkerNotes, action: actionShown("web_fetch", args), mode: modeT === "plan" ? "plan" : "auto", repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode });
             if (v.usage) usage.push(v.usage);
             const modeAfterF = modeNow();
             if (modeAfterF !== modeT && !modeChecks(modeAfterF)) {
@@ -4725,6 +4705,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             noVerdictRow = 0;
             if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkStF);
+            fetchChecked = true;
             }
           }
         }
@@ -4734,7 +4715,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const fileAsk = !c.rerun && (c.name === "write" || c.name === "edit") && !github && ((why && !ownerAllowed(convo, guarded)) || (modeT === "plan" && !toPlanFile));
         let approval = null;
         // (A hook's allow skips a page fetch's question, never a rule's.)
-        const fetchAsk = !!(fetchDec && fetchDec.verdict === "ask") && !(c.hook && c.hook.decision === "allow" && !fetchDec.byRule) && !(c.rerun && !fetchDec.byRule);
+        // (Nor one Plan's checker approved: it is not asked about again.)
+        const fetchAsk = !!(fetchDec && fetchDec.verdict === "ask") && !(c.hook && c.hook.decision === "allow" && !fetchDec.byRule) && !(c.rerun && !fetchDec.byRule) && !(fetchChecked && !fetchDec.byRule);
         if (fileAsk || ruleAsk || fetchAsk || fetchPaused || fetchSwitched) {
           const shownPath = guarded ? scrub(visibleChars(guarded)).slice(0, 300) : fileTarget ? scrub(visibleChars(projectPath(deps, fileTarget))).slice(0, 300) : "";
           const card = fileAsk
@@ -4768,7 +4750,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (c.name === "web_fetch") {
           ranAt.set(c.id, now());
           // (The tools script's time: the fetch's deadline and a little more; with no deadline, the job's time left.)
-          const wf = await webFetchRun(deps, { model, args, chat: webCacheKey, settings: webFetch, execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
+          const wf = await webFetchRun(deps, { model, effort, args, chat: webCacheKey, settings: webFetch, execS: webFetch.deadlineMs > 0 ? Math.ceil(webFetch.deadlineMs / 1000) + 30 : Math.max(60, Math.ceil((maxMs - (now() - started)) / 1000)) });
           if (wf.usage) usage.push(wf.usage);
           if (wf.facts) toolFacts.set(c.id, wf.facts);
           emit({ type: "result", id: c.id, code: wf.code, output: wf.out.length > MAX_OUTPUT_CHARS ? capOutput(wf.out) : wf.out });

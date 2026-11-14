@@ -87,8 +87,11 @@ test("WF1 the input, checked as Claude Code checks it before any hook: its schem
   const head = "error: InputValidationError: web_fetch failed due to the following ";
   assert.deepEqual(W.checkInput({}), { error: head + "issues:\nThe required parameter `url` is missing\nThe required parameter `prompt` is missing" });
   assert.deepEqual(W.checkInput({ url: 5, prompt: ["x"], extra: 1 }), { error: head + "issues:\nAn unexpected parameter `extra` was provided\nThe parameter `url` type is expected as `string` but provided as `number`\nThe parameter `prompt` type is expected as `string` but provided as `array`" });
-  assert.deepEqual(W.checkInput({ url: "not a url", prompt: "p" }), { error: head + "issue:\nThe parameter `url` is invalid: Invalid URL" });
-  assert.deepEqual(W.checkInput({ url: "https://a.example", prompt: "p", offset: -1 }), { error: head + "issue:\nThe parameter `offset` is invalid: Too small: expected number to be >=0" });
+  // (Only a value wrong: zod's own issues, as Claude Code gives them, "InputValidationError: [ … ]"; test WEB4.)
+  assert.deepEqual(W.checkInput({ url: "not a url", prompt: "p" }), { error: "error: InputValidationError: " + JSON.stringify([{ code: "invalid_format", format: "url", path: ["url"], message: "Invalid URL" }], null, 2) });
+  assert.deepEqual(W.checkInput({ url: "https://a.example", prompt: "p", offset: -1 }), { error: "error: InputValidationError: " + JSON.stringify([{ origin: "number", code: "too_small", minimum: 0, inclusive: true, path: ["offset"], message: "Too small: expected number to be >=0" }], null, 2) });
+  // (Beside a missing, stray or wrongly typed one: listed with them.)
+  assert.deepEqual(W.checkInput({ url: "not a url", prompt: 1 }), { error: head + "issues:\nThe parameter `prompt` type is expected as `string` but provided as `number`\nThe parameter `url` is invalid: Invalid URL" });
   assert.deepEqual(W.checkInput({ url: "https://a.example", prompt: "p", offset: 1.5 }), { error: head + "issue:\nThe parameter `offset` type is expected as `int` but provided as `number`" });
   assert.deepEqual(W.checkInput({ url: "https://a.example", prompt: "p", offset: "abc" }), { error: head + "issue:\nThe parameter `offset` type is expected as `number` but provided as `string`" });
   // (2.1.292: "WebFetch … ignore a few stray parameters instead of failing the call".)
@@ -391,7 +394,10 @@ test("WF12 the page reader's message: Claude Code's own prompt (the page between
   const sent = [];
   const deps = { send: async (req) => { sent.push(req); return { message: { role: "assistant", content: "answer" }, usage: { in: 9, out: 2 } }; } };
   assert.deepEqual(await A.readPage(deps, { model: "grok-4.7", prompt: "p", content: "PAGE", lead: "LEAD\n" }), { ok: true, text: "answer", usage: { in: 9, out: 2 } });
-  assert.deepEqual(sent[0], { model: "grok-4.7", effort: "low", webSearch: false, tools: [], messages: [{ role: "system", content: A.PAGE_READER }, { role: "user", content: "LEAD\n" + W.readerMessage("PAGE", "p") }] });
+  assert.deepEqual(sent[0], { model: "grok-4.7", webSearch: false, tools: [], messages: [{ role: "system", content: A.PAGE_READER }, { role: "user", content: "LEAD\n" + W.readerMessage("PAGE", "p") }] }, "no effort given: none sent");
+  // (At the chat's own effort, as Claude Code's reader on the caller's model: test WEB7.)
+  await A.readPage(deps, { model: "grok-4.7", effort: "high", prompt: "p", content: "PAGE" });
+  assert.equal(sent[1].effort, "high");
   // Claude Code: an answer with no text is a failed call; so is a reader that fails.
   assert.deepEqual(await A.readPage({ send: async () => ({ message: { content: "  \n" } }) }, { prompt: "p", content: "x" }), { ok: false, error: "error: The model that reads the content gave no answer. Trying again may work.", usage: undefined });
   assert.deepEqual(await A.readPage({ send: async () => { throw new Error("model down"); } }, { prompt: "p", content: "x" }), { ok: false, error: "error: model down" });
@@ -527,7 +533,7 @@ test("WF18 in Coder's loop: offset given as text is taken; a bad input is refuse
   });
   assert.ok(t.reads[0].messages[1].content.startsWith(W.leadText(5, 10) + "\nWeb page content:\n---\n56789\n---\n"));
   assert.equal(toolMsg(t, "o1"), "part");
-  assert.equal(toolMsg(t, "bad"), "error: InputValidationError: web_fetch failed due to the following issue:\nThe parameter `url` is invalid: Invalid URL");
+  assert.equal(toolMsg(t, "bad"), "error: InputValidationError: " + JSON.stringify([{ code: "invalid_format", format: "url", path: ["url"], message: "Invalid URL" }], null, 2));
   assert.deepEqual(t.hookCalls.map((x) => x.input.tool_use_id), ["o1", "big"], "no hook for the refused call");
   assert.equal(t.execs.length, 2);
   assert.deepEqual(saved, [LONG]);
@@ -590,4 +596,93 @@ test("WF21 Coder's Worker loads the permission rules, and with them WebFetch's s
   // The tool's own module gives the same functions.
   assert.equal(W.docSite, P.docSite);
   assert.deepEqual(Object.keys(W).filter((k) => ["DOC_SITES", "docSitePath", "docSite", "domainRuleMatches", "pickDomainRule", "webFetchRuleProblem"].includes(k)).sort(), ["DOC_SITES", "docSite", "docSitePath", "domainRuleMatches", "pickDomainRule", "webFetchRuleProblem"]);
+});
+
+// ── THE RECHECK OF 2026-11-14 (the owner: "Fix base on Claude Code docs, please"): Claude Code 2.1.325's docs and program. ──
+const CHECKER_RE = /^You are the safety checker of Coder's auto mode/;
+/** Coder's loop with its own options (the checker, Plan's checker, rules, model and effort): Grok's steps, the page reader and the checker each answered by their own request. */
+async function webJob(steps, { verdict = '{"decision":"allow"}', ...opts } = {}) {
+  const events = [], reads = [], checks = [], execs = [], seen = [];
+  let n = 0;
+  const r = await A.runCoder({
+    send: async (req) => {
+      if (isReader(req)) { reads.push(req); return { message: { role: "assistant", content: "read" }, usage: { in: 2, out: 1 } }; }
+      if (req.messages && req.messages[0] && CHECKER_RE.test(String(req.messages[0].content || ""))) { checks.push(req); return { message: { role: "assistant", content: verdict }, usage: { in: 2, out: 1 } }; }
+      seen.push(req);
+      return steps[Math.min(n++, steps.length - 1)];
+    },
+    exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); if (tm) { execs.push(JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"))); return { code: 0, output: pageOut("PAGE TEXT") }; } return { code: 0, output: "ok\n" }; },
+    emit: (e) => events.push(e), here: () => "/work/shop", root: "/work/shop", chatId: "shop-wf-" + Math.random().toString(36).slice(2, 8), where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
+    ask: async () => ({ choice: "yes" }),
+  }, { text: "go", messages: [], ...opts });
+  const told = (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content;
+  return { r, events, reads, checks, execs, seen, told, cards: events.filter((e) => e.type === "permission") };
+}
+
+test("WEB5 in Plan mode with Plan's checker on, a page fetch that no allow rule or pre-approved site covers goes to auto mode's checker, not to the owner (Claude Code's agent SDK permissions: \"Any other WebFetch call that no allow rule approves | Goes to the classifier\"); an ask rule still asks; with Plan's checker off it asks as before", async () => {
+  const fetchOne = [say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "f1")]), say("done")];
+  // Plan, the checker on (CODER_USE_AUTO_MODE_DURING_PLAN unset): judged as a plan step, no card, then fetched.
+  let t = await webJob(fetchOne, { mode: "plan", checker: true });
+  assert.equal(t.checks.length, 1, "the checker judged it");
+  assert.match(t.checks[0].messages.map((m) => String(m.content)).join("\n"), /web_fetch: https:\/\/example\.com\/a: p/);
+  assert.deepEqual([t.cards.length, t.execs.length, t.told("f1")], [0, 1, "read"]);
+  // Blocked by the checker: refused, never fetched.
+  t = await webJob(fetchOne, { mode: "plan", checker: true, verdict: '{"decision":"block","rule":"Data exfiltration","reason":"sends data out"}' });
+  assert.equal(t.execs.length, 0);
+  assert.match(t.told("f1"), /Data exfiltration/);
+  // Plan's checker off: the owner is asked, as before.
+  t = await webJob(fetchOne, { mode: "plan", checker: true, checkerInPlan: false });
+  assert.deepEqual([t.checks.length, t.cards.filter((e) => e.tool === "web_fetch").length], [0, 1]);
+  // An ask rule asks, the checker or not; an allow rule, or a pre-approved documentation site, needs neither.
+  t = await webJob(fetchOne, { mode: "plan", checker: true, rules: { ask: ["WebFetch(domain:example.com)"] } });
+  assert.deepEqual([t.checks.length, t.cards.length], [0, 1]);
+  t = await webJob(fetchOne, { mode: "plan", checker: true, rules: { allow: ["WebFetch(domain:example.com)"] } });
+  assert.deepEqual([t.checks.length, t.cards.length, t.execs.length], [0, 0, 1]);
+  t = await webJob([say("", [call("web_fetch", { url: "https://docs.python.org/3/", prompt: "p" }, "f2")]), say("done")], { mode: "plan", checker: true });
+  assert.deepEqual([t.checks.length, t.cards.length], [0, 0]);
+  // (Accept edits is unchanged: asked, no checker.)
+  t = await webJob(fetchOne, { mode: "acceptEdits", checker: true });
+  assert.deepEqual([t.checks.length, t.cards.length], [0, 1]);
+});
+
+test("WEB6 a claude.ai shared-chat link is answered without fetching, in Claude Code 2.1.325's words (\"The owner\" for its \"The user\"); its result object says \"Not Fetched\"; any other claude.ai page is fetched as before", async () => {
+  assert.deepEqual(W.sharedChat("https://claude.ai/share/0123ABCD-89ab-cdef-0123-456789abcdef"), { snapshotId: "0123abcd-89ab-cdef-0123-456789abcdef" });
+  for (const u of ["http://www.claude.ai./share/0123abcd-89ab-cdef-0123-456789abcdef/", "https://preview.claude.ai/share/0123abcd-89ab-cdef-0123-456789abcdef?x=1"]) assert.ok(W.sharedChat(u), u);
+  for (const u of ["https://claude.ai/share/0123abcd-89ab-cdef-0123-456789abcdef/x", "https://claude.ai/chat/0123abcd-89ab-cdef-0123-456789abcdef", "https://evil.example/share/0123abcd-89ab-cdef-0123-456789abcdef", "ftp://claude.ai/share/0123abcd-89ab-cdef-0123-456789abcdef", "https://claude.ai/share/123"]) assert.equal(W.sharedChat(u), null, u);
+  const text = "https://claude.ai/share/0123abcd-89ab-cdef-0123-456789abcdef is a shared claude.ai chat. Its content is rendered in the browser, so it is not fetchable from here — a plain fetch returns only the claude.ai app shell. The owner can paste or export the conversation instead.";
+  assert.equal(W.sharedChatText({ snapshotId: "0123abcd-89ab-cdef-0123-456789abcdef" }), text);
+  const hooks = { PostToolUse: [{ matcher: "WebFetch", hooks: [{ type: "command", command: "post.sh" }] }] };
+  const t = await loop([say("", [call("web_fetch", { url: "https://claude.ai/share/0123ABCD-89ab-cdef-0123-456789abcdef", prompt: "summarize" }, "s1"), call("web_fetch", { url: "https://claude.ai/new", prompt: "p" }, "s2")]), say("done")], { tools: { web_fetch: () => pageOut("APP SHELL") }, hooks });
+  assert.equal(toolMsg(t, "s1"), text);
+  assert.deepEqual([t.execs.length, t.reads.length], [1, 1], "only the other page was fetched and read");
+  const post = t.hookCalls.find((x) => x.input.hook_event_name === "PostToolUse" && x.input.tool_use_id === "s1");
+  const got = { ...post.input.tool_response };
+  delete got.output;
+  assert.deepEqual({ ...got, durationMs: 0 }, { bytes: Buffer.byteLength(text), code: 0, codeText: "Not Fetched", result: text, durationMs: 0, url: "https://claude.ai/share/0123ABCD-89ab-cdef-0123-456789abcdef" });
+});
+
+test("WEB7 the page reader runs at the chat's own effort (Claude Code 2.1.325: \"WebFetch page reads … pick their effort as web searches do: the caller's level on the caller's own model\"), on the chat's own model", async () => {
+  for (const effort of ["high", "low"]) {
+    const t = await webJob([say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "f1")]), say("done")], { mode: "auto", model: "grok-4.7", effort });
+    assert.deepEqual([t.reads.length, t.reads[0].model, t.reads[0].effort], [1, "grok-4.7", effort]);
+  }
+});
+
+test("WEB8 WebFetch(*) is a rule on the whole tool, as Claude Code reads any Tool(*) (\"Bash(*) is equivalent to Bash\"): denied, the tool is taken away; asked, every fetch asks; allowed, none does; WebFetch() stays refused, as Claude Code's rule check refuses it (\"Empty parentheses\") and skips it in a settings file", async () => {
+  assert.deepEqual(P.parseRule("WebFetch(*)"), { tool: "WebFetch", spec: null });
+  assert.equal(P.ruleProblem("WebFetch(*)"), "");
+  assert.equal(P.ruleSaved("WebFetch(*)"), true);
+  assert.equal(P.ruleProblem("WebFetch()"), "Empty parentheses. Either specify a pattern or use just \"WebFetch\" without parentheses. Examples: WebFetch, WebFetch(some-pattern)");
+  assert.equal(P.ruleSaved("WebFetch()"), false);
+  assert.match(P.ruleProblem("WebFetch( * )"), /^WebFetch permissions must use "domain:" prefix/, "a * with spaces is a domain pattern, refused");
+  assert.match(P.ruleProblem("WebFetch(example.com)"), /^WebFetch permissions must use "domain:" prefix/);
+  assert.deepEqual(P.fetchDecision("https://example.com/x", { mode: "acceptEdits", rules: { deny: ["WebFetch(*)"] } }), { verdict: "deny", rule: "WebFetch(*)", why: "Permission to use WebFetch has been denied.", suggest: null });
+  assert.equal(P.fetchDecision("https://example.com/x", { mode: "auto", rules: { ask: ["WebFetch(*)"] } }).verdict, "ask");
+  assert.equal(P.fetchDecision("https://example.com/x", { mode: "acceptEdits", rules: { allow: ["WebFetch(*)"] } }).verdict, "allow");
+  // In the loop: denied, web_fetch is not offered, and a call anyway is refused in Claude Code's words.
+  const t = await webJob([say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "d1")]), say("done")], { mode: "acceptEdits", rules: { deny: ["WebFetch(*)"] } });
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "web_fetch"), "taken away");
+  assert.deepEqual([t.told("d1"), t.execs.length], ["Permission to use WebFetch has been denied.", 0]);
+  const a = await webJob([say("", [call("web_fetch", { url: "https://docs.python.org/3/", prompt: "p" }, "d2")]), say("done")], { mode: "auto", rules: { ask: ["WebFetch(*)"] } });
+  assert.equal(a.cards.length, 1, "asked, even for a pre-approved site, in Auto");
 });

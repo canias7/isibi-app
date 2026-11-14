@@ -845,6 +845,18 @@ function searchParamSpec(tool, spec) {
   const name = spec.slice(0, k).trim(), value = spec.slice(k + 1).trim();
   return name && value && (SEARCH_RULE_PARAMS[tool] || []).includes(name) ? { name, value } : null;
 }
+/**
+ * WEBSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code's "Match by input parameter", which "works for any scalar
+ * parameter the tool accepts": its query; its two lists are no scalars and never match), and such a rule's content read as
+ * one, or null. (No `*` or `?`: Claude Code's rule check refuses them, "WebSearch does not support wildcards".)
+ */
+export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains"]);
+function webSearchParamSpec(spec) {
+  const t = String(spec), k = t.indexOf(":");
+  if (k <= 0 || /[*?]/.test(t)) return null;
+  const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
+  return name && value && WEBSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
+}
 /** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
 const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
 /**
@@ -868,7 +880,10 @@ export function parseRule(text) {
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
   const spec = m[2] === undefined ? null : m[2].trim();
-  // (WebFetch's: `domain:` and its host pattern, Claude Code's rule check; the owner, 2026-11-14.)
+  // (WebFetch's: `domain:` and its host pattern, Claude Code's rule check; the owner, 2026-11-14. `WebFetch(*)` is the whole
+  // tool, as Claude Code reads any `Tool(*)`: its permissions docs, "`Bash(*)` is equivalent to `Bash`"; its rule parser makes
+  // a content of "*" none, so its domain check never sees it. 2026-11-14.)
+  if (m[1] === "WebFetch" && m[2] === "*") return { tool: "WebFetch", spec: null };
   if (m[1] === "WebFetch" && spec !== null && !/^domain:\S+$/.test(spec)) return null;
   if (spec === "" ) return null;
   // (A rule on the command itself, Bash(command:…) or PowerShell(command:…), is never one: see ruleProblem.)
@@ -884,7 +899,11 @@ export function parseRule(text) {
   // Glob"): `Grep(output_mode:content)`, `Glob(pattern:*.env)`, used by deny and ask lists (fileToolDecision); `param` its
   // name and value.
   if ((m[1] === "Grep" || m[1] === "Glob") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
-  // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
+  // A WEBSEARCH RULE ON ITS QUERY (Claude Code 2.1.325: deny and ask rules match `WebSearch(query:<exact text>)` as for any
+  // built-in tool's input; 2026-11-14): `param` its name and value, used by deny and ask lists (coder-websearch.mjs).
+  if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }
+  // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only, but
+  // WebSearch's on its query, above.)
   if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
@@ -1031,7 +1050,10 @@ export function ruleProblem(text) {
   if (FILE_RULE_TOOLS.has(tool) && content !== null && content.includes(":*")) return say('The ":*" syntax is only for Bash prefix rules', 'Use glob patterns like "*" or "**" for file matching', [tool + "(*.ts) - matches .ts files", tool + "(src/**) - matches all files in src", tool + "(**/*.test.ts) - matches test files"]);
   // (WebFetch's own, Claude Code's rule check: "WebFetch permissions use domain format, not URLs", 'WebFetch permissions must
   // use "domain:" prefix'; the owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
-  if (tool === "WebFetch" && content !== null) { const w = webFetchRuleProblem(content); if (w) return say(w.error, w.suggestion, w.examples); }
+  // (Not on `WebFetch(*)`: Claude Code reads it as the whole tool, so its check of the content never runs.)
+  if (tool === "WebFetch" && content !== null && content !== "*") { const w = webFetchRuleProblem(content); if (w) return say(w.error, w.suggestion, w.examples); }
+  // (WebSearch's own, in Claude Code's words: a `*` or `?` in its content; `WebSearch(*)` is the whole tool. 2026-11-14.)
+  if (tool === "WebSearch" && content !== null && content !== "*" && /[*?]/.test(content)) return say("WebSearch does not support wildcards", "Use exact search terms without * or ?", ["WebSearch(claude ai)", "WebSearch(typescript tutorial)"]);
   return "";
 }
 /**
