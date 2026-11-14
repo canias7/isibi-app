@@ -17,6 +17,56 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Round 6: Claude Code's way on the open questions (your words: "do what claude code does")
+
+On my branch with rounds 4 and 5, not deployed yet. Four helpers, each with follow-ups. All 1,181 tests passed after
+merging.
+
+- **After No or Stop:** Coder's record gets Claude Code's line "[Request interrupted by the owner for tool use]". Stop
+  while Grok is still writing cuts the answer off and drops it. Stop during your own `!` command keeps the command in
+  Coder's memory of the chat, but not its output. Stop on a card that waited while the machine slept tells each
+  unanswered step you don't want it done right now.
+- **Auto mode:**
+  - If the safety checker can't answer ten times in a row, steps already running finish and keep their results, and the
+    rest are skipped in Claude Code's words. Commands still running move to the background.
+  - After 3 blocks in a row (or 20 in a chat), Coder no longer pauses: it asks you about the blocked step, in Claude
+    Code's words, and your Yes starts the count again.
+  - If you change the mode while a step is being checked, you get that step's normal card.
+- **Checks before your hooks:** read, write and edit now check their input before your hooks or any card, in Claude
+  Code's order and words, so a step that would fail anyway never asks you. New checks from Claude Code:
+  - device files and pipes are refused;
+  - edit says "Did you mean …?" for a missing file;
+  - a file must be read first when reading it would need your approval;
+  - an edit that breaks `.claude/settings.json` is refused;
+  - tokens or keys written into Coder's memory file are refused;
+  - `.bmp` and `.tif` pictures are refused, as in Claude Code (it shows png, jpg, gif and webp).
+- **Paths:** read, write, edit and lsp treat `~` as Coder's home and ignore spaces around a path, like Claude Code. Files
+  outside the project are still refused. Your hooks now get the file's full path.
+- **Hooks:**
+  - A hook with `if: "WebFetch(domain:…)"` now never runs, as in Claude Code; use `if: "WebFetch"` or no `if`.
+  - PowerShell commands that write the chat's plan file no longer ask.
+  - The once-per-round PostToolBatch hook sees each call as Coder wrote it.
+- **Cards in Claude Code's words:** rules ("Permission rule X requires confirmation for this command"), plan mode
+  ("Cannot write to … while in plan mode"), protected files, hooks that ask, WebSocket watches. Where no one can answer,
+  Coder is told Claude Code's ask. The Environment window shows a description once. Coder no longer tells Grok "the
+  permission mode is now …", because Claude Code doesn't.
+- **Connectors:**
+  - Coder speaks the newer connector version (2026-07-28) with servers that support it. It checks which version once,
+    when it reads a connector's tools, as Claude Code checks once per connection.
+  - A server that forgot Coder's session gets the call again once.
+  - There are no long connector jobs ("tasks"), as in Claude Code's cloud.
+  - Cards show a connector tool's display name.
+- **Needs approval connector tools now ask in every mode, Auto included,** with Claude Code's line "Coder requested
+  permissions to use <tool>, but you haven't granted it yet." Allow rules and hooks that run before a step no longer skip
+  that question; set the tool to Always allow on the Connectors page instead. This reverses my 2026-11-11 note that Auto
+  goes ahead.
+- **Already like Claude Code, no change:** hooks may call any connector tool except one set to Blocked or switched off in
+  the chat.
+- **Kept on purpose:** an empty page number from Grok counts as none (Grok fills unused fields that way); Coder still
+  names itself "Go Farther" to connector servers.
+- **Cost:** nothing new; one extra quick check on the machine per write or edit.
+- **Not tried live yet:** that's for the deploy.
+
 ## 2026-11-14: Round 5: the leftover differences (your words: "Yes pls")
 
 On my branch with round 4, not deployed yet. Four helpers. All 1,136 tests passed after merging.

@@ -480,6 +480,24 @@ code in **each user's own GitHub**.
      "Yes, and don't ask again for <site>" (PermissionRequest hooks see it). Tests:
      `test/file-rules.test.mjs` (CD382m-p), `test/askuser.test.mjs`,
      `test/permissions.test.mjs`, `test/env-tools.test.mjs`, `test/tool-search.test.mjs`.
+   - *Round 6, Claude Code's way on the open questions* (the owner: "do what claude code does"): after a No or Stop
+     the record gets "[Request interrupted by the owner for tool use]" after the round's results ("…by the owner]" when
+     Stop cuts Grok's answer, which is dropped; an owner's `!` command keeps its input, not its output); the checker's
+     10th no-verdict in a row stops the turn as Claude Code's permission-stop (calls not started: SKIPPED_BY_CHECK;
+     running commands moved to the background); auto mode's limits (3 blocks in a row, 20 a chat) ask about the blocked
+     step in its words instead of pausing; denyInsteadOfPrompting counts checker refusals (20 end the turn). read, write
+     and edit run Claude Code's validateInput checks before hooks (path, pages, no-change, deny rules, binary kinds,
+     device files, FIFOs, "Did you mean …?", read-first, .claude/settings*.json validation, secrets in Coder's memory
+     file: `coder-secretscan.mjs`, Claude Code's 52 rules) and a `file_check` step for write/edit's own checks; BMP and
+     TIFF refused. Paths resolve as Claude Code's (`toolPath`: trimmed, `~`); hooks get full paths (`hookPath`), the
+     PostToolBatch hook the model's own calls; a hook `if` with content on WebFetch/WebSearch never matches; PowerShell
+     plan-file writes exempt (`psPlanFile`). Cards in Claude Code's words (rule, plan mode, protected file, hook ask,
+     WebSocket; `told` carries the ask where no one can answer); no "permission mode is now" note. Connectors: Claude
+     Code's `server/discover` probe and MCP 2026-07-28 (`src/coder-mcp-era.mjs`), found once when tools are read and kept
+     as `era`, dropped where Claude Code reconnects; an expired session's call resent once; no MCP tasks (Claude Code's
+     cloud runs none); display names on cards; Needs approval asks in every mode and no allow rule or PreToolUse allow
+     skips it. Tests: `test/fix6-flow.test.mjs`, `test/words6.test.mjs`, `test/file-rules.test.mjs` (R6R1-6),
+     `test/elicit.test.mjs` (EL21-31), `test/tool-search.test.mjs` (TS33).
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
      Coder's open chat runs, and one line on a hover or a click. Made more real the
