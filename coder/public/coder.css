@@ -1171,6 +1171,8 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 /* A CONNECTOR'S QUESTION FOR YOU (MCP elicitation, coder.js elicitHTML): Claude Code's cloud card, in the permission card's look. */
 .cd-elicit .cd-perm-head b { overflow-wrap: anywhere; }
 .cd-el-from { font-size: 12.5px; color: #6b6a66; margin: -2px 0 8px; overflow-wrap: anywhere; }
+/* (Its server's own subtitle, under its own title: the question's _meta["anthropic/permissionDisplay"]. Round 5.) */
+.cd-el-sub { font-size: 13px; color: #57534e; margin: -2px 0 8px; line-height: 1.4; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 160px; overflow: auto; }
 .cd-el-msg { font-size: 13.5px; color: #1f1e1d; margin: 0 0 10px; line-height: 1.45; white-space: pre-wrap; overflow-wrap: anywhere; max-height: 320px; overflow: auto; }
 .cd-el-form { display: flex; flex-direction: column; gap: 10px; margin: 0 0 4px; }
 .cd-el-f { display: flex; flex-direction: column; gap: 4px; }

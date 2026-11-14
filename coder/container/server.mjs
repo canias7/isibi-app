@@ -4121,7 +4121,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // THE OWNER'S CONNECTORS (MCP, 2026-11-10): their tools' names and descriptions; each call goes to the Worker with this
     // job's pass (the sign-ins never come here).
     const connectors = via ? connectorTools(body.connectors) : [];
-    const mcpCall = connectors.length ? connectorCaller(via) : null;
+    // (With the chat's working folders, a server's roots: Claude Code's roots/list. Round 5. Gloopy's calls as before.)
+    const mcpCall = connectors.length ? connectorCaller(via, fetch, gloopy ? {} : { roots: workRoots }) : null;
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
     // made on the disk (the admin sandbox), when the Worker asks for one.
     const hold = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));

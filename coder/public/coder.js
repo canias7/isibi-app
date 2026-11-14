@@ -3488,7 +3488,8 @@
   // A CONNECTOR'S QUESTION FOR YOU (MCP elicitation, container/coder-elicit.mjs; X1 of the recheck of 2026-11-14, the owner:
   // "yes pls all of that"): Claude Code's cloud card, "Form mode: fill in the fields, then click Submit", "URL mode: click Open
   // link, finish the flow it opens, then click I'm done, continue", "To refuse the request, click Decline". Its header names
-  // the connector that asks (Claude Code's own words: "MCP server “…” requests your input", "… wants to open a URL"). The
+  // the connector that asks (Claude Code's own words: "MCP server “…” requests your input", "… wants to open a URL"), unless
+  // the question gives its own title (its server's _meta["anthropic/permissionDisplay"]: then that, its description under). The
   // fields are the server's: nothing is filled in for you but a default the server gave, and the browser fills nothing in
   // either. While Coder's step waits, the card keeps its own fields through the page's redraws (as the key card does), so
   // what you type is in no state of the page's; once answered, it says how it ended, never what was sent.
@@ -3538,7 +3539,11 @@
     // (Live while its step waits: the job runs, the card is unanswered and the job that showed it has not ended.)
     const live = !!e.pid && S.running && !ans && !S.events.slice(i + 1).some((x) => x.type === 'done' || x.type === 'stopped');
     const url = e.mode === 'url', who = String(e.connector || 'the connector');
-    const head = 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
+    // (The question's own title when its server gives one, and its description under it: Claude Code passes its cloud page
+    // the title and description of the request's _meta["anthropic/permissionDisplay"]. Round 5.)
+    const own = typeof e.title === 'string' && e.title.trim() ? e.title : '';
+    const head = own ? esc(own) : 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
+    const sub = typeof e.description === 'string' && e.description.trim() ? '<p class="cd-el-sub">' + esc(e.description) + '</p>' : '';
     let body = '<p class="cd-el-msg">' + esc(String(e.message || '')) + '</p>';
     const link = url ? elLink(e.url) : null;
     if (url) {
@@ -3551,7 +3556,7 @@
       ? '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button>' + (link ? '<a class="cd-el-open" href="' + esc(link.href) + '" target="_blank" rel="noopener noreferrer" data-el-open>Open link</a><button type="button" class="cd-secret-save" data-el-accept>I’m done, continue</button>' : '') + '</div>'
       : '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button><button type="button" class="cd-secret-save" data-el-accept>Submit</button></div>';
     return '<div class="cd-perm cd-elicit' + (live ? ' is-live' : '') + '"' + (live ? ' data-elicit-pid="' + esc(e.pid) + '"' : '') + ' data-elicit-at="' + i + '">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b></div>' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b></div>' + sub +
       (e.tool ? '<p class="cd-el-from">While using ' + esc(String(e.tool)) + '</p>' : '') + body +
       (live ? '<p class="cd-secret-err cd-el-said" hidden></p>' + btns : ans ? '<div class="cd-perm-done">' + elDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">Needs your input</div>' : '');

@@ -62,11 +62,13 @@ function machine(answer = async () => null) {
   return { lines, withdrawn, ready, ask: { send: async (o) => { lines.push(o); if (o.t === "elicit") got(o); if (o.t === "withdraw") withdrawn.push(o.id); }, wait: async (eid, signal) => { const q = lines.find((x) => x.id === eid); const r = await Promise.race([answer(q), new Promise((ok) => signal.addEventListener("abort", () => ok(null), { once: true }))]); return signal.aborted ? null : r; } } };
 }
 
-test("EL1 the client capabilities: elicitation form and url on both of Coder's kinds of connection (Streamable HTTP and the older SSE), as Claude Code declares to a configured http or sse server", async () => {
-  assert.deepEqual(E.CLIENT_CAPS, { elicitation: { form: {}, url: {} } });
+test("EL1 the client capabilities: roots (with list changes) and elicitation form and url on both of Coder's kinds of connection (Streamable HTTP and the older SSE), as Claude Code declares to a configured http or sse server (round 5: its roots too)", async () => {
+  const CAPS = { roots: { listChanged: true }, elicitation: { form: {}, url: {} } };
+  assert.deepEqual(E.CLIENT_CAPS, CAPS);
+  assert.deepEqual(Object.keys(E.CLIENT_CAPS), ["roots", "elicitation"], "in Claude Code's order (its _Us, then YNt's elicitation)");
   const s = asker(async () => textOf("ok"));
   await M.mcpSession("https://mcp.example.com/mcp", "", [["tools/list", {}]], { fetchFn: s.fetchFn });
-  assert.deepEqual(s.seen.find((x) => x.msg.method === "initialize").msg.params.capabilities, { elicitation: { form: {}, url: {} } });
+  assert.deepEqual(s.seen.find((x) => x.msg.method === "initialize").msg.params.capabilities, CAPS);
   // The older SSE transport: the same declaration.
   const posted = [];
   const sse = async (url, init = {}) => {
@@ -80,7 +82,7 @@ test("EL1 the client capabilities: elicitation form and url on both of Coder's k
     return new Response(null, { status: 202 });
   };
   await M.sseSession("https://mcp.example.com/sse", "", [["tools/list", {}]], { fetchFn: sse });
-  assert.deepEqual(posted.find((x) => x.method === "initialize").params.capabilities, { elicitation: { form: {}, url: {} } });
+  assert.deepEqual(posted.find((x) => x.method === "initialize").params.capabilities, CAPS);
   // The modes a declaration lets a server ask in (the MCP SDK's rule, which Claude Code uses): a bare {} is form only.
   assert.deepEqual(E.elicitModes({ form: {}, url: {} }), { form: true, url: true });
   assert.deepEqual(E.elicitModes({}), { form: true, url: false });
@@ -633,4 +635,330 @@ test("EL15 the page: the card names the connector that asks, shows its message a
   // Its answer goes to the waiting step: the card's own fields, "accept" with them, or "decline".
   assert.match(ui, /const a = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid: card\.dataset\.elicitPid, choice, \.\.\.\(content \? \{ content \} : \{\}\) \}\) \}\);/);
   assert.match(ui, /if \(e\.type === 'elicit'\) out\.push\(elicitHTML\(e, i\)\);/);
+});
+
+// ── ROUND 5 (the owner, 2026-11-14: "Yes pls"): the rest of Claude Code 2.1.325's side of a connector's questions ──────────
+const tick = (ms = 5) => new Promise((ok) => setTimeout(ok, ms));
+async function until(f, ms = 3000) { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timed out waiting"); await tick(); } }
+const MCP_URL = "https://mcp.example.com/mcp";
+const jsonRes = (id, result) => new Response(JSON.stringify({ jsonrpc: "2.0", id, result }), { headers: { "content-type": "application/json", "mcp-session-id": "s1" } });
+/**
+ * A STAND-IN SERVER WITH ITS OWN STREAM: Streamable HTTP at MCP_URL; a GET opens the server's own event stream (`gets`: each
+ * GET's headers and signal; `statuses[k]` the k-th GET's status, 200 by default; `streams`: those open, each with push(msg,
+ * id?) and close()); `script({ msg, push, close, reply, gets, streams })` runs a tool call (or `listScript` a tools/list),
+ * sending on the latest stream and waiting for Coder's answers (`reply(id)`). Everything Coder POSTs is in `seen`.
+ */
+function lister(script, opts = {}) {
+  const { statuses = [], initStatus = 202, listScript = null } = opts;
+  // (A version of undefined is a server that answers none.)
+  const version = "version" in opts ? opts.version : "2025-11-25";
+  const seen = [], gets = [], streams = [], replies = new Map(), waiters = new Map();
+  const reply = (id) => (replies.has(id) ? Promise.resolve(replies.get(id)) : new Promise((ok) => waiters.set(id, ok)));
+  const push = (o, id = "") => streams.at(-1).push(o, id);
+  const close = () => streams.at(-1).close();
+  const ctx = { push, close, reply, gets, streams };
+  const fetchFn = async (url, init = {}) => {
+    if ((init.method || "GET") === "GET") {
+      gets.push({ headers: init.headers || {}, signal: init.signal });
+      const st = statuses[gets.length - 1] ?? 200;
+      if (st !== 200) return new Response(null, { status: st });
+      if (opts.emptyGets) return new Response("", { headers: { "content-type": "text/event-stream" } });
+      let ctl;
+      const body = new ReadableStream({ start(c) { ctl = c; } });
+      const one = { push: (o, id) => ctl.enqueue(enc.encode((id ? "id: " + id + "\n" : "") + "data: " + JSON.stringify(o) + "\n\n")), close: () => { try { ctl.close(); } catch { /* closed */ } } };
+      if (init.signal) init.signal.addEventListener("abort", () => one.close(), { once: true });
+      streams.push(one);
+      return new Response(body, { headers: { "content-type": "text/event-stream" } });
+    }
+    const msg = JSON.parse(init.body);
+    seen.push({ msg, headers: init.headers || {} });
+    if (!("method" in msg)) { replies.set(msg.id, msg); const w = waiters.get(msg.id); if (w) { waiters.delete(msg.id); w(msg); } return new Response(null, { status: 202 }); }
+    if (!("id" in msg)) return new Response(null, { status: msg.method === "notifications/initialized" ? initStatus : 202 });
+    if (msg.method === "initialize") return jsonRes(msg.id, { protocolVersion: version, capabilities: { tools: {} }, serverInfo: { name: "x", version: "1" } });
+    const run = msg.method === "tools/call" ? script : msg.method === "tools/list" && listScript ? listScript : null;
+    if (!run) return jsonRes(msg.id, { tools: [] });
+    const body = new ReadableStream({ async start(c) {
+      const result = await run({ msg, ...ctx });
+      try { c.enqueue(enc.encode("event: message\ndata: " + JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }) + "\n\n")); c.close(); } catch { /* closed */ }
+    } });
+    return new Response(body, { headers: { "content-type": "text/event-stream", "mcp-session-id": "s1" } });
+  };
+  return { fetchFn, seen, gets, streams };
+}
+
+test("EL16 the protocol version, as Claude Code 2.1.325 negotiates it on its earlier handshake: initialize asks for 2025-11-25 (no version header on it), a server may answer any version it takes (2025-11-25 back to 2024-10-07) and that one goes in every later request's header; one it doesn't take ends the connection in its words, not tried again; the older SSE transport the same; the sign-in lookups name the same version", async () => {
+  assert.equal(M.MCP_VERSION, "2025-11-25");
+  assert.deepEqual([...M.MCP_VERSIONS], ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"]);
+  for (const v of ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"]) {
+    const s = lister(null, { version: v, statuses: [405] });
+    const [r] = await M.mcpSession(MCP_URL, "tok", [["tools/list", {}]], { fetchFn: s.fetchFn });
+    assert.deepEqual(r, { tools: [] }, v + " works");
+    const init = s.seen.find((x) => x.msg.method === "initialize");
+    assert.equal(init.msg.params.protocolVersion, "2025-11-25");
+    assert.equal(init.headers["mcp-protocol-version"], undefined, "none on initialize itself");
+    assert.equal(s.seen.find((x) => x.msg.method === "notifications/initialized").headers["mcp-protocol-version"], v);
+    assert.equal(s.seen.find((x) => x.msg.method === "tools/list").headers["mcp-protocol-version"], v, "the version the server answered");
+    assert.equal(s.gets[0].headers["mcp-protocol-version"], v);
+  }
+  // A version it doesn't take (the newer revision included: Coder doesn't speak it): Claude Code's words, no retry, no SSE.
+  for (const v of ["2026-07-28", "2024-01-01", undefined]) {
+    const s = lister(null, { version: v });
+    await assert.rejects(M.mcpSession(MCP_URL, "", [["tools/list", {}]], { fetchFn: s.fetchFn, wait: async () => {} }), { message: "Server's protocol version is not supported: " + v });
+    assert.deepEqual(s.seen.map((x) => x.msg.method), ["initialize"], "nothing after it, not tried again");
+    assert.equal(s.gets.length, 0);
+  }
+  // The older SSE transport: the same version asked for, the one answered in later messages' header.
+  const sseServer = (answer) => {
+    const posted = [];
+    const fetchFn = async (url, init = {}) => {
+      if ((init.method || "GET") === "GET") { const body = new ReadableStream({ start(c) { c.enqueue(enc.encode("event: endpoint\ndata: /messages?sid=1\n\n")); fetchFn.c = c; } }); return new Response(body, { headers: { "content-type": "text/event-stream" } }); }
+      const msg = JSON.parse(init.body);
+      posted.push({ msg, headers: init.headers || {} });
+      if ("id" in msg && "method" in msg) setTimeout(() => fetchFn.c.enqueue(enc.encode("event: message\ndata: " + JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: msg.method === "initialize" ? { protocolVersion: answer, capabilities: {} } : { tools: [] } }) + "\n\n")), 5);
+      return new Response(null, { status: 202 });
+    };
+    return { fetchFn, posted };
+  };
+  const old = sseServer("2024-11-05");
+  await M.sseSession("https://mcp.example.com/sse", "", [["tools/list", {}]], { fetchFn: old.fetchFn });
+  assert.equal(old.posted.find((x) => x.msg.method === "initialize").msg.params.protocolVersion, "2025-11-25");
+  assert.equal(old.posted.find((x) => x.msg.method === "initialize").headers["mcp-protocol-version"], undefined);
+  assert.equal(old.posted.find((x) => x.msg.method === "tools/list").headers["mcp-protocol-version"], "2024-11-05");
+  await assert.rejects(M.sseSession("https://mcp.example.com/sse", "", [["tools/list", {}]], { fetchFn: sseServer("1999-01-01").fetchFn }), { message: "Server's protocol version is not supported: 1999-01-01" });
+  // The sign-in lookups (Claude Code's MCP-Protocol-Version on them: 2025-11-25).
+  const asked = [];
+  await M.discover(MCP_URL, "", { fetchFn: async (u, i) => { asked.push(i.headers["mcp-protocol-version"]); return new Response("{}", { status: 404 }); } }).catch(() => {});
+  assert.ok(asked.length > 0 && asked.every((v) => v === "2025-11-25"));
+});
+
+test("EL17 roots, as Claude Code 2.1.325 declares and answers them: a server's roots/list gets the chat's working folders (the project's, the other repositories', the owner's additional ones), each a file:// URL as pathToFileURL writes it, once each; none known (a list read for the page, Gloopy's calls) is an empty list; the machine sends its folders with each call and the gate passes them on, checked", async () => {
+  const { pathToFileURL } = await import("node:url");
+  for (const p of ["/work/shop", "/home/coder/my repo", "/w/a#b?c%d", "/w/tab\there", "/w/ünï €", "/w/back\\slash", "/w/q\"<>`{}|^[]", "/w/semi;colon=1&x+y@z"]) assert.equal(E.fileUrl(p), pathToFileURL(p).href, p);
+  assert.deepEqual(E.rootsResult(["/work/shop", "/work/lib", "/work/shop", "rel/x", "/a\0b", 5, "/" + "x".repeat(5000)]), { roots: [{ uri: "file:///work/shop" }, { uri: "file:///work/lib" }] });
+  assert.deepEqual(E.rootsResult(undefined), { roots: [] });
+  // On the call's own stream: answered with the session's folders, as Claude Code's handler answers it.
+  const s = asker(async ({ emit, reply }) => { emit({ jsonrpc: "2.0", id: "r1", method: "roots/list" }); return textOf(JSON.stringify((await reply("r1")).result)); });
+  const [r] = await M.mcpSession(MCP_URL, "", [["tools/call", { name: "make_issue", arguments: {} }]], { fetchFn: s.fetchFn, talk: W.serverTalk({ roots: ["/work/shop", "/work/my lib"] }) });
+  assert.equal(r.content[0].text, JSON.stringify({ roots: [{ uri: "file:///work/shop" }, { uri: "file:///work/my%20lib" }] }));
+  assert.equal(s.seen.find((x) => x.msg.id === "r1" && !("method" in x.msg)).headers["mcp-session-id"], "s1");
+  // None known: an empty list (Claude Code always has one; a list read for the page has no chat).
+  const s2 = asker(async ({ emit, reply }) => { emit({ jsonrpc: "2.0", id: 2, method: "roots/list", params: {} }); return textOf(JSON.stringify((await reply(2)).result)); });
+  const [r2] = await M.mcpSession(MCP_URL, "", [["tools/call", { name: "make_issue", arguments: {} }]], { fetchFn: s2.fetchFn });
+  assert.equal(r2.content[0].text, '{"roots":[]}');
+  // The machine's caller sends the chat's folders with each call (and none with an answer).
+  const sent = [];
+  const call = A.connectorCaller({ url: "https://jessica.gofarther.dev/api/coder/model", headers: {} }, async (u, init) => { sent.push(JSON.parse(init.body)); return new Response(JSON.stringify({ text: "x", isError: false }), { status: 200 }); }, { roots: ["/work/shop", "/work/lib"] });
+  await call("mcp__linear__make_issue", { a: 1 });
+  assert.deepEqual(sent[0], { tool: "mcp__linear__make_issue", args: { a: 1 }, roots: ["/work/shop", "/work/lib"] });
+  // The gate passes them on (checked: full paths only), to a call that can ask and to one that cannot.
+  const s3 = asker(async ({ emit, reply }) => { emit({ jsonrpc: "2.0", id: 3, method: "roots/list" }); return textOf(JSON.stringify((await reply(3)).result)); });
+  const b = memBucket();
+  await M.addConnector(env, b, "u1", { name: "Linear", url: MCP_URL, fetchFn: s3.fetchFn });
+  await b.put("coder/u1/chat-1/meta.json", JSON.stringify({ turn: 4 }));
+  await M.keepJobTools(b, "u1", "chat-1", 4, M.toolsFor(await M.readConnectors(b, "u1")).map);
+  const until0 = String(Date.now() + 60_000);
+  const hdr = { "x-coder-chat": "u1/chat-1", "x-coder-turn": "4", "x-coder-until": until0, "x-coder-model": await modelPass(env, "u1/chat-1", "4", until0) };
+  const res = await M.handleMcp(new Request("https://jessica.gofarther.dev/api/coder/mcp", { method: "POST", headers: hdr, body: JSON.stringify({ tool: "mcp__linear__make_issue", args: {}, roots: ["/work/shop", "relative", "/work/other"] }) }), { ...env, CODER_BUCKET: b }, { fetchFn: s3.fetchFn });
+  assert.equal((await res.json()).text, JSON.stringify({ roots: [{ uri: "file:///work/shop" }, { uri: "file:///work/other" }] }));
+  // Coder's machine gives its caller the chat's working folders; Gloopy's calls go as before.
+  assert.match(readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8"), /const mcpCall = connectors\.length \? connectorCaller\(via, fetch, gloopy \? \{\} : \{ roots: workRoots \}\) : null;/);
+});
+
+test("EL18 a question's own words for its card (its server's _meta[\"anthropic/permissionDisplay\"], which Claude Code passes its cloud page as the elicitation's title, display_name and description): the Worker passes them on, the machine's card carries them, the page shows the title as the card's heading and the description under it; without them, the connector's line as before", async () => {
+  const PD = { title: "Choose where the issue goes", displayName: "Linear issue", description: "The issue is made in the project you pick.", extra: 1 };
+  assert.deepEqual(E.permissionDisplay({ "anthropic/permissionDisplay": PD }), { title: PD.title, displayName: PD.displayName, description: PD.description });
+  assert.deepEqual(E.permissionDisplay({ "anthropic/permissionDisplay": { title: 5, description: "d" } }), { description: "d" }, "only text, as Claude Code's AI() takes it");
+  for (const m of [undefined, null, {}, { "anthropic/permissionDisplay": "x" }, { "anthropic/permissionDisplay": { title: 1 } }]) assert.equal(E.permissionDisplay(m), null);
+  // The Worker: the question's line carries them.
+  const s = asker(async ({ emit, reply }) => { emit({ jsonrpc: "2.0", id: 1, method: "elicitation/create", params: { ...FORM, _meta: { "anthropic/permissionDisplay": PD } } }); return textOf(JSON.stringify((await reply(1)).result)); });
+  const mc = machine(async () => ({ result: { action: "decline" } }));
+  await M.mcpSession(MCP_URL, "", [["tools/call", { name: "make_issue", arguments: {} }]], { fetchFn: s.fetchFn, talk: W.serverTalk({ ask: mc.ask, server: "Linear", tool: "make_issue" }) });
+  assert.deepEqual(mc.lines.find((x) => x.t === "elicit").display, { title: PD.title, displayName: PD.displayName, description: PD.description });
+  // The machine: its card carries them (a title of spaces is none).
+  const t = await turn({ server: async (o) => { await o.ask.elicit(Q({ display: { title: PD.title, displayName: PD.displayName, description: PD.description } })); return { text: "x", isError: false }; }, ask: async () => ({ choice: "decline" }) });
+  const card = t.events.find((e) => e.type === "elicit");
+  assert.deepEqual([card.title, card.displayName, card.description, card.connector], [PD.title, PD.displayName, PD.description, "Linear"]);
+  const t2 = await turn({ server: async (o) => { await o.ask.elicit(Q({ display: { title: "   " } })); return { text: "x", isError: false }; }, ask: async () => ({ choice: "decline" }) });
+  assert.equal(t2.events.find((e) => e.type === "elicit").title, undefined);
+  // The page: its title as the heading, its description under it, the connector still named in "While using".
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const esc = (x) => String(x == null ? "" : x).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
+  const from = ui.indexOf("  const EL_FORMATS = "), to = ui.indexOf("  async function answerPerm(pid, choice) {");
+  const make = (S) => new Function("S", "esc", "ICON", "CSS", ui.slice(from, to) + "\nreturn { elicitHTML };")(S, esc, { globe: '<svg width="26" height="26"></svg>', term: "<svg></svg>" }, { escape: (x) => x });
+  const ev = { type: "elicit", pid: "p1abcdef", connector: "Linear", tool: "Linear: make_issue", mode: "form", message: "Which project?", requestedSchema: FORM.requestedSchema, order: ["project", "urgent"], title: "Choose <where> the issue goes", description: PD.description };
+  const html = make({ running: true, events: [{}, ev] }).elicitHTML(ev, 1);
+  assert.match(html, /<b>Choose &lt;where&gt; the issue goes<\/b><\/div><p class="cd-el-sub">The issue is made in the project you pick\.<\/p><p class="cd-el-from">While using Linear: make_issue<\/p>/);
+  assert.doesNotMatch(html, /requests your input/);
+  const u = { ...ev, mode: "url", url: "https://linear.example.com/oauth", requestedSchema: undefined, order: undefined, description: undefined };
+  assert.match(make({ running: true, events: [{}, u] }).elicitHTML(u, 1), /<b>Choose &lt;where&gt; the issue goes<\/b><\/div><p class="cd-el-from">/);
+  const plain = { ...ev, title: undefined, description: undefined };
+  assert.match(make({ running: true, events: [{}, plain] }).elicitHTML(plain, 1), /<b>MCP server “Linear” requests your input<\/b><\/div><p class="cd-el-from">/);
+  assert.match(readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), /\.cd-el-sub \{/);
+});
+
+test("EL19 the server's own stream, as Claude Code 2.1.325's transport opens it: a GET (event stream only, with the session, the version and the sign-in) once the server accepts the initialized notice with 202; a question there during a tool call goes to the card and holds the call's idle timer, its answer POSTed back with the session; ping and roots/list answered; one while no tool call runs is cancelled; 405 is none; a stream that ends is opened again (Last-Event-ID, after its retry or 1 s then 1.5 s), given up after 2 failed tries; it closes with the session", async () => {
+  // A question on it, ping and roots/list.
+  const s = lister(async ({ push, reply, streams }) => {
+    await until(() => streams.length === 1);
+    push({ jsonrpc: "2.0", id: "g1", method: "elicitation/create", params: FORM });
+    const a = await reply("g1");
+    push({ jsonrpc: "2.0", id: "g2", method: "ping" });
+    push({ jsonrpc: "2.0", id: "g3", method: "roots/list" });
+    return textOf(JSON.stringify([a.result, (await reply("g2")).result, (await reply("g3")).result]));
+  });
+  const mc = machine(async () => { await tick(250); return { result: { action: "accept", content: { project: "DOCS" } } }; });
+  // (An idle limit of 100 ms: the 250 ms the owner takes on the stream's question does not end the call.)
+  const [r] = await M.mcpSession(MCP_URL, "tok", [["tools/call", { name: "make_issue", arguments: {} }]], { fetchFn: s.fetchFn, idleMs: 100, talk: W.serverTalk({ ask: mc.ask, server: "Linear", tool: "make_issue", roots: ["/work/shop"] }) });
+  assert.equal(r.content[0].text, JSON.stringify([{ action: "accept", content: { project: "DOCS" } }, {}, { roots: [{ uri: "file:///work/shop" }] }]));
+  assert.equal(s.gets.length, 1);
+  assert.deepEqual(s.gets[0].headers, { accept: "text/event-stream", "mcp-protocol-version": "2025-11-25", authorization: "Bearer tok", "mcp-session-id": "s1" });
+  assert.equal(mc.lines.find((x) => x.t === "elicit").message, FORM.message);
+  const ans = s.seen.find((x) => x.msg.id === "g1" && !("method" in x.msg));
+  assert.deepEqual([ans.headers["mcp-session-id"], ans.headers["mcp-protocol-version"]], ["s1", "2025-11-25"]);
+  await until(() => s.gets[0].signal.aborted);
+  // While no tool call runs (a list read): cancelled, as one with no one to ask.
+  const l = lister(null, { listScript: async ({ push, reply, streams }) => { await until(() => streams.length === 1); push({ jsonrpc: "2.0", id: "q", method: "elicitation/create", params: FORM }); return { tools: [{ name: "t", inputSchema: { type: "object" }, description: JSON.stringify((await reply("q")).result) }] }; } });
+  const [list] = await M.mcpSession(MCP_URL, "", [["tools/list", {}]], { fetchFn: l.fetchFn, talk: W.serverTalk({ ask: machine().ask }) });
+  assert.equal(list.tools[0].description, '{"action":"cancel"}');
+  // 405: a server with none, asked once; the notice answered 200 rather than 202: never opened.
+  const no = lister(async () => textOf("fine"), { statuses: [405] });
+  assert.equal((await M.mcpSession(MCP_URL, "", [["tools/call", { name: "x", arguments: {} }]], { fetchFn: no.fetchFn, wait: async () => {} }))[0].content[0].text, "fine");
+  assert.equal(no.gets.length, 1);
+  const plain = lister(async () => textOf("fine"), { initStatus: 200 });
+  await M.mcpSession(MCP_URL, "", [["tools/call", { name: "x", arguments: {} }]], { fetchFn: plain.fetchFn });
+  assert.equal(plain.gets.length, 0);
+  // Opened again when it ends: with Last-Event-ID once it gave ids; after 2 failed tries, given up.
+  const waited = [];
+  const again = lister(async ({ push, close, streams, gets }) => {
+    await until(() => streams.length === 1);
+    push({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "hi" } }, "ev1");
+    close();
+    await until(() => streams.length === 2);
+    close();
+    await until(() => gets.length === 4);
+    await tick(60);
+    return textOf("ok");
+  }, { statuses: [200, 200, 500, 503] });
+  await M.mcpSession(MCP_URL, "", [["tools/call", { name: "x", arguments: {} }]], { fetchFn: again.fetchFn, wait: async (ms) => { waited.push(ms); } });
+  assert.equal(again.gets.length, 4, "the first, one taken up again, then 2 failed tries");
+  assert.equal(again.gets[0].headers["last-event-id"], undefined);
+  assert.equal(again.gets[1].headers["last-event-id"], "ev1");
+  assert.deepEqual(waited, [1000, 1000, 1500], "1 s after each end, then 1.5 s");
+  assert.deepEqual([M.streamDelay(0), M.streamDelay(1), M.streamDelay(2), M.streamDelay(20), M.streamDelay(1, 250)], [1000, 1500, 2250, 30000, 250]);
+  // (Coder's own bound: a server that accepts the GET and closes it at once is asked again at most 100 times in a session,
+  // each GET being one of the Worker's counted subrequests.)
+  assert.equal(M.STREAM_REOPENS_MAX, 100);
+  const shut = lister(async ({ gets }) => { await until(() => gets.length >= 101); await tick(60); return textOf("ok"); }, { emptyGets: true });
+  await M.mcpSession(MCP_URL, "", [["tools/call", { name: "x", arguments: {} }]], { fetchFn: shut.fetchFn, wait: async () => {} });
+  assert.equal(shut.gets.length, 101);
+});
+
+test("EL20 a request's stream that ends before its answer, after giving event ids, is taken up again where it stopped (MCP 2025-11-25's resumption, as Claude Code's transport does it): a GET with Last-Event-ID, after the server's retry; the answer on it is the call's; one with no ids that ends gives no answer, as before", async () => {
+  const run = async ({ ids = true, answerId = null, retry = null, never = false } = {}) => {
+    const gets = [], waited = [];
+    let callId;
+    const fetchFn = async (url, init = {}) => {
+      if ((init.method || "GET") === "GET") {
+        const h = init.headers || {};
+        gets.push(h);
+        if (!h["last-event-id"]) return new Response(null, { status: 405 });
+        if (never) return new Response("id: 7\ndata: \n\n", { headers: { "content-type": "text/event-stream" } });
+        return new Response("id: 8\ndata: " + JSON.stringify({ jsonrpc: "2.0", id: answerId ?? callId, result: textOf("taken up again after " + h["last-event-id"]) }) + "\n\n", { headers: { "content-type": "text/event-stream" } });
+      }
+      const msg = JSON.parse(init.body);
+      if (!("id" in msg)) return new Response(null, { status: 202 });
+      if (msg.method === "initialize") return jsonRes(msg.id, { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "x", version: "1" } });
+      callId = msg.id;
+      // (Its priming event, as an MCP SDK server with an event store writes one on 2025-11-25, then the stream closes.)
+      return new Response((ids ? "id: 7\n" : "") + (retry !== null ? "retry: " + retry + "\n" : "") + "data: \n\n", { headers: { "content-type": "text/event-stream", "mcp-session-id": "s1" } });
+    };
+    const out = await M.mcpSession(MCP_URL, "tok", [["tools/call", { name: "x", arguments: {} }]], { fetchFn, wait: async (ms) => { waited.push(ms); } }).then((x) => x[0], (e) => e);
+    return { out, gets, waited };
+  };
+  const a = await run({ retry: 30 });
+  assert.equal(a.out.content[0].text, "taken up again after 7");
+  const g = a.gets.find((h) => h["last-event-id"]);
+  assert.deepEqual(g, { accept: "text/event-stream", "mcp-protocol-version": "2025-11-25", authorization: "Bearer tok", "mcp-session-id": "s1", "last-event-id": "7" });
+  assert.ok(a.waited.includes(30), "after the server's retry");
+  // On the stream taken up again, an answer is the call's (Claude Code's replayMessageId).
+  assert.equal((await run({ answerId: 999 })).out.content[0].text, "taken up again after 7");
+  // No ids: nothing to take up again.
+  const n = await run({ ids: false });
+  assert.equal(n.out.message, "the MCP server gave no answer");
+  assert.equal(n.gets.filter((h) => h["last-event-id"]).length, 0);
+  // Never an answer, however often taken up again: given up after Coder's bound (the Worker's subrequests are counted).
+  const z = await run({ never: true });
+  assert.equal(z.out.message, "the MCP server gave no answer");
+  assert.equal(z.gets.filter((h) => h["last-event-id"]).length, M.STREAM_REOPENS_MAX);
+});
+
+test("EL21 a server's task that needs input (status input_required), as Claude Code 2.1.325's cloud answers one: its inputRequests' roots/list answered with the chat's folders through tasks/update, then polled again at 250 ms; a question (elicitation/create) can't be shown in a cloud session, so the task is cancelled (tasks/cancel) and Coder told in its words; any other input the same, as failed; a task with no list (MCP 2025-11-25's own tasks, whose question comes as a request of its own) as a question; an answer the server refuses and asks for again fails it; failed and cancelled tasks in its words", async () => {
+  const run = async (states, { roots = ["/work/shop"], updateFails = false } = {}) => {
+    const calls = [], waits = [];
+    let i = 0;
+    const post = async (method, params) => {
+      calls.push([method, params]);
+      if (method === "tasks/get") return states[Math.min(++i, states.length - 1)];
+      if (method === "tasks/update") { if (updateFails) throw new Error("the MCP server said: bad answer"); return {}; }
+      if (method === "tasks/result") return textOf("the export");
+      return {};
+    };
+    const r = await M.followTask(post, states[0], { wait: async (ms) => { waits.push(ms); }, roots, server: "Linear", tool: "export" });
+    return { r, calls, waits, methods: calls.map(([m]) => m) };
+  };
+  const T = (status, extra = {}) => ({ taskId: "t1", status, ...extra });
+  const said = (cancelled, why) => ({ isError: true, content: [{ type: "text", text: 'MCP server "Linear" task for tool "export" ' + (cancelled ? "was cancelled" : "failed") + ": " + why }] });
+  // roots/list: answered, then polled again soon.
+  let x = await run([T("input_required", { inputRequests: { r1: { method: "roots/list" } } }), T("completed")]);
+  assert.deepEqual(x.methods, ["tasks/update", "tasks/get", "tasks/result"]);
+  assert.deepEqual(x.calls[0][1], { taskId: "t1", inputResponses: { r1: { roots: [{ uri: "file:///work/shop" }] } } });
+  assert.deepEqual(x.waits, [M.TASK_POLL_MIN]);
+  assert.deepEqual(x.r, textOf("the export"));
+  // Answered, the server not caught up yet: polled again, not answered twice.
+  x = await run([T("input_required", { inputRequests: { r1: { method: "roots/list" } } }), T("input_required", { inputRequests: { r1: { method: "roots/list" } } }), T("completed")]);
+  assert.deepEqual(x.methods, ["tasks/update", "tasks/get", "tasks/get", "tasks/result"]);
+  // A question: cancelled, in Claude Code's words; nothing answered first (a roots/list beside it included).
+  x = await run([T("input_required", { inputRequests: { r1: { method: "roots/list" }, q1: { method: "elicitation/create", params: FORM } } })]);
+  assert.deepEqual(x.methods, ["tasks/cancel"]);
+  assert.deepEqual(x.calls[0][1], { taskId: "t1" });
+  assert.deepEqual(x.r, said(true, M.TASK_QUESTION));
+  assert.equal(M.TASK_QUESTION, "the task asked the owner a question that this chat cannot show yet, so Coder asked the server to cancel it");
+  x = await run([T("input_required", { inputRequests: { u: { method: "elicitation/create", params: { mode: "url", message: "Sign in", url: "https://x.example/a" } } } })]);
+  assert.deepEqual(x.r, said(true, M.TASK_QUESTION), "a URL question too");
+  // Other input: failed, in its words (a kind it names, and one it doesn't; a question it can't read is input it can't serve).
+  x = await run([T("input_required", { inputRequests: { s: { method: "sampling/createMessage", params: {} } } })]);
+  assert.deepEqual([x.methods, x.r], [["tasks/cancel"], said(false, "the task's request for input (sampling/createMessage) was not one this client could serve, so Coder asked the server to cancel it")]);
+  x = await run([T("input_required", { inputRequests: { s: { method: "x/y" } } })]);
+  assert.deepEqual(x.r, said(false, "the task asked for input of a kind this client does not serve, so Coder asked the server to cancel it"));
+  x = await run([T("input_required", { inputRequests: { q: { method: "elicitation/create", params: { requestedSchema: {} } } } })]);
+  assert.deepEqual(x.r, said(false, "the task's request for input (elicitation/create) was not one this client could serve, so Coder asked the server to cancel it"));
+  // No list (MCP 2025-11-25's tasks): a question no task can show here.
+  x = await run([T("input_required")]);
+  assert.deepEqual([x.methods, x.r], [["tasks/cancel"], said(true, M.TASK_QUESTION)]);
+  // An answer refused, then asked for again: failed.
+  x = await run([T("input_required", { inputRequests: { r1: { method: "roots/list" } } }), T("input_required", { inputRequests: { r1: { method: "roots/list" } } })], { updateFails: true });
+  assert.deepEqual(x.methods, ["tasks/update", "tasks/get", "tasks/cancel"]);
+  assert.deepEqual(x.r, said(false, "Task t1: the server rejected the submitted answer to r1 and still requires input"));
+  // At most 16 keys a task.
+  const many = Object.fromEntries(Array.from({ length: 17 }, (_, k) => ["k" + k, { method: "roots/list" }]));
+  x = await run([T("input_required", { inputRequests: many }), T("completed")]);
+  assert.equal(Object.keys(x.calls[0][1].inputResponses).length, 16);
+  // Failed and cancelled, in its words.
+  assert.deepEqual((await run([T("failed", { statusMessage: "disk full" })])).r, said(false, "disk full"));
+  assert.deepEqual((await run([T("failed", { error: { code: 1, message: "out of quota" }, statusMessage: "x" })])).r, said(false, "out of quota"));
+  assert.deepEqual((await run([T("failed")])).r, said(false, "Task failed"));
+  assert.deepEqual((await run([T("cancelled")])).r, said(true, "Task was cancelled by the server"));
+  // Through a call: the task's roots are the call's, its words name the connector and the tool.
+  let n = 0;
+  const fetchFn = async (url, init = {}) => {
+    if ((init.method || "GET") === "GET") return new Response(null, { status: 405 });
+    const msg = JSON.parse(init.body);
+    if (!("id" in msg)) return new Response(null, { status: 202 });
+    if (msg.method === "initialize") return jsonRes(msg.id, { protocolVersion: "2025-11-25", capabilities: { tools: {} }, serverInfo: { name: "x", version: "1" } });
+    if (msg.method === "tools/call") return jsonRes(msg.id, { task: { taskId: "t9", status: "working" } });
+    if (msg.method === "tasks/get") return jsonRes(msg.id, n++ === 0 ? { taskId: "t9", status: "input_required", inputRequests: { a: { method: "roots/list" } } } : { taskId: "t9", status: "input_required", inputRequests: { b: { method: "elicitation/create", params: FORM } } });
+    return jsonRes(msg.id, {});
+  };
+  const [via] = await M.mcpSession(MCP_URL, "", [["tools/call", { name: "export", arguments: {} }]], { fetchFn, taskWait: async () => {}, talk: W.serverTalk({ server: "Linear", tool: "export", roots: ["/work/shop"] }) });
+  assert.deepEqual(via, said(true, M.TASK_QUESTION));
 });

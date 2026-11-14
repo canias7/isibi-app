@@ -11,11 +11,61 @@
  *
  * The parts here have no Node module in them: Coder's Worker (src/coder-mcp.mjs, src/coder-elicit.mjs) and Coder's machine
  * (coder-agent.mjs, server.mjs) both use them.
+ *
+ * ROUND 5 (the owner, 2026-11-14: "Yes pls"): the rest of Claude Code 2.1.325's side of it. It also declares `roots` and
+ * answers a server's `roots/list` with the session's folders (its vc(): the working directory, then the additional working
+ * directories, each a file:// URL, no name): Coder's are the chat's working folders on its machine. A question's
+ * `_meta["anthropic/permissionDisplay"]` gives its card a title (its AI(), passed to the cloud page as the elicitation's
+ * `title`, `display_name` and `description`).
  */
 
 /** What Coder declares in `initialize` on every connection (Claude Code's YNt() for a configured http/sse server). */
 export const ELICIT_CAP = Object.freeze({ form: Object.freeze({}), url: Object.freeze({}) });
-export const CLIENT_CAPS = Object.freeze({ elicitation: ELICIT_CAP });
+/** Its roots, with list changes (its _Us(): `roots: {listChanged: true}`, before the elicitation modes). */
+export const ROOTS_CAP = Object.freeze({ listChanged: true });
+export const CLIENT_CAPS = Object.freeze({ roots: ROOTS_CAP, elicitation: ELICIT_CAP });
+
+/**
+ * A FOLDER AS A ROOT'S URI (Claude Code's pathToFileURL(dir).href, the same in Bun and Node): file:// and the path, every
+ * character but letters, digits and ! $ & ' ( ) * + , - . / : ; = @ _ percent-encoded as its UTF-8 bytes (a space, " # %
+ * < > ? [ \ ] ^ ` { | } ~, control characters and anything past ASCII).
+ */
+export function fileUrl(path) {
+  let out = "file://";
+  for (const ch of String(path)) {
+    if (/^[A-Za-z0-9!$&'()*+,\-./:;=@_]$/.test(ch)) { out += ch; continue; }
+    let e;
+    try { e = encodeURIComponent(ch); } catch { e = "%EF%BF%BD"; }
+    out += e === "~" ? "%7E" : e;
+  }
+  return out;
+}
+/** At most this many folders go to a server as roots; each at most this long. */
+export const ROOTS_MAX = 100, ROOT_PATH_MAX = 4096;
+/** The chat's working folders as the machine sends them (full paths, no NUL), or [] for none. */
+export function rootPaths(list) {
+  if (!Array.isArray(list)) return [];
+  return list.filter((p) => typeof p === "string" && p.startsWith("/") && p.length <= ROOT_PATH_MAX && !p.includes("\0")).slice(0, ROOTS_MAX);
+}
+/** THE ANSWER TO `roots/list` (Claude Code's vc()): `{ roots: [{ uri }] }`, each folder once, in the order given. */
+export function rootsResult(paths) {
+  const seen = new Set(), roots = [];
+  for (const p of rootPaths(paths)) { const uri = fileUrl(p); if (seen.has(uri)) continue; seen.add(uri); roots.push({ uri }); }
+  return { roots };
+}
+
+/**
+ * A QUESTION'S OWN WORDS FOR ITS CARD (Claude Code's AI(): `_meta["anthropic/permissionDisplay"]`'s title, displayName and
+ * description, each only when it is text), or null when it gives none.
+ */
+export const PERMISSION_DISPLAY = "anthropic/permissionDisplay";
+export function permissionDisplay(meta) {
+  const d = meta && typeof meta === "object" ? meta[PERMISSION_DISPLAY] : undefined;
+  if (d === null || d === undefined || typeof d !== "object") return null;
+  const out = {};
+  for (const k of ["title", "displayName", "description"]) if (typeof d[k] === "string") out[k] = d[k];
+  return Object.keys(out).length ? out : null;
+}
 
 /**
  * The modes a declared capability lets a server ask in (the MCP SDK's getSupportedElicitationModes, which Claude Code uses):
