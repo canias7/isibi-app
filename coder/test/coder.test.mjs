@@ -1236,7 +1236,8 @@ test("CD44 pictures and @files: pictures are checked, sent to Grok with that mes
   const seen = [];
   const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
   // (Tool search's note on the chat's deferred tools follows the owner's message: tool-search.test.mjs.)
-  assert.deepEqual(seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
+  // (Nor the notes of the modes, as Claude Code's mode attachments after the message: fix round 3, 2026-11-14.)
+  assert.deepEqual(seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
   assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /id="cdAttach"/);
@@ -1248,7 +1249,7 @@ test("CD45 the chat shows what the owner typed; Coder also gets the notes added 
   const events = []; const seen = [];
   await runCoder({ send: async (r) => { seen.push(r); return { message: { role: "assistant", content: "ok" } }; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "fix @a.js\n\n(The owner pointed at these files: a.js.)", shown: "fix @a.js" });
   assert.equal(events.find((e) => e.type === "user").text, "fix @a.js");
-  assert.match(seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).content, /pointed at these files: a\.js/);
+  assert.match(seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).content, /pointed at these files: a\.js/);
 });
 
 test("CD46 Review and Security review: the request is written on the server; Coder only reads and reports; the chat shows the short label", async () => {
@@ -2320,7 +2321,8 @@ test("CD82 (owner 2026-11-06) the chat's top bar stays on one line on a computer
 test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup script or network in Environment between messages, Coder is told in the message itself", async () => {
   const m = await envMachine([say("Done.", [])]);
   // (Less tool search's note on the chat's deferred tools, which follows the owner's message: tool-search.test.mjs.)
-  const userMsg = () => String((m.seen[0].messages.filter((x) => x.role === "user" && !x.toolsAnnounced).pop() || {}).content || "");
+  // (Nor the notes of the modes, which follow it as Claude Code's mode attachments do: fix round 3, 2026-11-14.)
+  const userMsg = () => String((m.seen[0].messages.filter((x) => x.role === "user" && !x.toolsAnnounced && !x.modeNote).pop() || {}).content || "");
   try {
     await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
     assert.equal(userMsg(), "go", "the first message on a machine: nothing to tell");

@@ -47,7 +47,7 @@ import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS } from "./coder-envtools.mj
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
-import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard } from "./coder-park.mjs";
+import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -60,7 +60,7 @@ import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, p
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
-import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
+import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, editsNoteOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
@@ -743,7 +743,14 @@ export const SHELL_CAVEAT = "<local-command-caveat>The command below was run dir
  * ("The user sent a new message while you were working:" … "This is how Claude Code surfaces messages the user sends
  * mid-turn …"), with Coder's names.
  */
-export const queuedNote = (text) => "The owner sent a new message while you were working:\n" + String(text) + "\n\nThis is how Coder's app surfaces messages the owner sends mid-turn — within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.";
+export const QUEUED_HEAD = "The owner sent a new message while you were working:\n";
+export const queuedNote = (text) => QUEUED_HEAD + String(text) + "\n\nThis is how Coder's app surfaces messages the owner sends mid-turn — within the running turn, often alongside the next tool result, rather than as a separate conversation turn. Address the message above as you continue this turn.";
+/**
+ * THE OWNER'S OWN MESSAGES IN CODER'S HISTORY, as Claude Code counts them for plan mode's reminder (its user messages that are
+ * neither its own notes nor a call's result): not a note of Coder's app, a summary, nor a message sent while Coder worked
+ * (Claude Code gives those within the turn, beside a result). The owner's words with a Yes stay with the call's result.
+ */
+export const ownersMessage = (m) => !!m && m.role === "user" && m.appNote !== true && !isSummary(m) && !(typeof m.content === "string" && m.content.startsWith(QUEUED_HEAD));
 /**
  * GITHUB'S RATE LIMIT, SAID AFTER A gh COMMAND HIT IT (Claude Code 2.1.116: "surfaces a hint when gh commands hit GitHub's API
  * rate limit, so agents can back off instead of retrying"; its words, without its ScheduleWakeup).
@@ -1392,6 +1399,12 @@ export const PLAN_ASKS = Object.freeze({
 export const hookModeName = (mode, fileEdits) => (mode === "acceptEdits" && fileEdits === false ? "default" : mode);
 // (`planFile`, `planExists`: the chat's plan file and whether it is there yet; `exitOffered`: exit_plan_mode is in the
 // round's tools. Claude Code's plan mode reminder, coder-plan.mjs planModeNote, the owner, 2026-11-14.)
+// NOT IN THE SYSTEM MESSAGE SINCE FIX ROUND 3 (2026-11-14; Claude Code: plan mode and auto mode "append their instructions
+// as conversation messages, so the cached prefix stays intact", and "Switching between permission modes ... does not change
+// the system prompt or tool definitions"): the system message is the same for the whole chat, and the conversation gets
+// Claude Code's notes of the modes as Claude Code gives them (runCoder: planReminderDue, autoNoteOwed, autoExitOwed,
+// planExitOwed). Only this function's Accept edits words are still given, as a note of their own once in that mode (runCoder):
+// Claude Code has no note for that mode.
 export function modeSystem(mode, { fileEdits = true, planFile = "", planExists = false, exitOffered = true } = {}) {
   const m = normMode(mode);
   if (m === "acceptEdits" && fileEdits === false) return "PERMISSION MODE: Accept edits (the owner's pick): your file edits in the project run without asking; a command that changes files (mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like), any other command that is not read-only, and a web_fetch of a site that is not well-known documentation, wait for the owner's approval on a card (you are told their answer: if they say no, do what they say instead, or stop).";
@@ -2108,7 +2121,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const answerOutcome = (a) => (a.choice === "stop" ? "stop" : a.choice === "none" ? (now() - started > maxMs ? "time" : "no") : a.choice === "no" ? (a.comment ? "said" : "no") : "go");
   // The owner's note with a Yes, given to Coder after the step's result (Claude Code: "runs the action, then sends your comment").
   // (A note goes with Yes and No only: Claude Code's "don't ask again" and "switch to auto mode" take none. Bash docs pass 8.)
-  const yesNote = (a) => (a && a.comment && a.choice !== "no" && a.choice !== "always" && a.choice !== "auto" ? "\n\n(The owner approved this with a note: " + a.comment + ")" : "");
+  // AS CLAUDE CODE SENDS IT (fix round 3, 2026-11-14): exactly as the owner typed it, as their own text after the call's result
+  // (its "acceptFeedback"), never wrapped in a sentence of Coder's: kept with the call's result (`words`, yesWords) and given
+  // to Grok after the round's results (coder-park.mjs wordsAfterResults). Gloopy's keep its own sentence in the result.
+  const yesWords = new Map();
+  const yesNote = (a, id = "") => {
+    if (!(a && a.comment && a.choice !== "no" && a.choice !== "always" && a.choice !== "auto")) return "";
+    if (offered) return "\n\n(The owner approved this with a note: " + a.comment + ")";
+    if (id) yesWords.set(id, a.comment);
+    return "";
+  };
   // HOOKS (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-hooks.mjs): the owner's and the repository's, given by
   // Coder's machine. Each runs as Coder's commands do (its user, its room, the folder its commands are in), the event's JSON on
   // stdin (a file the machine writes, as for a big tool request), its stderr kept apart from its stdout; at once, the matching
@@ -2976,7 +2998,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   }
   const started = now();
   let rounds = 0;
-  // The mode Grok was last told of (the system's note says it each round; a change while Coder works is said in the chat).
+  // (This job's first step still to come, for plan mode's reminder: planReminderDue, before each step.)
+  let firstStep = true;
+  // The mode Grok was last told of (a change while Coder works is said in the chat; the notes of the modes, in the conversation
+  // since fix round 3, say the rest).
   let toldMode = modeNow();
   // (enter_plan_mode, 2026-11-14: the mode Coder came into Plan from in this job, Claude Code's prePlanMode; plan mode's end owed
   // to Coder when the chat has no plan file to keep that flag with; and "## Exited Auto Mode" owed after entering Plan from Auto.)
@@ -3274,7 +3299,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       }
     }
     // THE MODE, AS IT IS NOW: a change since the last round is said once (Claude Code's "## Exited Plan Mode"), and the
-    // system's note says the mode each round; in Plan mode Coder also has exit_plan_mode.
+    // conversation has the notes of the modes (below; never the system message, since fix round 3); exit_plan_mode is listed
+    // in every mode.
     // THE MONITORS' NEWS (Claude Code's Monitor: "You keep working in the same session and Claude interjects when an event
     // arrives"): before each answer, the lines they printed since the last step, and how any of them ended, once; the chat
     // shows each (an idle chat is woken for them by Coder's server, as for a background command that ended).
@@ -3319,12 +3345,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // TOOL SEARCH'S NOTE (coder-toolsearch.mjs, Claude Code's deferred_tools_delta, which comes before its plan mode, auto mode
     // and task reminders): the chat's deferred tools not yet named, or named and gone, said before this step.
     if (tsOn) { const note = tsNote(tsPool(!!planBox)); if (note) convo.push(note); }
-    // CLAUDE CODE'S TASK REMINDER (its task_reminder; the owner, 2026-11-14; coder-tasks.mjs): before each answer, when Coder
-    // has task_update and its last 10 steps used neither task_create nor task_update, and no reminder came in them: "The task
-    // tools haven't been used recently. …", with the tasks on the list.
-    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
-    // (And its todo_reminder for todo_write, with CLAUDE_CODE_ENABLE_TASKS=0.)
-    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "todo_write") && todoReminderDue(convo)) convo.push({ role: "user", appNote: true, content: todoReminderNote(await todosNow()) });
     const modeRound = modeNow();
     // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
     const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
@@ -3344,19 +3364,58 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         setPlanFlags({ on: true });
       }
     }
+    // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
+    const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode") && denyInstead !== true;
+    // PLAN MODE'S REMINDER (fix round 3, 2026-11-14; Claude Code's plan_mode attachment, coder-plan.mjs planReminderDue): in
+    // the conversation, before this step, when one is due: the whole of it the first time and every 5th time, Claude Code's
+    // short line between, at most once every 5 messages of the owner's (a job's first step does not count its own message
+    // yet, as Claude Code decides before it adds it); the whole of it again when where the plan goes has changed.
+    // (Not at the first step after the owner's own command, "! …": Claude Code computes no notes for a shell-mode message, and
+    // gives them after the turn's first tool step. Fix round 3, 2026-11-14.)
+    const notesNow = !offered && !github && !(firstStep && typeof shell === "string" && shell.trim());
+    if (modeRound === "plan" && notesNow) {
+      const where = { file: planRound ? planRound.file : "", exitOffered }, kind = planKind(where);
+      const due = planReminderDue(convo, { kind, skipFrom: firstStep && !takeUp ? jobStart : Infinity, owners: ownersMessage });
+      if (due) convo.push({ role: "user", appNote: true, planReminder: kind, content: "(Note from Coder's app, not the owner:\n" + (due === "full" ? planModeNote({ ...where, exists: !!(planRound && planRound.text !== null) }) : planModeSparse(where)) + ")" });
+    }
+    firstStep = false;
     // (Plan mode's end after an approved plan in a chat with no plan file, and auto mode's after Coder entered Plan from Auto:
     // Claude Code's plan_mode_exit and auto_mode_exit, each its own reminder before the next step. 2026-11-14.)
     if (planExitDue !== null && modeRound !== "plan") { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + planExitDue + ")" }); planExitDue = null; }
     if (autoExitDue && modeRound !== "auto") { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + AUTO_EXITED + ")" }); autoExitDue = false; }
-    // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
-    const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode") && denyInstead !== true;
-    const planShown = modeRound === "plan" && planRound ? { planFile: planRound.file, planExists: planRound.text !== null } : {};
+    // THE MODES AS CLAUDE CODE TELLS OF THEM (fix round 3, 2026-11-14): in the conversation, never in the system message, which
+    // stays the same for the whole chat ("so the cached prefix stays intact"); decided from the conversation before each step,
+    // so a change between two messages is told too, once: plan mode's end (its plan_mode_exit, when not told above), auto
+    // mode's note once in that mode (its auto_mode, "## Auto Mode Active") and its end (auto_mode_exit). And Coder's own words
+    // for Accept edits, once in that mode (Claude Code has no note for it). Not in a job from GitHub (always Auto, with its own
+    // note in the system message, as before), nor Gloopy's (notesNow, above).
+    if (notesNow) {
+      if (modeRound !== "plan" && planExitOwed(convo)) { const pf = planRound || (await planNow()); convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + planExitedNote(pf ? pf.file : "", !!(pf && pf.text !== null)) + ")" }); }
+      if (modeRound === "auto" && autoNoteOwed(convo)) convo.push({ role: "user", appNote: true, modeNote: "auto", content: "(Note from Coder's app, not the owner:\n" + AUTO_NOTE + ")" });
+      // (Not while planning with auto mode's checks on: auto mode is still on under plan mode then, as Claude Code's.)
+      if (modeRound !== "auto" && !(modeRound === "plan" && planChecks) && autoExitOwed(convo)) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + AUTO_EXITED + ")" });
+      const edits = modeRound === "acceptEdits" ? "(Note from Coder's app, not the owner:\n" + modeSystem("acceptEdits", { fileEdits }) + ")" : "";
+      if (edits && editsNoteOwed(convo, edits)) convo.push({ role: "user", appNote: true, modeNote: "acceptEdits", content: edits });
+    }
+    // CLAUDE CODE'S TASK REMINDER (its task_reminder; the owner, 2026-11-14; coder-tasks.mjs): before each answer, when Coder
+    // has task_update and its last 10 steps used neither task_create nor task_update, and no reminder came in them: "The task
+    // tools haven't been used recently. …", with the tasks on the list. (After the notes of the modes, as Claude Code's
+    // todo_reminders come after its plan_mode and auto_mode. Fix round 3, 2026-11-14.)
+    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
+    // (And its todo_reminder for todo_write, with CLAUDE_CODE_ENABLE_TASKS=0.)
+    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "todo_write") && todoReminderDue(convo)) convo.push({ role: "user", appNote: true, content: todoReminderNote(await todosNow()) });
+    // EXIT_PLAN_MODE IN EVERY MODE (fix round 3, 2026-11-14; Claude Code's ExitPlanMode is in its tool list whatever the mode,
+    // and refuses a call out of plan mode, NOT_IN_PLAN_MODE): with tool search off too, as with it on (tsPool). Not in a job
+    // from GitHub, under denyInsteadOfPrompting, or when a rule denies it; in the form the plan file asks for.
+    const exitListed = !github && denyInstead !== true && !toolDenied("exit_plan_mode");
+    // (Among Coder's own tools, before the connectors', as Claude Code lists its own before MCP tools.)
+    const withExit = (list, exitTool) => { const at = list.findIndex((t) => t && t.function && (mcpByName.has(t.function.name) || t.function.name === "connector_search")); return at < 0 ? [...list, exitTool] : [...list.slice(0, at), exitTool, ...list.slice(at)]; };
     // (Tool search, coder-toolsearch.mjs: the request has the chat's tools less the deferred ones not loaded.)
     let tsSent = null;
     // (A loaded tool whose source went away stays, with the definition it was loaded with: the chat's record. Not in a job from
     // GitHub, which has no connectors.)
     if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo); tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); }
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -3664,7 +3723,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!(back && back.call && c.id === back.call.id)) { modePin = ""; if (taking) taking.used = true; }
       else if (!back.taken) { back.taken = true; Object.assign(c, back.call); if (back.mode) modePin = back.mode; }
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
-      const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
+      // (`words`: the owner's own words with their Yes on this call's card, given to Grok after the round's results: yesNote.)
+      const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}), ...(yesWords.has(c.id) ? { words: yesWords.get(c.id) } : {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files" || c.name === "todo")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
@@ -4171,7 +4231,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A COMMAND THAT CHANGED FILES CODER HAD READ says so (like Claude Code's "This command modified …").
         let moved = "";
         if (!bg && watching()) { const ch = await changedFiles(deps); if (ch) { followed = ch.followed > 0; if (ch.changed.length) { moved = commandChangedNote(ch.changed.map((x) => ({ ...x, path: sayPath(deps, x.path) }))); for (const x of ch.changed) if (!x.gone && (typeof x.lines === "string" || x.big === true)) { roundNotes.push(changedOnDiskNote(sayPath(deps, x.path), x)); if (typeof x.lines === "string") roundShown.push(x.path); } } } }
-        reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + (hostsUnchecked ? "\n\n" + HOSTS_UNCHECKED : "") + yesNote(approval), bg || (r && r.notStarted) ? null : { exitCode: code });
+        reply(text + (cwdTold ? "\n[" + cwdTold + "]" : "") + (moved ? "\n" + moved : "") + (viewed ? "\n\n" + viewed : "") + (hostsUnchecked ? "\n\n" + HOSTS_UNCHECKED : "") + yesNote(approval, c.id), bg || (r && r.notStarted) ? null : { exitCode: code });
         // CWDCHANGED HOOKS (Claude Code: "Runs when the working directory changes, for example when Claude executes a cd
         // command"), with the chat's hook env file made empty first (Claude Code clears CLAUDE_ENV_FILE for them).
         if (!bg) await cwdMoved(where0);
@@ -4296,18 +4356,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const facts = { query: chk.args.query, results: [usedUpText({ max: webBudget.max(), refills: webBudget.refillsPerHour(), perTurn: searchPerTurn })], durationSeconds: 0, searchCount: 0 };
           toolFacts.set(c.id, facts);
           emit({ type: "result", id: c.id, code: 0, output: facts.results[0] });
-          reply(searchText(facts) + yesNote(approval));
+          reply(searchText(facts) + yesNote(approval, c.id));
           continue;
         }
         if (!searched) ranAt.set(c.id, now());
         const sr = searched || await runWebSearch(deps.send, { model, effort, args: chk.args, now });
         // (The search's own call is counted with the others: what it used, its searches and its cost.)
         if (sr.usage) usage.push(sr.usage);
-        if (sr.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(sr.error).slice(0, 2000) }); reply(sr.error + yesNote(approval)); continue; }
+        if (sr.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(sr.error).slice(0, 2000) }); reply(sr.error + yesNote(approval, c.id)); continue; }
         // (Its result object, Claude Code's WebSearchOutput, for its PostToolUse hooks.)
         toolFacts.set(c.id, sr.facts);
         emit({ type: "result", id: c.id, code: 0, output: scrub(searchShown(sr.facts)).slice(0, MAX_OUTPUT_CHARS) });
-        reply(sr.text + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval));
+        reply(sr.text + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval, c.id));
       } else if (c.name === "request_secret") {
         // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner.
         if (github) { reply("error: keys cannot be asked for in a job started from GitHub (it is public and gets no saved keys); say in your answer that the owner can give one in Coder's chat"); continue; }
@@ -5417,7 +5477,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (wf.usage) usage.push(wf.usage);
           if (wf.facts) toolFacts.set(c.id, wf.facts);
           emit({ type: "result", id: c.id, code: wf.code, output: wf.out.length > MAX_OUTPUT_CHARS ? capOutput(wf.out) : wf.out });
-          reply(wf.out + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval));
+          reply(wf.out + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval, c.id));
           continue;
         }
         // WHAT A WRITE OR AN EDIT CHANGED is asked for, for the chat only (writeAnswer; edit's too since edit's turn, 2026-11-09).
@@ -5476,7 +5536,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs; only when the call
         // worked, as Claude Code adds its note only to a result that is not an error.)
         // (What follows the tool's own text is kept apart, for a PostToolUse hook's rewrite of it: c.keepTail.)
-        c.keepTail = (more ? "\n\n" + more : "") + yesNote(approval);
+        c.keepTail = (more ? "\n\n" + more : "") + yesNote(approval, c.id);
         reply((out || "(nothing)") + (code === 0 && c.inputNote ? "\n\n" + c.inputNote : "") + c.keepTail);
       } else if (c.name === "enter_plan_mode") {
         // CLAUDE CODE'S EnterPlanMode (the owner, 2026-11-14: "Fix base on Claude Code docs, please"): with a disk, as Coder's
@@ -5570,7 +5630,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (The owner's edit on the card is their plan, saved to the plan file; with no plan file, it is the plan echoed.)
         const ownerEdit = typeof a.plan === "string" && a.plan !== shownPlan ? a.plan : null;
         const final = ownerEdit !== null ? ownerEdit : asked;
-        reply(await approve(final, !!file && (ownerEdit !== null || asked !== (fromFile === null ? "" : fromFile)), a.choice, "plan") + (a.comment ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
+        // (The owner's words with their approval: Claude Code's plan approval sends them as it sends a Yes's, yesNote. 2026-11-14.)
+        if (a.comment && !offered) yesWords.set(c.id, a.comment);
+        reply(await approve(final, !!file && (ownerEdit !== null || asked !== (fromFile === null ? "" : fromFile)), a.choice, "plan") + (a.comment && offered ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
       } else if (c.name === "todo") {
         // (Gloopy's own checklist: Coder has Claude Code's task list instead, below.)
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);

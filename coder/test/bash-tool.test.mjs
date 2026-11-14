@@ -268,7 +268,8 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
   assert.ok(!ev3.some((e) => e.type === "user"));
   // (Tool search's note on the chat's deferred tools comes after it, as Claude Code's deferred_tools_delta follows its other
   // attachments: tool-search.test.mjs.)
-  assert.match(seen3[0].messages.filter((m) => m.role === "user" && !m.toolsAnnounced).pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
+  // (Nor the notes of the modes, given before each step after the job's own notes, as Claude Code's mode attachments: fix round 3.)
+  assert.match(seen3[0].messages.filter((m) => m.role === "user" && !m.toolsAnnounced && !m.modeNote).pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
 });
 
 test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (\"! npm test\"): run as Coder's are, with no check of Coder's; the chat shows it and what it printed; Coder gets it as Claude Code adds it (<bash-input>, <bash-stdout>, <bash-stderr> with the exit code) and answers it", async () => {

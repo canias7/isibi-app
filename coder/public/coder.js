@@ -1533,9 +1533,10 @@
     if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.sending) return;
     // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
     // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
-    // (And while a card Coder's paused job left open waits, other than a question card, whose reply the message is: it waits
-    // for Coder in the turn the card's answer takes up again. container/coder-park.mjs.)
-    const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && S.project.parked.kind !== 'question';
+    // (And while the key card or an environment card Coder's paused job left open waits: it waits for Coder in the turn the
+    // card's answer takes up again. A question card's reply is the message; a permission card or the plan's is closed by it,
+    // and the message goes out now, as Claude Code's. container/coder-park.mjs.)
+    const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && !['question', 'permission'].includes(S.project.parked.kind);
     if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
       if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
@@ -1563,13 +1564,19 @@
     draw(true);
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
     S.sending = false; S.unsent = '';
+    // (A card the message closed, Coder's paused job's permission or plan card: drawn closed at once, before the message.)
+    const closed = r.data && Array.isArray(r.data.closed) ? r.data.closed : [];
+    if (closed.length && S.project) S.project = { ...S.project, parked: null, waiting: null };
     if (r.status !== 200) {
-      S.events = S.events.slice(0, base);
+      S.events = S.events.slice(0, base).concat(closed);
       S.draft = text; S.pics = pics; S.attach = att;
       S.error = (r.data && r.data.error) || 'The message was not sent.';
       if (r.data && r.data.connect) S.phase = 'connect';
       return draw();
     }
+    // (It went out with the messages that waited in line for that card: the chat is loaded, as after a job's end.)
+    if (r.data.reload && r.data.project) { S.events = S.events.slice(0, base); S.project = r.data.project; syncEntry(); return reloadChat(r.data.project.id); }
+    if (closed.length) S.events.splice(base, 0, ...closed);
     // /compact in Gloopy's chat (like Claude Code's): the summary is made by the Worker; no job runs. (Coder's own /compact runs
     // on its machine, with its hooks, as a turn.)
     // /pause, /resume and /schedules in Gloopy's chat (the audit, 2026-11-10): done by the Worker; no job runs either.
@@ -3368,6 +3375,9 @@
   function permDone(e, ans) {
     const c = ans.choice;
     const note = ans.comment ? ': “' + esc(ans.comment) + '”' : '';
+    // (Closed by the owner's next message while Coder's job was paused on it, as Claude Code closes such a card: no longer
+    // answerable, and what it asked for did not run.)
+    if (c === 'closed') return '<span class="cd-perm-no">Closed</span> · you sent a new message before answering';
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');

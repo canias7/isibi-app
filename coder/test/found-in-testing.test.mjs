@@ -308,7 +308,8 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   const out = await runCoder(deps, { text: ask + fileMentions(ask), shown: ask });
   // (Less tool search's note on the chat's deferred tools, which follows them as Claude Code's deferred_tools_delta follows its
   // at_mentioned_files: tool-search.test.mjs.)
-  const msgs = seen[0].messages.filter((m) => !m.toolsAnnounced);
+  // (Nor the notes of the modes, as Claude Code's mode attachments after the message: fix round 3, 2026-11-14.)
+  const msgs = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote);
   assert.equal(msgs.length, 3, "Coder's rules, the owner's message, the note with their files");
   assert.equal(msgs[1].content, (ask + fileMentions(ask)).trim(), "the owner's message is as they wrote it");
   const note = msgs[2];
@@ -543,8 +544,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   // (Less tool search's note on the chat's deferred tools, tool-search.test.mjs, in this test file's note checks.)
-  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
-  assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced), "and no note before any step");
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
   let k2 = 0;
@@ -581,9 +582,11 @@ test("CD215 right after a summary made between messages (/compact, a long chat s
   ];
   const events = [], seen = [];
   const out = await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir) }, { messages: history, text: "next" });
-  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1);
+  // (Nor the notes of the modes, which follow as Claude Code's mode attachments do: fix round 3, 2026-11-14.)
+  const plain = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote);
+  const note = plain.at(-1);
   assert.equal(note.appNote, true);
-  assert.equal(seen[0].messages.at(-2).content, "next", "right after the owner's message");
+  assert.equal(plain.at(-2).content, "next", "right after the owner's message");
   assert.ok(note.content.startsWith("(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)\n\n"));
   const order = ["--- b.js ---\n     1\tconst b = 2;", "Referenced file big.js (over 20,000 characters", "--- a.js ---\n     1\tconst a = 1;"];
   let at = -1;
@@ -630,7 +633,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await writeFile(join(dir, "src", "app.js"), "x\n");
   const seen = [];
   await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
-  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).content;
+  const note = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).content;
   assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
   assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
 });
@@ -1170,10 +1173,10 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   const reply = (id) => out.messages.find((x) => x.role === "tool" && x.tool_call_id === id).content;
   assert.equal(reply("b1"), "apple\nbanana\ncherry");
   assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
-  const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content);
+  const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content);
   assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
-  const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced);
+  const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced && !m.modeNote);
   assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
   // What is kept: each line's short fingerprint, never the text.
   const marks = (await readdir(followDir)).filter((f) => f.startsWith("lines-"));
@@ -1287,7 +1290,7 @@ test("CD242 a missing file is named with the folder a short path counts from, as
   let first = null;
   await runCoder({ exec: machine(dir), emit: (e) => steps.push(e), send: async (q) => { first = first || q; return say("Done."); } }, { text: "look at @types/node please" });
   assert.equal(steps.filter((e) => e.type === "bash").length, 0);
-  assert.ok(!first.messages.some((m) => m.appNote && !m.toolsAnnounced), "no note for a path that is not a file");
+  assert.ok(!first.messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "no note for a path that is not a file");
   assert.equal(mentionNote === undefined || typeof mentionNote === "function", true);
 });
 

@@ -90,7 +90,8 @@ test("CD387 Plan mode: a PreToolUse hook's allow has no effect on a command that
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "A PreToolUse hook approved the plan: Plan mode is off (now Accept edits)."));
   assert.equal(t.told("p1"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add the cart test\n2. Run it");
   // ("## Exited Plan Mode" as Claude Code places it since 2026-11-14: its own note before Coder's next step.)
-  assert.equal(t.seen.at(-1).messages.at(-1).content, "(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.)");
+  // (Then the note of the mode it went to, in the conversation since fix round 3, 2026-11-14.)
+  assert.equal(t.seen.at(-1).messages.filter((m) => !m.modeNote).at(-1).content, "(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.)");
   assert.equal(t.hookCalls[0].input.tool_name, "ExitPlanMode");
   // Its allow alone (no new input): the plan card, as before (Claude Code: "ExitPlanMode need[s] updatedInput paired with "allow"").
   t = await job(planCall("1. Add the cart test"), { hooks: { PreToolUse: hk("allow.sh") }, hookRun: ALLOW, mode: "plan", answers: [{ choice: "no" }] });
@@ -408,7 +409,8 @@ test("CD393 Auto mode turned off (Claude Code's disableAutoMode \"disable\": \"A
   let t = await job([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { mode: "auto", extra: { autoOff: true } });
   assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["acceptEdits", "autoOff"]]);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "Auto mode is turned off, so this chat works in Accept edits."));
-  assert.match(t.seen[0].messages[0].content, /PERMISSION MODE: Accept edits/);
+  // (In the conversation, never the system message, since fix round 3, 2026-11-14.)
+  assert.ok(t.seen[0].messages.some((m) => m.modeNote === "acceptEdits" && /PERMISSION MODE: Accept edits/.test(m.content)));
   assert.equal(t.cards.length, 1, "npm test asks in Accept edits");
   assert.equal(t.cards[0].toAuto, undefined, "no switch to Auto offered");
   t = await job([say("", [call("exit_plan_mode", { plan: "1. Fix it" }, "p1")]), say("ok")], { mode: "plan", extra: { autoOff: true }, answers: [{ choice: "auto" }] });
