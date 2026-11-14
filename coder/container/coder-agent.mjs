@@ -37,8 +37,8 @@ import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } fr
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
-import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
-import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
+import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
+import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, hasPreviews } from "./coder-askuser.mjs";
 import { webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
@@ -51,7 +51,7 @@ import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, p
 import { psDecision, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wholeRule, MONITOR_BASH_DENIED } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
-import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD } from "./coder-plan.mjs";
+import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
 import { fileNameOf } from "./gloopy-browser.mjs";
 import { needsCheck, stepWords, stepSends, gloopyCheck, gloopyMonitor, MONITOR_EVERY, MONITOR_MAX, ownerWords, cleanRules, cleanSites, siteFor, plain, decide, formWords, markedNote, taughtNote, requestWords, bodyPreview, CARD_TTL_MS, signinCheck, signinWarning, WARNINGS, readsInFull } from "./gloopy-check.mjs";
 import { cleanPermissions, permissionLabel } from "./gloopy-permissions.mjs";
@@ -1234,6 +1234,10 @@ export const CODER_TOOLS = Object.freeze([
   // CLAUDE CODE'S AskUserQuestion (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; before,
   // up to 4 questions in one card, owner pick 4, 2026-11-08): its description and inputs word for word (coder-askuser.mjs).
   fn("ask_user", ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, ["questions"]),
+  // CLAUDE CODE'S EnterPlanMode (the owner, 2026-11-14: "Fix base on Claude Code docs, please"): its prompt, its input (none)
+  // and its result word for word (coder-plan.mjs). With a disk, as Coder's chats have, it asks nothing: the chat goes into
+  // Plan mode as the owner's mode menu would put it.
+  ENTER_PLAN_TOOL,
   // CLAUDE CODE'S TASK LIST IN PLACE OF CODER'S TODO (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
   // notify one"; Claude Code's tools reference, "Task tool availability": "In background sessions and in cloud sessions,
   // Claude Code provides the same tools on every model", its four Task tools): TaskCreate, TaskGet, TaskList and TaskUpdate,
@@ -1303,6 +1307,8 @@ export const HOSTS_UNCHECKED = "(Its allowed_domains were not opened: no one app
 /** The tools whose calls Coder's permission rules check one by one (the others: only a rule on the whole tool, below). */
 // (web_search checks its own rule on the whole tool, WebSearch, in its own branch: coder-websearch.mjs, 2026-11-14.)
 const RULED_TOOLS = new Set(["bash", "monitor", "read", "write", "edit", "grep", "glob", "lsp", "web_fetch", "web_search"]);
+/** Claude Code's tools that it leaves out under permissions.denyInsteadOfPrompting (2.1.325's isEnabled; 2026-11-14). */
+export const PROMPT_TOOLS = Object.freeze(["ask_user", "enter_plan_mode", "exit_plan_mode"]);
 /**
  * THE OWNER'S CONNECTORS (MCP, owner 2026-11-10: "one list for the platform ... per person"): the tools the Worker sent for
  * this job, checked (names Grok can call, a description, an object schema), at most 80.
@@ -1416,7 +1422,9 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, planFile = 
 // A JOB STARTED FROM GITHUB (@coder, auto-fix) IS NOT OFFERED WHAT IT MAY NOT DO THERE (live test, 2026-11-08:
 // asked on GitHub to undo, Coder first asked which job, then found undo refused). Like Claude Code's GitHub
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix"]);
+// (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
+// a job from GitHub is always Auto. 2026-11-14.)
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix", "enter_plan_mode"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1529,6 +1537,13 @@ HOW YOU TALK (owner, 2026-11-05)
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user: 1 to 4 questions in one card, each with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
+/**
+ * CODER'S SYSTEM PROMPT WITH todo_write IN PLACE OF THE TASK TOOLS (CLAUDE_CODE_ENABLE_TASKS=0): Claude Code's line names the
+ * tool the session has ("Use TodoWrite to plan and track work. Mark each task completed as soon as it's done; don't batch.").
+ * 2026-11-14.
+ */
+export const todoSystem = (system) => String(system).replace("task_create, task_get, task_list and task_update (your task list, which the owner sees)", "todo_write (your task list, which the owner sees)").replace("- Use task_create to plan and track work.", "- Use todo_write to plan and track work.");
+
 
 /** The model's tool calls, read safely: `[{ id, name, args }]`; args `null` when they are not JSON. */
 export function readCalls(msg) {
@@ -1696,7 +1711,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, tasksOff = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1708,6 +1723,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
+  // (CLAUDE_CODE_ENABLE_TASKS=0, Coder's CODER_ENABLE_TASKS: todo_write in place of the four task tools, and Claude Code's
+  // system prompt line names it: "Use TodoWrite to plan and track work". Coder's own run only. 2026-11-14.)
+  const todosOn = tasksOff === true && !offered;
+  if (todosOn) system = todoSystem(system);
   // The owner's own rules for Gloopy's browser checks ("ask first" / "allow"), as the Worker keeps them.
   const browserRules = cleanRules(rulesIn);
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
@@ -1769,6 +1788,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const tasksNow = async () => { if (!taskState) { try { taskState = readTasks(deps.tasks && typeof deps.tasks.load === "function" ? await deps.tasks.load() : null); } catch { taskState = emptyTasks(); } } return taskState; };
   const saveTasks = async () => { try { if (taskState && deps.tasks && typeof deps.tasks.save === "function") await deps.tasks.save(taskState); } catch { /* kept for this job */ } };
   const showTasks = () => emit({ type: "todo", items: pageItems(taskState, scrub) });
+  // CLAUDE CODE'S TodoWrite IN THEIR PLACE (CLAUDE_CODE_ENABLE_TASKS=0, Coder's CODER_ENABLE_TASKS: `tasksOff`; 2026-11-14): the
+  // chat's todo list, read once a job when first needed (deps.todos), written back after each call.
+  let todoState = null;
+  const todosNow = async () => { if (!todoState) { try { todoState = readTodos({ todos: deps.todos && typeof deps.todos.load === "function" ? await deps.todos.load() : [] }); } catch { todoState = []; } } return todoState; };
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
@@ -2502,10 +2525,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
   // (ask_user, Claude Code's AskUserQuestion, is not offered under permissions.denyInsteadOfPrompting: its isEnabled. The
-  // owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && t.function.name === "ask_user")))).map(withHosts),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  // owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one". Nor enter_plan_mode and exit_plan_mode, its
+  // EnterPlanMode and ExitPlanMode: "Claude Code leaves out AskUserQuestion, EnterPlanMode, and ExitPlanMode, so a session in
+  // plan mode can't leave it on its own"; 2026-11-14.)
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name))))).map(withHosts),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
+  // (In the task tools' place, before bash; a rule on them doesn't touch it, one on TodoWrite does.)
+  if (todosOn) { const rest = chatTools.filter((t) => !(t && t.function && isTaskTool(t.function.name))); const at = rest.findIndex((t) => t && t.function && t.function.name === "bash"); if (!toolDenied("todo_write")) rest.splice(at < 0 ? rest.length : at, 0, TODO_WRITE_TOOL); chatTools.splice(0, chatTools.length, ...rest); }
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
@@ -2733,6 +2760,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let rounds = 0;
   // The mode Grok was last told of (the system's note says it each round; a change while Coder works is said in the chat).
   let toldMode = modeNow();
+  // (enter_plan_mode, 2026-11-14: the mode Coder came into Plan from in this job, Claude Code's prePlanMode; plan mode's end owed
+  // to Coder when the chat has no plan file to keep that flag with; and "## Exited Auto Mode" owed after entering Plan from Auto.)
+  let prePlan = "", planExitDue = null, autoExitDue = false;
   // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
   // Claude Code's plan mode with a disk, as in its cloud sessions): kept by Coder's machine outside the repository
   // (deps.plan), named after the owner's message the first time plan mode is on in this chat ("Plan files are now named after
@@ -2756,6 +2786,28 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const setPlanFlags = (f) => { try { if (planBox && typeof planBox.setFlags === "function") planBox.setFlags(f); } catch { /* the job goes on */ } };
   /** The plan file's path once it has a name, else "" (Claude Code: "Plan files for current session are allowed for writing"). */
   const planPath = () => { try { return planBox && typeof planBox.current === "function" ? String(planBox.current() || "") : ""; } catch { return ""; } };
+  // THE PLAN AFTER A SUMMARY (Claude Code's plan_file_reference: after compaction, "A plan file exists from plan mode at: …
+  // Plan contents: … If this plan is relevant to the current work and not already complete, continue working on it.", in any
+  // mode, whenever the chat's plan file is there; 2026-11-14): its note, or "" (no plan file, or an empty one).
+  const planRefNote = async () => {
+    const file = planPath();
+    if (!file) return "";
+    let t = null;
+    try { t = await planBox.read(); } catch { t = null; }
+    return typeof t === "string" && t ? "(Note from Coder's app, not the owner:\n" + planFileReference(file, t) + ")" : "";
+  };
+  // (After a summary made between messages, a /compact or a long chat summarized before this job, the job that next reads
+  // it puts the plan back, once: the summary's `planRef`. Not a job from GitHub, which leaves it for the owner's next one.)
+  if (!github) {
+    let at = -1;
+    for (let i = jobStart - 1; i >= 0; i--) if (isSummary(convo[i])) { at = i; break; }
+    if (at >= 0 && convo[at].planRef === true) {
+      const { planRef: _owed, ...told0 } = convo[at];
+      convo[at] = told0;
+      const note = planBox ? await planRefNote() : "";
+      if (note) convo.push({ role: "user", appNote: true, content: note });
+    }
+  }
   let prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -2917,6 +2969,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // Its background commands still running go with the summary too (Claude Code 2.1.271: no second copy after a summary).
           const still = runningNote([...jobs.entries()].filter(([, j]) => !j.done), now());
           if (still) convo[jobStart + 1] = { ...convo[jobStart + 1], content: convo[jobStart + 1].content + "\n\n" + still };
+          // And the chat's plan file, when there is one (Claude Code's plan_file_reference): given now, so not owed later.
+          { const { planRef: _owed, ...told0 } = convo[jobStart + 1]; const pr = planBox ? await planRefNote() : ""; convo[jobStart + 1] = pr ? { ...told0, content: told0.content + "\n\n" + pr } : told0; }
           // The repo's instructions and the memory, fresh from disk (Coder may have changed them in this job), as Claude
           // Code re-injects them "from disk" after compaction (deps.freshContext, from Coder's machine).
           if (typeof deps.freshContext === "function") { try { const c = await deps.freshContext(); if (typeof c === "string" && c.trim()) { context = c; await markShownStart(deps, c); } } catch { /* the one it had stays */ } }
@@ -2980,6 +3034,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // has task_update and its last 10 steps used neither task_create nor task_update, and no reminder came in them: "The task
     // tools haven't been used recently. …", with the tasks on the list.
     if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
+    // (And its todo_reminder for todo_write, with CLAUDE_CODE_ENABLE_TASKS=0.)
+    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "todo_write") && todoReminderDue(convo)) convo.push({ role: "user", appNote: true, content: todoReminderNote(await todosNow()) });
     const modeRound = modeNow();
     // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
     const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
@@ -2999,8 +3055,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         setPlanFlags({ on: true });
       }
     }
+    // (Plan mode's end after an approved plan in a chat with no plan file, and auto mode's after Coder entered Plan from Auto:
+    // Claude Code's plan_mode_exit and auto_mode_exit, each its own reminder before the next step. 2026-11-14.)
+    if (planExitDue !== null && modeRound !== "plan") { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + planExitDue + ")" }); planExitDue = null; }
+    if (autoExitDue && modeRound !== "auto") { convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + AUTO_EXITED + ")" }); autoExitDue = false; }
     // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
-    const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode");
+    const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode") && denyInstead !== true;
     const planShown = modeRound === "plan" && planRound ? { planFile: planRound.file, planExists: planRound.text !== null } : {};
     let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
@@ -3161,8 +3221,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // TaskUpdate fix a call's input first, then check it against their schema ("Validation rejections are returned as
       // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"). A refused
       // call shows no step in the chat, as Claude Code shows none for these tools; its hooks see the fixed input.
+      // (With CLAUDE_CODE_ENABLE_TASKS=0 the task tools are not Coder's, todo_write is; and the other way round. 2026-11-14.)
+      if (!offered && (todosOn ? isTaskTool(c.name) : c.name === "todo_write")) { reply("error: No such tool available: " + c.name); continue; }
       if (!c.rerun && isTaskTool(c.name)) {
         const v = checkTaskInput(c.name, c.args);
+        if (v.error) { reply(v.error); continue; }
+        c.args = v.args;
+      }
+      if (!c.rerun && c.name === "todo_write") {
+        const v = checkTodoInput(c.args);
         if (v.error) { reply(v.error); continue; }
         c.args = v.args;
       }
@@ -3173,7 +3240,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // (Claude Code's AskUserQuestion is not offered at all under permissions.denyInsteadOfPrompting, its isEnabled: a call to
       // ask_user anyway is a tool that does not exist, "No such tool available", before any check or hook. The owner,
       // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
-      if (!offered && denyInstead === true && c.name === "ask_user") { reply("error: No such tool available: ask_user"); continue; }
+      if (!offered && denyInstead === true && PROMPT_TOOLS.includes(c.name)) { reply("error: No such tool available: " + c.name); continue; }
+      // (enter_plan_mode is no tool of a job from GitHub, as Claude Code's EnterPlanMode is none of a non-interactive run's.)
+      if (!offered && github && c.name === "enter_plan_mode") { reply("error: No such tool available: enter_plan_mode"); continue; }
       const inputCheck = !c.rerun && c.args && typeof c.args === "object" ? inputCheckFor(c.name) : null;
       if (inputCheck) {
         let v;
@@ -3203,6 +3272,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (pf) { c.args = planInput(c.args, pf); c.planFile = pf.file; c.planText = pf.text; }
         const v = checkPlanInput(c.args, { mode: modeNow(), noFile: !pf });
         if (v.error) { reply(v.error); continue; }
+      }
+      // ENTER_PLAN_MODE'S INPUT (Claude Code's EnterPlanMode takes none): refused before any hook, in its words. 2026-11-14.
+      if (c.name === "enter_plan_mode" && !c.rerun) {
+        const v = checkEnterPlanInput(c.args);
+        if (v.error) { reply(v.error); continue; }
+        c.args = v.args;
       }
       // PRETOOLUSE HOOKS (Claude Code: "Runs after Claude creates tool parameters and before processing the tool call"): before
       // Coder's own checks; one that denies (or exits 2) stops the call, its reason given to Coder in Claude Code's words
@@ -3858,14 +3933,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         const raw = !gl ? c.args.questions : Array.isArray(c.args.questions) && c.args.questions.length ? c.args.questions : [{ question: c.args.question, header: c.args.header, options: c.args.options, multi_select: c.args.multi_select }];
         // Each choice: a label and a one-line description (owner, "2", like Claude Code). Coder's keep every option in its
-        // place, as Claude Code's dialog does (the owner's picks come back by their place); Gloopy's as before.
+        // place, as Claude Code's dialog does (the owner's picks come back by their place), an option with an empty label
+        // too, whole, as Claude Code's schema sets no length on them (2026-11-14), each with its preview when the question
+        // shows previews (single-select: Claude Code's dialog shows them beside the options, with a notes field); Gloopy's
+        // as before.
         const one = (q) => {
           if (!q || typeof q !== "object") return null;
-          const text = scrub(String(q.question || "")).trim().slice(0, 500);
-          const all = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: scrub(String(o.label || "")).trim().slice(0, 120), description: scrub(String(o.description || "")).trim().slice(0, 300) } : { label: scrub(String(o == null ? "" : o)).trim().slice(0, 120), description: "" }));
+          const cap = (t, n) => (gl ? t.slice(0, n) : t);
+          const text = cap(scrub(String(q.question || "")).trim(), 500);
+          const shows = !gl && hasPreviews(q);
+          const all = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: cap(scrub(String(o.label || "")).trim(), 120), description: cap(scrub(String(o.description || "")).trim(), 300), ...(shows && previewOf(o) !== null ? { preview: scrub(previewOf(o)) } : {}) } : { label: cap(scrub(String(o == null ? "" : o)).trim(), 120), description: "" }));
           const options = gl ? all.filter((o) => o.label).slice(0, 4) : all;
-          const header = scrub(String(q.header || "")).replace(/\s+/g, " ").trim().slice(0, 20);
-          return (text || !gl) && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multiSelect === true || q.multi_select === true ? { multi: true } : {}) } : null;
+          const header = cap(scrub(String(q.header || "")).replace(/\s+/g, " ").trim(), 20);
+          return (text || !gl) && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multiSelect === true || q.multi_select === true ? { multi: true } : {}), ...(shows ? { previews: true } : {}) } : null;
         };
         const qs = raw.slice(0, 4).map(one);
         if (raw.length > 4 || !qs.length || qs.some((q) => !q)) { reply("error: give 1 to 4 questions, each with its text and 2 to 4 options (a label and a one-line description each)"); continue; }
@@ -4832,6 +4912,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs.)
         reply((out || "(nothing)") + (c.inputNote ? "\n\n" + c.inputNote : "") + (more ? "\n\n" + more : "") + yesNote(approval));
+      } else if (c.name === "enter_plan_mode") {
+        // CLAUDE CODE'S EnterPlanMode (the owner, 2026-11-14: "Fix base on Claude Code docs, please"): with a disk, as Coder's
+        // chats have, it asks nothing (its checkPermissions asks only a session without one); the chat goes into Plan mode as
+        // the owner's mode menu would put it (the page shows it, and it is saved with the chat when the job ends); the chat
+        // shows Claude Code's own line for it; Coder is told its result, and its PostToolUse hooks get its result object.
+        // (Claude Code keeps the mode it came from, its prePlanMode, for a hook's approval of the plan; a plan-mode-exit note
+        // still owed is dropped; from Auto with auto mode's checks off during planning, "## Exited Auto Mode" follows.)
+        const was = modeNow();
+        if (was !== "plan") { prePlan = was; if (was === "auto" && !planChecks) autoExitDue = true; setPlanFlags({ on: false }); }
+        planExitDue = null;
+        setMode("plan", "enterPlan");
+        toldMode = modeNow();
+        emit({ type: "note", text: ENTERED_PLAN_SHOWN, plan: true });
+        toolFacts.set(c.id, { message: ENTERED_PLAN });
+        reply(ENTERED_PLAN_TEXT);
       } else if (c.name === "exit_plan_mode") {
         // THE PLAN, FOR THE OWNER'S APPROVAL (Claude Code's ExitPlanMode): "Yes, and use auto mode" or "Yes, and accept
         // edits" ends Plan mode and Coder starts in this same turn; "No, keep planning" (with what to change) keeps it on.
@@ -4854,27 +4949,36 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // is told Claude Code's result; its PostToolUse hooks get Claude Code's result object (plan, isAgent, filePath,
         // planWasEdited).
         const approve = async (txt, edited, to, how) => {
-          let unsaved = false;
+          // (Saved as Claude Code 2.1.325 saves it, coder-plan-file.mjs: a plan in the repository's plansDirectory folder that
+          // cannot be saved there goes to the chat's default plans folder under a new name, kept from now on; its warning,
+          // Claude Code's own, shows in the chat. 2026-11-14.)
+          let unsaved = false, savedAt = file;
           if (file && edited) {
-            let ok = false;
-            try { ok = await planBox.write(txt); } catch { ok = false; }
-            unsaved = !ok;
-            if (unsaved) emit({ type: "note", text: "The approved plan could not be saved to " + file + ".", warn: true });
+            let r = null;
+            try { r = typeof planBox.save === "function" ? await planBox.save(txt) : { saved: (await planBox.write(txt)) === true }; } catch (e) { r = { notice: "The approved plan could not be saved to " + file + ": " + String((e && e.message) || e) }; }
+            if (!r || r.saved !== true) {
+              if (r && typeof r.savedTo === "string" && r.savedTo) savedAt = r.savedTo; else unsaved = true;
+              emit({ type: "note", text: scrub(r && r.notice ? r.notice : "The approved plan could not be saved to " + file + "."), warn: true });
+            }
           }
           // (Claude Code's flag for "Re-entering Plan Mode" is set only when the tool itself leaves plan mode, not when a hook's
           // setMode already did.)
           const leaving = modeNow() === "plan";
           if (leaving) setMode(to, how);
-          toldMode = modeNow(); // (the approval below says plan mode ended)
-          setPlanFlags({ ...(leaving ? { exited: true } : {}), on: false });
-          let exists = false;
-          if (file) { try { exists = (await planBox.read()) !== null; } catch { exists = false; } }
+          toldMode = modeNow(); // (plan mode's end is told below, not as the owner's change)
+          // ("## Exited Plan Mode" AS CLAUDE CODE PLACES IT, 2026-11-14: not in the tool's result but as its own reminder after
+          // it, its plan_mode_exit, before Coder's next step: with a plan file, the flag kept with it (`on` stays until it is
+          // told, at the next step, or at the next message if this job ends first); with none, owed here.)
+          setPlanFlags(leaving ? { exited: true } : {});
+          if (!planBox) planExitDue = planExitedNote("", false);
           // (What Coder and the hooks get of it, with the owner's values hidden, as before.)
           const said = scrub(String(txt).replace(/\r\n?/g, "\n"));
-          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, ...(file && !unsaved ? { filePath: file } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
-          return planApproved(said, { file: file && !unsaved ? file : "", edited: !!file && edited, unsaved }) + "\n\n" + planExitedNote(file, exists);
+          toolFacts.set(c.id, { plan: file && !edited && fromFile === null ? null : said, isAgent: false, ...(file && !unsaved ? { filePath: savedAt } : {}), ...(file && edited ? { planWasEdited: true } : {}) });
+          return planApproved(said, { file: file && !unsaved ? savedAt : "", edited: !!file && edited, unsaved });
         };
-        const back = planExit === "acceptEdits" ? "acceptEdits" : "auto";
+        // (A hook's approval goes back to the mode Coder entered Plan from in this job, Claude Code's prePlanMode; else to the
+        // owner's own start mode.)
+        const back = prePlan === "auto" || prePlan === "acceptEdits" ? prePlan : planExit === "acceptEdits" ? "acceptEdits" : "auto";
         // APPROVED BY A HOOK (Claude Code: "If the hook answers ExitPlanMode with "allow" and updatedInput, that tool still runs
         // without a prompt"; plan mode then returns to the mode before it, here the owner's own start mode).
         if (c.hook && c.hook.decision === "allow" && c.hook.updated) {
@@ -4906,6 +5010,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
         emit({ type: "todo", items });
         reply("ok: the owner sees the checklist");
+      } else if (c.name === "todo_write") {
+        // CLAUDE CODE'S TodoWrite (CLAUDE_CODE_ENABLE_TASKS=0; coder-tasks.mjs; 2026-11-14): the whole list replaced (one whose
+        // items are all completed is kept as none, as Claude Code keeps it), shown in the chat's checklist, its answer, and
+        // its result object for PostToolUse hooks (oldTodos, newTodos). An input a PreToolUse hook rewrote is checked again.
+        const v = checkTodoInput(c.args);
+        if (v.error) { reply(v.error); continue; }
+        const old = await todosNow(), fresh = v.args.todos;
+        todoState = fresh.every((t) => t.status === "completed") ? [] : fresh;
+        try { if (deps.todos && typeof deps.todos.save === "function") await deps.todos.save(todoState); } catch { /* kept for this job */ }
+        emit({ type: "todo", items: todoItems(fresh, scrub) });
+        toolFacts.set(c.id, { oldTodos: old, newTodos: fresh });
+        reply(TODO_WRITE_RESULT);
       } else if (isTaskTool(c.name)) {
         // CLAUDE CODE'S TASK LIST (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
         // coder-tasks.mjs): each tool answers in Claude Code's words, and its PostToolUse hooks get its result object (its
@@ -5086,7 +5202,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);

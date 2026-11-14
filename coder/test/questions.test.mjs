@@ -46,9 +46,10 @@ test("CD197 ask_user takes 1 to 4 questions in one card, Claude Code's AskUserQu
   assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", ...want[0], questions: want });
   assert.deepEqual(out.messages.filter((m) => m.role === "tool").map((m) => m.content), ["asked the owner; their answers come as the next message", "not run: you asked the owner a question first"]);
 
-  // ONE QUESTION, as before (no list); a header too long for a chip is cut on the card (Claude Code says 12 and checks none).
+  // ONE QUESTION, as before (no list); a header past a chip's 12 characters is shown whole (Claude Code says 12 and checks
+  // none, and sets no length on what its card shows; 2026-11-14).
   const one = await job([say("", [call("ask_user", { questions: [{ question: "Which name?", header: "A very long header here", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] }] })])]);
-  assert.deepEqual({ ...one.events.find((e) => e.type === "question"), at: 0 }, { at: 0, type: "question", text: "Which name?", header: "A very long header h", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] });
+  assert.deepEqual({ ...one.events.find((e) => e.type === "question"), at: 0 }, { at: 0, type: "question", text: "Which name?", header: "A very long header here", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] });
 
   // REFUSED, in Claude Code's words, before any card: five questions; a question with one option (its steer first); none;
   // the single question of before (not Claude Code's input).
@@ -78,11 +79,12 @@ test("CD198 the card: each question with its header chip and its choices (the re
   ] };
   const qs = askQuestions(card);
   assert.deepEqual(qs.map((q) => [q.header, q.multi, q.options.map((o) => o.label)]), [["Database", false, ["Postgres (Recommended)", "SQLite"]], ["Sign-in", true, ["Email", "Google"]], ["", false, ["Vercel", "Netlify"]]]);
-  assert.deepEqual(askQuestions({ type: "question", text: "Which name?", options: ["one.txt", { label: "two.txt", description: "d" }], multi: true }), [{ text: "Which name?", header: "", multi: true, options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "d" }] }], "a card from before");
-  const a = { qs, answers: [{ picked: ["Postgres (Recommended)"], other: "" }, { picked: ["Email", "__other"], other: " Apple " }, { picked: [], other: "" }] };
+  assert.deepEqual(askQuestions({ type: "question", text: "Which name?", options: ["one.txt", { label: "two.txt", description: "d" }], multi: true }), [{ text: "Which name?", header: "", multi: true, previews: false, options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "d" }] }], "a card from before");
+  // (The choices are kept by their places: the card's radio buttons carry them since 2026-11-14.)
+  const a = { qs, answers: [{ picked: ["0"], other: "" }, { picked: ["0", "__other"], other: " Apple " }, { picked: [], other: "" }] };
   assert.equal(askReply(a), "Database: Postgres\nSign-in: Email, Apple\nWhere should it run?: (no answer)", "the header, or the question when there is none");
   assert.equal(askReply({ qs, answers: [{ picked: [], other: "" }, { picked: [], other: "" }, { picked: ["__other"], other: "  " }] }), "", "nothing chosen: nothing sent");
-  assert.equal(askReply({ qs: [qs[0]], answers: [{ picked: ["SQLite"], other: "" }] }), "SQLite", "one question: just the choice, as before");
+  assert.equal(askReply({ qs: [qs[0]], answers: [{ picked: ["1"], other: "" }] }), "SQLite", "one question: just the choice, as before");
   // THE CARD'S PARTS.
   assert.match(ui, /'<div class="cd-ask-one" data-q="' \+ k \+ '"><div class="cd-ask-q">' \+ \(q\.header \? '<span class="cd-ask-h">' \+ esc\(q\.header\) \+ '<\/span>' : ''\)/);
   assert.match(ui, /\(q\.multi \? '<span class="cd-ask-multi">Choose any<\/span>' : ''\)/);

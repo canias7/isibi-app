@@ -89,7 +89,11 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
     let st = null; try { st = await lstat(abs); } catch { /* not written yet */ }
     if (st && !st.isFile()) fail("the plan file is not a plain file");
     if (!st && mustExist) fail("no such file: " + abs);
-    return { abs, rel: abs };
+    // (One in the project, in the repository's plansDirectory folder, is kept inside it as any file of the project is, below,
+    // and is no hard link: Claude Code 2.1.325, "a write that can't be shown to stay inside the project is now refused".)
+    const inProject = relative(ROOT, abs);
+    if (inProject.startsWith("..") || isAbsolute(inProject)) return { abs, rel: abs };
+    if (st && st.nlink !== 1) fail("the plan file is not a plain file");
   }
   // THE CHAT'S OWN COMMAND OUTPUT, TO READ (the live test after deploy 75): a background command's log and a long output's
   // saved file are named to Coder by their full path, to read or search (Claude Code's Read opens its output files), but

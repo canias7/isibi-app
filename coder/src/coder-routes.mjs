@@ -1676,8 +1676,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // chat goes on the every-minute run's list, which starts a turn to tell Coder when one ends (coder-watch.mjs).
       const background = bgListOf(s.result.background);
       // THE MODE A CARD SWITCHED TO (Auto from a command's card; Auto or Accept edits from an approved plan), unless the owner
-      // picked one since; and the rules "Yes, and don't ask again" added for this repository.
-      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings" || e.by === "hook")).at(-1);
+      // picked one since; and the rules "Yes, and don't ask again" added for this repository. (And Plan, when Coder entered it
+      // with enter_plan_mode, Claude Code's EnterPlanMode: saved as the owner's mode menu saves it. 2026-11-14.)
+      const switched = fresh.filter((e) => e && e.type === "mode" && MODES.includes(e.mode) && (e.by === "card" || e.by === "plan" || e.by === "autoOff" || e.by === "settings" || e.by === "hook" || e.by === "enterPlan")).at(-1);
       const modeNow = switched && Number(switched.at || 0) > Number(meta.modeAt || 0) ? { mode: switched.mode } : {};
       if (Array.isArray(s.result.rulesAdded) && s.result.rulesAdded.length) await changeRules(bucket, uid, meta.repo, "allow", s.result.rulesAdded.slice(0, 20)).catch(() => {});
       // RULES A PERMISSIONREQUEST HOOK ADDED (Bash docs pass 9): for a settings file, the repository's saved rules; for the

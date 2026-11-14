@@ -862,8 +862,8 @@ export function parseRule(text) {
   // "mcp__puppeteer__puppeteer_navigate matches the puppeteer_navigate tool"): on the whole tool only, as Claude Code's.
   if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
   // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
-  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -885,7 +885,7 @@ export function parseRule(text) {
   // name and value.
   if ((m[1] === "Grep" || m[1] === "Glob") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
-  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**
@@ -2543,6 +2543,11 @@ export const NOT_NOW = "The owner doesn't want to take this action right now. ST
  * (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"); given on here under their old names.
  */
 export { PLAN_NOTE, PLAN_EXITED, planApproved } from "./coder-plan.mjs";
-/** Auto mode (Claude Code's "The user chose continuous, autonomous execution"), with Coder's names. */
-export const AUTO_NOTE = "The owner chose continuous, autonomous execution (Auto mode). You should:\n1. **Execute immediately** — Start implementing right away. Make reasonable assumptions and proceed on low-risk work.\n2. **Minimize interruptions** — Prefer making reasonable assumptions over asking questions for routine decisions.\n3. **Prefer action over planning** — Do not ask to plan unless the owner explicitly asks. When in doubt, start coding.\n4. **Expect course corrections** — The owner may send suggestions or course corrections at any point; treat those as normal input.\n5. **Do not take overly destructive actions** — This is not a license to destroy. Anything that deletes data or modifies shared or production systems still needs explicit confirmation from the owner. If you reach such a decision point, ask and wait, or course correct to a safer method instead.\n6. **Avoid data exfiltration** — Post even routine messages to chat platforms or work tickets only if the owner has directed you to. You must not share secrets (e.g. credentials, internal documentation) unless the owner has explicitly authorized both that specific secret and its destination.";
-export const AUTO_EXITED = "## Exited Auto Mode\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.";
+/**
+ * Auto mode (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", as a model not trained for auto mode gets it
+ * whole), with Coder's names; its parts behind Anthropic's own server flags (the bash-first steer, finishing exposed work,
+ * held consent asks) are left out. (Before 2026-11-14, Coder had the older "The user chose continuous, autonomous
+ * execution" text, which 2.1.325 keeps only for its Proactive output style.)
+ */
+export const AUTO_NOTE = "## Auto Mode Active\n\nBias toward working without stopping for clarifying questions \u2014 when you'd normally pause to check, make the reasonable call and keep going; they'll redirect you if needed. If the owner, a skill, or the shape of the task suggests they want you to ask (with ask_user or otherwise), do so. And even absent that signal, it's still fine to stop when you're genuinely blocked \u2014 unclear direction, missing input, a decision only they can make.\n\nBefore any command that could discard uncommitted work \u2014 `git checkout`/`restore`/`reset`/`clean`, `rm -rf` in the repo, restoring from a snapshot \u2014 run `git status` first and stash (with `-u` for untracked) or commit anything that's there. When staging or committing, review what's included (`git status` after a broad `git add`), and if you see anything suspicious that might reveal secrets \u2014 even if the filename looks innocuous \u2014 double-check the file's contents before pushing.";
+export const AUTO_EXITED = "## Exited Auto Mode\n\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.";

@@ -128,7 +128,8 @@ test("PM3 what Coder is told back: Claude Code's results (with where the plan is
   assert.ok(re.startsWith("## Re-entering Plan Mode\n\nYou are returning to plan mode after having previously exited it. A plan file exists at " + f + " from your previous planning session.\n\n**Before proceeding with any new planning, you should:**\n1. Read the existing plan file to understand what was previously planned\n2. Evaluate the owner's current request against that plan"));
   assert.ok(re.includes("4. Continue on with the plan process and most importantly you should always edit the plan file one way or the other before calling exit_plan_mode"));
   assert.ok(re.endsWith("Treat this as a fresh planning session. Do not assume the existing plan is relevant without evaluating it first."));
-  assert.equal(P.NOT_IN_PLAN_MODE, "error: You are not in plan mode. If your plan was already approved, continue with implementation.");
+  // (Claude Code's own words, now that Coder has enter_plan_mode: "To enter plan mode, call the EnterPlanMode tool first.")
+  assert.equal(P.NOT_IN_PLAN_MODE, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");
   assert.equal(P.PLAN_ARG_NEEDED, "error: Pass the whole plan as non-empty text in the `plan` argument, and pass no other argument. This session has no plan file to read it from.");
   assert.equal(P.planTooBig(40000), "error: The plan is 40000 bytes as JSON, over the 32768 that the owner's approval card can carry. A quote, backslash or line break counts as two bytes, and a non-ASCII character as two to four. Shorten the plan and call this tool again.");
   assert.equal(P.PLAN_SHOW_MAX, 200000);
@@ -150,6 +151,12 @@ test("PM4 its input, as Claude Code's normalizeToolInput and validateInput: the 
   assert.equal(Buffer.byteLength(JSON.stringify(big)), 32811);
   assert.deepEqual(P.checkPlanInput(big, { mode: "plan", noFile: true }), { error: P.planTooBig(32811) }, "a line break counts as two bytes");
   assert.deepEqual(P.checkPlanInput({ plan: "1. Fix it" }, { mode: "plan", noFile: true }), { args: { plan: "1. Fix it" } });
+  // Its schema first (the deprecated allowedPrompts), in Claude Code's words (its w0, zod 4.6.2's issues, checked against zod
+  // itself): a missing or mistyped parameter by name; only a value wrong, zod's own message.
+  assert.deepEqual(P.checkPlanInput({ allowedPrompts: [{ tool: "Bash" }] }, { mode: "auto" }), { error: "error: InputValidationError: ExitPlanMode failed due to the following issue:\nThe required parameter `allowedPrompts[0].prompt` is missing" }, "before the mode check");
+  assert.deepEqual(P.checkPlanInput({ allowedPrompts: "Bash" }, { mode: "plan" }), { error: "error: InputValidationError: ExitPlanMode failed due to the following issue:\nThe parameter `allowedPrompts` type is expected as `array` but provided as `string`" });
+  assert.deepEqual(P.checkPlanInput({ allowedPrompts: [{ tool: "Grep", prompt: "x" }] }, { mode: "plan" }), { error: "error: InputValidationError: " + JSON.stringify([{ code: "invalid_value", values: ["Bash"], path: ["allowedPrompts", 0, "tool"], message: 'Invalid input: expected "Bash"' }], null, 2) });
+  assert.deepEqual(P.checkPlanInput({ allowedPrompts: [{ tool: "Bash", prompt: "run tests" }] }, { mode: "plan" }), { args: { allowedPrompts: [{ tool: "Bash", prompt: "run tests" }] } });
 });
 
 test("PM5 the plan file's name, as Claude Code's since 2.1.111: the owner's first four words, then an adjective and a noun from its own lists; none: adjective, verb, noun", () => {
@@ -232,7 +239,14 @@ test("PM7 in Plan mode Coder is told where its plan file is; it writes it withou
   assert.ok(t.ran.some((x) => x.tool === "write" && x.args.path === f));
   assert.equal(t.seen[1].messages[0].content.includes("A plan file already exists at " + f + ". You can read it and make incremental edits using the edit tool."), true);
   assert.deepEqual([t.cards[0].tool, t.cards[0].plan, t.cards[0].hookTool], ["plan", PLAN, "exit_plan_mode"]);
-  assert.equal(t.told("x1"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: " + f + "\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\n" + PLAN + "\n\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions. The plan file is located at " + f + " if you need to reference it.");
+  assert.equal(t.told("x1"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nYour plan has been saved to: " + f + "\nYou can refer back to it if needed during implementation.\n\n## Approved Plan:\n" + PLAN);
+  // "## Exited Plan Mode" as Claude Code places it: its own reminder (plan_mode_exit) before Coder's next step, not in the
+  // tool's result; once.
+  const exitNote = "(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions. The plan file is located at " + f + " if you need to reference it.)";
+  const last = t.seen[2].messages;
+  assert.deepEqual(last[last.length - 1], { role: "user", appNote: true, content: exitNote });
+  assert.equal(last.filter((m) => m.content === exitNote).length, 1);
+  assert.equal(last.filter((m) => typeof m.content === "string" && m.content.includes("## Exited Plan Mode")).length, 1, "nowhere else");
   assert.equal(t.r.mode, "acceptEdits");
   assert.ok(!t.seen[2].tools.some((x) => x.function.name === "exit_plan_mode"));
   assert.deepEqual(box.flags(), { exited: true, on: false }, "Claude Code's hasExitedPlanMode, for re-entering");
@@ -317,14 +331,15 @@ test("PM10 the owner edits the plan on its card: saved to the plan file, the ans
   // Not saved: Claude Code's line, and no "saved to".
   box = await newStore();
   await writeFile(await fileOf(box), PLAN);
-  const broken = { ...box, write: async () => false };
+  const broken = { ...box, write: async () => false, save: async () => ({ notice: "The approved plan could not be saved to " + (await fileOf(box)) + ": EACCES: permission denied" }) };
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { plan: broken, answers: [{ choice: "auto", plan: "1. Mine\n" }] });
   assert.ok(t.told("x1").startsWith("The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\nThe edit could not be saved to the plan file, so work from the text below.\n\n## Approved Plan (edited by the owner):\n1. Mine\n"));
-  assert.ok(t.events.some((e) => e.type === "note" && e.warn && /could not be saved/.test(e.text)));
+  assert.ok(t.events.some((e) => e.type === "note" && e.warn && e.text === "The approved plan could not be saved to " + box.current() + ": EACCES: permission denied"), "Claude Code's warning, with why");
   // No plan written: the card has none (the page says Coder wants to exit plan mode), and the approval is Claude Code's for it.
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { answers: [{ choice: "auto" }] });
   assert.equal(t.cards[0].plan, "");
-  assert.equal(t.told("x1"), "The owner has approved exiting plan mode. You can now proceed.\n\n" + P.PLAN_EXITED);
+  assert.equal(t.told("x1"), "The owner has approved exiting plan mode. You can now proceed.");
+  assert.ok(t.seen[1].messages.some((m) => m.appNote && m.content === "(Note from Coder's app, not the owner:\n" + P.PLAN_EXITED + ")"), "no plan file there: no line about it");
   // Past 200,000 characters: approval withheld (the card offers only No); a Yes is taken as a No.
   box = await newStore();
   await writeFile(await fileOf(box), "x".repeat(200_001));
@@ -389,7 +404,9 @@ test("PM13 a run with no plan file plans as Claude Code's sessions without a dis
   assert.equal(t.told("x1"), P.PLAN_ARG_NEEDED);
   assert.equal(t.told("x2"), P.PLAN_ARG_NEEDED);
   assert.equal(t.cards[0].plan, "1. Fix it");
-  assert.equal(t.told("x3"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Fix it\n\n" + P.PLAN_EXITED);
+  assert.equal(t.told("x3"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Fix it");
+  const after = t.seen[3].messages;
+  assert.deepEqual(after[after.length - 1], { role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + P.PLAN_EXITED + ")" }, "plan mode's end as its own note, with no plan file");
   t = await loop([say("", [call("exit_plan_mode", { plan: "x".repeat(40000) }, "x1")]), say("ok")], { plan: null });
   assert.equal(t.told("x1"), P.planTooBig(Buffer.byteLength(JSON.stringify({ plan: "x".repeat(40000) }))));
   t = await loop([say("Here is the plan.")], { plan: null, extra: { rules: { allow: [], ask: [], deny: ["ExitPlanMode"] } } });
@@ -530,8 +547,340 @@ test("PM18 plan mode's words, tool and checks load without Node's modules (Coder
   assert.deepEqual(imports("coder-plan.mjs").filter((x) => x.startsWith("node:")), []);
   assert.deepEqual(imports("coder-plan-file.mjs").filter((x) => x.startsWith("node:")).sort(), ["node:fs", "node:fs/promises", "node:path"]);
   assert.ok(src("coder-perms.mjs").includes('from "./coder-plan.mjs"') && !src("coder-perms.mjs").includes("coder-plan-file.mjs"));
-  assert.ok(src("server.mjs").includes('import { planStore } from "./coder-plan-file.mjs";'));
+  assert.ok(src("server.mjs").includes('import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";'));
+  // (Claude Code's input-error words, coder-zodtext.mjs, which plan mode's checks use: no Node module either.)
+  assert.deepEqual(imports("coder-zodtext.mjs"), []);
+  assert.ok(src("coder-plan.mjs").includes('from "./coder-zodtext.mjs"'));
   assert.equal(typeof P.planStore, "undefined", "the store is not in the words' file");
   const copy = src("Dockerfile").split("\n").find((l) => /^COPY package\.json /.test(l));
-  for (const f of ["coder-plan.mjs", "coder-plan-file.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
+  for (const f of ["coder-plan.mjs", "coder-plan-file.mjs", "coder-zodtext.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
+});
+
+// ── ENTER_PLAN_MODE, CLAUDE CODE'S EnterPlanMode (the owner, 2026-11-14: "Fix base on Claude Code docs, please") ────────────
+test("PM19 enter_plan_mode as the model sees it: Claude Code 2.1.325's EnterPlanMode prompt word for word (Coder's names, 'the owner', no Agent tool), no input, its result; after ask_user, never from GitHub, gone under denyInsteadOfPrompting; its name for hooks and rules; refused inputs in Claude Code's words", () => {
+  const d = P.ENTER_PLAN_DESC;
+  assert.ok(d.startsWith("Use this tool proactively when you're about to start a non-trivial implementation task. Getting owner sign-off on your approach before writing code prevents wasted effort and ensures alignment. This tool transitions you into plan mode where you can explore the codebase and design an implementation approach for owner approval.\n\n## When to Use This Tool\n\n**Prefer using enter_plan_mode** for implementation tasks unless they're simple. Use it when ANY of these conditions apply:\n\n1. **New Feature Implementation**: Adding meaningful new functionality\n"));
+  for (const part of [
+    "7. **Owner Preferences Matter**: The implementation could reasonably go multiple ways\n   - If you would use ask_user to clarify the approach, use enter_plan_mode instead\n   - Plan mode lets you explore first, then present options with context\n\n## When NOT to Use This Tool\n\nOnly skip enter_plan_mode for simple tasks:\n",
+    "- Tasks where the owner has given very specific, detailed instructions\n- Pure research/exploration tasks\n\n## What Happens in Plan Mode\n\nIn plan mode, you'll:\n1. Thoroughly explore the codebase using glob, grep, and read\n2. Understand existing patterns and architecture\n3. Design an implementation approach\n4. Present your plan to the owner for approval\n5. Use ask_user if you need to clarify approaches\n6. Exit plan mode with exit_plan_mode when ready to implement\n\n## Examples\n\n### GOOD - Use enter_plan_mode:\nOwner: \"Add user authentication to the app\"\n",
+    "Owner: \"Update the error handling in the API\"\n- Affects multiple files, owner should approve the approach\n\n### BAD - Don't use enter_plan_mode:\nOwner: \"Fix the typo in the README\"\n- Straightforward, no planning needed\n",
+  ]) assert.ok(d.includes(part), part);
+  assert.ok(d.endsWith("## Important Notes\n\n- This tool REQUIRES owner approval - they must consent to entering plan mode\n- If unsure whether to use it, err on the side of planning - it's better to get alignment upfront than to redo work\n- The owner appreciates being consulted before significant changes are made to their codebase\n"));
+  assert.ok(!/EnterPlanMode|ExitPlanMode|AskUserQuestion|Agent tool|\bUser:|the user\b(?! profile)|\bUsers\b|Claude\b/.test(d), "Coder's names (its example's \"the user profile\" stays); no Agent tool");
+  assert.deepEqual(P.ENTER_PLAN_TOOL, { type: "function", function: { name: "enter_plan_mode", description: d, parameters: { type: "object", properties: {}, additionalProperties: false } } });
+  assert.equal(P.ENTERED_PLAN, "Entered plan mode. You should now focus on exploring the codebase and designing an implementation approach.");
+  assert.equal(P.ENTERED_PLAN_TEXT, P.ENTERED_PLAN + "\n\nIn plan mode, you should:\n1. Thoroughly explore the codebase to understand existing patterns\n2. Identify similar features and architectural approaches\n3. Consider multiple approaches and their trade-offs\n4. Use ask_user if you need to clarify the approach\n5. Design a concrete implementation strategy\n6. When ready, use exit_plan_mode to present your plan for approval\n\nRemember: DO NOT write or edit any files yet. This is a read-only exploration and planning phase.");
+  assert.equal(P.ENTERED_PLAN_SHOWN, "Entered plan mode\nCoder is now exploring and designing an implementation approach.", "Claude Code's own line in the chat");
+  // Where it is offered.
+  const names = A.CODER_TOOLS.map((t) => t.function.name);
+  assert.equal(names[names.indexOf("ask_user") + 1], "enter_plan_mode");
+  assert.equal(A.CODER_TOOLS[names.indexOf("enter_plan_mode")], P.ENTER_PLAN_TOOL);
+  assert.ok(!A.GITHUB_TOOLS.some((t) => t.function.name === "enter_plan_mode"), "a job from GitHub is no one's to ask (Claude Code's non-interactive runs have no EnterPlanMode)");
+  assert.deepEqual(A.PROMPT_TOOLS, ["ask_user", "enter_plan_mode", "exit_plan_mode"], "left out under denyInsteadOfPrompting, as Claude Code leaves out AskUserQuestion, EnterPlanMode and ExitPlanMode");
+  // Claude Code's name, for hooks and rules (a rule on the whole tool only).
+  assert.equal(H.ccTool("enter_plan_mode"), "EnterPlanMode");
+  assert.deepEqual([PERMS.parseRule("EnterPlanMode"), PERMS.parseRule("EnterPlanMode(*)"), PERMS.parseRule("EnterPlanMode(x)")], [{ tool: "EnterPlanMode", spec: null }, { tool: "EnterPlanMode", spec: null }, null]);
+  // Its input: none (Claude Code's strict empty object), refused before any hook in its words.
+  assert.deepEqual(P.checkEnterPlanInput({}), { args: {} });
+  assert.deepEqual(P.checkEnterPlanInput({ reason: "big task" }), { error: "error: InputValidationError: EnterPlanMode failed due to the following issue:\nAn unexpected parameter `reason` was provided" });
+  assert.deepEqual(P.checkEnterPlanInput({ a: 1, b: 2 }), { error: "error: InputValidationError: EnterPlanMode failed due to the following issues:\nAn unexpected parameter `a` was provided\nAn unexpected parameter `b` was provided" });
+  // And plan mode's own words now that Coder has it (Claude Code's "To enter plan mode, call the EnterPlanMode tool first.").
+  assert.equal(P.NOT_IN_PLAN_MODE, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");
+});
+
+test("PM20 enter_plan_mode in a chat: no card (a session with a disk), the chat goes into Plan as the owner's mode menu would (the page and the saved chat follow), Claude Code's line in the chat, its result to Coder, plan mode with its plan file from the next step; its hooks see EnterPlanMode", async () => {
+  const box = await newStore();
+  const hooks = { PreToolUse: [{ matcher: "EnterPlanMode", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUse: [{ matcher: "EnterPlanMode", hooks: [{ type: "command", command: "post.sh" }] }], PermissionRequest: [{ matcher: "EnterPlanMode", hooks: [{ type: "command", command: "pr.sh" }] }] };
+  const t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("", [call("bash", { command: "ls src" }, "b1")]), say("Planning.")], { mode: "acceptEdits", plan: box, hooks });
+  assert.equal(t.cards.length, 0, "no card: Claude Code asks only a session without a disk");
+  assert.equal(t.told("e1"), P.ENTERED_PLAN_TEXT);
+  assert.equal(t.r.mode, "plan");
+  assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["plan", "enterPlan"]]);
+  assert.ok(t.events.some((e) => e.type === "note" && e.text === P.ENTERED_PLAN_SHOWN));
+  // Before it: Accept edits and no exit_plan_mode; after it: plan mode's note with the chat's plan file, and exit_plan_mode.
+  assert.match(t.seen[0].messages[0].content, /PERMISSION MODE: Accept edits/);
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "exit_plan_mode"));
+  const f = box.current();
+  assert.ok(f.startsWith(box.dir + "/fix-the-cart-total-") && f.endsWith(".md"), f);
+  assert.ok(t.seen[1].messages[0].content.includes("PERMISSION MODE: Plan (the owner's pick).\n" + P.planModeNote({ file: f, exists: false })));
+  assert.equal(t.seen[1].tools.find((x) => x.function.name === "exit_plan_mode"), P.EXIT_PLAN_TOOL);
+  assert.ok(!t.seen[1].messages.some((m) => m.role === "user" && /permission mode is now|Exited/.test(m.content)), "Coder's own switch: no note of the owner's");
+  assert.deepEqual(box.flags(), { exited: false, on: true });
+  assert.deepEqual(t.ran.filter((x) => x.command).map((x) => x.command), ["ls src"], "read-only commands still run in Plan");
+  // Its hooks: Claude Code's name, its empty input, its result object; no permission hook (no card).
+  const pre = t.hookCalls.find((h) => h.hook_event_name === "PreToolUse");
+  assert.deepEqual([pre.tool_name, pre.tool_input], ["EnterPlanMode", {}]);
+  const post = t.hookCalls.find((h) => h.hook_event_name === "PostToolUse");
+  assert.deepEqual([post.tool_name, post.tool_input, post.tool_response], ["EnterPlanMode", {}, { output: P.ENTERED_PLAN_TEXT, message: P.ENTERED_PLAN }]);
+  assert.equal(t.hookCalls.some((h) => h.hook_event_name === "PermissionRequest"), false);
+  // The Worker saves the chat's mode from it, and the page's mode button follows it while the job runs.
+  assert.match(read("src/coder-routes.mjs"), /e\.by === "hook" \|\| e\.by === "enterPlan"\)\)\.at\(-1\);/);
+  assert.match(read("public/coder.js"), /e\.by === 'autoOff' \|\| e\.by === 'enterPlan'\)\)\.at\(-1\) : null;/);
+  // Called again in Plan: the same answer, still Plan.
+  const t2 = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("ok")], { plan: await newStore() });
+  assert.deepEqual([t2.told("e1"), t2.r.mode, t2.cards.length], [P.ENTERED_PLAN_TEXT, "plan", 0]);
+});
+
+test("PM21 enter_plan_mode refused: an input it doesn't take (before any hook), a job from GitHub (no such tool), permissions.denyInsteadOfPrompting (no such tool, nor ask_user or exit_plan_mode, even in Plan), a deny rule (not offered)", async () => {
+  const hooks = { PreToolUse: [{ matcher: "*", hooks: [{ type: "command", command: "pre.sh" }] }] };
+  let t = await loop([say("", [call("enter_plan_mode", { reason: "big" }, "e1")]), say("ok")], { mode: "auto", hooks });
+  assert.equal(t.told("e1"), "error: InputValidationError: EnterPlanMode failed due to the following issue:\nAn unexpected parameter `reason` was provided");
+  assert.equal(t.hookCalls.length, 0);
+  assert.equal(t.r.mode, "auto");
+  // From GitHub.
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("ok")], { mode: "auto", extra: { github: true } });
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "enter_plan_mode"));
+  assert.equal(t.told("e1"), "error: No such tool available: enter_plan_mode");
+  assert.equal(t.events.some((e) => e.type === "mode"), false);
+  // Under denyInsteadOfPrompting: none of the three, in Plan too (Claude Code: "a session in plan mode can't leave it on its own").
+  const box = await newStore();
+  await writeFile(await fileOf(box), PLAN);
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1"), call("exit_plan_mode", {}, "x1"), call("ask_user", { questions: [{ question: "Which?", header: "Pick", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }], multiSelect: false }] }, "q1")]), say("Here is the plan.")], { plan: box, hooks, extra: { denyInstead: true } });
+  for (const n of ["enter_plan_mode", "exit_plan_mode", "ask_user"]) assert.ok(!t.seen[0].tools.some((x) => x.function.name === n), n);
+  assert.deepEqual([t.told("e1"), t.told("x1"), t.told("q1")], ["error: No such tool available: enter_plan_mode", "error: No such tool available: exit_plan_mode", "error: No such tool available: ask_user"]);
+  assert.deepEqual([t.hookCalls.length, t.cards.length, t.r.mode], [0, 0, "plan"]);
+  // A deny rule on the whole tool: not offered.
+  t = await loop([say("ok")], { mode: "auto", extra: { rules: { allow: [], ask: [], deny: ["EnterPlanMode"] } } });
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "enter_plan_mode"));
+  assert.ok(t.seen[0].tools.some((x) => x.function.name === "ask_user"));
+});
+
+test("PM22 enter_plan_mode and the modes around it, as Claude Code's: from Auto with Plan's checks off, '## Exited Auto Mode' at the next step (none with them on); a hook's approval returns to the mode it came from; 'Re-entering Plan Mode' after an approved plan; a plan-mode-exit note still owed is dropped", async () => {
+  const autoNote = "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + ")";
+  assert.equal(PERMS.AUTO_EXITED, "## Exited Auto Mode\n\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.");
+  let t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("Planning.")], { mode: "auto" });
+  assert.equal(t.seen[1].messages.at(-1).content, autoNote);
+  assert.equal(t.seen[1].messages.filter((m) => m.content === autoNote).length, 1);
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("Planning.")], { mode: "auto", extra: { checker: true } });
+  assert.ok(!t.seen[1].messages.some((m) => /Exited Auto Mode/.test(String(m.content))), "Plan's checks on: auto mode goes on under Plan");
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("Planning.")], { mode: "acceptEdits" });
+  assert.ok(!t.seen[1].messages.some((m) => /Exited Auto Mode/.test(String(m.content))));
+  // A PermissionRequest hook's approval goes back to the mode Coder entered Plan from (Claude Code's prePlanMode), not the
+  // owner's start mode.
+  let box = await newStore();
+  const f = await fileOf(box);
+  const PR = { PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: "pr.sh" }] }] };
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("", [call("write", { path: f, content: PLAN }, "w1")]), say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { mode: "acceptEdits", plan: box, hooks: PR, hookRun: (i) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: i.tool_input } } }) }), extra: { planExit: "auto" } });
+  assert.equal(t.cards.length, 0);
+  assert.ok(t.told("x1").startsWith("The owner has approved your plan."));
+  assert.equal(t.r.mode, "acceptEdits");
+  // Back in Plan after an approved plan whose file is there: Claude Code's re-entry note, once.
+  box = await newStore();
+  const f3 = await fileOf(box);
+  await writeFile(f3, PLAN);
+  box.setFlags({ exited: true });
+  t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("", [call("bash", { command: "ls" }, "b1")]), say("Planning.")], { mode: "acceptEdits", plan: box });
+  assert.deepEqual(t.seen[1].messages.filter((m) => /Re-entering Plan Mode/.test(String(m.content))).map((m) => m.content), ["(Note from Coder's app, not the owner:\n" + P.planReentryNote(f3) + ")"]);
+  assert.equal(t.seen[2].messages.filter((m) => /Re-entering Plan Mode/.test(String(m.content))).length, 1);
+  assert.deepEqual(box.flags(), { exited: false, on: true });
+  // A plan approved, then plan mode entered again before the next step: plan mode's end is no longer owed (Claude Code clears
+  // it on entering Plan), and auto mode's end is.
+  t = await loop([say("", [call("exit_plan_mode", { plan: "1. Fix it" }, "x1"), call("enter_plan_mode", {}, "e1")]), say("Planning again.")], { plan: null, answers: [{ choice: "auto" }] });
+  assert.equal(t.told("e1"), P.ENTERED_PLAN_TEXT);
+  assert.ok(!t.seen[1].messages.some((m) => /Exited Plan Mode/.test(String(m.content))));
+  assert.equal(t.seen[1].messages.at(-1).content, autoNote);
+  assert.equal(t.r.mode, "plan");
+});
+
+// ── THE PLAN AFTER A SUMMARY (Claude Code's plan_file_reference) ────────────────────────────────────────────────────────
+test("PM23 after a summary the chat's plan file is put back in front of Coder, in Claude Code's words: once, by the job that next reads a summary made between messages; in a summary made in the job; not from GitHub; nothing when there is no plan", async () => {
+  const K = await import("../container/coder-compact.mjs");
+  assert.equal(P.planFileReference("/p/x.md", "1. A\n"), "A plan file exists from plan mode at: /p/x.md\n\nPlan contents:\n\n1. A\n\n\nIf this plan is relevant to the current work and not already complete, continue working on it.");
+  assert.equal(P.planFileReference("", "1. A"), "A plan exists from plan mode.\n\nPlan contents:\n\n1. A\n\nIf this plan is relevant to the current work and not already complete, continue working on it.");
+  const sum = K.summaryMessage("We fixed half the cart.", "the earlier jobs of this chat, summarized to make room");
+  assert.equal(sum.planRef, true, "every summary owes the plan to the job that next reads it");
+  let box = await newStore();
+  const f = await fileOf(box);
+  await writeFile(f, PLAN);
+  const ref = "(Note from Coder's app, not the owner:\n" + P.planFileReference(f, PLAN) + ")";
+  let t = await loop([say("Done.")], { mode: "auto", plan: box, extra: { messages: [sum, { role: "assistant", content: "Half done." }] } });
+  assert.deepEqual(t.seen[0].messages.filter((m) => m.content === ref).map((m) => [m.role, m.appNote]), [["user", true]]);
+  assert.equal(t.r.messages[0].planRef, undefined, "given now, so no longer owed");
+  assert.equal(t.r.messages[0].content, sum.content);
+  // The next job: not again.
+  const t2 = await loop([say("Done.")], { mode: "auto", plan: box, text: "next", extra: { messages: t.r.messages } });
+  assert.equal(t2.seen[0].messages.filter((m) => m.content === ref).length, 1, "not again: only the first, in the chat's history");
+  // From GitHub: left for the owner's next message.
+  t = await loop([say("Done.")], { plan: box, extra: { github: true, messages: [sum, { role: "assistant", content: "Half done." }] } });
+  assert.ok(!t.seen[0].messages.some((m) => m.content === ref));
+  assert.equal(t.r.messages[0].planRef, true);
+  // No plan written: nothing, and nothing owed.
+  box = await newStore();
+  await fileOf(box);
+  t = await loop([say("Done.")], { mode: "auto", plan: box, extra: { messages: [sum, { role: "assistant", content: "Half done." }] } });
+  assert.ok(!t.seen[0].messages.some((m) => /A plan file exists from plan mode/.test(String(m.content))));
+  assert.equal(t.r.messages[0].planRef, undefined);
+  // A summary made in the job: the plan right after it, in the same message.
+  box = await newStore();
+  const g = await fileOf(box);
+  await writeFile(g, PLAN);
+  let n = 0;
+  const r = await A.runCoder({
+    compactAt: 6000, plan: box,
+    send: async (q) => {
+      if (!q.tools || !q.tools.length) return { message: { role: "assistant", content: "SUMMARY" }, usage: { in: 1, out: 1 } };
+      n++;
+      return n <= 14 ? { message: { role: "assistant", content: "", tool_calls: [call("bash", { command: "echo " + n }, "b" + n)] } } : { message: { role: "assistant", content: "All done." } };
+    },
+    exec: async () => ({ code: 0, output: "z".repeat(900) }),
+  }, { text: "Do the big job", mode: "auto" });
+  const s = r.messages.find((m) => K.isSummary(m));
+  assert.ok(s, "summarized");
+  assert.ok(s.content.endsWith("\nSUMMARY\n\n(Note from Coder's app, not the owner:\n" + P.planFileReference(g, PLAN) + ")"), s.content);
+  assert.equal(s.planRef, undefined);
+});
+
+// ── THE REPOSITORY'S plansDirectory (Claude Code 2.1.325's, with its fallback) ───────────────────────────────────────────
+test("PM24 plansDirectory as Claude Code 2.1.325 takes it: resolved from the project's folder, used only inside it (no backslash, no link out); the plan file there, read and written only while its folder is shown to be in the project; else the default folder under a new name, kept from then on, with Claude Code's notice", async () => {
+  const { mkdir, rm } = await import("node:fs/promises");
+  const { dirname, basename } = await import("node:path");
+  const root = await tmp("proj"), out = await tmp("out");
+  assert.equal(await PF.plansDirectoryFor("plans", root), join(root, "plans"));
+  assert.equal(await PF.plansDirectoryFor("docs/plans/", root), join(root, "docs/plans"), "not there yet: the nearest folder of it that is there is in the project");
+  assert.equal(await PF.plansDirectoryFor(".", root), root);
+  assert.equal(await PF.plansDirectoryFor(join(root, "abs"), root), join(root, "abs"), "an absolute path inside the project");
+  for (const bad of ["../plans", "/etc/plans", "plans\\mine", "", "a/../../x"]) assert.equal(await PF.plansDirectoryFor(bad, root), null, bad);
+  await symlink(out, join(root, "linked"));
+  assert.equal(await PF.plansDirectoryFor("linked/plans", root), null, "a link out of the project");
+  assert.equal(PF.plansDirWarning("../plans"), "plansDirectory must be within project root, with no backslash in its path off Windows: ../plans");
+  assert.equal(PF.PLANS_DIR_UNCONTAINED, "Could not confirm the plansDirectory folder and plan file are inside this project. Check that the folder exists, that no link leads out of it, and that the plan file is not a link and has no hard link. If this system or drive cannot report that, remove plansDirectory from your settings to use the default plans folder.");
+  // The plan file in it.
+  const custom = join(root, "plans");
+  await mkdir(custom);
+  const dir = await tmp("dir"), stateFile = join(await tmp("state"), "plan.json");
+  const open = () => PF.planStore({ dir, stateFile, rand: () => 0, custom: { dir: custom, root } });
+  const box = open();
+  const f = await box.name("Fix the cart total please");
+  assert.equal(dirname(f), custom);
+  await writeFile(f, PLAN);
+  assert.equal(await box.read(), PLAN);
+  assert.deepEqual(await box.save("1. Mine\n"), { saved: true });
+  assert.equal(readFileSync(f, "utf8"), "1. Mine\n");
+  // Its folder swapped for a link out of the project: not read through it, never written there; write() (no move) says no;
+  // save() puts the plan in the default folder under a new name, which the chat keeps.
+  await rm(custom, { recursive: true });
+  await symlink(out, custom);
+  await writeFile(join(out, basename(f)), "outside");
+  assert.equal(await box.read(), null);
+  assert.equal(await box.write("1. Again\n"), false);
+  const r = await box.save("1. Again\n");
+  assert.equal(dirname(r.savedTo), dir);
+  assert.notEqual(basename(r.savedTo), basename(f), "a new name");
+  assert.equal(r.notice, "The approved plan was saved to " + r.savedTo + ", which this session uses from now on. It could not be saved to " + f + ": " + PF.PLANS_DIR_UNCONTAINED);
+  assert.equal(readFileSync(r.savedTo, "utf8"), "1. Again\n");
+  assert.equal(readFileSync(join(out, basename(f)), "utf8"), "outside", "nothing written out of the project");
+  assert.equal(box.current(), r.savedTo);
+  assert.equal(open().current(), r.savedTo, "kept with the chat");
+  assert.equal(await open().read(), "1. Again\n");
+  // A plan file that is a hard link there: not read.
+  const custom2 = join(root, "plans2");
+  await mkdir(custom2);
+  const box2 = PF.planStore({ dir, stateFile: join(await tmp("state"), "plan.json"), rand: () => 0, custom: { dir: custom2, root } });
+  const f2 = await box2.name("x");
+  await writeFile(join(root, "other.md"), "other");
+  await link(join(root, "other.md"), f2);
+  assert.equal(await box2.read(), null);
+});
+
+test("PM25 Coder's machine with a repository's plansDirectory: the chat's plan file in that folder of the project (the AI writes it, the owner's card shows it), kept inside the project by the tools script; one outside the project: the chat's own plans folder, with Claude Code's warning in the chat", async () => {
+  const S = await import("../container/server.mjs");
+  const http = (await import("node:http")).default;
+  const { mkdir } = await import("node:fs/promises");
+  // The tools script: a plan file in the project is kept inside it (no link out), and no hard link.
+  const root = await tmp("root"), out = await tmp("out");
+  const tool = (req, env = {}) => {
+    const x = spawnSync("node", ["--no-warnings", new URL("../container/coder-tools.mjs", import.meta.url).pathname, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: root, encoding: "utf8", env: { ...process.env, ...env } });
+    return String(x.stdout || "") + String(x.stderr || "");
+  };
+  const inside = join(root, "plans", "fix-it.md");
+  tool({ tool: "write", args: { path: inside, content: PLAN } }, { CODER_PLAN_FILE: inside });
+  assert.equal(readFileSync(inside, "utf8"), PLAN, "its folder made, as for any file of the project");
+  await symlink(out, join(root, "away"));
+  const away = join(root, "away", "fix-it.md");
+  assert.match(tool({ tool: "write", args: { path: away, content: "x" } }, { CODER_PLAN_FILE: away }), /leads outside the project/);
+  assert.equal(existsSync(join(out, "fix-it.md")), false);
+  await writeFile(join(root, "twin.md"), "twin");
+  const hard = join(root, "plans", "hard.md");
+  await link(join(root, "twin.md"), hard);
+  assert.match(tool({ tool: "write", args: { path: hard, content: "x" } }, { CODER_PLAN_FILE: hard }), /the plan file is not a plain file/);
+  assert.equal(readFileSync(join(root, "twin.md"), "utf8"), "twin");
+  // The machine.
+  const run = async (plansDirectory, turns = 1) => {
+    const r = { root: await tmp("root"), gitRoot: await tmp("git"), memRoot: await tmp("mem"), bgRoot: await tmp("bg"), home: await tmp("home") };
+    const project = "pm-dir-" + Math.random().toString(36).slice(2, 8);
+    await mkdir(join(r.root, project, ".claude"), { recursive: true });
+    await writeFile(join(r.root, project, ".claude", "settings.json"), JSON.stringify({ plansDirectory }));
+    const seen = [];
+    let n = 0, file = "";
+    const app = S.createApp({ ...r, send: async (req) => {
+      seen.push(req);
+      const k = n++;
+      if (k === 0) { file = (/create your plan at (\S+) using the write tool/.exec(req.messages[0].content) || [])[1] || ""; return say("", [call("write", { path: file, content: PLAN }, "w1")]); }
+      if (k === 1) return say("", [call("exit_plan_mode", {}, "x1")]);
+      return say("Done.");
+    } });
+    const srv = http.createServer(app);
+    await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+    const base = "http://127.0.0.1:" + srv.address().port;
+    const sts = [];
+    try {
+      for (let turn = 0; turn < turns; turn++) {
+        const sent = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "Plan the cart fix", messages: [], mode: "plan" }) });
+        assert.equal(sent.status, 200);
+        let st;
+        const answered = new Set();
+        for (let i = 0; i < 600; i++) {
+          st = await (await fetch(base + "/state?project=" + project + "&since=0")).json();
+          for (const e of st.events || []) {
+            if (e.type !== "permission" || answered.has(e.pid)) continue;
+            const a = await (await fetch(base + "/answer", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, pid: e.pid, choice: "acceptEdits" }) })).json();
+            if (a.ok) answered.add(e.pid);
+          }
+          if (st.result) break;
+          await new Promise((ok) => setTimeout(ok, 50));
+        }
+        assert.ok(st && st.result, "the message ended");
+        sts.push(st);
+      }
+      return { r, project, file, st: sts[0], sts, seen };
+    } finally { srv.close(); }
+  };
+  let x = await run("plans");
+  assert.ok(x.file.startsWith(join(x.r.root, x.project, "plans") + "/plan-the-cart-fix-") && x.file.endsWith(".md"), x.file);
+  assert.equal(readFileSync(x.file, "utf8"), PLAN, "the AI's write reached it");
+  assert.equal(x.st.events.find((e) => e.type === "permission" && e.tool === "plan").plan, PLAN);
+  assert.ok(x.seen[2].messages.find((m) => m.role === "tool" && m.tool_call_id === "x1").content.includes("Your plan has been saved to: " + x.file + "\n"));
+  assert.ok(!x.st.events.some((e) => e.type === "note" && /plansDirectory/.test(String(e.text))));
+  x = await run("../elsewhere", 2);
+  assert.ok(x.file.startsWith(join(x.r.memRoot, x.project + ".plans") + "/"), x.file);
+  const warned = (st) => st.events.filter((e) => e.type === "note" && e.warn === true && e.text === "plansDirectory must be within project root, with no backslash in its path off Windows: ../elsewhere").length;
+  assert.deepEqual(x.sts.map(warned), [1, 0], "told once a chat (Claude Code only logs it)");
+  // The repository's setting as read: the later file's (settings.local.json over settings.json).
+  const proj = await tmp("proj");
+  await mkdir(join(proj, ".claude"));
+  await writeFile(join(proj, ".claude", "settings.json"), JSON.stringify({ plansDirectory: "a" }));
+  assert.equal(S.repoSettings(proj).plansDir, "a");
+  await writeFile(join(proj, ".claude", "settings.local.json"), JSON.stringify({ plansDirectory: "b" }));
+  assert.equal(S.repoSettings(proj).plansDir, "b");
+  assert.equal(S.repoSettings(proj, { github: true }).plansDir, "", "none in a job from GitHub");
+});
+
+test("PM26 the words typed on the plan's card go to Coder with every Yes, 'Yes, and use auto mode' too (Claude Code 2.1.325: \"shift+tab to approve with this feedback\"); a command's card keeps Claude Code's: no note with 'don't ask again' or 'switch to auto mode'", async () => {
+  const ui = read("public/coder.js");
+  assert.match(ui, /const isPlan = !!\(card && card\.tool === 'plan'\);\n\s+const comment = !isPlan && \(choice === 'always' \|\| choice === 'auto'\) \? '' : String\(\(S\.permNotes && S\.permNotes\[pid\]\) \|\| ''\)\.trim\(\)\.slice\(0, 2000\);/);
+  assert.ok(ui.includes("placeholder=\"' + (plan ? 'Tell Coder what to change' : 'Add a note for Coder (optional)') + '\""), "the plan's note is not only for No");
+  // The machine passes it on with the approval, Yes and use auto mode included.
+  const box = await newStore();
+  await writeFile(await fileOf(box), PLAN);
+  const t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { plan: box, answers: [{ choice: "auto", comment: "start with the tests" }] });
+  assert.ok(t.told("x1").endsWith("\n\n(The owner approved it with a note: start with the tests)"));
+  assert.equal(t.r.mode, "auto");
+});
+
+test("PM27 auto mode's note is Claude Code 2.1.325's reminder ('## Auto Mode Active', with its 'If the user, a skill, or the shape of the task suggests they want you to ask'), Coder's names; leaving it, its '## Exited Auto Mode'", () => {
+  assert.equal(PERMS.AUTO_NOTE, "## Auto Mode Active\n\nBias toward working without stopping for clarifying questions — when you'd normally pause to check, make the reasonable call and keep going; they'll redirect you if needed. If the owner, a skill, or the shape of the task suggests they want you to ask (with ask_user or otherwise), do so. And even absent that signal, it's still fine to stop when you're genuinely blocked — unclear direction, missing input, a decision only they can make.\n\nBefore any command that could discard uncommitted work — `git checkout`/`restore`/`reset`/`clean`, `rm -rf` in the repo, restoring from a snapshot — run `git status` first and stash (with `-u` for untracked) or commit anything that's there. When staging or committing, review what's included (`git status` after a broad `git add`), and if you see anything suspicious that might reveal secrets — even if the filename looks innocuous — double-check the file's contents before pushing.");
+  assert.equal(A.modeSystem("auto"), "PERMISSION MODE: Auto (the owner's pick).\n" + PERMS.AUTO_NOTE);
+  assert.equal(PERMS.AUTO_EXITED, "## Exited Auto Mode\n\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.");
+  assert.equal(A.modeChangeNote("auto", "acceptEdits"), "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + "\n\nThe owner's permission mode is now Accept edits.)");
+  assert.ok(!/AskUserQuestion|the user\b|Claude\b/.test(PERMS.AUTO_NOTE + PERMS.AUTO_EXITED));
 });

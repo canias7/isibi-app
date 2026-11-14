@@ -12,18 +12,22 @@
  * Gloopy keeps its own ask_user (gloopy-agent.mjs), as before.
  */
 import { joinLabels } from "./coder-hooks.mjs";
+import { issuesText, typeIssue, tooSmallIssue, tooBigIssue, unknownKeysIssue, customIssue, receivedKind } from "./coder-zodtext.mjs";
 
 // ── WHAT GROK IS TOLD ────────────────────────────────────────────────────────
 /**
  * The description: Claude Code's for a model it has no older prompt for (its lean prompt, which Grok gets: its usage notes,
- * "Reserve this for decisions …" and "The user may see only the question dialog …"). Its plan-mode note is left out, as
- * Claude Code leaves it out when EnterPlanMode or ExitPlanMode is not offered: Coder has no tool to enter plan mode.
+ * its plan-mode note, "Reserve this for decisions …" and "The user may see only the question dialog …"). The plan-mode note
+ * names enter_plan_mode since Coder has it (2026-11-14, Claude Code's EnterPlanMode); Claude Code leaves the note out only in
+ * a session without a disk that lacks EnterPlanMode or ExitPlanMode, never in one with a disk, as Coder's chats are.
  */
+export const PLAN_MODE_NOTE = "Plan mode note: To switch into plan mode, use enter_plan_mode (not this tool). Once in plan mode, use this tool to clarify requirements or choose between approaches BEFORE finalizing your plan. Do NOT use this tool to ask \"Is my plan ready?\", \"Should I proceed?\", or otherwise reference \"the plan\" in questions \u2014 the owner cannot see the plan until you call exit_plan_mode for approval.";
 export const ASK_USER_DESCRIPTION = "Use this tool only when you are blocked on a decision that is genuinely the owner's to make: one you cannot resolve from the request, the code, or sensible defaults.\n\n" +
   "Usage notes:\n" +
   "- The owner will always be able to select \"Other\" to provide custom text input\n" +
   "- Use multiSelect: true to allow multiple answers to be selected for a question\n" +
   "- If you recommend a specific option, make that the first option in the list and add \"(Recommended)\" at the end of the label\n" +
+  "\n" + PLAN_MODE_NOTE + "\n" +
   "\nReserve this for decisions where the owner's answer changes what you do next — not for choices with a conventional default or facts you can verify in the codebase yourself. In those cases pick the obvious option, mention it in your response, and proceed.\n" +
   "\nThe owner may see only the question dialog: tool results and text you wrote earlier in this turn may not be on their screen while it is open. Make each question stand on its own: if it depends on something you found, say so briefly, and name the items you are asking about in the question itself.\n";
 /** Claude Code's chip limit, said in the header's description (not checked: its schema does not either). */
@@ -75,11 +79,10 @@ export const HOOK_REWRITE_TAIL = "The tool input from the model was valid; the h
 const TOP_KEYS = ["questions", "answers", "annotations", "metadata"];
 const has = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
 /** A value's kind as zod names it ("received …"). */
-const kindOf = (v) => (v === undefined ? "undefined" : v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "NaN" : typeof v);
+const kindOf = receivedKind;
 const isObj = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
 const isPlain = (v) => isObj(v) && (Object.getPrototypeOf(v) === Object.prototype || Object.getPrototypeOf(v) === null);
-const typeIssue = (expected, input, path) => ({ expected, code: "invalid_type", path, message: "Invalid input: expected " + expected + ", received " + kindOf(input) });
-const sizeIssue = (min, n, path) => (min ? { origin: "array", code: "too_small", minimum: n, inclusive: true, path, message: "Too small: expected array to have >=" + n + " items" } : { origin: "array", code: "too_big", maximum: n, inclusive: true, path, message: "Too big: expected array to have <=" + n + " items" });
+const sizeIssue = (min, n, path) => (min ? tooSmallIssue("array", n, path) : tooBigIssue("array", n, path));
 /** A string the schema requires (`optional`: may be left out). */
 function str(v, path, issues, optional = false) {
   if (v === undefined && optional) return undefined;
@@ -158,35 +161,22 @@ export function readAskUser(input) {
     else { const source = str(input.metadata.source, ["metadata", "source"], issues, true); out.metadata = source !== undefined ? { source } : {}; }
   }
   const unknown = Object.keys(input).filter((k) => !TOP_KEYS.includes(k));
-  if (unknown.length) issues.push({ code: "unrecognized_keys", keys: unknown, path: [], message: "Unrecognized key" + (unknown.length > 1 ? "s" : "") + ": " + unknown.map((k) => JSON.stringify(k)).join(", ") });
-  // (Its refine runs only when nothing before it stopped the parse: a size issue does not, a missing or wrong field does.)
-  if (!issues.some((x) => x.code !== "too_small" && x.code !== "too_big") && Array.isArray(out.questions)) {
+  if (unknown.length) issues.push(unknownKeysIssue(unknown, []));
+  // (Its refine runs only when nothing before it stopped the parse, as zod 4.6.2 runs it: a size issue and keys the object
+  // does not know do not stop it, a missing or wrong field does.)
+  if (!issues.some((x) => x.code !== "too_small" && x.code !== "too_big" && x.code !== "unrecognized_keys") && Array.isArray(out.questions)) {
     const texts = out.questions.map((q) => q.question);
     const ok = texts.length === new Set(texts).size && out.questions.every((q) => { const l = (q.options || []).map((x) => x.label); return l.length === new Set(l).size; });
-    if (!ok) issues.push({ code: "custom", path: [], message: UNIQUE_MESSAGE });
+    if (!ok) issues.push(customIssue(UNIQUE_MESSAGE, []));
   }
   return { value: issues.length ? null : out, issues, read: out };
 }
-/** A parameter's path as Claude Code writes it: questions[0].options. */
-const pathText = (p) => p.reduce((s, x, i) => (typeof x === "number" ? s + "[" + x + "]" : i === 0 ? String(x) : s + "." + String(x)), "");
-/** One issue as zod prints it (its error's message is these, as JSON). */
-const shownIssue = (x) => (x.code === "invalid_type" ? { expected: x.expected, code: x.code, path: x.path, message: x.message } : x.code === "unrecognized_keys" ? { code: x.code, keys: x.keys, path: x.path, message: x.message } : x);
 /**
- * WHAT CLAUDE CODE SAYS OF THEM (its w0): the missing parameters, the unexpected ones and those of the wrong type, then the
- * rest ("is invalid: …", at most 20), headed "<tool> failed due to the following issue(s):"; with none of the first three,
- * zod's own message (the issues as JSON).
+ * WHAT CLAUDE CODE SAYS OF THEM (its w0, coder-zodtext.mjs): the missing parameters, the unexpected ones and those of the
+ * wrong type, then the rest ("is invalid: …", at most 20), headed "<tool> failed due to the following issue(s):"; with none of
+ * the first three, zod's own message (the issues as JSON).
  */
-export function schemaText(tool, issues) {
-  const missing = issues.filter((x) => x.code === "invalid_type" && x.message.includes("received undefined")).map((x) => "The required parameter `" + pathText(x.path) + "` is missing");
-  const unexpected = issues.filter((x) => x.code === "unrecognized_keys").flatMap((x) => x.keys.map((k) => "An unexpected parameter `" + pathText([...x.path, k]) + "` was provided"));
-  const wrong = issues.filter((x) => x.code === "invalid_type" && !x.message.includes("received undefined")).map((x) => "The parameter `" + pathText(x.path) + "` type is expected as `" + x.expected + "` but provided as `" + ((/received (\w+)/.exec(x.message) || [])[1] || "unknown") + "`");
-  const lines = [...missing, ...unexpected, ...wrong];
-  if (!lines.length) return JSON.stringify(issues.map(shownIssue), null, 2);
-  const other = issues.filter((x) => x.code !== "invalid_type" && x.code !== "unrecognized_keys").map((x) => { const p = pathText(x.path), who = p === "" ? "The input" : "The parameter `" + p + "`", why = x.message.replace(/^Invalid input(?:: |$)/, ""); return why ? who + " is invalid: " + why : who + " is invalid"; });
-  lines.push(...other.slice(0, 20));
-  if (other.length > 20) lines.push("(" + (other.length - 20) + " more " + (other.length - 20 === 1 ? "issue" : "issues") + " not listed)");
-  return tool + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n");
-}
+export const schemaText = issuesText;
 /** Claude Code's steer applies: a question whose options are a list of fewer than 2. */
 const fewOptions = (input) => isObj(input) && Array.isArray(input.questions) && input.questions.slice(0, 256).some((q) => isObj(q) && Array.isArray(q.options) && q.options.length < 2);
 /**
@@ -223,32 +213,63 @@ export function checkHookRewrite(input, event) {
 // ── THE CARD AND ITS ANSWER ──────────────────────────────────────────────────
 /** What the card shows (Claude Code's shownCardInput): the questions, and the metadata; the model's own answers are left out. */
 export const shownInput = (args) => ({ questions: args.questions, ...(args.metadata ? { metadata: args.metadata } : {}) });
-/** The questions as the answer texts read them (answeredText): each one's text (the answers' key), its labels, multi-select. */
-export const answerKeys = (args) => args.questions.map((q) => ({ key: q.question, text: q.question, labels: q.options.map((o) => o.label), multi: q.multiSelect === true }));
 /**
- * THE OWNER'S PICKS ON THE CARD AS CLAUDE CODE'S ANSWER: for each question, its options (by their place) and what they typed
- * under Other. `answers` maps each question's text to the label chosen (or what they typed), a multi-select's joined with
- * ", " (a label holding ", " or a quote in quotes, as Claude Code joins them); a question left unanswered is marked in
+ * AN OPTION'S PREVIEW AS THE CARD SHOWS IT (Claude Code's dialog: "Preview content is rendered as markdown in a monospace box";
+ * one with nothing visible in it is no preview): its text, or null. Only a single-select question shows them, as Claude Code's
+ * ("previews are only supported for single-select questions (not multiSelect)"; its dialog gives the notes field and the
+ * chosen preview only for one).
+ */
+export const previewOf = (o) => (isObj(o) && typeof o.preview === "string" && /\S/.test(o.preview.replace(/[\u200B-\u200F\u2060-\u2064\uFEFF\uFE0E\uFE0F]/g, "")) ? o.preview : null);
+/** A question whose options show previews: single-select with at least one (Claude Code's dialog: then it has the notes field). */
+export const hasPreviews = (q) => isObj(q) && q.multiSelect !== true && Array.isArray(q.options) && q.options.some((o) => previewOf(o) !== null);
+/**
+ * The questions as the answer texts read them (answeredText): each one's text (the answers' key), its labels, multi-select,
+ * and its options' previews (single-select only; null where an option has none).
+ */
+export const answerKeys = (args) => args.questions.map((q) => ({ key: q.question, text: q.question, labels: q.options.map((o) => o.label), multi: q.multiSelect === true, previews: hasPreviews(q) ? q.options.map(previewOf) : null }));
+/** Claude Code's marker for an answer that is only notes (its "(notes only)"): read as no option selected. */
+export const NOTES_ONLY = "(notes only)";
+/**
+ * THE OWNER'S PICKS ON THE CARD AS CLAUDE CODE'S ANSWER: for each question, its options (by their place), what they typed
+ * under Other, and their notes. `answers` maps each question's text to the label chosen (or what they typed), a
+ * multi-select's joined with ", " (a label holding ", " or a quote in quotes, as Claude Code joins them); a question with
+ * previews (Claude Code's dialog) gets, in `annotations`, the preview of the option chosen ("selected preview:") and the
+ * notes typed in its notes field, and notes alone are its answer "(notes only)"; a question left unanswered is marked in
  * `annotations` as Claude Code's other apps mark one ("skipped"), which only hooks see.
  */
 export function cardAnswers(keys, picks) {
   const answers = {}, annotations = {};
+  let room = CARD_FRAME_MAX;
   keys.forEach((q, k) => {
     const p = Array.isArray(picks) && isObj(picks[k]) ? picks[k] : {};
-    const chosen = [...new Set((Array.isArray(p.options) ? p.options : []).filter((x) => Number.isInteger(x) && x >= 0 && x < q.labels.length))].sort((a, b) => a - b).map((x) => q.labels[x]);
+    const at = [...new Set((Array.isArray(p.options) ? p.options : []).filter((x) => Number.isInteger(x) && x >= 0 && x < q.labels.length))].sort((a, b) => a - b);
+    const chosen = at.map((x) => q.labels[x]);
     const own = typeof p.other === "string" ? p.other.trim() : "";
     const said = q.multi ? (chosen.length || own ? joinLabels(own ? [...chosen, own] : chosen) : "") : own || chosen[0] || "";
+    // (Claude Code's dialog: its notes field and the chosen option's preview, only for a single-select question with previews.)
+    const notes = Array.isArray(q.previews) && typeof p.notes === "string" ? p.notes.trim() : "";
+    const preview = Array.isArray(q.previews) && !own && at.length ? q.previews[at[0]] : null;
+    room -= said.length + notes.length;
+    const note = { ...(preview && preview.length + q.key.length <= room ? { preview } : {}), ...(notes ? { notes } : {}) };
+    if (note.preview) room -= preview.length + q.key.length;
     if (said) answers[q.key] = said;
-    else annotations[q.key] = { unanswered: "skipped" };
+    else if (notes) answers[q.key] = NOTES_ONLY;
+    if (Object.keys(note).length) annotations[q.key] = note;
+    else if (!said) annotations[q.key] = { unanswered: "skipped" };
   });
   return { answers, annotations };
 }
 /** Claude Code's limit on an answer a host gives (its admitCardAnswer): one answer, and all of them together. */
 export const ANSWER_MAX = 32768;
+/** Its limit on one question's notes. */
+export const NOTES_MAX = 8192;
+/** And on the whole answer with the previews and questions it names (its frame: 50,000 less 2,000). */
+export const CARD_FRAME_MAX = 48000;
 /**
  * THE OWNER'S PICKS ON A QUESTION CARD AS CODER'S MACHINE TAKES THEM (/answer): for each of its 1 to 4 questions, the
- * options chosen by their place (0 to 3, each once) and what they typed under Other, within Claude Code's limits on a
- * host's answer. null when it is not that.
+ * options chosen by their place (0 to 3, each once), what they typed under Other and their notes, within Claude Code's
+ * limits on a host's answer (32,768 for an answer, 8,192 for notes, 32,768 for all of them together). null when it is
+ * not that.
  */
 export function questionPicks(list) {
   if (!Array.isArray(list) || list.length > 4) return null;
@@ -256,11 +277,12 @@ export function questionPicks(list) {
   const out = [];
   for (const p of list) {
     if (!isObj(p)) return null;
-    const options = p.options === undefined ? [] : p.options, other = p.other === undefined ? "" : p.other;
+    const options = p.options === undefined ? [] : p.options, other = p.other === undefined ? "" : p.other, notes = p.notes === undefined ? "" : p.notes;
     if (!Array.isArray(options) || options.length > 4 || options.some((x) => !Number.isInteger(x) || x < 0 || x > 3) || new Set(options).size !== options.length) return null;
     if (typeof other !== "string" || other.length > ANSWER_MAX) return null;
-    total += other.length;
-    out.push({ options: [...options], other });
+    if (typeof notes !== "string" || notes.length > NOTES_MAX) return null;
+    total += other.length + notes.length;
+    out.push({ options: [...options], other, ...(notes ? { notes } : {}) });
   }
   return total > ANSWER_MAX ? null : out;
 }

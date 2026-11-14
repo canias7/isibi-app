@@ -24,7 +24,7 @@ function memoryStore(start = null) {
   return { now: () => saved, load: async () => saved, save: async (st) => { saved = JSON.parse(JSON.stringify(st)); } };
 }
 /** Coder's loop on a pretend machine: hooks answered by `hookRun(input)`; cards by `answers` (else "yes"). */
-async function job(steps, { hooks = null, hookRun = () => ({}), store = null, rules = null, answers = [], extra = {} } = {}) {
+async function job(steps, { hooks = null, hookRun = () => ({}), store = null, rules = null, answers = [], extra = {}, deps: more = {} } = {}) {
   const events = [], seen = [], hookCalls = [], cards = [];
   let n = 0, k = 0;
   const r = await A.runCoder({
@@ -43,6 +43,7 @@ async function job(steps, { hooks = null, hookRun = () => ({}), store = null, ru
     ...(store ? { tasks: store } : {}),
     here: () => ROOT, root: ROOT, chatId: "shop-tk", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
     ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "yes" }; },
+    ...more,
   }, { text: "go", mode: "auto", rules, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), ...extra });
   const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return undefined; };
   return { r, events, seen, hookCalls, cards, told };
@@ -51,7 +52,8 @@ const hk = (cmd) => [{ hooks: [{ type: "command", command: cmd }] }];
 
 test("TK1 Claude Code's four task tools are Coder's in place of todo: their descriptions word for word (Coder's names where one sends Coder to another, \"the owner\" for \"the user\"), strict inputs, Claude Code's names for hooks and rules, its system prompt's line; Gloopy keeps its own todo", () => {
   const names = A.CODER_TOOLS.map((t) => t.function.name);
-  assert.deepEqual(names.slice(names.indexOf("ask_user"), names.indexOf("ask_user") + 6), ["ask_user", "task_create", "task_get", "task_list", "task_update", "bash"]);
+  // (enter_plan_mode, Claude Code's EnterPlanMode, after ask_user since 2026-11-14.)
+  assert.deepEqual(names.slice(names.indexOf("ask_user"), names.indexOf("ask_user") + 7), ["ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash"]);
   assert.ok(!names.includes("todo"), "no todo for Coder");
   const tool = (n) => A.CODER_TOOLS.find((t) => t.function.name === n).function;
   // Claude Code's prompts, as their descriptions.
@@ -125,7 +127,12 @@ test("TK2 a call's input as Claude Code takes it, before any hook: TaskCreate's 
   assert.deepEqual(ok("task_update", { id: "3", active_form: "Running" }), { taskId: "3", activeForm: "Running" });
   assert.deepEqual(ok("task_update", { task_id: "3", status: "deleted" }), { taskId: "3", status: "deleted" });
   assert.equal(bad("task_update", { taskId: 3 }), "error: InputValidationError: TaskUpdate failed due to the following issue:\nThe parameter `taskId` type is expected as `string` but provided as `number`");
-  assert.equal(bad("task_update", { taskId: "1", status: "done" }), "error: InputValidationError: TaskUpdate failed due to the following issue:\nThe parameter `status` matches none of the accepted forms");
+  // Only a value wrong (no parameter missing, unexpected or of the wrong type): zod's own message, its issues as JSON, as
+  // Claude Code's w0 gives it (checked against zod 4.6.2 itself).
+  assert.equal(bad("task_update", { taskId: "1", status: "done" }), "error: InputValidationError: " + JSON.stringify([{ code: "invalid_union", errors: [[{ code: "invalid_value", values: ["pending", "in_progress", "completed"], path: [], message: 'Invalid option: expected one of "pending"|"in_progress"|"completed"' }], [{ code: "invalid_value", values: ["deleted"], path: [], message: 'Invalid input: expected "deleted"' }]], path: ["status"], message: "Invalid input" }], null, 2));
+  // With a parameter of the wrong type too: Claude Code's lines, the union's last ("matches none of the accepted forms" when
+  // its message says nothing more).
+  assert.equal(bad("task_update", { taskId: 1, status: "done" }), "error: InputValidationError: TaskUpdate failed due to the following issues:\nThe parameter `taskId` type is expected as `string` but provided as `number`\nThe parameter `status` matches none of the accepted forms");
   assert.equal(bad("task_update", { taskId: "1", addBlocks: "2", addBlockedBy: [2], metadata: null }), "error: InputValidationError: TaskUpdate failed due to the following issues:\nThe parameter `addBlocks` type is expected as `array` but provided as `string`\nThe parameter `addBlockedBy[0]` type is expected as `string` but provided as `number`\nThe parameter `metadata` type is expected as `record` but provided as `null`");
   assert.deepEqual(ok("task_update", { taskId: "1", addBlocks: ["2"], metadata: { a: null } }), { taskId: "1", addBlocks: ["2"], metadata: { a: null } });
   assert.equal(bad("task_get", {}), "error: InputValidationError: TaskGet failed due to the following issue:\nThe required parameter `taskId` is missing");
@@ -313,7 +320,9 @@ test("TK7 the chat's list on the machine: root's own file beside the chat's memo
     assert.deepEqual(await K.taskStore(link).load(), K.emptyTasks(), "never through a link");
   } finally { rmSync(dir, { recursive: true, force: true }); }
   // server.mjs gives each job the chat's file.
-  assert.match(read("container/server.mjs"), /tasks: taskStore\(join\(memRoot, project \+ "\.tasks\.json"\)\),/);
+  // (Or the list CODER_TASK_LIST_ID names, Claude Code's CLAUDE_CODE_TASK_LIST_ID: taskFileFor, TK9.)
+  assert.match(read("container/server.mjs"), /tasks: taskStore\(taskFileFor\(memRoot, project, rawVars\.CODER_TASK_LIST_ID\)\),/);
+  assert.equal(K.taskFileFor("/data/memory", "chat-1"), "/data/memory/chat-1.tasks.json");
   // The page's checklist: at most 100, each line at most 200 characters on one line, no _internal task.
   const st = K.emptyTasks();
   for (let k = 0; k < 105; k++) K.createTask(st, { subject: "t" + k + "\n  " + "x".repeat(300), description: "d", ...(k === 0 ? { metadata: { _internal: 1 } } : {}) });
@@ -331,6 +340,113 @@ test("TK8 the page: in Coder's chat a checklist update doesn't split a run of co
   // The checklist itself, as before: ✓ done, • in progress.
   const src = ui.slice(ui.indexOf("const todoHTML = (e) =>") + "const todoHTML = ".length, ui.indexOf(";\n", ui.indexOf("const todoHTML = (e) =>")));
   const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
-  const todoHTML = new Function("esc", "return " + src)(esc);
-  assert.equal(todoHTML({ items: [{ text: "Add <tests>", status: "done" }, { text: "Running tests", status: "in_progress" }, { text: "Ship", status: "pending" }] }), '<div class="cd-todo"><b>Plan</b><div class="cd-todo-i is-done"><span class="cd-todo-box">✓</span>Add &lt;tests&gt;</div><div class="cd-todo-i is-in_progress"><span class="cd-todo-box">•</span>Running tests</div><div class="cd-todo-i is-pending"><span class="cd-todo-box"></span>Ship</div></div>');
+  const items = [{ text: "Add <tests>", status: "done" }, { text: "Running tests", status: "in_progress" }, { text: "Ship", status: "pending" }];
+  const rows = '<div class="cd-todo-i is-done"><span class="cd-todo-box">✓</span>Add &lt;tests&gt;</div><div class="cd-todo-i is-in_progress"><span class="cd-todo-box">•</span>Running tests</div><div class="cd-todo-i is-pending"><span class="cd-todo-box"></span>Ship</div></div>';
+  // Coder's task list titled as Claude Code 2.1.325 titles its own ("Tasks", then " · 1/3 done"; the docs: "Task list");
+  // Gloopy's checklist keeps "Plan".
+  assert.equal(new Function("esc", "GLOOPY", "return " + src)(esc, false)({ items }), '<div class="cd-todo"><b>Tasks<span class="cd-todo-n"> · 1/3 done</span></b>' + rows);
+  assert.equal(new Function("esc", "GLOOPY", "return " + src)(esc, true)({ items }), '<div class="cd-todo"><b>Plan</b>' + rows);
+  assert.match(read("public/coder.css"), /\n\.cd-todo-n\{font-weight:400;text-transform:none;letter-spacing:0\}\n/);
+});
+
+// ── CLAUDE_CODE_ENABLE_TASKS=0 AND CLAUDE_CODE_TASK_LIST_ID (the owner, 2026-11-14: "Fix base on Claude Code docs, please") ──
+test("TK9 CLAUDE_CODE_ENABLE_TASKS=0 (Coder's CODER_ENABLE_TASKS, or the repository's): Claude Code's TodoWrite as todo_write in place of the four task tools, its prompt, schema, answer, result object, checks, store and reminder; its system prompt line; the other family is no tool", async () => {
+  assert.equal(K.TODO_WRITE_PROMPT, "Create and update a task list for the current session. The list is rendered to the owner as your working plan.\n\n- Each todo has `content`, `status` (\"pending\" | \"in_progress\" | \"completed\"), and `activeForm` (present-tense label shown while in progress).\n- Send the full list each call; it replaces the previous one.\n- Keep one item `in_progress` at a time and mark it `completed` when done.");
+  const p = K.TODO_WRITE_TOOL.function.parameters;
+  assert.deepEqual([K.TODO_WRITE_TOOL.function.name, p.required, p.additionalProperties, p.properties.todos.description, p.properties.todos.items.required, p.properties.todos.items.properties.status.enum], ["todo_write", ["todos"], false, "The updated todo list", ["content", "status", "activeForm"], ["pending", "in_progress", "completed"]]);
+  assert.equal(K.TODO_WRITE_RESULT, "Todos have been modified successfully. Ensure that you continue to use the todo list to track your progress. Please proceed with the current tasks if applicable");
+  assert.equal(H.ccTool("todo_write"), "TodoWrite");
+  // Its input, as its schema takes it (zod 4.6.2's own issues; Claude Code's w0 words).
+  const ok = { todos: [{ content: "Add tests", status: "in_progress", activeForm: "Adding tests", extra: 1 }] };
+  assert.deepEqual(K.checkTodoInput(ok), { args: { todos: [{ content: "Add tests", status: "in_progress", activeForm: "Adding tests" }] } }, "a todo's other keys dropped, as its schema drops them");
+  assert.equal(K.checkTodoInput({}).error, "error: InputValidationError: TodoWrite failed due to the following issue:\nThe required parameter `todos` is missing");
+  assert.equal(K.checkTodoInput({ todos: [], x: 1 }).error, "error: InputValidationError: TodoWrite failed due to the following issue:\nAn unexpected parameter `x` was provided");
+  assert.equal(K.checkTodoInput({ todos: [{ content: "", status: "pending", activeForm: "A" }] }).error, "error: InputValidationError: " + JSON.stringify([{ origin: "string", code: "too_small", minimum: 1, inclusive: true, path: ["todos", 0, "content"], message: "Content cannot be empty" }], null, 2));
+  assert.equal(K.checkTodoInput({ todos: [{ content: "A", status: "done", activeForm: "A" }] }).error, "error: InputValidationError: " + JSON.stringify([{ code: "invalid_value", values: ["pending", "in_progress", "completed"], path: ["todos", 0, "status"], message: 'Invalid option: expected one of "pending"|"in_progress"|"completed"' }], null, 2));
+  assert.equal(K.checkTodoInput({ todos: [{ content: 3, status: "done" }] }).error, "error: InputValidationError: TodoWrite failed due to the following issues:\nThe required parameter `todos[0].activeForm` is missing\nThe parameter `todos[0].content` type is expected as `string` but provided as `number`\nThe parameter `todos[0].status` is invalid: Invalid option: expected one of \"pending\"|\"in_progress\"|\"completed\"");
+  // Its reminder, in Claude Code's words.
+  assert.equal(K.todoReminderNote([]), "(Note from Coder's app, not the owner:\nThe todo_write tool hasn't been used recently. If you're working on tasks that would benefit from tracking progress, consider using the todo_write tool to track progress. Also consider cleaning up the todo list if has become stale and no longer matches what you are working on. Only use it if it's relevant to the current work. This is just a gentle reminder - ignore if not applicable.)");
+  assert.ok(K.todoReminderNote([{ content: "A", status: "pending", activeForm: "a" }, { content: "B", status: "completed", activeForm: "b" }]).endsWith("ignore if not applicable.\n\n\nHere are the existing contents of your todo list:\n\n[1. [pending] A\n2. [completed] B])"));
+  // In a job.
+  let saved = null;
+  const todos = { load: async () => saved, save: async (x) => { saved = JSON.parse(JSON.stringify(x)); } };
+  const hooks = { PostToolUse: [{ matcher: "TodoWrite", hooks: [{ type: "command", command: "post.sh" }] }] };
+  const list = [{ content: "Add tests", status: "in_progress", activeForm: "Adding tests" }, { content: "Ship", status: "pending", activeForm: "Shipping" }];
+  const done = list.map((x) => ({ ...x, status: "completed" }));
+  let t = await job([say("", [call("todo_write", { todos: list }, "t1")]), say("", [call("todo_write", { todos: done }, "t2"), call("task_create", { subject: "a", description: "b" }, "c1")]), say("Done.")], { hooks, extra: { tasksOff: true }, deps: { todos } });
+  const names = t.seen[0].tools.map((x) => x.function.name);
+  assert.ok(!names.some((n) => K.isTaskTool(n)), "no task tools");
+  assert.equal(names[names.indexOf("enter_plan_mode") + 1], "todo_write", "in their place");
+  assert.equal(t.seen[0].tools.find((x) => x.function.name === "todo_write"), K.TODO_WRITE_TOOL);
+  const sys = t.seen[0].messages[0].content;
+  assert.ok(sys.includes("todo_write (your task list, which the owner sees)") && sys.includes("\n- Use todo_write to plan and track work. Mark each task completed as soon as it's done; don't batch.\n"));
+  assert.ok(!/task_create|task_update/.test(sys));
+  assert.equal(t.told("t1"), K.TODO_WRITE_RESULT);
+  assert.deepEqual(t.events.filter((e) => e.type === "todo")[0].items, [{ text: "Adding tests", status: "in_progress" }, { text: "Ship", status: "pending" }]);
+  assert.deepEqual(t.events.filter((e) => e.type === "todo")[1].items, [{ text: "Add tests", status: "done" }, { text: "Ship", status: "done" }]);
+  assert.deepEqual(saved, [], "a list all completed is kept as none, as Claude Code keeps it");
+  const posts = t.hookCalls.filter((h) => h.hook_event_name === "PostToolUse");
+  assert.deepEqual(posts.map((h) => [h.tool_name, h.tool_response.oldTodos, h.tool_response.newTodos]), [["TodoWrite", [], list], ["TodoWrite", list, done]]);
+  assert.equal(t.told("c1"), "error: No such tool available: task_create");
+  // The list kept between messages.
+  saved = list;
+  t = await job([say("", [call("todo_write", { todos: [list[1]] }, "t1")]), say("ok")], { hooks, extra: { tasksOff: true }, deps: { todos } });
+  assert.deepEqual(t.hookCalls.find((h) => h.hook_event_name === "PostToolUse").tool_response.oldTodos, list);
+  // Its reminder in a job: after 10 steps without it.
+  saved = list;
+  const steps = [];
+  for (let k = 0; k < 7; k++) steps.push(say("step " + k, [call("bash", { command: "ls", description: "List" }, "b" + k)]));
+  steps.push(say("done"));
+  t = await job(steps, { extra: { tasksOff: true }, deps: { todos } });
+  const notes = (req) => req.messages.filter((m) => m.role === "user" && typeof m.content === "string" && m.content.includes("The todo_write tool hasn't been used recently."));
+  assert.deepEqual(t.seen.map((req) => notes(req).length), [0, 0, 0, 0, 0, 1, 1, 1]);
+  assert.ok(notes(t.seen[5])[0].content.endsWith("[1. [in_progress] Add tests\n2. [pending] Ship])"));
+  assert.ok(t.seen.every((req) => !req.messages.some((m) => typeof m.content === "string" && m.content.includes("The task tools haven't been used recently."))));
+  // Rules on the task tools don't touch it; one on TodoWrite does.
+  t = await job([say("ok")], { extra: { tasksOff: true }, rules: { allow: [], ask: [], deny: ["TaskCreate", "TaskGet", "TaskList", "TaskUpdate"] } });
+  assert.ok(t.seen[0].tools.some((x) => x.function.name === "todo_write"));
+  t = await job([say("ok")], { extra: { tasksOff: true }, rules: { allow: [], ask: [], deny: ["TodoWrite"] } });
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "todo_write" || K.isTaskTool(x.function.name)));
+  // With the task tools (the default): todo_write is no tool.
+  t = await job([say("", [call("todo_write", { todos: list }, "t1")]), say("ok")]);
+  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "todo_write"));
+  assert.equal(t.told("t1"), "error: No such tool available: todo_write");
+  // An agent with tools of its own (Gloopy, its own todo) is not changed by it.
+  t = await job([say("ok")], { extra: { tasksOff: true, tools: G.GLOOPY_TOOLS.filter((x) => ["todo", "ask_user"].includes(x.function.name)) } });
+  assert.deepEqual(t.seen[0].tools.map((x) => x.function.name), ["ask_user", "todo"]);
+  assert.ok(t.seen[0].messages[0].content.includes("task_create, task_get, task_list and task_update (your task list, which the owner sees)"));
+  // The machine: the setting by Claude Code's name from a repository's file, Coder's in the environment; the chat's todo list
+  // in a file of root's beside its memory.
+  const S = await import("../container/server.mjs");
+  assert.deepEqual([S.REPO_OWN_ENV.CLAUDE_CODE_ENABLE_TASKS, S.REPO_OWN_ENV.CLAUDE_CODE_TASK_LIST_ID], ["CODER_ENABLE_TASKS", "CODER_TASK_LIST_ID"]);
+  const server = read("container/server.mjs");
+  assert.match(server, /tasksOff: varOff\(rawVars\.CODER_ENABLE_TASKS\),/);
+  assert.match(server, /todos: todoStore\(join\(memRoot, project \+ "\.todos\.json"\)\),/);
+  const dir = mkdtempSync(join(tmpdir(), "coder-todos-"));
+  try {
+    const s = K.todoStore(join(dir, "c.todos.json"));
+    assert.deepEqual(await s.load(), []);
+    await s.save(list);
+    assert.deepEqual(await s.load(), list);
+    writeFileSync(join(dir, "c.todos.json"), JSON.stringify({ todos: [{ content: "", status: "pending", activeForm: "x" }] }));
+    assert.deepEqual(await s.load(), [], "a list its schema refuses: none");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("TK10 CLAUDE_CODE_TASK_LIST_ID (Coder's CODER_TASK_LIST_ID, or the repository's): the chat's task list is the named one, in the memory folder's tasks/, its name as Claude Code makes it (anything but letters, digits, _ and - becomes -)", async () => {
+  assert.equal(K.taskListName("my project/v2.0"), "my-project-v2-0");
+  assert.equal(K.taskListName("../../etc"), "------etc");
+  assert.equal(K.taskFileFor("/data/memory", "chat-1", "shop"), "/data/memory/tasks/shop.json");
+  assert.equal(K.taskFileFor("/data/memory", "chat-1", " a b "), "/data/memory/tasks/-a-b-.json", "as Claude Code takes it: not trimmed");
+  assert.equal(K.taskFileFor("/data/memory", "chat-1", ""), "/data/memory/chat-1.tasks.json");
+  assert.equal(K.taskFileFor("/data/memory", "chat-1"), "/data/memory/chat-1.tasks.json");
+  const dir = mkdtempSync(join(tmpdir(), "coder-tasklist-"));
+  try {
+    const st = K.emptyTasks();
+    K.createTask(st, { subject: "a", description: "b" });
+    await K.taskStore(K.taskFileFor(dir, "chat-1", "shop")).save(st);
+    assert.deepEqual(await K.taskStore(K.taskFileFor(dir, "chat-2", "shop")).load(), { mark: 1, tasks: st.tasks }, "another chat with the same list reads it");
+    assert.equal(statSync(join(dir, "tasks")).mode & 0o777, 0o700, "its folder made, root's own");
+    assert.deepEqual(await K.taskStore(K.taskFileFor(dir, "chat-2")).load(), K.emptyTasks(), "a chat's own list is apart");
+  } finally { rmSync(dir, { recursive: true, force: true }); }
 });

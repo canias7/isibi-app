@@ -28,7 +28,7 @@ import { join, dirname, relative, resolve, basename, isAbsolute } from "node:pat
 import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
-import { planStore } from "./coder-plan-file.mjs";
+import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
@@ -49,7 +49,7 @@ import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./
 import { globMatch } from "./coder-globs.mjs";
 import { searchSettingsFrom } from "./coder-search.mjs";
 // (The chat's task list, Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate: the owner, 2026-11-14.)
-import { taskStore } from "./coder-tasks.mjs";
+import { taskStore, todoStore, taskFileFor } from "./coder-tasks.mjs";
 // (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
 import { questionPicks } from "./coder-askuser.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
@@ -898,7 +898,10 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION: "CODER_MAX_WEB_SEARCHES_PER_SESSION", CLAUDE_CODE_WEB_SEARCH_REFILLS_PER_HOUR: "CODER_WEB_SEARCH_REFILLS_PER_HOUR",
   // (WebFetch's three, none on Claude Code's list of names project settings can't set: the owner, 2026-11-14, "start fixing
   // and filling in gaps on those tools"; coder-webfetch.mjs.)
-  CLAUDE_CODE_DISABLE_WEB_FETCH: "CODER_DISABLE_WEB_FETCH", CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS: "CODER_WEBFETCH_CACHE_TTL_MS", CLAUDE_CODE_WEBFETCH_DEADLINE_MS: "CODER_WEBFETCH_DEADLINE_MS" };
+  CLAUDE_CODE_DISABLE_WEB_FETCH: "CODER_DISABLE_WEB_FETCH", CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS: "CODER_WEBFETCH_CACHE_TTL_MS", CLAUDE_CODE_WEBFETCH_DEADLINE_MS: "CODER_WEBFETCH_DEADLINE_MS",
+  // (The task list's two, neither on Claude Code's list of names project settings can't set: CLAUDE_CODE_ENABLE_TASKS=0 gives
+  // todo_write in place of the task tools, CLAUDE_CODE_TASK_LIST_ID names the list. 2026-11-14; coder-tasks.mjs.)
+  CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID" };
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -922,7 +925,7 @@ export function withRepoOwn(vars, own) {
  * when one says "disable". `held`: what waits for trust, for Claude Code's warning. Nothing in a job from GitHub.
  */
 export function repoSettings(root, { trust = false, github = false, several = false } = {}) {
-  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "" };
+  const out = { deny: [], ask: [], allow: [], dirs: [], env: {}, own: {}, held: [], blockReads: false, blockWrites: false, autoOff: false, defaultMode: "", plansDir: "" };
   // (None from a job started from GitHub, and none in a chat with several repositories: Claude Code's cloud session then works
   // from a folder outside all of them and reads no repository's .claude/settings.json or settings.local.json. Bash docs pass 8.)
   if (github || several) return out;
@@ -953,6 +956,8 @@ export function repoSettings(root, { trust = false, github = false, several = fa
     // (Claude Code's cloud sessions: "honors only acceptEdits, plan, default, and auto from this key"; auto "doesn't apply
     // from project files".)
     if (typeof p.defaultMode === "string" && ["acceptEdits", "plan", "default"].includes(p.defaultMode)) out.defaultMode = p.defaultMode;
+    // (Claude Code's plansDirectory, "Any file": the later file's, settings.local.json over settings.json. 2026-11-14.)
+    if (typeof j.plansDirectory === "string" && j.plansDirectory.length <= 1000) out.plansDir = j.plansDirectory;
   }
   const cap = (a, n) => [...new Set(a)].slice(0, n);
   out.deny = cap(out.deny, 200); out.ask = cap(out.ask, 200); out.allow = cap(out.allow, 200); out.dirs = cap(out.dirs, 20);
@@ -3297,6 +3302,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const backups = new Map();
   // Files left out of the copy of each chat's work folder (too big), for its next turn's note (said once for each set).
   const workLeft = new Map(), workTold = new Map();
+  // A repository's plansDirectory not used, told once a chat for each value (Claude Code only logs its warning): project → it.
+  const plansDirTold = new Map();
   const workNoteFor = (project) => {
     const left = workLeft.get(project);
     if (!left || !left.length) return "";
@@ -3520,6 +3527,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     t.ownerRules = body.rules && typeof body.rules === "object" ? { allow: body.rules.allow, ask: body.rules.ask, deny: body.rules.deny } : null;
     t.rulesNext = null; t.hooksNext = null; t.blocksNext = null;
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
+    // THE REPOSITORY'S plansDirectory (Claude Code's setting, "Choose where plan mode writes plan files", resolved from the
+    // project's folder): the chat's plan file in that folder of the project when Claude Code 2.1.325 would use it; else the
+    // chat's own plans folder, with its warning (coder-plan-file.mjs). 2026-11-14.
+    if (planBox && repoSet.plansDir) {
+      const custom = await plansDirectoryFor(repoSet.plansDir, dir);
+      if (custom) planBox = planStore({ dir: planBox.dir, stateFile: join(memRoot, project + ".plan.json"), uid: RUN_UID, gid: RUN_GID ?? RUN_UID, custom: { dir: custom, root: dir } });
+      else if (plansDirTold.get(project) !== repoSet.plansDir) { plansDirTold.set(project, repoSet.plansDir); t.events.push({ at: Date.now(), type: "note", text: plansDirWarning(repoSet.plansDir).slice(0, 1200), warn: true }); }
+    }
     // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on
     // in GitHub Actions unless the variable says otherwise), credentials leave the variables the commands and hooks get.
@@ -4045,7 +4060,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // THE CHAT'S TASK LIST, kept between messages (Claude Code keeps a session's in ~/.claude/tasks/; the owner, 2026-11-14:
         // "Do all the talk to you tools execpt for the notify one"): root's own file beside the chat's memory, on the kept disk
         // on Fly.io (coder-tasks.mjs, taskStore).
-        tasks: taskStore(join(memRoot, project + ".tasks.json")),
+        tasks: taskStore(taskFileFor(memRoot, project, rawVars.CODER_TASK_LIST_ID)),
+        // (Claude Code's TodoWrite list, with CLAUDE_CODE_ENABLE_TASKS=0: the chat's own, beside the task list. 2026-11-14.)
+        todos: todoStore(join(memRoot, project + ".todos.json")),
         // (The chat's id: a hook's session_id.)
         chatId: project,
         // CLAUDE CODE'S WEBFETCH SETTINGS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): turned off,
@@ -4331,7 +4348,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
-      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })

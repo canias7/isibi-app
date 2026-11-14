@@ -22,7 +22,7 @@ test("CD202 a job started from GitHub is not offered the tools that never work t
   // job?), and the answer then got "undo is not available in a job started from GitHub".
   const { runCoder, CODER_TOOLS, GITHUB_TOOLS, NOT_FROM_GITHUB, GITHUB_NOTE } = await import("../container/coder-agent.mjs");
   const names = (tools) => tools.map((t) => t.function.name);
-  assert.deepEqual([...NOT_FROM_GITHUB].sort(), ["auto_fix", "create_environment", "get_environment", "pr_comments", "request_secret", "switch_environment", "undo_last_job", "update_environment"]); // (Claude Code's environment tools in place of propose_env, 2026-11-14)
+  assert.deepEqual([...NOT_FROM_GITHUB].sort(), ["auto_fix", "create_environment", "enter_plan_mode", "get_environment", "pr_comments", "request_secret", "switch_environment", "undo_last_job", "update_environment"]); // (Claude Code's environment tools in place of propose_env, 2026-11-14; and enter_plan_mode, which Claude Code's non-interactive runs don't have, 2026-11-14)
   assert.deepEqual(names(GITHUB_TOOLS), names(CODER_TOOLS).filter((n) => !NOT_FROM_GITHUB.includes(n)));
   for (const keep of ["ask_user", "reply_review", "pull_request", "review", "bash", "notify"]) assert.ok(names(GITHUB_TOOLS).includes(keep), keep + " stays (an auto-fix job may ask, and answers in a review thread)");
   for (const [github, tools, note] of [[true, GITHUB_TOOLS, true], [false, CODER_TOOLS, false]]) {
