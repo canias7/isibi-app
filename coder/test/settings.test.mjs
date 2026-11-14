@@ -90,7 +90,8 @@ test("CD380b Stop's choice: on (the default), stopping a background command also
   assert.match(server, /const keep = PREFS\.endDetached === false;/);
   assert.match(server, /if \(!keep\) endMarked\(j\.mark, hard \? "SIGKILL" : "SIGTERM", \{ skipGroup: j\.pid \}\);/);
   assert.match(server, /const kept = keep && PREFS\.endDetached === false \? \[\.\.\.KEPT_MARKS\] : \[\];/);
-  assert.match(server, /if \(!live\.length && !kept\.length\) \{/, "with kept ones, the sweep spares their processes instead of ending all");
+  // (A chat's language-server keeper is kept the same way since 2026-11-14: LSP_KEEPERS.)
+  assert.match(server, /if \(!live\.length && !kept\.length && !keepers\.length\) \{/, "with kept ones, the sweep spares their processes instead of ending all");
   // THE LOW-DISK WARNING: Claude Code's reminder, word for word, with "owner".
   assert.equal(A.DISK_LOW(1.5 * 1024 ** 3), "Disk space is low: 1.5 GB free on the filesystem holding the working directory. If you need room, delete temporary files that you made. Ask the owner before you delete any other file. If that does not free enough, tell the owner.");
   assert.equal(A.diskSize(300 * 1024 ** 2), "300 MB");

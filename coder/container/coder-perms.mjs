@@ -834,11 +834,12 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
 
 // ── RULES ────────────────────────────────────────────────────────────────────
 /**
- * GREP'S AND GLOB'S INPUTS A RULE MAY NAME (Claude Code 2.1.323's schemas; never `path`, their "primary content field"), and a
- * rule's content read as one (Claude Code: the name before the first colon, the value after it, "Whitespace around the colon
- * is ignored"), or null.
+ * GREP'S, GLOB'S AND LSP'S INPUTS A RULE MAY NAME (Claude Code 2.1.323's schemas; never their "primary content field", `path`
+ * for Grep and Glob, `filePath` for LSP; LSP's since 2026-11-14, "Fix base on Claude Code docs, please"), and a rule's content
+ * read as one (Claude Code: the name before the first colon, the value after it, "Whitespace around the colon is ignored"),
+ * or null.
  */
-export const SEARCH_RULE_PARAMS = Object.freeze({ Grep: ["pattern", "glob", "output_mode", "-B", "-A", "-C", "context", "-n", "-i", "-o", "type", "head_limit", "offset", "multiline"], Glob: ["pattern"] });
+export const SEARCH_RULE_PARAMS = Object.freeze({ Grep: ["pattern", "glob", "output_mode", "-B", "-A", "-C", "context", "-n", "-i", "-o", "type", "head_limit", "offset", "multiline"], Glob: ["pattern"], LSP: ["operation", "line", "character", "query"] });
 function searchParamSpec(tool, spec) {
   const k = String(spec).indexOf(":");
   if (k <= 0) return null;
@@ -883,7 +884,8 @@ export function parseRule(text) {
   // built-in tool with Tool(param:value)"; "You can't match a tool's primary content field this way: … path for Grep and
   // Glob"): `Grep(output_mode:content)`, `Glob(pattern:*.env)`, used by deny and ask lists (fileToolDecision); `param` its
   // name and value.
-  if ((m[1] === "Grep" || m[1] === "Glob") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
+  // (And LSP's, `LSP(operation:hover)`, `LSP(line:1)`: the same, since 2026-11-14.)
+  if ((m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
   if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
@@ -1071,6 +1073,8 @@ function keptPathRule(r) {
   if (searchPathSpec(r.tool, c)) return r.tool;
   if (r.tool === "Glob" || r.tool === "Grep") return "Read";
   if ((r.tool === "Read" || r.tool === "Edit") && /^file_path\s*:/.test(c)) return r.tool;
+  // (LSP's own path, `LSP(filePath:…)`, its primary content field: kept, never matched, as Claude Code keeps it.)
+  if (r.tool === "LSP" && /^filePath\s*:/.test(c)) return r.tool;
   return "";
 }
 /** Whether a rule is saved: one Coder applies (parseRule), or one it keeps as Claude Code does (ruleKept). */
@@ -1202,7 +1206,8 @@ function ruleWarningOf(kind, text) {
     // (Grep's and Glob's own `path`, in Claude Code's words, 2.1.325's list: "Permission deny rule "Grep(path:src)" targets path
     // as a raw string and will not match.", and Glob's "… — use Read(…) to match file-read paths.")
     if (use && searchPathSpec(r.tool, r.content)) return r.tool === "Grep" ? { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match.', notice: t + " never matches" } : { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match \u2014 use Read(\u2026) to match file-read paths.', notice: t + " never matches \u00b7 use Read(\u2026)" };
-    if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets file_path as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
+    // (LSP's field is `filePath`, Claude Code 2.1.325's own words for it: "… targets filePath as a raw string …".)
+    if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets ' + (r.tool === "LSP" ? "filePath" : "file_path") + " as a raw string and will not match — use " + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     if (r.tool === "Bash" || r.tool === "PowerShell") return { warning: "Permission " + k + ' rule "' + t + '" targets command as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     return { warning: "Permission " + k + ' rule "' + t + '" matches no known tool — check for typos.', notice: t + " matches no tool · check for typos" };
   }
@@ -1820,7 +1825,8 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // Claude Code's "Match by input parameter": "A parameter rule matches when Claude calls the tool with that parameter set to
   // that exact value", "* … matches any sequence of characters", "A parameter the model omits is never matched"), denied in
   // its words, 2.1.325's: "Permission to use Grep with output_mode:content has been denied.".
-  const paramHit = (kind) => (search && input && typeof input === "object" ? (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== name || !x.param) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "" : "");
+  // (LSP's too, `LSP(operation:hover)`: "Fix base on Claude Code docs, please", 2026-11-14.)
+  const paramHit = (kind) => ((search || tool === "lsp") && input && typeof input === "object" ? (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== name || !x.param) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "" : "");
   const pd = paramHit("deny");
   if (pd) return { verdict: "deny", rule: pd, why: "Permission to use " + name + " with " + parseRule(pd).spec + " has been denied." };
   if (edits) {
@@ -1843,6 +1849,9 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
+  // (An LSP rule on one of the call's inputs asks before a Read rule on its file, in Claude Code's words, as Grep's and Glob's.)
+  const pa = !wa && tool === "lsp" ? paramHit("ask") : "";
+  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to use LSP, but you haven't granted it yet." };
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
   // (An lsp lookup reads its file: "reading", as for read. 2026-11-14.)
   if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" || tool === "lsp" ? "reading " : "searching ") + p + "." };

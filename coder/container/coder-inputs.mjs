@@ -20,7 +20,19 @@ import { checkAskUserInput } from "./coder-askuser.mjs";
 // (Claude Code's environment tools, 2026-11-14: their form is checked before any hook, the rest by Coder's server; coder-envtools.mjs.)
 import { ENV_INPUT_CHECKS } from "./coder-envtools.mjs";
 
-export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLspInput, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, ...ENV_INPUT_CHECKS };
+/**
+ * LSP'S CHECKS (coder-lsp.mjs; "Fix base on Claude Code docs, please", 2026-11-14): its input, then its file ("File does not
+ * exist: …", "Path is not a file: …", "Cannot access file: …"), both before any hook, as Claude Code's validateInput makes
+ * them. The file's check needs the chat's files, so Coder's loop gives `ctx.lspFile` (its tool script, run as the AI's user
+ * where those files are): the refusal ("error: File does not exist: …"), or "" when it is a file. A Promise then.
+ */
+export function checkLsp(args, ctx = {}) {
+  const v = checkLspInput(args);
+  if (v.error || !ctx || typeof ctx.lspFile !== "function") return v;
+  return Promise.resolve().then(() => ctx.lspFile(v.args)).then((e) => (typeof e === "string" && e ? { error: e } : v), () => v);
+}
+
+export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, ...ENV_INPUT_CHECKS };
 
 /** A tool's input check, when it has one (these six tools, and the four environment tools). */
 export const inputCheckFor = (name) => (Object.prototype.hasOwnProperty.call(INPUT_CHECKS, name) && typeof INPUT_CHECKS[name] === "function" ? INPUT_CHECKS[name] : null);

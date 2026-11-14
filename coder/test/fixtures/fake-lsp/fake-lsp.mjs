@@ -3,16 +3,20 @@
 // with INFO and a hint per line with HINT, in two steps, an empty report first, as real servers may.
 // Its answers come from FAKE_LSP_SCRIPT (a JSON file, read again at each request): `{ "<method>": result }`, "$URI" in a
 // result standing for the file asked about; and these switches: crashOn (a method: exit 3 when asked), crashAlways (exit 3
-// at every start), hangOn (a method never answered), contentModified ({ method, times }), garbage (non-protocol text on
-// stdout at start), askClient (on `initialized`, it asks the client for its configuration and an unknown thing), noReport
-// (no diagnostics), slowReport (ms before the second report). FAKE_LSP_LOG gets one JSON line per message it receives, and
-// {"start":pid,"argv":[...]} when it starts.
+// at every start), cleanExitOn (a method: exit 0 when asked), killOn (a method: killed by SIGKILL when asked), hangOn (a
+// method never answered), contentModified ({ method, times }), garbage (non-protocol text on stdout at start), askClient (on
+// `initialized`, it asks the client for its configuration and an unknown thing), noReport (no diagnostics), reportAll (every
+// open file reported again at each change), slowReport (ms before the second report), slowInit (ms before it answers
+// initialize). FAKE_LSP_LOG gets one JSON line per message it
+// receives, {"start":pid,"argv":[...],"projectDir":…} when it starts, and {"sigterm":pid} when asked to end (it then reads
+// what is left of its input for a moment, as a real server finishing its work).
 import { readFileSync, appendFileSync } from "node:fs";
 
 const LOG = process.env.FAKE_LSP_LOG || "";
 const log = (o) => { if (LOG) { try { appendFileSync(LOG, JSON.stringify(o) + "\n"); } catch { /* none */ } } };
 const script = () => { try { return JSON.parse(readFileSync(process.env.FAKE_LSP_SCRIPT || "", "utf8")); } catch { return {}; } };
-log({ start: process.pid, argv: process.argv.slice(2), name: process.argv[1] });
+log({ start: process.pid, argv: process.argv.slice(2), name: process.argv[1], projectDir: process.env.CLAUDE_PROJECT_DIR ?? null });
+process.on("SIGTERM", () => { log({ sigterm: process.pid }); setTimeout(() => process.exit(143), 100); });
 if (script().crashAlways) process.exit(3);
 let buf = Buffer.alloc(0);
 const send = (o) => { const s = JSON.stringify(o); process.stdout.write("Content-Length: " + Buffer.byteLength(s) + "\r\n\r\n" + s); };
@@ -29,6 +33,9 @@ const report = (uri, text) => {
 };
 const modified = new Map();
 let lastUri = "";
+// (Each open file's text, for reportAll: a server that reports every open file again at each change, as a whole-project checker does.)
+const texts = new Map();
+const reportFor = (uri, text) => { texts.set(uri, text); if (script().reportAll) { for (const [u, t] of texts) report(u, t); } else report(uri, text); };
 process.stdin.on("data", (b) => {
   buf = Buffer.concat([buf, b]);
   for (;;) {
@@ -42,10 +49,12 @@ process.stdin.on("data", (b) => {
     const s = script();
     if (m.method === undefined) continue; // an answer to one of its own questions: logged above
     if (s.crashOn === m.method) process.exit(3);
+    if (s.cleanExitOn === m.method) process.exit(0);
+    if (s.killOn === m.method) process.kill(process.pid, "SIGKILL");
     if (m.method === "initialize") { if (s.slowInit) setTimeout(() => send({ jsonrpc: "2.0", id: m.id, result: { capabilities: { textDocumentSync: 1 } } }), s.slowInit); else send({ jsonrpc: "2.0", id: m.id, result: { capabilities: { textDocumentSync: 1 } } }); continue; }
     if (m.method === "initialized") { if (s.askClient) { send({ jsonrpc: "2.0", id: 900, method: "workspace/configuration", params: { items: [{ section: "python" }, {}] } }); send({ jsonrpc: "2.0", id: 901, method: "window/workDoneProgress/create", params: { token: "t" } }); } continue; }
-    if (m.method === "textDocument/didOpen") { lastUri = m.params.textDocument.uri; report(m.params.textDocument.uri, m.params.textDocument.text); continue; }
-    if (m.method === "textDocument/didChange") { report(m.params.textDocument.uri, m.params.contentChanges[0].text); continue; }
+    if (m.method === "textDocument/didOpen") { lastUri = m.params.textDocument.uri; reportFor(m.params.textDocument.uri, m.params.textDocument.text); continue; }
+    if (m.method === "textDocument/didChange") { reportFor(m.params.textDocument.uri, m.params.contentChanges[0].text); continue; }
     if (m.method === "exit") process.exit(0);
     if (m.id === undefined) continue;
     if (m.method === "shutdown") { send({ jsonrpc: "2.0", id: m.id, result: null }); continue; }

@@ -34,7 +34,7 @@ import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } from "./coder-search.mjs";
-import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
+import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
@@ -1123,10 +1123,11 @@ export const changedOnDiskNote = (path, x) => "Note: " + scrub(path).slice(0, 30
   (x && typeof x.lines === "string" ? "Here are the relevant changes (shown with line numbers):\n" + x.lines : "The changes are not shown here; read it again if you need the current content.");
 
 /**
- * HOW LONG AN LSP CALL MAY TAKE ON THE MACHINE (Coder's own: Claude Code's calls have no limit, its requests 60 seconds each):
- * time for its server to start (60 seconds) and two requests (a call hierarchy asks twice), past the tool's own 195 seconds.
+ * HOW LONG AN LSP CALL MAY TAKE ON THE MACHINE: Claude Code's calls have no limit of their own (its requests 60 seconds each,
+ * and its user can stop one); a tool command of Coder's always has one, so a lookup may take the job's time left, as a web
+ * fetch with no deadline does (at least LSP_EXEC_MIN_S).
  */
-export const LSP_EXEC_S = 200;
+export const LSP_EXEC_MIN_S = 60;
 export const CODER_MAX_ROUNDS = 60;
 export const CODER_MAX_MS = 45 * 60 * 1000;
 
@@ -2237,6 +2238,41 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    */
   const hookNote = (name, texts) => "(Note from Coder's app, not the owner: " + texts.map((t) => name + " hook additional context: " + scrub(String(t))).join("\n\n") + ")";
   /**
+   * THE LSP TOOL'S FILE CHECKS, BEFORE ANY HOOK (coder-inputs.mjs checkLsp; Claude Code's validateInput, "Fix base on Claude Code
+   * docs, please", 2026-11-14): run by the tools script where the chat's files are, as the AI's user, from the folder Grok's
+   * commands are in. Its refusal ("error: File does not exist: …"), or "" (a file, or the check could not be made: the tool
+   * then answers for itself).
+   */
+  const lspFile = async (a) => {
+    const b64 = Buffer.from(JSON.stringify({ tool: "lsp_file", args: { filePath: a.filePath } })).toString("base64");
+    if (b64.length > 100_000) return "";
+    let r;
+    try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + b64, timeoutS: 60, tool: true, here: true }); } catch { return ""; }
+    const out = String((r && r.output) || "");
+    return r && r.code === 1 && out.startsWith("error: ") ? out.replace(/\s+$/, "") : "";
+  };
+  /**
+   * WHAT THE CHAT'S LANGUAGE SERVERS REPORTED, TAKEN ONCE PER STEP AND WITH THE OWNER'S NEXT MESSAGE (coder-lsp.mjs takeNews;
+   * Claude Code 2.1.325 gathers its LSP diagnostics attachment at every step, after whatever tool ran, and with the next prompt,
+   * never waiting for a report): only while the chat's keeper runs (deps.lsp), and told only to an agent with a shell, as
+   * Claude Code tells only one with Bash or PowerShell. The chat gets Claude Code's row ("Found N new diagnostic issues in M
+   * files", `diagnostics`), the owner a warning for a server that could not start; Grok gets the note, or "".
+   */
+  const lspTold = !offered || offered.has("bash") || offered.has("powershell");
+  const lspNews = async () => {
+    if (!lspTold || !deps.lsp || typeof deps.lsp.alive !== "function") return "";
+    try { if (!(await deps.lsp.alive())) return ""; } catch { return ""; }
+    const r = await appTool(deps, "lsp_take", {}, { timeoutS: 30 });
+    if (r.code !== 0 || !r.output.trim()) return "";
+    let j;
+    try { j = JSON.parse(r.output); } catch { return ""; }
+    for (const n of Array.isArray(j && j.notices) ? j.notices : []) { const t = noticeText(n); if (t) emit({ type: "note", text: scrub(t).slice(0, 600), warn: true }); }
+    const note = j && typeof j.note === "string" && j.note.startsWith("<new-diagnostics>") ? scrub(j.note.slice(0, 5000)) : "";
+    const files = note && j.shown && Array.isArray(j.shown.files) ? j.shown.files.filter((f) => f && typeof f.path === "string" && Array.isArray(f.problems)).slice(0, 30) : [];
+    if (files.length) emit({ type: "diagnostics", files: files.map((f) => ({ path: scrub(String(f.path)).slice(0, 500), problems: f.problems.filter((p) => p && typeof p === "object").slice(0, 30).map((p) => ({ severity: ["error", "warning", "info", "hint"].includes(p.severity) ? p.severity : "other", line: Number(p.line) || 0, column: Number(p.column) || 0, message: scrub(String(p.message || "")).slice(0, 2000), code: scrub(String(p.code || "")).slice(0, 100), source: scrub(String(p.source || "")).slice(0, 100) })) })) });
+    return note;
+  };
+  /**
    * POSTTOOLUSE AND POSTTOOLUSEFAILURE HOOKS for one step that ran (Claude Code: "Runs immediately after a tool completes
    * successfully"; "after a tool call fails"): its result as Coder will read it; what they say is put beside the result ("decision
    * block adds the reason next to the tool result. Claude still sees the original output; to replace it, use updatedToolOutput"),
@@ -2692,6 +2728,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (stuck.length) parts.push((stuck.length === 1 ? "a background command" : stuck.length + " background commands") + " still running may be stuck waiting for typed input.\n" + stuck.map((n) => n.note).join("\n\n"));
     convo.push({ role: "user", appNote: true, content: (alone ? BG_EVENT_HEADER + "\n\n" : "") + "(Note from Coder's app, not the owner: " + parts.join("\n\n") + (alone ? "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two." : "") + ")" });
   }
+  // WHAT THE LANGUAGE SERVERS REPORTED AFTER CODER'S LAST STEP, with this message, as Claude Code delivers a late report with
+  // the next prompt (lspNews; not for /compact, which answers nothing).
+  if (!(compact && typeof compact === "object")) { const n = await lspNews(); if (n) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + n + ")" }); }
   // THE FILES THIS JOB WORKS ON (read, changed, viewed with a command, @-mentioned), the newest last: after a summary
   // the most recently changed of them are read again (rereadFiles).
   const touched = new Map(); let touchN = 0;
@@ -3177,7 +3216,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const inputCheck = !c.rerun && c.args && typeof c.args === "object" ? inputCheckFor(c.name) : null;
       if (inputCheck) {
         let v;
-        try { v = inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
+        // (Awaited: lsp's file checks need the chat's files, lspFile.)
+        try { v = await inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off, lspFile }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
           // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call. A tool with no
@@ -4776,20 +4816,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           continue;
         }
         // WHAT A WRITE OR AN EDIT CHANGED is asked for, for the chat only (writeAnswer; edit's too since edit's turn, 2026-11-09).
-        // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
+        // And the file's new text goes to its language server (`check`), whose report is taken at the next step (lspNews).
         // (Claude Code tells only an agent that has Bash or PowerShell what the servers report; one without, Gloopy's helpers,
         // only sends the file's new text to its server: `check: "sync"`. 2026-11-14.)
-        const lspCheck = !offered || offered.has("bash") || offered.has("powershell") ? true : "sync";
+        const lspCheck = lspTold ? true : "sync";
         const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck } : args;
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
         const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: searchCtx() } : {}) };
         const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
         let r;
+        // THE CHAT'S LANGUAGE SERVERS' KEEPER, started by Coder's machine the first time a lookup, a write or an edit needs a
+        // server (coder-lsp.mjs needsKeeper; Claude Code starts a server the first time a file it handles is used), and kept
+        // for the chat. A lookup goes on without it (its server then started and stopped for it).
+        if (needsKeeper(c.name, args) && deps.lsp && typeof deps.lsp.start === "function") { try { await deps.lsp.start(); } catch { /* the call goes on */ } }
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
+        // (A lookup may take the job's time left: LSP_EXEC_MIN_S.)
         ranAt.set(c.id, now());
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? LSP_EXEC_S : search ? searchExecS() : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? Math.max(LSP_EXEC_MIN_S, Math.ceil((maxMs - (now() - started)) / 1000)) : search ? searchExecS() : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -4807,9 +4852,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           try { f = String(deps.saveText(raw) || ""); } catch { f = ""; }
           if (f) raw = bashResultText({ output: raw, size: raw.length, file: f, inlineMax: c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX });
         }
-        // (What the language servers reported meanwhile, behind LSP_NOTE_MARK: told to Grok after the round, as Claude Code
-        // tells Claude after the step, its `<new-diagnostics>` note. 2026-11-14.)
-        if (c.name === "lsp" && code === 0) { const na = noteAnswer(raw); raw = na.text; if (na.note.startsWith("<new-diagnostics>")) roundNotes.push(scrub(na.note.slice(0, 5000))); }
         const toolText = raw;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
@@ -5135,6 +5177,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     roundNotes.push(...takeBgConnectors());
     if (writeHold && writeHold.held) return heldEnd(calls.length);
+    // WHAT THE LANGUAGE SERVERS REPORTED SINCE THE LAST STEP, taken now, after whatever tool ran (lspNews).
+    { const n = await lspNews(); if (n) roundNotes.push(n); }
     if (roundNotes.length) convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner, about your last commands:\n" + roundNotes.join("\n\n") + ")" });
     // Those whose lines the note showed may be written over from now on (toolChanged `shown`), as in Claude Code.
     if (roundShown.length && deps.seen === true) await appTool(deps, "changed", { shown: roundShown });

@@ -48,6 +48,7 @@ import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWh
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
 import { searchSettingsFrom } from "./coder-search.mjs";
+import { keeperCommand } from "./coder-lsp.mjs";
 // (The chat's task list, Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate: the owner, 2026-11-14.)
 import { taskStore } from "./coder-tasks.mjs";
 // (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
@@ -3116,6 +3117,23 @@ export function safeVars(vars) {
 function groupAlive(pid) {
   try { process.kill(-pid, 0); return true; } catch (e) { return !!(e && e.code === "EPERM"); }
 }
+/**
+ * THE CHATS' LANGUAGE-SERVER KEEPERS (coder-lsp.mjs, coder-lspd.mjs; "Fix base on Claude Code docs, please", 2026-11-14:
+ * Claude Code keeps a session's language servers, and what it already reported, for the whole session): project → { pid,
+ * box }. Each is started as the AI's user like a background command (the turn's `lsp.start`), so its process group (the
+ * keeper and the servers it starts) is kept at each turn's end as those are, and paused while root works (quietly). None of
+ * the chat's background commands: never listed or told of, and it keeps no machine awake (busyState counts JOBS only), so
+ * it ends when the chat's machine stops.
+ */
+export const LSP_KEEPERS = new Map();
+/** Is the chat's keeper still running (its process group)? One that ended is forgotten. */
+export function keeperAlive(project) {
+  const k = LSP_KEEPERS.get(project);
+  if (!k) return false;
+  if (groupAlive(k.pid)) return true;
+  LSP_KEEPERS.delete(project);
+  return false;
+}
 /** THE TURN'S OWN COMMANDS still running (not its background ones), each with everything it started: ended (the owner's Stop). */
 function endForeground(t) {
   for (const pid of t.fg || []) { try { process.kill(-pid, "SIGKILL"); } catch { /* already gone */ } }
@@ -3194,20 +3212,22 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
   const live = keep ? [...JOBS.values()].filter((j) => !j.end && !j.stopping) : [];
   // What stopped commands left running when the owner chose that (Settings): kept like a running command's own processes.
   const kept = keep && PREFS.endDetached === false ? [...KEPT_MARKS] : [];
+  // The chats' language-server keepers (LSP_KEEPERS): kept by their process group, as a running background command is.
+  const keepers = keep ? [...LSP_KEEPERS.keys()].filter((k) => keeperAlive(k)).map((k) => LSP_KEEPERS.get(k)) : [];
   const endAll = (why) => {
     for (const j of JOBS.values()) if (!j.end) { j.stopping ||= why; try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ } }
     const ok = killUser(uid, gid);
     for (const j of JOBS.values()) if (!j.end) jobEnded(j.pid, null);
     return ok;
   };
-  if (!live.length && !kept.length) {
+  if (!live.length && !kept.length && !keepers.length) {
     if (!endAll(keep ? "lost" : "coder")) { finish(); return null; }
     return finish;
   }
   // The admin sandbox stays only while one of them is in it, or what a stopped command left running there by the owner's
   // choice (round 5 of the live test, 2026-11-12: with Stop's choice off, the stopped command was the last one running, and
   // the sandbox was ended with all in it, `setsid sleep 7001` too).
-  const boxKept = BOX && (live.some((j) => j.box) || keptInBox(kept)) ? BOX : null;
+  const boxKept = BOX && (live.some((j) => j.box) || keepers.some((k) => k.box) || keptInBox(kept)) ? BOX : null;
   if (BOX && !boxKept) { BOX.stop(); BOX = null; }
   const p = await pauseAI({ uid, gid, boxPid: boxKept ? boxKept.pid : 0, box: [SBX_BASE, SBX_BASE + SBX_RANGE] });
   if (!p.ok) {
@@ -3215,9 +3235,9 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
     if (!endAll("lost")) { finish(); return null; }
     return finish;
   }
-  await endOthers(p.procs, new Set(live.map((j) => j.pid)), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set([...live.map((j) => j.mark).filter(Boolean), ...kept]) });
+  await endOthers(p.procs, new Set([...live.map((j) => j.pid), ...keepers.map((k) => k.pid)]), { spare: boxKept ? new Set([boxKept.pid]) : new Set(), keepMarks: new Set([...live.map((j) => j.mark).filter(Boolean), ...kept]) });
   let went = false;
-  return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters(live); finish(); };
+  return () => { if (went) return; went = true; resumeAI(p.procs, { boxPid: boxKept ? boxKept.pid : 0 }); wakeStarters([...live, ...keepers]); finish(); };
 }
 /**
  * IS ANYTHING A STOPPED COMMAND LEFT RUNNING (its mark among `marks`, KEPT_MARKS) STILL IN THE ADMIN SANDBOX? Its processes
@@ -4065,6 +4085,24 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // A MONITOR (Claude Code's): run like a background command, with its stderr in a file of its own in Coder's home, so
         // its output file holds the lines that are its events (stdout); see readMonitor.
         monitorNews: () => monitorNews(project),
+        // THE CHAT'S LANGUAGE-SERVER KEEPER (coder-lsp.mjs; LSP_KEEPERS; "Fix base on Claude Code docs, please", 2026-11-14):
+        // started the first time a lookup, a write or an edit needs a server, as the AI's user inside the same sandbox and room
+        // as its commands, the way a background command is started (its program waits no more than a second here), and under
+        // the chat's memory cap when the owner's CODER_TOOL_MEMORY_CGROUP_EXCLUDE caps language servers (`lsp`), whatever
+        // call started it; the keeper is told the cap's cgroup (CODER_LSP_MEMCG), to say when a server is killed at it.
+        // `alive`: whether it runs.
+        lsp: {
+          alive: () => keeperAlive(project),
+          start: () => {
+            if (keeperAlive(project)) return Promise.resolve(true);
+            if (t.lspStarting) return t.lspStarting;
+            const cg = typeof t.memCgNow === "function" && t.memKinds instanceof Set && t.memKinds.has("lsp") ? t.memCgNow() : "";
+            t.lspStarting = execIn(dir, keeperCommand(dir), 1, { bgDir, kill: false, home, room: t.room, box: t.box, prefix: "", ...(cg ? { memCg: cg } : {}), extraEnv: { ...(extraEnv || {}), ...(cg ? { CODER_LSP_MEMCG: cg } : {}) } })
+              .then((r) => { if (r && r.background && r.pid) { LSP_KEEPERS.set(project, { pid: r.pid, box: !!r.inBox }); return true; } return false; }, () => false)
+              .finally(() => { t.lspStarting = null; });
+            return t.lspStarting;
+          },
+        },
         exec: async ({ command, timeoutS, tool, payload, here = false, follow = false, inBg = false, sleepFirst = false, desc = "", limitMs = 0, monitor = false, ws = false, hook = false, hookEnv = false, hookGate = false, kind = "", hookAsync = null, hosts = null, shown = "", ps = false, noPrefix = false }) => {
           // NOT WITHOUT THE ADMIN SANDBOX (fix 7): a command, the AI's or the owner's `!`, is not started; Coder's own helpers
           // and the owner's hooks still run, as Claude Code's hooks run outside its sandbox.
