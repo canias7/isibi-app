@@ -17,6 +17,27 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Round 3 is live on gofarther.dev, tested with Grok on Low (your words: "On yes start")
+
+Merged to main and deployed. The first deploy stopped at its own test run: one new test (SR15) expected a file its own
+user couldn't read, which holds when tests run as root but not on GitHub's runner. I fixed the test (not Coder) and the
+second deploy passed. Tested live in one new chat on the test repo, with Grok on Low:
+
+1. **grep and glob in a subfolder:** glob with the pattern `a/*.txt` inside the folder `deep` found both files.
+   Before round 3 it said "No files found". Passed.
+2. **Several steps at once, in Auto, with quick searches:** one reply read README.md, listed the .md files and made two
+   quick web searches; all four worked, and xAI took the quick search (one search each, with links). Passed.
+3. **Tool search after the shorter answer:** Coder loaded the task tools, then created the task and ticked it
+   (Tasks 1/1 done). Passed.
+4. **A new message closes a waiting card:** a command card was left alone until the job paused after 5 minutes; then
+   I sent "Never mind, don't run it". The card showed "Closed · you sent a new message before answering", the step
+   "not run", and Coder answered at once ("skipped"). Passed.
+5. **Claude Code's words for a risky delete:** `rm -rf $CODER_TEST_UNSET/` got Claude Code 2.1.325's full text (the
+   variable could be empty and become `/`; how to rewrite it safely) on its card. Passed.
+6. **The Environment window** shows the new Repositories row. Passed.
+
+Nothing new to fix. Cost: about 10 Grok calls on Low, 2 quick searches and a few safety checks.
+
 ## 2026-11-14: The third check against Claude Code's docs, fixed (your words: "yes pls all of that")
 
 On my branch, not deployed yet. Six checkers compared our tools with Claude Code's newest docs and program, and seven
