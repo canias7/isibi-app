@@ -223,10 +223,10 @@ test("TK5 hooks see the calls as Claude Code's: TaskCreate and the rest by name,
   let t = await job([say("", [call("task_create", { title: "Add tests", content: "Cart" }, "c1"), call("task_update", { taskId: "1", status: "in_progress" }, "u1"), call("task_get", { taskId: "1" }, "g1"), call("task_list", {}, "l1"), call("task_create", { tasks: [] }, "bad")]), say("ok")], { hooks, store: memoryStore() });
   const ev = (name, tool) => t.hookCalls.filter((h) => h.hook_event_name === name && h.tool_name === tool);
   assert.deepEqual(ev("PreToolUse", "TaskCreate").map((h) => h.tool_input), [{ subject: "Add tests", description: "Cart" }], "the fixed input; the refused call fired none");
-  assert.deepEqual(ev("PostToolUse", "TaskCreate")[0].tool_response, { output: "Task #1 created successfully: Add tests", task: { id: "1", subject: "Add tests", description: "Cart" } });
-  assert.deepEqual(ev("PostToolUse", "TaskUpdate")[0].tool_response, { output: "Updated task #1 status", success: true, taskId: "1", updatedFields: ["status"], statusChange: { from: "pending", to: "in_progress" } });
-  assert.deepEqual(ev("PostToolUse", "TaskGet")[0].tool_response, { output: "Task #1: Add tests\nStatus: in_progress\nDescription: Cart", task: { id: "1", subject: "Add tests", description: "Cart", status: "in_progress", blocks: [], blockedBy: [] } });
-  assert.deepEqual(ev("PostToolUse", "TaskList")[0].tool_response, { output: "#1 [in_progress] Add tests", tasks: [{ id: "1", subject: "Add tests", status: "in_progress", blockedBy: [] }] });
+  assert.deepEqual(ev("PostToolUse", "TaskCreate")[0].tool_response, { task: { id: "1", subject: "Add tests", description: "Cart" } });
+  assert.deepEqual(ev("PostToolUse", "TaskUpdate")[0].tool_response, { success: true, taskId: "1", updatedFields: ["status"], statusChange: { from: "pending", to: "in_progress" } });
+  assert.deepEqual(ev("PostToolUse", "TaskGet")[0].tool_response, { task: { id: "1", subject: "Add tests", description: "Cart", status: "in_progress", blocks: [], blockedBy: [] } });
+  assert.deepEqual(ev("PostToolUse", "TaskList")[0].tool_response, { tasks: [{ id: "1", subject: "Add tests", status: "in_progress", blockedBy: [] }] });
   assert.equal(t.hookCalls.filter((h) => h.tool_use_id === "bad").length, 0);
   // TaskCreated and TaskCompleted (Claude Code's: no matchers, no permission_mode from these tools).
   const store = memoryStore();

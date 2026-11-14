@@ -496,7 +496,8 @@ test("WF16 in Coder's loop: the reader's answer alone; the PostToolUse hooks get
   assert.deepEqual(post.tool_input, { url: "https://lib.example/docs", prompt: "the install command" });
   const { durationMs, ...rest } = post.tool_response;
   assert.ok(Number.isInteger(durationMs) && durationMs >= 0);
-  assert.deepEqual(rest, { output: "npm i lib@4", code: 200, bytes: 20, codeText: "OK", result: "npm i lib@4", url: "https://lib.example/docs" });
+  // (Claude Code's result object alone: no `output` beside it. 2026-11-14.)
+  assert.deepEqual(rest, { code: 200, bytes: 20, codeText: "OK", result: "npm i lib@4", url: "https://lib.example/docs" });
   assert.equal(t.r.usage.filter((u) => u.in === 7).length, 2, "the reader's use counted with the job's");
   assert.equal(t.events.find((e) => e.type === "result" && e.id === "w1").output, "npm i lib@4");
   // The tools script was asked for the page with the deadline; the reader never saw the hooks' or Coder's words.

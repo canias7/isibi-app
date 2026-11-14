@@ -147,7 +147,7 @@ test("AQ4 the card Coder waits on (Claude Code: the question dialog is its permi
   assert.deepEqual(t.events.find((e) => e.type === "permanswer"), { at: t.events.find((e) => e.type === "permanswer").at, type: "permanswer", pid: card.pid, choice: "answers", picks: [{ options: [0] }, { options: [2, 1] }] });
   const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse" && x.tool_name === "AskUserQuestion");
   assert.deepEqual(post.tool_input, { questions: [READ, SIGN], answers: { [DBQ]: "Postgres (Recommended)", [SIGNQ]: "Google, GitHub" } });
-  assert.deepEqual(post.tool_response, { output: t.told("q1"), questions: [READ, SIGN], answers: { [DBQ]: "Postgres (Recommended)", [SIGNQ]: "Google, GitHub" } });
+  assert.deepEqual(post.tool_response, { questions: [READ, SIGN], answers: { [DBQ]: "Postgres (Recommended)", [SIGNQ]: "Google, GitHub" } });
   // A label with ", " in it is quoted where several are joined (Claude Code's join); Other's text with them: not one of the
   // choices, so Claude Code's other words.
   const u = await job([say("", [call("ask_user", { questions: [DB, SIGN] }, "q1")]), say("Done.")], { answers: [{ choice: "answers", picks: [{ options: [1] }, { options: [0], other: "  Apple  " }] }] });

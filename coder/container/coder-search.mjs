@@ -17,6 +17,7 @@ import { stat, lstat, realpath } from "node:fs/promises";
 import { homedir } from "node:os";
 import { isAbsolute, relative, resolve, join, dirname, basename, sep } from "node:path";
 import { fileRuleHit, anchorOf, plainPath } from "./coder-filerules.mjs";
+import { zodIssues, fromJsonSchema, failedText } from "./coder-zod.mjs";
 
 // ── WHAT GROK IS TOLD ────────────────────────────────────────────────────────
 /** Grep's description: Claude Code's short one, its "via Bash" Coder's `bash` tool. */
@@ -60,27 +61,17 @@ const asNumber = (v) => {
   if (/^[-+]?\d+(\.\d+)?$/.test(n)) { const x = Number(n); if (Number.isFinite(x)) return x; }
   return v;
 };
-/** What a value is, as Claude Code's schema names it in "provided as `…`". */
-const kindOf = (v) => (v === undefined ? "undefined" : v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "nan" : typeof v);
 const GREP_NUMBERS = new Set(["-B", "-A", "-C", "context", "head_limit", "offset"]);
 const GREP_BOOLEANS = new Set(["-n", "-i", "-o", "multiline"]);
 /**
- * WHAT CLAUDE CODE'S SCHEMA SAYS OF AN INPUT, or "" (its GM, 2.1.323): the missing parameters, then the unexpected ones, then
- * those of the wrong type, then any other ("is invalid: …"), headed "<Tool> failed due to the following issue(s):".
+ * WHAT CLAUDE CODE'S SCHEMA SAYS OF AN INPUT, or "" (coder-zod.mjs: its strict schema's zod issues, in its w0's words, 2.1.325):
+ * the missing parameters, then the unexpected ones, then those of the wrong type, then any other ("is invalid: …"), headed
+ * "<Tool> failed due to the following issue(s):"; when only values are wrong (an output_mode it does not have), zod's own
+ * list of issues, as JSON (the owner, 2026-11-14: "Fix base on Claude Code docs, please").
  */
 function schemaProblem(tool, input, props) {
-  const missing = [], unexpected = [], wrong = [], other = [];
-  for (const [k, p] of Object.entries(props)) {
-    const v = input[k];
-    if (v === undefined) { if (k === "pattern") missing.push(k); continue; }
-    if (p.enum) { if (!p.enum.includes(v)) other.push("The parameter `" + k + "` is invalid: Invalid option: expected one of " + p.enum.map((x) => JSON.stringify(x)).join("|")); continue; }
-    const ok = p.type === "number" ? typeof v === "number" && Number.isFinite(v) : typeof v === p.type;
-    if (!ok) wrong.push("The parameter `" + k + "` type is expected as `" + p.type + "` but provided as `" + kindOf(v) + "`");
-  }
-  for (const k of Object.keys(input)) if (!has(props, k)) unexpected.push(k);
-  const lines = [...missing.map((k) => "The required parameter `" + k + "` is missing"), ...unexpected.map((k) => "An unexpected parameter `" + k + "` was provided"), ...wrong, ...other.slice(0, 20)];
-  if (other.length > 20) lines.push("(" + (other.length - 20) + " more " + (other.length - 20 === 1 ? "issue" : "issues") + " not listed)");
-  return lines.length ? tool + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n") : "";
+  const issues = zodIssues(fromJsonSchema({ type: "object", properties: props, required: ["pattern"], additionalProperties: false }), input);
+  return issues.length ? failedText(tool, issues) : "";
 }
 /** A null byte in one of these, refused in Claude Code's words ("Grep pattern cannot contain null bytes (\0). …"). */
 const nulProblem = (tool, pairs) => { const hit = pairs.find(([, s]) => typeof s === "string" && s.includes("\u0000")); return hit ? tool + " " + hit[0] + " cannot contain null bytes (\\0). Remove the null byte and try again." : ""; };
@@ -259,7 +250,9 @@ export async function runRipgrep(args, target, { cwd, timeoutMs = SEARCH_TIMEOUT
   if (r.code !== 2 && !killed && !r.capped && !odd && !/os error 11|Resource temporarily unavailable/.test(stderr) && !lines.length) throw new SearchError(SEARCH_FAILED);
   if (r.capped && !lines.length) throw new SearchError("Ripgrep output passed the " + RG_OUTPUT_MAX / 1e6 + "MB limit before a single complete line was read, so there are no usable results: at least one matching line is extremely long. Try a more specific pattern or path, or exclude very large files.");
   if (killed && !lines.length) throw new SearchError(timedOutText(timeoutMs));
-  return { lines, timedOut: killed && r.atLimit };
+  // (Results cut short by a SIGTERM or SIGKILL are marked whoever sent it, the time limit or the system (out of memory), as
+  // Claude Code marks them: "The search stopped before it finished…".)
+  return { lines, timedOut: killed };
 }
 
 // ── PATHS ────────────────────────────────────────────────────────────────────
@@ -325,7 +318,8 @@ function denyCheck(deny) {
   const seen = new Map();
   const real = (p) => { try { return realpathSync(p); } catch { return ""; } };
   return (p) => {
-    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", home: deny.home || "", sources: deny.sources || null, real }));
+    // (Path rules only: a rule on the whole Read tool is Read's own, as Claude Code's search reads them. 2026-11-14.)
+    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", home: deny.home || "", sources: deny.sources || null, real, pathOnly: true }));
     return seen.get(p);
   };
 }

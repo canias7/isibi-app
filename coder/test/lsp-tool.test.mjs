@@ -411,7 +411,7 @@ test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and
   assert.equal(pre.tool_name, "LSP");
   assert.deepEqual(pre.tool_input, { operation: "findReferences", filePath: "src/a.py", line: 1, character: 5 });
   const post = hookCalls.find((h) => h.hook_event_name === "PostToolUse");
-  assert.deepEqual(post.tool_response, { output: facts.result, code: 0, ...facts });
+  assert.deepEqual(post.tool_response, facts);
   assert.equal(cards.length, 1);
   assert.equal(cards[0].why, "Your rule Read(src/**) asks first for reading /w/shop/src/a.py.");
   assert.equal(events.find((e) => e.type === "bash" && e.id === "l1").command, "findReferences src/a.py:1:5");

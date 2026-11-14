@@ -136,10 +136,12 @@ export function fileRuleHit(list, tool, path, kind, ctx = {}) {
     const out = [...(has(S.own) ? ["own"] : []), ...(has(S.repo) ? ["repo"] : [])];
     return out.length ? out : ["session"];
   };
+  // (`ctx.pathOnly`: rules on a path only, as Claude Code's Grep, Glob and LSP read Read rules (2.1.325: its path matcher skips a
+  // rule with no path, and `Read(*)` is the bare `Read`); a rule on the whole tool is that tool's alone. `Read(**)` is a path.)
   const rules = (Array.isArray(list) ? list : []).map((t) => String(t || "").trim()).map((t) => {
     const m = /^([A-Za-z]+)(?:\(([\s\S]*)\))?$/.exec(t);
     return m && m[1] === tool ? { text: t, spec: m[2] === undefined ? null : m[2].trim(), srcs: srcsOf(t) } : null;
-  }).filter(Boolean);
+  }).filter((r) => r && !(ctx.pathOnly === true && (r.spec === null || r.spec === "*" || r.spec === "")));
   if (!rules.length) return "";
   const whole = rules.find((r) => r.spec === null || r.spec === "*" || r.spec === "**");
   if (whole) return whole.text;

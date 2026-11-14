@@ -1216,6 +1216,9 @@ function ruleWarningOf(kind, text) {
     // by file permission checks — only Edit(path) rules are. Use Edit(docs/**) instead (Edit rules cover all file-editing
     // tools)", "⚠ Deny rule Write(docs/**) never matches · use Edit(docs/**)".)
     const use = r.content !== null ? keptPathRule(r) : "";
+    // (A Grep rule on a path gets no word: Claude Code 2.1.325 warns of a path in a Write, NotebookEdit, MultiEdit or Glob rule
+    // only. The owner, 2026-11-14.)
+    if (r.tool === "Grep" && use === "Read") return null;
     if (use && use !== r.tool) {
       const instead = use + "(" + r.content + ")";
       return { warning: t + " is not matched by file permission checks — only " + use + "(path) rules are. Use " + instead + " instead (" + use + " rules cover all file-" + (use === "Edit" ? "editing" : "reading") + " tools).", notice: k === "allow" ? "" : t + " never matches · use " + instead };
@@ -1828,13 +1831,17 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
+  // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
+  // alone): a rule on the whole Read tool, `Read`, `Read(*)` or a wildcard naming Read, is Read's own. The owner, 2026-11-14.)
+  const pathOnly = tool === "grep" || tool === "glob" || tool === "lsp";
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
-  const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, edits ? "Edit" : "Read"].some((n) => toolGlobMatches(x.tool, n)); }) || "";
+  const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, ...(pathOnly ? [] : [edits ? "Edit" : "Read"])].some((n) => toolGlobMatches(x.tool, n)); }) || "";
   const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
   const p = typeof path === "string" && path ? path : root;
   // (A search's folder: the rule matches the folder, or what is in it.)
   const search = tool === "grep" || tool === "glob";
-  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...ctx, isDir: true } : ctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, ctx) : "");
+  const rctx = pathOnly ? { ...ctx, pathOnly: true } : ctx;
+  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...rctx, isDir: true } : rctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, rctx) : "");
   // DENY.
   const wd = (name !== "Read" && name !== "Edit" ? whole("deny") : "") || globWhole("deny");
   if (wd) return { verdict: "deny", rule: wd, why: "Permission to use " + name + " has been denied." };
@@ -1852,7 +1859,8 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     if (r) return { verdict: "deny", rule: r, why: "File is covered by a Read deny rule in your permission settings and cannot be " + (tool === "write" ? "written." : "edited.") };
   } else {
     const r = hit(rules.deny, "Read", "deny");
-    if (r) return { verdict: "deny", rule: r, why: isWhole(r) ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
+    // (Grep's, Glob's and LSP's go by path rules only, so a match is a path's, Read(**) too: "Permission to read …".)
+    if (r) return { verdict: "deny", rule: r, why: isWhole(r) && !pathOnly ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
   }
   // ASK (the owner's rule asks each time: no "don't ask again" for it).
   // (Grep and Glob in Claude Code's words: a Read ask rule on the path, its read check's "Claude requested permissions to read

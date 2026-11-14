@@ -86,7 +86,8 @@ test("TP3 a tool's result object reaches its PostToolUse hooks with the call's o
     tools: { grep: () => T.printedAnswer({ text: "Found 2 files\na.js\nb.js", facts }) },
   });
   const post = t.hookCalls.find((x) => x.input.hook_event_name === "PostToolUse").input;
-  assert.deepEqual(post.tool_response, { output: "Found 2 files\na.js\nb.js", code: 0, ...facts });
+  // (The result object alone, as Claude Code's PostToolUse gets: no `output` or `code` beside it. 2026-11-14.)
+  assert.deepEqual(post.tool_response, facts);
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "g1").content, "Found 2 files\na.js\nb.js");
   assert.ok(!JSON.stringify(t.events).includes("coder-facts"), "never in the chat");
 });

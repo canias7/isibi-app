@@ -167,10 +167,14 @@ test("CD495 a PostToolUse hook gets Claude Code's Bash output fields: background
   // A new output of the wrong shape: the original stays, and the chat says why.
   const o = H.hooksOutcome("PostToolUse", [{ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "[redacted]" } } } }], { tool: "Bash" });
   assert.equal(o.updatedOutput, undefined);
-  assert.equal(o.notices[0], "PostToolUse hook returned updatedToolOutput that does not match Bash's output shape; using original output. Expected an object with stdout, stderr and interrupted, received string.");
+  // (Claude Code's notice ends with zod's own message, the issues as JSON: 2.1.325, 2026-11-14.)
+  assert.equal(o.notices[0], "PostToolUse hook returned updatedToolOutput that does not match Bash's output shape; using original output. " + JSON.stringify([{ expected: "object", code: "invalid_type", path: [], message: "Invalid input: expected object, received string" }], null, 2));
   const ok = H.hooksOutcome("PostToolUse", [{ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: { stdout: "\n\nclean\n", stderr: "warn ", interrupted: false } } } } }], { tool: "Bash" });
   assert.equal(ok.updatedOutput, "clean\nwarn", "shown as Claude Code shows a result: stdout, then stderr");
-  assert.equal(H.hooksOutcome("PostToolUse", [{ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "text" } } } }], { tool: "Read" }).updatedOutput, "text", "another tool's: as before");
+  // (Every one of Claude Code's tools has its shape, Read's too (2026-11-14); a connector's (MCP) takes any value.)
+  const read = H.hooksOutcome("PostToolUse", [{ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "text" } } } }], { tool: "Read" });
+  assert.deepEqual([read.updatedOutput, read.notices[0].split("\n")[0]], [undefined, "PostToolUse hook returned updatedToolOutput that does not match Read's output shape; using original output. ["]);
+  assert.equal(H.hooksOutcome("PostToolUse", [{ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "text" } } } }], { tool: "mcp__notes__find" }).updatedOutput, "text", "a connector's: as it is");
 });
 
 test("CD496 a cd moves the folder FileChanged watches (its names in the current folder, Claude Code's \"working directory\"); the env file CwdChanged and FileChanged hooks write is cleared at every move; the owner's `!` cd runs CwdChanged too", async () => {
