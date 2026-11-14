@@ -43,7 +43,7 @@ import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searc
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, hasPreviews } from "./coder-askuser.mjs";
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
-import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS } from "./coder-envtools.mjs";
+import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
@@ -4563,7 +4563,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           emit({ type: "bash", id: c.id, tool: "environment", verb: "Listed", command: "environments" });
           const r = await ask({ action: "list", ...(c.args.limit !== undefined ? { limit: c.args.limit } : {}) });
           const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
-          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000) });
+          // (And the answer as the page draws it, a table: coder-envtools.mjs envTable, CL3 of recheck 3.)
+          const table = typeof r.text === "string" ? envTable(scrub(r.text)) : null;
+          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000), ...(table ? { envTable: table } : {}) });
           reply(text);
           continue;
         }
@@ -4572,7 +4574,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           emit({ type: "bash", id: c.id, tool: "environment", verb: "Looked up", command: id ? "environment " + scrub(id).slice(0, 60) : "this chat's environment" });
           const r = await ask({ action: "get", ...(id ? { environment_id: id } : {}) });
           const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
-          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000) });
+          const table = typeof r.text === "string" ? envTable(scrub(r.text)) : null;
+          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000), ...(table ? { envTable: table } : {}) });
           reply(text);
           continue;
         }

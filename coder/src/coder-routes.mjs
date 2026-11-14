@@ -495,6 +495,8 @@ export function hideIn(events, values) {
     if (ev && Array.isArray(ev.problems)) ev.problems = ev.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || "") } : p));
     // What the language servers reported, one row for each note Coder was given (its files' paths and problems).
     if (ev && ev.type === "diagnostics" && Array.isArray(ev.files)) ev.files = ev.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), problems: Array.isArray(f.problems) ? f.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || ""), source: hide(p.source || "") } : p)) : [] } : f));
+    // An environment lookup's answer as the page draws it, a table (CL3 of recheck 3): every text in it.
+    if (ev && ev.envTable && typeof ev.envTable === "object") { const all = (x) => (typeof x === "string" ? hide(x) : Array.isArray(x) ? x.map(all) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, all(y)])) : x); ev.envTable = all(ev.envTable); }
     // The files a command changed (their names and lines, under its step).
     if (ev && ev.files && typeof ev.files === "object") {
       if (Array.isArray(ev.files.files)) ev.files.files = ev.files.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), lines: Array.isArray(f.lines) ? f.lines.map(hide) : [] } : f));

@@ -1870,6 +1870,50 @@
     if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why cd-hookblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
     return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
   }
+  // AN ENVIRONMENT LOOKUP'S ANSWER AS A TABLE (CL3 of recheck 3, 2026-11-14, the owner said yes to a table; Claude Code 2.1.314:
+  // "[Cloud sessions] Improved cloud session transcripts: … repository and environment lists show as a table instead of one
+  // line of JSON"), in the opened step: list_environments' list one row for each environment, get_environment one row for each
+  // field, a list of rows in it (network_secrets, saved_for_session_repositories) as a table of its own under its name; the
+  // fields' own names and values, as Coder read them. More than ENVT_ROWS rows fold behind "Show N more rows". Only text, never
+  // markup.
+  const ENVT_ROWS = 10;
+  const envtObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const envtIsRows = (v) => Array.isArray(v) && v.length > 0 && v.every(envtObj);
+  /** The answer to draw: the step's table (coder-envtools.mjs envTable), or for a step from before, its output when it is whole. */
+  function envTableOf(e, r) {
+    if (!r || r.code !== 0) return null;
+    if (envtObj(r.envTable)) return r.envTable;
+    if (!e || e.tool !== 'environment' || !/^(Listed|Looked up)$/.test(String(e.verb || ''))) return null;
+    try { const v = JSON.parse(String(r.output || '')); return envtObj(v) ? v : null; } catch { return null; }
+  }
+  const envtKey = (k) => esc(k).replace(/_/g, '_<wbr>');
+  function envtCell(v, k) {
+    if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return '<span class="cd-envt-none">—</span>';
+    if (typeof v === 'string') return v.includes('\n') ? '<pre class="cd-envt-pre">' + esc(v) + '</pre>' : esc(v);
+    if (typeof v !== 'object') return esc(String(v));
+    if (envtIsRows(v)) return '<div class="cd-envt-sub">' + envtRows(v, k) + '</div>';
+    if (!Array.isArray(v)) return envtPairs(v, k);
+    return esc(v.map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', '));
+  }
+  function envtPairs(o, k) {
+    return '<table class="cd-envt-pairs"><colgroup><col class="cd-envt-kcol"><col></colgroup><tbody>' + Object.keys(o).map((f) => envtIsRows(o[f])
+      ? '<tr class="cd-envt-caprow"><th scope="row" colspan="2">' + envtKey(f) + '</th></tr><tr class="cd-envt-widerow"><td colspan="2">' + envtCell(o[f], k + '.' + f) + '</td></tr>'
+      : '<tr><th scope="row">' + envtKey(f) + '</th><td>' + envtCell(o[f], k + '.' + f) + '</td></tr>').join('') + '</tbody></table>';
+  }
+  function envtRows(list, k) {
+    const cols = [];
+    for (const o of list) for (const f of Object.keys(o)) if (!cols.includes(f)) cols.push(f);
+    const all = !!S.open[k], shown = all ? list : list.slice(0, ENVT_ROWS), more = list.length - shown.length;
+    return '<table class="cd-envt-rows"><thead><tr>' + cols.map((f) => '<th scope="col">' + envtKey(f) + '</th>').join('') + '</tr></thead><tbody>' +
+      shown.map((o, i) => '<tr>' + cols.map((f) => '<td data-k="' + esc(f) + '">' + envtCell(o[f], k + '.' + i + '.' + f) + '</td>').join('') + '</tr>').join('') + '</tbody></table>' +
+      (more ? '<button type="button" class="cd-wchg-more cd-envt-more" data-change="' + esc(k) + '">Show ' + more + ' more row' + (more === 1 ? '' : 's') + '</button>'
+        : all && list.length > ENVT_ROWS ? '<button type="button" class="cd-wchg-more cd-envt-more" data-change="' + esc(k) + '">Show less</button>' : '');
+  }
+  /** The table: a list's answer ({ environments: […] }) as its rows, any other answer as its fields. */
+  function envTableHtml(d, key) {
+    const f = Object.keys(d), k = key + ':envt';
+    return '<div class="cd-envt">' + (f.length === 1 && envtIsRows(d[f[0]]) ? envtRows(d[f[0]], k) : envtPairs(d, k)) + '</div>';
+  }
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
@@ -1891,6 +1935,7 @@
     // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
     // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
     const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
+    const table = open && r ? envTableOf(e, r) : null;
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
         stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said" title="' + esc(said) + '">' + esc(said) + '</span>' : (who ? esc(who[0]) : '') + verb) + '</span>' + (said || !what ? '' : ' <code class="cd-cmd-text">' + esc(what.split('\n')[0]) + '</code>')) +
@@ -1912,7 +1957,7 @@
       stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
-      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>' : '') +
+      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + (table ? envTableHtml(table, key) : '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>') : '') +
     '</div>';
   }
   /**
