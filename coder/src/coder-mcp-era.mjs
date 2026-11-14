@@ -198,14 +198,16 @@ async function probeOnce(url, token, id, version, { fetchFn, timeoutMs, client, 
     const www = String(res.headers.get("www-authenticate") || "");
     if (res.status === 401 || (res.status === 403 && /error="?insufficient_scope/i.test(www))) { try { if (res.body) await res.body.cancel(); } catch { /* read */ } return { kind: "auth-required", header: www }; }
     if (!res.ok) return { kind: "http-error", status: res.status, body: await res.text().catch(() => "") };
-    // (Accepted with no answer, or a reply with nothing for the probe: none comes, so it is the probe's timeout.)
-    if (res.status === 202) { try { if (res.body) await res.body.cancel(); } catch { /* read */ } return { kind: "timeout" }; }
+    // (Accepted with no answer, or a JSON reply with nothing for the probe: none comes, so Claude Code's probe waits out its
+    // bound and times out, the earlier revisions after it, as its transport answers a 202 with nothing. Round 6 follow-up.)
+    const none = () => new Promise(() => {});
+    if (res.status === 202) { try { if (res.body) await res.body.cancel(); } catch { /* read */ } return none(); }
     const type = String(res.headers.get("content-type") || "");
     if (/application\/json/i.test(type)) {
       let j;
       try { j = JSON.parse(await res.text()); } catch { return { kind: "malformed" }; }
       for (const x of Array.isArray(j) ? j : [j]) { const a = answered(x); if (a) return a; }
-      return { kind: "timeout" };
+      return none();
     }
     if (/text\/event-stream/i.test(type) && res.body && typeof res.body.getReader === "function") {
       const reader = res.body.getReader(), dec = new TextDecoder();
@@ -252,6 +254,50 @@ export async function discoverProbe(url, token, { fetchFn = fetch, timeoutMs = P
     if (v.kind === "error") throw v.error;
     return v;
   }
+}
+
+// ── WHEN CLAUDE CODE CONNECTS AGAIN ────────────────────────────────────────────────────────────────────────────────────
+
+/**
+ * THE PROTOCOL A CONNECTION FOUND, KEPT FOR ITS LATER REQUESTS (round 6 follow-up; the coordinator, for the owner's "do what
+ * claude code does"): Claude Code probes when it connects to a server and speaks what it found for the rest of that
+ * connection, until it connects again. Coder's Worker makes a connection per call, so Coder's "connect" is the reading of a
+ * connector's tools (a new connector, a sign-in, the hourly re-read, one forced by an unknown tool): the probe happens there
+ * and its verdict ("modern", "legacy", or "sse" for a server reached over the older SSE transport) is kept with the
+ * connector, and each call is a dial built from it, with no probe, as Claude Code's dials built from a verdict it holds.
+ * Claude Code drops such a verdict (its "prior") on its era classes (its ls and Jr): JSON-RPC -32022 or -32021 ("rpc_era");
+ * -32600, or -32601 to initialize or tools/list ("rpc_session"); HTTP 400, or 404 or 405 to initialize or tools/list
+ * ("http_4xx"): a 2026-07-28 verdict on any of them, an earlier one on rpc_era (a 400 whose JSON-RPC error is one included).
+ */
+export const INVALID_REQUEST = -32600, METHOD_NOT_FOUND = -32601;
+const listing = (method) => method === "initialize" || method === "tools/list";
+export function eraClass({ rpcCode, status } = {}, method = "") {
+  if (rpcCode === UNSUPPORTED_PROTOCOL || rpcCode === MISSING_CAPABILITY) return "rpc_era";
+  if (rpcCode === INVALID_REQUEST || (rpcCode === METHOD_NOT_FOUND && listing(method))) return "rpc_session";
+  if (status === 400 || ((status === 404 || status === 405) && listing(method))) return "http_4xx";
+  return "";
+}
+/** Its check of a 400's body for an era error (its wp): a JSON-RPC error -32022 or -32021 in it. */
+export function bodyEraError(body) {
+  let j = null;
+  try { j = JSON.parse(String(body || "").slice(0, 16_384)); } catch { j = null; }
+  const code = isObj(j) && isObj(j.error) ? j.error.code : undefined;
+  return code === UNSUPPORTED_PROTOCOL || code === MISSING_CAPABILITY;
+}
+/**
+ * Whether Claude Code drops a kept verdict after this failure of a request on a connection built from it (`prior`): its
+ * prior's rejection (above), or a connection it closes and makes again, which probes again: a session that expired (a 404
+ * to a request with its session, or a 400 that says "Server not initialized", "No valid session ID" or "Mcp-Session-Id
+ * header is required": its Ko), an answer it could not read (a malformed JSON-RPC message).
+ */
+export const SESSION_GONE = /Server not initialized|No valid session ID|Mcp-Session-Id header is required/i;
+export function dropsVerdict(prior, e, method, { session = false } = {}) {
+  if (!prior || !e || typeof e !== "object") return false;
+  const cls = eraClass(e, method);
+  if (prior === "modern" && cls) return true;
+  if (prior === "legacy" && (cls === "rpc_era" || (listing(method) && e.status === 400 && bodyEraError(e.body)))) return true;
+  if ((e.status === 404 && session) || (e.status === 400 && SESSION_GONE.test(String(e.body || "")))) return true;
+  return e.unreadable === true;
 }
 
 // ── RESULTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────

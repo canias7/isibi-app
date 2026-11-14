@@ -14,6 +14,7 @@ const W = await import("../src/coder-elicit.mjs");
 const E = await import("../container/coder-elicit.mjs");
 const A = await import("../container/coder-agent.mjs");
 const ERA = await import("../src/coder-mcp-era.mjs");
+const { seal } = await import("../src/coder-github.mjs");
 const { modelPass } = await import("../src/coder-model-gate.mjs");
 
 const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://jessica.gofarther.dev" };
@@ -950,7 +951,7 @@ test("EL21 (round 6) MCP tasks, as Claude Code 2.1.325's cloud sessions run them
 
 // ── MCP 2026-07-28, AS CLAUDE CODE 2.1.325 SPEAKS IT (round 6; the owner: "do what claude code does") ──────────────────
 
-test("EL22 (round 6) Claude Code's probe for MCP 2026-07-28: before anything else a server/discover (id server-discover-probe-1, its _meta the version, Coder's clientInfo and capabilities; headers MCP-Protocol-Version: 2026-07-28 and Mcp-Method, the sign-in, no session); a valid DiscoverResult listing 2026-07-28 makes the session that revision's (no initialize, no GET); anything else is a server of the earlier revisions and initialize follows: another reply or error, a 4xx or 5xx, 202, a reply to another id or one it can't read, a stream that ends, no answer within 5 s, a failure; -32022 naming 2026-07-28 is asked once more, naming only another new revision ends it; a 401 (or 403 insufficient_scope) is a sign-in", async () => {
+test("EL22 (round 6) Claude Code's probe for MCP 2026-07-28: before anything else a server/discover (id server-discover-probe-1, its _meta the version, Coder's clientInfo and capabilities; headers MCP-Protocol-Version: 2026-07-28 and Mcp-Method, the sign-in, no session); a valid DiscoverResult listing 2026-07-28 makes the session that revision's (no initialize, no GET); anything else is a server of the earlier revisions and initialize follows: another reply or error, a 4xx or 5xx, a reply to another id or one it can't read, a stream that ends, a failure at once; 202, a reply with nothing for it, or no answer, after its 5 s bound; -32022 naming 2026-07-28 is asked once more, naming only another new revision ends it; a 401 (or 403 insufficient_scope) is a sign-in", async () => {
   assert.deepEqual([ERA.MODERN_VERSION, ERA.PROBE_TIMEOUT_MS, ERA.PROBE_ID], ["2026-07-28", 5000, "server-discover-probe-"]);
   // What it sends.
   const s = dual();
@@ -981,7 +982,8 @@ test("EL22 (round 6) Claude Code's probe for MCP 2026-07-28: before anything els
     ["a 405", new Response("no", { status: 405 }), "legacy"],
     ["a 500", new Response("down", { status: 500 }), "legacy"],
     ["a plain 403", new Response("no", { status: 403 }), "legacy-403"],
-    ["202 and no answer", new Response(null, { status: 202 }), "legacy"],
+    ["202 and no answer (after the probe's bound, as Claude Code's probe waits it out)", new Response(null, { status: 202 }), "legacy", true],
+    ["a JSON reply with nothing for the probe (after its bound)", asJson({ jsonrpc: "2.0", method: "notifications/message", params: { level: "info", data: "hi" } }), "legacy", true],
     ["JSON it can't read", new Response("{not json", { headers: { "content-type": "application/json" } }), "legacy"],
     ["a reply to another id", asJson({ jsonrpc: "2.0", id: 7, result: MODERN_OK }), "legacy"],
     ["a stream that ends with no answer", new Response(": nothing\n\n", { headers: { "content-type": "text/event-stream" } }), "legacy"],
@@ -989,17 +991,20 @@ test("EL22 (round 6) Claude Code's probe for MCP 2026-07-28: before anything els
     ["another kind of answer", new Response("<html></html>", { headers: { "content-type": "text/html" } }), "legacy"],
     ["a failure", () => { throw new TypeError("fetch failed"); }, "legacy"],
   ];
-  for (const [why, d, era] of cases) {
+  for (const [why, d, era, waits = false] of cases) {
     const x = dual({ discover: d });
+    const t1 = Date.now();
     if (era === "legacy-403") {
       const f = async (u, i) => (JSON.parse(i.body).method === "server/discover" ? x.fetchFn(u, i) : new Response("no", { status: 403 }));
       await assert.rejects(M.mcpSession(MCP_URL, "", [["tools/list", {}]], { fetchFn: async (u, i) => { const r = await f(u, i); if (JSON.parse(i.body).method !== "server/discover") x.seen.push({ msg: JSON.parse(i.body) }); return r; } }), (e) => e instanceof M.NeedsSignIn, why);
       assert.deepEqual(x.seen.map((y) => y.msg.method), ["server/discover", "initialize"], why + ": the earlier handshake's 403 is the sign-in");
       continue;
     }
-    const r = await M.mcpSession(MCP_URL, "", [["tools/list", {}]], { fetchFn: x.fetchFn });
+    const r = await M.mcpSession(MCP_URL, "", [["tools/list", {}]], { fetchFn: x.fetchFn, probeMs: 120 });
     assert.equal(r.era, era, why);
     assert.deepEqual(x.seen.map((y) => y.msg.method), era === "modern" ? ["server/discover", "tools/list"] : legacyRun, why);
+    if (waits) assert.ok(Date.now() - t1 >= 110, why + ": waited");
+    else assert.ok(Date.now() - t1 < 110, why + ": at once");
   }
   // No answer within its bound (5 s; here 30 ms): the earlier revisions, the probe's request ended.
   const slow = dual({ discover: (m, init) => new Promise((ok) => init.signal.addEventListener("abort", () => ok(new Response(null, { status: 499 })), { once: true })) });
@@ -1075,7 +1080,7 @@ test("EL23 (round 6) a 2026-07-28 session, as Claude Code's client speaks it: ev
   const mc = machine(async () => ({ result: { action: "accept", content: { project: "X" } } }));
   const r = await M.callTool(env, b, "u1", added.connector.id, "streamy", {}, { fetchFn: s.fetchFn, ask: mc.ask });
   assert.deepEqual([r, streamed], [{ text: "streamed", isError: false }, 1]);
-  assert.deepEqual(s.seen.slice(before).map((x) => x.msg.method), ["server/discover", "tools/call"], "no answer POSTed");
+  assert.deepEqual(s.seen.slice(before).map((x) => x.msg.method), ["tools/call"], "no answer POSTed (and no probe: the connection Coder keeps, EL27)");
   assert.equal(mc.lines.length, 0, "no card");
   // A prompt's and a resource's Mcp-Name; tasks/* would carry the task's id.
   const p = dual({ modern: ({ msg }) => (msg.method === "prompts/get" ? { messages: [{ role: "user", content: { type: "text", text: "go" } }] } : { contents: [] }) });
@@ -1216,4 +1221,178 @@ test("EL26 (round 6) a display name on the cards, as Claude Code sends its cloud
   assert.match(elicitHTML(ev, 0), /<b>Which project\?<\/b><span class="cd-perm-dn" title="Linear issue">Linear issue<\/span><\/div><p class="cd-el-sub">Pick one\.<\/p>/);
   assert.doesNotMatch(elicitHTML({ ...ev, displayName: "  " }, 0), /cd-perm-dn/);
   assert.match(readFileSync(new URL("../public/coder.css", import.meta.url), "utf8"), /\.cd-perm-dn \{[^}]*margin-left: auto;/);
+});
+
+// ── ONE PROBE A CONNECTION (round 6 follow-up: the coordinator, for the owner's "do what claude code does") ─────────────
+
+/**
+ * A STAND-IN SERVER WHOSE PROTOCOL CAN CHANGE (`state.mode`: "modern" speaks only 2026-07-28, "legacy" only 2025-11-25):
+ * `seen` the methods POSTed, `take()` them and start again; `state.paged` gives tools/list a second page, `state.caps` the
+ * capabilities, `state.auth` the only token it takes (else 401), `state.hook({ msg, modern })` answers first when it gives a
+ * Response. Its sign-in server's token endpoint gives the token "fresh".
+ */
+function switchable(state) {
+  const seen = [];
+  const json = (o, status = 200, h = {}) => new Response(JSON.stringify(o), { status, headers: { "content-type": "application/json", ...h } });
+  const fetchFn = async (url, init = {}) => {
+    if (String(url).startsWith("https://auth.example.com/token")) return json({ access_token: "fresh", refresh_token: "r2", expires_in: 3600 });
+    if ((init.method || "GET") === "GET") return new Response(null, { status: 405 });
+    const msg = JSON.parse(init.body), h = init.headers || {};
+    seen.push(msg.method);
+    if (state.auth && h.authorization !== "Bearer " + state.auth) return new Response("no", { status: 401, headers: { "www-authenticate": "Bearer" } });
+    const modern = !!(msg.params && msg.params._meta && msg.params._meta["io.modelcontextprotocol/protocolVersion"]);
+    if (state.hook) { const r = await state.hook({ msg, modern }); if (r) return r; }
+    if (msg.method === "server/discover") return state.mode === "legacy" ? new Response("Bad Request: Server not initialized", { status: 400 }) : json({ jsonrpc: "2.0", id: msg.id, result: { supportedVersions: ["2026-07-28"], capabilities: state.caps || { tools: {} } } });
+    if (!("id" in msg)) return new Response(null, { status: 202 });
+    if (msg.method === "initialize") return state.mode === "modern" ? json({ jsonrpc: "2.0", id: msg.id, error: { code: -32022, message: "Unsupported protocol version", data: { supported: ["2026-07-28"] } } }, 400) : json({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "2025-11-25", capabilities: state.caps || { tools: {} } } }, 200, { "mcp-session-id": "s1" });
+    if (state.mode === "modern" && !modern) return new Response("Bad Request", { status: 400 });
+    if (state.mode === "legacy" && modern) return new Response("Bad Request: Server not initialized", { status: 400 });
+    const R = (result) => json({ jsonrpc: "2.0", id: msg.id, result });
+    if (msg.method === "tools/list") { const two = msg.params && msg.params.cursor === "p2"; return R({ tools: [{ name: two ? "t2" : "t", inputSchema: { type: "object" } }], ...(state.paged && !two ? { nextCursor: "p2" } : {}) }); }
+    if (msg.method === "prompts/list") return R({ prompts: [{ name: "triage", arguments: [] }] });
+    if (msg.method === "resources/list") return R({ resources: [] });
+    if (msg.method === "prompts/get") return R({ messages: [{ role: "user", content: { type: "text", text: "triage now" } }] });
+    return R({ content: [{ type: "text", text: "ok " + state.mode }] });
+  };
+  return { fetchFn, seen, take: () => seen.splice(0) };
+}
+const verdict = async (b) => (await M.readConnectors(b, "u1"))[0].era;
+
+test("EL27 (round 6 follow-up) one probe a connection, as Claude Code probes when it connects and keeps what it found for that connection: Coder's connect is the reading of a connector's tools (a new connector, a sign-in, the hourly re-read): its first page probes, and its verdict (2026-07-28, the earlier revisions, or the older SSE transport) is kept with the connector; its other pages, the prompts' and resources' lists, and each later call (a tool call, an mcp_tool hook's, a prompt, a resource) use it with no probe; a re-read probes again; a connector read before this probes at its first call and keeps what it found", async () => {
+  // 2026-07-28: probed once, at the read; its calls go straight to the server.
+  const st = { mode: "modern", paged: true, caps: { tools: {}, prompts: {}, resources: {} } }, s = switchable(st), b = memBucket();
+  const a = await M.addConnector(env, b, "u1", { name: "Linear", url: MCP_URL, fetchFn: s.fetchFn });
+  assert.deepEqual(s.take(), ["server/discover", "tools/list", "tools/list", "prompts/list", "resources/list"], "one probe: the other page and the lists on what it found");
+  assert.deepEqual([a.connector.era, await verdict(b), a.connector.tools.map((t) => t.name)], ["modern", "modern", ["t", "t2"]]);
+  assert.equal(M.connectorOut((await M.readConnectors(b, "u1"))[0]).era, undefined, "not shown on the page");
+  for (let k = 0; k < 2; k++) assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok modern", isError: false });
+  assert.deepEqual(s.take(), ["tools/call", "tools/call"], "no probe");
+  // A prompt and an mcp_tool hook's call: on the same connection.
+  assert.match((await M.expandConnectorRefs(env, b, "u1", "/linear:triage", { fetchFn: s.fetchFn })).text, /triage now$/);
+  const { map } = M.toolsFor(await M.readConnectors(b, "u1"));
+  await M.keepJobTools(b, "u1", "chat-27", 3, map);
+  assert.deepEqual(await M.hookCall(env, b, "u1", "chat-27", 3, { turn: 3 }, { server: "Linear", tool: "t", args: {}, timeoutMs: 5000 }, { fetchFn: s.fetchFn }), { ok: true, body: "ok modern" });
+  assert.deepEqual(s.take(), ["prompts/get", "tools/call"]);
+  // The hourly re-read (here forced) is a new connection: probed again, its verdict kept.
+  assert.equal(await M.refreshTools(env, b, "u1", { fetchFn: s.fetchFn, force: true }), true);
+  assert.deepEqual(s.take()[0], "server/discover");
+  // The earlier revisions: probed once at the read; each call has its handshake (the Worker's connection is per call) and no probe.
+  const ol = switchable({ mode: "legacy" }), b2 = memBucket();
+  const a2 = await M.addConnector(env, b2, "u1", { name: "Linear", url: MCP_URL, fetchFn: ol.fetchFn });
+  assert.deepEqual([ol.take(), a2.connector.era], [["server/discover", "initialize", "notifications/initialized", "tools/list"], "legacy"]);
+  await M.callTool(env, b2, "u1", a2.connector.id, "t", {}, { fetchFn: ol.fetchFn });
+  await M.callTool(env, b2, "u1", a2.connector.id, "t", {}, { fetchFn: ol.fetchFn });
+  assert.deepEqual(ol.take(), ["initialize", "notifications/initialized", "tools/call", "initialize", "notifications/initialized", "tools/call"]);
+  // A connector read before this keeps no verdict: its first call probes and keeps what it found; the next doesn't.
+  const list = await M.readConnectors(b, "u1");
+  delete list[0].era;
+  await M.writeConnectors(b, "u1", list);
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  assert.deepEqual([s.take(), await verdict(b)], [["server/discover", "tools/call", "tools/call"], "modern"]);
+  // The older SSE transport, found at the read (a server that refuses Streamable HTTP with 405): its calls go over it at once.
+  const posted = [];
+  let sseUp = true;
+  const sseServer = async (url, init = {}) => {
+    const u = String(url);
+    if ((init.method || "GET") === "GET") { if (!sseUp) return new Response("down", { status: 503 }); const body = new ReadableStream({ start(c) { c.enqueue(enc.encode("event: endpoint\ndata: /messages?sid=1\n\n")); sseServer.c = c; } }); return new Response(body, { headers: { "content-type": "text/event-stream" } }); }
+    const msg = JSON.parse(init.body);
+    posted.push((u.includes("/messages") ? "sse " : "") + msg.method);
+    if (!u.includes("/messages")) return new Response(null, { status: 405 });
+    if ("id" in msg && "method" in msg) setTimeout(() => sseServer.c.enqueue(enc.encode("event: message\ndata: " + JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: msg.method === "initialize" ? { protocolVersion: "2025-11-25", capabilities: { tools: {} } } : msg.method === "tools/list" ? { tools: [{ name: "t", inputSchema: { type: "object" } }] } : textOf("over sse") }) + "\n\n")), 5);
+    return new Response(null, { status: 202 });
+  };
+  const b3 = memBucket();
+  const a3 = await M.addConnector(env, b3, "u1", { name: "Old", url: MCP_URL, fetchFn: sseServer });
+  assert.equal(a3.connector.era, "sse");
+  posted.length = 0;
+  assert.deepEqual(await M.callTool(env, b3, "u1", a3.connector.id, "t", {}, { fetchFn: sseServer }), { text: "over sse", isError: false });
+  assert.deepEqual(posted, ["sse initialize", "sse notifications/initialized", "sse tools/call"], "no probe, no Streamable HTTP first");
+  // Its connection failing: dropped, so the next call connects again from the start.
+  sseUp = false;
+  assert.equal((await M.callTool(env, b3, "u1", a3.connector.id, "t", {}, { fetchFn: sseServer })).isError, true);
+  assert.equal(await verdict(b3), undefined);
+});
+
+test("EL29 (round 6 follow-up) the hourly re-read keeps the protocol only of the connectors it read again: another's, changed by a call meanwhile (here dropped), is not put back from the list it started with", async () => {
+  const A = "https://a.example.com/mcp", B = "https://b.example.com/mcp", b = memBucket();
+  const sa = { mode: "modern" }, sb = { mode: "modern" }, ka = switchable(sa), kb = switchable(sb);
+  const fetchFn = (url, init) => (String(url).startsWith(A) ? ka.fetchFn : kb.fetchFn)(url, init);
+  const a = await M.addConnector(env, b, "u1", { name: "Alpha", url: A, fetchFn });
+  const c2 = await M.addConnector(env, b, "u1", { name: "Beta", url: B, fetchFn });
+  const era = async (id) => (await M.readConnectors(b, "u1")).find((x) => x.id === id).era;
+  assert.deepEqual([await era(a.connector.id), await era(c2.connector.id)], ["modern", "modern"]);
+  // Alpha's list is over an hour old; while it is read again, a call on Beta drops Beta's verdict.
+  const list = await M.readConnectors(b, "u1");
+  list.find((x) => x.id === a.connector.id).toolsAt = 0;
+  await M.writeConnectors(b, "u1", list);
+  sa.hook = async ({ msg }) => {
+    if (msg.method !== "server/discover") return null;
+    const now = await M.readConnectors(b, "u1");
+    delete now.find((x) => x.id === c2.connector.id).era;
+    await M.writeConnectors(b, "u1", now);
+    return null;
+  };
+  ka.take(); kb.take();
+  assert.equal(await M.refreshTools(env, b, "u1", { fetchFn }), true);
+  assert.deepEqual([ka.take()[0], kb.take()], ["server/discover", []], "only Alpha read again");
+  assert.deepEqual([await era(a.connector.id), await era(c2.connector.id)], ["modern", undefined]);
+});
+
+test("EL28 (round 6 follow-up) when the kept verdict goes, as Claude Code drops a verdict it holds or connects again (its era classes: -32022 or -32021; -32600, or -32601 to initialize or tools/list; HTTP 400, or 404 or 405 to initialize or tools/list): an earlier-revision dial whose handshake fails is made again at once with the probe (its verdict replaced, or kept when the failure isn't one of those); on a 2026-07-28 verdict a call answered with one of them fails and the next call probes, an ordinary error keeps it; on an earlier one -32022 or -32021 drops it; a session that expired, an answer it can't read, or a sign-in refreshed (a new connection) probe again", async () => {
+  // An earlier-revision verdict, the server now only 2026-07-28 (initialize refused with -32022): the same call probes at once and goes on.
+  const st = { mode: "legacy" }, s = switchable(st), b = memBucket();
+  const a = await M.addConnector(env, b, "u1", { name: "Linear", url: MCP_URL, fetchFn: s.fetchFn });
+  s.take();
+  st.mode = "modern";
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok modern", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["initialize", "server/discover", "tools/call"], "modern"]);
+  // A 2026-07-28 verdict, the server now only the earlier revisions (a call answered with a plain 400): the call fails; the next probes.
+  st.mode = "legacy";
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "error: the MCP server answered 400", isError: true });
+  assert.equal(await verdict(b), undefined, "dropped");
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok legacy", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["tools/call", "server/discover", "initialize", "notifications/initialized", "tools/call"], "legacy"]);
+  // A handshake that fails otherwise (an initialize result it can't take): made again with the probe, the verdict kept.
+  let bad = 1;
+  st.hook = ({ msg }) => (msg.method === "initialize" && bad-- > 0 ? new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result: { protocolVersion: "1999-01-01", capabilities: {} } }), { headers: { "content-type": "application/json" } }) : null);
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok legacy", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["initialize", "server/discover", "initialize", "notifications/initialized", "tools/call"], "legacy"]);
+  // On an earlier-revision verdict: -32022 to a call drops it; a session that expired (404 with it) too; an ordinary error doesn't.
+  const answer = (code, status = 200) => ({ msg }) => (msg.method === "tools/call" ? new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code, message: "said " + code } }), { status, headers: { "content-type": "application/json" } }) : null);
+  st.hook = answer(-32602);
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  assert.equal(await verdict(b), "legacy", "an ordinary error keeps it");
+  st.hook = answer(-32022);
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "error: the MCP server said: said -32022", isError: true });
+  assert.equal(await verdict(b), undefined);
+  st.hook = null;
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  st.hook = ({ msg }) => (msg.method === "tools/call" ? new Response("Session not found", { status: 404 }) : null);
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  assert.equal(await verdict(b), undefined, "a session that expired");
+  // On a 2026-07-28 verdict: -32600 or -32021 drops it, -32602 doesn't; an answer it can't read drops it.
+  st.mode = "modern"; st.hook = null;
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  for (const [hook, kept] of [[answer(-32602), "modern"], [answer(-32600), undefined], [answer(-32021, 400), undefined], [({ msg }) => (msg.method === "tools/call" ? new Response("{oops", { headers: { "content-type": "application/json" } }) : null), undefined]]) {
+    st.hook = null;
+    await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+    assert.equal(await verdict(b), "modern");
+    st.hook = hook;
+    await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+    assert.equal(await verdict(b), kept);
+  }
+  // A sign-in refreshed after a 401 is a new connection: the call made again probes, as Claude Code's reconnect.
+  st.hook = null;
+  await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  const list = await M.readConnectors(b, "u1");
+  list[0].auth = "oauth";
+  list[0].box = await seal(env, { oauth: { access: "old", refresh: "r1", expires: Date.now() + 3_600_000, client: { id: "c1", secret: "" }, endpoint: "https://auth.example.com/token", resource: MCP_URL } });
+  await M.writeConnectors(b, "u1", list);
+  st.auth = "fresh";
+  s.take();
+  assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok modern", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["tools/call", "server/discover", "tools/call"], "modern"]);
+  // The words that say when: Claude Code's classes.
+  assert.deepEqual([ERA.eraClass({ rpcCode: -32022 }), ERA.eraClass({ rpcCode: -32021 }), ERA.eraClass({ rpcCode: -32600 }), ERA.eraClass({ rpcCode: -32601 }, "tools/call"), ERA.eraClass({ rpcCode: -32601 }, "tools/list"), ERA.eraClass({ status: 400 }), ERA.eraClass({ status: 404 }, "tools/call"), ERA.eraClass({ status: 405 }, "initialize"), ERA.eraClass({ rpcCode: -32602 })], ["rpc_era", "rpc_era", "rpc_session", "", "rpc_session", "http_4xx", "", "http_4xx", ""]);
 });
