@@ -17,6 +17,37 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Coder's tools copied from Claude Code, and Coder's typewriter logo (your words: "start fixing and filling in gaps on those tools", "Do all the talk to you tools execpt for the notify one", and "make it in code, not an image")
+
+On my branch, not merged or deployed yet. Nine helpers copied Claude Code's tools from its docs (and, where the docs say nothing, from Claude Code's own program), a tenth made the logo, and I put their work together. All 926 tests pass on my side.
+
+**What changed, tool by tool:**
+
+1. **grep and glob** are Claude Code's Grep and Glob: the same inputs, the same output in the same order, the same limits (250 results a page for grep, 100 files for glob) and the same notes when a result is cut.
+2. **lsp** (going to a function's definition, finding where it is used, and so on) is Claude Code's LSP tool, for TypeScript, JavaScript and Python. Its language servers now stay running for the chat, so the second question is fast. After Coder edits a file, the problems the server finds are told to Coder the way Claude Code tells them.
+3. **web_fetch** reads a web page the way Claude Code's WebFetch does: same redirects, same Markdown, a 15-minute copy of each page, and a big page can be read in parts. Kept as you said: it still refuses private network addresses, and the page reader still ignores instructions written in a page.
+4. **web search** is now its own tool, like Claude Code's WebSearch. Each search is its own Grok call. A chat can do 200 searches, refilling about 100 an hour.
+5. **ask_user** (the question card) is Claude Code's AskUserQuestion. The big change: the card now waits while Coder works, like Claude Code's. Your answer goes straight back to Coder in the same turn, instead of as a new message.
+6. **The checklist:** Claude Code on the web has four task tools (create, look up, list, update) instead of one todo list, so Coder now has those four. The list is kept for the chat between messages. Gloopy keeps its own todo.
+7. **Plan mode** is Claude Code's: Coder writes its plan in a plan file (kept beside the chat, never on your branch), and the plan card shows that file. You can edit the plan on the card before you approve it, and your edit is saved.
+8. **request_secret** (the API key card) uses Claude Code's exact words, and the card now waits in the turn: once you save the key, Coder goes on right away.
+9. **propose_env is gone.** Coder now has Claude Code's four environment tools instead: look up the environment, change it, make a new one, and move the chat to another one. Every change still shows you a card first, showing exactly what changes, and Coder's server checks it again when you approve.
+10. **Coder's logo** is a small typewriter drawn in code. It's in Coder's tab on the left (in place of the laptop picture), beside the chat's name, and big in an empty chat. It types while Coder works: the keys go down, the type bar hits the paper, the carriage moves, and the lever sends it back at the end of each line.
+
+**Two small fixes I made while putting them together:**
+
+- The website side of Coder could not have started: the plan helper's file needed something only Coder's machine has. I split that file in two so the website only loads the words.
+- A refused environment step showed its name twice ("update_environment update_environment"). It shows it once now.
+
+**For you to decide (Coder differs from Claude Code here):**
+
+1. Plan mode tells Coder one line of our own: "If the owner only asked a question, answer it in words, without a plan." Claude Code doesn't have it. Keep it or take it out?
+2. Making a new environment still takes Coder's own network choice (none, limited or full). Claude Code's version doesn't have that choice. Keep it or take it out?
+3. A web search can name at most 5 sites to stick to or skip. That's Grok's limit; Claude Code has none.
+4. The logo also types one line when you point at it or click it (it types on its own while Coder works). Keep that?
+
+**Cost:** what Grok reads about the tools on every call grew from about 20,000 to about 65,000 characters (about 11,000 more tokens a call). The four environment tools are about 27,000 of that, because Claude Code's descriptions for them are long. Grok's prompt cache makes the repeated part cheaper. And each web search is now a separate Grok call.
+
 ## 2026-11-13: Fixes 1, 2 and 3 and the docs page are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
 
 - **Deployed:** deploy 184, from main. It worked the first time (7 minutes).
