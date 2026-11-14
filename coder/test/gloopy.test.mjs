@@ -29,7 +29,7 @@ test("GL1 (2026-11-09) Gloopy's turn is sent with Gloopy's own instructions and 
   assert.match(g.seen[0].messages[0].content, /\n\nNOTES$/, "with its context after them");
   assert.deepEqual(g.seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES].sort());
   // (request_secret is Gloopy's too since 2026-11-09, the owner's "4": its own key card.)
-  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "propose_env", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
+  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "get_environment", "update_environment", "create_environment", "switch_environment", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
   // Coder, with no options: as before.
   const c = scripted([say("Done.")]);
   await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }) }, { text: "hello" });

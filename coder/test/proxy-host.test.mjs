@@ -306,7 +306,7 @@ test("CD286 (tool 4, changelog pass; Claude Code 2.1.224 and 2.1.251: a blocked 
   const { blockedNote } = await import("../container/coder-proxy.mjs");
   assert.equal(blockedNote([]), "");
   assert.equal(blockedNote([{ host: "example.com", why: "on the blocked sites list" }]), "Blocked by this chat's network list while this command ran: example.com (on the blocked sites list). A site on the blocked sites list is refused whatever the network setting allows: don't retry it or propose allowing it; only the owner can take it off that list.");
-  assert.equal(blockedNote([{ host: "other.example.net", why: "not on the network list" }]), "Blocked by this chat's network list while this command ran: other.example.net (not on the network list). If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None.");
+  assert.equal(blockedNote([{ host: "other.example.net", why: "not on the network list" }]), "Blocked by this chat's network list while this command ran: other.example.net (not on the network list). If the work needs one, ask the owner to allow it with update_environment (add_allowed_hosts), unless network access is None.");
   assert.match(blockedNote([{ host: "a.example", why: "not on the network list" }, { host: "example.com", why: "on the blocked sites list" }]), /None; one on the blocked sites list stays refused whatever is allowed, and only the owner can take it off that list\.$/);
   assert.equal(blockedNote(Array.from({ length: 12 }, (_, i) => ({ host: "h" + i + ".example", why: "not on the network list" }))).split("(not on").length - 1, 10, "ten at most");
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");

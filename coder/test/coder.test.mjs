@@ -17,10 +17,16 @@ import { execIn, createApp, prepareRepo, pushRepo, gitIn } from "../container/se
 import { handleCoder, projectIdFor, commitTitle } from "../src/coder-routes.mjs";
 import { makeState, readState, seal, unseal, saveConnection, userToken, signInUrl } from "../src/coder-github.mjs";
 import { coderModel, coderSend } from "../container/coder-model.mjs";
+import { envAnswer, APPLIES_TO } from "../container/coder-envtools.mjs";
 
 const call = (name, args, id = name + Math.random().toString(36).slice(2, 7)) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
+// CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, coder-envtools.mjs): Coder's server answers them; here the same answers on a
+// made-up state, this chat on "Default" with `script` as its setup script.
+const envApi = (script = "", more = {}) => async (body) => envAnswer({ envId: "default", list: [{ id: "default", name: "Default", repos: [] }], data: { default: { script, vars: {}, secrets: [], network: { mode: "trusted", hosts: [], defaults: true } } }, repos: ["ana/shop"], ...more }, body);
+/** update_environment's input for a new setup script on this chat's "Default" (`current`: the script there now). */
+const setupArgs = (script, current = "", reason = "r") => ({ environment_name: "Default", applies_to: APPLIES_TO, reason, setup_script: script, script_change: String(current).trim() ? "replaces the existing setup script" : "adds a setup script" });
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
 test("CD1 dangerous commands are refused with the reason; ordinary ones run", async () => {
@@ -84,7 +90,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -103,7 +109,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -452,7 +458,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   // (2026-11-09: in Gloopy's chat, the files attached go with it too, by their ids.)
   assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1760,29 +1766,31 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
     assert.match(out, /key=\[\]/, "no variable in the setup script");
     const bad = await m.run({ setup: { script: "echo starting; npm-nope ci" } });
     assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
-    assert.match(JSON.stringify(m.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*propose_env \(kind setup_script\)/);
+    assert.match(JSON.stringify(m.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*update_environment \(setup_script\)/);
   } finally { await m.close(); }
 });
 
-test("CD68 (owner '2' '3' '5') propose_env: a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
-  const turns = [say("", [call("propose_env", { kind: "allow_host", host: "https://x", reason: "r" })]), say("", [call("propose_env", { kind: "setup_script", script: "npm ci\n", reason: "The tests need the packages." }), call("bash", { command: "echo never" })])];
+test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment in place of propose_env) a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
+  const turns = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["https://x"] })]), say("", [call("update_environment", setupArgs("npm ci\n", "", "The tests need the packages.")), call("bash", { command: "echo never" })])];
   let n = 0; const seen = []; const events = [];
   const ranNpm = [{ role: "assistant", content: "", tool_calls: [{ id: "n1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm ci" }) } }] }, { role: "tool", tool_call_id: "n1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { messages: ranNpm, text: "set it up" });
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), envApi: envApi() }, { messages: ranNpm, text: "set it up" });
   assert.equal(r.status, "done");
   const { at, ...card } = events.find((e) => e.type === "envchange");
-  assert.deepEqual(card, { type: "envchange", kind: "setup_script", script: "npm ci", reason: "The tests need the packages." });
-  assert.match(JSON.stringify(seen[1].messages), /one exact public host name/);
+  assert.deepEqual([card.kind, card.tool, card.name, card.appliesTo, card.change.script], ["update", "update_environment", "Default", APPLIES_TO, { change: "adds a setup script", text: "npm ci\n" }]);
+  assert.equal(card.args.reason, "The tests need the packages.", "the reason stays with the call; the card never shows it");
+  assert.match(JSON.stringify(seen[1].messages), /is not an exact lowercase host name/);
   assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false);
   const ev2 = []; let k = 0;
-  const t2 = [say("", [call("propose_env", { kind: "allow_host", host: "api.example.com", reason: "r" })]), say("ok", [])];
-  await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "x", github: true });
+  const t2 = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["api.example.com"] })]), say("ok", [])];
+  await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi() }, { text: "x", github: true });
   assert.equal(ev2.some((e) => e.type === "envchange"), false, "not from GitHub");
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /changed only with propose_env[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
+  assert.match(CODER_SYSTEM, /changed only with update_environment, create_environment or switch_environment[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /e\.type === 'envchange'/);
-  assert.match(ui, /network: \{ add: \[x\.host\] \}/);
+  assert.match(ui, /network: \{ add: \[x\.host\] \}/, "an older chat's card still works");
+  assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/envchange', \{ method: 'POST', body: JSON\.stringify\(\{ tool: x\.tool, args: x\.args, shown: x \}\) \}\)/);
 });
 
 test("CD69 (owner '4') the network list: saved per repo, sent to the machine; the proxy blocks other sites when limited and lets listed, package and keyed sites through", async () => {
@@ -1886,8 +1894,8 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
 
 test("CD73 (owner '2', live test; Claude Code's rule since 2026-11-13) after an install this job ran and saw work, when this chat's environment has no setup script, Coder is reminded once to offer it on the card; not when the environment has a setup script (Claude Code offers one only when there is none), nor for an install that was refused or failed", async () => {
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "New chats need the packages." })])];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "" });
+  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("update_environment", setupArgs("npm install", "", "New chats need the packages."))])];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e), envApi: envApi() }, { text: "use is-number", setupScript: "" });
   assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install` and it worked, and this chat's environment has no setup script/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
@@ -1935,9 +1943,9 @@ test("CD74 live test (2026-11-06): installed packages and caches are never commi
   const a = await send({ model: "grok-4.7", messages: [], tools: [] });
   assert.equal(a.message.content, "I'll look it up.\n\n- Keep it short");
   // the words said before a card are the summary (the commit title)
-  let n = 0; const t = [say("Added check.js; it prints true then false.", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "r" })])];
+  let n = 0; const t = [say("Added check.js; it prints true then false.", [call("update_environment", setupArgs("npm install"))])];
   const ranInstall = [{ role: "assistant", content: "", tool_calls: [{ id: "i1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm install" }) } }] }, { role: "tool", tool_call_id: "i1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { messages: ranInstall, text: "x" });
+  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }), envApi: envApi() }, { messages: ranInstall, text: "x" });
   assert.equal(r.summary, "Added check.js; it prints true then false.");
 });
 
@@ -2095,28 +2103,29 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
   for (const bad of ["sudo systemctl restart x", "apt-get install -y jq", "echo ok\napt install jq", "apk add jq", "dnf install -y jq", "(sudo make install)"]) assert.ok(NEEDS_ROOT_RE.test(bad), bad);
   for (const ok of ["echo \"setup ok\" > setup-ran.txt", "npm ci", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt", "echo adapter capture apt-ish", "pip install -e ."]) assert.ok(!NEEDS_ROOT_RE.test(ok), ok);
   // Told up front: which lines get admin, Claude Code's tried-lines rule, and its way of handling a failed setup.
-  const tool = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "propose_env"));
+  const tool = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "update_environment"));
   assert.match(tool, /plain lines like `apt-get install -y jq` \(Coder's app installs those as admin\)/);
-  assert.match(tool, /only add lines you ran yourself in this chat and saw work/);
+  assert.match(tool, /Lines you add must be commands you ran yourself in this chat and saw work/);
   assert.match(CODER_SYSTEM, /when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
   assert.match(CODER_SYSTEM, /carry on with whatever does not depend on it, and never stand in for the missing part with made-up results/);
   // Another admin command is refused with the way that works; the plain package line then goes on the card.
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo systemctl restart postgresql", reason: "pg" })]), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo apt-get update && sudo apt-get install -y jq", reason: "jq for every chat" })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "add jq to the setup script", setupScript: "echo \"setup ok\" > setup-ran.txt" });
+  const was = "echo \"setup ok\" > setup-ran.txt";
+  const turns = [say("", [call("update_environment", setupArgs(was + "\nsudo systemctl restart postgresql", was, "pg"))]), say("", [call("update_environment", setupArgs(was + "\nsudo apt-get update && sudo apt-get install -y jq", was, "jq for every chat"))])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: envApi(was) }, { text: "add jq to the setup script", setupScript: was });
   assert.match(JSON.stringify(seen[1].messages), /only plain lines like `apt-get install -y jq`[\s\S]*Coder's app runs those as admin[\s\S]*other sudo or admin commands/);
   const cards = events.filter((e) => e.type === "envchange");
-  assert.equal(cards.length, 1); assert.match(cards[0].script, /sudo apt-get install -y jq/);
+  assert.equal(cards.length, 1); assert.match(cards[0].change.script.text, /sudo apt-get install -y jq/);
   // A failed setup: Coder answered "Hi" as if nothing happened (live). Now it is reminded once, the way Claude Code is told, with the output; no card is forced.
   let k = 0; const s2 = []; const ev2 = [];
   const failing = "echo \"setup ok\" > setup-ran.txt\nnonexistent-tool-xyz --install";
-  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127): its line is dropped" })])];
-  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
+  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("update_environment", setupArgs("echo \"setup ok\" > setup-ran.txt", failing, "nonexistent-tool-xyz is not installed (exit 127): its line is dropped"))])];
+  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi(failing) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
   assert.equal(s2.length, 2);
   const note = JSON.stringify(s2[1].messages);
   assert.match(note, /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found/);
   assert.match(note, /tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script[\s\S]*If you have a fix you ran yourself and saw work, propose[\s\S]*if not, don't propose one/);
-  assert.doesNotMatch(note, /Call propose_env now/);
+  assert.doesNotMatch(note, /Call (propose_env|update_environment) now/);
   assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
   assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "done");
   // Once only; not when Coder already said it; never in GitHub jobs (no cards there); a timeout is named as one.
@@ -2213,8 +2222,8 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
   const propose = async (script, { tried = [], current = "", output = "" } = {}) => {
     let n = 0; const seen2 = []; const ev = [];
     const ran = tried.map((c, i) => [{ role: "assistant", content: "", tool_calls: [{ id: "t" + i, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: c }) } }] }, { role: "tool", tool_call_id: "t" + i, content: "exit code 0\nok" }]).flat();
-    const turns = [say("", [call("propose_env", { kind: "setup_script", script, reason: "r" })]), say("I could not.", [])];
-    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e) }, { messages: ran, text: "x", setupScript: current });
+    const turns = [say("", [call("update_environment", setupArgs(script, current))]), say("I could not.", [])];
+    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e), envApi: envApi(current) }, { messages: ran, text: "x", setupScript: current });
     return { card: ev.some((e) => e.type === "envchange"), said: JSON.stringify(seen2[1] ? seen2[1].messages : []) };
   };
   let r = await propose("echo ok\nnpm ci", { current: "echo ok" });
@@ -2300,7 +2309,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
   assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
   assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, /);
   assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
   assert.equal(lastJobOf({}), null);
   assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
@@ -2383,19 +2392,20 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   assert.equal(JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")).envId, ea.envId);
   // CODER: told the chat's environment; on Default, what only this repo needs goes in a new environment (its own card).
   const { envNameNote } = await import("../container/server.mjs");
-  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs goes in a new environment, propose_env kind new_environment\)/);
+  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs stays off it; get_environment says where it goes\)/);
   assert.match(envNameNote({ environment: { name: "shop", isDefault: false } }), /"shop" \(picked when this chat started; every chat that picks it shares its settings\)/);
   assert.equal(envNameNote({}), "");
   const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*If it is the Default environment[\s\S]*goes in a NEW environment instead \(kind new_environment, named after the repo\)/);
-  assert.match(JSON.stringify(CODER_TOOLS.find((x) => x.function.name === "propose_env")), /"enum":\["setup_script","allow_host","new_environment"\]/);
+  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*changed only with update_environment, create_environment or switch_environment[\s\S]*get_environment looks it up/);
+  // (Since 2026-11-14 Claude Code's four tools in place of propose_env: the Default rule is get_environment's, test/env-tools.test.mjs.)
+  for (const n of ["get_environment", "update_environment", "create_environment", "switch_environment"]) assert.ok(CODER_TOOLS.some((x) => x.function.name === n), n);
   const ran = [{ role: "assistant", content: "", tool_calls: [{ id: "m1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "mkdir -p cache" }) } }] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
   let n = 0; const seen = []; const ev = [];
-  const turns = [say("", [call("propose_env", { kind: "new_environment", script: "mkdir -p cache", reason: "r" })]), say("", [call("propose_env", { kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { messages: ran, text: "add a cache folder to the setup" });
-  assert.match(JSON.stringify(seen[1].messages), /give the new environment a name/);
+  const turns = [say("", [call("create_environment", { scope: "personal", switch_session: "none", setup_script: "mkdir -p cache", reason: "r" })]), say("", [call("create_environment", { name: "blog", scope: "personal", network: "full", setup_script: "mkdir -p cache", repositories: ["ana/shop"], switch_session: "none", reason: "Only this repo needs the cache folder." })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), envApi: envApi() }, { messages: ran, text: "add a cache folder to the setup" });
+  assert.match(JSON.stringify(seen[1].messages), /error: name is required/);
   const card = ev.find((e) => e.type === "envchange");
-  assert.deepEqual({ ...card, at: 0 }, { at: 0, type: "envchange", kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." });
+  assert.deepEqual([card.kind, card.tool, card.name, card.scope, card.network, card.script, card.repos, card.moves], ["create", "create_environment", "blog", "personal", "Unrestricted (any public host)", "mkdir -p cache", ["ana/shop"], false]);
   // THE PAGE: the picker under the box before the first message (with Add environment), the window's name and Archive, and the cards.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /S\.project && !S\.project\.turn && S\.envInfo && !S\.running[\s\S]{0,200}<select id="cdEnvSel" aria-label="Environment">[\s\S]{0,300}<option value="__add">\+ Add environment…<\/option>/);

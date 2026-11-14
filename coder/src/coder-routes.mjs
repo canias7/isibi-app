@@ -127,6 +127,7 @@ import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
+import { approveEnvChange } from "./coder-envapi.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
@@ -1313,7 +1314,9 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       const saved = await getJson(bucket, settingsKey(uid), {});
       const pick = pickModel(body.model || saved.model, body.effort || savedEffort(saved));
-      // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message).
+      // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message). A chat the owner moved to another one
+      // (switch_environment, or create_environment's "network_only": coder-envapi.mjs) tells its next job once (`envMoved`), so
+      // its machine skips that environment's setup script, as Claude Code's: "it runs only if the machine is replaced".
       const envId = await envIdOf(bucket, uid, meta);
       const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
       const setup = await readEnvData(env, bucket, uid, envId);
@@ -1366,7 +1369,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // to review comment threads"): only one GitHub's news started the job for; kept for its end.
       const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
       const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null };
+      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
       const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
@@ -1399,7 +1402,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
       let r;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -2057,6 +2060,14 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveEnv(cur);
     const reached = await reachRunning(cur);
     return json({ ...(await envOut(cur)), reached });
+  }
+  // AN ENVIRONMENT CHANGE CODER PROPOSED, APPROVED ON ITS CARD (2026-11-14, the owner: "Do all the talk to you tools execpt for
+  // the notify one"; Claude Code's update_environment, create_environment and switch_environment, coder-envapi.mjs): checked
+  // again on the environment as it is now, then made; its answer is what the page sends as the owner's next message.
+  if (action === "envchange" && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const r = await approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning });
+    return json(r, r.error ? 409 : 200);
   }
   // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
   // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
