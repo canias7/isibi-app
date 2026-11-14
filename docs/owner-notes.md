@@ -17,6 +17,21 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The last small gaps from Claude Code's docs, part 1 (your words: "yes start on that")
+
+On my branch, not deployed yet. You asked whether we got everything from Claude Code's docs for these tools. I listed what was still missing, and two helpers started on it. This is the first helper's part.
+
+- **The email check now also covers the environment tools and the key card,** as Claude Code's newest check does. The refusal names the tool Coder called.
+- **Hooks:** a hook that changes the file an lsp call looks at now gets lsp's "File does not exist" check. A hook's change to the result of the plan-mode tool or the older checklist tool is now checked like the rest. Both are copied from Claude Code's own program.
+- **Rules like `Grep(docs/**)`:** my list said Claude Code matches these, but the helper checked and it doesn't. Claude Code's docs say: "A Grep(docs/**) deny rule doesn't stop Grep from searching docs." So nothing changed, and a new test pins it.
+- **Wordings:** a read blocked by any Read path rule now says Claude Code's "File is in a directory that is denied by your permission settings." A plain lsp "ask" rule now says Claude Code's "Coder requested permissions to use LSP, but you haven't granted it yet."
+- **Tidy-up:** four copies of the same error-message code are now one.
+- **Tests:** 6 new, a few updated. The helper's full run passed 992 of 993; the one failure only happens in a helper's copy of the repo.
+- **Differences that are still there, for you to decide:**
+  - a `Read(**)` deny rule still takes the read tool away from Coder completely, where Claude Code keeps the tool and refuses each read;
+  - Claude Code refuses a blocked read or write before your hooks run, Coder after;
+  - the "ask" cards for read, write and edit use Coder's own wording, not Claude Code's "Coder requested permissions to read from <file>".
+
 ## 2026-11-14: The six fixes are live on gofarther.dev, tested with Grok on Low (your word: "Ok")
 
 Merged to main and deployed; the deploy's own test run passed. Tested live in one chat on the test repo, with Grok on Low:
