@@ -41,6 +41,32 @@ export const STAR_EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 export const starAllowTool = (text) => { const m = /^([A-Za-z]+)\((\*?)\)$/.exec(String(text ?? "").trim()); return m && STAR_PATH_TOOLS.has(m[1]) ? m[1] : ""; };
 
 // ── CLAUDE CODE'S PATH MATCHER (round 4, 2026-11-14; the owner: "yes" to copying Claude Code 2.1.325's matching exactly) ──
+/*
+ * The path matching below is ported from node-ignore 5.x (https://github.com/kaelzhang/node-ignore), which Claude Code
+ * bundles, under its MIT license:
+ *
+ * Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
+ * http://kael.me/
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining
+ * a copy of this software and associated documentation files (the
+ * "Software"), to deal in the Software without restriction, including
+ * without limitation the rights to use, copy, modify, merge, publish,
+ * distribute, sublicense, and/or sell copies of the Software, and to
+ * permit persons to whom the Software is furnished to do so, subject to
+ * the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be
+ * included in all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+ * EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+ * MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+ * NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+ * LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+ * OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+ * WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+ */
 // Claude Code matches a path rule with the `ignore` library (node-ignore, MIT), created with its defaults, so letters match
 // in either case; this is that library's own way of turning a pattern into a test, copied from the copy inside Claude Code's
 // program (/opt/claude-code/bin/claude 2.1.325), and its way of testing a path, folder by folder.
