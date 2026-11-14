@@ -38,9 +38,12 @@ On a branch of its own (`cachefix`), not deployed or pushed yet.
 - **Still breaks the cache, unchanged (your call):** loading a tool with tool_search (Grok has no deferred tools, so the
   whole prompt is read again once); a tool result over 12,000 characters or a picture, which the saved chat shortens after
   the message; a deny rule on WebSearch or `CODER_ENABLE_TASKS` changing the system message; PowerShell turned on mid-chat.
-- **Found, outside the cache:** the bash tool's description is meant to say zsh on a machine whose commands run in zsh,
-  but it is given your `!` command instead of the machine's shell, so it never does.
-- **Tests:** `test/cache-prefix.test.mjs` (new, 7), and the files around it all pass.
+- **Fixed after, as asked:** the bash tool's description is meant to say zsh when Coder's
+  commands run in zsh (they do on Coder's machines unless `CODER_SHELL` says bash), as Claude Code's names your shell. It
+  was given your `!` command instead of the machine's shell, so it never did. Now it says zsh. A chat's first message sends
+  the right one and keeps it; chats from before keep what they sent until a new version of Coder's tool code, which this
+  fix is, so each of them reads its prompt again once after the deploy.
+- **Tests:** `test/cache-prefix.test.mjs` (new, 8), and the files around it all pass.
 - **Cost:** nothing; it saves Grok reading a chat again after a setting change.
 
 ## 2026-11-14: Round 6: Claude Code's way on the open questions (your words: "do what claude code does")

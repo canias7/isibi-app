@@ -53,14 +53,15 @@ export function summaryRequest(messages, focus = "") {
  * (its preCompactDiscoveredTools), so a tool loaded with tool_search stays loaded after a summary (coder-toolsearch.mjs);
  * and their definitions as loaded (`toolDefs`), which keep one whose source goes away in the request's tools; and the upfront
  * tools its requests carried (`toolsDeclared`, round 5), which keep one that leaves in them too; and each tool's definition as
- * the chat first sent it (`toolLocks`, the cache fix of 2026-11-14), so the request's tools stay the same bytes after it.
+ * the chat first sent it (`toolLocks`, and the version of Coder's tool code that sent them, `toolLocksV`: the cache fix of
+ * 2026-11-14), so the request's tools stay the same bytes after it.
  */
 export function summaryMessage(text, what, files = [], part = null) {
   const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
   const defs = Array.isArray(part) ? toolDefsIn(part) : [];
   const declared = Array.isArray(part) ? toolsDeclaredIn(part) : null;
-  const locks = Array.isArray(part) ? toolLocksIn(part) : [];
-  const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(locks.length ? { toolLocks: locks } : {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
+  const locks = Array.isArray(part) ? toolLocksIn(part) : null;
+  const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(locks || {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
   return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
 }
 

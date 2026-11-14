@@ -35,12 +35,13 @@
  * toolSchemaCache, newer than the 2.1.42 this machine has to read: each tool's schema as the session first rendered it, kept
  * for the session, as the tools come before the system prompt and any change in them is a new prompt): the chat's
  * record keeps, for each tool its requests carried, what was sent (`toolLocks`, on the answer of the request that first sent
- * it, and carried by a summary), and every later request sends those bytes again (lockTools), whatever the job's settings make
- * of the tool now (a time limit, the background limit in Settings, the output limits, background commands off, the network
- * gate's allowed_domains, PowerShell's options, web_fetch's cache time, a connector's description or its length limit, plan
- * mode's two forms of exit_plan_mode). As in Claude Code, a connector tool's lock lasts while its parameters stay the same
- * (its key: the name and the input schema), and Coder's own tools are made again only by a new version of Coder's tool code
- * (Claude Code's own after an update).
+ * it, with the version of Coder's tool code then, `toolLocksV`, and carried by a summary), and every later request sends those
+ * bytes again (lockTools), whatever the job's settings make of the tool now (a time limit, the background limit in Settings,
+ * the output limits, background commands off, the network gate's allowed_domains, PowerShell's options, web_fetch's cache
+ * time, a connector's description or its length limit, plan mode's two forms of exit_plan_mode). As in Claude Code, a
+ * connector tool's lock lasts while its parameters stay the same (its key: the name and the input schema), and Coder's own
+ * tools are made again only by a new version of Coder's tool code (Claude Code's own after an update: its changelog, "Fixed
+ * prompt cache misses in long sessions caused by tool schema bytes changing mid-session").
  *
  * ONE COPY OF A LOADED TOOL'S DEFINITION (the owner, 2026-11-14: "fix it"): Claude Code's ToolSearch answers with tool
  * references, which the API turns into the definitions; Grok has no such references, and needs the definition in the
@@ -273,38 +274,47 @@ export function toolsDeclaredIn(messages) {
 }
 /**
  * ONE LOCK OF THE RECORD (`toolLocks`): a tool's name when what was sent is its stock definition (Coder's own as its code
- * defines it, no setting changing it: the job's `stock`), else `{ def }`, the definition as sent, with `v`, the version of
- * Coder's tool code that made it, for one of Coder's own (a connector's lasts while its parameters stay the same).
+ * defines it, no setting changing it: the job's `stock`), else `{ def }`, the definition as sent. The message that holds them
+ * says the version of Coder's tool code they were sent by (`toolLocksV`): one of Coder's own holds only for that version, by
+ * name as well as by definition; a connector's lasts while its parameters stay the same, whatever the version.
  */
 const isLock = (e) => (typeof e === "string" && !!e) || (!!e && typeof e === "object" && !Array.isArray(e) && isDef(e.def));
 export const lockName = (e) => (typeof e === "string" ? e : isLock(e) ? e.def.function.name : "");
-/** The locks some messages hold, a later one for a tool in place of an earlier one (a summary's carried ones included): for a summary. */
+/** The locks a message holds, by name, each with the version it says (`{ e, v }`). */
+const locksOf = (m) => { const v = typeof m.toolLocksV === "string" ? m.toolLocksV : ""; return (Array.isArray(m.toolLocks) ? m.toolLocks : []).filter(isLock).map((e) => [lockName(e), { e, v }]); };
+/**
+ * THE LOCKS SOME MESSAGES HOLD, FOR A SUMMARY OF THEM (a summary's carried ones included): a later one for a tool in place of an
+ * earlier one; those of Coder's own tools only from the last version that locked any (one of an older version holds for none
+ * that came after it), a connector's whatever the version. → `{ toolLocks, toolLocksV }`, or null when there are none.
+ */
 export function toolLocksIn(messages) {
   const out = new Map();
-  for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolLocks)) for (const e of m.toolLocks) if (isLock(e)) out.set(lockName(e), e);
-  return [...out.values()];
+  let last = null;
+  for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolLocks)) for (const [n, x] of locksOf(m)) { out.set(n, x); if (!isMcpName(n)) last = x.v; }
+  const kept = [...out].filter(([n, x]) => isMcpName(n) || x.v === last).map(([, x]) => x.e);
+  return kept.length ? { toolLocks: kept, ...(last !== null ? { toolLocksV: last } : {}) } : null;
 }
 const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
 /**
  * THE REQUEST'S TOOLS AS THE CHAT FIRST SENT THEM (Claude Code's toolSchemaCache, keyed by the tool's name, and an MCP tool's
- * input schema with it): `list`, the tools this request carries (their names and
- * order as requestTools, or the chat's tools, give them), each sent with its lock (`locks`, toolSearchRecord's): a name lock
- * as the tool's stock definition (`stock`, by name), a definition lock as it was recorded, while it holds: one of Coder's own
- * while Coder's tool code is the version that made it (`version`), a connector's while its parameters are the ones this job
- * has for it. A tool with no lock that holds goes as it is, and is locked now. → `{ tools, locks }`: the tools to send, and the
- * locks to record on the request's answer (`toolLocks`), or null when there are none.
+ * input schema with it): `list`, the tools this request carries (their names and order as requestTools, or the chat's tools,
+ * give them), each sent with its lock (`locks`, toolSearchRecord's, name → { e, v }) while it holds: one of Coder's own while
+ * Coder's tool code is the version that locked it (`version`), a name lock as the tool's stock definition (`stock`, by name),
+ * a definition lock as recorded; a connector's while its parameters are the ones this job has for it. A tool with no lock
+ * that holds goes as it is, and is locked now. → `{ tools, locks }`: the tools to send, and the locks to record on the
+ * request's answer (`toolLocks`, with `toolLocksV` the version), or null when there are none.
  */
 export function lockTools(list, locks = new Map(), { stock = new Map(), version = "" } = {}) {
   const tools = [], fresh = [];
   for (const t of Array.isArray(list) ? list : []) {
     if (!isDef(t)) continue;
-    const n = t.function.name, e = locks instanceof Map ? locks.get(n) : undefined;
+    const n = t.function.name, x = locks instanceof Map ? locks.get(n) : undefined, e = x && isLock(x.e) ? x.e : null;
     let held = null;
-    if (typeof e === "string") held = stock instanceof Map && isDef(stock.get(n)) ? stock.get(n) : null;
-    else if (isLock(e) && e.def.function.name === n) held = isMcpName(n) ? (sameJson(e.def.function.parameters, t.function.parameters) ? e.def : null) : e.v === version ? e.def : null;
+    if (e && isMcpName(n)) held = typeof e !== "string" && e.def.function.name === n && sameJson(e.def.function.parameters, t.function.parameters) ? e.def : null;
+    else if (e && x.v === version) held = typeof e === "string" ? (stock instanceof Map && isDef(stock.get(n)) && e === n ? stock.get(n) : null) : e.def.function.name === n ? e.def : null;
     if (held) { tools.push(held); continue; }
     tools.push(t);
-    fresh.push(stock instanceof Map && stock.has(n) && sameJson(stock.get(n), t) ? n : { def: t, ...(isMcpName(n) ? {} : { v: version }) });
+    fresh.push(stock instanceof Map && stock.has(n) && sameJson(stock.get(n), t) ? n : { def: t });
   }
   return { tools, locks: fresh.length ? fresh : null };
 }
@@ -320,8 +330,8 @@ export function toolSearchOnIn(messages) {
  * was on (`declared`), and whether the chat already ran without it (`ranWithout`: it has answers, no sign of tool search,
  * and no summary made since Coder has it, which starts it afresh, as Claude Code's compaction does). Round 5: the upfront
  * tools its requests carried, in order, as last recorded (`upfront`: names, and a connector tool's definition), and the tools
- * whose calls were refused as "still listed" and not said to run again since (`refused`). The cache fix: each tool's lock, by
- * name, a later one in place of an earlier one (`locks`: lockTools).
+ * whose calls were refused as "still listed" and not said to run again since (`refused`). The cache fix: each tool's lock and
+ * the version of Coder's tool code it says, by name, a later one in place of an earlier one (`locks`: lockTools).
  */
 export function toolSearchRecord(messages) {
   const loaded = new Set(), announced = new Set(), listed = new Set(), told = new Set(), kept = new Map(), refused = new Set(), callNames = new Map(), locks = new Map();
@@ -330,7 +340,7 @@ export function toolSearchRecord(messages) {
     if (!m || typeof m !== "object") continue;
     if (m.role === "assistant") answered = true;
     if (Array.isArray(m.toolsDeclared)) upfront = m.toolsDeclared.filter(isEntry);
-    if (Array.isArray(m.toolLocks)) for (const e of m.toolLocks) if (isLock(e)) locks.set(lockName(e), e);
+    if (Array.isArray(m.toolLocks)) for (const [n, x] of locksOf(m)) locks.set(n, x);
     if (m.role === "assistant" && Array.isArray(m.tool_calls)) for (const c of m.tool_calls) if (c && c.id && c.function) callNames.set(String(c.id), String(c.function.name || ""));
     if (m.role === "tool" && typeof m.content === "string") { const x = STILL_LISTED_RE.exec(m.content); if (x && callNames.get(String(m.tool_call_id)) === x[1]) refused.add(x[1]); }
     if (Array.isArray(m.toolsLoaded)) {

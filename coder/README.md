@@ -1034,8 +1034,11 @@ by name or by its full path in /bin, /usr/bin or /usr/local/bin; anything else i
 bash (`shellOf`). zsh is in Coder's image; in zsh, the startup file's snapshot is
 zsh's (`SNAPSHOT_TAKE_ZSH`, from `~/.zshrc`), its extended patterns are off, and
 the command runs through `eval`, as Claude Code runs it. Hooks always run in bash (or,
-with a hook's `shell: "powershell"`, in PowerShell: pass 6 below).
-Tests: CD385e.
+with a hook's `shell: "powershell"`, in PowerShell: pass 6 below). The bash tool's
+description names that shell, "(zsh)" and `~/.zshrc` in zsh, as Claude Code's Bash
+description names the user's shell (`cmdShell`, the machine's shell; it had been
+given the owner's `!` command by mistake: the cache fix's follow-up, 2026-11-14).
+Tests: CD385e, CP8 in `test/cache-prefix.test.mjs`.
 
 **Auto mode rules, refusing instead of asking, and working folders** (owner,
 2026-11-10: "yea do all of them"). Settings keeps the owner's auto mode rules as

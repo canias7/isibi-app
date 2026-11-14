@@ -135,6 +135,7 @@ test("CP2 the same No given on a card left open (the job paused, then taken up w
   const mark = d.messages.at(-1);
   assert.equal(mark.content, P.INTERRUPTED);
   assert.ok(Array.isArray(mark.toolLocks) && mark.toolLocks.includes("bash"), "the record of the tools sent, on the mark");
+  assert.equal(mark.toolLocksV, A.TOOLS_V, "with the version of the tool code that sent them");
   await d.run([say("ok")], { text: "again", opts: { hostLists: "on" } });
   startsWith(d.sent[0], d.sent[1]);
 });
@@ -184,6 +185,7 @@ test("CP4 a setting changed between two messages leaves the tools the same bytes
   const answers = c.messages.filter((m) => m.role === "assistant" && m.toolLocks);
   assert.deepEqual(answers[0].toolLocks, c.sent[0].req.tools.map((t) => t.function.name));
   assert.ok(JSON.stringify(answers[0].toolLocks).length < 1000);
+  assert.ok(answers.every((m) => m.toolLocksV === A.TOOLS_V), "each with the version of the tool code that sent them");
   assert.deepEqual(answers[1].toolLocks.map(T.lockName), ["web_fetch", "monitor", "mcp__linear__tool_1"]);
   assert.deepEqual(answers[1].toolLocks.slice(0, 2), ["web_fetch", "monitor"], "Coder's own as its code defines them: by name");
   assert.equal(answers[1].toolLocks[2].def.function.description, "From the Linear connector (MCP). Tool 1 of Linear.");
@@ -207,16 +209,19 @@ test("CP5 when a lock no longer holds: a connector tool whose parameters changed
   // A deploy: bash locked (gate on) by a definition of another version of the tool code is sent as this version makes it.
   const d = chat();
   await d.run([say("hi")], { text: "hi", opts: { hostLists: "on" } });
-  const lock = d.messages.find((m) => m.toolLocks).toolLocks.find((e) => T.lockName(e) === "bash");
-  assert.equal(lock.v, A.TOOLS_V, "Coder's own changed by a setting: by definition, with the tool code's version");
-  assert.ok(lock.def.function.parameters.properties.allowed_domains);
-  const old = d.messages.map((m) => (m.toolLocks ? { ...m, toolLocks: m.toolLocks.map((e) => (T.lockName(e) === "bash" ? { def: { ...e.def, function: { ...e.def.function, description: "an older bash" } }, v: "older" } : e)) } : m));
+  const held = d.messages.find((m) => m.toolLocks), lock = held.toolLocks.find((e) => T.lockName(e) === "bash");
+  assert.equal(held.toolLocksV, A.TOOLS_V, "with the tool code's version");
+  assert.ok(lock.def.function.parameters.properties.allowed_domains, "Coder's own changed by a setting: by definition");
+  const old = d.messages.map((m) => (m.toolLocks ? { ...m, toolLocksV: "older", toolLocks: m.toolLocks.map((e) => (T.lockName(e) === "bash" ? { def: { ...e.def, function: { ...e.def.function, description: "an older bash" } } } : e)) } : m));
   let deployReq = null;
   const e = await A.runCoder({ send: async (req) => { deployReq = req; return say("ok"); }, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, where: (p) => p, ask: async () => ({ choice: "yes" }) }, { text: "after a deploy", mode: "acceptEdits", messages: old, hostLists: "on" });
   const sentBash = deployReq.tools.find((t) => t.function.name === "bash");
   assert.equal(sentBash.function.description, A.CODER_TOOLS.find((t) => t.function.name === "bash").function.description, "as this version makes it");
   assert.ok(sentBash.function.parameters.properties.allowed_domains, "the gate's input with it, as this job makes it");
-  assert.equal(e.messages.filter((m) => m.toolLocks).at(-1).toolLocks.find((x) => T.lockName(x) === "bash").v, A.TOOLS_V, "and locked again");
+  const relock = e.messages.filter((m) => m.toolLocks).at(-1);
+  assert.equal(relock.toolLocksV, A.TOOLS_V, "and locked again with this version");
+  assert.ok(relock.toolLocks.find((x) => T.lockName(x) === "bash").def.function.parameters.properties.allowed_domains);
+  assert.ok(relock.toolLocks.includes("read"), "every one of Coder's own tools of the older version, a name lock too");
 });
 
 test("CP6 a summary carries the locks (the owner's /compact, and the Worker's summary of earlier jobs): the request after it sends the same tools, byte for byte, though a setting changed meanwhile", async () => {
@@ -224,7 +229,8 @@ test("CP6 a summary carries the locks (the owner's /compact, and the Worker's su
   await c.run([say("", [call("tool_search", { query: "select:web_fetch", max_results: 1 }, "s1")]), say("Loaded.")], { text: "load web_fetch" });
   const tools = asSent(c.sent.at(-1).req).tools;
   const sum = C.summaryMessage("s", "the earlier jobs", [], c.messages);
-  assert.deepEqual(sum.toolLocks, T.toolLocksIn(c.messages));
+  const L = T.toolLocksIn(c.messages);
+  assert.deepEqual([sum.toolLocks, sum.toolLocksV], [L.toolLocks, A.TOOLS_V]);
   assert.ok(sum.toolLocks.length > 10);
   await c.run([say("ok")], { text: "after /compact", opts: { compact: { focus: "" } } });
   assert.ok(C.isSummary(c.messages[0]) && Array.isArray(c.messages[0].toolLocks), "the /compact's summary carries them");
@@ -244,24 +250,70 @@ test("CP7 lockTools, keyed as Claude Code's tool schema cache keys a tool (its n
   // Nothing locked: as they are, locked now (by name when stock).
   let r = T.lockTools([d("bash", "stock bash"), d("read", "read, changed"), d("mcp__x__t", "theirs")], new Map(), { stock, version: "v1" });
   assert.deepEqual(nm(r.tools), ["stock bash", "read, changed", "theirs"]);
-  assert.deepEqual(r.locks, ["bash", { def: d("read", "read, changed"), v: "v1" }, { def: d("mcp__x__t", "theirs") }]);
-  // Locked: as locked, whatever the job now makes of them; nothing new to lock.
-  const locks = new Map(r.locks.map((e) => [T.lockName(e), e]));
+  assert.deepEqual(r.locks, ["bash", { def: d("read", "read, changed") }, { def: d("mcp__x__t", "theirs") }]);
+  // Locked (the record as toolSearchRecord reads it: name → the lock and its message's version): as locked, whatever the job
+  // now makes of them; nothing new to lock.
+  const locks = T.toolSearchRecord([{ role: "assistant", content: "", toolLocks: r.locks, toolLocksV: "v1" }]).locks;
+  assert.deepEqual([...locks.keys()], ["bash", "read", "mcp__x__t"]);
   r = T.lockTools([d("bash", "bash, gate on"), d("read", "read again"), d("mcp__x__t", "theirs, new words")], locks, { stock, version: "v1" });
   assert.deepEqual(nm(r.tools), ["stock bash", "read, changed", "theirs"]);
   assert.equal(r.locks, null);
-  // Another version of Coder's tool code: Coder's own (locked by definition) as made now; a connector's new parameters: as now.
-  r = T.lockTools([d("read", "read v2"), d("mcp__x__t", "theirs", { team: { type: "string" } })], locks, { stock, version: "v2" });
-  assert.deepEqual(nm(r.tools), ["read v2", "theirs"]);
-  assert.deepEqual(r.locks.map(T.lockName), ["read", "mcp__x__t"]);
-  // A name lock for a tool no longer stock (gone from Coder): as made now, locked again.
-  r = T.lockTools([d("gone", "x")], new Map([["gone", "gone"]]), { stock, version: "v1" });
-  assert.deepEqual(r.locks, [{ def: d("gone", "x"), v: "v1" }]);
-  // The record: a later lock in place of an earlier one.
-  assert.deepEqual(T.toolLocksIn([{ toolLocks: ["bash", { def: d("read", "a"), v: "v1" }] }, { role: "assistant", toolLocks: [{ def: d("read", "b"), v: "v2" }] }]), ["bash", { def: d("read", "b"), v: "v2" }]);
-  assert.deepEqual([...T.toolSearchRecord([{ role: "assistant", content: "", toolLocks: ["bash"] }]).locks.keys()], ["bash"]);
+  // Another version of Coder's tool code: Coder's own as made now, by name as well as by definition; a connector's holds while
+  // its parameters do, and with new parameters is as it is now.
+  r = T.lockTools([d("bash", "bash, gate on"), d("read", "read v2"), d("mcp__x__t", "theirs, new words")], locks, { stock, version: "v2" });
+  assert.deepEqual(nm(r.tools), ["bash, gate on", "read v2", "theirs"]);
+  assert.deepEqual(r.locks.map(T.lockName), ["bash", "read"]);
+  r = T.lockTools([d("mcp__x__t", "theirs", { team: { type: "string" } })], locks, { stock, version: "v1" });
+  assert.deepEqual(r.locks, [{ def: d("mcp__x__t", "theirs", { team: { type: "string" } }) }]);
+  // A record with no version (or another): none of Coder's own holds.
+  assert.equal(T.lockTools([d("read", "now")], T.toolSearchRecord([{ role: "assistant", content: "", toolLocks: [{ def: d("read", "then") }] }]).locks, { stock, version: "v1" }).tools[0].function.description, "now");
+  // For a summary: a later lock in place of an earlier one; Coder's own only from the last version that locked any (one of an
+  // older version holds for none after it), a connector's whatever the version.
+  assert.deepEqual(T.toolLocksIn([{ toolLocks: ["bash", { def: d("read", "a") }, { def: d("mcp__x__t", "theirs") }], toolLocksV: "v1" }, { role: "assistant", toolLocks: [{ def: d("read", "b") }], toolLocksV: "v2" }]), { toolLocks: [{ def: d("read", "b") }, { def: d("mcp__x__t", "theirs") }], toolLocksV: "v2" });
+  assert.equal(T.toolLocksIn([{ role: "user", content: "x" }]), null);
   // The stock tools are Coder's own as its code defines them (web_search as Coder's chats send it).
   assert.equal(A.STOCK_TOOLS.get("web_search").function.parameters.properties.mode !== undefined, true);
   for (const n of ["bash", "read", "tool_search", "web_fetch", "exit_plan_mode", "todo_write"]) assert.ok(A.STOCK_TOOLS.has(n), n);
   assert.match(A.TOOLS_V, /^[0-9a-f]{16}$/);
+});
+
+test("CP8 bash's description names the shell Coder's commands run in on the chat's machine (its CODER_SHELL, or its zsh: the machine's `t.shell`), as Claude Code's Bash description names the user's shell, never the owner's own `!` command (which it had been given); a chat's first request carries it, locked from there; a chat locked before keeps what it sent until Coder's tool code changes (TOOLS_V)", async () => {
+  const bashOf = (req) => req.tools.find((t) => t.function.name === "bash").function;
+  const STOCK_BASH = A.CODER_TOOLS.find((t) => t.function.name === "bash");
+  // A chat on a zsh machine: its first request says zsh, and its answer locks that.
+  const z = chat();
+  await z.run([say("hi")], { text: "hi", opts: { cmdShell: "/usr/bin/zsh" } });
+  assert.match(bashOf(z.sent[0].req).description, /^Run ONE shell command \(zsh\)/);
+  assert.match(bashOf(z.sent[0].req).description, /\(~\/\.zshrc, as it was when this message started\)/);
+  const first = z.messages.find((m) => m.toolLocks);
+  assert.equal(first.toolLocksV, A.TOOLS_V);
+  assert.match(first.toolLocks.find((e) => T.lockName(e) === "bash").def.function.description, /^Run ONE shell command \(zsh\)/, "locked by its definition");
+  // The owner's `!` command on it, and a message after: the same bytes.
+  await z.run([say("It listed the folder.")], { text: "", shell: "ls -la", opts: { cmdShell: "/usr/bin/zsh" } });
+  await z.run([say("ok")], { text: "next", opts: { cmdShell: "/usr/bin/zsh" } });
+  allStartWith(z.sent);
+  // A bash machine whose chat starts with the owner's own command naming zsh: bash's description still says bash.
+  const b = chat();
+  await b.run([say("It printed the path.")], { text: "", shell: "ls /bin/zsh", opts: { cmdShell: "bash" } });
+  assert.match(bashOf(b.sent[0].req).description, /^Run ONE shell command \(bash\)/);
+  assert.deepEqual(bashOf(b.sent[0].req), STOCK_BASH.function, "the stock definition");
+  assert.ok(b.messages.find((m) => m.toolLocks).toolLocks.includes("bash"), "locked by name");
+  // That chat's lock holds on a zsh machine (the same version of the tool code): what it sent, until the tool code changes.
+  await b.run([say("ok")], { text: "and on zsh?", opts: { cmdShell: "/usr/bin/zsh" } });
+  assert.deepEqual(bashOf(b.sent[1].req), STOCK_BASH.function, "kept as it was sent");
+  allStartWith(b.sent);
+  // Locked by an older version of the tool code (before this fix): made again for this machine, zsh, and locked again.
+  const older = b.messages.map((m) => (m.toolLocks ? { ...m, toolLocksV: "older" } : m));
+  let req = null;
+  const r = await A.runCoder({ send: async (q) => { req = q; return say("ok"); }, exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, where: (p) => p, ask: async () => ({ choice: "yes" }) }, { text: "after the deploy", mode: "acceptEdits", messages: older, cmdShell: "/usr/bin/zsh" });
+  assert.match(bashOf(req).description, /^Run ONE shell command \(zsh\)/);
+  const relock = r.messages.filter((m) => m.toolLocks).at(-1);
+  assert.equal(relock.toolLocksV, A.TOOLS_V);
+  assert.match(relock.toolLocks.find((e) => T.lockName(e) === "bash").def.function.description, /\(zsh\)/);
+  // Coder's machine gives runCoder the shell its commands run in (shellOf: CODER_SHELL, else the machine's zsh).
+  const { readFileSync } = await import("node:fs");
+  const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(server, /t\.shell = shellOf\(rawVars\.CODER_SHELL\);/);
+  assert.match(server, /runCoder\(turnDeps, \{[^\n]*\bcmdShell: t\.shell,/);
+  assert.match(server, /runCoder\(turnDeps, \{[^\n]*shell: typeof body\.shell === "string"/, "and the owner's own command apart, as before");
 });

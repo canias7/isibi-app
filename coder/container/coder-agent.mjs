@@ -1823,7 +1823,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -3066,8 +3066,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (Coder's own tools as this job makes them, whatever rules or settings take out: an upfront tool the chat's requests carried
   // that one took out keeps this definition in the request under tool search. Round 5, coder-toolsearch.mjs upfrontTools.)
   const tsCatalog = new Map([[TOOL_SEARCH, TOOL_SEARCH_TOOL]]);
+  // (Bash's description names the shell Coder's commands run in on this machine, `cmdShell` (the environment's CODER_SHELL,
+  // or the machine's zsh), as Claude Code's Bash description names the user's shell; `shell` is the owner's own `!` command,
+  // which it had been given by mistake, so it never said zsh. The cache fix's follow-up, 2026-11-14.)
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
@@ -3536,7 +3539,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   /** A message as a job's size counts it: no pictures, and not the record of its request's tools (`toolLocks`, never sent). */
-  const unsent = (m) => { const x = noPics(m); if (!x || !x.toolLocks) return x; const { toolLocks: _l, ...rest } = x; return rest; };
+  const unsent = (m) => { const x = noPics(m); if (!x || !x.toolLocks) return x; const { toolLocks: _l, toolLocksV: _v, ...rest } = x; return rest; };
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
@@ -3926,7 +3929,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
     // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
     // (The chat's record of what that request carried goes on the mark, as its answer is not kept: the cache fix.)
-    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew } : {}) }); emit({ type: "stopped" }); return end("stopped"); }
+    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) }); emit({ type: "stopped" }); return end("stopped"); }
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -3939,7 +3942,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     calls0 = calls;
-    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew } : {}) });
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
