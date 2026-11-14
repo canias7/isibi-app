@@ -14,7 +14,7 @@ import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
-import { lookup } from "node:dns/promises";
+import { grepTool, globTool } from "./coder-search.mjs";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -37,8 +37,6 @@ export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
 export const NOTEBOOK_CELLS_MAX = 256 * 1024;
-export const OUT_MAX = 30000;
-export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
 /**
  * WHERE GROK'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"; tried in Claude Code: its Read takes a
@@ -82,6 +80,20 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
     if (st && !st.isFile()) fail("the memory file is not a plain file");
     if (!st && mustExist) fail("no such file: " + abs);
     return { abs, rel: abs };
+  }
+  // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+  // Claude Code: "Plan files for current session are allowed for writing", and for reading): kept by Coder's machine outside
+  // the project, opened only by that exact path (CODER_PLAN_FILE), and never through a link.
+  const plan = process.env.CODER_PLAN_FILE;
+  if (plan && isAbsolute(plan) && abs === resolve(plan)) {
+    let st = null; try { st = await lstat(abs); } catch { /* not written yet */ }
+    if (st && !st.isFile()) fail("the plan file is not a plain file");
+    if (!st && mustExist) fail("no such file: " + abs);
+    // (One in the project, in the repository's plansDirectory folder, is kept inside it as any file of the project is, below,
+    // and is no hard link: Claude Code 2.1.325, "a write that can't be shown to stay inside the project is now refused".)
+    const inProject = relative(ROOT, abs);
+    if (inProject.startsWith("..") || isAbsolute(inProject)) return { abs, rel: abs };
+    if (st && st.nlink !== 1) fail("the plan file is not a plain file");
   }
   // THE CHAT'S OWN COMMAND OUTPUT, TO READ (the live test after deploy 75): a background command's log and a long output's
   // saved file are named to Coder by their full path, to read or search (Claude Code's Read opens its output files), but
@@ -499,7 +511,7 @@ const BINARY_HOW = new Map(BINARY_KINDS.flatMap(([exts, how]) => exts.map((e) =>
 /** A path in single quotes, for a command shown to Coder. */
 const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
 
-export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
+export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars, facts = false }) {
   const { abs, rel } = await inside(path, { mustExist: true, output: true });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
   const kind = await stat(abs);
@@ -520,13 +532,17 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const text = fileText(buf);
   const oldText = !utf16Of(buf) && !isUtf8(buf) ? "\n" + NOT_UTF8_NOTE : "";
   await remember(abs, buf, { whole: false });
-  if (!text.length) { await clearStart(abs); return rel + " exists, but it is empty."; }
+  // ITS RESULT OBJECT, FOR THE POSTTOOLUSE HOOKS, when Coder's loop asks (`facts`): Claude Code's Read output for a text file,
+  // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
+  // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
+  const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
+  if (!text.length) { await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
   const total = lines.length;
   const asked = (offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0;
   const from = Math.max(1, Math.floor(Number(offset) || 1));
-  if (from > total) return rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.";
+  if (from > total) return told(rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.", "", 0, from, total);
   const large = allow_large === true;
   const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
   const size = Buffer.byteLength(text);
@@ -556,13 +572,14 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   const body = rows.join("\n");
+  const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total);
   if (asked && (from > 1 || last < total)) await markPart(abs);
-  if (last >= total) { if (!asked) await clearStart(abs); return body + oldText; }
+  if (last >= total) { if (!asked) await clearStart(abs); return gave(body + oldText); }
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   if (!asked) await markPartial(abs); // write will not replace it until the rest is read
-  return body + (asked
+  return gave(body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText;
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText);
 }
 /**
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
@@ -622,9 +639,35 @@ const UTF8_HEAD = 8 * 1024 * 1024;
  */
 export const WRITE_MARK = "\u0000coder-write\u0000";
 export const WRITE_SHOW_LINES = 120, WRITE_SHOW_CHARS = 8000, WRITE_DIFF_MAX = 2 * 1024 * 1024;
+/**
+ * A TOOL'S OWN RESULT OBJECT, FOR THE HOOKS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+ * Claude Code's hooks reference: PostToolUse gets "the tool's structured Output object", such as Grep's mode, numFiles and
+ * filenames). A tool that has one returns { text, facts }: Grok gets `text`; the run prints FACTS_MARK, the facts as one
+ * line of JSON, a newline, then the text (the facts first, so a long text cut short never breaks them); Coder's loop
+ * takes them off (factsAnswer, coder-agent.mjs) and gives them to the PostToolUse hooks with the call's output.
+ */
+export const FACTS_MARK = "\u0000coder-facts\u0000";
+/** What a tool's run prints for its answer: its text, or its facts and text behind FACTS_MARK. */
+export const printedAnswer = (res) => (res && typeof res === "object" && typeof res.text === "string" ? (res.facts && typeof res.facts === "object" ? FACTS_MARK + JSON.stringify(res.facts) + "\n" + res.text : res.text) : String(res));
 /** A text's lines as read counts them: the last line break ends a line, it is not one more. */
 const textLines = (t) => { if (t === "") return []; const a = t.split("\n"); if (a[a.length - 1] === "") a.pop(); return a; };
-async function writeChange(oldText, newText) {
+/**
+ * A UNIFIED DIFF'S HUNKS AS CLAUDE CODE'S structuredPatch HOLDS THEM: { oldStart, oldLines, newStart, newLines, lines }, each
+ * line with its " ", "-" or "+" (the result objects of Write and Edit, for the PostToolUse hooks; 2026-11-14).
+ */
+export function hunksOf(rows) {
+  const out = [];
+  let h = null;
+  for (const l of rows) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l);
+    if (m) { h = { oldStart: Number(m[1]), oldLines: m[2] === undefined ? 1 : Number(m[2]), newStart: Number(m[3]), newLines: m[4] === undefined ? 1 : Number(m[4]), lines: [] }; out.push(h); continue; }
+    if (h && /^[ +\-\\]/.test(l)) h.lines.push(l);
+  }
+  return out;
+}
+/** The most of a file's text a write's or an edit's result object carries (past it, Claude Code's "too large to include": null). */
+export const FACTS_TEXT_MAX = 1_000_000;
+async function writeChange(oldText, newText, got = null) {
   // A WINDOWS FILE'S LINES WITHOUT THEIR HIDDEN "\r" (live test, 2026-11-09: copying the change under the step gave a blank
   // line after each line; the owner: "Yes fix"): the texts are compared with their line endings set aside, as Claude
   // Code's change is (its own record of the same edit: "-first", "+FIRST"), so a line whose ending alone changed is not
@@ -650,6 +693,7 @@ async function writeChange(oldText, newText) {
     if (r.code !== 0 && r.code !== 1) return { kind: "update", big: true };
     const rows = r.out.toString("utf8").split("\n").slice(2);
     if (rows.length && rows[rows.length - 1] === "") rows.pop();
+    if (got && rows.reduce((a, l) => a + l.length + 1, 0) <= FACTS_TEXT_MAX) got.hunks = hunksOf(rows);
     let add = 0, del = 0;
     for (const l of rows) { if (l[0] === "+") add++; else if (l[0] === "-") del++; }
     return keep(rows, add, del, "update");
@@ -706,12 +750,14 @@ function writeInputs(args) {
     else if (got[ours] === a[other]) said.push("`" + other + "` repeated `" + ours + "` and was ignored.");
     else fail("write failed due to the following issue: An unexpected parameter `" + other + "` was provided");
   }
-  for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
+  for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check", "facts"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
   return { ...got, note: said.length ? "\n\nNote: write's parameters are named `path` and `content`. " + said.slice(0, 10).join(" ") : "" };
 }
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
-  const show_change = !!(args && args.show_change === true), check = !!(args && args.check === true);
+  // (`check`: true or "sync", the file's new text for its language server; what it reports is taken at Coder's next step, and
+  // told only to an agent with a shell, as Claude Code tells it: coder-agent.mjs.)
+  const show_change = !!(args && args.show_change === true), check = args && (args.check === true || args.check === "sync") ? args.check : false;
   const { abs, rel: inRel } = await inside(path, { tool: "write" });
   // NAMED IN FULL OUTSIDE THE PROJECT'S OWN FOLDER (Claude Code 2.1.304: "Fixed Write results … showing a file outside the
   // working directory as `../../…`; they now show `~/…` or the full path"): a file in one of the chat's other repositories
@@ -755,19 +801,26 @@ export async function toolWrite(args) {
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  // NEW PROBLEMS THE LANGUAGE SERVER FINDS (coder-lsp.mjs newProblems), when Coder's app asks (`check`), as Claude Code's
-  // language server plugins give Claude "the errors and warnings the server reports" after each write.
-  let problems = null;
-  if (check && oldText !== undefined) {
-    const { newProblems } = await import("./coder-lsp.mjs");
-    problems = await newProblems({ path: rel, abs, before: oldText, after: content.replace(/^\ufeff/, "") }, ROOT).catch(() => null);
-  }
-  let problemsSaid = "";
-  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
-  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote + problemsSaid;
-  if (show_change !== true) return text;
-  const change = await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null);
-  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
+  // THE FILE'S LANGUAGE SERVER IS TOLD (coder-lsp.mjs syncAfterWrite; the owner, 2026-11-14: "start fixing and filling in gaps
+  // on those tools"; Claude Code: "each time Claude edits or writes a file the server handles, Claude gets the errors and
+  // warnings the server reports"), when Coder's app asks (`check`): its new text goes to the chat's keeper, without waiting
+  // for the report, as Claude Code's Write sends it; Coder's loop takes what the servers report at its next step.
+  if (check) await lspAfterWrite(abs, content.replace(/^\ufeff/, ""));
+  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
+  // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Write output, { type, filePath, content,
+  // structuredPatch, originalFile }; the text it had, and the diff, left out past FACTS_TEXT_MAX, as Claude Code's "too large
+  // to include". 2026-11-14.)
+  const facts = args && args.facts === true;
+  const got = {};
+  const change = show_change === true || facts ? await writeChange(oldText, content.replace(/^\ufeff/, ""), got).catch(() => null) : null;
+  const answer = show_change === true && change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
+  if (!facts) return answer;
+  const before = typeof oldText === "string" && oldText.length <= FACTS_TEXT_MAX ? oldText : null;
+  return { text: answer, facts: { type: st ? "update" : "create", filePath: abs, content, structuredPatch: st && before !== null && Array.isArray(got.hunks) ? got.hunks : [], originalFile: st ? before : null } };
+}
+/** A write's or an edit's new text to its language server (coder-lsp.mjs): never costs the write. */
+async function lspAfterWrite(abs, text) {
+  try { const { syncAfterWrite } = await import("./coder-lsp.mjs"); return await syncAfterWrite({ abs, text }, { root: ROOT }); } catch { return false; }
 }
 
 /**
@@ -830,7 +883,7 @@ export async function toolEdit(args) {
   // `replace_all` as the text "true" or "false" is read as yes or no (Claude Code: "Fixed intermittent 'expected boolean,
   // received string' validation errors on Edit"); Coder took any text, "false" too, for yes and replaced them all.
   const all = a.replace_all === true || (typeof a.replace_all === "string" && a.replace_all.trim().toLowerCase() === "true");
-  const show_change = a.show_change === true, check = a.check === true;
+  const show_change = a.show_change === true, check = a.check === true || a.check === "sync" ? a.check : false;
   const { abs, rel: inRel } = await inside(path, { tool: "edit" });
   // Named in full outside the project's own folder, as write's answers (Claude Code 2.1.304).
   const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
@@ -855,7 +908,7 @@ export async function toolEdit(args) {
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, made);
     await remember(abs, made);
-    return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made });
+    return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
   }
   if (st.isDirectory()) fail(folderError(abs));
   if (st.size > EDIT_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
@@ -919,7 +972,7 @@ export async function toolEdit(args) {
   // had other changes.
   const known = !!seen && !changed && !seen.partial && !seen.part && !seen.start;
   const said = "The file " + rel + (all ? " has been updated. All occurrences were successfully replaced." : " has been updated successfully.") + (changed ? EDIT_OTHER_CHANGES : known ? WRITE_FRESH : "");
-  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes });
+  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
 }
 /**
  * A READ-ONLY FILE IS CHANGED ALL THE SAME, AND STAYS READ-ONLY (the owner, 2026-11-09: "Ok yea fix that"; Claude Code's
@@ -937,77 +990,32 @@ async function writeOver(abs, bytes, rel) {
     try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
   }
 }
-/** Edit's answer, as write's: its memory note, the language server's new problems (`check`), and the change (`show_change`). */
-async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes }) {
+/** Edit's answer, as write's: its memory note, the file's new text for its language server (`check`), and the change (`show_change`). */
+async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes, facts = null }) {
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  let problems = null;
-  if (check) {
-    const { newProblems } = await import("./coder-lsp.mjs");
-    problems = await newProblems({ path: rel, abs, before: before === null ? undefined : before, after }, ROOT).catch(() => null);
-  }
-  let problemsSaid = "";
-  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
-  const text = said + (memSaid ? "\n" + memSaid : "") + problemsSaid;
-  if (show_change !== true) return text;
-  const change = await writeChange(before, after).catch(() => null);
-  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
-}
-
-function run(cmd, args, cwd = ROOT) {
-  return new Promise((done) => {
-    let out = "";
-    const p = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    p.stdout.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
-    p.stderr.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
-    p.on("error", (e) => done({ code: -1, out: e.message }));
-    p.on("close", (code) => done({ code, out }));
-  });
+  // (The file's language server told, as after a write: lspAfterWrite.)
+  if (check) await lspAfterWrite(abs, after);
+  const text = said + (memSaid ? "\n" + memSaid : "");
+  const got = {};
+  const change = show_change === true || facts ? await writeChange(before, after, got).catch(() => null) : null;
+  const answer = show_change === true && change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
+  // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Edit output, { filePath, oldString,
+  // newString, originalFile, structuredPatch, userModified, replaceAll }. 2026-11-14.)
+  if (!facts) return answer;
+  const was = typeof before === "string" && before.length <= FACTS_TEXT_MAX ? before : null;
+  return { text: answer, facts: { filePath: abs, oldString: facts.oldString, newString: facts.newString, originalFile: was, structuredPatch: was !== null && Array.isArray(got.hunks) ? got.hunks : [], userModified: false, replaceAll: facts.replaceAll === true } };
 }
 
 /**
- * WHERE GREP AND GLOB SEARCH, as ripgrep is told it (from BASE, where they run): a full path as given (ripgrep then lists
- * full paths), else the folder from BASE ("." for BASE itself), so what they list counts from there, as Claude Code's do.
+ * GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
+ * their search runs there, with this file's own path check (`inside`: the project, never .git) and where Grok's commands are
+ * (BASE). `ctx`, from Coder's loop: the owner's Read deny rules and the environment's search settings.
  */
-const searchIn = (given, abs) => (isAbsolute(String(given)) ? abs : relative(BASE, abs) || ".");
-export async function toolGrep({ pattern, path = ".", glob, ignore_case = false }) {
-  if (typeof pattern !== "string" || !pattern) fail("give a pattern");
-  noNul(pattern, "the pattern");
-  if (glob != null) noNul(glob, "the glob");
-  const { abs } = await inside(path, { output: true });
-  const args = ["-n", "--no-heading", "--color", "never", "--max-columns", "300", "--glob", "!.git"];
-  if (ignore_case) args.push("-i");
-  if (typeof glob === "string" && glob) args.push("--glob", glob);
-  args.push("--", pattern, searchIn(path, abs));
-  const r = await run("rg", args, BASE);
-  if (r.code === 1) return "no matches";
-  if (r.code !== 0) fail(r.out.trim().slice(0, 500) || "the search failed");
-  const lines = r.out.trimEnd().split("\n");
-  return lines.slice(0, 200).join("\n") + (lines.length > 200 ? "\n[" + (lines.length - 200) + " more matches: narrow the search]" : "");
-}
+const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), base: BASE, inside });
+export async function toolGrep(args, ctx = {}) { return grepTool(args, searchEnv(ctx)); }
+export async function toolGlob(args, ctx = {}) { return globTool(args, searchEnv(ctx)); }
 
-export async function toolGlob({ pattern, path = "." }) {
-  if (typeof pattern !== "string" || !pattern) fail("give a pattern, e.g. src/**/*.js");
-  noNul(pattern, "the pattern");
-  const { abs } = await inside(path);
-  const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, searchIn(path, abs)], BASE);
-  if (r.code === 1 || !r.out.trim()) return "no files match " + pattern;
-  if (r.code !== 0) fail(r.out.trim().slice(0, 500));
-  const files = r.out.trim().split("\n").filter((f) => !/(^|\/)\.git(\/|$)/.test(f)).sort();
-  return files.slice(0, 300).join("\n") + (files.length > 300 ? "\n[" + (files.length - 300) + " more]" : "");
-}
-
-/** Public web addresses only: never this machine or a private network. */
-export async function publicUrl(u) {
-  let url;
-  try { url = new URL(String(u)); } catch { fail("that is not a web address"); }
-  if (url.protocol !== "https:" && url.protocol !== "http:") fail("only http and https addresses");
-  if (url.username || url.password) fail("no passwords in addresses");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const addrs = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => fail("could not find " + host))).map((a) => a.address);
-  for (const a of addrs) if (privateAddress(a)) fail("that address is on a private network");
-  return url;
-}
 // THE AUDIT (2026-11-05): every private, local and special range, in all its
 // written forms (IPv4-mapped IPv6 like ::ffff:7f00:1, NAT64, 6to4, site-local…).
 const BLOCK4 = new BlockList(), BLOCK6 = new BlockList();
@@ -1033,8 +1041,7 @@ export function safeLookup(hostname, opts, cb) {
     cb(null, ok[0].address, ok[0].family);
   });
 }
-/** fetch-like GET through http/https with safeLookup: `{ status, url, headers: { get }, text() }`. */
-/** WITH THE REPO'S NETWORK LIST ON, web_fetch goes through Coder's proxy (the only way out), which checks the list. */
+/** WITH THE REPO'S NETWORK LIST ON, a request goes through Coder's proxy (the only way out), which checks the list (http hooks; web_fetch has its own, coder-webfetch.mjs). */
 function viaProxy(url) {
   const p = process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
   if (!p) return null;
@@ -1043,63 +1050,58 @@ function viaProxy(url) {
   return { createConnection: (_o, cb) => {
     const c = http.request({ host: px.hostname, port: px.port, method: "CONNECT", path: url.hostname + ":" + (url.port || 443) });
     c.on("connect", (res, sock) => {
-      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "blocked by this repo's network list: " + url.hostname + " (ask the owner with propose_env, allow_host)" : "the proxy refused " + url.hostname)); }
+      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "blocked by this repo's network list: " + url.hostname : "the proxy refused " + url.hostname)); }
       cb(null, tls.connect({ socket: sock, servername: url.hostname }));
     });
     c.on("error", (e) => cb(e));
     c.end();
   } };
 }
-export function pinnedFetch(u, { headers = {} } = {}) {
-  const url = new URL(String(u));
-  const mod = url.protocol === "https:" ? https : http;
-  const px = viaProxy(url);
-  return new Promise((done, no) => {
-    const req = (px && px.path ? http.request({ ...px, method: "GET", headers: { ...headers, ...px.headers }, timeout: 20000 }, onRes) : mod.request(url, { method: "GET", headers, timeout: 20000, ...(px ? px : { lookup: safeLookup }) }, onRes));
-    function onRes(res) {
-      const chunks = []; let size = 0;
-      res.on("data", (c) => { size += c.length; if (size <= 2_000_000) chunks.push(c); else res.destroy(); });
-      res.on("end", () => done({ status: res.statusCode, url: url.href, headers: { get: (k) => { const v = res.headers[String(k).toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; } }, text: async () => Buffer.concat(chunks).toString("utf8") }));
-      res.on("error", no);
-    }
-    req.on("timeout", () => req.destroy(new Error("the page took too long")));
-    req.on("error", (e) => no(e.code === "EPRIVATE" ? new ToolError("that address is on a private network") : e));
-    req.end();
-  });
+/**
+ * CLAUDE CODE'S WEBFETCH'S FETCH (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+ * coder-webfetch.mjs, loaded only for a fetch): the page (as Markdown when it is HTML), a redirect to another host, or a
+ * status other than 2xx, as `{ text, facts }` for Coder's loop (FACTS_MARK); through the chat's network list when it is on,
+ * never to a private address (Coder's own refusal, kept); a binary page also saved to the scratch folder. `request`: a test's
+ * stand-in for the network.
+ */
+export async function toolWebFetch(args, request = null) {
+  const { fetchPage } = await import("./coder-webfetch.mjs");
+  return fetchPage(args || {}, { isPrivate: privateAddress, lookup: safeLookup, proxy: process.env.CODER_NET_LIMITED === "1" ? String(process.env.HTTPS_PROXY || "") : "", scratch: SCRATCH, ...(typeof request === "function" ? { request } : {}) });
 }
 
-export function htmlToText(html) {
-  return String(html)
-    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr|pre)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*/g, "\n\n").trim();
-}
-
-async function get(url, fetchFn) {
-  let u = await publicUrl(url);
-  for (let hop = 0; hop < 5; hop++) {
-    const r = await fetchFn(u, { redirect: "manual", headers: { "user-agent": "Coder (gofarther.dev)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(20000) });
-    if (r.status >= 300 && r.status < 400 && r.headers.get("location")) { u = await publicUrl(new URL(r.headers.get("location"), u)); continue; }
-    return r;
-  }
-  fail("too many redirects");
-}
-
-export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
-  const r = await get(url, fetchFn);
-  const type = r.headers.get("content-type") || "";
-  const raw = (await r.text()).slice(0, 2_000_000);
-  const text = /html/i.test(type) ? htmlToText(raw) : raw;
-  // Up to 100,000 characters, like Claude Code's WebFetch: a separate reader reads it, not Coder (2026-11-06).
-  return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, WEB_MAX) + (text.length > WEB_MAX ? "\n[cut]" : "");
-}
-
-export async function toolLsp({ action, path, line, column }) {
-  const { abs, rel } = await inside(path, { mustExist: true });
+/**
+ * CLAUDE CODE'S LSP TOOL (coder-lsp.mjs runLsp; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): its
+ * answer for Grok and its result object for the hooks (`facts`). The file stays inside the project, never in .git
+ * (`inside`). `ctx.callMs`: the most it waits for the chat's keeper; none given, as long as its run lasts (Coder's loop gives
+ * a lookup the job's time left).
+ */
+export async function toolLsp(args, ctx = {}) {
   const { runLsp } = await import("./coder-lsp.mjs");
-  return runLsp({ action, path: rel, abs, line, column }, ROOT, BASE === ROOT ? ROOT : null);
+  const callMs = Number(ctx && ctx.callMs);
+  return runLsp(args, { root: ROOT, base: BASE, inside: (p) => inside(p), scratch: SCRATCH, callMs: Number.isFinite(callMs) && callMs > 0 ? callMs : 0 });
+}
+/**
+ * THE LSP TOOL'S FILE CHECKS, BEFORE ANY HOOK (coder-lsp.mjs fileProblem; Claude Code's validateInput: "File does not exist:
+ * …", "Path is not a file: …", "Cannot access file: …"), where the chat's files are seen, from the folder Grok's commands are
+ * in: "ok", or the refusal as an error.
+ */
+export async function toolLspFile(args) {
+  const { fileProblem } = await import("./coder-lsp.mjs");
+  const filePath = args && typeof args.filePath === "string" ? args.filePath : "";
+  // (A null byte is the tool's own refusal, `inside`; an empty path is the folder the commands are in, as Claude Code resolves it.)
+  if (filePath.includes("\0")) return "ok";
+  const why = await fileProblem(filePath, filePath === "" ? BASE : resolve(BASE, filePath));
+  if (why) fail(why);
+  return "ok";
+}
+/**
+ * WHAT THE CHAT'S LANGUAGE SERVERS REPORTED SINCE CODER'S LAST STEP (coder-lsp.mjs takeNews), for Coder's loop: JSON of `{ note,
+ * shown, notices }`, or "" when no keeper runs.
+ */
+export async function toolLspTake() {
+  const { takeNews } = await import("./coder-lsp.mjs");
+  const news = await takeNews(ROOT, { base: BASE });
+  return news ? JSON.stringify(news) : "";
 }
 
 /**
@@ -1591,7 +1593,7 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
     if (px) {
       const p = new URL(px);
       const c = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: (host.includes(":") ? "[" + host + "]" : host) + ":" + port });
-      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "blocked by this repo's network list: " + host + " (ask the owner with propose_env, allow_host)" : "the proxy refused " + host }); } done({ sock }); });
+      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "blocked by this repo's network list: " + host : "the proxy refused " + host }); } done({ sock }); });
       c.on("error", (e) => done({ error: String((e && e.message) || e).slice(0, 300) }));
       c.end();
       return;
@@ -1717,7 +1719,7 @@ export async function toolSendFile({ path }) {
   return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
 }
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
@@ -1733,8 +1735,11 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     const say = (text, code) => process.stdout.write(text, () => process.exit(code));
     if (!fn) return say("error: unknown tool", 2);
     let text;
-    try { text = String(await fn(req.args || {})); }
-    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, 600), 1); }
+    // (A tool with a result object for the hooks returns { text, facts }: printedAnswer.)
+    // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
+    // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
+    try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
+    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, e && e.long === true ? 4000 : 600), 1); }
     say(text, 0);
   })();
 }

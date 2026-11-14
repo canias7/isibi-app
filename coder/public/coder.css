@@ -264,6 +264,7 @@
 /* Coder's checklist (the todo tool), only the latest one is shown. */
 .cd-todo{border:1px solid #e5e3dd;border-radius:12px;padding:10px 14px;margin:8px 0;background:#fff;font-size:14px}
 .cd-todo b{display:block;font-size:12px;color:#6b6a68;font-weight:600;margin-bottom:6px;text-transform:uppercase;letter-spacing:.04em}
+.cd-todo-n{font-weight:400;text-transform:none;letter-spacing:0}
 .cd-todo-i{display:flex;gap:8px;align-items:flex-start;padding:3px 0;color:#1f1e1d}
 .cd-todo-box{flex:none;width:16px;height:16px;border:1.5px solid #c9c6bf;border-radius:4px;display:grid;place-items:center;font-size:11px;line-height:1;margin-top:2px}
 .cd-todo-i.is-done{color:#8a8884;text-decoration:line-through}
@@ -274,20 +275,27 @@
 /* CODER'S QUESTION, LIKE CLAUDE CODE'S (owner, 2026-11-06, "2"): the question on
    top, each choice with its explanation, Other with a box to type, Skip and Submit. */
 .cd-ask{border:1px solid #e5e3dd;border-radius:14px;margin:8px 0;background:#fff;overflow:hidden;max-width:480px}
-.cd-ask-q{font-size:14.5px;font-weight:600;color:#1f1e1d;line-height:1.45;padding:12px 16px;background:#f7f6f2;border-bottom:1px solid #ece9e2}
+.cd-ask-q{font-size:14.5px;font-weight:600;color:#1f1e1d;line-height:1.45;padding:12px 16px;background:#f7f6f2;border-bottom:1px solid #ece9e2;overflow-wrap:anywhere}
 .cd-ask.is-many{max-width:520px}
 .cd-ask-one+.cd-ask-one .cd-ask-q{border-top:1px solid #ece9e2}
-.cd-ask-h{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:#5b4a2e;background:#f1e7d3;border-radius:999px;padding:2px 9px;margin:0 8px 0 0;vertical-align:1px}
+.cd-ask-h{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.02em;color:#5b4a2e;background:#f1e7d3;border-radius:999px;padding:2px 9px;margin:0 8px 0 0;vertical-align:1px;max-width:100%;box-sizing:border-box}
 .cd-ask-multi{display:inline-block;font-size:11.5px;font-weight:500;color:#6b6a66;margin-left:8px}
 .cd-ask-list{display:flex;flex-direction:column}
 .cd-ask-row{display:flex;gap:12px;align-items:flex-start;padding:12px 16px;border-bottom:1px solid #f0eee8;cursor:pointer}
 .cd-ask-row:last-child{border-bottom:0}
 .cd-ask-row input[type="radio"],.cd-ask-row input[type="checkbox"]{margin:2px 0 0;width:17px;height:17px;flex:none;accent-color:#1f1e1d;cursor:pointer}
-.cd-ask-t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1}
+.cd-ask-t{display:flex;flex-direction:column;gap:3px;min-width:0;flex:1;overflow-wrap:anywhere}
 .cd-ask-t b{font-size:14.5px;font-weight:600;color:#1f1e1d}
 .cd-ask-t small{font-size:13px;color:#6b6a66;line-height:1.45}
 .cd-ask-in{font:inherit;font-size:14px;color:#1f1e1d;border:1px solid #d9d6cf;border-radius:8px;padding:7px 10px;margin-top:6px;width:100%;box-sizing:border-box;background:#fff}
 .cd-ask-in:focus{outline:none;border-color:#1f1e1d}
+/* Claude Code's previews and notes field on a single-select question with previews (2026-11-14). */
+.cd-ask-pv{margin:0 16px 10px;padding:10px 12px;border:1px solid #e5e3dd;border-radius:8px;background:#faf9f6;font:12.5px/1.45 ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;white-space:pre-wrap;overflow-wrap:anywhere;max-height:320px;overflow:auto;color:#1f1e1d}
+.cd-ask-pv-none{color:#8a8884;font-style:italic}
+.cd-ask-notes{display:flex;gap:8px;align-items:center;margin:0 16px 12px;font-size:13px;color:#6b6a68}
+.cd-ask-note{flex:1;font:inherit;font-size:14px;color:#1f1e1d;border:1px solid #d9d6cf;border-radius:8px;padding:6px 10px;background:#fff;min-width:0}
+.cd-ask-note:focus{outline:none;border-color:#1f1e1d}
+.cd-ask-notes-said{margin:0 16px 12px;font-size:13px;color:#6b6a68}
 .cd-ask-btns{display:flex;justify-content:flex-end;gap:8px;padding:12px 16px;border-top:1px solid #ece9e2}
 .cd-ask-btns button{font:inherit;font-size:14px;font-weight:600;border-radius:999px;padding:8px 16px;cursor:pointer}
 .cd-ask-skip{border:1px solid #d9d6cf;background:#fff;color:#1f1e1d}
@@ -315,6 +323,9 @@
 .cd-secret-eye[aria-pressed="true"]{color:#1f1e1d}
 .cd-sign-saved small{display:block;font-size:12px;font-weight:400;opacity:.75;margin-top:2px}
 .cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
+/* THE KEY CARD'S FIELDS, AS CLAUDE CODE'S request_credential FORM (2026-11-14): one under the other; the header and the word before the key side by side. */
+.cd-secret-field{margin:0 0 10px}
+.cd-secret-row{display:flex;gap:8px}.cd-secret-row>.cd-secret-field{flex:1;min-width:0}.cd-secret-row>.cd-secret-field:first-child{flex:1.6}
 .cd-secret-btns{display:flex;gap:10px;margin-top:16px}
 /* The live screen in a hand-off card (2026-11-12, Grok Bot's card shows its screen). */
 .cd-ho-screen{margin:14px 0 4px;border:1px solid #ebe7e0;border-radius:12px;overflow:hidden;background:#0f0f10;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center}
@@ -574,6 +585,7 @@
 .cd-ne-sec small { display: block; font-size: 12.5px; color: #6b6a66; margin-bottom: 4px; }
 .cd-ne-sec > div { font-size: 13.5px; color: #1f1e1d; }
 .cd-ne-plus { color: #1a7f37; font-weight: 700; margin-right: 8px; }
+.cd-ne-minus { color: #cf222e; font-weight: 700; margin-right: 8px; } /* a host, variable or key that stops (Claude Code's environment tools' cards, 2026-11-14) */
 .cd-ne-n { display: inline-block; width: 1.8em; color: #a9a7a1; user-select: none; }
 
 /* REWIND (2026-11-06, like Claude Code): a small button on your messages, and its three choices. */
@@ -829,6 +841,10 @@
 .cd-perm-no { color: #b3261e; font-weight: 600; }
 .cd-plan .cd-perm-ic { background: #2f5d8a; }
 .cd-plan-body { border: 1px solid #ece9e2; border-radius: 10px; padding: 4px 14px; background: #fdfcfa; max-height: 420px; overflow: auto; font-size: 14px; }
+/* The plan edited on its card before it is approved (Claude Code's "edit it directly before Claude proceeds", 2026-11-14). */
+.cd-plan-edit { border: 0; background: none; padding: 6px 0 0; font: 500 12.5px Inter, system-ui, sans-serif; color: #2f5d8a; cursor: pointer; }
+.cd-plan-edit:hover, .cd-plan-edit:focus-visible { text-decoration: underline; outline: none; }
+.cd-plan-text { margin-top: 0; font: 12.5px/1.5 "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical; min-height: 160px; max-height: 420px; }
 .cd-st-wait { color: #9a5b00; font-weight: 600; }
 
 /* THE OWNER'S RULES FOR A REPOSITORY (Claude Code's /permissions). */

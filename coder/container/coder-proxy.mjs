@@ -66,7 +66,9 @@ function publicLookup(hostname, opts, cb) {
     cb(null, list[0].address, list[0].family);
   });
 }
-const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ". Ask the owner to allow it with propose_env (allow_host), unless network access is None.";
+// (Since 2026-11-14, the owner: "Fix base on Claude Code docs, please": it names no tool, as Claude Code's proxy's own block,
+// "Connection blocked by network allowlist", names none; whether and where a change is proposed is get_environment's rule.)
+const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ".";
 /** A host a command's own list doesn't name (Claude Code's words: "not in this command's allowed_domains — re-run the command with this host listed if it needs it"). */
 export const UNLISTED = (host) => "Blocked: " + host + " is not in this command's allowed_domains \u2014 re-run the command with this host listed if it needs it.";
 /** The command a request comes from, by the pass in its proxy address (Proxy-Authorization: Basic cmd:<token>), or "". */
@@ -90,7 +92,7 @@ export function blockedNote(list) {
   return "Blocked by this chat's network list while this command ran: " + b.map((x) => x.host + " (" + x.why + ")").join(", ") + ". " +
     (listed === b.length
       ? "A site on the blocked sites list is refused whatever the network setting allows: don't retry it or propose allowing it; only the owner can take it off that list."
-      : "If the work needs one, ask the owner to allow it with propose_env (allow_host), unless network access is None" + (listed ? "; one on the blocked sites list stays refused whatever is allowed, and only the owner can take it off that list." : "."));
+      : "If the task needs one, get_environment's description says when and where to propose a change" + (listed ? "; one on the blocked sites list stays refused whatever is allowed, and only the owner can take it off that list." : "."));
 }
 export const DENIED = (host) => "Blocked: " + host + " is on this environment's blocked sites (Claude Code's sandbox.network.deniedDomains), refused whatever the network setting allows. Don't retry it; only the owner can change that list.";
 

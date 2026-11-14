@@ -85,19 +85,31 @@
   // THE OWNER'S TIME ZONE, from this device (the docs, 2026-11-10; Grok Bot's Timezone "Auto-detect follows this computer").
   const deviceZone = () => { try { return Intl.DateTimeFormat().resolvedOptions().timeZone || ''; } catch (e) { return ''; } };
   // CODER'S QUESTIONS (owner pick 4, 2026-11-08): 1 to 4 in a card; a card from before has one (text, options, multi).
+  // A card Coder waits on (its pid) keeps every option in its place, one with an empty label too, as Claude Code's schema
+  // allows one, and its previews (2026-11-14); the owner's picks are the options' places.
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
-    text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true),
-    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || '') })).filter((o) => o.label),
+    text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true), previews: !!(e.pid && q && q.previews === true && q.multi !== true),
+    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview } : {}) })).filter((o) => e.pid || o.label),
   }));
   /** The answer a card sends: one question's choices as before; several, each on its own line after its header. */
   const askReply = (a) => {
     if (!a || !Array.isArray(a.answers)) return '';
     // A choice is sent without its "(Recommended)" (that was Coder's own word).
-    const said = a.answers.map((x) => x.picked.map((v) => (v === '__other' ? x.other.trim() : v.replace(/\s*\(Recommended\)$/i, ''))).filter(Boolean).join(', '));
+    const said = a.answers.map((x, k) => x.picked.map((v) => (v === '__other' ? x.other.trim() : String(((a.qs[k] || {}).options || [])[Number(v)] ? a.qs[k].options[Number(v)].label : '').replace(/\s*\(Recommended\)$/i, ''))).filter(Boolean).join(', '));
     if (!said.some(Boolean)) return '';
     if (a.answers.length === 1) return said[0];
     return a.qs.map((q, k) => (q.header || q.text) + ': ' + (said[k] || '(no answer)')).join('\n');
   };
+  // A CARD CODER WAITS ON (it has its pid; Claude Code's AskUserQuestion, the owner, 2026-11-14): the owner's picks as its
+  // step takes them, each question's options by their place, what they typed under Other, and their notes (Claude Code's
+  // notes field, on a question with previews); and back, to show them once it is answered.
+  const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '', notes: '' }; const notes = q.previews ? String(x.notes || '').trim() : ''; return { options: x.picked.filter((v) => v !== '__other').map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < q.options.length), other: x.picked.includes('__other') ? String(x.other || '').trim() : '', ...(notes ? { notes } : {}) }; });
+  const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).filter((n) => q.options[n]).map(String)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '', notes: (p && typeof p.notes === 'string' && p.notes) || '' });
+  /** The preview of the option chosen, as Claude Code's dialog shows it beside the options ("No preview available" for one with none). */
+  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? o.preview : null) : undefined; };
+  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : esc(pv || '')) + '</pre>'; };
+  /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
+  const askDone = (ans) => (ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -1083,7 +1095,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : c.waiting === 'permission' ? 'Coder needs your approval.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -1274,6 +1286,57 @@
   const NET = { none: ['None', 'Coder\'s commands can\'t reach the internet (sites with a saved secret still work).'], limited: ['Limited', 'Package registries, GitHub and cloud tools while Allow package managers is checked, plus the domains you list.'], full: ['Full', 'Coder\'s commands can reach any public site.'] };
   const netLevel = (mode) => (mode === 'none' || mode === 'full' ? mode : 'limited');
   const netSaved = (f) => (f.mode !== 'limited' ? f.mode : f.defaults && !f.hosts.length ? 'trusted' : 'custom');
+  // CLAUDE CODE'S ENVIRONMENT TOOLS' CARDS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
+  // update_environment, create_environment and switch_environment (container/coder-envtools.mjs) show exactly what changes,
+  // as Claude Code's approval prompt does (an edit: the exact change and who it affects; a new environment: its exact name,
+  // scope, hosts, variable values and setup script; a move: the target's name and network, and the hosts of both
+  // environments' network secrets), never Coder's reason ("The approval prompt does not show your `reason`").
+  const ENV_CARD_KINDS = ['update', 'create', 'switch'];
+  const envQuote = (n) => '"' + String(n || '') + '"';
+  /** The owner's answer when they decline (the same words as coder-envtools.mjs's declinedText). */
+  const envDeclined = (x) => x.kind === 'update' ? 'I declined the change to the environment ' + envQuote(x.name) + '.' : x.kind === 'create' ? 'I declined the new environment ' + envQuote(x.name) + '.' : 'I declined moving this chat to the environment ' + envQuote(x.name) + '.';
+  /** How a card a step waited on ended (its pid; A5 of the recheck, 2026-11-14): what Coder's server did, or the owner's no. */
+  const envDone = (e, ans) => ans.choice === 'approved' ? '<span class="cd-perm-ok">✓ ' + (e.kind === 'create' ? 'Created' : e.kind === 'switch' ? 'Moved' : 'Approved') + '</span>'
+    : ans.choice === 'refused' ? '<span class="cd-perm-no">✕ Not changed</span>' + (ans.why ? ': ' + esc(ans.why) : '')
+    : ans.choice === 'no' ? '<span class="cd-perm-no">✕ ' + (e.kind === 'create' ? 'Denied' : 'Declined') + '</span>'
+    : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+  function envCardHtml(e, i, live, ans) {
+    const sec = (label, body) => body ? '<div class="cd-ne-sec"><small>' + esc(label) + '</small>' + body + '</div>' : '';
+    const plus = (t) => '<div><span class="cd-ne-plus">+</span>' + t + '</div>';
+    const minus = (t) => '<div><span class="cd-ne-minus">−</span>' + t + '</div>';
+    const line = (t) => '<div>' + t + '</div>';
+    const box = (text) => '<pre class="cd-envchange-pre">' + String(text || '').split('\n').map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l)).join('\n') + '</pre>';
+    const vars = (o) => Object.keys(o || {}).map((k) => plus('<code>' + esc(k) + '=' + esc(o[k]) + '</code>')).join('');
+    let title, body = '', note = '', yes = 'Approve', no = 'Decline';
+    if (e.kind === 'update') {
+      const c = e.change || {};
+      title = 'Change the environment ' + esc(envQuote(e.name)) + '?';
+      body += sec('Applies to', line(esc(e.appliesTo || '')));
+      if (c.rename) body += sec('Name', plus(esc(c.rename)));
+      // (A new description, Claude Code's new_description; "" clears it.)
+      if (typeof c.description === 'string') body += sec('Description', c.description ? plus(esc(c.description)) : line('Cleared'));
+      if (c.network) body += sec('Network access', (c.level ? line(esc(c.network.from) + ' → ' + esc(c.network.to)) : '') + (c.add || []).map((h) => plus(esc(h))).join('') + (c.remove || []).map((h) => minus(esc(h))).join('') + (!c.level && c.packageManagers !== null && c.packageManagers !== undefined ? (c.packageManagers ? plus('package managers') : minus('package managers')) : ''));
+      body += sec('Environment variables', vars(c.set) + (c.unset || []).map((k) => minus('<code>' + esc(k) + '</code>')).join(''));
+      if (c.script) body += sec(c.script.change === 'removes the setup script' ? 'Setup script (removed)' : c.script.change === 'adds a setup script' ? 'Setup script (added)' : 'Setup script (replaced)', c.script.change === 'removes the setup script' ? box((e.args && e.args.setup_script) || '') : box(c.script.text));
+    } else if (e.kind === 'create') {
+      title = 'Create new environment?'; yes = 'Create environment'; no = 'Deny';
+      body += sec('Network access', line(esc(e.network || '')));
+      body += sec('Environment variables', vars(e.vars));
+      body += sec('Repositories', (e.repos || []).map((r) => plus('For <code>' + esc(r) + '</code>')).join(''));
+      if (String(e.script || '').trim()) body += sec('Setup script', box(e.script));
+      if (e.leave) body += sec('Network secrets', minus(esc(e.leave)));
+      const repos = e.repos || [];
+      note = e.moves ? 'This chat moves to it once you approve: its network at once, its variables from the next message; its setup script does not run on this chat\'s machine.' : 'This chat stays on ' + envQuote(e.from) + (e.stayWhy ? ' (' + e.stayWhy + ')' : '') + '.' + (repos.length ? ' New chats of ' + (repos.length === 1 ? repos[0] : 'these repositories') + ' start with the new one.' : '');
+    } else {
+      title = 'Move this chat to ' + esc(envQuote(e.name)) + '?'; yes = 'Move chat';
+      body += sec('What changes', line(esc(e.statement || '')));
+      body += sec('Network secrets', (e.arriving || []).map((h) => plus(esc(h))).join('') + (e.leaving || []).map((h) => minus(esc(h) + ' (from ' + esc(envQuote(e.from)) + ')')).join(''));
+    }
+    return '<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">' + title + '</b>' +
+      '<div class="cd-ne"><div class="cd-ne-head"><b>' + esc(e.name) + '</b><span>Personal</span></div>' + body + '</div>' +
+      (note ? '<p class="cd-secret-p">' + esc(note) + '</p>' : '') +
+      (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">' + no + '</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">' + yes + '</button></div>' : ans ? '<div class="cd-perm-done">' + envDone(e, ans) + '</div>' : '') + '</div>';
+  }
   /** What a Limited environment allows, in a few words: "package managers + 2 domains". */
   const limitedWords = (n) => {
     const hosts = n.mode === 'custom' ? n.hosts || [] : [];
@@ -1308,11 +1371,13 @@
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
       body = head('Environment: ' + (e.name || 'Default')) +
+        // (Its description, as Claude Code's environments have one: Coder writes it when it proposes an environment.)
+        (e.description ? '<p class="cd-em-help cd-em-top">' + esc(e.description) + '</p>' : '') +
         '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
         '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
         (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');
     } else if (page === 'name') {
-      body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="40" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
+      body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
     } else if (page === 'network') {
       body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
@@ -1351,7 +1416,7 @@
     } else if (page === 'script') {
       body = head('Setup script', 'main') + '<div class="cd-em-code"><div class="cd-em-codebar"><span class="cd-em-tag">Bash</span><label class="cd-em-file">⬆ Choose file<input type="file" id="envFile" hidden></label><button type="button" id="envCopy" aria-label="Copy">⧉</button></div>' +
         '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
-        '<p class="cd-em-help">Runs on Coder\'s machine before Coder starts, once per machine and again when you change it. It can\'t read your variables or secrets.</p>' +
+        '<p class="cd-em-help">Runs when a new chat starts, before Coder starts. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat. It can\'t read your variables or secrets.</p>' +
         '<p class="cd-em-help">System packages: put each install on its own line, like <code>apt-get install -y jq</code>. Coder installs those as admin; every other line runs as Coder\'s own user, so other sudo commands don\'t work. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
     } else if (page === 'vars') {
       body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +
@@ -1440,9 +1505,12 @@
     if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.sending) return;
     // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
     // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
-    if (S.running) {
+    // (And while a card Coder's paused job left open waits, other than a question card, whose reply the message is: it waits
+    // for Coder in the turn the card's answer takes up again. container/coder-park.mjs.)
+    const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && S.project.parked.kind !== 'question';
+    if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
-      if (pics.length || comments.length || att.length || !text) { S.error = 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
       S.sending = true; S.error = '';
       const id = S.project.id;
       const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
@@ -1484,6 +1552,16 @@
   }
 
   function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); webWake(); }
+  // A CARD LEFT OPEN WHILE CODER'S JOB PAUSED (container/coder-park.mjs; Claude Code: "Questions stay open until you answer
+  // them"): the chat's paused turn waits on it (`project.parked`), so it stays live, and its answer takes the turn up again in a
+  // job of its own, which the page then follows as after a message.
+  const parkedPid = () => (S.project && S.project.parked && typeof S.project.parked.pid === 'string' ? S.project.parked.pid : '');
+  function followTakenUp(r) {
+    const p = r && r.status === 200 && r.data ? r.data.project : null;
+    if (!p || p.status !== 'running' || !S.project || p.id !== S.project.id || S.running) return false;
+    S.project = p; S.running = true; syncEntry(); S.next = 0; stopBgWatch(); startPoll(); draw(true);
+    return true;
+  }
   // A TURN THAT STARTS WAKES A PAUSED LIVE VIEW (live test, 2026-11-10: opened more than 2 minutes before the message, it
   // said "Gloopy is using it" over an old picture, without Gloopy's steps, until Refresh).
   function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }
@@ -1867,14 +1945,34 @@
     const note = d.unavailable ? '<p class="cd-fchg-note">Some of what it changed could not be shown here: See changes has it all.</p>' : '';
     return '<div class="cd-files">' + rows + rest + note + '</div>';
   }
-  /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
+  /**
+   * WHAT THE LANGUAGE SERVERS REPORTED, ONE ROW FOR EACH NOTE CODER WAS GIVEN (Claude Code's: "Found N new diagnostic issues in
+   * M files (ctrl+o to expand)", every problem of every file counted; "Fix base on Claude Code docs, please", 2026-11-14), and
+   * the issues a tap away as its expanded view shows them: each file by its path, each problem with Claude Code's mark for its
+   * severity (✘ ⚠ ℹ ★, ● for any other), its line and column, its code and its source. Only text, never markup.
+   */
+  function diagnosticsHTML(e, i) {
+    const files = (Array.isArray(e.files) ? e.files : []).filter((f) => f && typeof f.path === 'string' && Array.isArray(f.problems) && f.problems.length);
+    if (!files.length) return '';
+    const n = files.reduce((a, f) => a + f.problems.length, 0);
+    const k = 'diag:' + i, open = !!S.open[k];
+    const mark = (s) => ({ error: '✘', warning: '⚠', info: 'ℹ', hint: '★' }[s] || '●');
+    return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + n + ' new diagnostic issue' + (n === 1 ? '' : 's') + ' in ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
+      (open ? '<pre class="cd-probs-list">' + files.map((f) => esc(f.path) + ':\n' + f.problems.map((p) => '  ' + mark(p && p.severity) + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '') + (p.source ? ' (' + esc(p.source) + ')' : '')).join('\n')).join('\n\n') + '</pre>' : '') +
+    '</div>';
+  }
+  /**
+   * "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them), each
+   * with Claude Code's mark for its severity (✘ ⚠ ℹ ★: the owner, 2026-11-14, "start fixing and filling in gaps on those tools").
+   * (A write's or an edit's own, in a chat from before 2026-11-14's per-step reports: diagnosticsHTML since.)
+   */
   function stepProblems(r, key) {
     const list = r && Array.isArray(r.problems) ? r.problems.filter((p) => p && typeof p.message === 'string').slice(0, 20) : [];
     if (!list.length) return '';
     const all = Math.max(list.length, Number.isInteger(r.problemsAll) ? r.problemsAll : 0);
     const k = key + ':problems', open = !!S.open[k];
     return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + all + ' new diagnostic issue' + (all === 1 ? '' : 's') + ' in 1 file<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
-      (open ? '<pre class="cd-probs-list">' + list.map((p) => (p.severity === 'warning' ? '⚠' : '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
+      (open ? '<pre class="cd-probs-list">' + list.map((p) => ({ warning: '⚠', info: 'ℹ', hint: '★' }[p.severity] || '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
     '</div>';
   }
   // THE LIVE SCREEN IN A HAND-OFF CARD (2026-11-12): the live view's picture, from the same stream; asleep, paused, or
@@ -2059,11 +2157,19 @@
     // A STEP WAITING ON THE OWNER'S YES (a permission card): "waiting for you", not running.
     const answered = new Set(S.events.filter((x) => x.type === 'permanswer').map((x) => x.pid));
     const waitingIds = new Set(S.events.filter((x) => x.type === 'permission' && x.id && !answered.has(x.pid)).map((x) => x.id));
-    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
+    // (And one waiting on a card its paused job left open: coder-park.mjs.)
+    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : waitingIds.has(e.id) && S.project && S.project.parked && S.project.parked.call === e.id ? 'wait' : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
+    // CODER'S CHECKLIST DOESN'T SPLIT A RUN OF COMMANDS (Claude Code's task list, the owner, 2026-11-14: "Do all the talk to
+    // you tools execpt for the notify one"; Claude Code's changelog: "Fixed consecutive shell commands splitting into multiple
+    // "Ran 1 shell command" rows when todo/task updates were interleaved between them"): its latest showing is drawn after the
+    // group it came in.
+    let plan = '';
+    // (Coder's task list titled as Claude Code titles its own: "Tasks · 2/5 done". Gloopy's checklist keeps "Plan". 2026-11-14.)
+    const todoHTML = (e) => '<div class="cd-todo">' + (GLOOPY ? '<b>Plan</b>' : '<b>Tasks<span class="cd-todo-n"> · ' + (e.items || []).filter((x) => x && x.status === 'done').length + '/' + (e.items || []).length + ' done</span></b>') + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>';
     const flush = () => {
-      if (!group.length) return;
+      if (!group.length) { if (plan) { out.push(plan); plan = ''; } return; }
       if (group.length === 1) { const [e, i] = group[0]; out.push(cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))); }
       else {
         const gk = 'g' + String(group[0][0].id || group[0][1]);
@@ -2079,6 +2185,7 @@
         '</div>');
       }
       group = [];
+      if (plan) { out.push(plan); plan = ''; }
     };
     // (A step shown again with a changed command, after a PermissionRequest hook changed it: its last showing only.)
     const lastStep = {};
@@ -2094,6 +2201,7 @@
         return;
       }
       if (e.type === 'result') return;
+      if (e.type === 'todo' && !GLOOPY) { if (!S.events.slice(i + 1).some((x) => x.type === 'todo')) plan = todoHTML(e); if (!group.length) flush(); return; }
       // A line of Gloopy's said soon after another: the status line only (SAY_EVERY_MS), not the chat.
       if (e.type === 'text' && e.quiet === true) return;
       flush();
@@ -2108,21 +2216,33 @@
         // 2026-11-08): each with its header chip and its choices with their explanations, the recommended
         // one first and already chosen, Other to type your own answer; one Skip and one Submit. Live only
         // on the last card.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        // A CARD CODER WAITS ON WHILE IT WORKS (it has its pid; Claude Code's AskUserQuestion, the owner, 2026-11-14: "Do all
+        // the talk to you tools execpt for the notify one"): live while the job runs and it is unanswered; Submit and Skip go
+        // to the waiting step (/answer), not as a message, and a message sent meanwhile is the reply. Once answered, it shows
+        // what was chosen, and how it ended under it.
+        const ans = e.pid ? S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid) : null;
+        const live = e.pid ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const sent = !!(e.pid && S.permSent && S.permSent[e.pid]);
         const qs = askQuestions(e);
         // The choices are kept here, not in the page, so a redraw never loses them.
         const chatId = S.project ? S.project.id : '';
-        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : [q.options[0].label], other: '' })) };
+        if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : ['0'], other: '', notes: '' })) };
         const many = qs.length > 1;
+        const off = !live || sent ? ' disabled' : '';
         out.push('<div class="cd-ask' + (live ? ' is-live' : '') + (many ? ' is-many' : '') + '" data-ask="' + i + '">' + qs.map((q, k) => {
-          const a = live ? S.ask.answers[k] : { picked: [], other: '' };
+          const a = live ? S.ask.answers[k] : ans && ans.choice === 'answers' && Array.isArray(ans.picks) ? askShown(q, ans.picks[k]) : { picked: [], other: '', notes: '' };
           const kind = q.multi ? 'checkbox' : 'radio', name = 'cdq' + i + '-' + k;
+          // (An answer as long as Claude Code takes one, 32,768 characters; notes 8,192. 2026-11-14.)
           return '<div class="cd-ask-one" data-q="' + k + '"><div class="cd-ask-q">' + (q.header ? '<span class="cd-ask-h">' + esc(q.header) + '</span>' : '') + '<span class="cd-ask-qt">' + esc(q.text) + '</span>' + (q.multi ? '<span class="cd-ask-multi">Choose any</span>' : '') + '</div><div class="cd-ask-list" role="' + (q.multi ? 'group' : 'radiogroup') + '">' +
-            q.options.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
-            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off">' : '') + '</span></label>' +
-            '</div></div>';
-        }).join('') + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
-          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
+            q.options.map((o, n) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + n + '"' + (a.picked.includes(String(n)) ? ' checked' : '') + off + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
+            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + off + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="32768" autocomplete="off"' + (sent ? ' disabled' : '') + '>' : a.other ? '<small>' + esc(a.other) + '</small>' : '') + '</span></label>' +
+            '</div>' +
+            // (CLAUDE CODE'S PREVIEWS AND NOTES FIELD, on a single-select question with previews: the chosen option's preview in
+            // a monospace box, and "Notes:" to add notes on it, which go with the answer. 2026-11-14.)
+            (q.previews ? askPreviewHTML(q, a.picked) + (live ? '<label class="cd-ask-notes"><span>Notes:</span><input type="text" class="cd-ask-note" placeholder="Add notes on this design" value="' + esc(a.notes || '') + '" maxlength="8192" autocomplete="off"' + (sent ? ' disabled' : '') + '></label>' : a.notes ? '<p class="cd-ask-notes-said">Notes: ' + esc(a.notes) + '</p>' : '') : '') +
+            '</div>';
+        }).join('') + (live ? (S.permErr && e.pid && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '') + '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '"' + (sent ? ' disabled' : '') + '>Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '"' + (sent ? ' disabled' : '') + '>Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
+          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ans ? '<div class="cd-perm-done">' + askDone(ans) + '</div>' : ''));
       }
       else if (e.type === 'writeask') {
         // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
@@ -2156,10 +2276,14 @@
       }
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        // (One a step of Coder's waits on, its pid (A5 of the recheck, 2026-11-14): live while that step waits, in the job
+        // running now or one paused on it; once answered, how it ended. Older cards as before, until the owner's next message.)
+        const ans = e.pid ? S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid) : null;
+        const live = e.pid ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         const host = e.kind === 'allow_host', made = e.kind === 'new_environment';
         const envName = S.envInfo ? S.envInfo.name : 'this chat\'s environment';
-        if (made) {
+        if (ENV_CARD_KINDS.includes(e.kind)) out.push(envCardHtml(e, i, live, ans));
+        else if (made) {
           // A NEW ENVIRONMENT, LIKE CLAUDE CODE'S "Create new environment?" (owner, 2026-11-06).
           out.push('<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Create new environment?</b>' +
             (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
@@ -2386,27 +2510,16 @@
           '<p class="cd-secret-p">Do only this step, then choose “I’m done”. To use Gloopy’s browser yourself, take over. Gloopy sees the page again after.</p>' + until(i, e) + gone(i, e) +
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Skip</button><button type="button" class="cd-card-no" data-handoff-done="' + esc(e.id) + '">I’m done</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Take over</button></div>' : '') + '</div>');
       }
-      else if (e.type === 'secret') {
-        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        // In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's environments).
-        out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (GLOOPY ? 'Gloopy needs a key for ' : 'Coder needs a secret for ') + esc(e.host) + '</b>' +
-          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-how">Sent as <code>' + esc(e.header || 'Authorization') + ': ' + esc(e.prefix == null ? 'Bearer ' : (e.prefix ? e.prefix + ' ' : '')) + '&lt;your key&gt;</code></p>' +
-          (GLOOPY ? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' + esc(e.host) + ': it is added to Gloopy’s requests to ' + esc(e.host) + ' after they leave its computer, so Gloopy never sees it.</p>'
-            : '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>') +
-          (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
-            (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
-            '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
-          : '') + '</div>');
-      }
-      else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
+      else if (e.type === 'secret') out.push(keyCardHTML(e, i));
+      else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push(todoHTML(e)); }
       // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
       // on Gloopy's last stop, while nothing came after it, a Resume button.
       else if (e.type === 'stopped') out.push('<div class="cd-note">Stopped.' + (GLOOPY && !S.running && !S.sending && i === S.events.length - 1 ? ' <button type="button" class="cd-card-no cd-resume" data-resume="1">Resume</button>' : '') + '</div>');
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
+      // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
+      else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
       else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');
@@ -2426,7 +2539,8 @@
   }
   function queueHTML() {
     const list = queuedNow();
-    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
+    // (While a card Coder's paused job left open waits, as while Coder works: they go to Coder in the turn its answer takes up.)
+    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -2434,6 +2548,9 @@
   // GLOOPY'S CHAT (owner, 2026-11-09): its figure and name on top (the ☰ opens the side on a phone, the way back to
   // Coder), one chat in the side, and its welcome before the first message, with ways to start.
   const gloopyFig = (h) => (typeof window.gloopyHTML === 'function' ? window.gloopyHTML(h) : '');
+  // CODER'S LOGO, THE TYPEWRITER (the owner, 2026-11-14: "that will be the logo for Coder"; coder-logo.js): beside its
+  // chat's name on top, and bigger in its empty chat, as Gloopy's figure is in Gloopy's.
+  const coderFig = (h) => (typeof window.coderLogoHTML === 'function' ? window.coderLogoHTML(h) : '');
   function gloopyHeadHTML() {
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
@@ -2850,6 +2967,7 @@
     const title = p ? (p.title || 'New chat') : '';
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
+      '<span class="cd-cl-av" aria-hidden="true">' + coderFig(26) + '</span>' +
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
       // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
@@ -3172,7 +3290,9 @@
   function chatMode() {
     const p = S.project || {};
     let m = MODE_LIST.some((x) => x.id === p.mode) ? p.mode : 'auto';
-    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff')).at(-1) : null;
+    // (And Plan when Coder entered it, its enter_plan_mode: Claude Code's EnterPlanMode puts the session in Plan as the mode
+    // menu would. 2026-11-14.)
+    const sw = S.running ? S.events.filter((e) => e.type === 'mode' && (e.by === 'card' || e.by === 'plan' || e.by === 'autoOff' || e.by === 'enterPlan')).at(-1) : null;
     if (sw && MODE_LIST.some((x) => x.id === sw.mode) && Number(sw.at || 0) > Number(p.modeAt || 0)) m = sw.mode;
     return S.autoOff && m === 'auto' ? 'acceptEdits' : m;
   }
@@ -3204,8 +3324,12 @@
   // The step waits in Coder's job until the answer comes (this page sends it: /answer); a note can go with it.
   // (A folder's Read rule, saved for a cd out of the project, as the folder: "reading /tmp/data/".)
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
-  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
+  // (web_search's card since it became Coder's own tool, 2026-11-14: its title here; its text is the card's `what`, Claude Code's
+  // "Coder wants to search the web for: …", shown as any other tool's.)
+  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
   function permOptions(e) {
+    // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
+    if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
@@ -3232,14 +3356,61 @@
   }
   // (Once, in Coder's view: the page makes two views, and these cards are Auto mode's, which is Coder's alone. Merged 2026-11-13.)
   if (!GLOOPY) setInterval(() => { document.querySelectorAll('[data-block-at]').forEach((el) => { el.textContent = blockLeft(Number(el.getAttribute('data-block-at'))); }); }, 1000);
+  // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy;
+  // Coder never sees it. In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's
+  // environments). CLAUDE CODE'S request_credential FORM (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+  // notify one"; its inputs: display_name "Optional short label to prefill in the form ... The user can change it", header_name
+  // "Prefills the form; the user can change it", prefix "one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or
+  // GenieKey", suggested_type "Optional hint for the form's default ... "basic" for username and password"; its form's own
+  // field is "Token"): the name, the secret type (Token, or Username and password), the header and the word before the key can
+  // be changed here. Coder's card waits in its own turn (`pid`), as Claude Code's form does: Save or Decline answers it there,
+  // and Coder goes on; Gloopy's card (no `pid`) is answered with a message, as before.
+  const KEY_WORDS = ['', 'Bearer', 'Token', 'Key', 'ApiKey', 'Api-Key', 'Bot', 'SSWS', 'Splunk', 'GenieKey'];
+  // (Its fields' ids, one set for each of the page's two views.)
+  const KEY_ID = (GLOOPY ? 'gl' : 'cd') + 'Key';
+  const keySentAs = (basic, header, prefix) => (basic ? 'Authorization: Basic <your username and password>' : (header || 'Authorization') + ': ' + (prefix ? prefix + ' ' : '') + '<your key>');
+  function keyCardHTML(e, i) {
+    const asks = !!e.pid;
+    const live = asks ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !S.events.some((x) => x.type === 'permanswer' && x.pid === e.pid) : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+    const header = e.header || 'Authorization', prefix = e.prefix == null ? 'Bearer' : e.prefix;
+    // (An older card's "Basic" sent the key as the user name: a username and password now.)
+    const basic = e.kind === 'basic' || prefix === 'Basic';
+    const field = (k, label, input) => '<div class="cd-secret-field"><label class="cd-secret-l" for="' + KEY_ID + k + '">' + label + '</label>' + input + '</div>';
+    const text = (k, v, max) => '<input id="' + KEY_ID + k + '" class="cd-secret-in" type="text" value="' + esc(v || '') + '"' + (max ? ' maxlength="' + max + '"' : '') + ' autocomplete="off" spellcheck="false">';
+    const typed = (k) => '<input id="' + KEY_ID + k + '" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">';
+    const at = asks ? ' data-secret-pid="' + esc(e.pid) + '"' : '';
+    return '<div class="cd-secret cd-secret-key' + (live ? ' is-live' : '') + '"' + (live ? at : '') + '><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (GLOOPY ? 'Gloopy needs a key for ' : 'Coder needs a secret for ') + esc(e.host) + '</b>' +
+      (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+      '<p class="cd-secret-how">Sent as <code>' + esc(keySentAs(basic, header, prefix)) + '</code></p>' +
+      (GLOOPY ? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' + esc(e.host) + ': it is added to Gloopy’s requests to ' + esc(e.host) + ' after they leave its computer, so Gloopy never sees it.</p>'
+        : '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>') +
+      (live ? field('Name', 'Name (optional)', text('Name', e.name, 60)) +
+        field('Type', 'Secret type', '<select id="' + KEY_ID + 'Type" class="cd-secret-in"><option value="token"' + (basic ? '' : ' selected') + '>Token</option><option value="basic"' + (basic ? ' selected' : '') + '>Username and password</option></select>') +
+        '<div class="cd-secret-tok"' + (basic ? ' hidden' : '') + '><div class="cd-secret-row">' + field('Header', 'Header', text('Header', header, 40)) +
+          field('Prefix', 'Prefix', '<select id="' + KEY_ID + 'Prefix" class="cd-secret-in">' + KEY_WORDS.map((w) => '<option value="' + w + '"' + (w === (basic ? 'Bearer' : prefix) ? ' selected' : '') + '>' + (w || '(none)') + '</option>').join('') + '</select>') + '</div>' +
+          field('In', 'Token', typed('In')) + '</div>' +
+        '<div class="cd-secret-basic"' + (basic ? '' : ' hidden') + '>' + field('User', 'Username', text('User', '', 0)) + field('Pass', 'Password', typed('Pass')) + '</div>' +
+        '<p class="cd-secret-err" hidden></p>' +
+        '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '"' + at + '>Decline</button><button type="button" class="cd-secret-save" data-secret-save="' + esc(e.host) + '"' + at + ' disabled>Save</button></div>'
+      : '') + '</div>';
+  }
   function permHTML(e) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
-    const live = S.running && !ans;
+    const live = (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans;
     const sent = S.permSent && S.permSent[e.pid];
     const plan = e.tool === 'plan';
     let body = '';
     // (A heading line with text right under it is a heading too: a plan is often written "## Context" then its lines.)
-    if (plan) body = '<div class="cd-plan-body">' + prose(String(e.plan || '').replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>';
+    // CLAUDE CODE'S PLAN CARD (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify
+    // one"): one too long to show says approval is withheld; one with no plan says Coder wants to exit plan mode (its
+    // "simplified yes/no dialog"); the plan can be edited before it is approved ("edit it directly before Claude proceeds"),
+    // and once approved the card shows the plan as approved.
+    const planEditing = plan && live && !sent && S.planEdits && typeof S.planEdits[e.pid] === 'string';
+    const planText = !plan ? '' : ans && typeof ans.plan === 'string' ? ans.plan : (sent === 'auto' || sent === 'acceptEdits') && S.planEdits && typeof S.planEdits[e.pid] === 'string' ? S.planEdits[e.pid] : String(e.plan || '');
+    if (plan && e.withheld) body = '<p class="cd-perm-desc">' + esc(e.withheld) + '</p>';
+    else if (plan && !planText.trim()) body = '<p class="cd-perm-desc">Coder wants to exit plan mode</p>';
+    else if (planEditing) body = '<textarea class="cd-perm-note cd-plan-text" data-plan-text="' + esc(e.pid) + '" rows="14" spellcheck="false" aria-label="Edit the plan">' + esc(S.planEdits[e.pid]) + '</textarea>';
+    else if (plan) body = '<div class="cd-plan-body">' + prose(planText.replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>' + (live && !sent ? '<button type="button" class="cd-plan-edit" data-plan-edit="' + esc(e.pid) + '">Edit plan</button>' : '');
     else if (e.tool === 'bash' || e.tool === 'powershell') {
       const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
       body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
@@ -3268,20 +3439,44 @@
       (live
         ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
-          '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change (with No, keep planning)' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>' +
+          // (No note on a page fetch's card, as Claude Code's: "WebFetch and browser prompts don't offer the field"; 2026-11-14.)
+          (e.tool === 'web_fetch' ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
           (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '')
         : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');
   }
   async function answerPerm(pid, choice) {
     if (!S.project || (S.permSent && S.permSent[pid])) return;
-    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none.)
-    const comment = choice === 'always' || choice === 'auto' ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none. On a plan's
+    // card the words go with every Yes, "Yes, and use auto mode" too, as Claude Code 2.1.325 sends them: "shift+tab to approve
+    // with this feedback". 2026-11-14.)
+    const card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
+    const isPlan = !!(card && card.tool === 'plan');
+    const comment = !isPlan && (choice === 'always' || choice === 'auto') ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    const edit = S.planEdits && typeof S.planEdits[pid] === 'string' ? S.planEdits[pid] : null;
+    const plan = card && card.tool === 'plan' && (choice === 'auto' || choice === 'acceptEdits') && edit !== null && edit !== String(card.plan || '') ? edit : null;
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment, ...(plan !== null ? { plan } : {}) }) });
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    // (A card Coder's paused job left open: its answer started the job that takes the turn up again.)
+    if (followTakenUp(r)) return;
+    draw();
+  }
+  // A QUESTION CARD CODER WAITS ON (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools
+  // execpt for the notify one"): Submit sends the owner's picks (nothing when nothing is chosen), Skip sends none; the step
+  // that waits takes them (/answer), as a permission card's answer.
+  async function askAnswer(pid, choice) {
+    if (!S.project || !S.ask || (S.permSent && S.permSent[pid])) return;
+    const answers = choice === 'answers' ? askPicks(S.ask) : null;
+    if (answers && !answers.some((p) => p.options.length || p.other || p.notes)) return;
+    S.permSent = { ...(S.permSent || {}), [pid]: choice };
+    S.permErr = null;
+    draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, ...(answers ? { answers } : {}) }) });
+    if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    if (followTakenUp(r)) return;
     draw();
   }
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
@@ -3339,7 +3534,8 @@
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
-        (S.running
+        // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
+        (S.running || (!GLOOPY && S.project && S.project.parked)
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
@@ -3411,7 +3607,7 @@
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
         (empty && GLOOPY ? gloopyEmptyHTML() : '') +
-        (empty && !GLOOPY ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
+        (empty && !GLOOPY ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
@@ -3422,6 +3618,8 @@
   function draw(scroll) {
     const root = S.root;
     if (!root || !root.isConnected) return;
+    // CODER'S LOGO TYPES WHILE CODER WORKS (the owner, 2026-11-14: "like if it's actually typing"): while its open chat runs.
+    if (!GLOOPY && window.coderLogo) window.coderLogo.busy(S.phase === 'chat' && S.running);
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
@@ -3429,14 +3627,34 @@
     // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
     const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id) ? document.activeElement.id : '';
+    // CODER'S KEY CARD WHILE ITS STEP WAITS (keyCardHTML; the owner, 2026-11-14): the page redraws every 1.5 seconds while Coder
+    // works, so the card keeps its own fields as they are (what the owner typed, the key too, never goes into the page's
+    // markup or its state), with the cursor; once answered, it is drawn afresh.
+    const keyKept = root.querySelector('.cd-secret-key[data-secret-pid]');
+    const keyAt = keyKept && keyKept.contains(document.activeElement) ? { id: document.activeElement.id, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
+    // (And a question card's Other box, where its cursor was: a card Coder waits on is live while the page redraws. The owner,
+    // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
+    const askEl = document.activeElement && document.activeElement.classList && (document.activeElement.classList.contains('cd-ask-in') || document.activeElement.classList.contains('cd-ask-note')) ? document.activeElement : null;
+    const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, cls: askEl.classList.contains('cd-ask-note') ? 'cd-ask-note' : 'cd-ask-in', a: askEl.selectionStart, b: askEl.selectionEnd } : null;
+    // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
+    const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
+    const keyPid = keyKept ? String(keyKept.dataset.secretPid || '') : '';
+    const keyNew = /^p[0-9a-z]{2,24}$/.test(keyPid) ? root.querySelector('.cd-secret-key[data-secret-pid="' + keyPid + '"]') : null;
+    if (keyNew) {
+      keyNew.replaceWith(keyKept);
+      const f = keyAt && keyAt.id ? keyKept.querySelector('#' + keyAt.id) : null;
+      if (f) { f.focus(); try { if (keyAt.a != null) f.setSelectionRange(keyAt.a, keyAt.b); } catch { /* a select has no cursor */ } }
+    }
     if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
+    if (askAt) { const f = root.querySelector('.cd-ask[data-ask="' + askAt.at + '"] .cd-ask-one[data-q="' + askAt.q + '"] .' + askAt.cls); if (f && !f.disabled) { f.focus(); try { f.setSelectionRange(askAt.a, askAt.b); } catch (e) { /* not a text box */ } } }
+    if (planAt) { const t = root.querySelector('[data-plan-text="' + CSS.escape(planAt.pid) + '"]'); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(planAt.a, planAt.b, planAt.d || 'none'); t.scrollTop = planAt.top; } }
     const term = root.querySelector('#cdWebTerm');
     if (term) term.scrollTop = term.scrollHeight;
     if (GLOOPY) setTimeout(hoSync, 0);
@@ -3478,17 +3696,24 @@
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-wchg-more', 'click', (e) => { const k = e.currentTarget.dataset.change; S.open[k] = !S.open[k]; draw(); });
     on('.cd-probs-row', 'click', (e) => { const k = e.currentTarget.dataset.problems; S.open[k] = !S.open[k]; draw(); });
-    // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
-    const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
+    // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply), or, to a card Coder waits on
+    // (its pid), to its waiting step (askAnswer).
+    const askWaiting = () => { const x = S.ask ? S.events[S.ask.at] : null; return x && x.type === 'question' && x.pid ? x : null; };
+    const askSend = () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'answers'); return; } const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
     const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };
     on('.cd-ask.is-live input[type="radio"], .cd-ask.is-live input[type="checkbox"]', 'change', (e) => {
       const a = askOf(e.currentTarget);
       if (!a) return;
       const one = e.currentTarget.closest('.cd-ask-one');
       a.picked = [...one.querySelectorAll('input[type="radio"]:checked, input[type="checkbox"]:checked')].map((x) => x.value);
+      // (The preview beside a question with previews follows the option chosen.)
+      const pv = one.querySelector('.cd-ask-pv'), q = S.ask && S.ask.qs[Number(one.dataset.q)];
+      if (pv && q) pv.outerHTML = askPreviewHTML(q, a.picked);
       if (e.currentTarget.value === '__other' && e.currentTarget.checked) { const t = one.querySelector('.cd-ask-in'); if (t) t.focus(); }
     });
     on('.cd-ask-in', 'input', (e) => { const a = askOf(e.currentTarget); if (a) a.other = e.currentTarget.value; });
+    on('.cd-ask-note', 'input', (e) => { const a = askOf(e.currentTarget); if (a) a.notes = e.currentTarget.value; });
+    on('.cd-ask-note', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask-in', 'focus', (e) => {
       // Typing your own answer chooses Other.
       const r = e.currentTarget.closest('.cd-ask-row').querySelector('input[value="__other"]');
@@ -3497,12 +3722,44 @@
     on('.cd-ask-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
-    on('[data-ask-skip]', 'click', () => { const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
-    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
+    on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
+    on('[data-envchange-no]', 'click', async (e) => {
+      const x = S.events[Number(e.currentTarget.dataset.envchangeNo)];
+      S.envChangeMsg = '';
+      // (A card a step waits on, its pid: Decline answers that step, Claude Code's denial of the call. A5 of the recheck.)
+      if (x && x.pid && ENV_CARD_KINDS.includes(x.kind) && S.project) {
+        e.currentTarget.disabled = true;
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid: x.pid, choice: 'no' }) });
+        if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'Your answer could not be sent. Try again.'; return draw(); }
+        if (!followTakenUp(r)) draw();
+        return;
+      }
+      send(x && ENV_CARD_KINDS.includes(x.kind) ? envDeclined(x) : x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.');
+    });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
       if (!x || !S.project) return;
       e.currentTarget.disabled = true;
+      // (A card a step waits on, its pid: Coder's server checks the call again, makes the change and tells that step what it
+      // did, or why it refused, as the call's result in the same turn. A5 of the recheck, 2026-11-14.)
+      if (x.pid && ENV_CARD_KINDS.includes(x.kind)) {
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/envchange', { method: 'POST', body: JSON.stringify({ tool: x.tool, args: x.args, shown: x, pid: x.pid }) });
+        if (r.status !== 200 || !r.data) { S.envChangeMsg = (r.data && r.data.error) || 'Your answer could not be sent. Try again.'; e.currentTarget.disabled = false; return draw(); }
+        S.envChangeMsg = ''; S.env = null;
+        if (S.envInfo && r.data.envId) S.envInfo = { ...S.envInfo, envId: r.data.envId, name: r.data.name || S.envInfo.name, isDefault: r.data.envId === 'default', environments: r.data.environments || S.envInfo.environments };
+        if (!followTakenUp(r)) draw();
+        return;
+      }
+      // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14): Coder's server checks the call again on the environment as it is now and
+      // makes the change; its answer is the owner's next message. A refusal goes to Coder as Claude Code's tool result does.
+      if (ENV_CARD_KINDS.includes(x.kind)) {
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/envchange', { method: 'POST', body: JSON.stringify({ tool: x.tool, args: x.args, shown: x }) });
+        if (r.status === 409 && r.data && r.data.error) { S.envChangeMsg = ''; return send('I approved it, but Coder\'s server refused it: ' + r.data.error); }
+        if (r.status !== 200 || !r.data || !r.data.said) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; e.currentTarget.disabled = false; return draw(); }
+        S.envChangeMsg = ''; S.env = null;
+        if (S.envInfo) S.envInfo = { ...S.envInfo, envId: r.data.envId || S.envInfo.envId, name: r.data.name || S.envInfo.name, isDefault: (r.data.envId || S.envInfo.envId) === 'default', environments: r.data.environments || S.envInfo.environments };
+        return send(r.data.said);
+      }
       if (x.kind === 'new_environment') {
         const r = await call('/environments', { method: 'POST', body: JSON.stringify({ name: x.name, script: x.script, network: { mode: x.network || 'trusted' }, repos: [S.project.repo] }) });
         if (r.status !== 200 || !r.data || !r.data.environment) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be made.'; return draw(); }
@@ -3875,17 +4132,51 @@
       rd.onload = () => { const data = String(rd.result || '').replace(/^data:[^,]*,/, ''); webInput({ kind: 'file', name: f.name.slice(0, 120), data }); };
       rd.readAsDataURL(f);
     });
-    on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
-    on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
-    on('.cd-secret-save', 'click', async (e) => {
-      const d = e.currentTarget.dataset; const box = (S.root || document).querySelector('#cdSecretIn'); const value = box ? box.value.trim() : '';
-      if (!value || !S.project) return;
-      e.currentTarget.disabled = true;
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ host: d.secretHost, value, header: d.secretHeader, prefix: d.secretPrefix, name: d.secretName }) });
-      if (box) box.value = '';
-      if (r.status !== 200) { S.secretMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
-      S.secretMsg = ''; if (S.env) S.env.secrets = r.data.secrets;
-      send((GLOOPY ? 'I saved the key for ' : 'I saved the secret for ') + d.secretHost + '.');
+    // THE KEY CARD (keyCardHTML; Claude Code's request_credential form, the owner, 2026-11-14: "Do all the talk to you tools
+    // execpt for the notify one"): what it sends follows its fields; Save keeps the key on the chat's environment (sealed: Coder
+    // never sees it), then answers Coder's waiting step "saved", or in Gloopy's chat says so in a message; Decline answers
+    // "no", or says so. What was typed leaves the card as it is sent; the card's own fields are read, never another view's.
+    const keyOf = (el) => el.closest('.cd-secret-key');
+    const keyVal = (card, k) => { const x = card.querySelector('#' + KEY_ID + k); return x ? String(x.value || '') : ''; };
+    const keyForm = (card) => ({ basic: keyVal(card, 'Type') === 'basic', name: keyVal(card, 'Name').trim(), header: keyVal(card, 'Header').trim(), prefix: keyVal(card, 'Prefix'), value: keyVal(card, 'In').trim(), username: keyVal(card, 'User').trim(), password: keyVal(card, 'Pass').trim() });
+    const keySay = (card, t) => { const p = card.querySelector('.cd-secret-err'); if (p) { p.textContent = t; p.hidden = !t; } };
+    const keyShow = (card) => {
+      const f = keyForm(card), pid = card.dataset.secretPid || '';
+      const tok = card.querySelector('.cd-secret-tok'), two = card.querySelector('.cd-secret-basic'), how = card.querySelector('.cd-secret-how code'), save = card.querySelector('[data-secret-save]');
+      if (tok) tok.hidden = f.basic;
+      if (two) two.hidden = !f.basic;
+      if (how) how.textContent = keySentAs(f.basic, f.header, f.prefix);
+      if (save) save.disabled = !!(pid && S.keyTold && S.keyTold[pid]) || !((pid && S.keySaved && S.keySaved[pid]) || (f.basic ? f.username : f.value));
+    };
+    on('.cd-secret-key.is-live input, .cd-secret-key.is-live select', 'input', (e) => { const c = keyOf(e.currentTarget); if (c) keyShow(c); });
+    on('.cd-secret-key.is-live select', 'change', (e) => { const c = keyOf(e.currentTarget); if (c) keyShow(c); });
+    on('[data-secret-no]', 'click', async (e) => {
+      const b = e.currentTarget, card = keyOf(b), pid = b.dataset.secretPid || '';
+      if (!pid) return send('I declined the secret for ' + b.dataset.secretNo + '.');
+      if (!card || !S.project) return;
+      b.disabled = true;
+      const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice: 'no' }) });
+      if (a.status !== 200) { b.disabled = false; keySay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
+      followTakenUp(a);
+    });
+    on('[data-secret-save]', 'click', async (e) => {
+      const b = e.currentTarget, card = keyOf(b), host = b.dataset.secretSave, pid = b.dataset.secretPid || '';
+      if (!card || !S.project || !host) return;
+      const f = keyForm(card), id = S.project.id;
+      b.disabled = true;
+      if (!pid || !(S.keySaved && S.keySaved[pid])) {
+        const r = await call('/projects/' + encodeURIComponent(id) + '/secret', { method: 'POST', body: JSON.stringify(f.basic ? { host, name: f.name, basic: true, username: f.username, password: f.password } : { host, name: f.name, header: f.header, prefix: f.prefix, value: f.value }) });
+        for (const k of ['In', 'Pass']) { const x = card.querySelector('#' + KEY_ID + k); if (x) x.value = ''; }
+        if (r.status !== 200) { keySay(card, (r.data && r.data.error) || 'It could not be saved.'); return keyShow(card); }
+        if (S.env) S.env.secrets = r.data.secrets;
+        if (!pid) return send((GLOOPY ? 'I saved the key for ' : 'I saved the secret for ') + host + '.');
+        S.keySaved = { ...(S.keySaved || {}), [pid]: true };
+      }
+      const a = await call('/projects/' + encodeURIComponent(id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice: 'saved', host }) });
+      if (a.status !== 200) { keySay(card, 'Saved. Coder could not be told yet: ' + ((a.data && a.data.error) || 'try again.') + ' Press Save to tell it again.'); return keyShow(card); }
+      S.keyTold = { ...(S.keyTold || {}), [pid]: true };
+      keySay(card, '');
+      followTakenUp(a);
     });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
@@ -3990,8 +4281,18 @@
     on('[data-perm-choice]', 'click', (e) => answerPerm(e.currentTarget.dataset.permPid, e.currentTarget.dataset.permChoice));
     on('[data-perm-note]', 'input', (e) => { S.permNotes = { ...(S.permNotes || {}), [e.currentTarget.dataset.permNote]: e.currentTarget.value }; });
     on('[data-perm-note]', 'keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    // THE PLAN, EDITED ON ITS CARD BEFORE IT IS APPROVED (Claude Code's "edit it directly before Claude proceeds"; the owner,
+    // 2026-11-14): Edit plan opens it as text; what is typed is kept for the answer.
+    on('[data-plan-edit]', 'click', (e) => {
+      const pid = e.currentTarget.dataset.planEdit, card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
+      S.planEdits = { ...(S.planEdits || {}), [pid]: String((card && card.plan) || '') };
+      draw();
+      const t = S.root.querySelector('[data-plan-text="' + CSS.escape(pid) + '"]');
+      if (t) { t.focus(); t.setSelectionRange(0, 0); t.scrollTop = 0; }
+    });
+    on('[data-plan-text]', 'input', (e) => { S.planEdits = { ...(S.planEdits || {}), [e.currentTarget.dataset.planText]: e.currentTarget.value }; });
     on('.cd-perm.is-live', 'keydown', (e) => {
-      if (e.target.matches && e.target.matches('input')) return;
+      if (e.target.matches && e.target.matches('input, textarea')) return;
       const opts = e.currentTarget.querySelectorAll('[data-perm-choice]');
       const k = Number(e.key);
       if (k >= 1 && k <= opts.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); opts[k - 1].click(); }

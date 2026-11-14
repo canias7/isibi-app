@@ -33,7 +33,7 @@ code in **each user's own GitHub**.
 2. They pick a repository. That is a Coder project.
 3. Each message: Coder's machine clones the repository (once), works on its
    own branch `coder/<project>` with its tools (read, edit, write, grep, glob,
-   bash, web search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
+   bash, web_search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
 
    **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like
@@ -275,17 +275,121 @@ code in **each user's own GitHub**.
    without control characters (`saidDir`). Tests: `test/cwd.test.mjs`.
 
    **Coder asks with a card of up to 4 questions** (`ask_user`; owner pick 4,
-   2026-11-08), like Claude Code's AskUserQuestion: each question with a header
-   shown as a chip, 2 to 4 options with a one-line description (the recommended
-   one first, already chosen), several choices when it allows, and Other with a
-   box; one Skip and one Submit. The turn ends there, and the answers are the
-   owner's next message, one line per question after its header ("Database:
-   Postgres"; "(no answer)" when none; "(Recommended)" left off); one question
-   sends just the choice, as before. The event keeps the first question where
-   older readers look (`text`, `options`) and all of them in `questions`; older
-   one-question cards still show. The notification says how many more; on GitHub
-   (@coder) they are numbered and answered in one comment. A PreToolUse hook can
-   answer the card instead (Claude Code's way; pass 6 below).
+   2026-11-08; since 2026-11-14 Claude Code's AskUserQuestion word for word,
+   `container/coder-askuser.mjs`): each question with a header shown as a chip, 2 to 4
+   options with a one-line description, several choices when it allows, and Other
+   with a box; one Skip and one Submit. The card waits inside the job, as Claude
+   Code's question dialog does: the answers are the tool's result in the same turn,
+   in Claude Code's words ("Your questions have been answered: …"), and Skip and Stop
+   end it as the other cards do; an unanswered card pauses the job and stays open (see
+   *Cards stay open until answered* below). Since the recheck of 2026-11-14 an option
+   can carry a preview and the card has a Notes box (Claude Code's `annotations`:
+   "selected preview:" and notes), answers run to 32,768 characters, and picks go by
+   place, so an option with an empty label shifts nothing. Its input is
+   checked before any hook, in Claude Code's words. On GitHub (@coder), for Gloopy
+   (its own `ask_user`), or with no way to ask while working, the card still ends the
+   turn and the answers are the next message. A PreToolUse hook can answer the card
+   instead (Claude Code's way; pass 6 below). Tests: `test/askuser.test.mjs`.
+
+   **Claude Code's other tools, copied** (the owner, 2026-11-14: "start fixing and
+   filling in gaps on those tools" and "Do all the talk to you tools execpt for the
+   notify one"; each from Claude Code's docs and, where they say nothing, its own
+   program, 2.1.323 to 2.1.325):
+   - *Input checks before hooks* (`coder-inputs.mjs`): a tool's input is fixed or
+     refused, in Claude Code's words, before any hook or card; a fix is told after
+     the call's answer as Claude Code's "Note: …". A tool's result object reaches its
+     PostToolUse hooks behind `FACTS_MARK` (`printedAnswer` in `coder-tools.mjs`,
+     `factsAnswer` in `coder-agent.mjs`). Tests: `test/tool-plumbing.test.mjs`.
+     Since the recheck of 2026-11-14 a hook's rewrites are checked as Claude Code 2.1.325
+     checks them (`coder-hookcheck.mjs`, with a Node-free copy of zod's checks in
+     `coder-zod.mjs`): a PreToolUse or PermissionRequest `updatedInput` against the tool's
+     schema and its own check before the call runs ("failed schema validation", "the tool
+     refused"), and a PostToolUse `updatedToolOutput` against the tool's output shape
+     (a mismatch keeps the real output, with Claude Code's notice). The environment
+     tools and request_secret, an MCP server's tools in Claude Code, take any object and
+     check it themselves when they run, after the hooks. When only a value is wrong, the
+     model gets zod's raw issue list in Claude Code's format. (Three helpers each copied
+     that format the same day: `coder-zod.mjs`, `coder-issues.mjs` for the web tools and
+     `coder-zodtext.mjs` for the rest; they give the same text, and are to be made one.)
+     Tests: `test/hook-rewrites.test.mjs`.
+   - *grep and glob* (`coder-search.mjs`): Claude Code's Grep and Glob on one ripgrep
+     runner: their inputs, outputs, pages and limits, notes and errors. Kept, the
+     owner's choice: nothing outside the project, nothing in `.git`. Tests:
+     `test/search.test.mjs`.
+   - *lsp* (`coder-lsp.mjs`; its servers kept for the chat by `coder-lspd.mjs`):
+     Claude Code's LSP tool as its TypeScript and Python plugins run it: its 9
+     operations and answers, and the servers' problems as its `<new-diagnostics>` note.
+     Since 2026-11-14 the machine starts the keeper (`LSP_KEEPERS`, as the AI's user in
+     its sandbox) and keeps it, and what it already reported, for the whole chat; after
+     every step, whatever the tool, Coder takes what came in (`lsp_take`), and late
+     reports come with the next message; the page shows "Found N new diagnostic issues
+     in M files". A missing file is refused before any hook (`lsp_file`), and
+     `LSP(operation:hover)`-style rules work. Tests: `test/lsp-tool.test.mjs`.
+   - *web_fetch* (`coder-webfetch.mjs`; the pre-approved sites and domain rules in
+     `coder-webfetch-sites.mjs`, which loads no Node module, for the Worker): Claude
+     Code's WebFetch: its fetch and redirects, its Markdown, the 15-minute page cache,
+     `offset`, and its reader prompt (the chat's own model at the chat's own effort,
+     since 2026-11-14). Kept, the
+     owner's choice: private addresses refused, and the reader's line against a
+     page's instructions. Tests: `test/webfetch.test.mjs`.
+   - *web_search* (`coder-websearch.mjs`): a tool like Claude Code's WebSearch, each
+     search its own Grok request with xAI's web search alone, Claude Code's result
+     text, and the chat's budget (200, refilling about 100 an hour). No other request
+     carries xAI's search. Gloopy has it too. Since 2026-11-14 a call makes at most
+     8 searches (Claude Code's `max_uses: 8`, as one tool call a turn over 8 turns), a
+     job from GitHub has its own count, and `WebSearch(query:…)` rules match a query.
+     Tests: `test/websearch.test.mjs`.
+   - *The email check* (`coder-privacy.mjs`, Claude Code 2.1.325's): the account's
+     email beside what names a client (a User-Agent, identity=, a From: header, …) is
+     refused in Claude Code's words, in bash, monitor and powershell calls and up to 8
+     scripts they name, in what write and edit put in a file, in a web_fetch address
+     and in connector calls. Tests: `test/email-check.test.mjs`.
+   - *task_create, task_get, task_list, task_update* (`coder-tasks.mjs`) in place of
+     `todo`: Claude Code's four Task tools, as its cloud sessions have them; one list
+     a chat, kept beside its memory; TaskCreated and TaskCompleted hooks. Gloopy
+     keeps its `todo`. `CLAUDE_CODE_ENABLE_TASKS=0` gives Claude Code's TodoWrite
+     (`todo_write`) instead, and `CLAUDE_CODE_TASK_LIST_ID` names the list; the page
+     titles it "Tasks · n/m done". Tests: `test/task-tools.test.mjs`.
+   - *Plan mode and exit_plan_mode* (`coder-plan.mjs`, its words, tool and checks;
+     `coder-plan-file.mjs`, the plan file, for the machine only, so the Worker loads
+     no Node module through `coder-perms.mjs`): each chat's plan file beside its
+     memory, never in the project; plan mode's full reminder; the card shows the
+     file's plan, which the owner can edit before approving. Since 2026-11-14:
+     *enter_plan_mode*, Claude Code's EnterPlanMode (no card, the chat goes into Plan
+     as the mode menu would; not from GitHub); the plan card sends its words with every
+     Yes; after a summary the plan file is put back once; `plansDirectory` is read; and
+     exit_plan_mode is not offered under denyInsteadOfPrompting. Tests:
+     `test/plan-mode.test.mjs`.
+   - *request_secret*: Claude Code's request_credential, its description and inputs
+     word for word; the card waits in the turn ("saved", and Coder retries; a
+     decline is "Denied by owner"). Tests: `test/request-secret.test.mjs`.
+   - *get_environment, update_environment, create_environment, switch_environment,
+     list_environments* (`coder-envtools.mjs`; Coder's server side in
+     `src/coder-envapi.mjs`) in place of `propose_env`: Claude Code's cloud environment
+     tools. Each call is checked after the PreToolUse hooks (they are an MCP server's
+     tools in Claude Code), then against the environment as it is now; the card shows
+     exactly what changes and waits in the turn: Approve has Coder's server check the
+     change again and make it, and Coder is told what changed; Decline is "Denied by
+     owner" (the owner's word, 2026-11-14). Environments have a description (shown in
+     the dialog; `new_description`; a new one's reason), names of 1 to 64 characters,
+     and no two with one name. The setup script runs once on a chat's machine (a new
+     chat, or a fresh machine), as Claude Code's. Tests: `test/env-tools.test.mjs`.
+   - *Cards stay open until answered* (`coder-park.mjs`; Claude Code: "Questions stay
+     open until you answer them"): a permission, plan, question, key or environment
+     card that has waited 5 minutes (the owner: "5 is fine") pauses the job, saved with
+     the call it waits on (`parked.json`); the owner's answer, whenever it comes,
+     starts a job that takes the turn up at that call; messages sent meanwhile wait in
+     the queue, Stop, Rewind and Undo close the card. Gloopy and GitHub jobs keep the
+     old wait. Tests: `test/cards-park.test.mjs`.
+   - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
+     drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
+     Coder's open chat runs, and one line on a hover or a click. Made more real the
+     same day (the owner: "lets make it a bit more real, like more present"): light and
+     shade as shapes of their own (no ids, so no gradients), a shadow and feet, the
+     knobs' grips, the ribbon spools and type basket, a ribbon that lifts as each bar
+     strikes (`clg-rb`), and typewriter letters drawn as strokes, every line "fix bug"
+     so a line ends as the drawing began. Red with a gold type bar since then (the owner's
+     pick of four colours). Tests: `test/coder-logo.test.mjs`.
 
    **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
    the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits
@@ -842,7 +946,7 @@ them"). Tests: `test/pass6.test.mjs` (CD387 to CD398).
 - *Tool-name wildcards* (`toolGlob`, `toolGlobMatches`): deny and ask rules take
   `*`, `B*`, `mcp__*`; an allow one is skipped, with Claude Code's point said. A
   tool a deny rule names bare or by wildcard is no longer offered to Grok
-  (`toolDenied`), Coder's other tools and Grok's web search (`WebSearch`)
+  (`toolDenied`), Coder's other tools and `web_search` (`WebSearch`)
   included; an ask rule on Coder's other tools shows a card first.
 - *The repository's own settings* (`repoSettings`, `withRepoRules`): its
   `.claude/settings.json` and `.claude/settings.local.json` give their deny and

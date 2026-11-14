@@ -18,7 +18,7 @@ const call = (name, args, id) => ({ id, type: "function", function: { name, argu
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 
 /** One job of Coder's loop, its machine stood in for. */
-async function job(steps, { mode = "auto", opts = {}, answers = [], messages } = {}) {
+async function job(steps, { mode = "auto", opts = {}, answers = [], messages, envApi } = {}) {
   const events = [], ran = [];
   let n = 0, k = 0;
   await A.runCoder({
@@ -27,6 +27,7 @@ async function job(steps, { mode = "auto", opts = {}, answers = [], messages } =
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-f1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
     ask: async () => answers[k++] || { choice: "yes" },
+    ...(envApi ? { envApi } : {}),
   }, { text: "go", mode, ...(messages ? { messages } : {}), ...opts });
   const result = (id) => events.find((e) => e.type === "result" && e.id === id);
   return { events, ran, result };
@@ -146,23 +147,27 @@ test("CD502 the network levels as Claude Code now names them: None, Limited (All
   assert.doesNotMatch(ui, /'Trusted'|'Custom'|Also include the default list/);
 });
 
-test("CD503 Coder proposes a new environment's level by the new names (none, limited, full): limited is saved as before (trusted); the machine's note names the level Limited", async () => {
-  const tool = A.CODER_TOOLS.find((x) => x.function.name === "propose_env");
+test("CD503 Coder proposes a new environment's level by the new names (none, limited, full): limited is saved as before (trusted); the machine's note names the level Limited (since 2026-11-14 on Claude Code's create_environment, where `network` is Coder's own)", async () => {
+  const tool = A.CODER_TOOLS.find((x) => x.function.name === "create_environment");
   assert.deepEqual(tool.function.parameters.properties.network.enum, ["none", "limited", "full"]);
+  const E = await import("../container/coder-envtools.mjs");
+  const st = { envId: "default", list: [{ id: "default", name: "Default", repos: [] }], data: {}, repos: ["ana/shop"] };
   const ran = [{ role: "assistant", content: "", tool_calls: [call("bash", { command: "mkdir -p cache" }, "m1")] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
   const card = async (network) => {
-    const t = await job([say("", [call("propose_env", { kind: "new_environment", name: "blog", ...(network ? { network } : {}), script: "mkdir -p cache", reason: "r" }, "p1")])], { messages: ran });
-    return t.events.find((e) => e.type === "envchange").network;
+    const args = { name: "blog", scope: "personal", reason: "r", switch_session: "none", setup_script: "mkdir -p cache", ...(network ? { network } : {}) };
+    const t = await job([say("", [call("create_environment", args, "p1")])], { messages: ran, opts: {}, envApi: async (body) => E.envAnswer(st, body) });
+    const e = t.events.find((x) => x.type === "envchange");
+    return [E.planCreate(st, E.checkCreateInput(args).args).data.network.mode, e && e.network];
   };
-  assert.equal(await card("limited"), "trusted");
-  assert.equal(await card(undefined), "trusted");
-  assert.equal(await card("trusted"), "trusted", "the old name still works");
-  assert.equal(await card("none"), "none");
-  assert.equal(await card("full"), "full");
-  assert.equal(await card("custom"), "trusted", "anything else: the default");
+  assert.deepEqual(await card("limited"), ["trusted", "Limited: package managers"]);
+  assert.deepEqual(await card(undefined), ["trusted", "Limited: package managers"]);
+  assert.deepEqual(await card("trusted"), ["trusted", "Limited: package managers"], "the old name still works");
+  assert.deepEqual(await card("none"), ["none", "None (no internet)"]);
+  assert.deepEqual(await card("full"), ["full", "Unrestricted (any public host)"]);
+  assert.deepEqual(await card("custom"), ["trusted", "Limited: package managers"], "anything else: the default");
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /"The environment changed: network " \+ \(\{ none: "None", trusted: "Limited", full: "Full", custom: "Limited" \}\[nn\.mode\]/);
-  assert.match(ui, /esc\(NET\[netLevel\(e\.network\)\]\[0\]\)/, "the card shows the new name");
+  assert.match(ui, /esc\(NET\[netLevel\(e\.network\)\]\[0\]\)/, "an older chat's card shows the new name");
 });
 
 test("CD504 the variable names commands never get are named on the page (they were dropped without a word): one list for the machine and the page", () => {

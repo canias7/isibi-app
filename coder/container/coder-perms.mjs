@@ -17,6 +17,7 @@ import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
+import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -833,6 +834,33 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
 
 // ── RULES ────────────────────────────────────────────────────────────────────
 /**
+ * GREP'S, GLOB'S AND LSP'S INPUTS A RULE MAY NAME (Claude Code 2.1.323's schemas; never their "primary content field", `path`
+ * for Grep and Glob, `filePath` for LSP; LSP's since 2026-11-14, "Fix base on Claude Code docs, please"), and a rule's content
+ * read as one (Claude Code: the name before the first colon, the value after it, "Whitespace around the colon is ignored"),
+ * or null.
+ */
+export const SEARCH_RULE_PARAMS = Object.freeze({ Grep: ["pattern", "glob", "output_mode", "-B", "-A", "-C", "context", "-n", "-i", "-o", "type", "head_limit", "offset", "multiline"], Glob: ["pattern"], LSP: ["operation", "line", "character", "query"] });
+function searchParamSpec(tool, spec) {
+  const k = String(spec).indexOf(":");
+  if (k <= 0) return null;
+  const name = spec.slice(0, k).trim(), value = spec.slice(k + 1).trim();
+  return name && value && (SEARCH_RULE_PARAMS[tool] || []).includes(name) ? { name, value } : null;
+}
+/**
+ * WEBSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code's "Match by input parameter", which "works for any scalar
+ * parameter the tool accepts": its query; its two lists are no scalars and never match), and such a rule's content read as
+ * one, or null. (No `*` or `?`: Claude Code's rule check refuses them, "WebSearch does not support wildcards".)
+ */
+export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains"]);
+function webSearchParamSpec(spec) {
+  const t = String(spec), k = t.indexOf(":");
+  if (k <= 0 || /[*?]/.test(t)) return null;
+  const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
+  return name && value && WEBSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
+}
+/** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
+const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
+/**
  * A rule's parts (`Bash(npm test *)`, `Bash`, `WebFetch(domain:x.com)`, `Read(./.env)`, `Edit(src/**)`, `Write`); null when
  * Coder does not apply it. FILE RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-filerules.mjs): `Read` and
  * `Edit` with a path pattern or on the whole tool; Coder's other file tools by Claude Code's names (`Write`, `Grep`, `Glob`,
@@ -846,12 +874,18 @@ export function parseRule(text) {
   // were merged, 2026-11-13; Claude Code's MCP rules: "mcp__puppeteer matches any tool provided by the puppeteer server",
   // "mcp__puppeteer__puppeteer_navigate matches the puppeteer_navigate tool"): on the whole tool only, as Claude Code's.
   if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|TodoWrite|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
+  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
   const spec = m[2] === undefined ? null : m[2].trim();
-  if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
+  // (WebFetch's: `domain:` and its host pattern, Claude Code's rule check; the owner, 2026-11-14. `WebFetch(*)` is the whole
+  // tool, as Claude Code reads any `Tool(*)`: its permissions docs, "`Bash(*)` is equivalent to `Bash`"; its rule parser makes
+  // a content of "*" none, so its domain check never sees it. 2026-11-14.)
+  if (m[1] === "WebFetch" && m[2] === "*") return { tool: "WebFetch", spec: null };
+  if (m[1] === "WebFetch" && spec !== null && !/^domain:\S+$/.test(spec)) return null;
   if (spec === "" ) return null;
   // (A rule on the command itself, Bash(command:…) or PowerShell(command:…), is never one: see ruleProblem.)
   if ((m[1] === "Bash" || m[1] === "PowerShell") && spec !== null && settingSpec(spec) && settingSpec(spec).name === "command") return null;
@@ -860,8 +894,19 @@ export function parseRule(text) {
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
     return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
   }
-  // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
-  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  // A RULE ON ONE OF GREP'S OR GLOB'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
+  // Code's permissions docs, "Match by input parameter": "Deny and ask rules can match a top-level input parameter on any
+  // built-in tool with Tool(param:value)"; "You can't match a tool's primary content field this way: … path for Grep and
+  // Glob"): `Grep(output_mode:content)`, `Glob(pattern:*.env)`, used by deny and ask lists (fileToolDecision); `param` its
+  // name and value.
+  // (And LSP's, `LSP(operation:hover)`, `LSP(line:1)`: the same, since 2026-11-14.)
+  if ((m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
+  // A WEBSEARCH RULE ON ITS QUERY (Claude Code 2.1.325: deny and ask rules match `WebSearch(query:<exact text>)` as for any
+  // built-in tool's input; 2026-11-14): `param` its name and value, used by deny and ask lists (coder-websearch.mjs).
+  if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }
+  // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only, but
+  // WebSearch's on its query, above.)
+  if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**
@@ -871,9 +916,9 @@ export function parseRule(text) {
  * deny rule is removed from Claude's context, the same as a bare tool name"; "Allow rules accept tool-name globs only after a
  * literal mcp__<server>__ prefix … An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped and doesn't
  * auto-approve anything"): a bare name with a `*`, matched against Claude Code's name for each of Coder's tools (Bash,
- * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite; Coder's
- * own tools by their own names). Since the connectors were merged (2026-11-13), an allow one anchored on a connector,
- * mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
+ * Monitor, Read, Write, Edit, Grep, Glob, LSP, WebFetch, WebSearch, TaskStop, AskUserQuestion, ExitPlanMode, TodoWrite, TaskCreate,
+ * TaskGet, TaskList, TaskUpdate; Coder's own tools by their own names). Since the connectors were merged (2026-11-13), an allow
+ * one anchored on a connector, mcp__<server>__*, approves that connector's tools; other allow wildcards still approve nothing.
  */
 export const toolGlob = (t) => /^[A-Za-z0-9_-]*\*[A-Za-z0-9_*-]*$/.test(String(t ?? "").trim());
 /** Whether a tool-name wildcard matches a tool's whole name. */
@@ -1005,6 +1050,12 @@ export function ruleProblem(text) {
   if (tool === "Bash" && content === ":*") return say("Prefix cannot be empty before :*", "Specify a command prefix before :*", ["Bash(npm *)", "Bash(git *)"]);
   // (Claude Code, for its file tools: 'The ":*" syntax is only for Bash prefix rules'.)
   if (FILE_RULE_TOOLS.has(tool) && content !== null && content.includes(":*")) return say('The ":*" syntax is only for Bash prefix rules', 'Use glob patterns like "*" or "**" for file matching', [tool + "(*.ts) - matches .ts files", tool + "(src/**) - matches all files in src", tool + "(**/*.test.ts) - matches test files"]);
+  // (WebFetch's own, Claude Code's rule check: "WebFetch permissions use domain format, not URLs", 'WebFetch permissions must
+  // use "domain:" prefix'; the owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
+  // (Not on `WebFetch(*)`: Claude Code reads it as the whole tool, so its check of the content never runs.)
+  if (tool === "WebFetch" && content !== null && content !== "*") { const w = webFetchRuleProblem(content); if (w) return say(w.error, w.suggestion, w.examples); }
+  // (WebSearch's own, in Claude Code's words: a `*` or `?` in its content; `WebSearch(*)` is the whole tool. 2026-11-14.)
+  if (tool === "WebSearch" && content !== null && content !== "*" && /[*?]/.test(content)) return say("WebSearch does not support wildcards", "Use exact search terms without * or ?", ["WebSearch(claude ai)", "WebSearch(typescript tutorial)"]);
   return "";
 }
 /**
@@ -1039,8 +1090,13 @@ function keptPathRule(r) {
   const c = String(r.content || "").trim();
   if (!c || c === "*" || c.includes(":*")) return "";
   if (r.tool === "Write" || r.tool === "NotebookEdit" || r.tool === "MultiEdit") return "Edit";
+  // (A Grep or Glob rule on one of its inputs is applied, not kept; one on its `path` is kept, Claude Code's raw-string rule.)
+  if ((r.tool === "Glob" || r.tool === "Grep") && searchParamSpec(r.tool, c)) return "";
+  if (searchPathSpec(r.tool, c)) return r.tool;
   if (r.tool === "Glob" || r.tool === "Grep") return "Read";
   if ((r.tool === "Read" || r.tool === "Edit") && /^file_path\s*:/.test(c)) return r.tool;
+  // (LSP's own path, `LSP(filePath:…)`, its primary content field: kept, never matched, as Claude Code keeps it.)
+  if (r.tool === "LSP" && /^filePath\s*:/.test(c)) return r.tool;
   return "";
 }
 /** Whether a rule is saved: one Coder applies (parseRule), or one it keeps as Claude Code does (ruleKept). */
@@ -1164,12 +1220,19 @@ function ruleWarningOf(kind, text) {
     // by file permission checks — only Edit(path) rules are. Use Edit(docs/**) instead (Edit rules cover all file-editing
     // tools)", "⚠ Deny rule Write(docs/**) never matches · use Edit(docs/**)".)
     const use = r.content !== null ? keptPathRule(r) : "";
+    // (A Grep rule on a path gets no word: Claude Code 2.1.325 warns of a path in a Write, NotebookEdit, MultiEdit or Glob rule
+    // only. The owner, 2026-11-14.)
+    if (r.tool === "Grep" && use === "Read") return null;
     if (use && use !== r.tool) {
       const instead = use + "(" + r.content + ")";
       return { warning: t + " is not matched by file permission checks — only " + use + "(path) rules are. Use " + instead + " instead (" + use + " rules cover all file-" + (use === "Edit" ? "editing" : "reading") + " tools).", notice: k === "allow" ? "" : t + " never matches · use " + instead };
     }
     if (k !== "deny" && k !== "ask") return null;
-    if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets file_path as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
+    // (Grep's and Glob's own `path`, in Claude Code's words, 2.1.325's list: "Permission deny rule "Grep(path:src)" targets path
+    // as a raw string and will not match.", and Glob's "… — use Read(…) to match file-read paths.")
+    if (use && searchPathSpec(r.tool, r.content)) return r.tool === "Grep" ? { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match.', notice: t + " never matches" } : { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match \u2014 use Read(\u2026) to match file-read paths.', notice: t + " never matches \u00b7 use Read(\u2026)" };
+    // (LSP's field is `filePath`, Claude Code 2.1.325's own words for it: "… targets filePath as a raw string …".)
+    if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets ' + (r.tool === "LSP" ? "filePath" : "file_path") + " as a raw string and will not match — use " + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     if (r.tool === "Bash" || r.tool === "PowerShell") return { warning: "Permission " + k + ' rule "' + t + '" targets command as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     return { warning: "Permission " + k + ' rule "' + t + '" matches no known tool — check for typos.', notice: t + " matches no tool · check for typos" };
   }
@@ -1227,6 +1290,26 @@ export function bashSpecMatches(spec, text) {
   return (p.match(/\*/g) || []).length === 1 && p.endsWith(" *") && text === p.slice(0, -2);
 }
 /**
+ * CLAUDE CODE'S WILDCARD FOR A RULE'S TEXT (2.1.323's dZ): `*` any text, `\*` a star itself, `\\` a backslash, `/**\/` any
+ * folders between, a trailing ` *` after the only star also matching nothing; the whole text, across lines.
+ */
+export function ruleWildcardMatches(rule, text) {
+  const c = String(rule ?? "");
+  if (c.includes("\u0000")) return false;
+  const s = c.trim();
+  let f = "";
+  for (let i = 0; i < s.length;) {
+    if (s[i] === "\\" && i + 1 < s.length) {
+      if (s[i + 1] === "*") { f += "\u0000ESCAPED_STAR\u0000"; i += 2; continue; }
+      if (s[i + 1] === "\\") { f += "\u0000ESCAPED_BACKSLASH\u0000"; i += 2; continue; }
+    }
+    f += s[i++];
+  }
+  let b = f.replace(/[.+?^${}()|[\]\\'"]/g, "\\$&").replace(/\/(?:\*\*\/)+/g, "\u0000GLOBSTAR\u0000").replaceAll("*", ".*").replace(/\u0000GLOBSTAR\u0000/g, "/(?:.*/)?").replace(/\u0000ESCAPED_STAR\u0000/g, "\\*").replace(/\u0000ESCAPED_BACKSLASH\u0000/g, "\\\\");
+  if (b.endsWith(" .*") && (f.match(/\*/g) || []).length === 1) b = b.slice(0, -3) + "( .*)?";
+  try { return new RegExp("^" + b + "$", "s").test(String(text ?? "")); } catch { return false; }
+}
+/**
  * A HOOK'S `if` FILTER (Claude Code's hooks: "if uses permission rule syntax to match against the tool name and arguments
  * together, so "Bash(git *)" runs when any subcommand of the Bash input matches git * and "Edit(*.ts)" runs only for
  * TypeScript files"): whether one rule matches one tool call (`tool` by Claude Code's name, `input` its arguments, `ctx`
@@ -1262,7 +1345,11 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     const parts = psAllParts(String(args.command || ""));
     return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
-  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainMatches(spec, host); }
+  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainRuleMatches(spec, host); }
+  // GREP'S AND GLOB'S `if` ON THEIR PATTERN (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
+  // Code 2.1.323: their matcher for a hook's `if` compares the rule's content with the call's pattern, not its path):
+  // `Grep(TODO*)` runs for a search of "TODO.*fix".
+  if (tool === "Grep" || tool === "Glob") return typeof args.pattern === "string" && ruleWildcardMatches(spec, args.pattern);
   const path = typeof args.file_path === "string" ? args.file_path : typeof args.path === "string" ? args.path : "";
   if (!path) return false;
   const full = path.startsWith("/") ? path : (cwd.replace(/\/+$/, "") || "") + "/" + path;
@@ -1743,22 +1830,34 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
   const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
+  // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
+  // alone): a rule on the whole Read tool, `Read`, `Read(*)` or a wildcard naming Read, is Read's own. The owner, 2026-11-14.)
+  const pathOnly = tool === "grep" || tool === "glob" || tool === "lsp";
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
-  const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, edits ? "Edit" : "Read"].some((n) => toolGlobMatches(x.tool, n)); }) || "";
+  const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, ...(pathOnly ? [] : [edits ? "Edit" : "Read"])].some((n) => toolGlobMatches(x.tool, n)); }) || "";
   const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
   const p = typeof path === "string" && path ? path : root;
   // (A search's folder: the rule matches the folder, or what is in it.)
   const search = tool === "grep" || tool === "glob";
-  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...ctx, isDir: true } : ctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, ctx) : "");
+  const rctx = pathOnly ? { ...ctx, pathOnly: true } : ctx;
+  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...rctx, isDir: true } : rctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, rctx) : "");
   // DENY.
   const wd = (name !== "Read" && name !== "Edit" ? whole("deny") : "") || globWhole("deny");
   if (wd) return { verdict: "deny", rule: wd, why: "Permission to use " + name + " has been denied." };
+  // A GREP OR GLOB RULE ON ONE OF THE CALL'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+  // Claude Code's "Match by input parameter": "A parameter rule matches when Claude calls the tool with that parameter set to
+  // that exact value", "* … matches any sequence of characters", "A parameter the model omits is never matched"), denied in
+  // its words, 2.1.325's: "Permission to use Grep with output_mode:content has been denied.".
+  // (LSP's too, `LSP(operation:hover)`: "Fix base on Claude Code docs, please", 2026-11-14.)
+  const paramHit = (kind) => ((search || tool === "lsp") && input && typeof input === "object" ? (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== name || !x.param) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "" : "");
+  const pd = paramHit("deny");
+  if (pd) return { verdict: "deny", rule: pd, why: "Permission to use " + name + " with " + parseRule(pd).spec + " has been denied." };
   if (edits) {
     const e = hit(rules.deny, "Edit", "deny");
     if (e) return { verdict: "deny", rule: e, why: isWhole(e) ? "Permission to use " + name + " has been denied." : "File is in a directory that is denied by your permission settings." };
@@ -1766,12 +1865,26 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     if (r) return { verdict: "deny", rule: r, why: "File is covered by a Read deny rule in your permission settings and cannot be " + (tool === "write" ? "written." : "edited.") };
   } else {
     const r = hit(rules.deny, "Read", "deny");
-    if (r) return { verdict: "deny", rule: r, why: isWhole(r) ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
+    // (Grep's, Glob's and LSP's go by path rules only, so a match is a path's, Read(**) too: "Permission to read …".)
+    if (r) return { verdict: "deny", rule: r, why: isWhole(r) && !pathOnly ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
   }
   // ASK (the owner's rule asks each time: no "don't ask again" for it).
+  // (Grep and Glob in Claude Code's words: a Read ask rule on the path, its read check's "Claude requested permissions to read
+  // from <path>, but you haven't granted it yet."; a rule on the whole tool or on one of its inputs, "Claude requested
+  // permissions to use Grep, but you haven't granted it yet."; "Claude" is Coder here.)
+  if (search) {
+    const ra = hit(rules.ask, "Read", "ask");
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    const sa = whole("ask") || globWhole("ask") || paramHit("ask");
+    return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
+  }
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
+  // (An LSP rule on one of the call's inputs asks before a Read rule on its file, in Claude Code's words, as Grep's and Glob's.)
+  const pa = !wa && tool === "lsp" ? paramHit("ask") : "";
+  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to use LSP, but you haven't granted it yet." };
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
+  // (An lsp lookup reads its file: "reading", as for read. 2026-11-14.)
+  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" || tool === "lsp" ? "reading " : "searching ") + p + "." };
   return { verdict: "", rule: "", why: "" };
 }
 /**
@@ -2256,45 +2369,25 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
 // ── WEB FETCH ────────────────────────────────────────────────────────────────
 // Claude Code's tools reference: "In Manual and acceptEdits permission modes, WebFetch prompts before fetching, except for
 // domains your permission rules already allow or deny and a built-in set of preapproved documentation domains"; "The auto
-// and bypassPermissions permission modes skip the prompt, except for a domain an explicit ask rule matches". Its set
-// (2.1.319), a host or a host and the start of a path:
-const DOC_SITES = ["platform.claude.com", "code.claude.com", "claude.dev", "www.claude.dev", "claude.com/docs", "modelcontextprotocol.io", "github.com/anthropics", "github.com/anthropic-experimental", "raw.githubusercontent.com/anthropics", "raw.githubusercontent.com/anthropic-experimental", "agentskills.io", "docs.python.org", "en.cppreference.com", "docs.oracle.com", "learn.microsoft.com", "developer.mozilla.org", "go.dev/doc", "go.dev/ref", "www.php.net", "docs.swift.org", "kotlinlang.org", "ruby-doc.org", "doc.rust-lang.org", "www.typescriptlang.org", "react.dev", "angular.io", "vuejs.org", "nextjs.org", "expressjs.com", "nodejs.org", "bun.sh", "jquery.com", "getbootstrap.com", "tailwindcss.com", "d3js.org", "threejs.org", "redux.js.org", "webpack.js.org", "jestjs.io", "reactrouter.com", "docs.djangoproject.com", "flask.palletsprojects.com", "fastapi.tiangolo.com", "pandas.pydata.org", "numpy.org", "www.tensorflow.org", "pytorch.org", "scikit-learn.org", "matplotlib.org", "requests.readthedocs.io", "jupyter.org", "laravel.com", "symfony.com", "wordpress.org/documentation", "docs.spring.io", "hibernate.org", "tomcat.apache.org", "gradle.org", "maven.apache.org", "asp.net", "dotnet.microsoft.com", "blazor.net", "reactnative.dev", "docs.flutter.dev", "developer.apple.com", "developer.android.com", "keras.io", "spark.apache.org", "huggingface.co/docs", "www.kaggle.com/docs", "www.mongodb.com", "redis.io", "www.postgresql.org", "dev.mysql.com", "www.sqlite.org", "graphql.org", "prisma.io", "docs.getdbt.com", "docs.aws.amazon.com", "cloud.google.com", "kubernetes.io", "www.docker.com", "www.terraform.io", "www.ansible.com", "vercel.com/docs", "docs.stripe.com", "docs.netlify.com", "devcenter.heroku.com", "dev.wix.com/docs", "cypress.io", "selenium.dev", "docs.unity.com", "docs.unrealengine.com", "git-scm.com", "nginx.org", "httpd.apache.org"];
-const DOC_HOSTS = new Set(DOC_SITES.filter((x) => !x.includes("/")));
-const DOC_PATHS = DOC_SITES.filter((x) => x.includes("/")).map((x) => ({ host: x.slice(0, x.indexOf("/")), path: x.slice(x.indexOf("/")) }));
-/** Whether a page is one of the pre-approved documentation sites (its GitHub ones: a repository's page, or its main branch). */
-export function docSite(url) {
-  let u;
-  try { u = new URL(String(url)); } catch { return false; }
-  const host = u.hostname.toLowerCase(), path = u.pathname;
-  if (DOC_HOSTS.has(host)) return true;
-  if (/%(25)*(2f|5c|2e)/i.test(path)) return false;
-  for (const d of DOC_PATHS) {
-    if (d.host !== host || !(path === d.path || path.startsWith(d.path + "/"))) continue;
-    if (host === "raw.githubusercontent.com") return /^\/[^/]+\/[^/]+\/refs\/heads\/main\/./.test(path);
-    if (host === "github.com") return /^\/[^/]+\/[^/]+(\/?|\/(tree|blob)\/main(\/.*)?)$/.test(path) || path === d.path;
-    return true;
-  }
-  return false;
-}
-/** Whether a WebFetch rule's `domain:` matches a host (`*` is any text). */
-function domainMatches(spec, host) {
-  if (spec === null) return true;
-  const want = spec.slice("domain:".length).toLowerCase();
-  if (want === "*") return true;
-  return new RegExp("^" + want.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$").test(host);
-}
-/** WHAT HAPPENS TO A WEB FETCH, like bashDecision. */
+// and bypassPermissions permission modes skip the prompt, except for a domain an explicit ask rule matches". Its set and its
+// domain matching are WebFetch's own (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+// coder-webfetch-sites.mjs, with no Node module, as this file has none): github.com/anthropics pre-approved whole, as
+// Claude Code 2.1.323 has it; a rule's `*` within a part of the name (any depth only as a leading `*.`), its trailing dot
+// dropped, in any case; an exact rule before a wildcard one.
+export { docSite };
+/** WHAT HAPPENS TO A WEB FETCH, like bashDecision; in Claude Code's words ("WebFetch denied access to domain:<host>."). */
 export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   let host = "";
   try { host = new URL(String(url)).hostname.toLowerCase(); } catch { host = ""; }
-  const pick = (list, globs = false) => rulesFor(list, "WebFetch", globs).find((x) => domainMatches(x.spec, host));
+  // (A rule on the whole tool, or one whose domain covers the host: an exact one first.)
+  const pick = (list, globs = false) => { const all = rulesFor(list, "WebFetch", globs); return all.find((x) => x.spec === null) || (host ? pickDomainRule(all, host) : undefined); };
   const d = pick(rules.deny, true);
-  if (d) return { verdict: "deny", rule: d.text, why: "Permission to use WebFetch on " + host + " has been denied.", suggest: null };
+  if (d) return { verdict: "deny", rule: d.text, why: d.spec === null ? "Permission to use WebFetch has been denied." : "WebFetch denied access to domain:" + host + ".", suggest: null };
   const a = pick(rules.ask, true);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this site.", suggest: null, byRule: true };
+  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: null, byRule: true };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };
-  return { verdict: "ask", why: "Coder wants to fetch a page from " + (host || "this site") + ".", suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
+  return { verdict: "ask", why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
 }
 
 /**
@@ -2484,15 +2577,16 @@ function psEditsOnly(p, all, { nativeReadOnly, inside }) {
 export const REJECTED = "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.";
 export const REJECTED_SAID = "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). To tell you how to proceed, the owner said:\n";
 export const NOT_NOW = "The owner doesn't want to take this action right now. STOP what you are doing and wait for the owner to tell you how to proceed.";
-/** Plan mode, each message while it is on (Claude Code's, for a plan given to ExitPlanMode as its `plan`). */
-export const PLAN_NOTE = "Plan mode is active. The owner indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools (including changing configs or making commits), or otherwise make any changes to the system. This supercedes any other instructions you have received.\n\nRead and search the code, and run read-only commands, to understand the task; ask the owner with ask_user only to clarify requirements or choose between approaches. Your plan: start with the context (why the change is needed), then the approach, naming the files to change and the existing functions and utilities to reuse (with their paths; do not enumerate every file or line number), and end with a verification section describing how to test the changes end-to-end (run the code, run the tests).\n\nWhen your plan is final, call exit_plan_mode with the whole plan as its `plan` argument. The owner sees it on an approval card: if they approve, plan mode ends; if they decline, you stay in plan mode and revise the plan. Your turn should only end with ask_user (to clarify requirements or choose between approaches) or exit_plan_mode (to request plan approval). Do NOT ask about plan approval in any other way - no text questions, no ask_user. Phrases like \"Is this plan okay?\", \"Should I proceed?\", \"How does this plan look?\", \"Any changes before we start?\", or similar MUST use exit_plan_mode. If the owner only asked a question, answer it in words, without a plan.";
-export const PLAN_EXITED = "## Exited Plan Mode\nYou have exited plan mode. You can now make edits, run tools, and take actions.";
-/** Auto mode (Claude Code's "The user chose continuous, autonomous execution"), with Coder's names. */
-export const AUTO_NOTE = "The owner chose continuous, autonomous execution (Auto mode). You should:\n1. **Execute immediately** — Start implementing right away. Make reasonable assumptions and proceed on low-risk work.\n2. **Minimize interruptions** — Prefer making reasonable assumptions over asking questions for routine decisions.\n3. **Prefer action over planning** — Do not ask to plan unless the owner explicitly asks. When in doubt, start coding.\n4. **Expect course corrections** — The owner may send suggestions or course corrections at any point; treat those as normal input.\n5. **Do not take overly destructive actions** — This is not a license to destroy. Anything that deletes data or modifies shared or production systems still needs explicit confirmation from the owner. If you reach such a decision point, ask and wait, or course correct to a safer method instead.\n6. **Avoid data exfiltration** — Post even routine messages to chat platforms or work tickets only if the owner has directed you to. You must not share secrets (e.g. credentials, internal documentation) unless the owner has explicitly authorized both that specific secret and its destination.";
-export const AUTO_EXITED = "## Exited Auto Mode\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.";
-/** The answer to an approved plan (Claude Code's ExitPlanMode result). */
-export function planApproved(plan, edited = false) {
-  const p = String(plan || "").trim();
-  if (!p) return "The owner has approved exiting plan mode. You can now proceed.";
-  return "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## " + (edited ? "Approved Plan (edited by the owner)" : "Approved Plan") + ":\n" + p;
-}
+/**
+ * Plan mode's note, its end, and an approved plan's answer: Claude Code's own words, in coder-plan.mjs since its plan file
+ * (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"); given on here under their old names.
+ */
+export { PLAN_NOTE, PLAN_EXITED, planApproved } from "./coder-plan.mjs";
+/**
+ * Auto mode (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", as a model not trained for auto mode gets it
+ * whole), with Coder's names; its parts behind Anthropic's own server flags (the bash-first steer, finishing exposed work,
+ * held consent asks) are left out. (Before 2026-11-14, Coder had the older "The user chose continuous, autonomous
+ * execution" text, which 2.1.325 keeps only for its Proactive output style.)
+ */
+export const AUTO_NOTE = "## Auto Mode Active\n\nBias toward working without stopping for clarifying questions \u2014 when you'd normally pause to check, make the reasonable call and keep going; they'll redirect you if needed. If the owner, a skill, or the shape of the task suggests they want you to ask (with ask_user or otherwise), do so. And even absent that signal, it's still fine to stop when you're genuinely blocked \u2014 unclear direction, missing input, a decision only they can make.\n\nBefore any command that could discard uncommitted work \u2014 `git checkout`/`restore`/`reset`/`clean`, `rm -rf` in the repo, restoring from a snapshot \u2014 run `git status` first and stash (with `-u` for untracked) or commit anything that's there. When staging or committing, review what's included (`git status` after a broad `git add`), and if you see anything suspicious that might reveal secrets \u2014 even if the filename looks innocuous \u2014 double-check the file's contents before pushing.";
+export const AUTO_EXITED = "## Exited Auto Mode\n\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.";

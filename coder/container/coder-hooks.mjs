@@ -11,16 +11,21 @@
 import { pwshRun, PS_TERM } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
+import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
+// (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
+// owner: "Do all the talk to you tools execpt for the notify one"; coder-tasks.mjs.)
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
 export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]);
 /** The events whose matcher Claude Code ignores ("If you add a matcher field to an event without matcher support, it is silently ignored"). */
-const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged"]);
+const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);
+/** The task list's events (Claude Code: "TaskCreated hooks don't support matchers and fire on every occurrence"; TaskCompleted's the same). */
+export const TASK_EVENTS = new Set(["TaskCreated", "TaskCompleted"]);
 /** "FileChanged and StopFailure use a narrower exact-match set of letters, digits, _, and | only." */
 const NARROW = new Set(["FileChanged", "StopFailure"]);
 /** The events whose hooks can block or change an action (never under the memory cap: Claude Code's "Permission-gating hooks"). */
-export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure"]);
+export const GATING_EVENTS = new Set(["PreToolUse", "PermissionRequest", "UserPromptSubmit", "Stop", "PreCompact", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "TaskCreated", "TaskCompleted"]);
 /** The events whose hooks get the chat's hook env file (Claude Code: "CLAUDE_ENV_FILE is available for SessionStart, Setup, CwdChanged, and FileChanged hooks"). */
 export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChanged"]);
 
@@ -32,7 +37,8 @@ export const ENV_FILE_EVENTS = new Set(["SessionStart", "CwdChanged", "FileChang
 const ALL_TYPES = ["command", "http", "prompt", "agent"];
 export function typesFor(event) {
   if (event === "SessionStart") return ["command"];
-  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit"].includes(event)) return ALL_TYPES;
+  // (TaskCreated and TaskCompleted too: Claude Code's "Events that support all five hook types".)
+  if (["PermissionDenied", "PostToolBatch", "PostToolUse", "PostToolUseFailure", "PreToolUse", "Stop", "UserPromptSubmit", "TaskCreated", "TaskCompleted"].includes(event)) return ALL_TYPES;
   if (event === "PermissionRequest") return ["command", "http", "prompt"];
   return ["command", "http"];
 }
@@ -99,7 +105,10 @@ export const HOOK_QUIET_MS = 10_000;
 export const AGENT_HOOK_TURNS = 50;
 
 /** Coder's tools by Claude Code's names (what a matcher and a hook's `tool_name` see); Coder's own tools keep their names. */
-export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", todo: "TodoWrite" };
+// (web_search is Claude Code's WebSearch since it became Coder's own tool: the owner, 2026-11-14, "start fixing and filling
+// in gaps on those tools"; its tool_input, query and the domain lists, has Claude Code's names already.)
+// (The task list's four since 2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one".)
+export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
@@ -277,11 +286,12 @@ export function watchedNames(all) {
 
 /**
  * A tool call's input as a hook sees it: Coder's own, and Claude Code's names beside them (`file_path`; for the question
- * card, AskUserQuestion's `questions` list, each question with `multiSelect`).
+ * card, AskUserQuestion's `questions` list, each question with `multiSelect`). (The lsp tool's input is Claude Code's own
+ * since 2026-11-14, `operation`, `filePath`, `line`, `character`, `query`: given as it is, with no `file_path`.)
  */
 export function hookToolInput(name, args) {
   const a = args && typeof args === "object" ? { ...args } : {};
-  if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
+  if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
   if (name === "ask_user") {
     // (The single question of before, as Claude Code's list of one.)
     if (!(Array.isArray(a.questions) && a.questions.length) && a.question !== undefined) a.questions = [{ question: a.question, header: a.header, options: a.options, multi_select: a.multi_select }];
@@ -289,12 +299,16 @@ export function hookToolInput(name, args) {
   }
   return a;
 }
-/** A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`, `multiSelect` back to `multi_select`). */
+/**
+ * A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`). Coder's ask_user takes Claude Code's
+ * `multiSelect` as it is (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"); Gloopy's own
+ * reads `multi_select`, given beside it.
+ */
 export function toolInputFromHook(name, input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const a = { ...input };
-  if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
-  if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => { if (!q || typeof q !== "object" || Array.isArray(q) || q.multiSelect === undefined) return q; const o = { ...q }; if (typeof o.multiSelect === "boolean") o.multi_select = o.multiSelect; delete o.multiSelect; return o; });
+  if ((name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
+  if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => (!q || typeof q !== "object" || Array.isArray(q) || typeof q.multiSelect !== "boolean" ? q : { ...q, multi_select: q.multiSelect }));
   return a;
 }
 
@@ -366,22 +380,25 @@ export function hookAnswers(input) {
   return { answers, annotations };
 }
 /**
- * What Coder is told when a hook answered its questions, in Claude Code's words (its AskUserQuestion result): "Your
- * questions have been answered: …" when each answer is one of the choices; "The user answered: …" when one is not (or
- * has notes); "The user did not answer the questions." when none was given. `questions`: { key (the text the answers use),
- * text, labels, multi }. `shown` is the answers alone, for the note on the page.
+ * What Coder is told of the owner's answers to its questions, in Claude Code's words (its AskUserQuestion result; "the
+ * user" is "the owner", as in Coder's other texts; the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+ * notify one"): "The owner responded: …" for a message they typed instead of answering (`response`); "Your questions have
+ * been answered: …" when each answer is one of the choices; "The owner answered: …" when one is not (or has notes); "The
+ * owner did not answer the questions." when none was given. `questions`: { key (the text the answers use), text, labels,
+ * multi }. `shown` is the answers alone, for the note on the page.
  */
-export function answeredText(questions, answers, annotations) {
+export function answeredText(questions, answers, annotations, { response = "" } = {}) {
   const shown = questions.map((q) => {
     const w = ownKey(answers, q.key), g = ownKey(annotations, q.key);
     const given = !!w && w !== NOTES_ONLY;
     if (!given && !(g && g.notes)) return null;
     const d = [given ? '"' + q.text + '"="' + w + '"' : '"' + q.text + '"=(no option selected)'];
-    if (g && g.preview) d.push("selected preview: " + g.preview);
+    if (g && g.preview) d.push("selected preview:\n" + g.preview);
     if (g && g.notes) d.push("notes: " + g.notes);
     return d.join(" ");
   }).filter((x) => x !== null).join(", ");
-  if (!shown) return { text: "The user did not answer the questions.", shown: "" };
+  if (typeof response === "string" && response.trim()) return { text: "The owner responded: " + response, shown };
+  if (!shown) return { text: "The owner did not answer the questions.", shown: "" };
   const fits = questions.every((q) => {
     const g = ownKey(annotations, q.key);
     if (g && g.notes) return false;
@@ -393,7 +410,7 @@ export function answeredText(questions, answers, annotations) {
     const b = splitLabels(y);
     return b !== null && b.length >= 1 && joinLabels(b) === y && b.every((x) => k.has(x));
   });
-  return { text: fits ? "Your questions have been answered: " + shown + ". You can now continue with these answers in mind." : "The user answered: " + shown + ". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say.", shown };
+  return { text: fits ? "Your questions have been answered: " + shown + ". You can now continue with these answers in mind." : "The owner answered: " + shown + ". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say.", shown };
 }
 
 /**
@@ -536,7 +553,9 @@ export function hookResult(event, run, hook = {}) {
  *   reason      the decision's reason, in Claude Code's words for a block by exit 2 ("<Event>:<Tool> hook error: [cmd]: …")
  *   endTurn     a prompt hook's ok: false where Claude Code ends the turn ("the turn ends and the reason appears in the chat as a
  *               warning line"): its reason
- *   updatedInput, updatedOutput   PreToolUse's new input; PostToolUse's new output (a string, or Bash's { stdout })
+ *   updatedInput, updatedOutput   PreToolUse's new input; PostToolUse's new output, as text (the last hook's value, checked
+ *               as Claude Code checks it: `rewrite`, below), with `updatedPics` when it is a picture; `updatedInputs`, every
+ *               PreToolUse hook's new input in turn (Claude Code checks each one)
  *   context     additionalContext strings, and plain stdout on UserPromptSubmit and SessionStart (and PreCompact's, as instructions)
  *   messages    systemMessage strings, for the owner
  *   notices     "<Event> hook error" lines for the owner (non-blocking errors)
@@ -547,17 +566,26 @@ export function hookResult(event, run, hook = {}) {
  *               classifierContext: at most 2,000 characters for the call, shared by its hooks; a note whose own rewrite of
  *               the output was refused, or replaced by another hook's, is dropped), or ""
  */
-/** What is wrong with a command's new output for Claude Code's Bash output shape ("" when nothing). */
-export function bashShapeProblem(u) {
-  if (!u || typeof u !== "object" || Array.isArray(u)) return "Expected an object with stdout, stderr and interrupted, received " + (Array.isArray(u) ? "array" : u === null ? "null" : typeof u) + ".";
-  const miss = [["stdout", "string"], ["stderr", "string"], ["interrupted", "boolean"]].filter(([k, t]) => typeof u[k] !== t).map(([k, t]) => k + " (" + t + ")");
-  return miss.length ? "Expected " + miss.join(", ") + "." : "";
+/**
+ * A TOOL'S TEXT FOR ITS RESULT OBJECT, where it needs nothing of Coder's machine (Claude Code's mapToolResultToToolResultBlockParam
+ * for Bash, PowerShell, LSP, WebFetch and TaskStop); undefined for the others, whose text Coder's loop gives (`rewrite`).
+ */
+export function plainOutputText(tool, v) {
+  if (tool === "Bash" || tool === "PowerShell") return bashOutputText(v);
+  if (tool === "LSP" || tool === "WebFetch") return v.result;
+  if (tool === "TaskStop") return JSON.stringify({ ...v, message: v.message, command: v.command });
+  return undefined;
 }
-export function hooksOutcome(event, runs, { tool = "" } = {}) {
+/**
+ * A POSTTOOLUSE HOOK'S updatedToolOutput, WITHOUT CODER'S LOOP (coder-zod.mjs checkRewrite): checked against the tool's output
+ * shape, then shown through plainOutputText; a tool with no shape (a connector's) takes it as it is.
+ */
+export const plainRewrite = (tool, value, opts = {}) => checkRewrite(tool, value, { ...opts, textOf: plainOutputText });
+export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
   const label = event + (tool && TOOL_EVENTS.has(event) ? ":" + tool : "");
-  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
+  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedInputs: [], updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
   const notes = [];
-  let rewrites = 0, lastRewrite = 0;
+  let rewrites = 0, lastValue;
   // (StopFailure and SessionEnd: "Claude Code ignores the hook's output and exit code"; "discards their JSON output fields".)
   if (event === "StopFailure" || event === "SessionEnd") return out;
   const rank = { deny: 4, ask: 2, allow: 1, "": 0 };
@@ -583,6 +611,9 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       else if (event === "PostToolUse") { if (goOn) { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; } else out.endTurn = out.endTurn || why; }
       else if (event === "PostToolUseFailure") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; }
       else if (event === "PostToolBatch" || event === "UserPromptSubmit") { out.decision = "block"; out.blocks.push(line); out.reason = out.reason || why; out.endTurn = out.endTurn || why; }
+      // (TaskCreated and TaskCompleted: the task is not made, or not completed, and the call's answer is Claude Code's
+      // "<Event> hook feedback:" and a new line, then the hook's words; the turn goes on, continueOnBlock or not. 2026-11-14.)
+      else if (TASK_EVENTS.has(event)) { out.decision = "block"; out.blocks.push(event + " hook feedback:\n" + err); out.reason = out.reason || why; }
       continue;
     }
     const j = result.json || {};
@@ -606,7 +637,8 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       const byExit = result.kind === "block";
       const text = byExit ? hookName(hook) + ": " + (why || "No stderr output") : why || "Blocked by hook";
       const fromCommand = label + " hook blocking error from command: \"" + hookKind(hook) + "\": " + text;
-      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : fromCommand);
+      // (TaskCreated and TaskCompleted: "TaskCreated hook feedback:" and a new line, then the same words. 2026-11-14.)
+      out.blocks.push(event === "PreToolUse" ? label + " hook error: " + text : event === "Stop" ? "Stop hook feedback:\n" + text + (byExit ? "" : "\n\n" + fromCommand) : TASK_EVENTS.has(event) ? event + " hook feedback:\n" + text : fromCommand);
     };
     if (event === "PermissionDenied") { if (spec.retry === true) out.retry = true; continue; }
     if (event === "PreToolUse") {
@@ -619,7 +651,9 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       // (Exit 2: its stderr alone, as Claude Code, which reads no JSON from a hook that exits 2.)
       if (d === "deny") blockBy(result.kind === "block" ? result.reason : why);
       if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); }
-      if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny") out.updatedInput = spec.updatedInput;
+      // (Each hook's new input, checked in turn by Coder's loop as Claude Code checks one, coder-hookcheck.mjs; the last one is
+      // the input. None with "deny"; none with "defer" either: Claude Code's "For "defer", ignored".)
+      if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny" && spec.permissionDecision !== "defer") { out.updatedInput = spec.updatedInput; out.updatedInputs.push(spec.updatedInput); }
       continue;
     }
     if (event === "PermissionRequest") {
@@ -636,18 +670,12 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       }
       continue;
     }
+    // A HOOK'S REWRITE OF THE OUTPUT (Claude Code 2.1.325, the owner, 2026-11-14: "Fix base on Claude Code docs, please"): each
+    // hook's in turn, the last one's kept, then checked once all have run (below). A connector's (MCP) also takes
+    // updatedMCPToolOutput, after it ("Replaces the output for MCP tools only").
     let rewrite = 0;
-    if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) {
-      const u = spec.updatedToolOutput;
-      rewrite = -1;
-      // (For a command, Claude Code checks it against Bash's output shape, stdout and stderr strings and interrupted a boolean,
-      // and uses the original output when it does not match, in its words; a match is shown as its result is, stdout then
-      // stderr. Bash docs pass 9.)
-      const bad = tool === "Bash" || tool === "PowerShell" ? bashShapeProblem(u) : "";
-      if (bad) out.notices.push("PostToolUse hook returned updatedToolOutput that does not match " + tool + "'s output shape; using original output. " + bad);
-      else if (typeof u === "string") { out.updatedOutput = u; rewrite = lastRewrite = ++rewrites; }
-      else if (u && typeof u === "object" && typeof u.stdout === "string") { out.updatedOutput = [u.stdout.replace(/^(\s*\n)+/, "").trimEnd(), typeof u.stderr === "string" ? u.stderr.trim() : "", u.interrupted === true ? "<error>Command was aborted before completion</error>" : ""].filter(Boolean).join("\n"); rewrite = lastRewrite = ++rewrites; }
-    }
+    if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) { lastValue = spec.updatedToolOutput; rewrite = ++rewrites; }
+    if (event === "PostToolUse" && spec.updatedMCPToolOutput !== undefined && String(tool).startsWith("mcp__")) { lastValue = spec.updatedMCPToolOutput; rewrite = ++rewrites; }
     // A NOTE FOR THE AUTO MODE CHECKER (Claude Code: "Return classifierContext to send a short note about the tool call's
     // result to the auto mode classifier rather than to Claude").
     if (event === "PostToolUse" && typeof spec.classifierContext === "string" && spec.classifierContext.trim()) notes.push({ text: spec.classifierContext.trim(), rewrite });
@@ -661,7 +689,20 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       out.reason = out.reason || why;
     }
   }
-  if (notes.length) out.classifierContext = notes.filter((n) => n.rewrite === 0 || n.rewrite === lastRewrite).map((n) => n.text).join("\n").slice(0, 2000);
+  // THE LAST REWRITE, CHECKED (Claude Code: "The value must match the tool's output shape … a value that doesn't match the
+  // tool's output schema is ignored and the original output is used"; a match shown through the tool's own text; an MCP
+  // tool's "passed through without schema validation"): `rewrite(value, { withNote })` from Coder's loop, which knows each
+  // tool's text (coder-hookcheck.mjs), else plainRewrite. Refused: Claude Code's notice for the owner, and the original
+  // output stays. A note for the auto mode checker goes with its own hook's rewrite: kept only when that rewrite is the one
+  // used ("Claude Code drops the note if that rewrite is rejected or another hook's rewrite replaces it").
+  let refused = false;
+  if (rewrites) {
+    const withNote = notes.some((n) => n.rewrite === rewrites);
+    const r = typeof rewrite === "function" ? rewrite(lastValue, { withNote }) : plainRewrite(tool, lastValue, { withNote });
+    if (r && typeof r.notice === "string") { out.notices.push(r.notice); refused = true; }
+    else if (r) { out.updatedOutput = String(r.text ?? ""); if (Array.isArray(r.pics) && r.pics.length) out.updatedPics = r.pics; }
+  }
+  if (notes.length) out.classifierContext = notes.filter((n) => n.rewrite === 0 || (!refused && n.rewrite === rewrites)).map((n) => n.text).join("\n").slice(0, 2000);
   return out;
 }
 
@@ -769,5 +810,6 @@ export function splitHookOut(out, mark) {
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
 export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)
-  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), permission_mode: String(mode), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
+  // (No permission_mode on TaskCreated and TaskCompleted: Claude Code's TaskCreate and TaskUpdate give their hooks none. 2026-11-14.)
+  return { session_id: String(session), ...(promptId ? { prompt_id: String(promptId) } : {}), cwd: String(cwd), ...(scratch ? { scratchpad_dir: String(scratch) } : {}), ...(TASK_EVENTS.has(event) ? {} : { permission_mode: String(mode) }), hook_event_name: event, ...(effort ? { effort: { level: String(effort) } } : {}), ...extra };
 }

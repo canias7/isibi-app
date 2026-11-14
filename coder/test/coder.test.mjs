@@ -17,10 +17,16 @@ import { execIn, createApp, prepareRepo, pushRepo, gitIn } from "../container/se
 import { handleCoder, projectIdFor, commitTitle } from "../src/coder-routes.mjs";
 import { makeState, readState, seal, unseal, saveConnection, userToken, signInUrl } from "../src/coder-github.mjs";
 import { coderModel, coderSend } from "../container/coder-model.mjs";
+import { envAnswer, APPLIES_TO } from "../container/coder-envtools.mjs";
 
 const call = (name, args, id = name + Math.random().toString(36).slice(2, 7)) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
 const scripted = (steps) => { let i = 0; const seen = []; return { seen, send: async (req) => { seen.push(req); return steps[Math.min(i++, steps.length - 1)]; } }; };
+// CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, coder-envtools.mjs): Coder's server answers them; here the same answers on a
+// made-up state, this chat on "Default" with `script` as its setup script.
+const envApi = (script = "", more = {}) => async (body) => envAnswer({ envId: "default", list: [{ id: "default", name: "Default", repos: [] }], data: { default: { script, vars: {}, secrets: [], network: { mode: "trusted", hosts: [], defaults: true } } }, repos: ["ana/shop"], ...more }, body);
+/** update_environment's input for a new setup script on this chat's "Default" (`current`: the script there now). */
+const setupArgs = (script, current = "", reason = "r") => ({ environment_name: "Default", applies_to: APPLIES_TO, reason, setup_script: script, script_change: String(current).trim() ? "replaces the existing setup script" : "adds a setup script" });
 
 // ── THE CHECKS ───────────────────────────────────────────────────────────────
 test("CD1 dangerous commands are refused with the reason; ordinary ones run", async () => {
@@ -84,7 +90,10 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   assert.match(out, /hello from coder/);
   assert.deepEqual(events.map((e) => e.type), ["user", "text", "bash", "result", "bash", "result", "done"]);
   assert.equal(s.seen[0].messages[0].role, "system");
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "monitor", "stop_job", "request_secret", "propose_env", "review", "pr_comments", "undo_last_job", "ask_user", "todo", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
+  // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
+  // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -103,7 +112,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request, plus your own web search; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -452,7 +461,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   // (2026-11-09: in Gloopy's chat, the files attached go with it too, by their ids.)
   assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: await modelAccess\(env, uid, id, meta\.turn \+ 1\), [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -896,7 +905,9 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   // grep and glob use ripgrep, which Coder's machine has (the Dockerfile); checked when this machine has it too.
   let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
   if (hasRg) {
-    assert.match(tool("grep", { pattern: "const b" }).out, /src\/app\.js:2:const b = 3;/);
+    // (Claude Code's Grep, 2026-11-14: file paths by default, its lines with output_mode "content", named from where the commands are.)
+    assert.match(tool("grep", { pattern: "const b" }).out, /\nFound 1 file\nsrc\/app\.js$/);
+    assert.match(tool("grep", { pattern: "const b", output_mode: "content" }).out, /\nsrc\/app\.js:2:const b = 3;$/);
     assert.match(tool("glob", { pattern: "**/*.js" }).out, /src\/app\.js/);
   }
   // OUTSIDE THE PROJECT: refused, also through a link and in .git.
@@ -908,31 +919,36 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
 });
 
 test("CD35 web fetch: public addresses only; pages become text; there is no free search", async () => {
-  const { privateAddress, htmlToText, toolWebFetch, TOOLS } = await import("../container/coder-tools.mjs");
+  const { privateAddress, toolWebFetch, TOOLS } = await import("../container/coder-tools.mjs");
+  const { htmlToMarkdown } = await import("../container/coder-webfetch.mjs");
   for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:127.0.0.1"]) assert.equal(privateAddress(a), true, a);
   for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
   await assert.rejects(toolWebFetch({ url: "http://127.0.0.1:8080/state" }, async () => { throw new Error("must not fetch"); }), /private network/);
-  await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /only http and https/);
-  assert.equal(htmlToText("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n there");
-  assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's own");
+  // (Claude Code's own refusal for an address with no host: "Invalid URL"; pages become Markdown as its Turndown makes it.
+  // The owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
+  await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /^Error: Invalid URL$/);
+  assert.equal(htmlToMarkdown("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n\n**there**");
+  assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's (since 2026-11-14 through Coder's web_search tool, run in the loop: coder-websearch.mjs)");
 });
 
 test("CD36 the loop runs a file tool like a command (as dev, in the project) and shows what it did", async () => {
-  const s = scripted([say("", [call("edit", { path: "a.js", old_string: "1", new_string: "2" }), call("todo", { items: [{ text: "Fix a.js", status: "done" }] })]), say("Fixed.", [])]);
+  const s = scripted([say("", [call("edit", { path: "a.js", old_string: "1", new_string: "2" }), call("task_create", { subject: "Fix a.js", description: "Fix a.js" })]), say("Fixed.", [])]);
   const runs = []; const events = [];
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { runs.push(x); return { code: 0, output: "edited a.js (1 place)" }; } }, { text: "fix it" });
   assert.equal(r.status, "done");
   assert.equal(runs.length, 1);
   assert.match(runs[0].command, /^node --no-warnings \S+coder-tools\.mjs [A-Za-z0-9+/=]+$/);
   assert.equal(runs[0].tool, true);
-  // Edit, as write, asks for its change for the chat and the language server's new problems (edit, tool 3, 2026-11-09).
-  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true } });
+  // Edit, as write, asks for its change for the chat and the language server's new problems (edit, tool 3, 2026-11-09), and
+  // its result object for the PostToolUse hooks (Claude Code's Edit output, 2026-11-14).
+  assert.deepEqual(JSON.parse(Buffer.from(runs[0].command.split(" ")[3], "base64").toString()), { tool: "edit", args: { path: "a.js", old_string: "1", new_string: "2", show_change: true, check: true, facts: true } });
   const ev = events.find((e) => e.type === "bash");
   assert.deepEqual([ev.tool, ev.verb, ev.command], ["edit", "Edited", "a.js"]);
-  assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "done" }]);
+  // (Coder's checklist is Claude Code's task list since 2026-11-14: the chat shows its tasks.)
+  assert.deepEqual(events.find((e) => e.type === "todo").items, [{ text: "Fix a.js", status: "pending" }]);
 });
 
-test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown", async () => {
+test("CD37 Grok's own web search through xAI's Responses request: the chat turned into Responses and back; searches shown (since 2026-11-14 only in a web_search call's own request)", async () => {
   const { toResponsesInput, toResponsesTools, fromResponsesOutput, coderSend } = await import("../container/coder-model.mjs");
   const msgs = [
     { role: "system", content: "SYS" },
@@ -946,7 +962,10 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
     { type: "function_call", call_id: "c1", name: "read", arguments: "{\"path\":\"a.js\"}" },
     { type: "function_call_output", call_id: "c1", output: "1\tx" },
   ] });
-  const tools = toResponsesTools([{ type: "function", function: { name: "read", description: "d", parameters: { type: "object" } } }]);
+  // (xAI's search only in a request that asks for it: web_search's own, coder-websearch.mjs; Coder's calls search through the tool.)
+  const fnTools = [{ type: "function", function: { name: "read", description: "d", parameters: { type: "object" } } }];
+  assert.deepEqual(toResponsesTools(fnTools), [{ type: "function", name: "read", description: "d", parameters: { type: "object" } }]);
+  const tools = toResponsesTools(fnTools, { webSearch: true });
   assert.deepEqual(tools, [{ type: "web_search" }, { type: "function", name: "read", description: "d", parameters: { type: "object" } }]);
   // The answer from the real test call (2026-11-05), shortened.
   const answer = { output: [
@@ -960,25 +979,26 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify(answer)) });
   const r = await send({ model: "grok-4.7", messages: msgs, tools: [] });
   assert.deepEqual(r.usage, { in: 2314, out: 116, searches: 1, cost_ticks: 78280000, cached: 0, reasoning: 0, effort: "" });
-  // The loop shows the search like a step.
+  // The loop shows the search like a step: Grok's web_search call, run as its own request (here the real answer's search).
   const events = [];
   let n = 0;
-  await runCoder({ send: async () => (n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "" , tool_calls: [] }, searches: o.searches }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
+  const searchCall = { id: "w1", type: "function", function: { name: "web_search", arguments: JSON.stringify({ query: "latest stable Node.js version" }) } };
+  await runCoder({ send: async (req) => (req.webSearch ? { message: { role: "assistant", content: "Node 24." }, output: [answer.output[1], { type: "message", content: [{ type: "output_text", text: "Node 24 is the latest." }] }], usage: { in: 1, out: 1, searches: 1 } } : n++ ? { message: { role: "assistant", content: "Node 24." } } : { message: { role: "assistant", content: "", tool_calls: [searchCall] } }), exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "which node?" });
   const ws = events.find((e) => e.tool === "web_search");
   assert.deepEqual([ws.verb, ws.command], ["Searched the web for", "\"latest stable Node.js version\""]);
 });
 
-test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends there; the page shows the options as buttons", async () => {
-  const s = scripted([say("Two ways to do this.", [call("ask_user", { question: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] }), call("bash", { command: "echo never" })])]);
+test("CD38 ask_user: Coder asks one multiple-choice question and, with no way to ask while it works, the turn ends there; the page shows the options as buttons (2026-11-14: Claude Code's AskUserQuestion input)", async () => {
+  const s = scripted([say("Two ways to do this.", [call("ask_user", { questions: [{ question: "Plain CSS or Tailwind?", header: "Styling", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }] }), call("bash", { command: "echo never" })])]);
   const events = []; const ran = [];
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { ran.push(x); return { code: 0, output: "" }; } }, { text: "style the page" });
   assert.equal(r.status, "done");
   assert.equal(ran.length, 0, "nothing after the question runs");
-  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "plain strings still work: a label with no description");
+  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", header: "Styling", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "an empty description: a label alone");
   // every call got its answer, so the next turn continues cleanly
   const toolAnswers = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
   assert.deepEqual(toolAnswers, ["asked the owner; their answer comes as the next message", "not run: you asked the owner a question first"]);
-  const bad = scripted([say("", [call("ask_user", { question: "Which?", options: ["only one"] })]), say("Fine.", [])]);
+  const bad = scripted([say("", [call("ask_user", { questions: [{ question: "Which?", header: "One", options: [{ label: "only one", description: "" }] }] })]), say("Fine.", [])]);
   assert.equal((await runCoder({ send: bad.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" })).status, "done");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /on\('\[data-ask-go\]', 'click', \(\) => askSend\(\)\);/);
@@ -1033,22 +1053,35 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
   } finally { await close(); }
 });
 
-test("CD40 lsp: definition, references, hover and errors from real language servers (checked where they are installed)", async () => {
-  const { serverFor } = await import("../container/coder-lsp.mjs");
-  assert.equal(serverFor("a.ts").cmd, "typescript-language-server");
-  assert.equal(serverFor("a.py").cmd, "pyright-langserver");
+test("CD40 lsp: Claude Code's LSP tool with its typescript-lsp and pyright-lsp plugins' servers (the owner, 2026-11-14: \"start fixing and filling in gaps on those tools\"); references and a write's report from the real servers, through the chat's keeper, the report taken at a later step (checked where they are installed)", async () => {
+  const { serverFor, stopKeeper, KEEPER_SCRIPT } = await import("../container/coder-lsp.mjs");
+  assert.equal(serverFor("a.ts").command, "typescript-language-server");
+  assert.deepEqual(serverFor("a.ts").args, ["--stdio"]);
+  assert.equal(serverFor("a.mts").extensionToLanguage[".mts"], "typescript", "the plugin sends .mts as TypeScript");
+  assert.equal(serverFor("a.py").command, "pyright-langserver");
+  assert.equal(serverFor("a.pyi").name, "pyright");
   assert.equal(serverFor("a.rb"), null);
   const dockerfile = readFileSync(HERE("container/Dockerfile"), "utf8");
   assert.match(dockerfile, /npm install -g [^\n]*typescript@5 typescript-language-server pyright/, "the servers are on Coder's machine");
-  assert.match(dockerfile, /coder-lsp\.mjs/);
+  assert.match(dockerfile, /coder-lsp\.mjs coder-lspd\.mjs/);
   let has = true; try { execFileSync("typescript-language-server", ["--version"]); } catch { has = false; }
   if (!has) return;
   const dir = await mkdtemp(join(tmpdir(), "coder-lsp-"));
-  writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
-  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
-  const run = (args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: "lsp", args })).toString("base64")], { cwd: dir }).toString();
-  assert.match(run({ action: "diagnostics", path: "m.ts" }), /m\.ts:2:7 error: Type 'number' is not assignable to type 'string'/);
-  assert.match(run({ action: "references", path: "m.ts", line: 1, column: 17 }), /m\.ts:1:17\nm\.ts:2:19/);
+  // (The chat's keeper, as Coder's machine starts it.)
+  const { spawn } = await import("node:child_process");
+  const keeper = spawn(process.execPath, ["--no-warnings", KEEPER_SCRIPT, dir], { cwd: dir, detached: true, stdio: "ignore" });
+  try {
+    writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
+    const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+    const run = (tool, args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool, args })).toString("base64")], { cwd: dir }).toString();
+    await new Promise((ok) => setTimeout(ok, 1000));
+    assert.match(run("lsp", { operation: "findReferences", filePath: "m.ts", line: 1, character: 17 }), /Found 2 references across 1 files:\n\nm\.ts:\n {2}Line 1:17\n {2}Line 2:19$/);
+    const w = run("write", { path: "m.ts", content: "const y: string = 3;\n", check: true });
+    assert.doesNotMatch(w, /not assignable/, "the write's answer is its own, at once");
+    let note = "";
+    for (let i = 0; i < 60 && !/not assignable/.test(note); i++) { await new Promise((ok) => setTimeout(ok, 500)); const t = run("lsp_take", {}); if (t) note += JSON.parse(t).note; }
+    assert.match(note, /Type 'number' is not assignable to type 'string'/);
+  } finally { await stopKeeper(dir); if (keeper.exitCode === null) { try { process.kill(keeper.pid, "SIGKILL"); } catch { /* gone */ } } }
 });
 
 test("CD42 @coder in GitHub comments: only signed notifications, only connected+allowed accounts; Coder answers as the app and posts the result when the job ends", async () => {
@@ -1231,7 +1264,7 @@ test("CD46 Review and Security review: the request is written on the server; Cod
   assert.doesNotMatch(ui, /data-review="code"/, "no Review menu now: Coder reviews when asked (owner, 2026-11-06)");
 });
 
-test("CD47 the repo's environment: setup script runs once per machine (again if changed); the owner's variables reach commands; values are sealed and never shown back", async () => {
+test("CD47 the repo's environment: setup script runs once per machine (not again when it changes: like Claude Code, a change reaches a chat only on a fresh machine); the owner's variables reach commands; values are sealed and never shown back", async () => {
   const { safeVars } = await import("../container/server.mjs");
   assert.deepEqual(safeVars({ API_KEY: "k", PATH: "/evil", LD_PRELOAD: "x", NODE_OPTIONS: "--require x", "bad name": "y", CODER_CONTROL_KEY: "z" }), { API_KEY: "k" });
   // THE SERVER: names only come back; the stored file has no plain value.
@@ -1275,7 +1308,7 @@ test("CD47 the repo's environment: setup script runs once per machine (again if 
     const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
-    assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 1, "again when it changed");
+    assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 0, "not again when it changed (2026-11-14: Claude Code's \"a change to the script reaches an existing session only when its VM was reclaimed and is rebuilt\")");
   } finally { await close(); }
 });
 
@@ -1634,20 +1667,23 @@ test("CD62 network secrets: the proxy adds the key only for its host, over TLS t
   } finally { await px.close(); up.close(); }
 });
 
-test("CD63 request_secret: Coder asks for a key for one host; the turn ends with a card; bad hosts are refused", async () => {
+test("CD63 request_secret: Coder asks for a key for one host; bad hosts are refused; (since 2026-11-14, Claude Code's request_credential) the card waits in the turn and Coder goes on with its answer", async () => {
   const events = [];
-  const turns = [say("", [call("request_secret", { host: "https://evil" , reason: "x" })]), say("", [call("request_secret", { host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key" }), call("bash", { command: "echo never" })])];
+  const turns = [say("", [call("request_secret", { host: "https://evil" , reason: "x" })]), say("", [call("request_secret", { host: "api.stripe.com", reason: "To list test charges.", display_name: "Stripe test key" }), call("bash", { command: "echo after" })]), say("Done.")];
   let n = 0;
-  const seen = [];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { text: "check my stripe balance" });
+  const seen = [], asked = [];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), ask: async (pid) => { asked.push(pid); return { choice: "saved" }; } }, { text: "check my stripe balance" });
   assert.equal(r.status, "done");
-  const { at, ...card } = events.find((e) => e.type === "secret");
-  assert.deepEqual(card, { type: "secret", host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key", header: "Authorization", prefix: "Bearer" });
-  assert.match(JSON.stringify(seen[1].messages), /exact public host name/);
-  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false, "nothing after the request runs");
-  assert.match(JSON.stringify(r.messages), /not run: you asked the owner for a key first/);
+  const { at, pid, ...card } = events.find((e) => e.type === "secret");
+  assert.deepEqual(card, { type: "secret", host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key", header: "Authorization", prefix: "Bearer", kind: "bearer" });
+  assert.deepEqual(asked, [pid], "the step waits for the card's own answer");
+  assert.match(JSON.stringify(seen[1].messages), /exact hostname the credential is for/);
+  assert.ok(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), "what came after the request runs, in the same turn");
+  assert.ok(r.messages.some((m) => m.role === "tool" && m.content === "saved"));
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /call request_secret for that exact host RIGHT AWAY[\s\S]*Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
+  // (Since 2026-11-14 as request_secret's description says: "as soon as you know the work needs a key", after "the move its
+  // description calls for", not "RIGHT AWAY".)
+  assert.match(CODER_SYSTEM, /ask with request_secret for that exact host \(e\.g\. api\.stripe\.com, prefix Bearer\) as soon as you know the work needs it, as its description says: first make the move get_environment's description calls for\. Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
 });
 
 test("CD64 the secret route: sealed, never shown back, sent only to the machine's proxy, not for GitHub jobs, hidden in the chat", async () => {
@@ -1758,31 +1794,44 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
     const s = await m.run({ setup: { script: "echo key=[$API_KEY] > seen.txt; cat seen.txt", vars: { API_KEY: "sk-secret-999" } } });
     const out = s.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
     assert.match(out, /key=\[\]/, "no variable in the setup script");
-    const bad = await m.run({ setup: { script: "echo starting; npm-nope ci" } });
-    assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
-    assert.match(JSON.stringify(m.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*propose_env \(kind setup_script\)/);
   } finally { await m.close(); }
+  // A FAILED SETUP (on a fresh machine: a changed script does not run on one that has had its setup, CD47).
+  const f = await envMachine([say("Done.", [])]);
+  try {
+    const bad = await f.run({ setup: { script: "echo starting; npm-nope ci" } });
+    assert.ok(bad.events.some((e) => e.type === "result" && e.code !== 0), "the failure shows");
+    assert.match(JSON.stringify(f.seen[0].messages), /THE SETUP SCRIPT FAILED this time \(exit code 127\)[\s\S]*update_environment \(setup_script\)/);
+    // Not again at the next message (Claude Code: "After you fix the cause, start a new session so the script runs again"):
+    // Coder is told it failed on this machine.
+    const next = await f.run({ setup: { script: "echo starting; npm-nope ci" } });
+    assert.ok(!next.events.some((e) => e.tool === "setup"), "not run again");
+    assert.match(JSON.stringify(f.seen[0].messages), /THE REPO'S SETUP SCRIPT \(the owner's, already run on this machine: [^;]*; it FAILED there, so what it failed to set up is not here, and it does not run again on this machine \(new chats run it\); its output is in the chat\)/);
+    assert.doesNotMatch(JSON.stringify(f.seen[0].messages), /THE SETUP SCRIPT FAILED this time/);
+  } finally { await f.close(); }
 });
 
-test("CD68 (owner '2' '3' '5') propose_env: a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
-  const turns = [say("", [call("propose_env", { kind: "allow_host", host: "https://x", reason: "r" })]), say("", [call("propose_env", { kind: "setup_script", script: "npm ci\n", reason: "The tests need the packages." }), call("bash", { command: "echo never" })])];
+test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment in place of propose_env) a setup script or a host, shown on a card the call waits on (A5 of the recheck, 2026-11-14: its answer is the call's result); bad input refused; never from GitHub", async () => {
+  const turns = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["https://x"] })]), say("", [call("update_environment", setupArgs("npm ci\n", "", "The tests need the packages.")), call("bash", { command: "echo after" })]), say("You declined it.")];
   let n = 0; const seen = []; const events = [];
   const ranNpm = [{ role: "assistant", content: "", tool_calls: [{ id: "n1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm ci" }) } }] }, { role: "tool", tool_call_id: "n1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { messages: ranNpm, text: "set it up" });
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), envApi: envApi(), ask: async () => ({ choice: "no" }) }, { messages: ranNpm, text: "set it up" });
   assert.equal(r.status, "done");
-  const { at, ...card } = events.find((e) => e.type === "envchange");
-  assert.deepEqual(card, { type: "envchange", kind: "setup_script", script: "npm ci", reason: "The tests need the packages." });
-  assert.match(JSON.stringify(seen[1].messages), /one exact public host name/);
-  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false);
+  const { at, pid, ...card } = events.find((e) => e.type === "envchange");
+  assert.ok(events.some((e) => e.type === "permanswer" && e.pid === pid && e.choice === "no"), "the call waited on its card");
+  assert.deepEqual([card.kind, card.tool, card.name, card.appliesTo, card.change.script], ["update", "update_environment", "Default", APPLIES_TO, { change: "adds a setup script", text: "npm ci\n" }]);
+  assert.equal(card.args.reason, "The tests need the packages.", "the reason stays with the call; the card never shows it");
+  assert.match(JSON.stringify(seen[1].messages), /is not an exact lowercase host name/);
+  assert.equal(seen[2].messages.find((m) => m.role === "tool" && m.content === "error: Denied by owner") !== undefined, true, "declined: Claude Code's denial, and the turn goes on");
   const ev2 = []; let k = 0;
-  const t2 = [say("", [call("propose_env", { kind: "allow_host", host: "api.example.com", reason: "r" })]), say("ok", [])];
-  await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "x", github: true });
+  const t2 = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["api.example.com"] })]), say("ok", [])];
+  await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi() }, { text: "x", github: true });
   assert.equal(ev2.some((e) => e.type === "envchange"), false, "not from GitHub");
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /changed only with propose_env[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
+  assert.match(CODER_SYSTEM, /changed only with update_environment, create_environment or switch_environment[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /e\.type === 'envchange'/);
-  assert.match(ui, /network: \{ add: \[x\.host\] \}/);
+  assert.match(ui, /network: \{ add: \[x\.host\] \}/, "an older chat's card still works");
+  assert.match(ui, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/envchange', \{ method: 'POST', body: JSON\.stringify\(\{ tool: x\.tool, args: x\.args, shown: x \}\) \}\)/);
 });
 
 test("CD69 (owner '4') the network list: saved per repo, sent to the machine; the proxy blocks other sites when limited and lets listed, package and keyed sites through", async () => {
@@ -1886,8 +1935,8 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
 
 test("CD73 (owner '2', live test; Claude Code's rule since 2026-11-13) after an install this job ran and saw work, when this chat's environment has no setup script, Coder is reminded once to offer it on the card; not when the environment has a setup script (Claude Code offers one only when there is none), nor for an install that was refused or failed", async () => {
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "New chats need the packages." })])];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e) }, { text: "use is-number", setupScript: "" });
+  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("update_environment", setupArgs("npm install", "", "New chats need the packages."))]), say("Proposed; you declined.")];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e), envApi: envApi(), ask: async () => ({ choice: "no" }) }, { text: "use is-number", setupScript: "" });
   assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install` and it worked, and this chat's environment has no setup script/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
@@ -1934,10 +1983,11 @@ test("CD74 live test (2026-11-06): installed packages and caches are never commi
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "I'll look it up." }] }, { type: "message", content: [{ type: "output_text", text: "- Keep it short" }] }] })) });
   const a = await send({ model: "grok-4.7", messages: [], tools: [] });
   assert.equal(a.message.content, "I'll look it up.\n\n- Keep it short");
-  // the words said before a card are the summary (the commit title)
-  let n = 0; const t = [say("Added check.js; it prints true then false.", [call("propose_env", { kind: "setup_script", script: "npm install", reason: "r" })])];
+  // the words said before a card are the summary (the commit title) of a job that pauses on it (coder-park.mjs)
+  let n = 0; const t = [say("Added check.js; it prints true then false.", [call("update_environment", setupArgs("npm install"))])];
   const ranInstall = [{ role: "assistant", content: "", tool_calls: [{ id: "i1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm install" }) } }] }, { role: "tool", tool_call_id: "i1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }) }, { messages: ranInstall, text: "x" });
+  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }), envApi: envApi(), ask: async () => ({ choice: "park" }) }, { messages: ranInstall, text: "x" });
+  assert.equal(r.status, "parked");
   assert.equal(r.summary, "Added check.js; it prints true then false.");
 });
 
@@ -1972,6 +2022,16 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
   assert.doesNotMatch(JSON.stringify(sent[0]), /tok_AAAA1111|key_BBBB2222/, "no key value goes to the machine");
   const direct = [{ kind: "headers", hosts: ["api.a.com", "*.b.com"], paths: ["/v1/"], headers: [{ name: "Authorization", value: "Bearer tok_AAAA1111" }, { name: "X-Api-Key", value: "key_BBBB2222" }], raws: ["tok_AAAA1111", "key_BBBB2222"] }];
   assert.deepEqual(sent[0].setup.vars, { NODE_ENV: "test", NAME: "Ana B" });
+  // THE ADD SECRET FORM REFUSES A SECOND SECRET FOR A HOST (Claude Code 2.1.317: "the Add secret form now refuses and points
+  // you to the existing secret"): any of its hosts, in any letter case, named with the secret that has it; a host that only
+  // overlaps (another subdomain) is taken, as Claude Code's are.
+  const again = await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ name: "Another", hosts: ["x.com", "API.A.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_CCCC3333" }] }) });
+  assert.equal(again.status, 409);
+  assert.deepEqual(await again.json(), { error: "This environment already has a secret for api.a.com: “Two keys” in Network secrets. To change it, delete it there, then add the new one.", existing: s.secrets[0].id });
+  assert.equal((await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ hosts: ["*.b.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_CCCC3333" }] }) })).status, 409);
+  const other = await (await go("projects/" + id + "/secret", { method: "POST", body: JSON.stringify({ name: "Other", hosts: ["x.b.com"], headers: [{ name: "Authorization", prefix: "Bearer", value: "tok_DDDD4444" }] }) })).json();
+  assert.deepEqual(other.secrets.map((x) => x.name), ["Two keys", "Other"]);
+  await go("projects/" + id + "/secret?id=" + encodeURIComponent(other.secrets[1].id), { method: "DELETE" });
   const del = await (await go("projects/" + id + "/secret?id=" + encodeURIComponent(s.secrets[0].id), { method: "DELETE" })).json();
   assert.deepEqual(del.secrets, []);
   // THE PROXY: both headers, only under the path, on a subdomain
@@ -2011,7 +2071,7 @@ test("CD76 (owner '1-7', Claude Code's docs) four network levels with Trusted as
   assert.equal(normSecret({ kind: "body", hosts: ["api.a.com"], config: { param: "api_key", value: "k123" } }).config.param, "api_key");
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /export const SETUP_MAX_S = 300;/); assert.match(server, /SETUP_CACHE_MS = 7 \* 24 \* 3600 \* 1000/);
-  assert.match(server, /JSON\.stringify\(\{ mode: net\.mode, hosts: net\.hosts, defaults: net\.defaults \}\)/, "the setup runs again when the network setting changes");
+  assert.match(server, /JSON\.stringify\(\{ mode: net\.mode, hosts: net\.hosts, defaults: net\.defaults \}\)/, "the environment's saved copy is made again when the network setting changes (on a chat's machine the setup runs once: test/env-tools.test.mjs EN14)");
   // web_fetch follows the site list like any other request (the docs list only GitHub, connectors, secret sites and Anthropic's API as skipping it).
   for (const f of ["container/coder-proxy.mjs", "container/coder-tools.mjs", "container/server.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /Coder-Fetch|CODER_FETCH_PASS/, f);
   // THE PROXY with a body parameter, AWS signing and an OAuth token; a registry never gets a key.
@@ -2095,30 +2155,31 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
   for (const bad of ["sudo systemctl restart x", "apt-get install -y jq", "echo ok\napt install jq", "apk add jq", "dnf install -y jq", "(sudo make install)"]) assert.ok(NEEDS_ROOT_RE.test(bad), bad);
   for (const ok of ["echo \"setup ok\" > setup-ran.txt", "npm ci", "python3 -m venv .venv && .venv/bin/pip install -r requirements.txt", "echo adapter capture apt-ish", "pip install -e ."]) assert.ok(!NEEDS_ROOT_RE.test(ok), ok);
   // Told up front: which lines get admin, Claude Code's tried-lines rule, and its way of handling a failed setup.
-  const tool = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "propose_env"));
+  const tool = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "update_environment"));
   assert.match(tool, /plain lines like `apt-get install -y jq` \(Coder's app installs those as admin\)/);
-  assert.match(tool, /only add lines you ran yourself in this chat and saw work/);
+  assert.match(tool, /Lines you add must be commands you ran yourself in this chat and saw work/);
   assert.match(CODER_SYSTEM, /when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
   assert.match(CODER_SYSTEM, /carry on with whatever does not depend on it, and never stand in for the missing part with made-up results/);
   // Another admin command is refused with the way that works; the plain package line then goes on the card.
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo systemctl restart postgresql", reason: "pg" })]), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt\nsudo apt-get update && sudo apt-get install -y jq", reason: "jq for every chat" })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "add jq to the setup script", setupScript: "echo \"setup ok\" > setup-ran.txt" });
+  const was = "echo \"setup ok\" > setup-ran.txt";
+  const turns = [say("", [call("update_environment", setupArgs(was + "\nsudo systemctl restart postgresql", was, "pg"))]), say("", [call("update_environment", setupArgs(was + "\nsudo apt-get update && sudo apt-get install -y jq", was, "jq for every chat"))])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: envApi(was), ask: async () => ({ choice: "park" }) }, { text: "add jq to the setup script", setupScript: was });
   assert.match(JSON.stringify(seen[1].messages), /only plain lines like `apt-get install -y jq`[\s\S]*Coder's app runs those as admin[\s\S]*other sudo or admin commands/);
   const cards = events.filter((e) => e.type === "envchange");
-  assert.equal(cards.length, 1); assert.match(cards[0].script, /sudo apt-get install -y jq/);
+  assert.equal(cards.length, 1); assert.match(cards[0].change.script.text, /sudo apt-get install -y jq/);
   // A failed setup: Coder answered "Hi" as if nothing happened (live). Now it is reminded once, the way Claude Code is told, with the output; no card is forced.
   let k = 0; const s2 = []; const ev2 = [];
   const failing = "echo \"setup ok\" > setup-ran.txt\nnonexistent-tool-xyz --install";
-  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("propose_env", { kind: "setup_script", script: "echo \"setup ok\" > setup-ran.txt", reason: "nonexistent-tool-xyz is not installed (exit 127): its line is dropped" })])];
-  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
+  const t2 = [say("Hi. What do you want to work on?", []), say("", [call("update_environment", setupArgs("echo \"setup ok\" > setup-ran.txt", failing, "nonexistent-tool-xyz is not installed (exit 127): its line is dropped"))])];
+  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi(failing), ask: async () => ({ choice: "park" }) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
   assert.equal(s2.length, 2);
   const note = JSON.stringify(s2[1].messages);
   assert.match(note, /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found/);
   assert.match(note, /tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script[\s\S]*If you have a fix you ran yourself and saw work, propose[\s\S]*if not, don't propose one/);
-  assert.doesNotMatch(note, /Call propose_env now/);
+  assert.doesNotMatch(note, /Call (propose_env|update_environment) now/);
   assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
-  assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "done");
+  assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "parked", "the card waits (coder-park.mjs)");
   // Once only; not when Coder already said it; never in GitHub jobs (no cards there); a timeout is named as one.
   for (const [opts, first, sends] of [[{ setupFailed: { code: 1, output: "x" } }, "Done.", 2], [{ setupFailed: { code: 1, output: "x" } }, "The setup script failed (exit 1) on npm ci; fix it in Environment → Setup script. Done otherwise.", 1], [{ setupFailed: { code: 1, output: "x" }, github: true }, "Done.", 1], [{}, "Done.", 1]]) {
     let j = 0; const s3 = [];
@@ -2213,8 +2274,8 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
   const propose = async (script, { tried = [], current = "", output = "" } = {}) => {
     let n = 0; const seen2 = []; const ev = [];
     const ran = tried.map((c, i) => [{ role: "assistant", content: "", tool_calls: [{ id: "t" + i, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: c }) } }] }, { role: "tool", tool_call_id: "t" + i, content: "exit code 0\nok" }]).flat();
-    const turns = [say("", [call("propose_env", { kind: "setup_script", script, reason: "r" })]), say("I could not.", [])];
-    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e) }, { messages: ran, text: "x", setupScript: current });
+    const turns = [say("", [call("update_environment", setupArgs(script, current))]), say("I could not.", [])];
+    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e), envApi: envApi(current), ask: async () => ({ choice: "park" }) }, { messages: ran, text: "x", setupScript: current });
     return { card: ev.some((e) => e.type === "envchange"), said: JSON.stringify(seen2[1] ? seen2[1].messages : []) };
   };
   let r = await propose("echo ok\nnpm ci", { current: "echo ok" });
@@ -2256,10 +2317,15 @@ test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup 
     assert.equal(userMsg(), "go", "the first message on a machine: nothing to tell");
     await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
     assert.equal(userMsg(), "go", "nothing changed: nothing to tell");
+    // (Since 2026-11-14 a changed script does not run on this machine: Claude Code's "a change to the script reaches an
+    // existing session only when its VM was reclaimed and is rebuilt".)
     await m.run({ setup: { script: "echo two", network: { mode: "full" } } });
-    assert.match(userMsg(), /^\(Note from Coder's app, not the owner: since the last message, the owner changed the setup script in Environment\. The setup script now is:\necho two\nIt ran again before this message and worked \(exit code 0\)\. Go by this, not by what the chat said before\.\)\n\ngo$/);
+    assert.match(userMsg(), /^\(Note from Coder's app, not the owner: since the last message, the owner changed the setup script in Environment\. The setup script now is:\necho two\nIt did not run on this machine: like Claude Code, a change to the setup script reaches a chat only on a fresh machine \(new chats run it\), so what it adds is not here unless you install it\. Go by this, not by what the chat said before\.\)\n\ngo$/);
     await m.run({ setup: { script: "echo two\nnope-cmd-xyz", network: { mode: "full" } } });
-    assert.match(userMsg(), /The setup script now is:\necho two\nnope-cmd-xyz\nIt ran again before this message and FAILED \(see THE SETUP SCRIPT FAILED\)\./);
+    assert.match(userMsg(), /The setup script now is:\necho two\nnope-cmd-xyz\nIt did not run on this machine: /);
+    // Back to the one that ran here: said so.
+    await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
+    assert.match(userMsg(), /The setup script now is:\necho one\nIt already ran on this machine\. Go by this/);
     await m.run({ setup: { script: "", network: { mode: "full" } } });
     assert.match(userMsg(), /the owner changed the setup script \(it was removed\) in Environment\. Go by this/);
     const s = await m.run({ setup: { script: "", network: { mode: "trusted" } } });
@@ -2273,26 +2339,30 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   const { lastJobOf, undoNote } = await import("../container/server.mjs");
   const { lastJobFor } = await import("../src/coder-routes.mjs");
   const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
-  // 2. Choices with a label and a one-line description; several may be chosen when allowed.
+  // 2. Choices with a label and a one-line description; several may be chosen when allowed (2026-11-14: Claude Code's own
+  // words for them, test/askuser.test.mjs).
   const ask = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "ask_user"));
-  assert.match(ask, /each with a short label \(1 to 5 words\) and a one-line description[\s\S]*put it first and add \\" \(Recommended\)\\" to its label[\s\S]*choose Other and type their own answer, or Skip/);
-  assert.match(ask, /"multi_select":\{"type":"boolean"\}/);
+  assert.match(ask, /Should be concise \(1-5 words\)[\s\S]*Explanation of what this option means/);
+  assert.match(ask, /make that the first option in the list and add \\"\(Recommended\)\\" at the end of the label/);
+  assert.match(ask, /"multiSelect":\{"type":"boolean","default":false,/);
   let events = [];
-  const s1 = scripted([say("", [call("ask_user", { question: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi_select: true })])]);
+  const s1 = scripted([say("", [call("ask_user", { questions: [{ question: "Which name?", header: "Name", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multiSelect: true }] })])]);
   await runCoder({ send: s1.send, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: "" }) }, { text: "make a file" });
   const q = events.find((e) => e.type === "question");
-  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
+  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", header: "Name", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
   // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
-  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \[q\.options\[0\]\.label\], other: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
-  assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ esc\(o\.label\) \+ '"/);
+  // (Picks by the options' places since 2026-11-14, so an option with an empty label shifts none: test/askuser.test.mjs.)
+  assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \['0'\], other: '', notes: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
+  assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ n \+ '"/);
   assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
   assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
-  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit' \+ \(many \? ' answers' : ''\) \+ ' <kbd>Ctrl ↵<\/kbd><\/button>/);
+  // (Its buttons wait, greyed, once its answer is on its way to a card Coder waits on: 2026-11-14.)
+  assert.match(ui, /data-ask-skip="' \+ i \+ '"' \+ \(sent \? ' disabled' : ''\) \+ '>Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '"' \+ \(sent \? ' disabled' : ''\) \+ '>Submit' \+ \(many \? ' answers' : ''\) \+ ' <kbd>Ctrl ↵<\/kbd><\/button>/);
   assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
   assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
   assert.match(ui, /'I skipped your question\. Decide for yourself and go on\.'/);
-  assert.match(ui, /x\.picked\.map\(\(v\) => \(v === '__other' \? x\.other\.trim\(\) : v\.replace\(\/\\s\*\\\(Recommended\\\)\$\/i, ''\)\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together (test/questions.test.mjs tries it)");
+  assert.match(ui, /x\.picked\.map\(\(v\) => \(v === '__other' \? x\.other\.trim\(\) : String\(\(\(a\.qs\[k\] \|\| \{\}\)\.options \|\| \[\]\)\[Number\(v\)\] \? a\.qs\[k\]\.options\[Number\(v\)\]\.label : ''\)\.replace\(\/\\s\*\\\(Recommended\\\)\$\/i, ''\)\)\)\.filter\(Boolean\)\.join\(', '\)/, "Other sends what you typed; several choices are sent together (test/questions.test.mjs tries it)");
   assert.match(ui, /typeof o === 'string' \? \{ label: o, description: '' \}/, "questions in older chats still show");
   const css = readFileSync(HERE("public/coder.css"), "utf8");
   for (const c of [".cd-ask-row{", ".cd-ask-t small{", ".cd-ask-in{", ".cd-ask-btns{", ".cd-ask-go{", ".cd-ask-wait{"]) assert.ok(css.includes(c), c);
@@ -2300,7 +2370,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.deepEqual(lastJobFor({ turn: 5, commits: [{ turn: 3, title: "Add a.txt" }, { turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: true });
   assert.deepEqual(lastJobFor({ turn: 6, commits: [{ turn: 5, title: "Add one.txt" }] }), { title: "Add one.txt", changed: false }, "the last job was a review: it changed nothing");
   assert.deepEqual(lastJobFor({ turn: 2, commits: [] }), { title: "", changed: false });
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /: 0, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, /);
   assert.deepEqual(lastJobOf({ lastJob: { title: "Add  one.txt\n", changed: true } }), { title: "Add one.txt", changed: true });
   assert.equal(lastJobOf({}), null);
   assert.match(undoNote({ title: "Add one.txt", changed: false }), /UNDO: the last job in this chat that changed files was "Add one\.txt"; your last job changed no files, so if the owner asks to undo, ask first which one they mean\./);
@@ -2308,7 +2378,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "undo_last_job")), /ask first with ask_user; when they choose that job, call it with confirmed: true[\s\S]*"confirmed":\{"type":"boolean"/);
   const undo = async (lastJob, args, turns2) => { let n = 0; const seen = []; const ev = []; const r = await runCoder({ send: async (q2) => { seen.push(q2); return turns2[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "Undo that last job.", lastJob }); return { r, seen, ev }; };
   // The last job was a review (changed nothing): refused until the owner chooses, as Claude Code asks.
-  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { question: "What should I undo?", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] })])]);
+  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { questions: [{ question: "What should I undo?", header: "Undo", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] }] })])]);
   assert.equal(u.r.undoRequest, undefined);
   assert.match(JSON.stringify(u.seen[1].messages), /your last job changed no files, so it is not clear what the owner wants undone\. The last job that changed files was \\"Add one\.txt\\"\. Like Claude Code, ask first with ask_user/);
   assert.ok(u.ev.some((e) => e.type === "question"));
@@ -2368,7 +2438,15 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   const c = (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog" }) })).data.project;
   assert.equal(c.envId, t2, "the newest environment for this repo is offered first");
   assert.equal((await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/blog", envId: "default" }) })).data.project.envId, "default", "or the one you pick");
-  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).data.environment.name, "testing2 2", "names stay unique");
+  // A NAME ANOTHER LISTED ENVIRONMENT HAS: refused, not numbered (Claude Code 2.1.311: "they now refuse a name another listed
+  // environment already has"), in any letter case, when made or renamed; names of 1 to 64 characters, Claude Code's.
+  for (const name of ["testing2", "Testing2 "]) { const dup = await go("environments", { method: "POST", body: JSON.stringify({ name }) }); assert.deepEqual([dup.status, dup.data.error], [409, "another environment is already named “testing2”: pick another name"], name); }
+  assert.equal((await go("environments", { method: "POST", body: JSON.stringify({ name: "n".repeat(65) }) })).data.error, "give it a name (up to 64 characters)");
+  const long = await go("environments", { method: "POST", body: JSON.stringify({ name: "n".repeat(64) }) });
+  assert.equal(long.data.environment.name, "n".repeat(64));
+  assert.deepEqual([(await go("environments/" + long.data.environment.id, { method: "POST", body: JSON.stringify({ name: "TESTING2" }) })).status, (await go("projects/" + b.id + "/env", { method: "POST", body: JSON.stringify({ name: "testing2" }) })).status], [409, 409], "renamed to another's name: refused");
+  assert.equal((await go("environments/" + long.data.environment.id, { method: "POST", body: JSON.stringify({ archive: true }) })).status, 200);
+  assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "Testing2" }) })).data.environment.name, "Testing2", "its own name, in other letters");
   assert.equal((await go("environments/" + t2, { method: "POST", body: JSON.stringify({ name: "blog env" }) })).data.environment.name, "blog env");
   assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ name: "x" }) })).status, 400);
   assert.equal((await go("environments/default", { method: "POST", body: JSON.stringify({ archive: true }) })).status, 400);
@@ -2383,19 +2461,20 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   assert.equal(JSON.parse(bucket.m.get("coder/user-envs/" + a.id + "/meta.json")).envId, ea.envId);
   // CODER: told the chat's environment; on Default, what only this repo needs goes in a new environment (its own card).
   const { envNameNote } = await import("../container/server.mjs");
-  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs goes in a new environment, propose_env kind new_environment\)/);
+  assert.match(envNameNote({ environment: { name: "Default", isDefault: true } }), /THIS CHAT'S ENVIRONMENT: "Default" \(the Default one, which chats in all the owner's repos use: what only this repo needs stays off it; get_environment says where it goes\)/);
   assert.match(envNameNote({ environment: { name: "shop", isDefault: false } }), /"shop" \(picked when this chat started; every chat that picks it shares its settings\)/);
   assert.equal(envNameNote({}), "");
   const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*If it is the Default environment[\s\S]*goes in a NEW environment instead \(kind new_environment, named after the repo\)/);
-  assert.match(JSON.stringify(CODER_TOOLS.find((x) => x.function.name === "propose_env")), /"enum":\["setup_script","allow_host","new_environment"\]/);
+  assert.match(CODER_SYSTEM, /THIS CHAT'S ENVIRONMENT \(like Claude Code's: named, picked before the chat's first message, used by every chat that picks it[\s\S]*changed only with update_environment, create_environment or switch_environment[\s\S]*get_environment looks it up/);
+  // (Since 2026-11-14 Claude Code's four tools in place of propose_env: the Default rule is get_environment's, test/env-tools.test.mjs.)
+  for (const n of ["get_environment", "update_environment", "create_environment", "switch_environment"]) assert.ok(CODER_TOOLS.some((x) => x.function.name === n), n);
   const ran = [{ role: "assistant", content: "", tool_calls: [{ id: "m1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "mkdir -p cache" }) } }] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
   let n = 0; const seen = []; const ev = [];
-  const turns = [say("", [call("propose_env", { kind: "new_environment", script: "mkdir -p cache", reason: "r" })]), say("", [call("propose_env", { kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { messages: ran, text: "add a cache folder to the setup" });
-  assert.match(JSON.stringify(seen[1].messages), /give the new environment a name/);
+  const turns = [say("", [call("create_environment", { scope: "personal", switch_session: "none", setup_script: "mkdir -p cache", reason: "r" })]), say("", [call("create_environment", { name: "blog", scope: "personal", network: "full", setup_script: "mkdir -p cache", repositories: ["ana/shop"], switch_session: "none", reason: "Only this repo needs the cache folder." })])];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), envApi: envApi(), ask: async () => ({ choice: "park" }) }, { messages: ran, text: "add a cache folder to the setup" });
+  assert.match(JSON.stringify(seen[1].messages), /error: name is required/);
   const card = ev.find((e) => e.type === "envchange");
-  assert.deepEqual({ ...card, at: 0 }, { at: 0, type: "envchange", kind: "new_environment", name: "blog", network: "full", script: "mkdir -p cache", reason: "Only this repo needs the cache folder." });
+  assert.deepEqual([card.kind, card.tool, card.name, card.scope, card.network, card.script, card.repos, card.moves], ["create", "create_environment", "blog", "personal", "Unrestricted (any public host)", "mkdir -p cache", ["ana/shop"], false]);
   // THE PAGE: the picker under the box before the first message (with Add environment), the window's name and Archive, and the cards.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /S\.project && !S\.project\.turn && S\.envInfo && !S\.running[\s\S]{0,200}<select id="cdEnvSel" aria-label="Environment">[\s\S]{0,300}<option value="__add">\+ Add environment…<\/option>/);

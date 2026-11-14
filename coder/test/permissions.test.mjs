@@ -136,7 +136,11 @@ test("CD311 WebFetch: Claude Code's pre-approved documentation sites and rules; 
   assert.ok(docSite("https://go.dev/doc/install"));
   assert.ok(!docSite("https://go.dev/blog"));
   assert.ok(docSite("https://github.com/anthropics/claude-code"));
-  assert.ok(!docSite("https://github.com/anthropics/claude-code/issues/1"));
+  // (Claude Code 2.1.323 pre-approves all of github.com/anthropics, and only repository pages under anthropic-experimental:
+  // the owner, 2026-11-14, "start fixing and filling in gaps on those tools".)
+  assert.ok(docSite("https://github.com/anthropics/claude-code/issues/1"));
+  assert.ok(!docSite("https://github.com/anthropic-experimental/x/issues/1"));
+  assert.ok(docSite("https://github.com/anthropic-experimental/x/blob/main/README.md"));
   assert.ok(!docSite("https://github.com/someone/x"));
   assert.ok(!docSite("https://example.com"));
   const f = (mode, url, rules = {}) => fetchDecision(url, { mode, rules });
@@ -155,7 +159,7 @@ test("CD312 what Coder is told: Claude Code's own words for No, plan mode and an
   assert.ok(REJECTED_SAID.endsWith("To tell you how to proceed, the owner said:\n"));
   assert.match(PLAN_NOTE, /^Plan mode is active\. The owner indicated that they do not want you to execute yet -- you MUST NOT make any edits, run any non-readonly tools/);
   assert.match(PLAN_NOTE, /call exit_plan_mode with the whole plan as its `plan` argument/);
-  assert.equal(PLAN_EXITED, "## Exited Plan Mode\nYou have exited plan mode. You can now make edits, run tools, and take actions.");
+  assert.equal(PLAN_EXITED, "## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.");
   assert.match(AUTO_EXITED, /^## Exited Auto Mode\n/);
   assert.equal(planApproved("1. Add the cart"), "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add the cart");
   assert.equal(planApproved(""), "The owner has approved exiting plan mode. You can now proceed.");
@@ -223,7 +227,8 @@ test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same
   assert.equal(b.r.mode, "auto");
   assert.ok(b.events.some((e) => e.type === "mode" && e.mode === "auto" && e.by === "card"));
   assert.ok(b.seen[1].messages.some((m) => m.role === "user" && /The owner's permission mode is now Auto\./.test(m.content)));
-  assert.match(b.seen[1].messages[0].content, /PERMISSION MODE: Auto \(the owner's pick\)\.\nThe owner chose continuous, autonomous execution/);
+  // (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", with Coder's names.)
+  assert.match(b.seen[1].messages[0].content, /PERMISSION MODE: Auto \(the owner's pick\)\.\n## Auto Mode Active\n\nBias toward working without stopping for clarifying questions/);
 });
 
 test("CD316 No stops the turn with Claude Code's words (its other calls are not run); No with a note goes on with the note; Stop while it waits stops", async () => {
@@ -260,7 +265,9 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   assert.equal(cards[1].plan, "1. Add a total() test\n2. Fix the cart");
   assert.deepEqual(ran, ["ls src", "npm test"]);
   const approved = seen[3].messages.find((m) => m.tool_call_id === "x1").content;
-  assert.match(approved, /^The owner has approved your plan\. You can now start coding\. Start with updating your todo list if applicable\n\n## Approved Plan:\n1\. Add a total\(\) test\n2\. Fix the cart\n\n## Exited Plan Mode\n/);
+  assert.equal(approved, "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add a total() test\n2. Fix the cart");
+  // ("## Exited Plan Mode" as its own note after the approval, before the next step, as Claude Code's plan_mode_exit.)
+  assert.match(seen[3].messages.at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
   assert.ok(!seen[3].tools.some((t) => t.function.name === "exit_plan_mode"), "no way out of a mode it is not in");
   assert.match(seen[3].messages[0].content, /PERMISSION MODE: Accept edits/);
   assert.equal(r.mode, "acceptEdits");
@@ -273,7 +280,7 @@ test("CD318 a plan declined with what to change keeps plan mode and Coder revise
   assert.ok(a.seen[1].tools.some((t) => t.function.name === "exit_plan_mode"), "still in plan mode");
   assert.equal(a.r.mode, "auto");
   const b = await job([say("", [call("exit_plan_mode", { plan: "x" }, "x1")]), say("ok")], { mode: "auto" });
-  assert.match(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, /^error: plan mode is not on/);
+  assert.equal(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");
 });
 
 test("CD319 the owner changes the mode while Coder works: from its next step on, with Claude Code's '## Exited Plan Mode' note", async () => {
@@ -282,7 +289,7 @@ test("CD319 the owner changes the mode while Coder works: from its next step on,
   assert.equal(cards.length, 0, "mkdir runs without asking in Accept edits");
   const note = seen[1].messages.at(-1);
   assert.equal(note.role, "user");
-  assert.match(note.content, /## Exited Plan Mode\nYou have exited plan mode\. You can now make edits, run tools, and take actions\.\n\nThe owner's permission mode is now Accept edits\./);
+  assert.match(note.content, /## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\.\n\nThe owner's permission mode is now Accept edits\./);
   assert.equal(r.mode, "acceptEdits");
 });
 
@@ -475,7 +482,7 @@ test("CD327 the page: the mode's chip beside the model and effort, its menu like
   assert.match(page, /if \(e\.toAuto && !S\.autoOff\) o\.push\(\['auto', 'Yes, and switch to auto mode'\]\);/);
   assert.match(page, /o\.push\(\['no', e\.tool === 'web_fetch' \? 'No, and tell Coder what to do differently' : 'No'\]\);/);
   assert.match(page, /return \[\['auto', 'Yes, and use auto mode'\], \['acceptEdits', 'Yes, and accept edits'\], \['no', 'No, keep planning'\]\]\.filter\(\(\[c\]\) => !\(S\.autoOff && c === 'auto'\)\);/);
-  assert.match(page, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, comment \}\) \}\)/);
+  assert.match(page, /call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid, choice, comment, \.\.\.\(plan !== null \? \{ plan \} : \{\}\) \}\) \}\)/);
   assert.match(page, /else if \(e\.type === 'permission'\) out\.push\(permHTML\(e\)\);/);
   assert.match(page, /state === 'wait' \? '<span class="cd-st cd-st-wait">waiting for you<\/span>'/);
   assert.match(page, /call\('\/permissions\?repo=' \+ encodeURIComponent\(repo\)\)/);

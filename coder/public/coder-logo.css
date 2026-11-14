@@ -1,0 +1,74 @@
+/* CODER'S LOGO, THE TYPEWRITER (the owner, 2026-11-14: "Just a typewriter, like moving the keys and moving the tip,
+   like, you know, like if it's actually typing"): how it moves. The drawing is coder-logo.js's. Nothing moves unless the
+   logo has cl-run (it types while Coder works, and one line on a hover or a click), and nothing with reduced motion.
+   Only transforms and opacity move, in CSS: no script runs the motion. */
+svg.cl-logo { display: block; overflow: visible; --cl-t: 2500ms; }
+.cl-logo .clg-m { opacity: 0; }
+.cl-logo .clg-bl, .cl-logo .clg-br { transform-box: view-box; transform-origin: 50px 66px; }
+.cl-logo .clg-bl { transform: rotate(-74deg); }
+.cl-logo .clg-br { transform: rotate(74deg); }
+.cl-logo .clg-lever { transform-box: view-box; transform-origin: 12px 40.6px; }
+/* WHILE IT TYPES: every moving part plays one line (--cl-t), together. --cl-d starts a logo drawn again while Coder
+   works where the others are (coder-logo.js); --cl-n is 1 for a single line (cl-once: a hover or a click). */
+.cl-run .clg-car { animation: clg-car var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-feed { animation: clg-feed var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-l2 { animation: clg-l2 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-l3 { animation: clg-l3 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-lever { animation: clg-lever var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-bl { animation: clg-bl var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-br { animation: clg-br var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-m5 { animation: clg-m5 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-m6 { animation: clg-m6 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-m7 { animation: clg-m7 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-n1 { animation: clg-n1 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-n2 { animation: clg-n2 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-n3 { animation: clg-n3 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-sp { animation: clg-sp var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k3 { animation: clg-k3 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k7 { animation: clg-k7 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k1 { animation: clg-k1 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k9 { animation: clg-k9 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k4 { animation: clg-k4 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-rb { animation: clg-rb var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-run .clg-k6 { animation: clg-k6 var(--cl-t) linear var(--cl-d, 0ms) var(--cl-n, infinite); }
+.cl-once { --cl-n: 1; }
+/* Not on screen, not moving: a phone's closed side (its tab rail is off the screen). */
+@media (max-width: 760px) { body:not(.gf-side-open) .gf-rail .cl-logo * { animation-play-state: paused; } }
+@media (prefers-reduced-motion: reduce) { .cl-logo * { animation: none !important; } }
+/* WHERE IT SITS, like Gloopy's figure: beside the chat's name in its bar, and bigger in the empty chat. */
+.cd-cl-av { display: inline-flex; align-items: center; height: 26px; flex: none; }
+.cd-cl-fig { display: flex; justify-content: center; margin-bottom: 10px; }
+
+/* ONE LINE, 2500 ms, from rest (the line half typed, the carriage in the middle) to the same rest one line later, so a
+   line can repeat, or stop at its end, with no jump. When each key goes down (ms):
+   140 the space bar, 380 a key, 600 a key, 840 a key, the return at 1110, 1740 a key, 1970 a key, 2180 a key.
+   Each percentage below is one of those moments, over 2500 ms. */
+/* The carriage: a step left after each key, then the return slides it back. */
+@keyframes clg-car{0%{transform:none}9.6%{transform:translateX(0px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}12.4%{transform:translateX(-3px)}19.6%{transform:translateX(-3px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}22.4%{transform:translateX(-6px)}28.4%{transform:translateX(-6px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}31.2%{transform:translateX(-9px)}38%{transform:translateX(-9px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}40.8%{transform:translateX(-12px)}48%{transform:translateX(-12px);animation-timing-function:cubic-bezier(.5,0,.25,1)}63.2%{transform:translateX(9px)}74%{transform:translateX(9px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}76.8%{transform:translateX(6px)}83.2%{transform:translateX(6px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}86%{transform:translateX(3px)}91.6%{transform:translateX(3px);animation-timing-function:cubic-bezier(.2,.7,.3,1)}94.4%{transform:translateX(0px)}100%{transform:none}}
+/* The paper goes up a line. */
+@keyframes clg-feed{0%{transform:none}45.2%{transform:none;animation-timing-function:cubic-bezier(.5,0,.25,1)}53.2%,100%{transform:translateY(-6px)}}
+/* As it goes up, the line done turns faint, and the faint one fades away. */
+@keyframes clg-l2{0%{opacity:1}45.2%{opacity:1;animation-timing-function:cubic-bezier(.5,0,.25,1)}53.2%,100%{opacity:.3}}
+@keyframes clg-l3{0%{opacity:.3}45.2%{opacity:.3;animation-timing-function:cubic-bezier(.5,0,.25,1)}51.6%,100%{opacity:0}}
+/* The return lever: pushed, held while the carriage slides, let go. */
+@keyframes clg-lever{0%{transform:none}42.8%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}47.6%{transform:rotate(26deg)}61.2%{transform:rotate(26deg);animation-timing-function:cubic-bezier(.5,0,.25,1)}68.4%,100%{transform:none}}
+/* The type bars: each key sends the bar on its side up to the paper and back. */
+@keyframes clg-bl{0%{transform:rotate(-74deg)}24.4%{transform:rotate(-74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}26.8%{transform:none}28.6%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}32.6%{transform:rotate(-74deg)}34%{transform:rotate(-74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}36.4%{transform:none}38.2%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}42.2%{transform:rotate(-74deg)}87.6%{transform:rotate(-74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}90%{transform:none}91.8%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}95.8%,100%{transform:rotate(-74deg)}}
+@keyframes clg-br{0%{transform:rotate(74deg)}15.6%{transform:rotate(74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}18%{transform:none}19.8%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}23.8%{transform:rotate(74deg)}70%{transform:rotate(74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}72.4%{transform:none}74.2%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}78.2%{transform:rotate(74deg)}79.2%{transform:rotate(74deg);animation-timing-function:cubic-bezier(.6,0,.9,.5)}81.6%{transform:none}83.4%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}87.4%,100%{transform:rotate(74deg)}}
+/* The letters: each shows as its bar strikes. */
+@keyframes clg-m5{0%,17.84%{opacity:0}18.64%,100%{opacity:1}}
+@keyframes clg-m6{0%,26.64%{opacity:0}27.44%,100%{opacity:1}}
+@keyframes clg-m7{0%,36.24%{opacity:0}37.04%,100%{opacity:1}}
+@keyframes clg-n1{0%,72.24%{opacity:0}73.04%,100%{opacity:1}}
+@keyframes clg-n2{0%,81.44%{opacity:0}82.24%,100%{opacity:1}}
+@keyframes clg-n3{0%,89.84%{opacity:0}90.64%,100%{opacity:1}}
+/* The keys: down (and darker, as their shade shows through), then up. */
+@keyframes clg-sp{0%{transform:none;opacity:1}5.6%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}7.4%{transform:translateY(1.5px);opacity:.78}10.4%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}13.6%,100%{transform:none;opacity:1}}
+@keyframes clg-k3{0%{transform:none;opacity:1}15.2%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}17%{transform:translateY(1.5px);opacity:.78}20%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}23.2%,100%{transform:none;opacity:1}}
+@keyframes clg-k7{0%{transform:none;opacity:1}24%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}25.8%{transform:translateY(1.5px);opacity:.78}28.8%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}32%,100%{transform:none;opacity:1}}
+@keyframes clg-k1{0%{transform:none;opacity:1}33.6%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}35.4%{transform:translateY(1.5px);opacity:.78}38.4%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}41.6%,100%{transform:none;opacity:1}}
+@keyframes clg-k9{0%{transform:none;opacity:1}69.6%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}71.4%{transform:translateY(1.5px);opacity:.78}74.4%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}77.6%,100%{transform:none;opacity:1}}
+@keyframes clg-k4{0%{transform:none;opacity:1}78.8%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}80.6%{transform:translateY(1.5px);opacity:.78}83.6%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}86.8%,100%{transform:none;opacity:1}}
+@keyframes clg-k6{0%{transform:none;opacity:1}87.2%{transform:none;opacity:1;animation-timing-function:cubic-bezier(.2,.7,.3,1)}89%{transform:translateY(1.5px);opacity:.78}92%{transform:translateY(1.5px);opacity:.78;animation-timing-function:cubic-bezier(.2,.7,.3,1)}95.2%,100%{transform:none;opacity:1}}
+/* The ribbon: lifted to the print point as a bar strikes, then down again so the line shows. */
+@keyframes clg-rb{0%{transform:none}16.2%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}17.8%{transform:translateY(-3.4px)}19.8%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}22.4%{transform:none}25%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}26.6%{transform:translateY(-3.4px)}28.6%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}31.2%{transform:none}34.6%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}36.2%{transform:translateY(-3.4px)}38.2%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}40.8%{transform:none}70.6%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}72.2%{transform:translateY(-3.4px)}74.2%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}76.8%{transform:none}79.8%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}81.4%{transform:translateY(-3.4px)}83.4%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}86%{transform:none}88.2%{transform:none;animation-timing-function:cubic-bezier(.2,.7,.3,1)}89.8%{transform:translateY(-3.4px)}91.8%{transform:translateY(-3.4px);animation-timing-function:cubic-bezier(.5,0,.25,1)}94.4%{transform:none}100%{transform:none}}

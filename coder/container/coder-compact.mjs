@@ -46,10 +46,12 @@ export function summaryRequest(messages, focus = "") {
 /**
  * The message that stands in for what was summarized. `what`: which part ("the earlier jobs", …). `files`: the files that
  * part worked on (filesTouched), kept as `reread` until Coder's next job reads the most recently changed of them again.
+ * `planRef`: the chat's plan file is still to be put back in front of Coder after it (Claude Code's plan_file_reference after
+ * compaction, 2026-11-14), by the job that next reads it.
  */
 export function summaryMessage(text, what, files = []) {
   const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
-  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}) };
+  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true };
 }
 
 /**

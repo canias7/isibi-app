@@ -17,6 +17,155 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: lsp (code checking) like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 6 of 6. lsp is the tool that asks a language server (a program that understands the code) for errors, definitions and the like.
+
+- **The language servers stay on for the whole chat.** Before, they stopped at the end of every message and had to start cold again, and Coder forgot which problems it had already been told about, so old problems came back as "new". Now they keep running until the chat's machine goes to sleep, like Claude Code's.
+- **Problems reach Coder after every step,** whatever tool it used, as in Claude Code. Problems that come in after Coder's last step reach it with your next message. Writes and edits no longer wait up to 20 seconds for a report.
+- **The chat shows a row** "Found N new diagnostic issues in M files" each time, which you can open.
+- **Like Claude Code:**
+  - a file that doesn't exist is refused before your hooks run;
+  - rules can name one lsp action, like LSP(operation:hover);
+  - a server that can't start shows a warning once;
+  - a server that is still starting isn't waited for;
+  - no 10-minute idle stop.
+- **Kept on purpose:** one lookup can't run past the job's time limit, because every Coder command needs a limit.
+- **Tests:** 5 new and others rewritten. The helper's full run passed 930 of 932: the known helper-copy failure, and one Gloopy browser test that only failed while other helpers' test runs shared the computer and passes on its own.
+- **All six together:** after merging all six fixes, the full test suite passed 986 of 986.
+- **Good to know:** problems now come one step later, or with your next message, and the servers keep using memory until the chat's machine sleeps.
+
+## 2026-11-14: Plan mode, the question card and the task list, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 5 of 6.
+
+- **Coder can switch itself into Plan mode** with a new tool, enter_plan_mode, like Claude Code's EnterPlanMode. It needs no approval (Claude Code doesn't ask either). The chat shows that Coder went into Plan mode, the mode menu follows, and your hooks see it. It isn't offered in GitHub jobs.
+- **The plan card:** words you type are now sent with every Yes, including "Yes, and use auto mode". Before, they were dropped for that button.
+- **After a long chat is summarized,** Coder is reminded of its plan file once, in Claude Code's words, so it keeps working on the plan.
+- **The question card** can show a preview for each option and has a Notes box, like Claude Code's. Answers can be much longer now (up to 32,768 characters), and an option with an empty name no longer shifts the picks.
+- **Smaller ones:**
+  - exit_plan_mode is hidden when your settings say to refuse instead of asking;
+  - the plansDirectory setting is read;
+  - "Exited Plan Mode" is told to Coder as its own note;
+  - the Auto mode note uses Claude Code 2.1.325's text;
+  - a wrong input gets Claude Code's exact error list.
+- **Task list:** the setting CLAUDE_CODE_ENABLE_TASKS=0 switches to Claude Code's older single checklist tool, and CLAUDE_CODE_TASK_LIST_ID names the list. The page now titles the list "Tasks · 2/5 done", as Claude Code does.
+- **Left as they are, on purpose:** the plan card's button names, renaming the chat after a plan, and the clear-the-chat option on approval. Those exist only in Claude Code's terminal or on claude.ai's own page, not in its cloud program.
+- **Tests:** 11 new and many updated. While merging I updated one test to match the hooks fix: hooks no longer get an extra output field. The helper's full run passed 941 of 942 (the one failure only happens in a helper's copy). On the merged branch, all 380 tests in the affected files pass.
+
+## 2026-11-14: Cards stay open until you answer, like Claude Code (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 4 of 6.
+
+- **Cards no longer run out.** Before, a card Coder was waiting on (a permission question, the plan's card, a question card, the key card or an environment card) closed when the job hit its 45-minute limit. Claude Code's docs: "Questions stay open until you answer them", and permission prompts "never auto-resolve on idle". Now:
+  - an answer while the job is still running is used at once, as before;
+  - after 5 minutes without an answer, the job pauses and saves where it was, so the machine can sleep;
+  - whenever you answer, even hours later, Coder picks up at that exact step and goes on.
+- **While a card waits:** messages you send wait in line and are read when Coder goes on. A message typed into a waiting question card counts as your answer. Stop closes the card. Rewind, Undo and deleting the chat close it too.
+- **Environment cards wait in the turn**, like the key card already did. When you approve, Coder's server makes the change and Coder is told what changed, then goes on in the same turn. When you decline, Coder is told no and goes on. Before, the card ended Coder's turn and your answer came as a new message.
+- **If you change your permission rules while a card waits,** a Yes runs the step under your new rules, so a new "never allow" rule still blocks it.
+- **Gloopy and GitHub jobs work as before.**
+- **Tests:** 11 new (the machine, the server and the page, including answering at the same moment the job pauses). The helper also ran the real page, server and machine with a stand-in for Grok in a browser. Not tried with real Grok yet: that's for the live test after you say deploy.
+- **Your decisions:** the pause stays at 5 minutes (your words: "5 is fine"; Claude Code says "after a few minutes without activity"), and declining an environment card tells Coder "Denied by owner", the same as the key card (your words: "yes do that").
+
+## 2026-11-14: Hooks and search, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 3 of 6. Hooks are your own scripts that run before and after Coder's actions.
+
+- **A hook that changes a tool's result** (PostToolUse) is now checked like Claude Code checks it. If the new result has the wrong shape for that tool, Coder keeps the real result and is told why, in Claude Code's words. Before, Coder took almost anything.
+- **A hook that changes what Coder is about to do** (PreToolUse, or a hook that answers a permission question) is now checked before the action runs. A bad change is refused in Claude Code's words ("failed schema validation" or "the tool refused"), and nothing runs.
+- **Connectors, the environment tools and the key card take any change from a hook**, because in Claude Code these are connector tools that check their own input when they run. A bad change then gets that tool's own refusal. I fixed this part while merging: the new hook check had been refusing changes to the environment tools too early. A new test covers the key card.
+- **Hooks now get Claude Code's result shapes** for read, write, edit and stop_job, and the extra `output` and `code` fields are gone except for bash and powershell.
+- **grep and glob:**
+  - a wrong value now gets Claude Code's exact error list;
+  - a glob pattern starting with `~/` is taken literally, as Claude Code does;
+  - a search killed partway now says its results are incomplete;
+  - the "fixed input" note only shows when the call worked;
+  - a plain "Read" rule now only affects read, not grep, glob or lsp. That is how Claude Code behaves, and the helper checked it in Claude Code's own program.
+- **Tests:** 9 new for hooks and search, plus my new key-card test; the helper's full run passed 935 of 936 (the one failure only happens in a helper's copy of the repo).
+
+## 2026-11-14: Web tools and the email check, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 2 of 6.
+
+- **The email check is Claude Code's newest one (2.1.325).** Coder is refused, in Claude Code's words, when it would put your account's email next to something that names a program to a website (like a User-Agent). It now also checks:
+  - scripts a command runs (up to 8 of them),
+  - new patterns: identity=, --identity, mailto=, a From: header, and SEC EDGAR's,
+  - lines that read git's email setting,
+  - what write and edit put in a file,
+  - a web page's address,
+  - connector calls.
+- **Plan mode with Plan's checker on:** fetching a web page now goes to the checker instead of asking you, like Claude Code. A rule that says "ask" still asks.
+- **Web rules:** a WebFetch(*) rule now means the whole tool, like Claude Code. A WebSearch(query:…) rule matches a search's exact words.
+- **Searches:** one web_search call can now make up to 8 searches (it was 2 rounds), like Claude Code's limit of 8. In a GitHub job, searches have their own count that doesn't refill, which is Claude Code's way when nobody is watching. When nobody can approve a search, Coder gets Claude Code's message.
+- **Shared Claude chat links (claude.ai/share)** are answered without opening them, as Claude Code does.
+- **The page reader thinks at the chat's own effort** (it was always Low).
+- **Wrong inputs:** when a web_fetch or web_search value is wrong, Coder gets the same error list Claude Code gives. The helper checked 38 inputs against Claude Code's own code, and all matched.
+- **Costs to know:** a chat on High effort now pays more for each page read; one search call can make up to 8 searches; and Plan mode with the checker makes a checker call for each page fetch.
+- **Not confirmed yet:** whether xAI really stops at 8 searches when it's told to search one at a time. That needs one paid live search, so I'll check it in the live test after you say deploy.
+- **Tests:** 15 new (7 email, 4 search, 4 fetch) and others updated. The helper's full run passed 941 of 942; the one failure only happens in a helper's copy of the repo. On the merged branch all 86 related tests pass.
+
+## 2026-11-14: Environments work like Claude Code's (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. This is fix 1 of 6 from the recheck against Claude Code's newest docs (the other five helpers are still working).
+
+- **The setup script runs once per chat machine.** It runs at a chat's first message, or when a chat gets a fresh machine. In a chat that has already started, it no longer runs again when you change the script or the network, after 7 days, or after it failed. Claude Code's docs say a change to the script reaches a running session only when its machine is rebuilt. New chats still get your latest script. If the script changed after a chat's machine had its setup, that chat says so once.
+- **Coder can list your environments** with a new read-only tool, list_environments, like Claude Code's.
+- **Environments have a description.** Coder sees its own chat's description and can propose a new one (you approve it on the card). A new environment it proposes gets its reason as the description. The Environment window shows it.
+- **Names can be up to 64 characters** (was 40), like Claude Code. A name you already use is refused instead of getting a number added.
+- **One key per website.** Adding a second key for a website that already has one is refused, and the message names the key that's there.
+- **Blocked websites:** Coder's notes no longer send it straight to "add this website to the list". Like Claude Code, it first decides where a change belongs (this environment or a new one), and the block message names no tool.
+- **Your hooks see the call first:** the environment tools now check their inputs after your PreToolUse hooks, as Claude Code does for these tools, so a hook can see, block or fix a bad call.
+- **Tests:** 3 new environment tests (the list, checks after hooks, the setup running once) and the old ones updated. On the merged branch the 84 environment-related tests all pass. The helper's full run passed 927 of 930: two it fixed and reran (they pass), and the known one that only fails in a helper's copy of the repo.
+
+For you to decide: should you be able to edit the description yourself in the Environment window? Right now it only shows it, and Coder proposes changes that you approve.
+
+## 2026-11-14: The typewriter logo is red (your pick of 4 colours: "Yeah, the three")
+
+On my branch, not deployed yet. Same typewriter, now red instead of teal, with a gold type bar so the strike shows against the red. It's red in all three places: the tab on the left, beside the chat's name, and big in an empty chat. All 9 logo tests pass (one now checks it's red).
+
+## 2026-11-14: The typewriter logo, more real (your words: "lets make it a bit more real, like more present")
+
+On my branch, not deployed yet. Same sizes and places as before (the tab on the left, beside the chat's name, and big in an empty chat), and it still types while Coder works.
+
+- **Depth:** it's lit from the top left, with a shadow under it, rubber feet, and a fine outline so it stands out when small.
+- **Real typewriter parts:** grips on the roller's knobs, two ribbon spools and the fan of type bars on top, and a black-and-red ribbon where the letters hit the paper. The ribbon lifts every time a type bar strikes, like a real one.
+- **Real letters on the paper:** typewriter letters with little serifs, drawn as pen strokes so they look the same on every computer.
+- **Every line says "fix bug".** If the lines said different words, the text would jump back each time a line finished. With the same line every time, the typing loops forever with no jump.
+- **Tests:** all 9 logo tests pass, one of them new. The motion test now also checks the letters, the spools and the ribbon end each line exactly where they started.
+
+## 2026-11-14: Coder's tools copied from Claude Code, and Coder's typewriter logo (your words: "start fixing and filling in gaps on those tools", "Do all the talk to you tools execpt for the notify one", and "make it in code, not an image")
+
+On my branch, not merged or deployed yet. Nine helpers copied Claude Code's tools from its docs (and, where the docs say nothing, from Claude Code's own program), a tenth made the logo, and I put their work together. All 926 tests pass on my side.
+
+**What changed, tool by tool:**
+
+1. **grep and glob** are Claude Code's Grep and Glob: the same inputs, the same output in the same order, the same limits (250 results a page for grep, 100 files for glob) and the same notes when a result is cut.
+2. **lsp** (going to a function's definition, finding where it is used, and so on) is Claude Code's LSP tool, for TypeScript, JavaScript and Python. Its language servers now stay running for the chat, so the second question is fast. After Coder edits a file, the problems the server finds are told to Coder the way Claude Code tells them.
+3. **web_fetch** reads a web page the way Claude Code's WebFetch does: same redirects, same Markdown, a 15-minute copy of each page, and a big page can be read in parts. Kept as you said: it still refuses private network addresses, and the page reader still ignores instructions written in a page.
+4. **web search** is now its own tool, like Claude Code's WebSearch. Each search is its own Grok call. A chat can do 200 searches, refilling about 100 an hour.
+5. **ask_user** (the question card) is Claude Code's AskUserQuestion. The big change: the card now waits while Coder works, like Claude Code's. Your answer goes straight back to Coder in the same turn, instead of as a new message.
+6. **The checklist:** Claude Code on the web has four task tools (create, look up, list, update) instead of one todo list, so Coder now has those four. The list is kept for the chat between messages. Gloopy keeps its own todo.
+7. **Plan mode** is Claude Code's: Coder writes its plan in a plan file (kept beside the chat, never on your branch), and the plan card shows that file. You can edit the plan on the card before you approve it, and your edit is saved.
+8. **request_secret** (the API key card) uses Claude Code's exact words, and the card now waits in the turn: once you save the key, Coder goes on right away.
+9. **propose_env is gone.** Coder now has Claude Code's four environment tools instead: look up the environment, change it, make a new one, and move the chat to another one. Every change still shows you a card first, showing exactly what changes, and Coder's server checks it again when you approve.
+10. **Coder's logo** is a small typewriter drawn in code. It's in Coder's tab on the left (in place of the laptop picture), beside the chat's name, and big in an empty chat. It types while Coder works: the keys go down, the type bar hits the paper, the carriage moves, and the lever sends it back at the end of each line.
+
+**Two small fixes I made while putting them together:**
+
+- The website side of Coder could not have started: the plan helper's file needed something only Coder's machine has. I split that file in two so the website only loads the words.
+- A refused environment step showed its name twice ("update_environment update_environment"). It shows it once now.
+
+**For you to decide (Coder differs from Claude Code here):**
+
+1. Plan mode tells Coder one line of our own: "If the owner only asked a question, answer it in words, without a plan." Claude Code doesn't have it. Keep it or take it out?
+2. Making a new environment still takes Coder's own network choice (none, limited or full). Claude Code's version doesn't have that choice. Keep it or take it out?
+3. A web search can name at most 5 sites to stick to or skip. That's Grok's limit; Claude Code has none.
+4. The logo also types one line when you point at it or click it (it types on its own while Coder works). Keep that?
+
+**Cost:** what Grok reads about the tools on every call grew from about 20,000 to about 65,000 characters (about 11,000 more tokens a call). The four environment tools are about 27,000 of that, because Claude Code's descriptions for them are long. Grok's prompt cache makes the repeated part cheaper. And each web search is now a separate Grok call.
+- **Your answer (same day):** keep the tools as they are, word for word: "Just keep it, because later on we're going to add more models. Later on we're going to add OpenAI and Anthropic models." (Claude Code sends the same long tool descriptions on every step too. It's cheaper there because Claude's cache costs less, 10% or 5% of the normal price against Grok's 25%.)
+
 ## 2026-11-13: Fixes 1, 2 and 3 and the docs page are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
 
 - **Deployed:** deploy 184, from main. It worked the first time (7 minutes).

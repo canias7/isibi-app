@@ -1,2 +1,2 @@
 #!/bin/sh
-exec node "$(dirname "$0")/fake-lsp.mjs"
+exec node "$(dirname "$0")/fake-lsp.mjs" "$@"

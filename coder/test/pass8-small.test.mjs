@@ -182,7 +182,8 @@ test("CD434 a rule the owner changes while Coder works counts from the next tool
 
 test("CD435 a note goes with Yes and No only (Claude Code: \"don't ask again\" and \"switch to auto mode\" take none)", async () => {
   const page = read("public/coder.js");
-  assert.match(page, /const comment = choice === 'always' \|\| choice === 'auto' \? '' : String/);
+  // (A plan's card sends its words with every Yes since 2026-11-14, as Claude Code 2.1.325: test/plan-mode.test.mjs PM26.)
+  assert.match(page, /const comment = !isPlan && \(choice === 'always' \|\| choice === 'auto'\) \? '' : String/);
   const told = async (answer) => {
     const seen = [];
     let n = 0;

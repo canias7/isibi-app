@@ -19,20 +19,21 @@ async function job(steps) {
 }
 const Q3 = [
   { question: "Which database should the sign-up page save to?", header: "Database", options: [{ label: "Postgres (Recommended)", description: "Already in the project." }, { label: "SQLite", description: "A single file." }] },
-  { question: "Which ways to sign in should it offer?", header: "Sign-in", multi_select: true, options: [{ label: "Email and password", description: "A form." }, { label: "Google", description: "One button." }, { label: "GitHub", description: "One button." }] },
+  { question: "Which ways to sign in should it offer?", header: "Sign-in", multiSelect: true, options: [{ label: "Email and password", description: "A form." }, { label: "Google", description: "One button." }, { label: "GitHub", description: "One button." }] },
   { question: "Where should it run?", header: "Hosting", options: [{ label: "Vercel", description: "Matches the other pages." }, { label: "Netlify", description: "A new account." }] },
 ];
 
-test("CD197 ask_user takes 1 to 4 questions in one card, like Claude Code's: each with its header chip, 2 to 4 options with explanations, multi-select; the turn ends there; the first question stays where older readers look; more than 4, or a question without 2 options, is refused; the single question of before still works", async () => {
+test("CD197 ask_user takes 1 to 4 questions in one card, Claude Code's AskUserQuestion (2026-11-14: its description and inputs; before, owner pick 4): each with its header chip, 2 to 4 options with explanations, multiSelect; with no way to ask while Coder works (a job from GitHub) the turn ends there; the first question stays where older readers look; more than 4, or a question without 2 options, is refused in Claude Code's words", async () => {
   const { CODER_TOOLS, CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  const { ASK_USER_DESCRIPTION } = await import("../container/coder-askuser.mjs");
   const tool = CODER_TOOLS.find((t) => t.function.name === "ask_user").function;
-  assert.match(tool.description, /^Ask the owner 1 to 4 questions at once, like Claude Code's/);
-  assert.match(tool.description, /a header \(at most 12 characters, shown as a chip, e\.g\. "Database"\), 2 to 4 options, each with a short label \(1 to 5 words\) and a one-line description[\s\S]*multi_select: true when they may choose several[\s\S]*" \(Recommended\)"[\s\S]*Other and type their own answer, or Skip/);
+  assert.equal(tool.description, ASK_USER_DESCRIPTION);
+  assert.match(tool.description, /^Use this tool only when you are blocked on a decision that is genuinely the owner's to make/);
   assert.deepEqual(tool.parameters.required, ["questions"]);
-  assert.deepEqual(Object.keys(tool.parameters.properties.questions.items.properties), ["question", "header", "options", "multi_select"]);
+  assert.deepEqual(Object.keys(tool.parameters.properties.questions.items.properties), ["question", "header", "options", "multiSelect"]);
   assert.match(CODER_SYSTEM, /use ask_user: 1 to 4 questions in one card, each with 2 to 4 options/);
 
-  // THREE QUESTIONS: one card; Grok is told the answers come next; nothing after it runs.
+  // THREE QUESTIONS: one card; Grok is told the answers come next; nothing after it runs (no way to ask while it works).
   const { out, seen, events } = await job([say("Before I start, three choices only you can make.", [call("ask_user", { questions: Q3 }, "q1"), call("bash", { command: "echo never" }, "b1")])]);
   assert.equal(out.status, "done");
   assert.equal(seen.length, 1);
@@ -45,18 +46,23 @@ test("CD197 ask_user takes 1 to 4 questions in one card, like Claude Code's: eac
   assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", ...want[0], questions: want });
   assert.deepEqual(out.messages.filter((m) => m.role === "tool").map((m) => m.content), ["asked the owner; their answers come as the next message", "not run: you asked the owner a question first"]);
 
-  // ONE QUESTION, as before (no list); a header too long for a chip is cut.
-  const one = await job([say("", [call("ask_user", { questions: [{ question: "Which name?", header: "A very long header here", options: ["one.txt", "two.txt"] }] })])]);
-  assert.deepEqual({ ...one.events.find((e) => e.type === "question"), at: 0 }, { at: 0, type: "question", text: "Which name?", header: "A very long header h", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] });
-  // The single question of before (question, options at the top) still works.
-  const old = await job([say("", [call("ask_user", { question: "Which name?", options: ["one.txt", "two.txt"], multi_select: true })])]);
-  assert.deepEqual({ ...old.events.find((e) => e.type === "question"), at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }], multi: true });
+  // ONE QUESTION, as before (no list); a header past a chip's 12 characters is shown whole (Claude Code says 12 and checks
+  // none, and sets no length on what its card shows; 2026-11-14).
+  const one = await job([say("", [call("ask_user", { questions: [{ question: "Which name?", header: "A very long header here", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] }] })])]);
+  assert.deepEqual({ ...one.events.find((e) => e.type === "question"), at: 0 }, { at: 0, type: "question", text: "Which name?", header: "A very long header here", options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "" }] });
 
-  // REFUSED: five questions; a question with one option; no questions.
-  for (const [args, why] of [[{ questions: [...Q3, Q3[0], Q3[1]] }, "five"], [{ questions: [Q3[0], { question: "Only one?", options: ["yes"] }] }, "one option"], [{ questions: [] }, "none"]]) {
+  // REFUSED, in Claude Code's words, before any card: five questions; a question with one option (its steer first); none;
+  // the single question of before (not Claude Code's input).
+  const bad = [
+    [{ questions: [...Q3, Q3[0], Q3[1]] }, "five", /^error: InputValidationError: \[\n  \{\n    "origin": "array",\n    "code": "too_big",\n    "maximum": 4,/],
+    [{ questions: [Q3[0], { question: "Only one?", header: "One", options: [{ label: "yes", description: "y" }] }] }, "one option", /^error: InputValidationError: This call included a question with fewer than 2 options, so it was rejected and the person never saw it\./],
+    [{ questions: [] }, "none", /"code": "too_small",\n    "minimum": 1,/],
+    [{ question: "Which name?", options: ["one.txt", "two.txt"], multi_select: true }, "the old single question", /^error: InputValidationError: AskUserQuestion failed due to the following issues:\nThe required parameter `questions` is missing\nAn unexpected parameter `question` was provided/],
+  ];
+  for (const [args, why, said] of bad) {
     const r = await job([say("", [call("ask_user", args)]), say("I'll decide myself.", [])]);
     assert.equal(r.events.filter((e) => e.type === "question").length, 0, why);
-    assert.ok(r.seen[1].messages.some((m) => m.role === "tool" && m.content === "error: give 1 to 4 questions, each with its text and 2 to 4 options (a label and a one-line description each)"), why);
+    assert.ok(r.seen[1].messages.some((m) => m.role === "tool" && said.test(m.content)), why);
   }
 });
 
@@ -73,11 +79,12 @@ test("CD198 the card: each question with its header chip and its choices (the re
   ] };
   const qs = askQuestions(card);
   assert.deepEqual(qs.map((q) => [q.header, q.multi, q.options.map((o) => o.label)]), [["Database", false, ["Postgres (Recommended)", "SQLite"]], ["Sign-in", true, ["Email", "Google"]], ["", false, ["Vercel", "Netlify"]]]);
-  assert.deepEqual(askQuestions({ type: "question", text: "Which name?", options: ["one.txt", { label: "two.txt", description: "d" }], multi: true }), [{ text: "Which name?", header: "", multi: true, options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "d" }] }], "a card from before");
-  const a = { qs, answers: [{ picked: ["Postgres (Recommended)"], other: "" }, { picked: ["Email", "__other"], other: " Apple " }, { picked: [], other: "" }] };
+  assert.deepEqual(askQuestions({ type: "question", text: "Which name?", options: ["one.txt", { label: "two.txt", description: "d" }], multi: true }), [{ text: "Which name?", header: "", multi: true, previews: false, options: [{ label: "one.txt", description: "" }, { label: "two.txt", description: "d" }] }], "a card from before");
+  // (The choices are kept by their places: the card's radio buttons carry them since 2026-11-14.)
+  const a = { qs, answers: [{ picked: ["0"], other: "" }, { picked: ["0", "__other"], other: " Apple " }, { picked: [], other: "" }] };
   assert.equal(askReply(a), "Database: Postgres\nSign-in: Email, Apple\nWhere should it run?: (no answer)", "the header, or the question when there is none");
   assert.equal(askReply({ qs, answers: [{ picked: [], other: "" }, { picked: [], other: "" }, { picked: ["__other"], other: "  " }] }), "", "nothing chosen: nothing sent");
-  assert.equal(askReply({ qs: [qs[0]], answers: [{ picked: ["SQLite"], other: "" }] }), "SQLite", "one question: just the choice, as before");
+  assert.equal(askReply({ qs: [qs[0]], answers: [{ picked: ["1"], other: "" }] }), "SQLite", "one question: just the choice, as before");
   // THE CARD'S PARTS.
   assert.match(ui, /'<div class="cd-ask-one" data-q="' \+ k \+ '"><div class="cd-ask-q">' \+ \(q\.header \? '<span class="cd-ask-h">' \+ esc\(q\.header\) \+ '<\/span>' : ''\)/);
   assert.match(ui, /\(q\.multi \? '<span class="cd-ask-multi">Choose any<\/span>' : ''\)/);

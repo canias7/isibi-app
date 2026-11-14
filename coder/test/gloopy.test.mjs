@@ -29,7 +29,7 @@ test("GL1 (2026-11-09) Gloopy's turn is sent with Gloopy's own instructions and 
   assert.match(g.seen[0].messages[0].content, /\n\nNOTES$/, "with its context after them");
   assert.deepEqual(g.seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES].sort());
   // (request_secret is Gloopy's too since 2026-11-09, the owner's "4": its own key card.)
-  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "propose_env", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
+  for (const coderOnly of ["pull_request", "review", "pr_comments", "undo_last_job", "auto_fix", "reply_review", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "lsp"]) assert.ok(!g.seen[0].tools.some((t) => t.function.name === coderOnly), coderOnly + " is Coder's only");
   // Coder, with no options: as before.
   const c = scripted([say("Done.")]);
   await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }) }, { text: "hello" });
@@ -1549,7 +1549,8 @@ test("GL39 (2026-11-09) helpers: Gloopy splits a job; up to 4 helpers work at th
   const { HELPER_SYSTEM, HELPER_TOOLS, HELPER_TOOL_NAMES, HELPERS_TOOL } = await import("../container/gloopy-agent.mjs");
   const { HELPERS_MAX, HELPERS_PER_TURN } = await import("../container/coder-agent.mjs");
   assert.deepEqual([HELPERS_MAX, HELPERS_PER_TURN], [4, 8]);
-  assert.deepEqual(HELPER_TOOL_NAMES, ["read", "write", "edit", "grep", "glob", "web_fetch"], "no browser, no commands, no cards");
+  // (web_search since 2026-11-14: Claude Code's WebSearch as a tool, each search its own Grok call; it was Grok's own before.)
+  assert.deepEqual(HELPER_TOOL_NAMES, ["read", "write", "edit", "grep", "glob", "web_fetch", "web_search"], "no browser, no commands, no cards");
   const HELP = { system: HELPER_SYSTEM, tools: HELPER_TOOLS, context: "TODAY is 2026-11-09 (UTC)." };
   // Each helper waits until all three have started: this finishes only if they really run at the same time.
   let started = 0, release;
@@ -2043,9 +2044,11 @@ test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key 
   assert.match(ui, /\(GLOOPY \? 'Gloopy needs a key for ' : 'Coder needs a secret for '\) \+ esc\(e\.host\)/);
   assert.match(ui, /\(GLOOPY \? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' \+ esc\(e\.host\) \+ ': it is added to Gloopy’s requests to ' \+ esc\(e\.host\) \+ ' after they leave its computer, so Gloopy never sees it\.<\/p>'/);
   assert.match(ui, /: '<p class="cd-secret-p">This secret is saved on the environment '/, "Coder's own card is as it was");
-  assert.match(ui, /const box = \(S\.root \|\| document\)\.querySelector\('#cdSecretIn'\)/, "the box in this screen, not Coder's");
+  // (Since 2026-11-14, Claude Code's request_credential form: the card's own fields, by ids of this screen's own, never Coder's.)
+  assert.match(ui, /const KEY_ID = \(GLOOPY \? 'gl' : 'cd'\) \+ 'Key';/);
+  assert.match(ui, /const keyVal = \(card, k\) => \{ const x = card\.querySelector\('#' \+ KEY_ID \+ k\);/, "the box in this card, not Coder's");
   assert.doesNotMatch(ui, /getElementById\('cdSecretIn'\)/);
-  assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
+  assert.match(ui, /if \(!pid\) return send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ host \+ '\.'\);/);
   assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave" checked> Save to your Vault, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/, "since 2026-11-12: to your Vault");
   assert.match(ui, /save: !!\(keep && keep\.checked\)/);
 });
@@ -5124,7 +5127,7 @@ test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Al
   hub.at = page("news.example"); hub.el = { name: "My bank", tag: "a", href: "https://bank.example/" };
   o = await job([say("", [call("browser", { action: "click", ref: "e3" }, "k1")]), say("No.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "bank.example", mode: "deny" }]));
   assert.match(o.said("k1"), NEVER, "a link to it isn't followed");
-  o = await job([say("", [call("web_fetch", { url: "https://bank.example/rates" }, "w1")]), say("No.")], [], S([{ host: "bank.example", mode: "deny" }]));
+  o = await job([say("", [call("web_fetch", { url: "https://bank.example/rates", prompt: "the rates" }, "w1")]), say("No.")], [], S([{ host: "bank.example", mode: "deny" }]));
   assert.match(o.said("w1"), /^not done: the owner's settings say never to use bank\.example \(Sites: Never\)\. Don't get its content another way/);
   hub.el = null;
   // Ask first: before opening it (its card says why), and before a step there that would change something; moving around

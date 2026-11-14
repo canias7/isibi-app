@@ -294,7 +294,8 @@ test("CD530 with Stop's choice off, the admin sandbox stays while what the stopp
   // The sweep keeps the sandbox for them (quietly), and spares their processes (keepMarks), as for a running command's own.
   const { readFile } = await import("node:fs/promises");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /const boxKept = BOX && \(live\.some\(\(j\) => j\.box\) \|\| keptInBox\(kept\)\) \? BOX : null;/);
+  // (And for a chat's language-server keeper in it, kept as a background command is: LSP_KEEPERS, 2026-11-14.)
+  assert.match(server, /const boxKept = BOX && \(live\.some\(\(j\) => j\.box\) \|\| keepers\.some\(\(k\) => k\.box\) \|\| keptInBox\(kept\)\) \? BOX : null;/);
   assert.match(server, /keepMarks: new Set\(\[\.\.\.live\.map\(\(j\) => j\.mark\)\.filter\(Boolean\), \.\.\.kept\]\)/);
 });
 
