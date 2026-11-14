@@ -154,8 +154,9 @@ test("CD232 the folder is found after a command's output was cut at 1 MB, and a 
       say("", [call("bash", { command: "sleep 1; pwd" }, "c7")]),
       say("Done.", []),
     ]);
-    // Past 30,000 characters the output is saved to a file (Claude Code's "Output too large (…). Full output saved to: …").
-    assert.match(j.out("c1"), /^<persisted-output>\nOutput too large \(1\.1MB\)\. Full output saved to: \S+\.txt\n\nPreview \(first 2KB\):\na{2000}\n\.\.\.\n<\/persisted-output>$/);
+    // Past 30,000 characters the output is saved to a file (Claude Code's "Output too large (…). Full output saved to: …"),
+    // with its first 500 characters and its last 1,500, read back from the file (Claude Code 2.1.325, round 4).
+    assert.match(j.out("c1"), /^<persisted-output>\nOutput too large \(1\.1MB\)\. Full output saved to: \S+\.txt\n\nPreview \(start and end\):\na{500}\n\[… 1\.1MB omitted …\]\na{1500}\n<\/persisted-output>$/);
     assert.equal(j.out("c2"), dir + "/src", "it moved, though the output was cut");
     // c3 removed the folder it ended in: the next command is back in the project's folder.
     assert.equal(j.out("c3"), "Shell cwd was reset to " + dir);

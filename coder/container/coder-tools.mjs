@@ -162,16 +162,33 @@ export const EDIT_MAX_BYTES = 256 * 1024 * 1024;
 /** A UTF-16 TEXT FILE starts with a byte-order mark: FF FE (little-endian) or FE FF (big-endian). */
 const utf16Of = (b) => (b.length >= 2 && b[0] === 0xff && b[1] === 0xfe ? "le" : b.length >= 2 && b[0] === 0xfe && b[1] === 0xff ? "be" : "");
 /**
- * A FILE'S TEXT AS READ SHOWS IT: UTF-8, or UTF-16 when it starts with a byte-order mark (Claude Code 2.1.299: "Fixed
- * Read garbling UTF-16LE files with a byte-order mark"; Windows tools often write them). Bytes that do not decode show
- * as U+FFFD, as in Claude Code ("the character Read shows Claude in place of bytes it can't decode").
+ * A FILE'S TEXT AS READ SHOWS IT: UTF-8, or UTF-16LE when it starts with its byte-order mark, FF FE (Claude Code 2.1.299:
+ * "Fixed Read garbling UTF-16LE files with a byte-order mark"; Windows tools often write them). Bytes that do not decode show
+ * as U+FFFD, as in Claude Code ("the character Read shows Claude in place of bytes it can't decode"). A big-endian file
+ * (FE FF) is read as UTF-8 too, as Claude Code 2.1.325 reads it, with its note (notTextNote; round 4): Coder had read it
+ * as UTF-16.
  */
 export function fileText(buf) {
-  const u = utf16Of(buf);
-  if (u === "le") return buf.subarray(2).toString("utf16le");
-  if (u === "be") { const b = Buffer.from(buf.subarray(2, 2 + ((buf.length - 2) & ~1))); b.swap16(); return b.toString("utf16le") + (buf.length % 2 ? "\ufffd" : ""); }
+  if (utf16Of(buf) === "le") return buf.subarray(2).toString("utf16le");
   return buf.toString("utf8");
 }
+/**
+ * A FILE THE FILE TOOLS DO NOT TAKE FOR TEXT (Claude Code 2.1.325, its raw program, read on 2026-11-14, round 4; the owner:
+ * yes): UTF-16 big-endian (it starts FE FF), NUL bytes in its first 8,000 bytes, or not valid UTF-8; a UTF-16LE file behind
+ * its byte-order mark is text. Its kind (Claude Code's own names), or "" for text. read shows such a file with a note after
+ * its lines (notTextNote); write and edit refuse it, nothing written (notTextRefused).
+ */
+export function notTextOf(buf) {
+  if (buf.length >= 2 && buf[0] === 0xff && buf[1] === 0xfe) return "";
+  if (buf.length >= 2 && buf[0] === 0xfe && buf[1] === 0xff) return "utf16be";
+  if (buf.subarray(0, 8000).includes(0)) return "nul";
+  return isUtf8(buf) ? "" : "not_utf8";
+}
+const NOT_TEXT_WHY = {
+  not_utf8: "is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary",
+  nul: "has NUL bytes in its first 8 KB: binary data, UTF-16/UTF-32 without a byte-order mark, or text with embedded NULs",
+  utf16be: "is UTF-16 big-endian (it starts FE FF), which these tools cannot write",
+};
 /**
  * A FOLDER, NOT A FILE (Claude Code's docs: "Read only reads files, not directories. Claude lists directory contents with
  * a shell command such as ls"). Named by its full path, as Claude Code's Read names it ("EISDIR: illegal operation on a
@@ -179,12 +196,12 @@ export function fileText(buf) {
  * comparison, 2026-11-08: "error:  is a folder"); with how to see what is in it (the owner: "ur suggestion yes").
  */
 const folderError = (abs) => abs + " is a folder, not a file: list what is in it with glob, or a command such as ls";
-async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it", { utf16 = false } = {}) {
+async function plainText(abs, rel, max, tooBig = "use bash (head, tail, sed -n) for parts of it", { anyBytes = false } = {}) {
   const st = await stat(abs);
   if (st.isDirectory()) fail(folderError(abs));
   if (st.size > max) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; " + tooBig);
   const fh = await openFile(abs, "r");
-  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (b.includes(0) && !(utf16 && utf16Of(b))) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
+  try { const b = Buffer.alloc(Math.min(8192, st.size)); await fh.read(b, 0, b.length, 0); if (!anyBytes && b.includes(0)) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file"); } finally { await fh.close(); }
 }
 // ── PICTURES, PDFs AND NOTEBOOKS (owner item 1, 2026-11-07), like Claude Code's Read (its docs: it
 // "reads images (PNG, JPG, …) and presents them visually", "reads PDFs via the pages parameter (max 20
@@ -504,7 +521,8 @@ async function readNotebook(raw, rel) {
 /**
  * FILES READ REFUSES BY THEIR KIND (Claude Code's docs: "Read refuses a file whose extension it treats as binary, such as
  * .xlsx, .parquet, .heic, or .zip. … the error suggests … a shell command or script that reads the format"), each with a
- * way to read it. Any other file is refused as binary when its start holds a NUL byte (plainText).
+ * way to read it. Any other file is read; one that is not text (a NUL byte in its start, UTF-16BE, not UTF-8) with Claude
+ * Code 2.1.325's note after its lines (notTextNote).
  */
 const BINARY_KINDS = [
   [["zip", "jar", "war", "whl", "apk", "ipa", "nupkg", "epub"], "list it with `unzip -l FILE`, or print one file in it with `unzip -p FILE path/inside`"],
@@ -538,10 +556,13 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
     // Read, so write may replace it now (as Claude Code's Write, once a notebook is read), and a change to it is told.
     if (nb !== null) { await remember(abs, nbBuf); return nb; }
   }
-  await plainText(abs, rel, READ_MAX_BYTES, undefined, { utf16: true });
+  // (A file with NUL bytes is read, with Claude Code 2.1.325's note, as any file that is not text: Coder had refused it as
+  // binary, in its own words. Round 4.)
+  await plainText(abs, rel, READ_MAX_BYTES, undefined, { anyBytes: true });
   const buf = await readFile(abs);
   const text = fileText(buf);
-  const oldText = !utf16Of(buf) && !isUtf8(buf) ? "\n" + NOT_UTF8_NOTE : "";
+  const notText = notTextOf(buf);
+  const oldText = notText ? "\n" + notTextNote(notText) : "";
   await remember(abs, buf, { whole: false });
   // ITS RESULT OBJECT, FOR THE POSTTOOLUSE HOOKS, when Coder's loop asks (`facts`): Claude Code's Read output for a text file,
   // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
@@ -605,12 +626,15 @@ export const PARTIAL_HINT = "Do not answer from this part alone if the answer ma
  * then saved the � over the real letters. Coder's edit and write refuse such a file now, as Claude Code's do, so the note is
  * Claude Code 2.1.325's own, word for word from its raw program, with Coder's tool names and "the owner" (2026-11-14, round 3).
  */
-export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD. edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]";
+export const notTextNote = (kind) => "[This file " + NOT_TEXT_WHY[kind] + "." + (kind === "not_utf8" ? " Its undecodable bytes show above as U+FFFD." : "") + " edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]";
+export const NOT_UTF8_NOTE = notTextNote("not_utf8");
 /**
- * WHY WRITE AND EDIT REFUSE A FILE THAT IS NOT VALID UTF-8, in Claude Code 2.1.325's words (its one text for both tools, from
- * its raw program; the path first, as Coder's file tools name the file), with Coder's tool name and "the owner".
+ * WHY WRITE AND EDIT REFUSE A FILE THAT IS NOT TEXT (notTextOf), in Claude Code 2.1.325's words (its one text for both tools,
+ * one sentence for each kind, from its raw program; the path first, as Coder's file tools name the file), with Coder's tool
+ * name and "the owner".
  */
-export const NOT_UTF8_REFUSED = "is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.";
+export const notTextRefused = (kind) => NOT_TEXT_WHY[kind] + ". These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.";
+export const NOT_UTF8_REFUSED = notTextRefused("not_utf8");
 
 /**
  * WRITE, WITH CLAUDE CODE'S CHECKS (the owner, 2026-11-08: "Compare it to claude code write ones and make sure they need
@@ -620,7 +644,7 @@ export const NOT_UTF8_REFUSED = "is not valid UTF-8: it uses a legacy encoding s
  * - a file read only partly (a PARTIAL view), or a notebook not read in this chat, is not replaced until it is read
  *   ("File has not been read yet. Read it first before writing to it."): Coder replaced them, losing what it never saw;
  * - a file that is not valid UTF-8 (an old encoding, or binary) is not replaced ("File is not valid UTF-8: … nothing was
- *   written …"): Coder saved the U+FFFD read showed over the real letters; and a UTF-16 file keeps its UTF-16.
+ *   written …"): Coder saved the U+FFFD read showed over the real letters; and a UTF-16LE file keeps its UTF-16LE.
  * A new file, or one not read (not a notebook), is written as before, as Claude Code's newer models do.
  */
 export const WRITE_NOT_READ = "has not been read yet. Read it first before writing to it";
@@ -805,10 +829,11 @@ export async function toolWrite(args) {
     let old = await readFile(abs);
     const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
+    // (Not text, Claude Code 2.1.325's three kinds: refused in its words, UTF-16BE and NUL bytes too; round 4.)
+    const notText = notTextOf(old);
+    if (notText) fail(rel + " " + notTextRefused(notText));
     const u = utf16Of(old);
-    if (!u && !isUtf8(old)) fail(rel + " " + NOT_UTF8_REFUSED);
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
-    if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
     if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
     oldText = wasAll ? (u ? fileText(wasAll) : wasAll.toString("utf8")).replace(/^\ufeff/, "") : undefined;
   }
@@ -850,7 +875,8 @@ async function lspAfterWrite(abs, text) {
  * - `\uXXXX` written out in the old text taken for its character (not after another backslash);
  * - a file changed on disk since Coder last read it: edited when the old text is there once, with Claude Code's note that
  *   it holds other changes; refused ("modified since read") when it is not there once;
- * - not valid UTF-8: refused, nothing written; UTF-16 behind its byte-order mark edited as UTF-16; a UTF-8 mark kept;
+ * - not text (not valid UTF-8, NUL bytes in its first 8,000, UTF-16BE): refused, nothing written; UTF-16LE behind its
+ *   byte-order mark edited as UTF-16LE; a UTF-8 mark kept;
  * - a link: refused, naming its target; links that loop or lead nowhere: refused; a notebook: refused (its own tool is
  *   for later, the owner: "Notebook for later");
  * - no old text: a new file made, with its folders; one that already has text: "Cannot create new file - file already exists.";
@@ -929,13 +955,13 @@ export async function toolEdit(args) {
   if (st.isDirectory()) fail(folderError(abs));
   if (st.size > EDIT_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
   const buf = await readFile(abs);
+  // NOT TEXT (an old encoding, binary, NUL bytes, UTF-16 big-endian: notTextOf): nothing written, as Claude Code's Edit, in
+  // Claude Code 2.1.325's words, its one text for Write and Edit (notTextRefused); with no old text, "Cannot create new file
+  // - file already exists." first, as there. Coder's edit wrote one back with every such letter lost ("café" became "caf�"),
+  // refused NUL bytes in its own words, and edited UTF-16BE (round 4).
+  const notText = notTextOf(buf);
+  if (notText) fail(old_string === "" ? EDIT_EXISTS : rel + " " + notTextRefused(notText));
   const u = utf16Of(buf);
-  if (!u && buf.subarray(0, 8192).includes(0)) fail(rel + " is a binary file (not text): see what it is with `file " + shq(rel) + "`, then use a command or a script that reads that kind of file");
-  // NOT VALID UTF-8 (an old encoding, or binary): nothing written, as Claude Code's Edit ("File is not valid UTF-8 … This
-  // tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written.").
-  // Coder's edit wrote it back with every such letter lost ("café" became "caf�").
-  // (In Claude Code 2.1.325's words, its one text for Write and Edit: NOT_UTF8_REFUSED.)
-  if (!u && !isUtf8(buf)) fail(rel + " " + NOT_UTF8_REFUSED);
   const raw = u ? fileText(buf) : buf.toString("utf8");
   const bom = !u && raw.startsWith("\ufeff");
   const text = bom ? raw.slice(1) : raw;
@@ -981,7 +1007,6 @@ export async function toolEdit(args) {
   const outText = (bom ? "\ufeff" : "") + (eol === "\r\n" ? outBody.replace(/\n/g, "\r\n") : outBody);
   let bytes;
   if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(outText, "utf16le")]);
-  else if (u === "be") { const b = Buffer.from(outText, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
   else bytes = Buffer.from(outText, "utf8");
   await writeOver(abs, bytes, rel);
   await remember(abs, bytes);

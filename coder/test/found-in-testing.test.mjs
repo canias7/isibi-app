@@ -188,7 +188,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
   assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/, "the job's file tools get it; its commands save long output to a file");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: Math\.min\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\), keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/, "the job's file tools get it; its commands save long output to a file");
   // The agent: 20 pictures from one read reach Grok, all of them.
   const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
   const { PICS_MARK } = await import("../container/coder-tools.mjs");
@@ -622,9 +622,11 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   assert.match(await read("Sheet 1.xlsx"), /^error: Sheet 1\.xlsx is a binary file \(XLSX\), not text, so read does not open it: read it with a script, e\.g\. python3 with openpyxl or pandas/);
   assert.match(await read("t.parquet"), /\(PARQUET\).*python3 with pandas and pyarrow, or duckdb$/);
   assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it in the scratch folder with a command \(ImageMagick: `mkdir -p \/tmp\/coder-scratch && convert 'photo\.heic' \/tmp\/coder-scratch\/out\.png`/);
-  // Any other binary file: by the NUL byte in its start, with how to see what it is.
-  await writeFile(join(dir, "blob.dat"), Buffer.from([1, 2, 0, 3]));
-  assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
+  // Any other file with a NUL byte in its start: its lines, with Claude Code 2.1.325's note after them, as its Read shows one
+  // (round 4; Coder had refused it in its own words).
+  const { notTextNote } = await import("../container/coder-tools.mjs");
+  await writeFile(join(dir, "blob.raw"), Buffer.from([1, 2, 0, 3]));
+  assert.equal(await read("blob.raw"), "     1\t\u0001\u0002\u0000\u0003\n" + notTextNote("nul"));
   // A folder.
   await mkdir(join(dir, "src"));
   assert.equal(await read("src"), "error: " + join(dir, "src") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
@@ -868,9 +870,15 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   const be = Buffer.from(words, "utf16le"); be.swap16();
   await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
   assert.equal(await tool("read", { path: "le.txt" }), "     1\théllo\n     2\twörld");
-  assert.equal(await tool("read", { path: "be.txt" }), "     1\théllo\n     2\twörld");
+  // A big-endian file (FE FF) is read as UTF-8, with Claude Code 2.1.325's note, as its Read reads only UTF-16LE behind its mark
+  // (round 4; Coder had read it as UTF-16).
+  const { notTextNote, notTextRefused } = await import("../container/coder-tools.mjs");
+  const beLines = Buffer.concat([Buffer.from([0xfe, 0xff]), be]).toString("utf8").split("\n").slice(0, -1);
+  assert.equal(await tool("read", { path: "be.txt" }), beLines.map((l, i) => String(i + 1).padStart(6) + "\t" + l).join("\n") + "\n" + notTextNote("utf16be"));
+  assert.match(await tool("edit", { path: "be.txt", old_string: "w", new_string: "v" }), /^error: be\.txt is UTF-16 big-endian \(it starts FE FF\), which these tools cannot write\. These tools write UTF-8/);
   await writeFile(join(dir, "nul.txt"), Buffer.from([0x61, 0, 0x62]));
-  assert.match(await tool("read", { path: "nul.txt" }), /is a binary file \(not text\)/, "zero bytes without a byte-order mark: binary, as before");
+  assert.equal(await tool("read", { path: "nul.txt" }), "     1\ta\u0000b\n" + notTextNote("nul"), "zero bytes without a byte-order mark: shown, with the note");
+  assert.equal(await tool("edit", { path: "nul.txt", old_string: "a", new_string: "c" }), "error: nul.txt " + notTextRefused("nul"));
   // Edit changes UTF-16 files as UTF-16 since its turn (tool 3, 2026-11-09), as Claude Code's Edit ("unless the file starts with a little-endian UTF-16 byte-order mark").
   assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /^The file le\.txt has been updated successfully\./);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("jéllo\nwörld\n", "utf16le")]), "still UTF-16, its mark kept");
@@ -1327,7 +1335,7 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path: "nb2.ipynb", content: "{}" } })).toString("base64") })).output, /^The file nb2\.ipynb has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
 });
 
-test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16 file keeps its UTF-16 (little- or big-endian, with its byte-order mark), as there", async () => {
+test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16LE file keeps its UTF-16LE (with its byte-order mark), as there; a UTF-16BE one is refused (Claude Code 2.1.325)", async () => {
   const { mkdtemp, writeFile, readFile, unlink } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -1346,11 +1354,11 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("old\n", "utf16le")]));
   assert.match(await write("le.txt", "nëw\n"), /^The file le\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("nëw\n", "utf16le")]));
-  const be = Buffer.from("old\n", "utf16le"); be.swap16();
-  await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
-  assert.match(await write("be.txt", "nëw\n"), /^The file be\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
-  const want = Buffer.from("nëw\n", "utf16le"); want.swap16();
-  assert.deepEqual(await readFile(join(dir, "be.txt")), Buffer.concat([Buffer.from([0xfe, 0xff]), want]));
+  // A big-endian one (FE FF) is refused, as Claude Code 2.1.325's Write refuses it, in its words (round 4; Coder wrote it as UTF-16BE).
+  const be = Buffer.concat([Buffer.from([0xfe, 0xff]), (() => { const b = Buffer.from("old\n", "utf16le"); b.swap16(); return b; })()]);
+  await writeFile(join(dir, "be.txt"), be);
+  assert.equal(await write("be.txt", "nëw\n"), "error: be.txt is UTF-16 big-endian (it starts FE FF), which these tools cannot write. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  assert.deepEqual(await readFile(join(dir, "be.txt")), be, "untouched");
   // A UTF-8 file stays UTF-8.
   await writeFile(join(dir, "u8.txt"), "olé\n");
   assert.match(await write("u8.txt", "nëw\n"), /^The file u8\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
