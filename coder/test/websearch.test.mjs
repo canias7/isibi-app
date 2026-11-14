@@ -513,9 +513,11 @@ test("WEB10 Claude Code's `mode` in Coder's chats and jobs from GitHub (its clou
   assert.match(rw.told("w1"), /PreToolUse hook for WebSearch returned updatedInput that failed schema validation: [\s\S]*Invalid option: expected one of \\?"standard\\?"\|\\?"extended\\?"[\s\S]*The tool input from the model was valid; the hook's rewrite of it was not\./);
   assert.deepEqual(W.hookParamsFor("web_search", t.parameters), { ...t.parameters, properties: { ...t.parameters.properties, mode: { default: "extended", ...t.parameters.properties.mode } }, required: ["query"] });
   assert.equal(W.hookParamsFor("web_fetch", t.parameters), t.parameters);
-  // With tool search (a deferred tool): loaded with `mode`, the note there from the start.
+  // With tool search (a deferred tool): loaded with `mode` (its definition goes once, in the next request's tools: Claude
+  // Code's answer for tools defined elsewhere names them), the note there from the start.
   const ts = await job([say("", [call("tool_search", { query: "select:web_search", max_results: 5 }, "s1")]), say("ok")]);
-  assert.match(ts.told("s1"), /"enum": \["standard", "extended"\], "type": "string"\}, "query": [^\n]*"required": \["query", "mode"\]/);
+  assert.equal(ts.told("s1"), "The following tools just became available and are ready to use:\nweb_search");
+  assert.deepEqual(ts.seen[1].tools.find((x) => x.function.name === "web_search"), W.WEB_SEARCH_MODE_TOOL);
   assert.ok(ts.seen[0].messages[0].content.includes("\n\n" + W.SEARCH_MODE_NOTE + "\n\n"));
   // The tool taken away by a deny rule: no note. A job from GitHub: both.
   const denied = await job([say("ok")], { rules: { allow: [], ask: [], deny: ["WebSearch"] } });
