@@ -54,6 +54,7 @@ import { taskStore, todoStore, taskFileFor } from "./coder-tasks.mjs";
 // (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
 import { questionPicks } from "./coder-askuser.mjs";
 import { parkRecord, parkAnswer } from "./coder-park.mjs";
+import { contentFrom } from "./coder-elicit.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -4430,8 +4431,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // (A CARD LEFT OPEN, `park` (coder-park.mjs; Claude Code: "Questions stay open until you answer them", "permission
         // prompts, including plan approval, never auto-resolve on idle"): at that time the step's job pauses, its card kept
         // open, and this machine may stop; the owner's answer then starts a job that takes the turn up again at that call.)
-        ask: async (pid, { until = 0, chat = false, park = 0 } = {}) => {
+        // (A CONNECTOR'S QUESTION, MCP elicitation (coder-elicit.mjs), can wait beside another card, from a call still running:
+        // each card waiting is in t.askingAll; `gone`: the server withdrew its question; at the job's end none waits on.)
+        ask: async (pid, { until = 0, chat = false, park = 0, gone = null } = {}) => {
           t.asking = String(pid);
+          (t.askingAll || (t.askingAll = new Set())).add(String(pid));
           const shownAt = Date.now();
           try {
             for (;;) {
@@ -4439,11 +4443,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
               const a = t.answers.get(String(pid));
               if (a) { t.answers.delete(String(pid)); return a; }
               if (chat) { const q = t.queue.find((x) => !x.read && x.at >= shownAt); if (q) { q.read = true; return { choice: "chat", text: q.text, qid: q.qid }; } }
+              if (gone && gone()) return { choice: "gone" };
+              if (t.over) return null;
               if (park && Date.now() >= park) return { choice: "park" };
               if (until && Date.now() > until) return null;
               await new Promise((ok) => setTimeout(ok, 250));
             }
-          } finally { t.asking = ""; }
+          } finally { t.askingAll.delete(String(pid)); t.asking = t.asking === String(pid) ? [...t.askingAll].pop() || "" : t.asking; }
         },
         ...(parkMs > 0 ? { parkMs } : {}),
         ...(gloopy ? { freshContext: async () => gloopyNow((await readMemory(memFile)) ?? "") } : {}),
@@ -4475,6 +4481,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
       runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+        // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
+        .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
@@ -4687,7 +4695,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}) });
+        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
@@ -4736,15 +4744,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // takes the turn up again. coder-park.mjs.)
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        // (And a connector's question, MCP elicitation: Submit or "I'm done, continue" is accept, with a form's values; Decline.)
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !(["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice) || ["accept", "decline"].includes(choice))) return send(400, { ok: false, why: "bad answer" });
+        const content = choice === "accept" && body.content !== undefined ? contentFrom(body.content) : null;
+        if (choice === "accept" && body.content !== undefined && !content) return send(400, { ok: false, why: "bad answer" });
         const picks = choice === "answers" ? questionPicks(body.answers) : null;
         if (choice === "answers" && !picks) return send(400, { ok: false, why: "bad answer" });
         if ((choice === "approved" || choice === "refused") && !(typeof body.result === "string" && body.result)) return send(400, { ok: false, why: "bad answer" });
         if (t && !t.running && t.result && t.result.parked && t.result.parked.pid === pid) return send(200, { ok: false, parked: true, why: "Coder paused while that card waited; your answer takes it up again." });
-        if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
+        if (!t || !t.running || t.result || (t.asking !== pid && !(t.askingAll && t.askingAll.has(pid)))) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
         // (And the plan as the owner edited it on the plan's card, with a Yes: Claude Code's "edit it directly before Claude
         // proceeds"; coder-plan.mjs, the owner, 2026-11-14. At most PLAN_SHOW_MAX characters, as the card shows.)
-        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}), ...(choice === "approved" || choice === "refused" ? { result: body.result.slice(0, 4000) } : {}) });
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}), ...(choice === "approved" || choice === "refused" ? { result: body.result.slice(0, 4000) } : {}), ...(content ? { content } : {}) });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").

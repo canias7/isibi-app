@@ -1638,7 +1638,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // "Do all the talk to you tools execpt for the notify one".)
     // (With a plan's approval, the plan as the owner edited it on its card: Claude Code's "edit it directly before Claude
     // proceeds"; the owner, 2026-11-14. At most 200,000 characters, as the card shows.)
-    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) }).then((r) => r.json()).catch(() => null);
+    // (And a connector's question, MCP elicitation: the form's values with Submit, which the machine checks; container/coder-elicit.mjs.)
+    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(body.content && typeof body.content === "object" && !Array.isArray(body.content) ? { content: body.content } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
     // (Its job paused just now, before it was saved: it is saved, then the answer takes the turn up again.)
     if (!m.ok && m.parked === true && (parkedOf(await saveNow()) || {}).pid === pid) return takeUp();
@@ -2274,7 +2275,7 @@ export async function handleCoder(request, env, ctx, deps) {
       let st = null;
       try { const r0 = await call("/state?project=" + id + "&since=1000000000", { method: "GET" }); st = r0.ok ? await r0.json() : null; } catch { st = null; }
       if (!st) return json({ error: "Coder's machine could not be reached. Try again in a moment." }, 502);
-      if (st.asking !== pid && !(st.result && st.result.parked && st.result.parked.pid === pid)) return json({ error: "That card is no longer waiting for an answer." }, 409);
+      if (st.asking !== pid && !(Array.isArray(st.askingAll) && st.askingAll.includes(pid)) && !(st.result && st.result.parked && st.result.parked.pid === pid)) return json({ error: "That card is no longer waiting for an answer." }, 409);
     } else if (!parked || parked.pid !== pid) return json({ error: "That card is no longer waiting for an answer." }, 409);
     const r = await approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning, waiting: true });
     const answer = r.error ? { choice: "refused", result: "error: " + r.error } : { choice: "approved", result: r.result };

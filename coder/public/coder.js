@@ -2546,6 +2546,8 @@
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Skip</button><button type="button" class="cd-card-no" data-handoff-done="' + esc(e.id) + '">I’m done</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Take over</button></div>' : '') + '</div>');
       }
       else if (e.type === 'secret') out.push(keyCardHTML(e, i));
+      // (A connector's question for you, MCP elicitation: elicitHTML.)
+      else if (e.type === 'elicit') out.push(elicitHTML(e, i));
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push(todoHTML(e)); }
       // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
       // on Gloopy's last stop, while nothing came after it, a Resume button.
@@ -3483,6 +3485,135 @@
         : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');
   }
+  // A CONNECTOR'S QUESTION FOR YOU (MCP elicitation, container/coder-elicit.mjs; X1 of the recheck of 2026-11-14, the owner:
+  // "yes pls all of that"): Claude Code's cloud card, "Form mode: fill in the fields, then click Submit", "URL mode: click Open
+  // link, finish the flow it opens, then click I'm done, continue", "To refuse the request, click Decline". Its header names
+  // the connector that asks (Claude Code's own words: "MCP server “…” requests your input", "… wants to open a URL"). The
+  // fields are the server's: nothing is filled in for you but a default the server gave, and the browser fills nothing in
+  // either. While Coder's step waits, the card keeps its own fields through the page's redraws (as the key card does), so
+  // what you type is in no state of the page's; once answered, it says how it ended, never what was sent.
+  const EL_FORMATS = { email: 'email', uri: 'url', date: 'date', 'date-time': 'datetime-local' };
+  const elProps = (e) => { const s = e.requestedSchema && typeof e.requestedSchema === 'object' ? e.requestedSchema : {}; return s.properties && typeof s.properties === 'object' ? s.properties : {}; };
+  const elNames = (e) => { const p = elProps(e), order = Array.isArray(e.order) ? e.order.filter((k) => Object.prototype.hasOwnProperty.call(p, k)) : []; return [...order, ...Object.keys(p).filter((k) => !order.includes(k))].filter((k) => p[k] && typeof p[k] === 'object'); };
+  const elRequired = (e) => { const r = e.requestedSchema && Array.isArray(e.requestedSchema.required) ? e.requestedSchema.required : []; return new Set(r.filter((k) => typeof k === 'string' && Object.prototype.hasOwnProperty.call(elProps(e), k))); };
+  // (A choice's values and labels: enum with enumNames, oneOf's const and title; several choices: items' enum or anyOf.)
+  const elChoices = (s) => {
+    if (Array.isArray(s.oneOf)) return s.oneOf.filter((x) => x && typeof x.const === 'string').map((x) => [x.const, String(x.title || x.const)]);
+    const it = s.type === 'array' && s.items && typeof s.items === 'object' ? s.items : s;
+    if (Array.isArray(it.anyOf)) return it.anyOf.filter((x) => x && typeof x.const === 'string').map((x) => [x.const, String(x.title || x.const)]);
+    const vals = Array.isArray(it.enum) ? it.enum : [];
+    return vals.map((v, k) => (typeof v === 'string' ? [v, Array.isArray(s.enumNames) && typeof s.enumNames[k] === 'string' ? s.enumNames[k] : v] : null)).filter(Boolean);
+  };
+  const elKind = (s) => (s.type === 'boolean' ? 'boolean' : s.type === 'number' || s.type === 'integer' ? 'number' : s.type === 'array' ? 'multi' : s.type === 'string' && (Array.isArray(s.enum) || Array.isArray(s.oneOf)) ? 'enum' : 'string');
+  // (A date-time's default, for the browser's local date-time box: its local "YYYY-MM-DDTHH:MM".)
+  const elLocal = (v) => { const d = new Date(String(v)); if (isNaN(d)) return ''; const p = (n) => String(n).padStart(2, '0'); return d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()); };
+  function elFieldHTML(name, s, need, k) {
+    const id = 'cdEl' + k, kind = elKind(s), title = String(s.title || name);
+    const label = '<label class="cd-el-l" for="' + id + '">' + esc(title) + (need ? '<span class="cd-el-req" title="Required">*</span>' : '') + '</label>';
+    const desc = s.description ? '<small class="cd-el-desc">' + esc(String(s.description)) + '</small>' : '';
+    const at = ' data-el-name="' + esc(name) + '"';
+    let ctl;
+    if (kind === 'boolean') ctl = '<div class="cd-el-row" role="radiogroup">' + [['true', 'Yes'], ['false', 'No']].map(([v, t]) => '<label class="cd-el-pick"><input type="radio" name="' + id + '" value="' + v + '"' + at + (s.default === (v === 'true') ? ' checked' : '') + '><span>' + t + '</span></label>').join('') + '</div>';
+    else if (kind === 'enum') ctl = '<select id="' + id + '" class="cd-el-in"' + at + '><option value="">Choose…</option>' + elChoices(s).map(([v, t]) => '<option value="' + esc(v) + '"' + (s.default === v ? ' selected' : '') + '>' + esc(t) + '</option>').join('') + '</select>';
+    else if (kind === 'multi') ctl = '<div class="cd-el-row cd-el-multi" role="group">' + elChoices(s).map(([v, t]) => '<label class="cd-el-pick"><input type="checkbox" value="' + esc(v) + '"' + at + (Array.isArray(s.default) && s.default.includes(v) ? ' checked' : '') + '><span>' + esc(t) + '</span></label>').join('') + '</div>';
+    else if (kind === 'number') ctl = '<input id="' + id + '" class="cd-el-in" type="number" step="' + (s.type === 'integer' ? '1' : 'any') + '"' + (typeof s.minimum === 'number' ? ' min="' + s.minimum + '"' : '') + (typeof s.maximum === 'number' ? ' max="' + s.maximum + '"' : '') + (typeof s.default === 'number' ? ' value="' + s.default + '"' : '') + at + ' autocomplete="off">';
+    else {
+      const type = EL_FORMATS[s.format] || 'text';
+      const v = typeof s.default === 'string' ? (s.format === 'date-time' ? elLocal(s.default) : s.default) : '';
+      ctl = '<input id="' + id + '" class="cd-el-in" type="' + type + '"' + (typeof s.maxLength === 'number' && s.maxLength >= 0 ? ' maxlength="' + Math.floor(s.maxLength) + '"' : '') + ' value="' + esc(v) + '"' + at + ' autocomplete="off" autocapitalize="off" spellcheck="false" data-lpignore="true" data-1p-ignore>';
+    }
+    return '<div class="cd-el-f" data-el-field="' + esc(name) + '">' + label + desc + ctl + '<p class="cd-el-err" hidden></p></div>';
+  }
+  // (An address that opens from the card: http or https only; any other is shown, with Claude Code's words, and only Decline.)
+  const elLink = (u) => { try { const x = new URL(String(u)); return x.protocol === 'https:' || x.protocol === 'http:' ? x : null; } catch (er) { return null; } };
+  const elDone = (e, ans) => {
+    const c = ans.choice;
+    if (c === 'accept') return '<span class="cd-perm-ok">✓ ' + (e.mode === 'url' ? 'Done, continued' : 'Submitted') + '</span>';
+    if (c === 'decline') return '<span class="cd-perm-no">✕ Declined</span>';
+    if (c === 'gone') return '<span class="cd-perm-no">Closed</span> · the MCP server stopped waiting for an answer';
+    return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+  };
+  function elicitHTML(e, i) {
+    const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
+    // (Live while its step waits: the job runs, the card is unanswered and the job that showed it has not ended.)
+    const live = !!e.pid && S.running && !ans && !S.events.slice(i + 1).some((x) => x.type === 'done' || x.type === 'stopped');
+    const url = e.mode === 'url', who = String(e.connector || 'the connector');
+    const head = 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
+    let body = '<p class="cd-el-msg">' + esc(String(e.message || '')) + '</p>';
+    const link = url ? elLink(e.url) : null;
+    if (url) {
+      // (The address with its host in bold, as Claude Code shows it.)
+      const raw = String(e.url || ''), host = link ? link.hostname : '', at = host ? raw.indexOf(host) : -1;
+      body += '<div class="cd-el-url">' + (at >= 0 ? esc(raw.slice(0, at)) + '<b>' + esc(host) + '</b>' + esc(raw.slice(at + host.length)) : esc(raw)) + '</div>' +
+        (link ? '' : '<p class="cd-el-warn">This isn’t a valid http or https link, so it won’t open from here.</p>');
+    } else if (live) body += '<div class="cd-el-form">' + elNames(e).map((n, k) => elFieldHTML(n, elProps(e)[n], elRequired(e).has(n), String(i) + '_' + k)).join('') + '</div>';
+    const btns = !live ? '' : url
+      ? '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button>' + (link ? '<a class="cd-el-open" href="' + esc(link.href) + '" target="_blank" rel="noopener noreferrer" data-el-open>Open link</a><button type="button" class="cd-secret-save" data-el-accept>I’m done, continue</button>' : '') + '</div>'
+      : '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button><button type="button" class="cd-secret-save" data-el-accept>Submit</button></div>';
+    return '<div class="cd-perm cd-elicit' + (live ? ' is-live' : '') + '"' + (live ? ' data-elicit-pid="' + esc(e.pid) + '"' : '') + ' data-elicit-at="' + i + '">' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b></div>' +
+      (e.tool ? '<p class="cd-el-from">While using ' + esc(String(e.tool)) + '</p>' : '') + body +
+      (live ? '<p class="cd-secret-err cd-el-said" hidden></p>' + btns : ans ? '<div class="cd-perm-done">' + elDone(e, ans) + '</div>' : '') +
+    '</div>' + (live ? '<div class="cd-ask-wait">Needs your input</div>' : '');
+  }
+  // (A field's message under it: Claude Code's words for what is wrong, or none.)
+  function elFieldSay(f, t) { const p = f.querySelector('.cd-el-err'); if (p) { p.textContent = t; p.hidden = !t; } f.classList.toggle('is-bad', !!t); }
+  const elCount = (n, w) => n + ' ' + w + (n === 1 ? '' : 's');
+  /**
+   * ONE FIELD'S VALUE, CHECKED AS CLAUDE CODE'S FORM CHECKS IT: `{ set, value, error }`. An empty box, no choice or no box
+   * ticked leaves the field unset; a string's length and format, a number's kind and range and how many choices are its own
+   * checks, in its words (a date or date-time comes from the browser's date box, so its examples are dates, not "today").
+   */
+  function elFieldValue(f, s) {
+    const kind = elKind(s);
+    if (kind === 'boolean') { const x = f.querySelector('input[type="radio"]:checked'); return x ? { set: true, value: x.value === 'true' } : { set: false }; }
+    if (kind === 'multi') {
+      const vals = [...f.querySelectorAll('input[type="checkbox"]:checked')].map((x) => x.value);
+      if (!vals.length) return { set: false };
+      if (typeof s.minItems === 'number' && vals.length < s.minItems) return { set: true, value: vals, error: 'Select at least ' + elCount(s.minItems, 'item') };
+      if (typeof s.maxItems === 'number' && vals.length > s.maxItems) return { set: true, value: vals, error: 'Select at most ' + elCount(s.maxItems, 'item') };
+      return { set: true, value: vals };
+    }
+    const el = f.querySelector('.cd-el-in'), raw = el ? String(el.value || '') : '';
+    if (kind === 'enum') return raw ? { set: true, value: raw } : { set: false };
+    if (!raw.trim()) return { set: false };
+    if (kind === 'number') {
+      const int = s.type === 'integer', what = int ? 'an integer' : 'a number', shown = (n) => (Number.isInteger(n) && !int ? n + '.0' : String(n));
+      const lo = typeof s.minimum === 'number' ? s.minimum : undefined, hi = typeof s.maximum === 'number' ? s.maximum : undefined;
+      const say = lo !== undefined && hi !== undefined ? 'Must be ' + what + ' between ' + shown(lo) + ' and ' + shown(hi) : lo !== undefined ? 'Must be ' + what + ' >= ' + shown(lo) : hi !== undefined ? 'Must be ' + what + ' <= ' + shown(hi) : 'Must be ' + what;
+      const n = Number(raw.trim());
+      const ok = Number.isFinite(n) && (!int || Number.isInteger(n)) && (lo === undefined || n >= lo) && (hi === undefined || n <= hi);
+      return ok ? { set: true, value: n } : { set: true, error: say };
+    }
+    let v = raw;
+    const errs = [];
+    if (s.format === 'date-time') {
+      // (The browser's box gives a local time; it goes as an ISO date-time with this computer's offset.)
+      const d = new Date(raw);
+      if (isNaN(d)) errs.push('Must be a valid date-time, e.g. 2024-03-15T14:30:00Z');
+      else { const p = (x) => String(Math.abs(x)).padStart(2, '0'), off = -d.getTimezoneOffset(); v = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate()) + 'T' + p(d.getHours()) + ':' + p(d.getMinutes()) + ':' + p(d.getSeconds()) + (off >= 0 ? '+' : '-') + p(Math.trunc(off / 60)) + ':' + p(off % 60); }
+    }
+    if (typeof s.minLength === 'number' && v.length < s.minLength) errs.push('Must be at least ' + elCount(s.minLength, 'character'));
+    if (typeof s.maxLength === 'number' && v.length > s.maxLength) errs.push('Must be at most ' + elCount(s.maxLength, 'character'));
+    if (s.format === 'email' && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) errs.push('Must be a valid email address, e.g. user@example.com');
+    if (s.format === 'uri') { let ok = false; try { new URL(v); ok = true; } catch (er) { ok = false; } if (!ok) errs.push('Must be a valid URI, e.g. https://example.com'); }
+    if (s.format === 'date' && !(/^\d{4}-\d{2}-\d{2}$/.test(v) && !isNaN(new Date(v + 'T00:00:00Z')))) errs.push('Must be a valid date, e.g. 2024-03-15');
+    return errs.length ? { set: true, error: errs.join('; ') } : { set: true, value: v };
+  }
+  /** The card's fields, checked (a required one left unset: "This field is required"): `{ content }`, or `{ bad }` with each field's message shown. */
+  function elicitForm(card, e) {
+    const props = elProps(e), need = elRequired(e), content = {};
+    let bad = false;
+    for (const name of elNames(e)) {
+      const f = card.querySelector('.cd-el-f[data-el-field="' + CSS.escape(name) + '"]');
+      if (!f) continue;
+      const v = elFieldValue(f, props[name]);
+      const err = v.error || (!v.set && need.has(name) ? 'This field is required' : '');
+      elFieldSay(f, err);
+      if (err) bad = true; else if (v.set) content[name] = v.value;
+    }
+    return bad ? { bad: true } : { content };
+  }
   async function answerPerm(pid, choice) {
     if (!S.project || (S.permSent && S.permSent[pid])) return;
     // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none. On a plan's
@@ -3670,6 +3801,11 @@
     // markup or its state), with the cursor; once answered, it is drawn afresh.
     const keyKept = root.querySelector('.cd-secret-key[data-secret-pid]');
     const keyAt = keyKept && keyKept.contains(document.activeElement) ? { id: document.activeElement.id, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
+    // (A connector's question card while its step waits keeps its fields the same way: elicitHTML.)
+    const elKept = [...root.querySelectorAll('.cd-elicit[data-elicit-pid]')];
+    const elFocus = elKept.find((c) => c.contains(document.activeElement)) ? document.activeElement : null;
+    let elSel = null;
+    try { elSel = elFocus ? { a: elFocus.selectionStart, b: elFocus.selectionEnd } : null; } catch (er) { elSel = null; }
     // (And a question card's Other box, where its cursor was: a card Coder waits on is live while the page redraws. The owner,
     // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
     const askEl = document.activeElement && document.activeElement.classList && (document.activeElement.classList.contains('cd-ask-in') || document.activeElement.classList.contains('cd-ask-note')) ? document.activeElement : null;
@@ -3685,6 +3821,12 @@
       keyNew.replaceWith(keyKept);
       const f = keyAt && keyAt.id ? keyKept.querySelector('#' + keyAt.id) : null;
       if (f) { f.focus(); try { if (keyAt.a != null) f.setSelectionRange(keyAt.a, keyAt.b); } catch { /* a select has no cursor */ } }
+    }
+    for (const old of elKept) {
+      const now = root.querySelector('.cd-elicit[data-elicit-pid="' + CSS.escape(String(old.dataset.elicitPid || '')) + '"]');
+      if (!now) continue;
+      now.replaceWith(old);
+      if (elFocus && old.contains(elFocus)) { elFocus.focus({ preventScroll: true }); try { if (elSel && elSel.a != null) elFocus.setSelectionRange(elSel.a, elSel.b); } catch (er) { /* no cursor */ } }
     }
     if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
@@ -4216,6 +4358,32 @@
       keySay(card, '');
       followTakenUp(a);
     });
+    // A CONNECTOR'S QUESTION CARD (elicitHTML): Submit checks the fields as Claude Code's form does (its words for each field
+    // that is not right), then sends them to the step that waits, with "accept"; "I'm done, continue" sends "accept"; Decline
+    // "decline". What was typed goes only with Submit, from the card's own fields.
+    const elCard = (el) => el.closest('.cd-elicit[data-elicit-pid]');
+    const elEvent = (card) => S.events[Number(card.dataset.elicitAt)];
+    const elSay = (card, t) => { const p = card.querySelector('.cd-el-said'); if (p) { p.textContent = t; p.hidden = !t; } };
+    const elSend = async (card, choice, content) => {
+      if (!S.project || !card) return;
+      const btns = [...card.querySelectorAll('button')];
+      btns.forEach((b) => { b.disabled = true; });
+      elSay(card, '');
+      const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid: card.dataset.elicitPid, choice, ...(content ? { content } : {}) }) });
+      if (a.status !== 200) { btns.forEach((b) => { b.disabled = false; }); elSay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
+    };
+    on('.cd-elicit [data-el-decline]', 'click', (e) => { const c = elCard(e.currentTarget); if (c) elSend(c, 'decline'); });
+    on('.cd-elicit [data-el-accept]', 'click', (e) => {
+      const c = elCard(e.currentTarget), ev = c && elEvent(c);
+      if (!c || !ev) return;
+      if (ev.mode === 'url') return elSend(c, 'accept');
+      const got = elicitForm(c, ev);
+      if (got.bad) { const f = c.querySelector('.cd-el-f.is-bad input, .cd-el-f.is-bad select'); if (f) f.focus(); return; }
+      elSend(c, 'accept', got.content);
+    });
+    on('.cd-elicit [data-el-open]', 'click', (e) => { const c = elCard(e.currentTarget); if (c) c.classList.add('is-opened'); });
+    on('.cd-elicit input, .cd-elicit select', 'input', (e) => { const f = e.currentTarget.closest('.cd-el-f'); if (f) elFieldSay(f, ''); });
+    on('.cd-elicit input.cd-el-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = elCard(e.currentTarget) && elCard(e.currentTarget).querySelector('[data-el-accept]'); if (b && !b.disabled) b.click(); } });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);

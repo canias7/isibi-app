@@ -386,10 +386,12 @@ test("TS19 no cap on connector tools (Claude Code: \"doesn't impose a fixed per-
   assert.match(read("container/coder-toolsearch.mjs"), /"max 350 tools\n \* per request"/);
   const many = Array.from({ length: 400 }, (_, i) => connector(i));
   const off = await job([say("done")], { deps: { toolSearch: "false", mcp: mcpOk }, extra: { connectors: many } });
-  assert.equal(off.seen[0].tools.length, 349);
+  // (exit_plan_mode is listed in every mode with tool search off, among Coder's own tools before the connectors': Claude
+  // Code's, recheck 2's T5. So the connectors' tools leave it its room in every mode.)
+  assert.equal(off.seen[0].tools.length, 350);
   const plan = await job([say("done")], { deps: { toolSearch: "false", mcp: mcpOk }, extra: { connectors: many, mode: "plan" } });
   assert.equal(plan.seen[0].tools.length, 350);
-  assert.equal(names(plan.seen[0]).at(-1), "exit_plan_mode");
+  for (const r of [off, plan]) { const n = names(r.seen[0]); const at = n.indexOf("exit_plan_mode"); assert.ok(at >= 0 && at < n.findIndex((x) => x.startsWith("mcp__")), "before the connectors' tools"); }
   // Tool search on: all 400 named, none sent until loaded.
   const on = await job([say("done")], { deps: { mcp: mcpOk }, extra: { connectors: many } });
   const note = on.seen[0].messages.find((m) => String(m.content).includes("deferred tools are now available"));
