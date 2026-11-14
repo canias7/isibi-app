@@ -1881,7 +1881,8 @@ test("CD258 a protected file is written only once the owner allows it, on a card
   k = 0; events = [];
   const gh = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { path: ".vscode/tasks.json", content: "{}\n" }, "w7")]) : say("Done.")) }, { text: "add a task", github: true });
   await assert.rejects(access(join(dir, ".vscode/tasks.json")));
-  assert.match(told(gh.messages, "w7"), /^error: \.vscode\/tasks\.json is a protected file .* not changed in a job started from GitHub/);
+  // (Told Claude Code's ask itself since round 6, as its run with no one to answer returns it: Write's check of a protected path.)
+  assert.equal(told(gh.messages, "w7"), "Coder requested permissions to edit .vscode/tasks.json which is a sensitive file.");
   assert.ok(!events.some((e) => e.type === "writeask"));
   // The chat: the card, its buttons, and the chat waiting for the owner.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
@@ -2188,7 +2189,7 @@ test("CD264 Coder's app treats edit as it treats write (tool 3): a protected fil
   // From GitHub, where no one can allow it: not edited.
   events = []; k = 0;
   const gh = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm run lint", new_string: "npm test" }, "e4")]) : say("Done.")) }, { text: "put npm test back", github: true });
-  assert.match(told(gh.messages, "e4"), /^error: \.husky\/pre-commit is a protected file .* so it is not changed in a job started from GitHub/);
+  assert.equal(told(gh.messages, "e4"), "Coder requested permissions to edit .husky/pre-commit which is a sensitive file.");
   assert.equal(await readFile(join(dir, ".husky/pre-commit"), "utf8"), "#!/bin/sh\nnpm run lint\n");
   // old_str and new_str: edited, and the security check (afterFile) gets the new text as new_string.
   const after = [];

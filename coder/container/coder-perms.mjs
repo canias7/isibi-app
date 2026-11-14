@@ -988,13 +988,14 @@ export function monitorRules(rules, mode = "auto") {
   return out;
 }
 /**
- * A MONITOR'S DECISION NAMING THE OWNER'S OWN RULE (monitorRules' `named`): the rule, and an ask's "Your rule … asks first"
- * sentence, as the owner wrote it. A deny's sentence stays Claude Code's, which says Bash for a monitor too.
+ * A MONITOR'S DECISION NAMING THE OWNER'S OWN RULE (monitorRules' `named`): the rule, and an ask's sentence for it, Claude
+ * Code's "Permission rule … requires confirmation" (ruleAskWhy), as the owner wrote it; Coder is told Claude Code's words for
+ * a Monitor rule's ask, "… to use Monitor, …" (round 6). A deny's sentence stays Claude Code's, which says Bash for a monitor too.
  */
 export function namedForMonitor(dec, rules) {
   const orig = dec && typeof dec.rule === "string" && rules && rules.named ? rules.named[dec.verdict + ":" + dec.rule] : "";
   if (!orig) return dec;
-  return { ...dec, rule: orig, ...(dec.verdict === "ask" && typeof dec.why === "string" ? { why: dec.why.replace("Your rule " + dec.rule + " ", "Your rule " + orig + " ") } : {}) };
+  return { ...dec, rule: orig, ...(dec.verdict === "ask" && typeof dec.why === "string" ? { why: dec.why.replace(" rule " + dec.rule + " ", " rule " + orig + " "), told: askedWhy("Monitor") } : {}) };
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
@@ -1021,12 +1022,24 @@ export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[ki
 export function wsDecision({ rules = {}, mode = "auto" } = {}) {
   if (wholeRule(rules, "deny", "Bash")) return { verdict: "deny", why: MONITOR_BASH_DENIED };
   if (wholeRule(rules, "deny", "Monitor")) return { verdict: "deny", why: "Permission to use Monitor has been denied." };
+  // (A rule's ask on Claude Code's card for a watch, its Monitor dialog's for a WebSocket: "… requires confirmation for this
+  // tool."; round 6. What Coder is told is the watch's own ask, in coder-agent.mjs: a rule adds nothing to it in Claude Code.)
   const bashAsk = wholeRule(rules, "ask", "Bash");
-  if (bashAsk) return { verdict: "ask", byRule: true, strict: true, rule: bashAsk, why: "Your rule " + bashAsk + " asks first for every command, and a WebSocket watch runs code as Bash does, so only you can approve it." };
+  if (bashAsk) return { verdict: "ask", byRule: true, strict: true, rule: bashAsk, why: ruleAskWhy(bashAsk, normMode(mode), "tool") };
   const monAsk = wholeRule(rules, "ask", "Monitor");
-  if (monAsk) return { verdict: "ask", byRule: true, rule: monAsk, why: "Your rule " + monAsk + " asks first." };
+  if (monAsk) return { verdict: "ask", byRule: true, rule: monAsk, why: ruleAskWhy(monAsk, normMode(mode), "tool") };
   if (mode !== "auto" && wholeRule(rules, "allow", "Monitor")) return { verdict: "allow" };
   return mode === "auto" ? { verdict: "check" } : { verdict: "ask", why: "" };
+}
+/**
+ * A WEBSOCKET WATCH'S ASK in Claude Code 2.1.325's words (its Monitor's permission check for `ws`; round 6): "Monitor will open
+ * a WebSocket to <url>", with its subprotocols, " (subprotocols: "a", "b")", at most 4 named, each cut at 48 characters with
+ * "…", and " (+N more)".
+ */
+export function wsAskText(url, protocols = []) {
+  const list = Array.isArray(protocols) ? protocols.filter((x) => typeof x === "string") : [];
+  const named = list.slice(0, 4).map((x) => ([...x].length > 48 ? [...x].slice(0, 48).join("") + "…" : x));
+  return "Monitor will open a WebSocket to " + url + (list.length ? " (subprotocols: " + named.map((x) => '"' + x + '"').join(", ") + (list.length > named.length ? " (+" + (list.length - named.length) + " more)" : "") + ")" : "");
 }
 /**
  * A MONITOR CALL'S `ws` INPUT CHECKED, in Claude Code's words (its Monitor tool's input): "" when it is right.
@@ -1607,9 +1620,10 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // 2026-11-11; the owner: "yes copy all of them".)
   if (fd) return { verdict: "deny", rule: fd.rule, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   const a = settingHit(ask) || exactHit(ask) || commandHit(ask);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
+  // (In Claude Code's words since round 6: its card's line for a rule, ruleAskWhy; Coder told its ask message, askedWhy.)
+  if (a) return { verdict: "ask", rule: a.text, why: ruleAskWhy(a.text, normMode(mode)), told: askedWhy("Bash"), suggest: null, byRule: true };
   const fa = fileHit("ask");
-  if (fa) return { verdict: "ask", rule: fa.rule, why: "Your rule " + fa.rule + " asks first for this command.", suggest: null, byRule: true };
+  if (fa) return { verdict: "ask", rule: fa.rule, why: ruleAskWhy(fa.rule, normMode(mode)), told: askedWhy("Bash"), suggest: null, byRule: true };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   // WHAT THE OWNER'S READ AND EDIT ALLOW RULES OPEN outside the project (Claude Code: an input redirect's "target outside the
   // working directories needs your approval unless an allow rule covers it"; the same for the paths a command reads, and, in
@@ -2116,6 +2130,33 @@ export const sensitiveWhy = (target, from = "") => (settingsFileOf(target) ? "Co
 export const globDotDotWhy = (p, against) => "A glob before the '..' in '" + p + "' is expanded by the shell before the path is opened, so the target cannot be checked" + against + ". Spell the path without the glob.";
 export const linkOutWhy = (from, to) => from + " resolves through a symlink to " + to + ", which is outside the allowed working directories";
 
+// ── CLAUDE CODE'S WORDS FOR AN ASK RULE, A HOOK'S ASK AND PLAN MODE (round 6, 2026-11-14) ──
+// (The owner: "do what claude code does". Each from Claude Code 2.1.325's program: its permission dialog's reason line, which
+// Coder's card shows, and the ask's own message, what its model is told where no one can answer (a bare -p run returns the
+// ask) or, after its "What required approval:", under denyInsteadOfPrompting.)
+/**
+ * AN ASK RULE'S LINE ON A CARD: "Permission rule <rule> requires confirmation for this command." (its dialog's words for a rule,
+ * the rule in bold there; "… this tool." on any card but a command's: Bash, PowerShell and a Monitor command say "command"),
+ * and in auto mode "Ask rule <rule> overrides auto mode for this command." (the owner's rules are never managed policy here).
+ */
+export const ruleAskWhy = (rule, mode = "", what = "command") => (mode === "auto" ? "Ask rule " + rule + " overrides auto mode for this " + what + "." : "Permission rule " + rule + " requires confirmation for this " + what + ".");
+/** A rule's ask as its model is told it: "Claude requested permissions to use Bash, but you haven't granted it yet." */
+export const askedWhy = (tool) => "Coder requested permissions to use " + tool + ", but you haven't granted it yet.";
+/**
+ * A PreToolUse hook's ask with no reason of its own: its dialog's line, "Hook PreToolUse:Bash requires confirmation for this
+ * command." (with one, the hook's reason, as its cloud card is given it), and what its model is told, "Hook PreToolUse:Bash asked
+ * for confirmation for this tool".
+ */
+export const hookAskWhy = (tool, what = "tool") => "Hook PreToolUse:" + tool + " requires confirmation for this " + what + ".";
+export const hookAskTold = (tool) => "Hook PreToolUse:" + tool + " asked for confirmation for this tool";
+/**
+ * PLAN MODE'S ASK: a write or an edit, "Cannot write to <path> while in plan mode." (Write's and Edit's check, after the
+ * protected paths'); another call that may change something, "Cannot call <tool> while in plan mode." (its MCP tools'). Its
+ * dialog has no line for plan mode: the card shows these, as round 5's file cards show the ask's own words.
+ */
+export const planWriteWhy = (path) => "Cannot write to " + ccPath(path) + " while in plan mode.";
+export const planCallWhy = (tool) => "Cannot call " + tool + " while in plan mode.";
+
 // ── THE READ BLOCK ───────────────────────────────────────────────────────────
 /**
  * READS OUTSIDE THE PROJECT, BLOCKED (Bash docs pass 4, the owner, 2026-11-10: "Ok do that too"; Claude Code's
@@ -2538,7 +2579,7 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   const gone = psRemovals(p, pieces, { pathAbs, cwd, home });
   if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
   const a = settingHit(rulesFor(rules.ask, "PowerShell", true)) || hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
+  if (a) return { verdict: "ask", rule: a.text, why: ruleAskWhy(a.text, m), told: askedWhy("PowerShell"), suggest: null, byRule: true };
   // (The "don't ask again" rule each question offers is Claude Code's: the command itself for its safety checks, provider
   // paths and file redirections; none for a command it cannot parse, the git, archive and .git checks, or deleting the
   // working folder; on the last question, each command that needs approval. See psExactRule.)

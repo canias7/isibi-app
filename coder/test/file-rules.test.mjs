@@ -128,7 +128,10 @@ test("CD382c the files Coder's commands name go by the owner's Read and Edit rul
   assert.equal(d("cat README.md && echo ok > out.txt", deny).verdict, "allow", "other files: as before");
   // Ask: the owner's rule asks each time (no "don't ask again").
   const a = d("cat notes.md", { ask: ["Read(*.md)"] });
-  assert.deepEqual([a.verdict, a.rule, a.why, a.suggest, a.byRule], ["ask", "Read(*.md)", "Your rule Read(*.md) asks first for this command.", null, true]);
+  // (In Claude Code 2.1.325's words since round 6: its card's line for a rule, "Ask rule … overrides auto mode for this
+  // command." in Auto, "Permission rule … requires confirmation for this command." otherwise.)
+  assert.deepEqual([a.verdict, a.rule, a.why, a.suggest, a.byRule], ["ask", "Read(*.md)", "Ask rule Read(*.md) overrides auto mode for this command.", null, true]);
+  assert.equal(d("cat notes.md", { ask: ["Read(*.md)"] }, "plan").why, "Permission rule Read(*.md) requires confirmation for this command.");
   // Allow: a read outside the project (which asks in Accept edits and Plan) is open by a Read rule; a write outside, in Accept
   // edits, by an Edit rule ("A rule such as Bash(git commit *) allows the command, not the target").
   assert.equal(d("cat /etc/hostname", {}, "acceptEdits").verdict, "ask");
@@ -490,7 +493,8 @@ test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory und
   // Another file in that folder is still a protected file of the project: asked.
   const other = await run("acceptEdits", () => [call("write", { path: ".claude/plans/notes.md", content: "x" }, "w2")], {}, [{ choice: "yes" }]);
   assert.equal(other.cards.length, 1);
-  assert.equal(other.cards[0].why, ".claude/plans/notes.md is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built.");
+  // (In Claude Code's words since round 6, Write's own check of a protected path, by its path in full.)
+  assert.match(other.cards[0].why, /^Coder requested permissions to edit \/\S*\/\.claude\/plans\/notes\.md which is a sensitive file\.$/);
   // The owner's deny and ask rules still apply to the plan file (Claude Code checks them before its plan files' exception).
   const denied = await run("acceptEdits", (f) => [call("write", { path: f, content: "x" }, "w3")], { deny: ["Edit(.claude/**)"] });
   assert.equal(denied.told("w3"), "File is in a directory that is denied by your permission settings.");
@@ -645,7 +649,7 @@ test("CD382n (round 5) a command that writes the chat's own plan file, in a plan
   assert.equal(bd(forms[0], "plan").verdict, "ask");
   // The owner's deny and ask rules come first (Claude Code checks them before its plan files' exception).
   assert.equal(bd(forms[0], "acceptEdits", { rules: { deny: ["Edit(.claude/**)"] } }).verdict, "deny");
-  assert.equal(bd(forms[0], "acceptEdits", { rules: { ask: ["Edit(.claude/plans/**)"] } }).why, "Your rule Edit(.claude/plans/**) asks first for this command.");
+  assert.equal(bd(forms[0], "acceptEdits", { rules: { ask: ["Edit(.claude/plans/**)"] } }).why, "Permission rule Edit(.claude/plans/**) requires confirmation for this command.");
   // The plan file in the chat's own plans folder, outside the project: written and read as the scratch folder is ("… allowed
   // for reading" too); another file beside it is outside the project, asked.
   const MEM = "/srv/coder-memory/shop.plans/fix-the-cart.md";

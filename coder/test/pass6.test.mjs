@@ -192,7 +192,7 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.ok(!t.events.some((e) => e.type === "todo"));
   // An ask rule on Coder's other tools: a card first; Yes runs it, No stops.
   t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] } });
-  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "task_create", "Use TaskCreate", "Your rule * asks first for TaskCreate."]);
+  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "task_create", "Use TaskCreate", "Ask rule * overrides auto mode for this tool."]);
   assert.ok(t.events.some((e) => e.type === "todo"));
   t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["TaskCreate"], allow: [] }, answers: [{ choice: "no" }] });
   assert.ok(!t.events.some((e) => e.type === "todo"));

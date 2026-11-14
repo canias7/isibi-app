@@ -130,19 +130,21 @@ test("CD527 a Monitor rule's card names the owner's rule as written (round 5: \"
   let d = decide({ allow: [], ask: ["Monitor"], deny: [] }, "echo hi");
   assert.equal(d.verdict, "ask");
   assert.equal(d.rule, "Monitor");
-  assert.equal(d.why, "Your rule Monitor asks first for this command.");
+  // (In Claude Code 2.1.325's words since round 6: its card's line for a rule, and what Coder is told, its ask for a Monitor rule.)
+  assert.equal(d.why, "Permission rule Monitor requires confirmation for this command.");
+  assert.equal(d.told, "Coder requested permissions to use Monitor, but you haven't granted it yet.");
   d = decide({ allow: [], ask: ["Monitor(echo:*)"], deny: [] }, "echo hi");
-  assert.equal(d.why, "Your rule Monitor(echo:*) asks first for this command.");
+  assert.equal(d.why, "Permission rule Monitor(echo:*) requires confirmation for this command.");
   d = decide({ allow: [], ask: [], deny: ["Monitor(timeout_ms:*)"] }, "echo hi", { timeout_ms: 5000 });
   assert.equal(d.verdict, "deny");
   assert.equal(d.rule, "Monitor(timeout_ms:*)");
   assert.equal(d.why, "Permission to use Bash with command echo hi has been denied.", "Claude Code's own deny sentence");
   // The owner's own Bash rule, the same as a turned Monitor rule: either may have matched, so it is left as it is.
   d = decide({ allow: [], ask: ["Monitor", "Bash"], deny: [] }, "echo hi");
-  assert.equal(d.why, "Your rule Bash asks first for this command.");
+  assert.deepEqual([d.why, d.told], ["Permission rule Bash requires confirmation for this command.", "Coder requested permissions to use Bash, but you haven't granted it yet."]);
   // Not a monitor: nothing to rename.
   const plain = { allow: [], ask: ["Bash"], deny: [] };
-  assert.equal(P.namedForMonitor(P.bashDecision("echo hi", { mode: "acceptEdits", rules: plain, cwd: "/w", workdirs: ["/w"], input: { command: "echo hi" } }), plain).why, "Your rule Bash asks first for this command.");
+  assert.equal(P.namedForMonitor(P.bashDecision("echo hi", { mode: "acceptEdits", rules: plain, cwd: "/w", workdirs: ["/w"], input: { command: "echo hi" } }), plain).why, "Permission rule Bash requires confirmation for this command.");
   assert.equal(P.namedForMonitor({ verdict: "allow" }, { named: {} }).verdict, "allow");
 });
 
