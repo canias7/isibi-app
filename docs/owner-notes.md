@@ -17,6 +17,33 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Rounds 4, 5 and 6 are live on gofarther.dev, tested with Grok on Low (your words: "yes pls")
+
+Merged into main and deployed (deploy 189). Then one test chat of canias7/testingforclaude with Grok on Low, ten checks,
+all passed:
+
+1. **Environment lookup:** Coder found "Live test 10 Nov"; opened, the step shows the answer as a table.
+2. **Cheaper messages:** on the second message, 18,048 of Grok's 18,156 input tokens (99%) came from its cache.
+3. **Long output:** `seq 1 300000` (1.9 MB) was saved to a file; Coder saw "Output too large (1.9MB)." with the start and
+   end.
+4. **Binary file:** read refused a `.zip` in Claude Code's words.
+5. **No:** the fetch card offered "Yes, and don't ask again for example.org"; after No, the two reads beside it kept
+   their results and the fetch was "not run".
+6. **Stop:** Stop cut a running command (exit 137); asked afterwards, Coder quoted Claude Code's "stopped while it ran"
+   text.
+7. **Card words:** "Permission rule Read(./notes/**) requires confirmation for this command." and "Coder requested
+   permissions to read from …/notes/a.txt, but you haven't granted it yet."
+8. **Environment window:** the Description row is there; the description isn't repeated at the top.
+9. **Hooks get full paths:** Grok asked for `README.md`; the hook got `/data/work/testingforclaude-njpkw12i/README.md`.
+10. **`.bmp` and `~/`:** `t.bmp` refused as a binary file; `~/.bashrc` refused as outside the project.
+
+- **Found, being looked at:** the cache misses once more than it should after Coder loads a tool through tool search,
+  and once after Coder answers your own `!` command (1,152 of about 20,000 tokens cached on those messages, then back to
+  98-99%). A helper is reproducing it on my side, without paid calls.
+- **My test script's mistake, not Coder's:** my last check was sent while Coder was still answering my `!` command; its
+  card waited, the job paused after 5 minutes as designed, and answering the card finished it.
+- **Cost:** about 15 Grok messages on Low.
+
 ## 2026-11-14: Round 6: Claude Code's way on the open questions (your words: "do what claude code does")
 
 On my branch with rounds 4 and 5, not deployed yet. Four helpers, each with follow-ups. All 1,181 tests passed after
