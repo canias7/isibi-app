@@ -4,6 +4,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 
 const F = await import("../container/coder-filerules.mjs");
 const P = await import("../container/coder-perms.mjs");
@@ -219,7 +220,10 @@ test("CD382e the page: a card for a read or a search a rule asks about shows its
   assert.equal(shown("Read(//tmp/data/**)"), "reading /tmp/data/");
   assert.equal(shown("Read(//tmp/run \\[1\\]/**)"), "reading /tmp/run [1]/");
   assert.equal(shown("Bash(npm test *)"), "npm test *");
-  assert.match(src, /For files, <code>Read\(\.\/\.env\)<\/code> or <code>Edit\(src\/\*\*\)<\/code>, written as in a \.gitignore: <code>\/\/<\/code> starts at the machine\\'s root, <code>~\/<\/code> at Coder\\'s home, any other path at the project\./);
+  // (Where a path counts from, as it is since round 4: a relative one from the folder Coder is in, and for a deny or ask rule
+  // from the project and the working folders too. Round 5.)
+  assert.match(src, /For files, <code>Read\(\.\/\.env\)<\/code> or <code>Edit\(src\/\*\*\)<\/code>, written as in a \.gitignore: <code>\/\/<\/code> starts at the machine\\'s root, <code>~\/<\/code> at Coder\\'s home, <code>\/<\/code> at the project, and any other path at the folder Coder is in\. Deny and ask rules with such a path also apply from the project and the working folders\./);
+  assert.doesNotMatch(src, /any other path at the project/);
   // The machine's image has the new module.
   assert.match(read("container/Dockerfile"), / coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs /);
 });
@@ -494,4 +498,179 @@ test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory und
   const asked = await run("acceptEdits", (f) => [call("write", { path: f, content: "x" }, "w4")], { ask: ["Edit(.claude/plans/**)"] }, [{ choice: "yes" }]);
   assert.equal(asked.cards.length, 1);
   assert.match(asked.cards[0].why, /^Your rule Edit\(\.claude\/plans\/\*\*\) asks first for writing /);
+});
+
+// ── ROUND 5 (2026-11-14, the owner: "Yes pls" to the last differences round 4's rules helper found) ──
+// Coder's loop with its tools run for real on a project (coder-tools.mjs, as Coder's machine runs it).
+async function realLoop(d, steps, { rules = {}, mode = "acceptEdits", hooks = null, here = d } = {}) {
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const H = await import("../container/coder-hooks.mjs");
+  const TOOLS = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const events = [], hookCalls = [], ran = [];
+  let n = 0;
+  const r = await runCoder({
+    send: async () => steps[Math.min(n++, steps.length - 1)],
+    exec: async (x) => {
+      const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+      if (mark && x.hook === true) { hookCalls.push(JSON.parse(x.payload)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
+      const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
+      if (!tm) { ran.push(String(x.command)); return { code: 0, output: "ok\n" }; }
+      const req = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"));
+      const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: d, encoding: "utf8", env: { PATH: process.env.PATH, ...(here !== d ? { CODER_CWD: here } : {}) } });
+      return { code: out.status, output: out.stdout };
+    },
+    emit: (e) => events.push(e), here: () => here, root: d, chatId: "r5", where: (p) => (p.startsWith("/") ? p : here + "/" + p),
+    ask: async () => ({ choice: "yes" }), toolSearch: "false",
+  }, { text: "go", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules }, ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}) });
+  const told = (id) => ((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "").replace(/^\u0000coder-facts\u0000[^\n]*\n/, "");
+  return { r, events, hookCalls, ran, told };
+}
+const callR = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+const sayR = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+
+test("CD382m (round 5) a grep or glob of the project's own folder under a Read(**) deny rule runs and finds no files, as Claude Code 2.1.325's does (its Grep and Glob check their folder's own path, as any path is checked, and their search leaves out each file the rule covers); a folder below the project is still refused; nothing inside a folder is tried for it", async () => {
+  const fd = (tool, p, rules, cwd) => P.fileToolDecision(tool, p, { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, home: HOME, ...(cwd ? { cwd } : {}) });
+  for (const t of ["grep", "glob"]) {
+    assert.deepEqual(fd(t, ROOT, { deny: ["Read(**)"] }), { verdict: "", rule: "", why: "" }, t + ": the project's own folder");
+    assert.equal(fd(t, ROOT, { ask: ["Read(**)"] }).verdict, "", t + ": no card for it either");
+    assert.deepEqual(fd(t, ROOT + "/src", { deny: ["Read(**)"] }), { verdict: "deny", rule: "Read(**)", why: "Permission to read /work/shop/src has been denied." }, t);
+    assert.equal(fd(t, ROOT + "/src", { ask: ["Read(**)"] }).why, "Coder requested permissions to read from /work/shop/src, but you haven't granted it yet.", t);
+  }
+  // (The folder's own path only, as Claude Code's Yx checks it: a rule for what is in a folder leaves its search to run.)
+  assert.equal(fd("grep", ROOT + "/src", { deny: ["Read(src/*)"] }).verdict, "");
+  assert.equal(fd("grep", ROOT + "/secrets", { deny: ["Read(secrets/)"] }).verdict, "");
+  assert.equal(fd("grep", ROOT + "/secrets", { deny: ["Read(secrets/**)"] }).verdict, "deny", "a folder's x/** is the folder");
+  // (From a subfolder, the project's folder counts too for a deny rule: that subfolder is below it.)
+  assert.equal(fd("glob", ROOT + "/sub", { deny: ["Read(**)"] }, ROOT + "/sub").verdict, "deny");
+  // Coder's loop, its tools run for real.
+  if (spawnSync("rg", ["--version"]).status !== 0) return;
+  const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const d = await mkdtemp(join(tmpdir(), "coder-r5-search-"));
+  await mkdir(join(d, "src"), { recursive: true });
+  await writeFile(join(d, "a.js"), "TODO one\n"); await writeFile(join(d, "src", "b.js"), "TODO two\n");
+  const t = await realLoop(d, [sayR("", [callR("grep", { pattern: "TODO" }, "g1"), callR("glob", { pattern: "**/*.js" }, "g2"), callR("grep", { pattern: "TODO", path: "src" }, "g3"), callR("read", { path: "a.js" }, "r1")]), sayR("Done.")], { rules: { deny: ["Read(**)"] } });
+  assert.equal(t.told("g1"), "No files found");
+  assert.equal(t.told("g2"), "No files found");
+  assert.equal(t.told("g3"), "Permission to read " + join(d, "src") + " has been denied.");
+  assert.equal(t.told("r1"), "File is in a directory that is denied by your permission settings.");
+  // Without the rule, the same searches find the files.
+  const t2 = await realLoop(d, [sayR("", [callR("grep", { pattern: "TODO" }, "g1")]), sayR("Done.")]);
+  assert.match(t2.told("g1"), /^Found 2 files\n/);
+});
+
+test("CD382n (round 5) a command that writes the chat's own plan file, in a plansDirectory under .claude, runs as Claude Code 2.1.325's does (its \"Plan files for current session are allowed for writing\", in its check of each path a file command or an output redirection names, before its protected paths): no protected-file card for >, >>, tee, touch, rm, cp, mv or sed -i on it; a wildcard, a ~, a cd before it, a link or another file there still asks; the owner's deny rules still apply; the plan file outside the project is read and written as the scratch folder is", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const PF = ROOT + "/.claude/plans/fix-the-cart.md", OTHER = ROOT + "/.claude/plans/notes.md";
+  const isProt = (full) => { const rel = full.startsWith(ROOT + "/") ? full.slice(ROOT.length + 1) : ""; return rel ? A.protectedFile(rel) || A.protectedFile(rel + "/x") : ""; };
+  const bd = (cmd, mode, o = {}) => P.bashDecision(cmd, { mode, rules: { allow: [], ask: [], deny: [], ...(o.rules || {}) }, cwd: ROOT, workdirs: [ROOT], isProtected: isProt, real: o.real || ((p) => p), home: HOME, scratch: ["/tmp/scratch"], planFile: "planFile" in o ? o.planFile : PF, byCommand: o.byCommand ?? true });
+  const deps = { root: ROOT, home: HOME, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p) };
+  const ca = (cmd, o = {}) => A.commandAsk(cmd, deps, ROOT, { real: o.real || ((p) => p), allowed: () => false, planFile: "planFile" in o ? o.planFile : PF });
+  const forms = [`echo "1. Fix it" > .claude/plans/fix-the-cart.md`, "echo more >> " + PF, "printf x | tee .claude/plans/fix-the-cart.md", "touch .claude/plans/fix-the-cart.md", "rm .claude/plans/fix-the-cart.md", "cp /tmp/scratch/p.md .claude/plans/fix-the-cart.md", "mv /tmp/scratch/p.md .claude/plans/fix-the-cart.md", "sed -i s/a/b/ .claude/plans/fix-the-cart.md"];
+  for (const cmd of forms) {
+    assert.equal(ca(cmd), null, cmd + ": no protected-file card");
+    assert.equal(ca(cmd, { planFile: "" }).kind, "protected", cmd + ": a .claude file of the project otherwise");
+    assert.doesNotMatch(bd(cmd, "acceptEdits").why, /sensitive file/, cmd);
+  }
+  // In Accept edits (the repository's own acceptEdits): as any file of the project, the file commands and redirections run.
+  for (const cmd of [forms[0], forms[1], forms[3], forms[4], forms[7]]) assert.equal(bd(cmd, "acceptEdits").verdict, "allow", cmd);
+  // In Claude Code's cloud "default": a redirection runs; a file command asks as any command does.
+  assert.equal(bd(forms[0], "acceptEdits", { byCommand: false }).verdict, "allow");
+  assert.deepEqual([bd(forms[3], "acceptEdits", { byCommand: false }).verdict, bd(forms[3], "acceptEdits", { byCommand: false }).why], ["ask", "This command requires approval"]);
+  // Still asked: another file in that folder, a wildcard, a link, a folder named as the file, a cd before it.
+  assert.equal(ca("echo x > .claude/plans/notes.md").kind, "protected");
+  assert.equal(bd("echo x > .claude/plans/notes.md", "acceptEdits").why, "Coder requested permissions to edit " + OTHER + " which is a sensitive file.");
+  assert.equal(bd("echo x > .claude/plans/*.md", "acceptEdits").why, "Shell expansion syntax in paths requires manual approval");
+  assert.equal(ca("echo x > " + PF, { real: (p) => (p === PF ? "/etc/passwd" : p) }).kind, "protected", "through a link");
+  assert.match(bd("echo x > " + PF, "acceptEdits", { real: (p) => (p === PF ? ROOT + "/.claude/settings.json" : p) }).why, /sensitive file/);
+  assert.equal(ca("mkdir -p .claude/plans/fix-the-cart.md/x").kind, "protected");
+  assert.equal(ca("cd .claude/plans && rm fix-the-cart.md"), null, "after a cd: the plan file there");
+  assert.equal(ca("cd .claude/plans && rm notes.md").kind, "protected");
+  assert.match(bd("cd .claude/plans && rm fix-the-cart.md", "acceptEdits").why, /^Commands that change directories and perform write operations require explicit approval/);
+  assert.match(bd("cd .claude/plans && echo x > fix-the-cart.md", "acceptEdits").why, /^Commands that change directories and write via output redirection require explicit approval/);
+  // Plan mode changes no files with a command, the plan file's included (Coder's Plan mode, as before).
+  assert.equal(bd(forms[0], "plan").verdict, "ask");
+  // The owner's deny and ask rules come first (Claude Code checks them before its plan files' exception).
+  assert.equal(bd(forms[0], "acceptEdits", { rules: { deny: ["Edit(.claude/**)"] } }).verdict, "deny");
+  assert.equal(bd(forms[0], "acceptEdits", { rules: { ask: ["Edit(.claude/plans/**)"] } }).why, "Your rule Edit(.claude/plans/**) asks first for this command.");
+  // The plan file in the chat's own plans folder, outside the project: written and read as the scratch folder is ("… allowed
+  // for reading" too); another file beside it is outside the project, asked.
+  const MEM = "/srv/coder-memory/shop.plans/fix-the-cart.md";
+  assert.equal(bd("echo x > " + MEM, "acceptEdits", { planFile: MEM }).verdict, "allow");
+  assert.equal(bd("cat " + MEM, "acceptEdits", { planFile: MEM }).verdict, "allow");
+  assert.equal(bd("cat " + MEM, "acceptEdits", { planFile: "" }).verdict, "ask");
+  assert.equal(bd("cat /srv/coder-memory/shop.plans/other.md", "acceptEdits", { planFile: MEM }).verdict, "ask");
+  assert.equal(P.readBlockWhy("cat " + MEM, { cwd: ROOT, workdirs: [ROOT], home: HOME, ownDirs: [MEM] }), "", "the read block lets it be read (Coder's loop names it)");
+  // Coder's loop passes the chat's plan file to these checks.
+  const agent = read("container/coder-agent.mjs");
+  assert.equal((agent.match(/scratch: \[SCRATCH\], planFile: planPath\(\)/g) || []).length, 4);
+  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: [^\n]*, planFile: planPath\(\) \}\)/);
+  assert.equal((agent.match(/SCRATCH, \.\.\.\(planPath\(\) \? \[planPath\(\)\] : \[\]\)\]/g) || []).length, 2);
+  // In Coder's loop, with its plan file in .claude/plans: the command runs with no card; another file there gets the card.
+  const { mkdtemp, mkdir } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const PFS = await import("../container/coder-plan-file.mjs");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const root = await mkdtemp(join(tmpdir(), "coder-r5-plan-"));
+  await mkdir(join(root, ".claude", "plans"), { recursive: true });
+  for (const mode of ["acceptEdits", "auto"]) {
+    const box = PFS.planStore({ dir: await mkdtemp(join(tmpdir(), "coder-r5-pd-")), stateFile: join(await mkdtemp(join(tmpdir(), "coder-r5-st-")), "plan.json"), rand: () => 0, custom: { dir: join(root, ".claude", "plans"), root } });
+    const f = await box.name("Fix the cart");
+    const events = [], ran = [], cards = [];
+    let n = 0;
+    const steps = [sayR("", [callR("bash", { command: "echo '1. Fix it' > " + f, description: "Write the plan" }, "b1")]), sayR("", [callR("bash", { command: "echo x > .claude/plans/notes.md", description: "Write notes" }, "b2")]), sayR("Done.")];
+    await runCoder({
+      send: async () => steps[Math.min(n++, steps.length - 1)],
+      exec: async (x) => { ran.push(String(x.command)); return { code: 0, output: "" }; },
+      emit: (e) => events.push(e), here: () => root, root, chatId: "r5p", where: (p) => (p.startsWith("/") ? p : join(root, p)),
+      ask: async (pid) => { cards.push(events.find((e) => e.pid === pid)); return { choice: "no" }; },
+      plan: box, toolSearch: "false",
+    }, { text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [] } });
+    assert.ok(ran.some((c) => c.includes("echo '1. Fix it' > " + f)), mode + ": the plan file's command ran");
+    assert.equal(cards.length, 1, mode + ": one card, for notes.md: " + JSON.stringify(cards.map((c) => c && c.why)));
+    assert.match(String(cards[0].why || ""), /notes\.md which is a sensitive file/, mode);
+    assert.ok(!ran.some((c) => c.includes("notes.md")), mode + ": No: not run");
+  }
+});
+
+test("CD382o (round 5) a hook's `if` on Read, Edit, Write or NotebookEdit matches as Claude Code 2.1.325's (its akt): the path in full from the folder Coder's commands are in; a relative pattern from that folder too (it had counted from the project), `/` from the project, `//` the machine's root, `~/` the home folder; else a pattern that starts with `*`, or has no `*`, as text against the whole path; `X()` is the whole tool; another tool with a path in its input never matches", async () => {
+  const SUB = ROOT + "/sub";
+  const m = (rule, tool, input, cwd = SUB) => P.ifRuleMatches(rule, tool, input, { cwd, root: ROOT, home: HOME });
+  assert.equal(m("Edit(src/**)", "Edit", { file_path: SUB + "/src/a.ts" }), true);
+  assert.equal(m("Edit(src/**)", "Edit", { file_path: "src/a.ts" }), true, "a short path, from that folder");
+  assert.equal(m("Edit(src/**)", "Edit", { file_path: ROOT + "/src/a.ts" }), false, "not from the project any more");
+  assert.equal(m("Edit(src/**)", "Edit", { file_path: ROOT + "/src/a.ts" }, ROOT), true, "from the project when Coder is there");
+  assert.equal(m("Edit(./src/**)", "Edit", { file_path: SUB + "/src/a.ts" }), true);
+  assert.equal(m("Edit(/src/**)", "Edit", { file_path: ROOT + "/src/a.ts" }), true, "/ is the project");
+  assert.equal(m("Edit(/src/**)", "Edit", { file_path: SUB + "/src/a.ts" }), false);
+  assert.equal(m("Read(//etc/**)", "Read", { file_path: "/etc/hosts" }), true);
+  assert.equal(m("Read(~/notes/**)", "Read", { file_path: "~/notes/a.md" }), true);
+  assert.equal(m("Write(*.ts)", "Write", { file_path: "/tmp/x.ts" }), true, "a pattern that starts with * also as text: anywhere");
+  assert.equal(m("Write(*.ts)", "Write", { file_path: "/tmp/x.js" }), false);
+  assert.equal(m("Read(/tmp/x.txt)", "Read", { file_path: "/tmp/x.txt" }), true, "one with no * also as the whole path's text");
+  assert.equal(m("Read(src/a.ts)", "Read", { file_path: ROOT + "/src/a.ts" }), false, "anchored at the folder Coder is in");
+  assert.equal(m("Read(s*/a.ts)", "Read", { file_path: ROOT + "/src/a.ts" }), false, "a * in the middle: the folder's pattern only");
+  assert.equal(m("NotebookEdit(*.ipynb)", "NotebookEdit", { notebook_path: SUB + "/n.ipynb" }), true);
+  assert.equal(m("Read()", "Read", { file_path: "/x" }), true, "X() is the whole tool, as X and X(*)");
+  assert.equal(m("LSP(src/**)", "LSP", { path: SUB + "/src/a.ts" }), false, "no path matcher for LSP's hooks");
+  assert.equal(m("mcp__docs__open(src/**)", "mcp__docs__open", { path: SUB + "/src/a.ts" }), false, "nor a connector's");
+  // A hook's `if` as Coder's loop checks it: the folder Coder's commands are in comes in the call's ctx.
+  const H = await import("../container/coder-hooks.mjs");
+  const all = [{ event: "PreToolUse", matcher: "Read|Edit|Write", command: "fmt.sh", if: "Edit(src/**)", timeout: 600 }];
+  const run = (fp, cwd) => H.hooksFor(all, "PreToolUse", "Edit", { tool: "Edit", input: { file_path: fp }, ctx: { cwd, root: ROOT, home: HOME } }).length;
+  assert.deepEqual([run(SUB + "/src/a.ts", SUB), run(ROOT + "/src/a.ts", SUB), run(ROOT + "/src/a.ts", ROOT)], [1, 0, 1]);
+  assert.match(read("container/coder-agent.mjs"), /const pre = await runHooks\("PreToolUse", tool, \{ tool_name: tool, tool_input: input, tool_use_id: c\.id \}, \{ tool, input, ctx: \{ cwd: hookCtx\(\)\.cwd, root: deps\.root \|\| "\/", home: deps\.home \|\| "" \}/);
+  // Coder's loop: with its commands in a subfolder, a PreToolUse hook `if: "Read(src/**)"` runs for src/ there, not the project's.
+  const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const d = await mkdtemp(join(tmpdir(), "coder-r5-hook-"));
+  await mkdir(join(d, "sub", "src"), { recursive: true }); await mkdir(join(d, "src"), { recursive: true });
+  await writeFile(join(d, "sub", "src", "a.txt"), "sub\n"); await writeFile(join(d, "src", "b.txt"), "top\n");
+  const t = await realLoop(d, [sayR("", [callR("read", { path: "src/a.txt" }, "r1"), callR("read", { path: join(d, "src", "b.txt") }, "r2")]), sayR("Done.")], { here: join(d, "sub"), hooks: { PreToolUse: [{ matcher: "Read", hooks: [{ type: "command", command: "check.sh", if: "Read(src/**)" }] }] } });
+  assert.deepEqual(t.hookCalls.map((x) => x.tool_input.file_path), ["src/a.txt"]);
+  assert.match(t.told("r1"), /\tsub/);
+  assert.match(t.told("r2"), /\ttop/);
 });

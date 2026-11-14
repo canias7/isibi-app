@@ -354,6 +354,37 @@ function hitOne(rules, p, kind, ctx) {
 }
 
 /**
+ * A PATH IN FULL AS CLAUDE CODE MAKES ONE (2.1.325's St): trimmed; `~` and `~/…` in the home folder; a relative one from
+ * `base`; made plain. "" for an empty path.
+ */
+export function fullPathFrom(raw, base = "/", home = "") {
+  const n = String(raw ?? "").trim();
+  if (!n) return "";
+  if (home && n === "~") return plainPath(home);
+  if (home && n.startsWith("~/")) return plainPath(join(home, n.slice(2)));
+  return plainPath(n.startsWith("/") ? n : join(base || "/", n));
+}
+
+/**
+ * A HOOK'S `if` ON A FILE TOOL'S PATH, its pattern part (Claude Code 2.1.325's akt, the matcher its Read, Edit, Write and
+ * NotebookEdit tools give a hook's `if`): the rule's pattern read as an allow rule's, anchored as a permission rule's (`//` the
+ * machine's root, `~/` the home folder, `/` the project, as a rule of the session's own), and a relative one at the folder
+ * Coder's commands are in (its current folder: "a single-segment directory pattern like "Edit(src/**)" matches only the src
+ * directory in the working directory"), tested by the library on its own against `full`, the file's full path. (Round 5,
+ * 2026-11-14: Coder had counted a relative one from the project.) What else matches (`*.ts` anywhere) is ifRuleMatches'.
+ */
+export function ifPathMatches(spec, full, { cwd = "", root = "/", home = "" } = {}) {
+  const a = anchorOf(String(spec ?? ""), "allow", { root, home });
+  if (!a || typeof full !== "string" || !full.startsWith("/")) return false;
+  const kept = ccKept(ccClean(a.pattern), true);
+  if (kept === null) return false;
+  const base = plainPath(a.root !== null ? a.root : typeof cwd === "string" && cwd.startsWith("/") ? cwd : root);
+  const rel = relative(base, plainPath(full));
+  if (!rel || !igPathValid(rel)) return false;
+  try { return igTest(igRules([ccTrim(kept, true)]), rel).ignored; } catch { return false; }
+}
+
+/**
  * A FOLDER'S READ RULE, as Claude Code saves one for a `cd` out of the project on "Yes, and don't ask again" ("Subcommands
  * like cd into a directory outside your working directories generate their own Read rule for that path"): `Read(//dir/**)`,
  * its pattern characters escaped ("Claude Code escapes gitignore pattern characters in that path, such as [, ], and *, so
