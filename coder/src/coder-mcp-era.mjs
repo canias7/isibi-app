@@ -296,8 +296,45 @@ export function dropsVerdict(prior, e, method, { session = false } = {}) {
   const cls = eraClass(e, method);
   if (prior === "modern" && cls) return true;
   if (prior === "legacy" && (cls === "rpc_era" || (listing(method) && e.status === 400 && bodyEraError(e.body)))) return true;
-  if ((e.status === 404 && session) || (e.status === 400 && SESSION_GONE.test(String(e.body || "")))) return true;
+  if (sessionExpired(e, { session })) return true;
   return e.unreadable === true;
+}
+
+/**
+ * A SESSION THE SERVER NO LONGER KNOWS (round 6, follow-up 2), as Claude Code's tool call reads it (its Ko, with its own
+ * exception of a 404 on a connection with no session): a 404 to a request that carried a session, or a 400 that says
+ * "Server not initialized", "No valid session ID" or "Mcp-Session-Id header is required"; never a JSON-RPC error the server
+ * answered. Its McpSessionExpiredError ("session_expired_404"): the call did not run, so Claude Code connects again and
+ * sends it once more ("Retrying tool '<name>' after session recovery"), once; failing so again, in its words
+ * (sessionExpiredWords). src/coder-mcp.mjs callTool.
+ */
+export function sessionExpired(e, { session = false } = {}) {
+  if (!e || typeof e !== "object" || e.rpcCode !== undefined) return false;
+  return (e.status === 404 && session) || (e.status === 400 && SESSION_GONE.test(String(e.body || "")));
+}
+export const sessionExpiredWords = (server) => "MCP server \"" + server + "\" session expired";
+
+/**
+ * A NETWORK ERROR AS CLAUDE CODE COUNTS IT (round 6, follow-up 2; 2.1.325, its "terminal connection error"): never one with
+ * an HTTP status or a JSON-RPC code (the server answered); a connection refused, reset, broken or timed out on the network
+ * (ECONNRESET, ETIMEDOUT, EPIPE, EHOSTUNREACH, ECONNREFUSED, ConnectionRefused, ConnectionClosed, in its code or its words,
+ * or in its cause's, where Node's fetch puts them), a body timeout, a stream "terminated", an SSE stream disconnected; and
+ * the Worker's own words for a connection that dropped ("Network connection lost"). Claude Code counts them in a row on a
+ * connection and closes it at NET_ERRORS_MAX ("max consecutive terminal errors"), its next dial probing again; anything the
+ * server answers starts the count again. Coder keeps the count with the connector: src/coder-mcp.mjs keptSession.
+ */
+export const NET_ERRORS_MAX = 3;
+const NET_CODES = ["ECONNRESET", "ETIMEDOUT", "EPIPE", "EHOSTUNREACH", "ECONNREFUSED"];
+const NET_CODE_SET = new Set([...NET_CODES, "ConnectionRefused", "ConnectionClosed"]);
+const httpStatus = (n) => typeof n === "number" && n >= 100 && n <= 599;
+export function netError(e) {
+  for (let x = e, depth = 0; x && typeof x === "object" && depth < 3; x = x.cause, depth++) {
+    const code = x.code, words = String(x.message || "");
+    if (httpStatus(x.status) || httpStatus(code) || (typeof code === "number" && code < 0) || x.rpcCode !== undefined || /^Error POSTing to endpoint \(HTTP \d+\)/.test(words)) return false;
+    if (typeof code === "string" && NET_CODE_SET.has(code)) return true;
+    if (NET_CODES.some((c) => words.includes(c)) || words.includes("Body Timeout Error") || /\bterminated\b/.test(words) || words.includes("SSE stream disconnected") || words.includes("Failed to reconnect SSE stream") || words.includes("Network connection lost")) return true;
+  }
+  return false;
 }
 
 // ── RESULTS ────────────────────────────────────────────────────────────────────────────────────────────────────────────

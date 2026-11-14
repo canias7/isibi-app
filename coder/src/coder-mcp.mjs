@@ -18,7 +18,7 @@ import { modelPass } from "./coder-model-gate.mjs";
 import { CLIENT_CAPS, rootsResult, rootPaths, checkElicitRequest } from "../container/coder-elicit.mjs";
 import { serverTalk, keepAnswer, streamedCall, pollAnswer, elicitKey } from "./coder-elicit.mjs";
 // (MCP 2026-07-28, as Claude Code 2.1.325 speaks it: its probe, envelope, headers and results. Round 6.)
-import { discoverProbe, PROBE_TIMEOUT_MS, MODERN_VERSION, withEnvelope, modernHeaders, decodeResult, malformedResult, roundsExceeded, retryParams, ROUNDS_MAX, EMPTY_ROUND_MS, xMcpHeaders, paramHeaders, HEADER_MISMATCH, eraClass, dropsVerdict } from "./coder-mcp-era.mjs";
+import { discoverProbe, PROBE_TIMEOUT_MS, MODERN_VERSION, withEnvelope, modernHeaders, decodeResult, malformedResult, roundsExceeded, retryParams, ROUNDS_MAX, EMPTY_ROUND_MS, xMcpHeaders, paramHeaders, HEADER_MISMATCH, eraClass, dropsVerdict, sessionExpired, sessionExpiredWords, netError, NET_ERRORS_MAX } from "./coder-mcp-era.mjs";
 
 /**
  * THE PROTOCOL VERSION, AS CLAUDE CODE 2.1.325 NEGOTIATES IT ON ITS EARLIER HANDSHAKE (its MCP client's _legacyHandshake;
@@ -413,8 +413,17 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
   // the verdict kept with the connector (`prior`).
   const era = prior === "modern" ? { kind: "modern", version: MODERN_VERSION, discover: null } : prior === "legacy" ? { kind: "legacy" } : await discoverProbe(url, token, { fetchFn, timeoutMs: probeMs, client: CLIENT, caps: CLIENT_CAPS, onAuth: (h) => new NeedsSignIn(h) });
   if (era.kind === "modern") { modern = true; version = era.version; }
-  // (A failure as Claude Code reads it on a dial built from a kept verdict: marked when it drops that verdict or connects again.)
-  const mark = (e, method, withSession) => { if (e && typeof e === "object" && !(e instanceof NeedsSignIn) && dropsVerdict(prior, e, method, { session: withSession })) e.dropEra = true; return e; };
+  // (A failure as Claude Code reads it on a dial built from a kept verdict: marked when it drops that verdict or connects again.
+  // A tool call refused for a session the server no longer knows, `sessionExpired` (follow-up 2): Claude Code discards the
+  // connection ("clearing connection cache for re-initialization") and sends the call once more on a new one, callTool; the
+  // verdict goes with it, kept or found on this dial.)
+  const mark = (e, method, withSession) => {
+    if (e && typeof e === "object" && !(e instanceof NeedsSignIn)) {
+      if (method === "tools/call" && sessionExpired(e, { session: withSession })) e.sessionExpired = e.dropEra = true;
+      else if (dropsVerdict(prior, e, method, { session: withSession })) e.dropEra = true;
+    }
+    return e;
+  };
   // (A tool call's whole time, over the calls made again for its questions on a 2026-07-28 session: CALL_TOTAL_MS.)
   let deadline = 0;
   const headersNow = (msg = null, extra = null) => {
@@ -461,7 +470,8 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     armers.add(arm);
     arm();
     try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: ctl.signal }); }
-    catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize" }); }
+    // (A network error as Claude Code counts it, `network`: netError; one of Coder's own time limits is not one: `timedOut`.)
+    catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize", ...(why ? { timedOut: true } : netError(e) ? { network: true } : {}) }); }
     // (Claude Code: a server "needs auth" on 401 Unauthorized or 403 Forbidden.)
     if (res.status === 401 || res.status === 403) { done(); throw new NeedsSignIn(res.headers.get("www-authenticate")); }
     // (MCP 2026-07-28: a 400 whose body is the JSON-RPC error for this request is its answer, as Claude Code's transport reads
@@ -491,7 +501,7 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     // questions come in results. Its notices are read as before.)
     const onMessage = (m) => { if (modern && (typeof m.id === "string" || typeof m.id === "number")) return; talk.message(m, ctx); };
     try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage, resume, wait }); }
-    catch (e) { throw why ? lost() : mark(e, method, withSession); }
+    catch (e) { throw why ? lost() : mark(netError(e) ? Object.assign(e, { network: true }) : e, method, withSession); }
     finally { done(); talk.end(ctx); }
   };
   // THE SERVER'S OWN STREAM (Claude Code 2.1.325's MCP client: its transport opens it with a GET once the server accepts the
@@ -970,7 +980,7 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.auth = "oauth";
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
-  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; keepVerdict(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
+  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
   await writeConnectors(bucket, p.uid, list);
   return { uid: p.uid, id: c.id };
 }
@@ -999,12 +1009,21 @@ export async function tokenOf(env, bucket, uid, c, { fetchFn = fetch, now = Date
 export const VERDICTS = Object.freeze(["modern", "legacy", "sse"]);
 export const verdictOf = (c) => (c && VERDICTS.includes(c.era) ? c.era : "");
 function keepVerdict(c, era) { if (VERDICTS.includes(era)) c.era = era; else delete c.era; }
-/** The verdict saved with the connector, on the list as it is now (read again, so nothing written meanwhile is lost). */
-async function saveVerdict(bucket, uid, id, era) {
+/**
+ * NETWORK ERRORS IN A ROW ON THAT CONNECTION (round 6, follow-up 2: Claude Code's consecutiveErrors, kept with the connector
+ * as `netErrors`, absent for none; never shown on the page): coder-mcp-era.mjs netError, NET_ERRORS_MAX.
+ */
+export const netErrorsOf = (c) => (c && Number.isSafeInteger(c.netErrors) && c.netErrors > 0 ? c.netErrors : 0);
+function keepCount(c, n) { if (n > 0) c.netErrors = n; else delete c.netErrors; }
+/** A connection made anew (the connector's tools read): what it found kept, its count of network errors from nothing. */
+function newConnection(c, era) { keepVerdict(c, era); keepCount(c, 0); }
+/** The verdict and the count saved with the connector, on the list as it is now (read again, so nothing written meanwhile is lost). */
+async function saveConnection(bucket, uid, id, era, count) {
   const list = await readConnectors(bucket, uid);
   const mine = list.find((x) => x.id === id);
-  if (!mine || verdictOf(mine) === (VERDICTS.includes(era) ? era : "")) return;
+  if (!mine || (verdictOf(mine) === (VERDICTS.includes(era) ? era : "") && netErrorsOf(mine) === count)) return;
   keepVerdict(mine, era);
+  keepCount(mine, count);
   await writeConnectors(bucket, uid, list);
 }
 /**
@@ -1012,20 +1031,32 @@ async function saveVerdict(bucket, uid, id, era) {
  * from its verdict, with no probe, as Claude Code's later requests on a connection (none kept, for a connector read before
  * this: probed now); a verdict found anew (that probe, or a dial made again) is kept; one Claude Code would drop, or after
  * which it connects again (`dropEra`), is dropped, so the next call probes as its next connection would. `fresh`: a
- * connection made again, as Claude Code's after a refreshed sign-in: probed.
+ * connection made again, as Claude Code's after a refreshed sign-in or a session that expired: probed.
+ * ITS NETWORK ERRORS (follow-up 2), as Claude Code counts them on a connection: one on a request of the connection (`network`,
+ * after its handshake: `era`) adds one; at NET_ERRORS_MAX in a row Claude Code closes the connection ("max consecutive
+ * terminal errors") and its next dial probes: the verdict dropped, the count from nothing. Whatever the server answers (a
+ * result, its error, an HTTP status) starts the count again; Coder's own time limits leave it as it is, as Claude Code's
+ * watchdogs, which are not the connection's errors.
  */
 async function keptSession(bucket, uid, c, token, steps, opts, { fresh = false } = {}) {
-  const was = verdictOf(c);
+  const was = verdictOf(c), count = netErrorsOf(c);
+  let era = was, n = count;
   try {
     const out = await mcpSession(c.url, token, steps, { ...opts, era: fresh ? "" : was });
-    const now = VERDICTS.includes(out.era) ? out.era : "";
-    if (now && now !== was) { keepVerdict(c, now); await saveVerdict(bucket, uid, c.id, now).catch(() => {}); }
+    if (VERDICTS.includes(out.era)) era = out.era;
+    n = 0;
     return out;
   } catch (e) {
     // (Dropped as Claude Code drops it; else what this connection found, when it got that far, is kept.)
-    if (e && e.dropEra) { if (was) { keepVerdict(c, ""); await saveVerdict(bucket, uid, c.id, "").catch(() => {}); } }
-    else if (e && VERDICTS.includes(e.era) && e.era !== was) { keepVerdict(c, e.era); await saveVerdict(bucket, uid, c.id, e.era).catch(() => {}); }
+    if (e && e.dropEra) { era = ""; n = 0; }
+    else {
+      if (e && VERDICTS.includes(e.era)) era = e.era;
+      if (e && e.network && VERDICTS.includes(e.era)) { n = count + 1; if (n >= NET_ERRORS_MAX) { era = ""; n = 0; } }
+      else if (!(e && (e.network || e.timedOut))) n = 0;
+    }
     throw e;
+  } finally {
+    if (era !== was || n !== count) { keepVerdict(c, era); keepCount(c, n); await saveConnection(bucket, uid, c.id, era, n).catch(() => {}); }
   }
 }
 
@@ -1058,7 +1089,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; keepVerdict(c, c.tools && c.tools.era); }
+    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -1068,7 +1099,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
       const again = await readConnectors(bucket, uid);
       const mine = again.find((x) => x.id === c.id);
       if (mine) c.box = mine.box;
-      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; keepVerdict(c, c.tools && c.tools.era);
+      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era);
     }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
@@ -1109,13 +1140,13 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
     // again in its next session: its tools are back for the next job once it answers. 2026-11-14.)
     const failed = c.status === "error" && !c.disabled;
     if (!failed && (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS))) continue;
-    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; keepVerdict(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
+    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) keepVerdict(c, mine.era); } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) newConnection(c, mine.era); } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -1144,27 +1175,37 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
   // (No task asked for: Claude Code's cloud sessions run no MCP tasks, on either revision. Round 6. On a 2026-07-28 session
   // its Mcp-Param-* headers go with it: paramHeaders.)
   // (On the connection Coder keeps for the connector, with no probe: keptSession; after a refreshed sign-in, a new one.)
-  const once = async (force) => {
+  const once = async (force, anew = force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
     const hdrs = Array.isArray(meta.headers) && meta.headers.length ? paramHeaders(meta.headers, argv) : null;
-    const [r] = await keptSession(bucket, uid, c, token, [["tools/call", { name: tool, arguments: argv }, hdrs]], { fetchFn, ...(wait ? { wait } : {}), ...(probeMs ? { probeMs } : {}), talk }, { fresh: force });
+    const [r] = await keptSession(bucket, uid, c, token, [["tools/call", { name: tool, arguments: argv }, hdrs]], { fetchFn, ...(wait ? { wait } : {}), ...(probeMs ? { probeMs } : {}), talk }, { fresh: anew });
     return resultText(r);
+  };
+  // CLAUDE CODE'S SESSION RECOVERY (round 6, follow-up 2; 2.1.325, its MCP tool's call): a call refused because the server no
+  // longer knows its session did not run (coder-mcp-era.mjs sessionExpired), so Claude Code connects again and sends it once
+  // more at once ("Retrying tool '<name>' after session recovery"), once in a call, whatever the tool: here on a new
+  // connection, probed, with its handshake. Refused so again: its words (sessionExpiredWords). An mcp_tool hook's call, a
+  // prompt and a resource are not sent again, as Claude Code's are not; their next call connects anew (dropsVerdict).
+  let recovered = false;
+  const send = async (force) => {
+    try { return await once(force); }
+    catch (e) { if (!(e && e.sessionExpired) || recovered) throw e; recovered = true; return await once(force, true); }
   };
   try {
     // (Claude Code: an idempotentHint tool, "safe to repeat with the same arguments", may be repeated once on a new
     // connection after a passing failure; any other tool never is. A call a 2026-07-28 server refused for its headers
     // (HeaderMismatch, before it ran) is made once more after its list is read again, as Claude Code's client does.)
     let r;
-    try { r = await once(false); }
+    try { r = await send(false); }
     catch (e) {
       if (e && e.rpcCode === HEADER_MISMATCH) {
         await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
         const fresh = (await readConnectors(bucket, uid)).find((x) => x.id === c.id);
         meta = (fresh && (fresh.tools || []).find((t) => t.name === tool)) || meta;
-        if (fresh) keepVerdict(c, verdictOf(fresh));
-        r = await once(false);
+        if (fresh) { keepVerdict(c, verdictOf(fresh)); keepCount(c, netErrorsOf(fresh)); }
+        r = await send(false);
       } else if (!(meta.idempotent && e && e.transient && !(e instanceof NeedsSignIn))) throw e;
-      else r = await once(false);
+      else r = await send(false);
     }
     // A tool the server no longer has: its list is read again, for the next job.
     if (r.isError && /unknown tool|tool not found|not found: ?tool/i.test(r.text)) await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
@@ -1173,12 +1214,13 @@ export async function callTool(env, bucket, uid, connectorId, tool, args, { fetc
   catch (e) {
     if (/unknown tool|tool not found/i.test(String(e && e.message))) await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
     if (e instanceof NeedsSignIn && c.auth === "oauth") {
-      try { return await once(true); } catch { /* below */ }
+      try { return await send(true); } catch { /* below */ }
     }
     if (e instanceof NeedsSignIn) {
       c.status = "auth"; await writeConnectors(bucket, uid, list);
       return { text: "error: the " + c.name + " connector " + (e.scope ? "needs more permissions for that: the owner reconnects it (Connectors, " + c.name + ", Reconnect) to give them" : "needs the owner to sign in again (Settings, Connectors)"), isError: true };
     }
+    if (e && e.sessionExpired) return { text: "error: " + sessionExpiredWords(c.name), isError: true };
     return { text: "error: " + String(e.message || e).slice(0, 300), isError: true };
   }
 }

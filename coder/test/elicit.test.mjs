@@ -1348,9 +1348,12 @@ test("EL28 (round 6 follow-up) when the kept verdict goes, as Claude Code drops 
   assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok modern", isError: false });
   assert.deepEqual([s.take(), await verdict(b)], [["initialize", "server/discover", "tools/call"], "modern"]);
   // A 2026-07-28 verdict, the server now only the earlier revisions (a call answered with a plain 400): the call fails; the next probes.
+  // (One whose 400 says "Server not initialized" is a session that expired, sent again at once: EL30.)
   st.mode = "legacy";
+  st.hook = ({ msg, modern }) => (modern && msg.method === "tools/call" ? new Response("Bad Request", { status: 400 }) : null);
   assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "error: the MCP server answered 400", isError: true });
   assert.equal(await verdict(b), undefined, "dropped");
+  st.hook = null;
   assert.deepEqual(await M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn }), { text: "ok legacy", isError: false });
   assert.deepEqual([s.take(), await verdict(b)], [["tools/call", "server/discover", "initialize", "notifications/initialized", "tools/call"], "legacy"]);
   // A handshake that fails otherwise (an initialize result it can't take): made again with the probe, the verdict kept.
@@ -1395,4 +1398,130 @@ test("EL28 (round 6 follow-up) when the kept verdict goes, as Claude Code drops 
   assert.deepEqual([s.take(), await verdict(b)], [["tools/call", "server/discover", "tools/call"], "modern"]);
   // The words that say when: Claude Code's classes.
   assert.deepEqual([ERA.eraClass({ rpcCode: -32022 }), ERA.eraClass({ rpcCode: -32021 }), ERA.eraClass({ rpcCode: -32600 }), ERA.eraClass({ rpcCode: -32601 }, "tools/call"), ERA.eraClass({ rpcCode: -32601 }, "tools/list"), ERA.eraClass({ status: 400 }), ERA.eraClass({ status: 404 }, "tools/call"), ERA.eraClass({ status: 405 }, "initialize"), ERA.eraClass({ rpcCode: -32602 })], ["rpc_era", "rpc_era", "rpc_session", "", "rpc_session", "http_4xx", "", "http_4xx", ""]);
+});
+
+test("EL30 (round 6, follow-up 2) a session the server no longer knows, as Claude Code's tool call reads it (a 404 to a request with its session; a 400 saying \"Server not initialized\", \"No valid session ID\" or \"Mcp-Session-Id header is required\"): the call did not run, so it is sent once more at once on a new connection (probed, its handshake made), once; refused so again, Claude Code's words; a 404 with no session or an error the server answered is not that; an mcp_tool hook's call is not sent again, as Claude Code's is not, and its next call connects anew", async () => {
+  const st = { mode: "legacy" }, s = switchable(st), b = memBucket();
+  const a = await M.addConnector(env, b, "u1", { name: "Linear", url: MCP_URL, fetchFn: s.fetchFn });
+  const call = () => M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn: s.fetchFn });
+  s.take();
+  // Once forgotten (a 404 to the call with its session): sent again on a new connection, and answered.
+  let left = 1;
+  st.hook = ({ msg }) => (msg.method === "tools/call" && left-- > 0 ? new Response("Session not found", { status: 404 }) : null);
+  assert.deepEqual(await call(), { text: "ok legacy", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["initialize", "notifications/initialized", "tools/call", "server/discover", "initialize", "notifications/initialized", "tools/call"], "legacy"]);
+  // A 400 in the TypeScript SDK's words for it: the same.
+  left = 1;
+  st.hook = ({ msg }) => (msg.method === "tools/call" && left-- > 0 ? new Response(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Bad Request: No valid session ID provided" }, id: null }), { status: 400, headers: { "content-type": "application/json" } }) : null);
+  assert.deepEqual(await call(), { text: "ok legacy", isError: false });
+  assert.equal(s.take().filter((m) => m === "tools/call").length, 2);
+  // Refused again: once more only, then Claude Code's words; the verdict goes with the connection.
+  st.hook = ({ msg }) => (msg.method === "tools/call" ? new Response("Session not found", { status: 404 }) : null);
+  assert.deepEqual(await call(), { text: "error: MCP server \"Linear\" session expired", isError: true });
+  assert.deepEqual([s.take().filter((m) => m === "tools/call").length, await verdict(b)], [2, undefined]);
+  // An error the server answered, even in those words, is not one: not sent again.
+  st.hook = ({ msg }) => (msg.method === "tools/call" ? new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, error: { code: -32001, message: "No valid session ID" } }), { headers: { "content-type": "application/json" } }) : null);
+  assert.deepEqual(await call(), { text: "error: the MCP server said: No valid session ID", isError: true });
+  assert.equal(s.take().filter((m) => m === "tools/call").length, 1);
+  // A 2026-07-28 verdict, the server now only the earlier revisions ("Server not initialized" to the call): sent again on a
+  // new connection, which probes and finds them.
+  st.hook = null; st.mode = "modern";
+  await M.refreshTools(env, b, "u1", { fetchFn: s.fetchFn, force: true });
+  assert.equal(await verdict(b), "modern");
+  st.mode = "legacy";
+  s.take();
+  assert.deepEqual(await call(), { text: "ok legacy", isError: false });
+  assert.deepEqual([s.take(), await verdict(b)], [["tools/call", "server/discover", "initialize", "notifications/initialized", "tools/call"], "legacy"]);
+  // With no session (2026-07-28), a 404 is not one: not sent again, the verdict kept.
+  st.mode = "modern";
+  await M.refreshTools(env, b, "u1", { fetchFn: s.fetchFn, force: true });
+  st.hook = ({ msg }) => (msg.method === "tools/call" ? new Response("Not Found", { status: 404 }) : null);
+  s.take();
+  assert.deepEqual(await call(), { text: "error: the MCP server answered 404", isError: true });
+  assert.deepEqual([s.take(), await verdict(b)], [["tools/call"], "modern"]);
+  // An mcp_tool hook's call: not sent again; its next call connects anew (probed).
+  st.mode = "legacy"; st.hook = null;
+  await M.refreshTools(env, b, "u1", { fetchFn: s.fetchFn, force: true });
+  const { map } = M.toolsFor(await M.readConnectors(b, "u1"));
+  await M.keepJobTools(b, "u1", "chat-30", 3, map);
+  const hook = () => M.hookCall(env, b, "u1", "chat-30", 3, { turn: 3 }, { server: "Linear", tool: "t", args: {}, timeoutMs: 5000 }, { fetchFn: s.fetchFn });
+  left = 1;
+  st.hook = ({ msg }) => (msg.method === "tools/call" && left-- > 0 ? new Response("Session not found", { status: 404 }) : null);
+  s.take();
+  assert.deepEqual(await hook(), { ok: false, body: "", error: "the MCP server answered 404" });
+  assert.deepEqual([s.take(), await verdict(b)], [["initialize", "notifications/initialized", "tools/call"], undefined]);
+  assert.deepEqual(await hook(), { ok: true, body: "ok legacy" });
+  assert.deepEqual(s.take()[0], "server/discover");
+  // The rule itself.
+  assert.deepEqual([ERA.sessionExpired({ status: 404 }, { session: true }), ERA.sessionExpired({ status: 404 }), ERA.sessionExpired({ status: 400, body: "Mcp-Session-Id header is required" }), ERA.sessionExpired({ status: 400, body: "Bad Request" }), ERA.sessionExpired({ rpcCode: -32001, status: 400, body: "No valid session ID" })], [true, false, true, false, false]);
+});
+
+test("EL31 (round 6, follow-up 2) network errors in a row, as Claude Code counts them on a connection and closes it at three (\"max consecutive terminal errors\"): kept with the connector, one on a request of its connection adds one (refused, reset, timed out on the network, a stream cut, the Worker's \"Network connection lost\"); whatever the server answers starts again, Coder's own time limit leaves it; at three the verdict goes and the next call probes; a re-read of the tools starts again; not on the page", async () => {
+  const st = { mode: "modern" }, s = switchable(st), b = memBucket();
+  let slow = false;
+  // (A server that never answers, for Coder's own time limit: its fetch ends only when Coder gives up.)
+  const fetchFn = (url, init = {}) => (slow && init.body && JSON.parse(init.body).method === "tools/call" ? new Promise((_, no) => init.signal.addEventListener("abort", () => no(new DOMException("The operation was aborted.", "AbortError")), { once: true })) : s.fetchFn(url, init));
+  const a = await M.addConnector(env, b, "u1", { name: "Linear", url: MCP_URL, fetchFn });
+  const call = () => M.callTool(env, b, "u1", a.connector.id, "t", {}, { fetchFn });
+  const count = async () => (await M.readConnectors(b, "u1"))[0].netErrors;
+  const refused = () => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("connect ECONNREFUSED 10.0.0.1:443"), { code: "ECONNREFUSED" }) }); };
+  const onCall = (f) => ({ msg }) => (msg.method === "tools/call" ? f() : null);
+  s.take();
+  st.hook = onCall(refused);
+  assert.deepEqual(await call(), { text: "error: the MCP server could not be reached", isError: true });
+  assert.deepEqual([await count(), await verdict(b)], [1, "modern"]);
+  await call();
+  assert.equal(await count(), 2);
+  // Answered: from nothing.
+  st.hook = null;
+  assert.deepEqual(await call(), { text: "ok modern", isError: false });
+  assert.equal(await count(), undefined);
+  // Three in a row (refused, a stream cut, the Worker's words): the verdict goes; the next call probes.
+  st.hook = onCall(refused);
+  await call();
+  st.hook = onCall(() => new Response(new ReadableStream({ start(c) { c.error(new TypeError("terminated")); } }), { headers: { "content-type": "text/event-stream" } }));
+  await call();
+  assert.deepEqual([await count(), await verdict(b)], [2, "modern"]);
+  st.hook = onCall(() => { throw new TypeError("Network connection lost."); });
+  await call();
+  assert.deepEqual([await count(), await verdict(b)], [undefined, undefined]);
+  st.hook = null;
+  s.take();
+  assert.deepEqual(await call(), { text: "ok modern", isError: false });
+  assert.deepEqual([s.take(), await verdict(b), await count()], [["server/discover", "tools/call"], "modern", undefined]);
+  // An HTTP status is the server answering, and so is a failure that is not a network error (a name not found): from nothing.
+  for (const answered of [() => new Response("busy", { status: 503 }), () => { throw new TypeError("fetch failed", { cause: Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" }) }); }]) {
+    st.hook = onCall(refused);
+    await call();
+    assert.equal(await count(), 1);
+    st.hook = onCall(answered);
+    assert.equal((await call()).isError, true);
+    assert.equal(await count(), undefined);
+  }
+  // Coder's own time limit leaves it as it is (an mcp_tool hook's call, its time one second); a hook's network error counts.
+  st.hook = onCall(refused);
+  await call();
+  const { map } = M.toolsFor(await M.readConnectors(b, "u1"));
+  await M.keepJobTools(b, "u1", "chat-31", 3, map);
+  st.hook = null; slow = true;
+  assert.deepEqual(await M.hookCall(env, b, "u1", "chat-31", 3, { turn: 3 }, { server: "Linear", tool: "t", args: {}, timeoutMs: 1000 }, { fetchFn }), { ok: false, body: "", aborted: true });
+  assert.equal(await count(), 1);
+  slow = false; st.hook = onCall(refused);
+  assert.equal((await M.hookCall(env, b, "u1", "chat-31", 3, { turn: 3 }, { server: "Linear", tool: "t", args: {}, timeoutMs: 5000 }, { fetchFn })).ok, false);
+  assert.equal(await count(), 2);
+  // A re-read of the tools is a new connection: from nothing. Not shown on the page.
+  st.hook = null;
+  await M.refreshTools(env, b, "u1", { fetchFn, force: true });
+  assert.equal(await count(), undefined);
+  st.hook = onCall(refused);
+  await call();
+  assert.equal(M.connectorOut((await M.readConnectors(b, "u1"))[0]).netErrors, undefined);
+  // On an earlier-revision verdict, one on the call after its handshake counts too.
+  const ol = { mode: "legacy" }, s2 = switchable(ol), b2 = memBucket();
+  const a2 = await M.addConnector(env, b2, "u1", { name: "Linear", url: MCP_URL, fetchFn: s2.fetchFn });
+  ol.hook = onCall(refused);
+  await M.callTool(env, b2, "u1", a2.connector.id, "t", {}, { fetchFn: s2.fetchFn });
+  assert.deepEqual([(await M.readConnectors(b2, "u1"))[0].netErrors, (await M.readConnectors(b2, "u1"))[0].era], [1, "legacy"]);
+  // The rule itself.
+  assert.deepEqual([ERA.netError(new TypeError("fetch failed", { cause: { code: "ECONNRESET" } })), ERA.netError(Object.assign(new Error("x"), { code: "ConnectionRefused" })), ERA.netError(new Error("Body Timeout Error")), ERA.netError(new Error("SSE stream disconnected")), ERA.netError(Object.assign(new Error("ECONNRESET"), { status: 502 })), ERA.netError(new Error("Error POSTing to endpoint (HTTP 500): ECONNRESET")), ERA.netError(new Error("the MCP server said: no"))], [true, true, true, true, false, false, false]);
 });
