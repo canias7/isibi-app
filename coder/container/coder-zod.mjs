@@ -16,7 +16,7 @@
 const node = (t, o = {}) => Object.freeze({ t, ...o });
 /** zod's types, as Claude Code's schemas use them (o(), E(), I(), T(), B(), C(), u(), He(), me(), We(), Ir(), ie()). */
 export const z = Object.freeze({
-  string: (o = {}) => node("string", o), // { min }
+  string: (o = {}) => node("string", o), // { min, minMessage }
   number: (o = {}) => node("number", o), // { int, gte, gt }
   boolean: () => node("boolean"),
   literal: (v) => node("literal", { v }),
@@ -55,13 +55,14 @@ const valueIssue = (values, path) => ({ code: "invalid_value", values: [...value
 // (A size's words by what was measured: characters, items, or, for anything else with a length, a bare number.)
 const UNITS = { string: "characters", array: "items" };
 const sized = (origin, n, rel) => "expected " + origin + (UNITS[origin] ? " to have " + rel + n + " " + UNITS[origin] : " to be " + rel + n);
-const small = (origin, minimum, inclusive, path) => ({ origin, code: "too_small", minimum, inclusive, path, message: "Too small: " + sized(origin, minimum, inclusive ? ">=" : ">") });
+// (`custom`: the schema's own message, as TodoWrite's min(1, "Content cannot be empty").)
+const small = (origin, minimum, inclusive, path, custom = "") => ({ origin, code: "too_small", minimum, inclusive, path, message: custom || "Too small: " + sized(origin, minimum, inclusive ? ">=" : ">") });
 const big = (origin, maximum, path) => ({ origin, code: "too_big", maximum, inclusive: true, path, message: "Too big: " + sized(origin, maximum, "<=") });
 /** A string's or an array's size checks, run on whatever has a length, as zod 4's are (a wrong type does not stop them). */
 function sizes(s, v, path, out) {
   if (v === null || v === undefined || typeof v.length !== "number") return;
   const origin = Array.isArray(v) ? "array" : typeof v === "string" ? "string" : "unknown";
-  if (s.min !== undefined && v.length < s.min) out.push(small(origin, s.min, true, path));
+  if (s.min !== undefined && v.length < s.min) out.push(small(origin, s.min, true, path, s.minMessage));
   if (s.max !== undefined && v.length > s.max) out.push(big(origin, s.max, path));
 }
 /** zod's issues that let a union's other checks go on ("continue"): a size, a key it does not know, a refinement. */
@@ -243,6 +244,8 @@ const READ_OUT = z.disc("type", [
   o({ type: z.literal("parts"), file: o({ filePath: S, originalSize: N, count: N, outputDir: S }), firstPage: opt(N), totalPages: opt(N), pages: opt(z.array(o({ base64: S, mediaType: IMAGE_TYPE, error: opt(S), text: opt(S) }))) }),
 ]);
 const TASK_STATUS = z.enum(["pending", "in_progress", "completed"]);
+// (TodoWrite's todo, as its schema has it: each text at least one character, in its own words.)
+const TODO = o({ content: z.string({ min: 1, minMessage: "Content cannot be empty" }), status: TASK_STATUS, activeForm: z.string({ min: 1, minMessage: "Active form cannot be empty" }) });
 const QUESTION = o({
   question: S, header: S, kind: opt(z.enum(["choice", "text", "number"])), description: opt(S),
   options: withDefault(z.array(o({ label: S, description: opt(S), preview: opt(S) }), { max: 4 }), []), multiSelect: withDefault(B, false),
@@ -268,6 +271,8 @@ export const OUTPUT_SHAPES = Object.freeze({
   TaskStop: o({ message: S, task_id: S, task_type: S, command: opt(S) }),
   AskUserQuestion: o({ questions: z.array(QUESTION), answers: z.record(S), response: opt(S), annotations: opt(z.record(o({ preview: opt(S), notes: opt(S), unanswered: caught(S) }))), afkTimeoutMs: opt(z.number({ int: true, gt: 0 })), followUp: opt(B) }),
   ExitPlanMode: o({ plan: nullable(S), isAgent: B, filePath: opt(S), hasTaskTool: opt(B), planWasEdited: opt(B), awaitingLeaderApproval: opt(B), requestId: opt(S) }),
+  EnterPlanMode: o({ message: S }),
+  TodoWrite: o({ oldTodos: z.array(TODO), newTodos: z.array(TODO) }),
   TaskCreate: o({ task: o({ id: S, subject: S, description: caught(S) }) }),
   TaskGet: o({ task: nullable(o({ id: S, subject: S, description: S, status: TASK_STATUS, blocks: z.array(S), blockedBy: z.array(S) })) }),
   TaskList: o({ tasks: z.array(o({ id: S, subject: S, status: TASK_STATUS, owner: opt(S), blockedBy: z.array(S) })) }),

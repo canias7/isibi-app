@@ -1905,10 +1905,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * A PRETOOLUSE OR PERMISSIONREQUEST HOOK'S NEW INPUT FOR ONE OF CODER'S TOOLS, CHECKED BEFORE THE CALL RUNS (Claude Code
    * 2.1.325; the owner, 2026-11-14: "Fix base on Claude Code docs, please"; coder-hookcheck.mjs): against the schema Grok was
    * given for the tool, then by the tool's own check, the one its calls get before any hook (coder-inputs.mjs; a task tool's,
-   * coder-tasks.mjs; a command's own: empty, too long, a refused form, a long foreground sleep). → { ok, args } or
-   * { ok: false, message }. A connector's tool takes any input, as Claude Code's MCP tools do.
+   * coder-tasks.mjs; a command's own: empty, too long, a refused form, a long foreground sleep), awaited, lsp's with its file
+   * checks (lspFile), as Claude Code awaits the tool's validateInput on a rewrite. → a Promise of { ok, args } or { ok: false,
+   * message }. A connector's tool takes any input, as Claude Code's MCP tools do.
    */
-  const hookInputCheck = (name, input, event) => {
+  const hookInputCheck = async (name, input, event) => {
     const tool = ccTool(name, name === "monitor");
     // (The schema the agent was given: Coder's tools, or the ones an agent with its own (Gloopy) was offered. None for
     // Claude Code's claude-code-remote tools, its environment tools and request_credential (Coder's request_secret): they
@@ -1917,7 +1918,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const remote = ENV_TOOL_NAMES.includes(name) || name === "request_secret";
     const def = mcpByName.has(name) || remote ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
     const own0 = inputCheckFor(name);
-    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off })
+    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off, lspFile })
       : isTaskTool(name) ? (a) => checkTaskInput(name, a)
       : name === "bash" || name === "powershell" || name === "monitor" ? (a) => {
         if (name === "monitor" && a.ws !== undefined) return { args: a };
@@ -1971,7 +1972,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const name0 = call.monitor ? "monitor" : call.ps ? "powershell" : card.hookTool || card.tool;
           if (sameInput(upd, input0)) upd = null;
           else {
-            const r = hookInputCheck(name0, upd, "PermissionRequest");
+            const r = await hookInputCheck(name0, upd, "PermissionRequest");
             if (!r.ok) { const why = scrub(r.message); return { choice: "no", comment: why, hookDenied: true, hookWhy: why }; }
             upd = hookToolInput(name0, r.args);
           }
@@ -3483,7 +3484,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // card's and the plan's have their own checks, below.
         if (pre && Array.isArray(pre.updatedInputs) && pre.updatedInputs.length && c.name !== "ask_user" && c.name !== "exit_plan_mode") {
           let refusedBy = "", args1 = null;
-          for (const u of pre.updatedInputs) { const r = hookInputCheck(c.name, u, "PreToolUse"); if (r.ok) args1 = r.args; else refusedBy = scrub(r.message); }
+          for (const u of pre.updatedInputs) { const r = await hookInputCheck(c.name, u, "PreToolUse"); if (r.ok) args1 = r.args; else refusedBy = scrub(r.message); }
           if (refusedBy) {
             emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: refusedBy.slice(0, 2000), hookBlocked: true });
