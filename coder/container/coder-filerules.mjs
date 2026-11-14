@@ -30,6 +30,15 @@ const join = (...parts) => normalize(parts.join("/"));
 export const FILE_RULE_TOOLS = new Set(["Read", "Edit", "Write", "Glob", "Grep", "NotebookEdit", "MultiEdit"]);
 /** Coder's own tools, by the names Claude Code's rules give them: a rule on the whole tool (`Write`, `Grep` …) matches each call. */
 export const TOOL_RULE_NAMES = { read: "Read", edit: "Edit", write: "Write", grep: "Grep", glob: "Glob", lsp: "LSP" };
+/**
+ * THE TOOLS WHOSE ALLOW RULE `X(*)` OR `X()` IS A PATH RULE, "*" (Claude Code 2.1.325's Lg and yzs, its flag on by default,
+ * and in its cloud): it covers the working directories only, not every path as `X` does. Round 3, 2026-11-14.
+ */
+export const STAR_PATH_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit", "Grep", "Glob", "LSP"]);
+/** The ones of them that change files (Claude Code's own set for its warning: Edit, Write, NotebookEdit). */
+export const STAR_EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
+/** Whether an allow rule's text is one of those, `X(*)` or `X()` exactly: the tool's name, or "". */
+export const starAllowTool = (text) => { const m = /^([A-Za-z]+)\((\*?)\)$/.exec(String(text ?? "").trim()); return m && STAR_PATH_TOOLS.has(m[1]) ? m[1] : ""; };
 
 const esc = (c) => c.replace(/[.+^${}()|[\]\\*?]/g, "\\$&");
 
@@ -140,10 +149,13 @@ export function fileRuleHit(list, tool, path, kind, ctx = {}) {
   // rule with no path, and `Read(*)` is the bare `Read`); a rule on the whole tool is that tool's alone. `Read(**)` is a path.)
   const rules = (Array.isArray(list) ? list : []).map((t) => String(t || "").trim()).map((t) => {
     const m = /^([A-Za-z]+)(?:\(([\s\S]*)\))?$/.exec(t);
-    return m && m[1] === tool ? { text: t, spec: m[2] === undefined ? null : m[2].trim(), srcs: srcsOf(t) } : null;
-  }).filter((r) => r && !(ctx.pathOnly === true && (r.spec === null || r.spec === "*" || r.spec === "")));
+    if (!m || m[1] !== tool) return null;
+    // (An allow rule `Read(*)` or `Read()`: the path "*", from the project's folder, not the whole tool: STAR_PATH_TOOLS.)
+    if (kind === "allow" && starAllowTool(t)) return { text: t, spec: "*", srcs: srcsOf(t), star: true };
+    return { text: t, spec: m[2] === undefined ? null : m[2].trim(), srcs: srcsOf(t) };
+  }).filter((r) => r && !(ctx.pathOnly === true && !r.star && (r.spec === null || r.spec === "*" || r.spec === "")));
   if (!rules.length) return "";
-  const whole = rules.find((r) => r.spec === null || r.spec === "*" || r.spec === "**");
+  const whole = rules.find((r) => !r.star && (r.spec === null || r.spec === "*" || r.spec === "**"));
   if (whole) return whole.text;
   const p = plainPath(path);
   let to = p;
@@ -153,9 +165,15 @@ export function fileRuleHit(list, tool, path, kind, ctx = {}) {
   return asked || (to && to !== p ? hitOne(rules, plainPath(to), kind, ctx) : "");
 }
 
-/** fileRuleHit for one path as it is (no link followed). */
+/**
+ * fileRuleHit for one path as it is (no link followed). (`ctx.roots`: the chat's other working folders, where a deny or ask
+ * rule's plain relative path, `path` or `./path`, applies too: Claude Code 2.1.325, "relative deny and ask permission rules
+ * (e.g. Read(./.env)) … now also apply in added directories"; an allow rule's stays at the project's folder, as Claude Code's
+ * stays at its current one. Round 3, 2026-11-14.)
+ */
 function hitOne(rules, p, kind, ctx) {
   const root = plainPath(ctx.root || "/"), home = ctx.home ? plainPath(ctx.home) : "";
+  const more = kind === "allow" || !Array.isArray(ctx.roots) ? [] : ctx.roots.filter((x) => typeof x === "string" && x.startsWith("/")).map(plainPath).filter((x) => x !== root);
   // One group per anchor; the plain relative rules (`path`, `./path`) a group of their own, the only one a `!` rule reaches.
   const groups = new Map();
   const add = (key, base, r) => { if (!groups.has(key)) groups.set(key, { base, list: [] }); groups.get(key).list.push(r); };
@@ -204,11 +222,13 @@ function hitOne(rules, p, kind, ctx) {
       }
     }
   }
-  for (const { base, list } of groups.values()) {
-    const rel = relative(base, p);
-    if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
-    const hit = groupCovers(list, rel, !!ctx.isDir);
-    if (hit) return hit.text;
+  for (const [key, { base, list }] of groups.entries()) {
+    for (const b of key.startsWith("rel|") ? [base, ...more] : [base]) {
+      const rel = relative(b, p);
+      if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
+      const hit = groupCovers(list, rel, !!ctx.isDir);
+      if (hit) return hit.text;
+    }
   }
   return "";
 }

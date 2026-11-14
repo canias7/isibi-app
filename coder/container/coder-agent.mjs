@@ -34,7 +34,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern } from "./coder-search.mjs";
+import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
@@ -1804,7 +1804,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // those tools"): the owner's Read deny rules, which Claude Code applies inside the search and before its caps ("a best-effort
   // attempt to apply Read(path) deny rules to all built-in tools that read files like Grep and Glob"; none in a job from
   // GitHub), and the environment's search settings (CODER_GLOB_TIMEOUT_SECONDS, CODER_GLOB_HIDDEN, CODER_GLOB_NO_IGNORE).
-  const searchCtx = () => ({ ...(deps.searchSettings && typeof deps.searchSettings === "object" ? deps.searchSettings : {}), ...(github ? {} : { deny: { rules: ownRules.deny.filter((x) => /^Read\(/.test(String(x))), sources: ownRules.sources || null, root: deps.root || "/", home: deps.home || "" } }) });
+  // (And the chat's other working folders, where a relative Read deny rule applies too: Claude Code 2.1.325. Round 3.)
+  const searchCtx = () => ({ ...(deps.searchSettings && typeof deps.searchSettings === "object" ? deps.searchSettings : {}), ...(github ? {} : { deny: { rules: ownRules.deny.filter((x) => /^Read\(/.test(String(x))), sources: ownRules.sources || null, root: deps.root || "/", home: deps.home || "", ...(workdirs.length > 1 ? { roots: workdirs.slice(1) } : {}) } }) });
   // (Its run's own limit: the search's, with the 10 seconds Claude Code gives a search it stops, and room to start.)
   const searchExecS = () => Math.ceil(((deps.searchSettings && Number(deps.searchSettings.timeoutMs)) || SEARCH_TIMEOUT_MS) / 1000) + 30;
   const rulesAdded = [];
@@ -2165,7 +2166,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const full = typeof deps.where === "function" ? deps.where(given) : given;
     if (c.name === "read" && !(typeof a.path === "string" && a.path)) return "error: read needs a path";
     a.path = full;
-    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: a });
+    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: a, roots: workdirs.slice(1) });
     if (d && (d.verdict === "deny" || d.verdict === "ask")) return "error: " + (d.why || "the owner's rules do not let this hook read there");
     if (c.name === "read") { delete a.allow_large; delete a.max_chars; }
     // (A search with the owner's Read deny rules, its result object left off: coder-search.mjs.)
@@ -2862,7 +2863,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
-    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }) });
+    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
     if (note) { convo.push(note); keepPics(convo); }
   }
   // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
@@ -5064,7 +5065,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // the call in Claude Code's words ("Permission to read … has been denied.", "File is covered by a Read deny rule in your
         // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
         const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
-        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: args }) : null;
+        // (Relative deny and ask rules apply in the chat's other working folders too: Claude Code 2.1.325. Round 3.)
+        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: args, roots: workdirs.slice(1) }) : null;
+        // (What this check saw of a search's path, its links, which the search makes sure are still so before it runs: Claude
+        // Code's stash at its permission check, re-checked by its search. coder-search.mjs's checkedAt and searchRoot. Round 3.)
+        const searchSaw = (c.name === "grep" || c.name === "glob") && fileTarget ? checkedAt(fileTarget) : null;
         if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, ran: false, output: fileDec.why }); reply(fileDec.why); continue; }
         const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
         const modeT = modeNow();
@@ -5161,7 +5166,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck, facts: true } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck, facts: true } : c.name === "read" ? { ...args, facts: true } : args;
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
-        const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: searchCtx() } : {}) };
+        const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: { ...searchCtx(), ...(searchSaw ? { spellings: searchSaw } : {}) } } : {}) };
         const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
         let r;
         // THE CHAT'S LANGUAGE SERVERS' KEEPER, started by Coder's machine the first time a lookup, a write or an edit needs a

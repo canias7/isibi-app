@@ -308,7 +308,9 @@ test("SR8 in Coder's loop: the search gets the owner's Read deny rules and the s
   // The request: Grok's input as checked, and Coder's own context.
   const g1 = t.requests.find((x) => x.req.args.pattern === "TODO first");
   assert.deepEqual(g1.req.args, { pattern: "TODO first", path: "." });
-  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, home: "" } });
+  // (And what the loop's permission check saw of the path, its spellings, which the search checks again before it runs:
+  // Claude Code's stash and its gPo, round 3.)
+  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, home: "" }, spellings: { path: d, list: S.pathSpellings(d).spellings } });
   assert.equal(g1.x.timeoutS, 45);
   assert.equal(t.answer("g1"), "Found 1 file\na.js\n\nNote: Grep's parameter for where to search is named `path`. `file_path` was read as `path`.");
   assert.equal(t.answer("f1"), "No files found", "the Read deny rule leaves docs/secret.md out");
@@ -473,4 +475,125 @@ test("SR12 (Claude Code 2.1.325; the owner, 2026-11-14: \"Fix base on Claude Cod
   assert.equal(P.ruleWarning("allow", "Grep(src/**)"), null);
   assert.match(P.ruleWarning("deny", "Glob(src/**)").warning, /^Glob\(src\/\*\*\) is not matched by file permission checks/);
   assert.equal(P.ruleSaved("Grep(src/**)"), true, "still kept");
+});
+
+// ── ROUND 3 (2026-11-14, the owner: "yes pls all of that") ──────────────────────────────────────────────────────────────
+test("SR14 a search in a folder runs inside it, as Claude Code 2.1.325's does (its gPo: ripgrep's folder the searched one, held open, the search \".\"): a glob with a \"/\" counts from the searched folder (Coder's counted from where the commands are and found nothing), in Grep and Glob and a full Glob pattern; files are named from where the commands are; a file is given to ripgrep open and named as asked; deny rules inside the folder are still left out", { skip: !hasRg || process.platform !== "linux" }, async () => {
+  const d = mkdtempSync(join(tmpdir(), "sr-in-"));
+  for (const x of ["packages/app/src/deep", "src", "coder/container"]) mkdirSync(join(d, x), { recursive: true });
+  writeFileSync(join(d, "packages/app/src/a.ts"), "TODO a\n");
+  writeFileSync(join(d, "packages/app/src/deep/b.ts"), "TODO b\n");
+  writeFileSync(join(d, "src/c.ts"), "TODO c\n");
+  for (const n of ["coder-scrub", "coder-search", "coder-shell", "other"]) writeFileSync(join(d, "coder/container", n + ".mjs"), n === "coder-search" ? "export const SEARCH_TIMEOUT_MS = 20_000;\n" : "x\n");
+  // The recheck's own two, from a repository's folder: Glob("container/coder-s*.mjs", path "coder") and Grep(glob
+  // "container/*.mjs", path "coder"), which Claude Code answered with the files and Coder with "No files found".
+  assert.deepEqual((await glob(d, { pattern: "container/coder-s*.mjs", path: "coder" })).text.split("\n").sort(), ["coder/container/coder-scrub.mjs", "coder/container/coder-search.mjs", "coder/container/coder-shell.mjs"]);
+  assert.equal((await grep(d, { pattern: "SEARCH_TIMEOUT_MS =", path: "coder", glob: "container/*.mjs" })).text, "Found 1 file\ncoder/container/coder-search.mjs");
+  assert.deepEqual((await glob(d, { pattern: "src/**/*.ts", path: "packages/app" })).text.split("\n").sort(), ["packages/app/src/a.ts", "packages/app/src/deep/b.ts"]);
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app", glob: "src/*.ts" })).text, "Found 1 file\npackages/app/src/a.ts");
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app", glob: "src/*.ts", output_mode: "content" })).text, "packages/app/src/a.ts:1:TODO a");
+  const counted = (await grep(d, { pattern: "TODO", path: "packages/app", glob: "src/**", output_mode: "count" })).text.split("\n\n");
+  assert.deepEqual([counted[0].split("\n").sort(), counted[1]], [["packages/app/src/a.ts:1", "packages/app/src/deep/b.ts:1"], "Found 2 total occurrences across 2 files."]);
+  // (A pattern with no "/" is as before, at any depth.)
+  assert.deepEqual((await glob(d, { pattern: "*.ts", path: "packages" })).text.split("\n").sort(), ["packages/app/src/a.ts", "packages/app/src/deep/b.ts"]);
+  // A full Glob pattern: its folder searched from inside, so the rest of it, "a*/src/*.ts", counts from there.
+  assert.equal((await glob(d, { pattern: join(d, "packages") + "/a*/src/*.ts" })).text, "packages/app/src/a.ts");
+  // The commands in another folder: a file outside it by its full path (Claude Code's Kit).
+  assert.equal((await glob(d, { pattern: "src/*.ts", path: join(d, "packages/app") }, { base: join(d, "src") })).text, join(d, "packages/app/src/a.ts"));
+  assert.equal((await glob(d, { pattern: "deep/*.ts", path: join(d, "packages/app/src") }, { base: join(d, "packages/app") })).text, "src/deep/b.ts");
+  // A file: given open (ripgrep reads /proc/self/fd/3), named as asked, in every mode.
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app/src/a.ts" })).text, "Found 1 file\npackages/app/src/a.ts");
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app/src/a.ts", output_mode: "count" })).text, "packages/app/src/a.ts:1\n\nFound 1 total occurrence across 1 file.");
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app/src/a.ts", output_mode: "content" })).text, "1:TODO a");
+  // A Read deny rule anchored at the project, on a folder inside the one searched: ripgrep is told it from inside the folder
+  // ("!/src/deep/**"), and the result is left out.
+  const deny = { rules: ["Read(/packages/app/src/deep/**)"], root: d, home: "" };
+  assert.deepEqual(S.denyGlobs(deny, join(d, "packages/app")), ["!/src/deep/**", "!/src/deep"]);
+  assert.equal((await glob(d, { pattern: "**/*.ts", path: "packages/app" }, { deny })).text, "packages/app/src/a.ts");
+  assert.equal((await grep(d, { pattern: "TODO", path: "packages/app" }, { deny })).text, "Found 1 file\npackages/app/src/a.ts");
+  // Through the tools script, as Coder's machine runs it.
+  const run = (tool, args) => spawnSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool, args })).toString("base64")], { cwd: d, encoding: "utf8" }).stdout.replace(/^\u0000coder-facts\u0000[^\n]*\n/, "");
+  assert.equal(run("grep", { pattern: "SEARCH_TIMEOUT_MS =", path: "coder", glob: "container/*.mjs" }), "Found 1 file\ncoder/container/coder-search.mjs");
+  assert.deepEqual(run("glob", { pattern: "container/coder-s*.mjs", path: "coder" }).split("\n").sort(), ["coder/container/coder-scrub.mjs", "coder/container/coder-search.mjs", "coder/container/coder-shell.mjs"]);
+});
+
+/** The tools script run as a user that is not root (root enters any folder): its files copied where that user can read them. */
+function asOtherUser(cwd, tool, args) {
+  const req = Buffer.from(JSON.stringify({ tool, args })).toString("base64");
+  const strip = (s) => String(s || "").replace(/^\u0000coder-facts\u0000[^\n]*\n/, "");
+  if (!(typeof process.getuid === "function" && process.getuid() === 0)) { const r = spawnSync("node", ["--no-warnings", TOOLS, req], { cwd, encoding: "utf8" }); return strip(r.stdout); }
+  const mods = mkdtempSync(join(tmpdir(), "sr-mods-"));
+  chmodSync(mods, 0o755);
+  // (The tools script and every module it loads, found from its own imports.)
+  const todo = ["coder-tools.mjs"], seen = new Set();
+  while (todo.length) {
+    const f = todo.pop();
+    if (seen.has(f)) continue;
+    seen.add(f);
+    const text = readFileSync(join(import.meta.dirname, "../container", f), "utf8");
+    writeFileSync(join(mods, f), text);
+    chmodSync(join(mods, f), 0o644);
+    for (const m of text.matchAll(/^import [^;]*?from "\.\/([^"]+)";/gm)) todo.push(m[1]);
+  }
+  const r = spawnSync(process.execPath, ["--no-warnings", join(mods, "coder-tools.mjs"), req], { cwd, encoding: "utf8", uid: 65534, gid: 65534, env: { PATH: process.env.PATH, HOME: "/tmp", TMPDIR: "/tmp" } });
+  return strip(r.stdout);
+}
+test("SR15 a folder Coder can't enter or can't read, and a file it can't read, are refused in Claude Code's own words before ripgrep runs (2.1.325's gPo: \"Cannot search …: the directory is not traversable (no execute permission).\", \"Refusing to search …: it could not be opened (EACCES) — it is unreadable, or is being replaced concurrently.\"); Coder had said \"No files found\" for a folder it could read but not enter, though its file held the word", { skip: !hasRg || process.platform !== "linux" }, () => {
+  const d = mkdtempSync(join(tmpdir(), "sr-perm-"));
+  chmodSync(d, 0o755);
+  for (const x of ["rnox", "nor", "ok"]) mkdirSync(join(d, x));
+  writeFileSync(join(d, "rnox/f.txt"), "word here\n"); writeFileSync(join(d, "nor/g.txt"), "word\n"); writeFileSync(join(d, "ok/h.txt"), "word\n"); writeFileSync(join(d, "secret.txt"), "word\n");
+  chmodSync(join(d, "rnox/f.txt"), 0o644); chmodSync(join(d, "ok/h.txt"), 0o644); chmodSync(join(d, "ok"), 0o755);
+  chmodSync(join(d, "rnox"), 0o644); chmodSync(join(d, "nor"), 0o000); chmodSync(join(d, "secret.txt"), 0o600);
+  try {
+    const traverse = "error: " + S.notTraversableText(join(d, "rnox"));
+    assert.equal(traverse, "error: Cannot search " + join(d, "rnox") + ": the directory is not traversable (no execute permission).");
+    assert.equal(asOtherUser(d, "grep", { pattern: "word", path: "rnox" }), traverse);
+    assert.equal(asOtherUser(d, "glob", { pattern: "*.txt", path: "rnox" }), traverse);
+    const unreadable = (p) => "error: Refusing to search " + p + ": it could not be opened (EACCES) — it is unreadable, or is being replaced concurrently.";
+    assert.equal("error: " + S.unopenableText(join(d, "nor"), "EACCES"), unreadable(join(d, "nor")));
+    assert.equal(asOtherUser(d, "grep", { pattern: "word", path: "nor" }), unreadable(join(d, "nor")));
+    assert.equal(asOtherUser(d, "glob", { pattern: "*", path: "nor" }), unreadable(join(d, "nor")));
+    assert.equal(asOtherUser(d, "grep", { pattern: "word", path: "secret.txt" }), unreadable(join(d, "secret.txt")));
+    // What it can open and enter is searched as before.
+    assert.equal(asOtherUser(d, "grep", { pattern: "word", path: "ok", output_mode: "content" }), "ok/h.txt:1:word");
+    assert.equal(asOtherUser(d, "grep", { pattern: "word", path: "ok/h.txt", output_mode: "count" }), "ok/h.txt:1\n\nFound 1 total occurrence across 1 file.");
+  } finally { chmodSync(join(d, "rnox"), 0o755); chmodSync(join(d, "nor"), 0o755); }
+});
+
+test("SR16 the search's links are as Coder's permission check saw them, as Claude Code 2.1.325 checks them again right before ripgrep runs (\"Refusing to search …: its symlink resolution changed after permission was checked. If a link in the working directory is being rewritten concurrently, stop that and retry.\"): Coder's loop sends what its check saw of the path (its spellings: the path, where each link at its end leads, where it lands); a link moved since is refused; another path's are not used; with none, the tools' own check stands in", { skip: !hasRg || process.platform !== "linux" }, async () => {
+  const d = mkdtempSync(join(tmpdir(), "sr-link-"));
+  for (const x of ["a", "b"]) mkdirSync(join(d, x));
+  writeFileSync(join(d, "a/x.txt"), "TODO in a\n"); writeFileSync(join(d, "b/y.txt"), "TODO in b\n");
+  symlinkSync(join(d, "a"), join(d, "link"));
+  // Spellings: the path, each link at its end followed, and where it lands.
+  assert.deepEqual(S.pathSpellings(join(d, "link")), { spellings: [join(d, "link"), join(d, "a")], unresolved: false, found: true });
+  assert.deepEqual(S.pathSpellings(join(d, "a")), { spellings: [join(d, "a")], unresolved: false, found: true });
+  assert.deepEqual(S.pathSpellings(join(d, "link/nope/z")), { spellings: [join(d, "link/nope/z"), join(d, "a/nope/z")], unresolved: false, found: false }, "not there: from the deepest folder that is");
+  symlinkSync(join(d, "loop2"), join(d, "loop1")); symlinkSync(join(d, "loop1"), join(d, "loop2"));
+  assert.equal(S.pathSpellings(join(d, "loop1")).unresolved, true);
+  assert.deepEqual(S.checkedAt(join(d, "link")), { path: join(d, "link"), list: [join(d, "link"), join(d, "a")] });
+  assert.equal(S.checkedAt(join(d, "nope")), null, "one its view can't follow there: none sent");
+  const seen = S.checkedAt(join(d, "link"));
+  // As checked: searched, named as asked.
+  assert.equal((await grep(d, { pattern: "TODO", path: "link" }, { spellings: seen })).text, "Found 1 file\nlink/x.txt");
+  assert.equal((await glob(d, { pattern: "*.txt", path: "link" }, { spellings: seen })).text, "link/x.txt");
+  // The link moved to b since the check: refused, in Claude Code's words, by both.
+  rmSync(join(d, "link")); symlinkSync(join(d, "b"), join(d, "link"));
+  const moved = S.symlinkChangedText(join(d, "link"));
+  assert.equal(moved, "Refusing to search " + join(d, "link") + ": its symlink resolution changed after permission was checked. If a link in the working directory is being rewritten concurrently, stop that and retry.");
+  assert.equal(await fails(grep(d, { pattern: "TODO", path: "link" }, { spellings: seen })), moved);
+  assert.equal(await fails(glob(d, { pattern: "*.txt", path: "link" }, { spellings: seen })), moved);
+  // (Its own check of the folder it opened, too: where the open folder really is must be among those checked.)
+  await assert.rejects(S.searchRoot(join(d, "link"), { base: d, checked: [join(d, "link"), join(d, "a"), join(d, "b") + "-not"] }), { message: moved });
+  // Another path's spellings are not used; none at all: the tools' own, just made.
+  assert.equal((await grep(d, { pattern: "TODO", path: "link" }, { spellings: { path: join(d, "other"), list: [join(d, "other")] } })).text, "Found 1 file\nlink/y.txt");
+  assert.equal((await grep(d, { pattern: "TODO", path: "link" })).text, "Found 1 file\nlink/y.txt");
+  // A path not there, with its links as checked: Claude Code's "Path does not exist"; gone between the check and the open: none.
+  assert.match(await fails(grep(d, { pattern: "TODO", path: "gone" })), /^Path does not exist: gone\. Note: your current working directory is /);
+  assert.equal(await S.searchRoot(join(d, "gone"), { base: d, checked: [join(d, "gone")] }), null);
+  // Coder's loop sends what its check saw (SR8 has the whole context): through the tools script, the search runs.
+  const t = await loop(d, [say("", [call("grep", { pattern: "TODO", path: "link" }, "g1")]), say("done")]);
+  assert.deepEqual(t.requests[0].req.ctx.spellings, { path: join(d, "link"), list: [join(d, "link"), join(d, "b")] });
+  assert.equal(t.answer("g1"), "Found 1 file\nlink/y.txt");
 });

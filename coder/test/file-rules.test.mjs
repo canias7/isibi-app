@@ -238,13 +238,97 @@ test("CD382f a Read(**) or Edit(**) rule is a path rule, in a path rule's words 
   assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(**)"] }).why, "Your rule Read(**) asks first for reading /work/shop/a.md.");
   assert.equal(fd("edit", ROOT + "/a.md", { ask: ["Edit(**)"] }).why, "Your rule Edit(**) asks first for editing /work/shop/a.md.");
   // LSP: a rule on the whole tool, or on one of its inputs, in Claude Code's words ("Claude requested permissions to use LSP,
-  // but you haven't granted it yet."); a Read ask rule on its file first, in that rule's words, as Claude Code's own read
-  // check of the file asks before them.
+  // but you haven't granted it yet."); a Read ask rule on its file first, as Claude Code's own read check of the file asks
+  // before them, in that check's words, as Grep's and Glob's ("Claude requested permissions to read from <path>, but you
+  // haven't granted it yet.", its Yx; round 3, 2026-11-14).
   const lsp = (rules) => P.fileToolDecision("lsp", ROOT + "/src/a.py", { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, input: { operation: "hover", filePath: "src/a.py", line: 1, character: 1 } });
   const USE = "Coder requested permissions to use LSP, but you haven't granted it yet.";
   for (const r of ["LSP", "LSP(*)", "LS*"]) assert.deepEqual(lsp({ ask: [r] }), { verdict: "ask", rule: r, why: USE }, r);
   assert.deepEqual(lsp({ ask: ["LSP(operation:hover)"] }), { verdict: "ask", rule: "LSP(operation:hover)", why: USE });
-  for (const r of ["LSP", "LSP(operation:hover)"]) assert.deepEqual(lsp({ ask: [r, "Read(src/**)"] }), { verdict: "ask", rule: "Read(src/**)", why: "Your rule Read(src/**) asks first for reading /work/shop/src/a.py." }, r);
+  for (const r of ["LSP", "LSP(operation:hover)"]) assert.deepEqual(lsp({ ask: [r, "Read(src/**)"] }), { verdict: "ask", rule: "Read(src/**)", why: "Coder requested permissions to read from /work/shop/src/a.py, but you haven't granted it yet." }, r);
   assert.equal(lsp({ ask: ["LSP"], deny: ["Read(src/**)"] }).verdict, "deny", "a deny first");
   assert.deepEqual(lsp({ ask: ["Grep"] }), { verdict: "", rule: "", why: "" }, "another tool's rule");
+});
+
+// ── ROUND 3 (2026-11-14, the owner: "yes pls all of that") ──────────────────────────────────────────────────────────────
+test("CD382g the owner's additional working folders work with Coder's file tools, as Claude Code's (\"Files in additional directories follow the same permission rules as the original working directory\"): read, write, edit, grep and glob there (they were refused as outside the project while Coder was told to work there), never their .git; Coder's machine names them to the tools (CODER_WORK_DIRS); a relative deny or ask rule applies there too (Claude Code 2.1.325: \"they now also apply in added directories\"), an allow rule's does not", async () => {
+  const { mkdtemp, mkdir, writeFile, readFile: rf } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { spawnSync } = await import("node:child_process");
+  // The rules: a relative deny or ask path in each working folder too; an anchored one (/x) and an allow one only at the project.
+  const W = "/work/extra", rc = { ...ctx, roots: [W] };
+  assert.equal(hit(["Read(.env)"], W + "/.env", "deny", "Read", rc), "Read(.env)");
+  assert.equal(hit(["Read(./secrets/**)"], W + "/a/secrets/k", "ask", "Read", rc), "Read(./secrets/**)");
+  assert.equal(hit(["Read(config/app.json)"], W + "/config/app.json", "deny", "Read", rc), "Read(config/app.json)");
+  assert.equal(hit(["Read(.env)"], W + "/.env"), "", "not without the working folders");
+  assert.equal(hit(["Read(/.env)"], W + "/.env", "deny", "Read", rc), "", "/path: the project's only");
+  assert.equal(hit(["Edit(src/**)"], W + "/src/a.js", "allow", "Edit", rc), "", "an allow rule: the project's folder only");
+  assert.equal(hit(["Read(*.env)", "Read(!sample.env)"], W + "/sample.env", "deny", "Read", rc), "", "a carve-out there too");
+  // The file tools' decision, and the files a command names.
+  const fd = (tool, p, rules) => P.fileToolDecision(tool, p, { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, home: HOME, roots: [W] });
+  assert.deepEqual(fd("read", W + "/.env", { deny: ["Read(.env)"] }), { verdict: "deny", rule: "Read(.env)", why: "File is in a directory that is denied by your permission settings." });
+  assert.equal(fd("grep", W, { ask: ["Read(.env)"] }).verdict, "", "a search of the folder, not of the file");
+  assert.equal(fd("edit", W + "/.env", { deny: ["Read(.env)"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be edited.");
+  assert.equal(P.bashDecision("cat " + W + "/.env", { mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(.env)"] }, cwd: ROOT, workdirs: [ROOT, W], home: HOME }).verdict, "deny");
+  assert.equal(P.bashDecision("cat " + W + "/.env", { mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(.env)"] }, cwd: ROOT, workdirs: [ROOT], home: HOME }).verdict, "ask", "not a working folder: outside, asked as before");
+  // The tools script, as Coder's machine runs it.
+  const top = await mkdtemp(join(tmpdir(), "coder-workdirs-"));
+  const main = join(top, "shop"), extra = join(top, "notes"), outside = join(top, "secret");
+  for (const d of [join(main, "src"), join(extra, "sub"), join(extra, ".git"), outside]) await mkdir(d, { recursive: true });
+  await writeFile(join(extra, "sub", "b.txt"), "hello extra\n"); await writeFile(join(extra, ".git", "config"), "x\n"); await writeFile(join(outside, "s.txt"), "no\n");
+  const tool = (name, args, work = extra) => { const r = spawnSync(process.execPath, ["--no-warnings", new URL("../container/coder-tools.mjs", import.meta.url).pathname, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: main, encoding: "utf8", env: { PATH: process.env.PATH, ...(work ? { CODER_WORK_DIRS: work } : {}) } }); return String(r.stdout || "").replace(/^\u0000coder-facts\u0000[^\n]*\n/, ""); };
+  assert.match(tool("read", { path: join(extra, "sub", "b.txt") }), /^\s*1\thello extra/);
+  assert.equal(tool("read", { path: join(extra, "sub", "b.txt") }, ""), "error: that path is outside the project", "only the owner's own");
+  assert.equal(tool("read", { path: join(outside, "s.txt") }), "error: that path is outside the project", "nothing else");
+  assert.equal(tool("read", { path: join(extra, ".git", "config") }), "error: the .git folder is off limits");
+  assert.equal(tool("read", { path: join(extra, "nope.txt") }), "error: no such file: " + join(extra, "nope.txt") + ". Note: your current working directory is " + main + ".", "named by its full path");
+  assert.ok(tool("write", { path: join(extra, "new.txt"), content: "made\n" }).startsWith("File created successfully at: " + join(extra, "new.txt") + " "));
+  assert.match(tool("edit", { path: join(extra, "new.txt"), old_string: "made", new_string: "changed" }), /has been updated successfully/);
+  assert.equal(await rf(join(extra, "new.txt"), "utf8"), "changed\n");
+  if (spawnSync("rg", ["--version"]).status === 0) {
+    assert.equal(tool("grep", { pattern: "hello", path: extra }), "Found 1 file\n" + join(extra, "sub", "b.txt"));
+    assert.deepEqual(tool("glob", { pattern: "**/*.txt", path: extra }).split("\n").sort(), [join(extra, "new.txt"), join(extra, "sub", "b.txt")]);
+    assert.equal(tool("grep", { pattern: "hello", path: extra }, ""), "error: that path is outside the project");
+  }
+  // A working folder around the project: the project's .git is still off limits, and its files are named as before.
+  await mkdir(join(main, ".git"), { recursive: true }); await writeFile(join(main, ".git", "HEAD"), "ref\n"); await writeFile(join(main, "src", "a.js"), "a\n");
+  assert.equal(tool("read", { path: join(main, ".git", "HEAD") }, top), "error: the .git folder is off limits");
+  assert.equal(tool("read", { path: "nope.js" }, top), "error: no such file: nope.js. Note: your current working directory is " + main + ".");
+  // Coder's machine names them to the tools, from the folders it worked out (addDirs), never from a variable of the owner's or
+  // the repository's (CODER_… names are dropped from both).
+  const server = read("container/server.mjs");
+  assert.match(server, /CODER_OUTPUT_DIRS: bgDir \+ ":" \+ outDir, \.\.\.\(addDirs\.length \? \{ CODER_WORK_DIRS: addDirs\.join\(":"\) \} : \{\}\),/);
+  assert.match(server, /export const REPO_ENV_OFF = [^\n]*\|CODER_\\w\*\|/);
+  // Coder's loop: the rules' decision and the search's own check get the working folders.
+  const agent = read("container/coder-agent.mjs");
+  assert.match(agent, /fileToolDecision\(c\.name, fileTarget, \{ rules: ownRules, [^\n]*roots: workdirs\.slice\(1\) \}\)/);
+  assert.match(agent, /home: deps\.home \|\| "", \.\.\.\(workdirs\.length > 1 \? \{ roots: workdirs\.slice\(1\) \} : \{\}\) \} \}\) \}\);/);
+});
+
+test("CD382h an allow rule Read(*), Edit(*), Write(*), Grep(*), Glob(*) or LSP(*) covers the working folders only, as Claude Code 2.1.325's (its Lg: the path \"*\", no longer the whole tool), with its warning in its words when it is saved (\"Permission allow rule \"LSP(*)\" adds nothing to LSP's default, …\"); the tool's name alone still allows every path; a deny or ask rule X(*) is still the whole tool", () => {
+  assert.equal(F.starAllowTool("Read(*)"), "Read");
+  assert.equal(F.starAllowTool("LSP()"), "LSP");
+  for (const t of ["Read", "Read(**)", "Read(src/*)", "Bash(*)", "WebFetch(*)"]) assert.equal(F.starAllowTool(t), "", t);
+  // As an allow rule: inside the project only.
+  assert.equal(hit(["Read(*)"], ROOT + "/deep/a.txt", "allow"), "Read(*)");
+  assert.equal(hit(["Read(*)"], "/etc/hostname", "allow"), "", "outside: no longer");
+  assert.equal(hit(["Read"], "/etc/hostname", "allow"), "Read", "the tool's name alone: every path");
+  assert.equal(hit(["Edit(*)"], "/tmp/x.txt", "allow", "Edit"), "");
+  // As a deny or ask rule: the whole tool, as before.
+  assert.equal(hit(["Read(*)"], "/etc/hostname", "deny"), "Read(*)");
+  assert.equal(hit(["Read(*)"], "/etc/hostname", "ask"), "Read(*)");
+  // So a command that reads or writes outside the project is no longer let through by it; the name alone still lets it.
+  const bd = (cmd, allow) => P.bashDecision(cmd, { mode: "acceptEdits", rules: { allow, ask: [], deny: [] }, cwd: ROOT, workdirs: [ROOT], home: HOME }).verdict;
+  assert.deepEqual([bd("cat /etc/hostname", ["Read(*)"]), bd("cat /etc/hostname", ["Read"])], ["ask", "allow"]);
+  assert.deepEqual([bd("cp a.txt /tmp/x.txt", ["Edit(*)"]), bd("cp a.txt /tmp/x.txt", ["Edit"])], ["ask", "allow"]);
+  // Its warning, in Claude Code's words (xkt; with Coder's name, and without the switch Anthropic has for it).
+  const said = (t) => P.ruleWarning("allow", t);
+  assert.deepEqual(said("LSP(*)"), { warning: 'Permission allow rule "LSP(*)" adds nothing to LSP\'s default, which already runs without asking in the working directories. "LSP" alone allows every path. Older versions of Coder treat "LSP(*)" as "LSP".', notice: "" });
+  for (const t of ["Read", "Grep", "Glob"]) assert.equal(said(t + "(*)").warning, 'Permission allow rule "' + t + '(*)" adds nothing to ' + t + '\'s default, which already runs without asking in the working directories. "' + t + '" alone allows every path. Older versions of Coder treat "' + t + '(*)" as "' + t + '".');
+  for (const t of ["Edit", "Write"]) assert.equal(said(t + "(*)").warning, 'Permission allow rule "' + t + '(*)" lets ' + t + ' run without asking only in the working directories. "' + t + '" alone allows every path. Older versions of Coder treat "' + t + '(*)" as "' + t + '".');
+  for (const k of ["deny", "ask"]) assert.equal(P.ruleWarning(k, "LSP(*)"), null, k);
+  assert.equal(said("LSP"), null);
+  assert.equal(P.ruleSaved("LSP(*)"), true, "still saved");
+  assert.match(P.ruleProblem("LSP()"), /^Empty parentheses\./, "LSP() refused as before, as Claude Code's settings check refuses it");
 });

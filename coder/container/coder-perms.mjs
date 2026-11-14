@@ -16,7 +16,7 @@
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
-import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
+import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS } from "./coder-filerules.mjs";
 import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -1209,6 +1209,12 @@ export function ruleWarning(kind, text) {
 function ruleWarningOf(kind, text) {
   const t = String(text ?? "").trim();
   const k = String(kind || "");
+  // AN ALLOW RULE `X(*)` ON A FILE TOOL (Claude Code 2.1.325, its startup warning, xkt: it now covers the working directories
+  // only, coder-filerules.mjs's STAR_PATH_TOOLS): saved, with that said in its words. (Its last sentence, "Older versions of
+  // Claude Code treat … as …, and this version will too if Anthropic turns this change off", with Coder's name, and without
+  // the switch Anthropic has for it, which Coder has not. Round 3, 2026-11-14.)
+  const star = k === "allow" ? starAllowTool(t) : "";
+  if (star) return { warning: 'Permission allow rule "' + t + '" ' + (STAR_EDIT_TOOLS.has(star) ? "lets " + star + " run without asking only in the working directories" : "adds nothing to " + star + "'s default, which already runs without asking in the working directories") + '. "' + star + '" alone allows every path. Older versions of Coder treat "' + t + '" as "' + star + '".', notice: "" };
   // AN ALLOW RULE WITH A WILDCARD TOOL NAME (Claude Code: "An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped
   // and doesn't auto-approve anything"): saved, with that said.
   if (toolGlob(t)) return k === "allow" && !anchoredGlob(t) ? { warning: 'Allow rule "' + t + '" names tools with a wildcard. An allow rule takes a wildcard only after a literal mcp__<server>__ prefix, so this one is skipped and doesn\'t auto-approve anything.', notice: t + " is skipped · it approves nothing" } : null;
@@ -1525,7 +1531,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles({ ...read, cmds: ruleCmds(read.cmds) }, { cwd, home });
-  const fctx = { root: workdirs[0] || cwd, home, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`.)
+  const fctx = { root: workdirs[0] || cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const ruleFiles = [...files, ...commandFiles({ ...shadow, cmds: ruleCmds(shadow.cmds) }, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
@@ -1831,10 +1838,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
-  const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
+  const ctx = { root, home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
@@ -1887,9 +1895,11 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // (LSP in Claude Code's order, as Grep's and Glob's: its own read check of the file first, so a Read ask rule on the file asks
   // in that rule's words; then a rule on the whole tool or on one of its inputs, in Claude Code's words, "Claude requested
   // permissions to use LSP, but you haven't granted it yet."; "Claude" is Coder here. 2026-11-14.)
+  // (The Read ask rule's card in its read check's words, as Grep's and Glob's: Claude Code's Yx, "Claude requested permissions
+  // to read from <path>, but you haven't granted it yet." Round 3, 2026-11-14.)
   if (tool === "lsp") {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Your rule " + ra + " asks first for reading " + p + "." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
     const la = whole("ask") || globWhole("ask") || paramHit("ask");
     return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
