@@ -123,6 +123,7 @@ import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/cod
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
+import { credentialHost, credentialHeader, credentialPrefix, hostMatches } from "../container/coder-secrets.mjs";
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
@@ -1472,6 +1473,14 @@ export async function handleCoder(request, env, ctx, deps) {
   if (action === "answer" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     if (meta.status !== "running") return json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409);
+    // CODER'S KEY CARD SAVED (request_secret, Claude Code's request_credential: "the result only says whether a credential is
+    // now configured"; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"): its step is told
+    // "saved" only while this chat's environment has a key for that host.
+    if (String(body.choice || "") === "saved") {
+      const host = credentialHost(body.host);
+      const keys = host ? (await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta))).secrets : [];
+      if (!keys.some((s) => s.hosts.some((p) => hostMatches(host, p)))) return json({ ok: false, error: "No key for " + (host || "that site") + " is saved on this chat's environment yet." }, 409);
+    }
     const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
     if (!m.ok) return json({ ok: false, error: m.why || "That card is no longer waiting for an answer." }, 409);
@@ -1649,7 +1658,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type)).at(-1);
+      // (Coder's key card waits in its own turn, `pid`, as Claude Code's request_credential form: never left waiting after it.)
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type) && !(e.type === "secret" && e.pid)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
@@ -2078,7 +2088,31 @@ export async function handleCoder(request, env, ctx, deps) {
     const kind = SECRET_KINDS.includes(body.kind) ? body.kind : "headers";
     const config = kind === "headers" ? null : normConfig(kind, body.config);
     if (kind !== "headers" && !config) return json({ error: { body: "give the parameter name and its value", oauth: "give an https token URL, the client ID and the client secret", gcp: "paste the service account's JSON key file (type service_account)", aws: "give the access key ID, the secret access key, the region (like us-east-1) and the service (like s3)" }[kind] }, 400);
-    const headers = kind !== "headers" ? [] : form ? (Array.isArray(body.headers) ? body.headers : []) : [{ name: body.header || "Authorization", prefix: body.prefix === undefined ? "Bearer" : body.prefix, value: body.value }];
+    let headers = kind !== "headers" ? [] : form ? (Array.isArray(body.headers) ? body.headers : []) : [{ name: body.header || "Authorization", prefix: body.prefix === undefined ? "Bearer" : body.prefix, value: body.value }];
+    // THE CARD, AS CLAUDE CODE'S request_credential FORM (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+    // notify one"; its inputs: suggested_type "basic" for "username and password"; header_name and prefix "Prefills the form;
+    // the user can change it", by its rules): a username and password go as Authorization: Basic; a token, in the header and
+    // after the word left on the card, as that form takes them (credentialHeader, credentialPrefix; "Basic" and none as before).
+    if (kind === "headers" && !form) {
+      if (body.basic === true) {
+        const user = typeof body.username === "string" ? body.username.trim() : "", pass = typeof body.password === "string" ? body.password.trim() : "";
+        if (!user) return json({ error: "type the username first" }, 400);
+        if (user.includes(":")) return json({ error: "a username can't have a colon (:) in it" }, 400);
+        headers = [{ name: "Authorization", prefix: "Basic", value: user + ":" + pass }];
+      } else {
+        const name = body.header === undefined ? "Authorization" : String(body.header || "").trim();
+        if (!credentialHeader(name)) return json({ error: "that header can't carry a key: one word of letters, digits, hyphens and underscores, at most 40 characters, in at most 5 hyphen-separated parts of at most 16 characters each, the last one key, apikey, token, auth, authorization, secret, credential or credentials (like X-Api-Key)" }, 400);
+        const p = body.prefix === undefined ? (name.toLowerCase() === "authorization" ? "Bearer" : "") : String(body.prefix || "");
+        const prefix = p === "" || p === "Basic" ? p : credentialPrefix(p);
+        if (prefix === null) return json({ error: "the word before the key is one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, or none" }, 400);
+        headers = [{ name, prefix, value: body.value }];
+      }
+      // A HOST THAT ALREADY HAS A SECRET (Claude Code's changelog: "Fixed adding a network secret for a host that already has
+      // one silently replacing it; the Add secret form now refuses and points you to the existing secret"): Coder's card no
+      // longer replaces it. Gloopy's card does, as before: Gloopy has no screen to remove one.
+      const had = isGloopy(meta) ? null : cur.secrets.find((s) => s.hosts.includes(String(hosts[0]).toLowerCase()));
+      if (had) return json({ error: "This environment already has a secret for " + hosts[0] + (had.name ? " (" + had.name + ")" : "") + ". To change it, delete it in Environment → Network secrets, then save this one again." }, 409);
+    }
     if (kind === "headers" && !headers.length) return json({ error: "add a header with the key" }, 400);
     for (const h of headers) {
       const name = String((h && h.name) || "").trim(), value = String((h && h.value) || "").trim(), prefix = String((h && h.prefix) || "");

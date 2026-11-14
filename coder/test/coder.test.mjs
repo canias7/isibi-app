@@ -1634,18 +1634,19 @@ test("CD62 network secrets: the proxy adds the key only for its host, over TLS t
   } finally { await px.close(); up.close(); }
 });
 
-test("CD63 request_secret: Coder asks for a key for one host; the turn ends with a card; bad hosts are refused", async () => {
+test("CD63 request_secret: Coder asks for a key for one host; bad hosts are refused; (since 2026-11-14, Claude Code's request_credential) the card waits in the turn and Coder goes on with its answer", async () => {
   const events = [];
-  const turns = [say("", [call("request_secret", { host: "https://evil" , reason: "x" })]), say("", [call("request_secret", { host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key" }), call("bash", { command: "echo never" })])];
+  const turns = [say("", [call("request_secret", { host: "https://evil" , reason: "x" })]), say("", [call("request_secret", { host: "api.stripe.com", reason: "To list test charges.", display_name: "Stripe test key" }), call("bash", { command: "echo after" })]), say("Done.")];
   let n = 0;
-  const seen = [];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e) }, { text: "check my stripe balance" });
+  const seen = [], asked = [];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), ask: async (pid) => { asked.push(pid); return { choice: "saved" }; } }, { text: "check my stripe balance" });
   assert.equal(r.status, "done");
-  const { at, ...card } = events.find((e) => e.type === "secret");
-  assert.deepEqual(card, { type: "secret", host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key", header: "Authorization", prefix: "Bearer" });
-  assert.match(JSON.stringify(seen[1].messages), /exact public host name/);
-  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false, "nothing after the request runs");
-  assert.match(JSON.stringify(r.messages), /not run: you asked the owner for a key first/);
+  const { at, pid, ...card } = events.find((e) => e.type === "secret");
+  assert.deepEqual(card, { type: "secret", host: "api.stripe.com", reason: "To list test charges.", name: "Stripe test key", header: "Authorization", prefix: "Bearer", kind: "bearer" });
+  assert.deepEqual(asked, [pid], "the step waits for the card's own answer");
+  assert.match(JSON.stringify(seen[1].messages), /exact hostname the credential is for/);
+  assert.ok(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), "what came after the request runs, in the same turn");
+  assert.ok(r.messages.some((m) => m.role === "tool" && m.content === "saved"));
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
   assert.match(CODER_SYSTEM, /call request_secret for that exact host RIGHT AWAY[\s\S]*Do not tell the owner to export a variable/, "Grok asks with the card, not with instructions (live test)");
 });

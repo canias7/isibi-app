@@ -235,7 +235,20 @@ export const GLOOPY_TOOL_NAMES = Object.freeze(["bash", "read", "write", "edit",
  * requests to that site after they leave its computer, so Gloopy (and anything on its computer) never sees it.
  */
 const GLOOPY_SECRET_WORDS = "Ask the owner for an API key (or token) for ONE site's API (e.g. api.openweathermap.org) when a job needs real calls to that API and no key is saved for it. A private card pops up for the owner; the key is kept sealed by Coder, and it is added to your HTTPS requests to that host after they leave your computer, so you never see it (call the API with curl or a script as if no key were needed; leave the key out). Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.";
-export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS } } : t)), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
+/**
+ * ITS INPUTS, IN GLOOPY'S WORDS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"): the same as
+ * Coder's, the names and rules of Claude Code's request_credential (host, reason, display_name, header_name, prefix,
+ * suggested_type), told without Coder's environments, which Gloopy has none of.
+ */
+const GLOOPY_SECRET_INPUTS = Object.freeze({
+  host: { type: "string", description: "The exact hostname of the site's API, e.g. \"api.openweathermap.org\": a lowercase DNS name only, no scheme, path, port, IP address or wildcard." },
+  reason: { type: "string", description: "One sentence: what needs the key." },
+  display_name: { type: "string", description: "Optional short label for the key, e.g. \"Weather API key\"; the owner can change it on the card." },
+  header_name: { type: "string", description: "Optional. The header the API reads the key from, only when its documentation says it is not Authorization: Bearer, e.g. \"X-Api-Key\": one word of letters, digits, hyphens and underscores, at most 40 characters, in at most 5 hyphen-separated parts of at most 16 characters each, the last one key, apikey, token, auth, authorization, secret, credential or credentials." },
+  prefix: { type: "string", description: "Optional. The word before the key in the header: Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey (Bearer by default with Authorization, none with any other header)." },
+  suggested_type: { type: "string", enum: ["bearer", "basic"], description: "Optional: \"bearer\" for a key or token sent in a header (the default), \"basic\" for a username and password." },
+});
+export const GLOOPY_TOOLS = Object.freeze([...CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS, parameters: { ...t.function.parameters, properties: GLOOPY_SECRET_INPUTS } } } : t)), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
 /** The tools that need a browser on the machine. */
 export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in", "pay", "handoff"]);
 

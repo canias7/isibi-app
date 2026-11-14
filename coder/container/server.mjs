@@ -4499,9 +4499,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE OWNER'S ANSWER TO A CARD (Claude Code's permission prompt: Yes, don't ask again, switch to auto mode, No with a
       // note; a plan approved with Auto or Accept edits, or not): only for the card a step waits on now.
+      // (And "saved" from Coder's key card, Claude Code's request_credential form, once Coder's Worker has the key: the owner,
+      // 2026-11-14, "Do all the talk to you tools execpt for the notify one".)
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "saved"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
         if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
         t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" });
         return send(200, { ok: true });

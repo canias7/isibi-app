@@ -4,7 +4,10 @@ export const HOST_RE = /^(?=.{1,253}$)(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-
 // THE HEADER A KEY GOES IN (the audit, 2026-11-06): Authorization, or a name that
 // ends in key/token/auth/secret (X-Api-Key, Xi-Api-Key, X-Auth-Token…), like
 // Claude Code. Never a header a website copies back (Origin, Host, Referer…).
-export const HEADER_RE = /^(authorization|([a-z0-9]{1,16}-){0,4}(key|apikey|token|auth|secret|credential|credentials))$/i;
+// (Also every header Claude Code's request_credential takes, so a key saved from Coder's card is kept: underscores in its
+// parts and "authorization" as its last part, X-Authorization. The owner, 2026-11-14: "Do all the talk to you tools execpt
+// for the notify one". Only ever wider, so no key saved before is dropped; the card's own rule is credentialHeader.)
+export const HEADER_RE = /^(authorization|([a-z0-9_]{1,16}-){0,4}(key|apikey|token|auth|authorization|secret|credential|credentials))$/i;
 /** A key the owner may save: printable characters only (no spaces inside, nothing a header cannot carry). */
 /**
  * A REPOSITORY THE CHAT DOESN'T HAVE, IN CLAUDE CODE'S CLOUD WORDS (its GitHub proxy's 403, seen 2026-11-11 in a Claude Code
@@ -18,7 +21,32 @@ export const REPO_NOT_ENABLED = "GitHub access to this repository is not enabled
 export const API_PATH_NOT_AVAILABLE = "This GitHub API path is not available: sessions are bound to their configured repositories. Use repository-scoped endpoints (repos/{owner}/{repo}/...).";
 export const REPO_DOCS = "https://gofarther.dev/docs";
 export const KEY_RE = /^[\x21-\x7e]{1,4000}$/;
-export const PREFIXES = ["", "Bearer", "Token", "Key", "Basic"];
+/**
+ * THE WORDS A KEY MAY FOLLOW IN CLAUDE CODE'S request_credential (the owner, 2026-11-14: "Do all the talk to you tools execpt
+ * for the notify one"; its prefix input: "one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, in any
+ * letter case"), in their own spelling. A key saved with one of them is sent with it (PREFIXES, headerValue).
+ */
+export const CREDENTIAL_PREFIXES = Object.freeze(["Bearer", "Token", "Key", "ApiKey", "Api-Key", "Bot", "SSWS", "Splunk", "GenieKey"]);
+export const PREFIXES = ["", "Bearer", "Token", "Key", "Basic", ...CREDENTIAL_PREFIXES.filter((w) => !["Bearer", "Token", "Key"].includes(w))];
+/** A prefix as Claude Code's request_credential takes it, in any letter case: its own spelling, or null for any other word. */
+export const credentialPrefix = (p) => (typeof p === "string" && CREDENTIAL_PREFIXES.find((w) => w.toLowerCase() === p.toLowerCase())) || null;
+const HEADER_ENDS = ["key", "apikey", "token", "auth", "authorization", "secret", "credential", "credentials"];
+/**
+ * THE HEADER RULE OF CLAUDE CODE'S request_credential (its header_name input): "One word of letters, digits, hyphens and
+ * underscores: at most 40 characters, in at most 5 hyphen-separated parts of at most 16 characters each, and the last part
+ * must be key, apikey, token, auth, authorization, secret, credential or credentials." Authorization itself is one such word.
+ */
+export function credentialHeader(name) {
+  if (typeof name !== "string" || !/^[A-Za-z0-9_-]{1,40}$/.test(name)) return false;
+  const parts = name.split("-");
+  return parts.length <= 5 && parts.every((x) => x.length >= 1 && x.length <= 16) && HEADER_ENDS.includes(parts[parts.length - 1].toLowerCase());
+}
+/**
+ * THE HOST RULE OF CLAUDE CODE'S request_credential (its host input: "The exact hostname the credential is for, e.g.
+ * "api.example.com". Lowercase DNS name only — no scheme, path, port, IP address or wildcard."): the host as given, when it
+ * is already one such public name (okHost, below), else null.
+ */
+export const credentialHost = (h) => (typeof h === "string" && okHost(h) === h ? h : null);
 
 /** A host name the owner may save a secret for: an exact public DNS name (no IP, no wildcard, no internal name). */
 export function okHost(h) {
@@ -173,6 +201,19 @@ export function hostAllowed(host, network, keyed = []) {
 }
 /** May a key ever be added for this host? */
 export const keyAllowed = (host) => !NEVER_KEY.includes(String(host || "").toLowerCase());
+/**
+ * WHY A HOST NEVER GETS A KEY, FOR CODER (request_secret's "not saved" result; the owner, 2026-11-14: "Do all the talk to you
+ * tools execpt for the notify one"): Claude Code's request_credential "cannot help with ... GitHub (use the repository tools),
+ * or public package registries the proxy does not handle", and its cloud docs: "GitHub: the GitHub proxy authenticates
+ * requests to GitHub instead, so you don't need a network secret for it"; "The Anthropic API and public package registries"
+ * never get one. "" for a host that can get a key.
+ */
+export function neverKeyWhy(host) {
+  const h = String(host || "").toLowerCase();
+  if (keyAllowed(h)) return "";
+  if (h === "github.com" || h === "api.github.com") return "Coder's GitHub proxy authenticates requests to GitHub instead (git and gh use the owner's GitHub sign-in), so no network secret is needed for it.";
+  return "Coder's proxy never attaches a network secret to " + h + ": the Anthropic API and public package registries never get one." + (h === "api.anthropic.com" ? "" : " For a private registry, ask for the key for that registry's own host.");
+}
 /**
  * A SAVED KEY THAT IS NEVER SENT, AND WHY (Bash docs pass 9, part F; Claude Code's cloud docs: "If the list marks a secret
  * Not sent instead, the note under it says why and what to do. Two secrets whose hosts overlap without matching exactly get

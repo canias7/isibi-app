@@ -2386,20 +2386,7 @@
           '<p class="cd-secret-p">Do only this step, then choose “I’m done”. To use Gloopy’s browser yourself, take over. Gloopy sees the page again after.</p>' + until(i, e) + gone(i, e) +
           (live ? (S.cardMsg && S.cardMsg.id === e.id ? '<p class="cd-secret-err">' + esc(S.cardMsg.text) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-card-no" data-handoff-skip="' + esc(e.id) + '">Skip</button><button type="button" class="cd-card-no" data-handoff-done="' + esc(e.id) + '">I’m done</button><button type="button" class="cd-card-yes" data-handoff-open="' + esc(e.id) + '"' + (S.webOK ? '' : ' disabled') + '>Take over</button></div>' : '') + '</div>');
       }
-      else if (e.type === 'secret') {
-        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy; Coder never sees it.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
-        // In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's environments).
-        out.push('<div class="cd-secret"><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (GLOOPY ? 'Gloopy needs a key for ' : 'Coder needs a secret for ') + esc(e.host) + '</b>' +
-          (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
-          '<p class="cd-secret-how">Sent as <code>' + esc(e.header || 'Authorization') + ': ' + esc(e.prefix == null ? 'Bearer ' : (e.prefix ? e.prefix + ' ' : '')) + '&lt;your key&gt;</code></p>' +
-          (GLOOPY ? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' + esc(e.host) + ': it is added to Gloopy’s requests to ' + esc(e.host) + ' after they leave its computer, so Gloopy never sees it.</p>'
-            : '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>') +
-          (live ? '<label class="cd-secret-l" for="cdSecretIn">' + esc(e.name || 'Token') + '</label><input id="cdSecretIn" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">' +
-            (S.secretMsg ? '<p class="cd-secret-err">' + esc(S.secretMsg) + '</p>' : '') +
-            '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '">Decline</button><button type="button" class="cd-secret-save" data-secret-host="' + esc(e.host) + '" data-secret-header="' + esc(e.header || 'Authorization') + '" data-secret-prefix="' + esc(e.prefix == null ? 'Bearer' : e.prefix) + '" data-secret-name="' + esc(e.name || '') + '" disabled>Save</button></div>'
-          : '') + '</div>');
-      }
+      else if (e.type === 'secret') out.push(keyCardHTML(e, i));
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push('<div class="cd-todo"><b>Plan</b>' + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>'); }
       // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
       // on Gloopy's last stop, while nothing came after it, a Resume button.
@@ -3232,6 +3219,44 @@
   }
   // (Once, in Coder's view: the page makes two views, and these cards are Auto mode's, which is Coder's alone. Merged 2026-11-13.)
   if (!GLOOPY) setInterval(() => { document.querySelectorAll('[data-block-at]').forEach((el) => { el.textContent = blockLeft(Number(el.getAttribute('data-block-at'))); }); }, 1000);
+  // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code's card): typed here, sealed on the server, added by the proxy;
+  // Coder never sees it. In Gloopy's chat (2026-11-09): a key kept for Gloopy alone (its own store, not one of Coder's
+  // environments). CLAUDE CODE'S request_credential FORM (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+  // notify one"; its inputs: display_name "Optional short label to prefill in the form ... The user can change it", header_name
+  // "Prefills the form; the user can change it", prefix "one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or
+  // GenieKey", suggested_type "Optional hint for the form's default ... "basic" for username and password"; its form's own
+  // field is "Token"): the name, the secret type (Token, or Username and password), the header and the word before the key can
+  // be changed here. Coder's card waits in its own turn (`pid`), as Claude Code's form does: Save or Decline answers it there,
+  // and Coder goes on; Gloopy's card (no `pid`) is answered with a message, as before.
+  const KEY_WORDS = ['', 'Bearer', 'Token', 'Key', 'ApiKey', 'Api-Key', 'Bot', 'SSWS', 'Splunk', 'GenieKey'];
+  // (Its fields' ids, one set for each of the page's two views.)
+  const KEY_ID = (GLOOPY ? 'gl' : 'cd') + 'Key';
+  const keySentAs = (basic, header, prefix) => (basic ? 'Authorization: Basic <your username and password>' : (header || 'Authorization') + ': ' + (prefix ? prefix + ' ' : '') + '<your key>');
+  function keyCardHTML(e, i) {
+    const asks = !!e.pid;
+    const live = asks ? S.running && !S.events.some((x) => x.type === 'permanswer' && x.pid === e.pid) : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+    const header = e.header || 'Authorization', prefix = e.prefix == null ? 'Bearer' : e.prefix;
+    // (An older card's "Basic" sent the key as the user name: a username and password now.)
+    const basic = e.kind === 'basic' || prefix === 'Basic';
+    const field = (k, label, input) => '<div class="cd-secret-field"><label class="cd-secret-l" for="' + KEY_ID + k + '">' + label + '</label>' + input + '</div>';
+    const text = (k, v, max) => '<input id="' + KEY_ID + k + '" class="cd-secret-in" type="text" value="' + esc(v || '') + '"' + (max ? ' maxlength="' + max + '"' : '') + ' autocomplete="off" spellcheck="false">';
+    const typed = (k) => '<input id="' + KEY_ID + k + '" class="cd-secret-in" type="password" autocomplete="off" spellcheck="false">';
+    const at = asks ? ' data-secret-pid="' + esc(e.pid) + '"' : '';
+    return '<div class="cd-secret cd-secret-key' + (live ? ' is-live' : '') + '"' + (live ? at : '') + '><div class="cd-secret-icon">' + ICON.lock + '</div><b class="cd-secret-t">' + (GLOOPY ? 'Gloopy needs a key for ' : 'Coder needs a secret for ') + esc(e.host) + '</b>' +
+      (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
+      '<p class="cd-secret-how">Sent as <code>' + esc(keySentAs(basic, header, prefix)) + '</code></p>' +
+      (GLOOPY ? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' + esc(e.host) + ': it is added to Gloopy’s requests to ' + esc(e.host) + ' after they leave its computer, so Gloopy never sees it.</p>'
+        : '<p class="cd-secret-p">This secret is saved on the environment ' + esc(S.envInfo ? S.envInfo.name : 'of this chat') + ': every chat that uses it can reach ' + esc(e.host) + ' with it. It\'s kept secure: Coder never sees it, and it\'s only sent to ' + esc(e.host) + '.</p>') +
+      (live ? field('Name', 'Name (optional)', text('Name', e.name, 60)) +
+        field('Type', 'Secret type', '<select id="' + KEY_ID + 'Type" class="cd-secret-in"><option value="token"' + (basic ? '' : ' selected') + '>Token</option><option value="basic"' + (basic ? ' selected' : '') + '>Username and password</option></select>') +
+        '<div class="cd-secret-tok"' + (basic ? ' hidden' : '') + '><div class="cd-secret-row">' + field('Header', 'Header', text('Header', header, 40)) +
+          field('Prefix', 'Prefix', '<select id="' + KEY_ID + 'Prefix" class="cd-secret-in">' + KEY_WORDS.map((w) => '<option value="' + w + '"' + (w === (basic ? 'Bearer' : prefix) ? ' selected' : '') + '>' + (w || '(none)') + '</option>').join('') + '</select>') + '</div>' +
+          field('In', 'Token', typed('In')) + '</div>' +
+        '<div class="cd-secret-basic"' + (basic ? '' : ' hidden') + '>' + field('User', 'Username', text('User', '', 0)) + field('Pass', 'Password', typed('Pass')) + '</div>' +
+        '<p class="cd-secret-err" hidden></p>' +
+        '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-secret-no="' + esc(e.host) + '"' + at + '>Decline</button><button type="button" class="cd-secret-save" data-secret-save="' + esc(e.host) + '"' + at + ' disabled>Save</button></div>'
+      : '') + '</div>';
+  }
   function permHTML(e) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
     const live = S.running && !ans;
@@ -3429,9 +3454,21 @@
     // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
     const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id) ? document.activeElement.id : '';
+    // CODER'S KEY CARD WHILE ITS STEP WAITS (keyCardHTML; the owner, 2026-11-14): the page redraws every 1.5 seconds while Coder
+    // works, so the card keeps its own fields as they are (what the owner typed, the key too, never goes into the page's
+    // markup or its state), with the cursor; once answered, it is drawn afresh.
+    const keyKept = root.querySelector('.cd-secret-key[data-secret-pid]');
+    const keyAt = keyKept && keyKept.contains(document.activeElement) ? { id: document.activeElement.id, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
+    const keyPid = keyKept ? String(keyKept.dataset.secretPid || '') : '';
+    const keyNew = /^p[0-9a-z]{2,24}$/.test(keyPid) ? root.querySelector('.cd-secret-key[data-secret-pid="' + keyPid + '"]') : null;
+    if (keyNew) {
+      keyNew.replaceWith(keyKept);
+      const f = keyAt && keyAt.id ? keyKept.querySelector('#' + keyAt.id) : null;
+      if (f) { f.focus(); try { if (keyAt.a != null) f.setSelectionRange(keyAt.a, keyAt.b); } catch { /* a select has no cursor */ } }
+    }
     if (GLOOPY && S.project) markGloopy(!S.running && gloopyWaits(S.project));
     const nlog = root.querySelector('#cdLog');
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
@@ -3875,17 +3912,49 @@
       rd.onload = () => { const data = String(rd.result || '').replace(/^data:[^,]*,/, ''); webInput({ kind: 'file', name: f.name.slice(0, 120), data }); };
       rd.readAsDataURL(f);
     });
-    on('#cdSecretIn', 'input', (e) => { const b = document.querySelector('.cd-secret-save'); if (b) b.disabled = !e.currentTarget.value.trim(); });
-    on('.cd-secret-no', 'click', (e) => { S.secretMsg = ''; send('I declined the secret for ' + e.currentTarget.dataset.secretNo + '.'); });
-    on('.cd-secret-save', 'click', async (e) => {
-      const d = e.currentTarget.dataset; const box = (S.root || document).querySelector('#cdSecretIn'); const value = box ? box.value.trim() : '';
-      if (!value || !S.project) return;
-      e.currentTarget.disabled = true;
-      const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ host: d.secretHost, value, header: d.secretHeader, prefix: d.secretPrefix, name: d.secretName }) });
-      if (box) box.value = '';
-      if (r.status !== 200) { S.secretMsg = (r.data && r.data.error) || 'It could not be saved.'; return draw(); }
-      S.secretMsg = ''; if (S.env) S.env.secrets = r.data.secrets;
-      send((GLOOPY ? 'I saved the key for ' : 'I saved the secret for ') + d.secretHost + '.');
+    // THE KEY CARD (keyCardHTML; Claude Code's request_credential form, the owner, 2026-11-14: "Do all the talk to you tools
+    // execpt for the notify one"): what it sends follows its fields; Save keeps the key on the chat's environment (sealed: Coder
+    // never sees it), then answers Coder's waiting step "saved", or in Gloopy's chat says so in a message; Decline answers
+    // "no", or says so. What was typed leaves the card as it is sent; the card's own fields are read, never another view's.
+    const keyOf = (el) => el.closest('.cd-secret-key');
+    const keyVal = (card, k) => { const x = card.querySelector('#' + KEY_ID + k); return x ? String(x.value || '') : ''; };
+    const keyForm = (card) => ({ basic: keyVal(card, 'Type') === 'basic', name: keyVal(card, 'Name').trim(), header: keyVal(card, 'Header').trim(), prefix: keyVal(card, 'Prefix'), value: keyVal(card, 'In').trim(), username: keyVal(card, 'User').trim(), password: keyVal(card, 'Pass').trim() });
+    const keySay = (card, t) => { const p = card.querySelector('.cd-secret-err'); if (p) { p.textContent = t; p.hidden = !t; } };
+    const keyShow = (card) => {
+      const f = keyForm(card), pid = card.dataset.secretPid || '';
+      const tok = card.querySelector('.cd-secret-tok'), two = card.querySelector('.cd-secret-basic'), how = card.querySelector('.cd-secret-how code'), save = card.querySelector('[data-secret-save]');
+      if (tok) tok.hidden = f.basic;
+      if (two) two.hidden = !f.basic;
+      if (how) how.textContent = keySentAs(f.basic, f.header, f.prefix);
+      if (save) save.disabled = !!(pid && S.keyTold && S.keyTold[pid]) || !((pid && S.keySaved && S.keySaved[pid]) || (f.basic ? f.username : f.value));
+    };
+    on('.cd-secret-key.is-live input, .cd-secret-key.is-live select', 'input', (e) => { const c = keyOf(e.currentTarget); if (c) keyShow(c); });
+    on('.cd-secret-key.is-live select', 'change', (e) => { const c = keyOf(e.currentTarget); if (c) keyShow(c); });
+    on('[data-secret-no]', 'click', async (e) => {
+      const b = e.currentTarget, card = keyOf(b), pid = b.dataset.secretPid || '';
+      if (!pid) return send('I declined the secret for ' + b.dataset.secretNo + '.');
+      if (!card || !S.project) return;
+      b.disabled = true;
+      const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice: 'no' }) });
+      if (a.status !== 200) { b.disabled = false; keySay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
+    });
+    on('[data-secret-save]', 'click', async (e) => {
+      const b = e.currentTarget, card = keyOf(b), host = b.dataset.secretSave, pid = b.dataset.secretPid || '';
+      if (!card || !S.project || !host) return;
+      const f = keyForm(card), id = S.project.id;
+      b.disabled = true;
+      if (!pid || !(S.keySaved && S.keySaved[pid])) {
+        const r = await call('/projects/' + encodeURIComponent(id) + '/secret', { method: 'POST', body: JSON.stringify(f.basic ? { host, name: f.name, basic: true, username: f.username, password: f.password } : { host, name: f.name, header: f.header, prefix: f.prefix, value: f.value }) });
+        for (const k of ['In', 'Pass']) { const x = card.querySelector('#' + KEY_ID + k); if (x) x.value = ''; }
+        if (r.status !== 200) { keySay(card, (r.data && r.data.error) || 'It could not be saved.'); return keyShow(card); }
+        if (S.env) S.env.secrets = r.data.secrets;
+        if (!pid) return send((GLOOPY ? 'I saved the key for ' : 'I saved the secret for ') + host + '.');
+        S.keySaved = { ...(S.keySaved || {}), [pid]: true };
+      }
+      const a = await call('/projects/' + encodeURIComponent(id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice: 'saved', host }) });
+      if (a.status !== 200) { keySay(card, 'Saved. Coder could not be told yet: ' + ((a.data && a.data.error) || 'try again.') + ' Press Save to tell it again.'); return keyShow(card); }
+      S.keyTold = { ...(S.keyTold || {}), [pid]: true };
+      keySay(card, '');
     });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));

@@ -29,6 +29,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
+import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
@@ -1126,6 +1127,64 @@ export const CODER_MAX_MS = 45 * 60 * 1000;
  */
 const FILE_PATH = { type: "string", description: "the file's full path (best, as with Claude Code's tools), or a path from the folder your commands are in" };
 const SEARCH_PATH = { type: "string", description: "where to search: a full path, or one from the folder your commands are in (that folder when left out)" };
+/**
+ * CLAUDE CODE'S request_credential, AS CODER'S request_secret (the owner, 2026-11-14: "Do all the talk to you tools execpt for
+ * the notify one"; its definition in a Claude Code cloud session, read 2026-11-14): its description and its inputs'
+ * descriptions word for word, with Coder for Claude, the owner for the user, a chat for a session, propose_env for its
+ * environment tools (get_environment, the allowed hosts) and the line Coder's proxy blocks with for its own ("request blocked:
+ * no rule allows host"). Left out: "including other people's sessions when the environment is shared", as Coder's
+ * environments are the owner's alone; "GitHub (use the repository tools)" names how Coder reaches GitHub instead. (CODER_SYSTEM's
+ * API KEYS line, below, now says the same after a decline: "tell them the credential can be added in the environment's
+ * settings".)
+ */
+export const SECRET_WORDS ="Ask the owner for an API credential for a host. Ask as soon as you know the work needs a key for a host, before any call to the host fails: when the owner or setup docs say a token or API key is needed, or when the work must make real calls to an API that no connector covers and you hold no key for, even if the network policy also blocks its host. Also ask when an HTTPS request fails with 401/403 for lack of credentials. Ask before you report no access or put made-up responses in the API's place. This is the preferred way to give a chat access to an API that needs a token or API key, rather than asking the owner to put one in an environment variable. Never ask the owner to paste secrets into the chat; where you would tell them not to, call this instead. Calling this shows the owner a secure form. A credential they save is stored on this chat's environment, and the network proxy injects it into requests to that host from every chat in that environment: this chat usually within a few seconds, and later chats. Saving it also allows HTTPS requests to that host from those chats, so do not add the host to the environment's allowed hosts for it (propose_env's allow_host). If propose_env is among your tools, first make the move its description calls for, unless the owner asked for the credential here. If the credential will be saved on the owner's Default all the same, because the chat has no repository or could not be moved, say so in your message, then call this tool, and do not propose a move for a credential again in this chat. If the owner declined the move, call this tool only if they then ask for the credential. You never receive the value — the result only says whether a credential is now configured, and if not, why. If the call itself is denied, because the owner declined or because the app they are using cannot show the form, no result comes back: do not call this again for that host, and tell them the credential can be added in the environment's settings, then retry the failing request once it has been. After `saved`, retry the failing request right away. Until the proxy picks the credential up, the request can still fail with 401/403 or with `Blocked by this repo's network list`: if it is refused again with one of those, wait about a minute and retry once more rather than change network settings. Do not wait for the proxy after a timeout or any other error. This cannot help with secrets that must exist inside the sandbox (database passwords, container registry pulls, SSH keys), GitHub (git and gh reach it through Coder's GitHub proxy), or public package registries the proxy does not handle. A local key check is no reason to skip this tool. If a CLI or SDK will not start without a key and sends it in a header, give it a dummy value in the format it expects for that command, never a real one: the proxy replaces it.";
+export const SECRET_INPUTS = Object.freeze({
+  host: { type: "string", description: "The exact hostname the credential is for, e.g. \"api.example.com\". Lowercase DNS name only — no scheme, path, port, IP address or wildcard. Shown to the owner in the form." },
+  reason: { type: "string", description: "One or two sentences: which request failed or which step needs the credential, and what it unblocks. The form may not show this, so say in your message, before you call, which network secret you need, for which host, and why. The secret's value is entered only in the form, never in chat. Plain text only: no URLs, links or markup (name the host instead)." },
+  display_name: { type: "string", description: "Optional short label to prefill in the form, e.g. \"Example API token\"; it names the credential in the environment's network secrets list. The owner can change it. Plain text only: no URLs, links or markup." },
+  header_name: { type: "string", description: "Optional. The HTTP header the API reads the key from, e.g. \"xi-api-key\" or \"X-Api-Key\". Send it only when the owner or the API's documentation says the key goes in a header other than Authorization: Bearer; leave it out otherwise. One word of letters, digits, hyphens and underscores: at most 40 characters, in at most 5 hyphen-separated parts of at most 16 characters each, and the last part must be key, apikey, token, auth, authorization, secret, credential or credentials. The form cannot save a key under any other header: for an API that reads one, the owner adds the key in the environment's settings. Prefills the form; the owner can change it. Not used with suggested_type \"basic\". Never put a key's value in this or any other field." },
+  prefix: { type: "string", description: "Optional. The word the API expects before the key in the header: one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, in any letter case. With the Authorization header it defaults to Bearer; with any other header_name it defaults to none, so pass prefix whenever the documentation shows a word before the key, Bearer included. The form cannot save a key with any other word before it: for an API that expects one, the owner adds the key in the environment's settings. Not used with suggested_type \"basic\". Never put a key's value in this or any other field." },
+  suggested_type: { type: "string", enum: ["bearer", "basic"], description: "Optional hint for the form's default: \"bearer\" for a token or API key sent in a header (Authorization: Bearer unless header_name and prefix say otherwise), \"basic\" for username and password." },
+});
+/**
+ * WHAT CODER IS TOLD WHEN THE OWNER DECLINES THE CARD (request_secret): Claude Code's own answer when the owner declined its
+ * form, seen in a Claude Code cloud session on 2026-11-06 (an error, "Denied by user"; Claude then went on in the same turn),
+ * with the owner for the user. Also when no card can be shown (Claude Code: "or because the app they are using cannot show
+ * the form").
+ */
+export const SECRET_DENIED = "error: Denied by owner";
+/** request_secret's refusals of an input, in the words of Claude Code's request_credential's own descriptions of it. */
+export const SECRET_ERRORS = Object.freeze({
+  host: "error: host must be the exact hostname the credential is for, e.g. \"api.example.com\": a lowercase DNS name only — no scheme, path, port, IP address or wildcard",
+  reason: "error: reason is required: one or two sentences: which request failed or which step needs the credential, and what it unblocks",
+  display_name: "error: display_name must be a short plain-text label, e.g. \"Example API token\"",
+  header_name: "error: header_name must be one word of letters, digits, hyphens and underscores: at most 40 characters, in at most 5 hyphen-separated parts of at most 16 characters each, and the last part must be key, apikey, token, auth, authorization, secret, credential or credentials. The form cannot save a key under any other header: for an API that reads one, the owner adds the key in the environment's settings.",
+  prefix: "error: prefix must be one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, in any letter case. The form cannot save a key with any other word before it: for an API that expects one, the owner adds the key in the environment's settings.",
+  suggested_type: "error: suggested_type must be \"bearer\" (a token or API key sent in a header) or \"basic\" (username and password)",
+});
+/**
+ * request_secret's input, checked by the rules Claude Code's request_credential gives its inputs (the owner, 2026-11-14: "Do
+ * all the talk to you tools execpt for the notify one"): the card's { host, reason, name, header, prefix, kind }, or
+ * { error }. The header and the word before the key as Claude Code fills its form: "With the Authorization header it defaults
+ * to Bearer; with any other header_name it defaults to none"; for "basic" ("username and password") neither is used.
+ * Optional inputs given empty count as not given.
+ */
+export function secretAsk(args) {
+  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  const given = (k) => a[k] !== undefined && a[k] !== null && a[k] !== "";
+  const host = credentialHost(a.host);
+  if (!host) return { error: SECRET_ERRORS.host };
+  if (typeof a.reason !== "string" || !a.reason.trim()) return { error: SECRET_ERRORS.reason };
+  if (given("display_name") && typeof a.display_name !== "string") return { error: SECRET_ERRORS.display_name };
+  if (given("suggested_type") && a.suggested_type !== "bearer" && a.suggested_type !== "basic") return { error: SECRET_ERRORS.suggested_type };
+  const basic = a.suggested_type === "basic";
+  if (!basic && given("header_name") && !credentialHeader(a.header_name)) return { error: SECRET_ERRORS.header_name };
+  if (!basic && given("prefix") && !credentialPrefix(a.prefix)) return { error: SECRET_ERRORS.prefix };
+  const header = basic || !given("header_name") ? "Authorization" : a.header_name;
+  const prefix = basic ? "Basic" : given("prefix") ? credentialPrefix(a.prefix) : header.toLowerCase() === "authorization" ? "Bearer" : "";
+  return { host, reason: scrub(a.reason).trim().slice(0, 300), name: given("display_name") ? scrub(a.display_name).trim().slice(0, 60) : "", header, prefix, kind: basic ? "basic" : "bearer" };
+}
+
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
@@ -1145,7 +1204,8 @@ export const CODER_TOOLS = Object.freeze([
   // dropped that tool (TaskOutput, 2.1.277), and Claude reads output files with Read.
   fn("monitor", "Start a monitor: a shell command that runs in the background and whose every stdout line comes to you as an event while you work, so you can react when something happens (a server's ready line, an error in a log, a build or deploy that finishes, a file that changes, a status you poll in a loop) instead of checking again and again. Lines that come close together arrive together. Stderr goes to a file of its own and is no event. Or, for a server that already pushes events, a WebSocket (ws) instead of a command: each text message is one event, a binary one comes as a placeholder line, a message over 1 MiB ends the watch, and when the socket closes the watch ends and you are told its close code. It ends when its command exits, at its deadline (timeout_ms: default 300000, 5 minutes; at most 1800000, 30 minutes; you are told once, so you can start it again if you still need it), or with stop_job. One that prints too many lines is stopped, so filter what it prints (grep --line-buffered, awk with fflush()). A command is checked like a bash command (the same rules and questions); a WebSocket is asked about first, or judged by auto mode's checker. To read a background command's output, read its output file.", { command: { type: "string", description: "Shell command or script. Each stdout line is an event; exit ends the watch. Not with ws." }, ws: { type: "object", description: "WebSocket to open. Each text frame is an event; binary frames are reported as a placeholder line. Socket close ends the watch. Cannot be combined with command.", properties: { url: { type: "string", description: "A ws:// or wss:// URL, ASCII only, with no user name or password" }, protocols: { type: "array", items: { type: "string" }, description: "WebSocket subprotocols to offer (RFC 6455 tokens, each once)" } }, required: ["url"] }, description: { type: "string", description: "What it watches, in a few words (shown with each event)" }, timeout_ms: { type: "integer", description: "Its deadline in milliseconds (default 300000, at most 1800000)" } }, ["description"]),
   fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
-  fn("request_secret", "Ask the owner for an API key for ONE host (e.g. api.stripe.com) when the work needs real calls to that API and no secret is saved for it. A secure card pops up for the owner; the key is saved on this chat's environment (every chat using it gets it) and a proxy adds it to your HTTPS requests to that host, so you never see it. Your turn ends there; the next message says whether they saved it. Never ask for keys in the chat.", { host: { type: "string", description: "exact host, e.g. api.stripe.com" }, reason: { type: "string", description: "one sentence: what needs it" }, name: { type: "string", description: "a short label, e.g. Stripe test key" }, header: { type: "string", description: "the header the API reads (default Authorization)" }, prefix: { type: "string", enum: ["Bearer", "Token", "Key", "Basic", ""], description: "the word before the key (default Bearer)" } }, ["host", "reason"]),
+  // (Claude Code's request_credential: SECRET_WORDS and SECRET_INPUTS, above. The owner, 2026-11-14.)
+  fn("request_secret", SECRET_WORDS, SECRET_INPUTS, ["host", "reason"]),
   fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "limited", "full"], description: "new_environment: network level: none, limited (package registries, GitHub and cloud tools) or full (default limited)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
   // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
@@ -1428,7 +1488,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - A style request lasts for the rest of the chat. If they say "always" or "from now on", also save it in your memory file for this repo as ONE line starting with "Style: " (e.g. "Style: keep answers short"), replacing any older Style: line, so new chats follow it too. To drop it, delete that line.
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
-- API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key. Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
+- API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key (only after they decline it, tell them it can be added in the environment's settings, as request_secret's description says). Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
 - THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with propose_env, which the owner approves on a card. If it is the Default environment (chats in all the owner's repos use it), what only this repo needs (its own setup script) goes in a NEW environment instead (kind new_environment, named after the repo), like Claude Code; changes every chat would want (a common package site) may go on Default. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) when a request was "Blocked by this repo's network list" (the environment's list) (curl shows it as "CONNECT tunnel failed, response 403"), propose allow_host for that exact host. Apart from (b), never tell the owner to edit settings themselves instead.
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user: 1 to 4 questions in one card, each with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
@@ -3333,17 +3393,44 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: shown, ...(stoppedNow ? { stoppedJob: name } : {}) });
         reply(out || "(nothing yet)");
       } else if (c.name === "request_secret") {
-        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner; the turn ends here.
+        // A KEY FOR ONE HOST (owner, 2026-11-06, like Claude Code): a secure card for the owner.
         if (github) { reply("error: keys cannot be asked for in a job started from GitHub (it is public and gets no saved keys); say in your answer that the owner can give one in Coder's chat"); continue; }
-        const host = okHost(c.args.host);
-        const header = String(c.args.header || "Authorization").trim();
-        const prefix = c.args.prefix === undefined ? "Bearer" : String(c.args.prefix);
-        if (!host) { reply("error: give an exact public host name like api.stripe.com (no https://, path, IP address or wildcard)"); continue; }
-        if (!HEADER_RE.test(header) || !PREFIXES.includes(prefix)) { reply("error: header is Authorization or a name ending in Key/Token/Auth/Secret (e.g. X-Api-Key); prefix is Bearer, Token, Key, Basic or empty"); continue; }
-        reply("asked the owner for a key for " + host + "; the next message says whether it was saved");
-        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
-        emit({ type: "secret", host, reason: scrub(String(c.args.reason || "")).trim().slice(0, 300), name: scrub(String(c.args.name || "")).trim().slice(0, 60), header, prefix });
-        return end("done", { summary: lastSaid || "asked for a key for " + host });
+        // CLAUDE CODE'S request_credential (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"):
+        // its inputs checked by the rules its descriptions give them (secretAsk), after the PreToolUse hooks, as its own server
+        // checks them; a refusal is an error, and Coder goes on.
+        const want = secretAsk(c.args);
+        if (want.error) { reply(want.error); continue; }
+        const host = want.host;
+        const card = { type: "secret", host, reason: want.reason, name: want.name, header: want.header, prefix: want.prefix, kind: want.kind };
+        // GLOOPY'S CARD (2026-11-09, Grok Bot's secret card, in its own words): the turn ends here, and the owner's next message
+        // says whether they saved the key.
+        if (offered) {
+          reply("asked the owner for a key for " + host + "; the next message says whether it was saved");
+          for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner for a key first" });
+          emit(card);
+          return end("done", { summary: lastSaid || "asked for a key for " + host });
+        }
+        // A HOST THAT NEVER GETS A KEY: no card (Claude Code: the tool "cannot help with ... GitHub ..., or public package
+        // registries the proxy does not handle"; "the result only says whether a credential is now configured, and if not, why").
+        const never = neverKeyWhy(host);
+        if (never) { emit({ type: "result", id: c.id, code: 0, output: "not saved: " + never }); reply("not saved: " + never); continue; }
+        // THE CARD WAITS IN THIS TURN, AS CLAUDE CODE'S FORM DOES (its description: "Calling this shows the user a secure form";
+        // in its app the call runs while the form waits, "Using Request Credential"; "After `saved`, retry the failing request
+        // right away"): Save keeps the key on the chat's environment, sealed, and its step is told "saved" (the proxy has it
+        // within a few seconds: the Worker's reachRunning); Decline is Claude Code's "Denied by user" (SECRET_DENIED), and
+        // Coder goes on, as Claude did. No channel for the owner's answer is an app that "cannot show the form": denied too.
+        if (!canAsk()) { emit({ type: "result", id: c.id, code: 1, output: SECRET_DENIED }); reply(SECRET_DENIED); continue; }
+        const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+        emit({ ...card, pid });
+        let got = null;
+        try { got = await deps.ask(pid, { until: started + maxMs }); } catch { got = null; }
+        const choice = got && ["saved", "no", "stop"].includes(got.choice) ? got.choice : "none";
+        emit({ type: "permanswer", pid, choice });
+        if (choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (choice === "none" && now() - started > maxMs) { reply("not saved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+        if (choice === "saved") { emit({ type: "result", id: c.id, code: 0, output: "saved" }); reply("saved"); continue; }
+        emit({ type: "result", id: c.id, code: 1, output: SECRET_DENIED });
+        reply(SECRET_DENIED);
       } else if (c.name === "review") {
         // A REVIEW, CALLED BY CODER ITSELF (owner, 2026-11-06: "tools called by the model, not front-end stuff").
         const kind = c.args.kind === "security" ? "security" : "code";

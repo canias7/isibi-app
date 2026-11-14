@@ -315,6 +315,9 @@
 .cd-secret-eye[aria-pressed="true"]{color:#1f1e1d}
 .cd-sign-saved small{display:block;font-size:12px;font-weight:400;opacity:.75;margin-top:2px}
 .cd-secret-err{color:#b3261e;font-size:13px;text-align:left;margin:8px 4px 0}
+/* THE KEY CARD'S FIELDS, AS CLAUDE CODE'S request_credential FORM (2026-11-14): one under the other; the header and the word before the key side by side. */
+.cd-secret-field{margin:0 0 10px}
+.cd-secret-row{display:flex;gap:8px}.cd-secret-row>.cd-secret-field{flex:1;min-width:0}.cd-secret-row>.cd-secret-field:first-child{flex:1.6}
 .cd-secret-btns{display:flex;gap:10px;margin-top:16px}
 /* The live screen in a hand-off card (2026-11-12, Grok Bot's card shows its screen). */
 .cd-ho-screen{margin:14px 0 4px;border:1px solid #ebe7e0;border-radius:12px;overflow:hidden;background:#0f0f10;aspect-ratio:16/10;display:flex;align-items:center;justify-content:center}
