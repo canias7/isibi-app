@@ -2044,9 +2044,11 @@ test("GL50 (2026-11-09) on the page: in Gloopy's chat the key card says the key 
   assert.match(ui, /\(GLOOPY \? 'Gloopy needs a key for ' : 'Coder needs a secret for '\) \+ esc\(e\.host\)/);
   assert.match(ui, /\(GLOOPY \? '<p class="cd-secret-p">It’s kept sealed for Gloopy and only sent to ' \+ esc\(e\.host\) \+ ': it is added to Gloopy’s requests to ' \+ esc\(e\.host\) \+ ' after they leave its computer, so Gloopy never sees it\.<\/p>'/);
   assert.match(ui, /: '<p class="cd-secret-p">This secret is saved on the environment '/, "Coder's own card is as it was");
-  assert.match(ui, /const box = \(S\.root \|\| document\)\.querySelector\('#cdSecretIn'\)/, "the box in this screen, not Coder's");
+  // (Since 2026-11-14, Claude Code's request_credential form: the card's own fields, by ids of this screen's own, never Coder's.)
+  assert.match(ui, /const KEY_ID = \(GLOOPY \? 'gl' : 'cd'\) \+ 'Key';/);
+  assert.match(ui, /const keyVal = \(card, k\) => \{ const x = card\.querySelector\('#' \+ KEY_ID \+ k\);/, "the box in this card, not Coder's");
   assert.doesNotMatch(ui, /getElementById\('cdSecretIn'\)/);
-  assert.match(ui, /send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ d\.secretHost \+ '\.'\)/);
+  assert.match(ui, /if \(!pid\) return send\(\(GLOOPY \? 'I saved the key for ' : 'I saved the secret for '\) \+ host \+ '\.'\);/);
   assert.match(ui, /<label class="cd-sign-save"><input type="checkbox" id="cdSignSave" checked> Save to your Vault, so Gloopy can sign in to ' \+ esc\(e\.site \|\| 'the site'\) \+ ' for you next time<\/label>/, "since 2026-11-12: to your Vault");
   assert.match(ui, /save: !!\(keep && keep\.checked\)/);
 });
