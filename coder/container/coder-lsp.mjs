@@ -897,7 +897,8 @@ export const keeperCommand = (root) => (process.env.NODE_TEST_CONTEXT ? "CODER_L
  */
 export function needsKeeper(name, args) {
   const p = name === "lsp" ? args && args.filePath : name === "write" || name === "edit" ? args && args.path : null;
-  return typeof p === "string" && !!serverFor(p);
+  // (Trimmed, as the tool takes its path: round 6, coder-tools.mjs toolPath.)
+  return typeof p === "string" && !!serverFor(p.trim());
 }
 /**
  * THE KEEPER'S ANSWER, when one runs for the project, or null when none answers (no private folder, none started, or it is

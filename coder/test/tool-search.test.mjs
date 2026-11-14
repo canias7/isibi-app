@@ -752,3 +752,23 @@ test("TS32 where a tool that left goes back (Claude Code's Cta: after the neares
   assert.ok(names(first.seen[0]).includes("request_secret") && !names(gh.seen[0]).includes("request_secret"), "the chat's request_secret is not put back in a job from GitHub");
   assert.equal(gh.r.messages.filter((m) => m.toolsDeclared).length, 1, "the chat's record only");
 });
+
+test("TS33 (round 6; the owner: \"do what claude code does\") PowerShell switched off mid-chat stays in the request's tools where it was, with the same definition, as Claude Code keeps the tools a chat's requests carried: Grok is not told why (one of Coder's own tools that left for another reason), a call is refused as \"still listed\", never run; back on, it runs again; a chat that never had it doesn't get it", async () => {
+  const PS = { parseMs: 0 };
+  const first = await job([say("done")], { extra: { powershell: PS } });
+  assert.ok(names(first.seen[0]).includes("powershell"));
+  assert.ok(first.r.messages.find((m) => m.toolsDeclared).toolsDeclared.includes("powershell"), "Coder's own, by name");
+  const off = await job([say("", [call("powershell", { command: "Get-ChildItem" }, "p1")]), say("ok")], { messages: first.r.messages });
+  assert.equal(JSON.stringify(off.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))), JSON.stringify(first.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))), "the upfront tools byte for byte");
+  assert.equal(off.told("p1"), T.stillListed("powershell"));
+  assert.ok(!off.ran.some((x) => x.ps === true), "never run");
+  assert.ok(!noteOf(off).includes(T.RETRACTED), "not taken back: Grok isn't told why");
+  const on = await job([say("ok")], { messages: off.r.messages, extra: { powershell: PS } });
+  assert.match(noteOf(on), new RegExp(T.RUNS_AGAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\npowershell"));
+  assert.equal(JSON.stringify(on.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))), JSON.stringify(first.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))));
+  // A chat whose requests never carried it: not there.
+  const never = await job([say("done")]);
+  assert.ok(!names(never.seen[0]).includes("powershell"));
+  const neverOff = await job([say("done")], { messages: never.r.messages });
+  assert.ok(!names(neverOff.seen[0]).includes("powershell"));
+});

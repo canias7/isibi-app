@@ -8,22 +8,25 @@
 // the MCP server. What comes back is the server's answer, as text.
 //
 // MCP's "Streamable HTTP" transport (spec 2025-11-25): JSON-RPC 2.0 POSTed to one address; the answer is JSON or an
-// event stream; the server may give an Mcp-Session-Id to send back. Its sign-in is OAuth 2.1 with PKCE, the server found
-// from the MCP server's protected-resource metadata (RFC 9728), and Coder registered as a client on the fly (RFC 7591).
+// event stream; the server may give an Mcp-Session-Id to send back. (Spec 2026-07-28, with a server that speaks it: no
+// session, each request carrying its version and Coder's capabilities, as Claude Code speaks it: src/coder-mcp-era.mjs.)
+// Its sign-in is OAuth 2.1 with PKCE, the server found from the MCP server's protected-resource metadata (RFC 9728), and
+// Coder registered as a client on the fly (RFC 7591).
 import { seal, unseal } from "./coder-github.mjs";
 import { modelPass } from "./coder-model-gate.mjs";
 // (A connector's questions for the owner, MCP elicitation: what Coder declares, and the server's side of a request.)
 import { CLIENT_CAPS, rootsResult, rootPaths, checkElicitRequest } from "../container/coder-elicit.mjs";
 import { serverTalk, keepAnswer, streamedCall, pollAnswer, elicitKey } from "./coder-elicit.mjs";
+// (MCP 2026-07-28, as Claude Code 2.1.325 speaks it: its probe, envelope, headers and results. Round 6.)
+import { discoverProbe, PROBE_TIMEOUT_MS, withEnvelope, modernHeaders, decodeResult, malformedResult, roundsExceeded, retryParams, ROUNDS_MAX, EMPTY_ROUND_MS, xMcpHeaders, paramHeaders, HEADER_MISMATCH } from "./coder-mcp-era.mjs";
 
 /**
  * THE PROTOCOL VERSION, AS CLAUDE CODE 2.1.325 NEGOTIATES IT ON ITS EARLIER HANDSHAKE (its MCP client's _legacyHandshake;
  * round 5, the owner: "Yes pls"): `initialize` asks for the newest of the versions it takes (2025-11-25), a server may answer
  * with any of them, and a version outside them ends the connection in its words ("Server's protocol version is not
  * supported: …"). The version the server answered goes in every later request's MCP-Protocol-Version header, none on
- * `initialize` itself. (Claude Code first asks a server whether it speaks the newer revision 2026-07-28, with a
- * `server/discover` request: a different protocol, which Coder doesn't speak, so Coder starts at the handshake that follows
- * for a server that doesn't.)
+ * `initialize` itself. (Before it, Claude Code asks the server whether it speaks the newer revision 2026-07-28, with a
+ * `server/discover` request, and speaks that one with a server that does: round 6, src/coder-mcp-era.mjs.)
  */
 export const MCP_VERSION = "2025-11-25";
 export const MCP_VERSIONS = Object.freeze(["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"]);
@@ -231,8 +234,9 @@ export function toolsFor(list, off = [], toolsOff = [], { allOff = false } = {})
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
       // Real money (Robinhood: CATALOG askWrites): every tool that is not read-only asks the owner each time, even in Auto.
       const always = t.always || (!t.readOnly && CATALOG.some((k) => k.askWrites && k.url === c.url));
-      // (`connector`: the connector's name, its MCP server's in the hooks' mcp_server: D2 of recheck 3. `server` is its id.)
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), server: c.id, connector: c.name, ...(c.status === "error" ? { failed: true } : {}), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}), ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint } : {}),
+      // (`connector`: the connector's name, its MCP server's in the hooks' mcp_server: D2 of recheck 3. `server` is its id.
+      // `tool`: the tool's own name, for its display name on the permission card, as Claude Code makes it: round 6.)
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), server: c.id, connector: c.name, tool: t.name, ...(c.status === "error" ? { failed: true } : {}), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}), ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint } : {}),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, DESCRIPTION_MAX), parameters: params });
     }
   }
@@ -285,7 +289,8 @@ export async function readAnswer(res, id, { onChunk = null, signal = null, onMes
   const m = msgs.find((x) => x && x.id === id && typeof x.method !== "string");
   if (onMessage) for (const x of msgs) if (x && typeof x.method === "string") onMessage(x);
   if (!m) throw new Error("the MCP server gave no answer");
-  if (m.error) throw new Error("the MCP server said: " + String(m.error.message || "error").slice(0, 300));
+  // (Its JSON-RPC code kept with it: a 2026-07-28 server's HeaderMismatch has its call made again, callTool.)
+  if (m.error) throw Object.assign(new Error("the MCP server said: " + String(m.error.message || "error").slice(0, 300)), { rpcCode: m.error.code });
   return m.result;
 }
 
@@ -379,21 +384,34 @@ async function readEvents(res, id, { onChunk, signal, onMessage, resume = null, 
     reader = next.body.getReader(); dec = new TextDecoder(); resumed = true;
   }
   if (!found) throw new Error("the MCP server gave no answer");
-  if (found.error) throw new Error("the MCP server said: " + String(found.error.message || "error").slice(0, 300));
+  if (found.error) throw Object.assign(new Error("the MCP server said: " + String(found.error.message || "error").slice(0, 300)), { rpcCode: found.error.code });
   return found.result;
 }
 
 /**
- * One MCP session: initialize, then the methods asked for, in order. `token`: the sign-in (a Bearer token) or "".
- * Throws NeedsSignIn on 401.
+ * One MCP session: the methods asked for, in order (each step `[method, params, headers?]`, the headers a tool call's
+ * Mcp-Param-* ones). `token`: the sign-in (a Bearer token) or "". Throws NeedsSignIn on 401.
+ * HOW IT STARTS, AS CLAUDE CODE 2.1.325 CONNECTS AN HTTP SERVER (round 6; the owner, 2026-11-14: "do what claude code does";
+ * src/coder-mcp-era.mjs): it first asks the server whether it speaks MCP 2026-07-28 (`server/discover`, discoverProbe); with a
+ * server that does, the session is that revision's: no initialize, no session, no GET stream, the envelope and its headers on
+ * every request, the server's questions in its results (`input_required`, answered by calling again: settle); with any
+ * other, the 2025-11-25 `initialize` handshake as before. The result list carries `init` (initialize's result, or the
+ * DiscoverResult) and `era` ("modern" or "legacy").
  */
-async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, taskWait = null, talk: talk0 = null, wait = null } = {}) {
-  // (`version`: the protocol version the server answered `initialize` with, sent in every later request's header.)
-  let session = "", id = 0, version = "";
+async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, talk: talk0 = null, wait = null, probeMs = PROBE_TIMEOUT_MS } = {}) {
+  // (`version`: the protocol version the server answered `initialize` with, sent in every later request's header; on a
+  // 2026-07-28 session, that revision, in each request's envelope too.)
+  let session = "", id = 0, version = "", modern = false;
   // (The server's own requests and notices on a request's stream, MCP elicitation: src/coder-elicit.mjs. With no `talk`, a
   // question is cancelled: no one can be asked.)
   const talk = talk0 || serverTalk();
-  const headersNow = () => {
+  // CLAUDE CODE'S PROBE (coder-mcp-era.mjs discoverProbe): a 401 is a sign-in, as on any request.
+  const era = await discoverProbe(url, token, { fetchFn, timeoutMs: probeMs, client: CLIENT, caps: CLIENT_CAPS, onAuth: (h) => new NeedsSignIn(h) });
+  if (era.kind === "modern") { modern = true; version = era.version; }
+  // (A tool call's whole time, over the calls made again for its questions on a 2026-07-28 session: CALL_TOTAL_MS.)
+  let deadline = 0;
+  const headersNow = (msg = null, extra = null) => {
+    if (modern && msg) return modernHeaders(msg, version, token, extra);
     const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
     if (version) headers["mcp-protocol-version"] = version;
     if (token) headers.authorization = "Bearer " + token;
@@ -412,9 +430,9 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
   const armers = new Set();
   const holdAll = (d) => { heldAll = Math.max(0, heldAll + d); for (const a of [...armers]) a(); };
   const listenCtl = new AbortController();
-  const post = async (method, params, notify = false) => {
-    const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
-    const headers = headersNow();
+  const post = async (method, params, notify = false, extra = null) => {
+    const msg = { jsonrpc: "2.0", method, ...(modern ? { params: withEnvelope(params, version, CLIENT, CLIENT_CAPS) } : params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
+    const headers = headersNow(msg, extra);
     let res;
     // TIMEOUTS, LIKE CLAUDE CODE'S: the timer is reset by every piece of the answer (progress included); a tool call is
     // idle after CALL_TIMEOUT_MS, anything else after REQUEST_TIMEOUT_MS; a tool call ends at CALL_TOTAL_MS in all.
@@ -425,7 +443,7 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     // Code's: "pendingElicitations" keep a call from being idle.)
     let idle, why = "", held = 0, over = false;
     const arm = () => { clearTimeout(idle); if (held > 0 || heldAll > 0 || over) return; idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
-    const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, totalMs || CALL_TOTAL_MS) : null;
+    const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, deadline ? Math.max(1, deadline - Date.now()) : totalMs || CALL_TOTAL_MS) : null;
     // (Out of time with the question still open: Claude Code's words for it, and not a passing failure to try again.)
     const said = () => why === "total" ? "the MCP server's tool call went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes" : "the MCP server said nothing for " + Math.round(ms / 1000) + " seconds";
     const lost = () => why === "total" && talk.open() > 0 ? new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)) : Object.assign(transient(new Error(said())), { first: method === "initialize" });
@@ -438,13 +456,27 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize" }); }
     // (Claude Code: a server "needs auth" on 401 Unauthorized or 403 Forbidden.)
     if (res.status === 401 || res.status === 403) { done(); throw new NeedsSignIn(res.headers.get("www-authenticate")); }
+    // (MCP 2026-07-28: a 400 whose body is the JSON-RPC error for this request is its answer, as Claude Code's transport reads
+    // it: an unsupported version, a missing capability, a header that doesn't match the body.)
+    if (modern && res.status === 400) {
+      const text = await res.text().catch(() => "");
+      let j = null;
+      try { j = JSON.parse(text); } catch { j = null; }
+      if (j && typeof j === "object" && j.jsonrpc === "2.0" && j.id === msg.id && j.error && typeof j.error === "object" && Number.isSafeInteger(j.error.code) && typeof j.error.message === "string") { done(); throw Object.assign(new Error("the MCP server said: " + j.error.message.slice(0, 300)), { rpcCode: j.error.code }); }
+      done();
+      throw Object.assign(new Error("the MCP server answered 400"), { status: 400 });
+    }
     if (!res.ok && !(notify && res.status === 202)) { done(); const e = Object.assign(new Error("the MCP server answered " + res.status), { status: res.status, first: method === "initialize" }); throw res.status >= 500 ? transient(e) : e; }
+    // (No session on a 2026-07-28 one: its revision has none.)
     const s = res.headers.get("mcp-session-id");
-    if (s) session = s;
+    if (s && !modern) session = s;
     if (notify) { done(); try { if (res.body) await res.body.cancel(); } catch { /* read */ } return res.status; }
     // (A request's stream that ends before its answer, after giving event ids, is taken up again with a GET: readEvents.)
     const resume = (lastId) => fetchFn(url, { method: "GET", headers: getHeaders(lastId), signal: ctl.signal });
-    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage: (m) => talk.message(m, ctx), resume, wait }); }
+    // (On a 2026-07-28 session a request of the server's on a stream is dropped, as Claude Code's client drops one: its
+    // questions come in results. Its notices are read as before.)
+    const onMessage = (m) => { if (modern && (typeof m.id === "string" || typeof m.id === "number")) return; talk.message(m, ctx); };
+    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage, resume, wait }); }
     catch (e) { throw why ? lost() : e; }
     finally { done(); talk.end(ctx); }
   };
@@ -453,7 +485,8 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
   // (a question for the owner, roots/list, ping, notices) comes on it, and a question there is asked as one on the call's own
   // stream is, while a tool call runs. A 405 is a server that offers none; a first GET that fails is let go, as Claude Code
   // lets it go. When it ends, Claude Code opens it again (with Last-Event-ID once it gave ids), after the server's `retry` or
-  // 1 s, then 1.5 s, and gives up after 2 failed tries; Coder's ends with the session.
+  // 1 s, then 1.5 s, and gives up after 2 failed tries; Coder's ends with the session. (None on a 2026-07-28 session, whose
+  // revision has no GET stream.)
   const listenCtx = { get during() { return current; }, reply, hold: () => holdAll(1), release: () => holdAll(-1) };
   const listen = async () => {
     let lastId = "", retry = null, reopened = 0;
@@ -502,92 +535,59 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
       r = next;
     }
   };
+  /**
+   * A RESULT ON A 2026-07-28 SESSION, SETTLED AS CLAUDE CODE'S CLIENT SETTLES IT (its decodeResult and its multi round-trip
+   * driver, coder-mcp-era.mjs): a result whose type is left out is "complete"; "input_required" has its questions answered
+   * (talk.input: the owner's card, the chat's folders), all at once, and the request made again with a new id, their answers
+   * (`inputResponses`) and the server's `requestState`, up to ROUNDS_MAX rounds, 250 ms apart when it asked nothing; a task
+   * (Claude Code's cloud runs none) or any other type, or a result it can't read, ends the call in its words. The call's
+   * time running out while a question waits: its words for that (talk.timedOut), the card withdrawn.
+   */
+  const settle = async (method, params, first, send) => {
+    let r = first;
+    for (let rounds = 0; ; ) {
+      const d = decodeResult(method, r);
+      if (d.error) throw new Error(d.malformed ? malformedResult(talk.server || "", d.error) : d.error);
+      if (!d.input) return d.result;
+      if (++rounds > ROUNDS_MAX) throw new Error(roundsExceeded(method));
+      const asks = Object.entries(d.input.inputRequests);
+      let answers = null;
+      if (asks.length) {
+        const ctl = new AbortController();
+        const timer = deadline ? setTimeout(() => ctl.abort(), Math.max(0, deadline - Date.now())) : null;
+        try { answers = Object.fromEntries(await Promise.all(asks.map(async ([k, q]) => { try { return [k, await talk.input(k, q, { during: method, signal: ctl.signal })]; } catch (e) { ctl.abort(); throw e; } }))); }
+        catch (e) { if (e && e.withdrawn && deadline && Date.now() >= deadline) throw new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)); throw e; }
+        finally { clearTimeout(timer); }
+      } else await napUntil(EMPTY_ROUND_MS, null, wait);
+      r = await send(retryParams(params, answers, d.input.requestState));
+    }
+  };
   try {
-    const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
-    // (Claude Code's handshake: a version it doesn't take ends the connection, in its words; the one answered is used.)
-    if (!init || typeof init !== "object") throw Object.assign(new Error("Server sent invalid initialize result: " + init), { first: true });
-    if (!MCP_VERSIONS.includes(init.protocolVersion)) throw Object.assign(new Error(versionRefused(init.protocolVersion)), { first: true });
-    version = init.protocolVersion;
-    if (await post("notifications/initialized", null, true) === 202) listen().catch(() => {});
+    let init;
+    if (modern) init = era.discover;
+    else {
+      init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
+      // (Claude Code's handshake: a version it doesn't take ends the connection, in its words; the one answered is used.)
+      if (!init || typeof init !== "object") throw Object.assign(new Error("Server sent invalid initialize result: " + init), { first: true });
+      if (!MCP_VERSIONS.includes(init.protocolVersion)) throw Object.assign(new Error(versionRefused(init.protocolVersion)), { first: true });
+      version = init.protocolVersion;
+      if (await post("notifications/initialized", null, true) === 202) listen().catch(() => {});
+    }
     const out = [];
-    // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".)
-    for (const [method, params] of steps) {
-      let r = await post(method, method === "tools/call" ? { ...params, _meta: { progressToken: "gf-" + id } } : params);
-      // MCP TASKS (Claude Code, beta: a long job on the server, polled, "pollIntervalMs clamped to 250–30000, default 2000"):
-      // a tool call answered with a task is followed until it ends, then its result is fetched.
-      if (method === "tools/call" && r && r.task && typeof r.task.taskId === "string") r = await followTask(post, r.task, { wait: taskWait, roots: talk.roots ? talk.roots() : [], server: talk.server || "", tool: talk.tool || (params && params.name) || "" });
+    // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".
+    // It asks for no task: Claude Code's cloud sessions run no MCP tasks, on either revision.)
+    for (const [method, params, extra] of steps) {
+      deadline = method === "tools/call" ? Date.now() + (totalMs || CALL_TOTAL_MS) : 0;
+      const send = (p) => post(method, method === "tools/call" ? { ...p, _meta: { progressToken: "gf-" + id } } : p, false, modern && method === "tools/call" ? extra || null : null);
+      let r = await send(params);
+      if (modern) r = await settle(method, params, r, send);
       out.push(r);
     }
+    deadline = 0;
     out.init = init;
+    out.era = modern ? "modern" : "legacy";
     return out;
   } finally { listenCtl.abort(); }
-}
-
-export const TASK_POLL_MIN = 250, TASK_POLL_MAX = 30_000, TASK_POLL_DEFAULT = 2_000;
-/**
- * A TASK'S REQUESTS FOR INPUT (Claude Code 2.1.325's task driver; round 5, the owner: "Yes pls"): its status input_required
- * with `inputRequests` (a key of the server's → { method, params }), each key answered once through `tasks/update` with
- * `{ taskId, inputResponses }`, keys past TASK_INPUT_KEYS_MAX ignored. Claude Code serves `roots/list` everywhere (Coder:
- * the chat's working folders) and `elicitation/create` only in an interactive terminal: in its cloud sessions a task that asks
- * a question is cancelled, and so is one that asks for any other input. A task with no list (the tasks of MCP 2025-11-25,
- * Coder's, whose question comes as a request of its own) is a question no task can show here: cancelled the same way.
- */
-export const TASK_INPUT_KEYS_MAX = 16;
-/** The kinds of input Claude Code names (its ivr). */
-export const TASK_INPUT_METHODS = Object.freeze(["elicitation/create", "sampling/createMessage", "roots/list"]);
-/** Its words for a task that ended without a result (its Rt: "MCP server … task for tool … was cancelled: …" or "failed: …"). */
-export const taskEnded = (server, tool, cancelled, why) => "MCP server \"" + server + "\" task for tool \"" + tool + "\" " + (cancelled ? "was cancelled" : "failed") + ": " + why;
-/** Its reasons, with Coder's swaps ("the owner", "this chat", "Coder"). */
-export const TASK_QUESTION = "the task asked the owner a question that this chat cannot show yet, so Coder asked the server to cancel it";
-export const taskInputUnserved = (method) => (TASK_INPUT_METHODS.includes(method) ? "the task's request for input (" + method + ") was not one this client could serve, so Coder asked the server to cancel it" : "the task asked for input of a kind this client does not serve, so Coder asked the server to cancel it");
-export const taskAnswerRefused = (id, keys) => "Task " + id + ": the server rejected the submitted answer to " + keys.join(", ") + " and still requires input";
-/**
- * Follows a server's task (MCP tasks) until it is completed, failed or cancelled, within the tool call's total limit; its
- * requests for input as Claude Code's cloud answers them (above). `roots`: the chat's working folders; `server` and `tool`:
- * the connector's name and the tool's, for Claude Code's words.
- */
-export async function followTask(post, task, { wait = null, now = () => Date.now(), roots = [], server = "", tool = "" } = {}) {
-  const sleep = wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  const id = String(task.taskId).slice(0, 128);
-  const start = now();
-  const ended = (cancelled, why) => ({ isError: true, content: [{ type: "text", text: taskEnded(server, tool, cancelled, String(why).slice(0, 1000)) }] });
-  const cancel = async () => { await post("tasks/cancel", { taskId: id }).catch(() => {}); };
-  const answered = new Set(), refused = new Set(), served = new Set();
-  let t = task, soon = 0;
-  for (;;) {
-    const st = String((t && t.status) || "working");
-    if (st === "completed") return await post("tasks/result", { taskId: id });
-    if (st === "failed") return ended(false, (t.error && typeof t.error.message === "string" && t.error.message) || t.statusMessage || "Task failed");
-    if (st === "cancelled") return ended(true, t.statusMessage || "Task was cancelled by the server");
-    if (st === "input_required") {
-      const all = t.inputRequests && typeof t.inputRequests === "object" && !Array.isArray(t.inputRequests) ? Object.entries(t.inputRequests) : [];
-      if (!all.length) { await cancel(); return ended(true, TASK_QUESTION); }
-      const asks = all.filter(([k, q]) => k && k.length <= 512 && q && typeof q === "object" && typeof q.method === "string");
-      const open = asks.filter(([k]) => !answered.has(k)), fresh = open.filter(([k]) => !refused.has(k));
-      if (open.length && !fresh.length) { await cancel(); return ended(false, taskAnswerRefused(id, open.map(([k]) => k))); }
-      const now0 = fresh.filter(([k]) => { if (served.has(k)) return true; if (served.size >= TASK_INPUT_KEYS_MAX) return false; served.add(k); return true; });
-      if (now0.length) {
-        const responses = {};
-        for (const [k, q] of now0) {
-          if (q.method === "roots/list") { responses[k] = rootsResult(roots); continue; }
-          await cancel();
-          // (A question this chat can't show; one that isn't a question Claude Code's client takes: input it can't serve.)
-          const p = q.params && typeof q.params === "object" ? q.params : null;
-          const asked = q.method === "elicitation/create" && p && !checkElicitRequest(p.mode === "url" && p.elicitationId === undefined ? { ...p, elicitationId: "" } : p).error;
-          return asked ? ended(true, TASK_QUESTION) : ended(false, taskInputUnserved(q.method));
-        }
-        try { await post("tasks/update", { taskId: id, inputResponses: responses }); for (const k of Object.keys(responses)) answered.add(k); }
-        catch { for (const k of Object.keys(responses)) refused.add(k); }
-        soon = TASK_POLL_MIN;
-      }
-    }
-    if (now() - start > CALL_TOTAL_MS) { await cancel(); return { isError: true, content: [{ type: "text", text: "the connector's task went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes and was cancelled" }] }; }
-    const every = Number(t && (t.pollIntervalMs ?? t.pollInterval));
-    await sleep(soon || (Number.isFinite(every) && every > 0 ? Math.min(TASK_POLL_MAX, Math.max(TASK_POLL_MIN, every)) : TASK_POLL_DEFAULT));
-    soon = 0;
-    const g = await post("tasks/get", { taskId: id });
-    t = g && g.task ? g.task : g;
-  }
 }
 
 /**
@@ -753,12 +753,16 @@ export async function listTools(url, token, opts = {}) {
       seenNames.add(t.name.slice(0, 100));
       const schema = cleanSchema(t.inputSchema);
       if (!schema) continue;
+      // ITS x-mcp-header PROPERTIES (MCP 2026-07-28, as Claude Code's client takes them; round 6): on a session of that
+      // revision a tool with an invalid one is left out of the list ("excluding tool … invalid x-mcp-header declaration"),
+      // and those of a valid one are kept, for the Mcp-Param-* headers of its calls on such a session.
+      const xh = xMcpHeaders(t.inputSchema);
+      if (got.era === "modern" && !xh.valid) continue;
       const meta = t._meta && typeof t._meta === "object" ? t._meta : {};
       const maxChars = Number(meta["anthropic/maxResultSizeChars"]);
-      const task = t.execution && typeof t.execution.taskSupport === "string" ? t.execution.taskSupport : "";
       tools.push({ name: t.name.slice(0, 100), title: String(t.title || (t.annotations && t.annotations.title) || "").slice(0, 100), description: String(t.description || "").slice(0, DESCRIPTION_MAX), inputSchema: schema, readOnly: !!(t.annotations && t.annotations.readOnlyHint === true),
         ...(t.annotations && t.annotations.idempotentHint === true ? { idempotent: true } : {}),
-        ...(task === "optional" || task === "required" ? { tasks: task } : {}),
+        ...(xh.valid && xh.declarations.length ? { headers: xh.declarations.slice(0, 50) } : {}),
         ...(meta["anthropic/requiresUserInteraction"] === true ? { always: true } : {}),
         ...(meta["anthropic/alwaysLoad"] === true ? { alwaysLoad: true } : {}),
         // (Its own search hint, scored by tool search as Claude Code scores it: its MCP tools' searchHint. 2026-11-14.)
@@ -1047,23 +1051,36 @@ export async function removeConnector(bucket, uid, id) {
  * owner the server's questions (src/coder-elicit.mjs), or null: then a question is cancelled. `roots`: the chat's working
  * folders, the session's roots (a server's roots/list).
  */
-export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), taskWait = null, ask = null, roots = [], wait = null } = {}) {
+export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), ask = null, roots = [], wait = null, probeMs = 0 } = {}) {
   const list = await readConnectors(bucket, uid);
   const c = list.find((x) => x.id === connectorId);
   if (!c) return { text: "error: that connector was removed", isError: true };
-  const meta = (c.tools || []).find((t) => t.name === tool) || {};
+  let meta = (c.tools || []).find((t) => t.name === tool) || {};
   const talk = serverTalk({ ask, server: c.name, tool, roots });
+  const argv = args && typeof args === "object" && !Array.isArray(args) ? args : {};
+  // (No task asked for: Claude Code's cloud sessions run no MCP tasks, on either revision. Round 6. On a 2026-07-28 session
+  // its Mcp-Param-* headers go with it: paramHeaders.)
   const once = async (force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
-    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {}, ...(meta.tasks ? { task: { ttl: CALL_TOTAL_MS } } : {}) }]], { fetchFn, ...(taskWait ? { taskWait } : {}), ...(wait ? { wait } : {}), talk });
+    const hdrs = Array.isArray(meta.headers) && meta.headers.length ? paramHeaders(meta.headers, argv) : null;
+    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: argv }, hdrs]], { fetchFn, ...(wait ? { wait } : {}), ...(probeMs ? { probeMs } : {}), talk });
     return resultText(r);
   };
   try {
     // (Claude Code: an idempotentHint tool, "safe to repeat with the same arguments", may be repeated once on a new
-    // connection after a passing failure; any other tool never is.)
+    // connection after a passing failure; any other tool never is. A call a 2026-07-28 server refused for its headers
+    // (HeaderMismatch, before it ran) is made once more after its list is read again, as Claude Code's client does.)
     let r;
     try { r = await once(false); }
-    catch (e) { if (!(meta.idempotent && e && e.transient && !(e instanceof NeedsSignIn))) throw e; r = await once(false); }
+    catch (e) {
+      if (e && e.rpcCode === HEADER_MISMATCH) {
+        await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
+        const fresh = (await readConnectors(bucket, uid)).find((x) => x.id === c.id);
+        meta = (fresh && (fresh.tools || []).find((t) => t.name === tool)) || meta;
+        r = await once(false);
+      } else if (!(meta.idempotent && e && e.transient && !(e instanceof NeedsSignIn))) throw e;
+      else r = await once(false);
+    }
     // A tool the server no longer has: its list is read again, for the next job.
     if (r.isError && /unknown tool|tool not found|not found: ?tool/i.test(r.text)) await refreshTools(env, bucket, uid, { fetchFn, now, only: c.id, force: true }).catch(() => {});
     return r;
@@ -1121,7 +1138,8 @@ export async function hookCall(env, bucket, uid, id, turn, meta, h, { fetchFn = 
   const totalMs = Math.max(1000, Math.min(CALL_TOTAL_MS, Number(h.timeoutMs) || CALL_TOTAL_MS));
   const once = async (force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
-    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args }]], { fetchFn, idleMs: totalMs, totalMs });
+    // (Its Mcp-Param-* headers on a 2026-07-28 session, as any call's: callTool.)
+    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args }, t && Array.isArray(t.headers) && t.headers.length ? paramHeaders(t.headers, args) : null]], { fetchFn, idleMs: totalMs, totalMs });
     return hookToolText(r);
   };
   try {

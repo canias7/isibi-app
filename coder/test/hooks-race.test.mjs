@@ -185,7 +185,7 @@ function memBucket() {
 }
 const env = { CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://jessica.gofarther.dev" };
 const TOOLS = [{ name: "list_issues", description: "List issues", inputSchema: { type: "object", properties: {} }, annotations: { readOnlyHint: true } }, { name: "create_issue", description: "Make an issue", inputSchema: { type: "object", properties: { title: { type: "string" } } } }, { name: "wipe", description: "Delete all", inputSchema: { type: "object", properties: {} } }];
-function fakeServer(answer) {
+function fakeServer(answer, tools = TOOLS) {
   const seen = [];
   const fetchFn = async (url, init = {}) => {
     const msg = JSON.parse(init.body);
@@ -193,7 +193,7 @@ function fakeServer(answer) {
     if (!("id" in msg)) return new Response(null, { status: 202 });
     const j = (result) => new Response(JSON.stringify({ jsonrpc: "2.0", id: msg.id, result }), { status: 200, headers: { "content-type": "application/json" } });
     if (msg.method === "initialize") return j({ protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake", version: "1" } });
-    if (msg.method === "tools/list") return j({ tools: TOOLS });
+    if (msg.method === "tools/list") return j({ tools });
     if (msg.method === "tools/call") return answer(msg, j);
     return j({});
   };
@@ -436,4 +436,40 @@ test("F4H11 on a real machine: a SessionEnd mcp_tool hook runs when the machine 
     const said = recs.at(-1).said;
     assert.deepEqual([said.length, said[0].chat, said[0].hook, said[0].code, said[0].out], [1, project, "Slack post", 1, "MCP server 'Slack' not connected"]);
   } finally { srv.close(); }
+});
+
+// ── ROUND 6 (2026-11-14, the owner: "do what claude code does") ─────────────────────────────────────────────────────────
+
+test("R6R4 (round 6, pinned) an mcp_tool hook, the owner's (Settings) or a repository's, may call any tool of the chat's connectors without a card, one set to Needs approval and one that always asks (a real-money or requiresUserInteraction tool) included, as Claude Code 2.1.325's mcp_tool hooks call a connected server's tools: its only refusal for such a tool is \"… because that tool is blocked in this session\"; Coder's too, for a tool set to Block or switched off in this chat; no source goes to the Worker", async () => {
+  const b = memBucket();
+  const tools = [...TOOLS, { name: "trade", description: "Place a trade", inputSchema: { type: "object", properties: {} }, _meta: { "anthropic/requiresUserInteraction": true } }];
+  const s = fakeServer((msg, j) => j({ content: [{ type: "text", text: "called " + msg.params.name }] }), tools);
+  const r = await M.addConnector(env, b, "u1", { name: "Linear", url: "https://mcp.example.com/mcp", key: "good", fetchFn: s.fetchFn });
+  const list = await M.readConnectors(b, "u1");
+  list[0].perms = { create_issue: "ask", list_issues: "allow", wipe: "block" };
+  await M.writeConnectors(b, "u1", list);
+  const mine = await M.readConnectors(b, "u1");
+  assert.deepEqual(mine[0].tools.map((t) => [t.name, M.permOf(mine[0], t), !!t.always]), [["list_issues", "allow", false], ["create_issue", "ask", false], ["wipe", "block", false], ["trade", "ask", true]]);
+  const { map } = M.toolsFor(mine);
+  await M.keepJobTools(b, "u1", "chat-6", 2, map);
+  const hc = (h, meta = { turn: 2 }) => M.hookCall(env, b, "u1", "chat-6", 2, meta, h, { fetchFn: s.fetchFn });
+  // Needs approval, Always allow, and the one that asks every time: called (the Worker has no card to show for a hook).
+  for (const tool of ["create_issue", "list_issues", "trade"]) assert.deepEqual(await hc({ server: "Linear", tool, args: {}, timeoutMs: 5000 }), { ok: true, body: "called " + tool }, tool);
+  // A hook's source is not the gate's: a repository's hook is no different.
+  assert.deepEqual(await hc({ server: "Linear", tool: "create_issue", source: "project" }), { ok: true, body: "called create_issue" });
+  // Block, or switched off in this chat: refused in Claude Code's words, not called.
+  assert.deepEqual(await hc({ server: "Linear", tool: "wipe" }), { ok: false, body: "", withheld: true, error: M.hookToolBlocked("Linear", "wipe") });
+  assert.deepEqual(await hc({ server: "Linear", tool: "trade" }, { turn: 2, toolsOff: [r.connector.id + ":trade"] }), { ok: false, body: "", withheld: true, error: M.hookToolBlocked("Linear", "trade") });
+  assert.deepEqual(s.seen.filter((x) => x.method === "tools/call").map((x) => x.params.name), ["create_issue", "list_issues", "trade", "create_issue"]);
+  // The gate as written: nothing but Block and switched off.
+  assert.match(read("src/coder-mcp.mjs"), /if \(\(t && permOf\(c, t\) === "block"\) \|\| toolsOff\.includes\(c\.id \+ ":" \+ tool\)\) return \{ ok: false, body: "", withheld: true, error: hookToolBlocked\(server, tool\) \};/);
+  // Coder's machine: a repository's mcp_tool hook (its .claude/settings.json) calls through the Worker as the owner's does, with
+  // only the server, the tool, its input and its time; no card is shown for it.
+  const repoHooks = H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "mcp_tool", server: "Linear", tool: "trade", input: { note: "${tool_input.command}" } }] }] } }, "project").list;
+  assert.equal(repoHooks[0].source, "project");
+  const asked = [], cards = [];
+  const t = await loop([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { mode: "auto", mcpHook: async (x) => { asked.push(x); return { ok: true, body: "" }; }, ask: async (pid) => { cards.push(pid); return { choice: "yes" }; }, extra: { hooks: repoHooks } });
+  assert.deepEqual(asked, [{ server: "Linear", tool: "trade", args: { note: "npm test" }, timeoutMs: 600_000 }]);
+  assert.deepEqual(cards, []);
+  assert.equal(t.ran.filter((c) => /npm test/.test(String(c))).length, 1);
 });
