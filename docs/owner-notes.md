@@ -17,6 +17,55 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The third check against Claude Code's docs, fixed (your words: "yes pls all of that")
+
+On my branch, not deployed yet. Six checkers compared our tools with Claude Code's newest docs and program, and seven
+helpers fixed what they found. Then two more checkers read every docs page and about 1,500 changelog entries for
+anything missed (that list is waiting for your answer, below).
+
+- **grep and glob:** a search inside a subfolder with a folder in the pattern (like `src/*.js`) now finds the files.
+  A folder Coder can't open gives Claude Code's error instead of "No files found".
+- **Your extra working folders** now work with read, write, edit, grep, glob and lsp (never their `.git`), and your
+  "deny" and "ask" rules apply there too. Before, Coder was told it could work there but its tools refused.
+- **Allow rules like `Read(*)` or `LSP(*)`** now cover only the working folders, as in Claude Code 2.1.325, and saving
+  one shows Claude Code's warning. The plain tool name still covers everything.
+- **lsp:** its instructions and hover answers have Claude Code's blank lines back; its card uses Claude Code's words.
+- **Several steps at once:** when Grok asks for several read-only steps in one reply (reads, searches, web pages, web
+  searches, read-only commands and connector tools), they now run at the same time, as in Claude Code. A step that
+  changes something runs alone, in order. Also fixed on the way: in Auto, read-only commands no longer start before
+  the safety checker has answered.
+- **Web search:** 200 searches per message, fresh each message, as Claude Code's cloud (was 200 per chat, refilling
+  100 an hour). New quick/full choice: quick is one search and Coder is told to use it by default; full is up to 8,
+  as before. Empty page reads, long error messages and one "not run:" fixed. Coder now has Claude Code's line about
+  never guessing web addresses.
+- **Cards:** in the first 5 minutes a message still waits behind a card. Once the job has paused, a new message closes
+  a waiting permission or plan card (Coder is told it didn't run and nobody refused it) and is answered at once, as in
+  Claude Code. Stop on a paused card uses Claude Code's words. Words you type with Yes reach Coder exactly as typed.
+- **Cheaper mode changes:** the mode instructions moved out of Coder's fixed opening into the chat, as Claude Code does,
+  so switching modes no longer makes Grok re-read the whole chat at full price. The plan-mode reminder now comes in
+  full the first time and every 5th message, with a one-line reminder in between.
+- **Environments:** hooks and rules can use Claude Code's names (`mcp__claude-code-remote__…`). After a move, Coder is
+  told whether the machine really took the new network. Update refuses the same setting names as create. The setup
+  script now starts in the folder above the repositories, as Claude Code's (`cd <repo-name>` first); scripts saved
+  before today keep starting inside the repository until you edit them. The Environment window shows and edits which
+  repositories each environment is for, and archiving warns that its keys stay in running chats.
+- **Tool search:** each loaded tool's instructions now go to Grok once instead of twice: about 20,800 characters
+  (8,300 tokens) less per message with all 12 loaded. No more limit of 40/80 connector tools (only Grok's own 350 per
+  request when tool search is off). Coder gets Claude Code's words when a connector leaves, comes back, waits for
+  sign-in or fails, and a failed connector's tools aren't offered. New setting `CODER_MAX_MCP_DESCRIPTION_LENGTH`.
+  The /docs page has a Tool search section.
+- **Connectors can ask you things**, as in Claude Code: a card names the connector; fill in its fields and Submit, or
+  Open link, finish there, then "I'm done, continue"; Decline refuses. What you type isn't kept in the chat. Your hooks
+  can answer or block these questions.
+- **Costs to know:** a quick search is about half a cent, a full one up to about 4 cents (xAI's prices), plus Grok's
+  tokens. A long chat can now make more searches in total (200 every message). The search note adds about 110 tokens
+  per message. A connector question card keeps the chat's machine awake while it waits (up to the call's 30 minutes).
+  If a card pauses the job, steps that ran next to it run again when it resumes (a web search can be paid twice).
+- **For you to decide:** keep or drop Coder's own note for Accept edits mode (Claude Code has none); whether Gloopy
+  should get the quick/full search and the per-message count; old setup scripts (they switch to the new folder when
+  edited, or I convert them all now).
+- **Not tried live yet:** everything above. That's for the live test after you say deploy.
+
 ## 2026-11-14: Tool search and the last gaps are live on gofarther.dev, tested with Grok on Low (your words: "ok yes pls")
 
 Parts 1 and 2 below are merged to main and deployed; the deploy's own test run passed. Tested live in one new chat on the test repo, with Grok on Low. A test hook wrote down each tool_search call and put a note in the chat, so every load could be seen.

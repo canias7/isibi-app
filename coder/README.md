@@ -315,8 +315,14 @@ code in **each user's own GitHub**.
      Tests: `test/hook-rewrites.test.mjs`.
    - *grep and glob* (`coder-search.mjs`): Claude Code's Grep and Glob on one ripgrep
      runner: their inputs, outputs, pages and limits, notes and errors. Kept, the
-     owner's choice: nothing outside the project, nothing in `.git`. Tests:
-     `test/search.test.mjs`.
+     owner's choice: nothing outside the project and the owner's working folders,
+     nothing in `.git`. Since round 3 (2026-11-14) ripgrep runs inside the folder
+     searched (Claude Code's `/proc/self/fd/N` and "."), so a pattern with a folder in
+     it works in a subfolder; a folder Coder can't open or enter gets Claude Code's
+     error; what the permission check saw of the path's links is checked again before
+     the search. The working folders (`CODER_WORK_DIRS`, from the owner's working
+     folders) reach every file tool, and relative deny and ask rules apply there too.
+     Tests: `test/search.test.mjs`, `test/file-rules.test.mjs`.
    - *lsp* (`coder-lsp.mjs`; its servers kept for the chat by `coder-lspd.mjs`):
      Claude Code's LSP tool as its TypeScript and Python plugins run it: its 9
      operations and answers, and the servers' problems as its `<new-diagnostics>` note.
@@ -335,7 +341,11 @@ code in **each user's own GitHub**.
      page's instructions. Tests: `test/webfetch.test.mjs`.
    - *web_search* (`coder-websearch.mjs`): a tool like Claude Code's WebSearch, each
      search its own Grok request with xAI's web search alone, Claude Code's result
-     text, and the chat's budget (200, refilling about 100 an hour). No other request
+     text, and 200 searches per message (Claude Code's cloud: no refill unless
+     `CODER_WEB_SEARCH_REFILLS_PER_HOUR`; a paused card's answer keeps its turn's count),
+     and Claude Code's `mode`: "standard" is one search (Coder's note says to use it by
+     default), "extended" up to 8. Gloopy keeps 200 per chat, refilling about 100 an
+     hour, and no mode. No other request
      carries xAI's search. Gloopy has it too. Since 2026-11-14 a call makes at most
      8 searches (Claude Code's `max_uses: 8`, as one tool call a turn over 8 turns), a
      job from GitHub has its own count, and `WebSearch(query:…)` rules match a query.
@@ -351,13 +361,31 @@ code in **each user's own GitHub**.
      start on that"): Coder's chats hold back the tools Claude Code defers (lsp,
      web_fetch, web_search, monitor, stop_job, todo_write, the task tools, enter_plan_mode,
      exit_plan_mode) and connector tools not marked alwaysLoad. A note after the owner's
-     message names them; `tool_search` (select:, keywords, +word; max_results 5) returns
-     their definitions in a `<functions>` block, and a loaded tool stays for the chat (the
+     message names them; `tool_search` (select:, keywords, +word; max_results 5) names
+     the tools it loaded in Claude Code's words, each definition going once, in the
+     request's tools (round 3), and a loaded tool stays for the chat (the
      next message, a paused job, every summary). bash, read, edit, write, grep, glob,
      ask_user, the environment tools, request_secret and Coder's own tools are always
      sent. `ENABLE_TOOL_SEARCH` (true, false, auto, auto:N) in the chat's environment or
      the repo's `.claude/settings.json` env; GitHub jobs use it too; Gloopy keeps its
-     connector_search. Tests: `test/tool-search.test.mjs`.
+     connector_search. Round 3: no cap on connector tools (xAI's 350 a request when tool
+     search is off); a loaded tool whose connector left stays, with Claude Code's
+     words for why it can't be used; connectors waiting for sign-in or failed are named
+     as Claude Code names them, and a failed one's tools aren't offered; a hook's
+     rewrite of the result is checked; `ToolSearch(*)` is the whole tool;
+     `CODER_MAX_MCP_DESCRIPTION_LENGTH`. Tests: `test/tool-search.test.mjs`.
+   - *Calls side by side* (`coder-parallel.mjs`, round 3): a reply's consecutive calls
+     of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
+     web_search, read-only commands and connector tools, and the others it marks so)
+     run together, each with its own checks, hooks and card; any other call runs alone,
+     in order; results go back in call order. Gloopy keeps its run-ahead. Tests:
+     `test/parallel.test.mjs`.
+   - *Connectors' questions* (`src/coder-elicit.mjs`, `container/coder-elicit.mjs`;
+     Claude Code's MCP elicitation, round 3): Coder declares form and url elicitation;
+     a connector's question during a call shows a card (fields and Submit, or Open link
+     and "I'm done, continue"; Decline), the call waits for it; the answer goes back on
+     `/api/coder/mcp` (`{answer}`); nobody to answer means cancel; hooks
+     `Elicitation` and `ElicitationResult`. Tests: `test/elicit.test.mjs`.
    - *task_create, task_get, task_list, task_update* (`coder-tasks.mjs`) in place of
      `todo`: Claude Code's four Task tools, as its cloud sessions have them; one list
      a chat, kept beside its memory; TaskCreated and TaskCompleted hooks. Gloopy
@@ -387,14 +415,27 @@ code in **each user's own GitHub**.
      owner" (the owner's word, 2026-11-14). Environments have a description (shown in
      the dialog; `new_description`; a new one's reason), names of 1 to 64 characters,
      and no two with one name. The setup script runs once on a chat's machine (a new
-     chat, or a fresh machine), as Claude Code's. Tests: `test/env-tools.test.mjs`.
+     chat, or a fresh machine), as Claude Code's, and (round 3) starts in the folder
+     above the repositories, with a link per repository; a script saved before then
+     (`scriptIn: "repo"`) starts in the repository until it is edited. Hooks and rules
+     see these tools by Claude Code's names (`mcp__claude-code-remote__…`, its three
+     server names) with `mcp_server`; after a move Coder is told whether the machine
+     took the network; the Environment window lists each environment's repositories.
+     Tests: `test/env-tools.test.mjs`.
    - *Cards stay open until answered* (`coder-park.mjs`; Claude Code: "Questions stay
      open until you answer them"): a permission, plan, question, key or environment
      card that has waited 5 minutes (the owner: "5 is fine") pauses the job, saved with
      the call it waits on (`parked.json`); the owner's answer, whenever it comes,
-     starts a job that takes the turn up at that call; messages sent meanwhile wait in
-     the queue, Stop, Rewind and Undo close the card. Gloopy and GitHub jobs keep the
+     starts a job that takes the turn up at that call; messages sent while the job still
+     runs wait in the queue; once it has paused, a message closes a permission or plan
+     card with Claude Code's "[Tool call not completed: …]" and is answered at once
+     (round 3); Stop, Rewind and Undo close the card. Gloopy and GitHub jobs keep the
      old wait. Tests: `test/cards-park.test.mjs`.
+   - *A fixed system message* (round 3, Claude Code's prompt caching): the mode texts
+     go into the chat as notes (plan mode's reminder in full the first time and every
+     5th, a short line between; Auto's once; Exited Plan/Auto Mode), so a mode change
+     doesn't make Grok read the whole chat again at full price. Words typed with a Yes
+     reach Coder as typed, after the round's results. Tests: `test/plan-mode.test.mjs`.
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
      Coder's open chat runs, and one line on a hover or a click. Made more real the
