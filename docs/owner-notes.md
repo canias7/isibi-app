@@ -67,6 +67,8 @@ anything missed (that list is waiting for your answer, below).
 - **For you to decide:** keep or drop Coder's own note for Accept edits mode (Claude Code has none); whether Gloopy
   should get the quick/full search and the per-message count; old setup scripts (they switch to the new folder when
   edited, or I convert them all now).
+- **Tests:** about 120 new and many updated; after merging all eight helpers' work, the full test suite passed
+  1,080 of 1,080.
 - **Not tried live yet:** everything above. That's for the live test after you say deploy.
 
 ## 2026-11-14: Tool search and the last gaps are live on gofarther.dev, tested with Grok on Low (your words: "ok yes pls")
