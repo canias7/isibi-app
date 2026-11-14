@@ -57,6 +57,7 @@ On my branch, not merged or deployed yet. Nine helpers copied Claude Code's tool
 4. The logo also types one line when you point at it or click it (it types on its own while Coder works). Keep that?
 
 **Cost:** what Grok reads about the tools on every call grew from about 20,000 to about 65,000 characters (about 11,000 more tokens a call). The four environment tools are about 27,000 of that, because Claude Code's descriptions for them are long. Grok's prompt cache makes the repeated part cheaper. And each web search is now a separate Grok call.
+- **Your answer (same day):** keep the tools as they are, word for word: "Just keep it, because later on we're going to add more models. Later on we're going to add OpenAI and Anthropic models." (Claude Code sends the same long tool descriptions on every step too. It's cheaper there because Claude's cache costs less, 10% or 5% of the normal price against Grok's 25%.)
 
 ## 2026-11-13: Fixes 1, 2 and 3 and the docs page are live on gofarther.dev, tested on Low (your words: "yea merge and deploy it")
 
