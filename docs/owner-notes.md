@@ -17,6 +17,19 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Tool search and the last gaps are live on gofarther.dev, tested with Grok on Low (your words: "ok yes pls")
+
+Parts 1 and 2 below are merged to main and deployed; the deploy's own test run passed. Tested live in one new chat on the test repo, with Grok on Low. A test hook wrote down each tool_search call and put a note in the chat, so every load could be seen.
+
+1. **Held-back tools:** asked to make a task list, Coder loaded the task tool with tool_search (one call), then made the list with both tasks. The hook's note showed in the chat. Passed.
+2. **Loaded tools stay loaded:** in the next message Coder did not load that tool again. It loaded only the one it didn't have yet (the tool that ticks a task, one call) and ticked the first task (1 of 2 done). Passed.
+3. **The network note fix:** approving a change to only the description no longer shows "The environment changed: network …". Passed.
+4. **Clearing the description:** the card showed "Description: Cleared", and approving it put the test environment back as it was. Passed.
+5. **A read blocked by a rule:** with a deny rule on README.md, the read was not run, and Coder was told Claude Code's words: "File is in a directory that is denied by your permission settings." Passed.
+6. Afterwards the hooks, rules, mode and the environment's variables were put back as they were.
+
+Nothing new to fix from this test.
+
 ## 2026-11-14: Tool search, like Claude Code (the last gaps, part 2)
 
 On my branch, not deployed yet.
