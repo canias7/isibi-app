@@ -45,6 +45,7 @@ import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS } from "./coder-envtools.mj
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard } from "./coder-park.mjs";
+import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1283,14 +1284,23 @@ export function connectorTools(list) {
       description: String(t.description || t.name).slice(0, CONNECTOR_DESC_FOUND),
       parameters: t.parameters && typeof t.parameters === "object" && !Array.isArray(t.parameters) && t.parameters.type === "object" ? t.parameters : { type: "object", properties: {} } }));
 }
-/** A connector tool call through the Worker (the job's AI pass; the Worker adds the sign-in): { text, isError }. */
+/**
+ * A connector tool call through the Worker (the job's AI pass; the Worker adds the sign-in): { text, isError }. With
+ * `opts.ask` (a connector's questions for the owner, MCP elicitation: coder-elicit.mjs) the call comes as a stream, its
+ * server's questions asked as they come, the owner's answers sent back the same way.
+ */
 export function connectorCaller(via, fetchFn = fetch) {
   const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/mcp");
-  return async (tool, args) => {
+  const post = async (answer) => { const r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ answer }), signal: AbortSignal.timeout(60_000) }); return r.ok; };
+  return async (tool, args, opts = null) => {
+    const ask = opts && opts.ask && typeof opts.ask.elicit === "function" ? opts.ask : null;
+    const gave = (e) => ({ text: e && e.name === "TimeoutError" ? "error: the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : "error: Coder's server could not be reached", isError: true });
     let r;
-    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
-    catch (e) { return { text: e && e.name === "TimeoutError" ? "error: the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : "error: Coder's server could not be reached", isError: true }; }
-    const j = await r.json().catch(() => null);
+    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args, ...(ask ? { ask: true } : {}) }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
+    catch (e) { return gave(e); }
+    let j;
+    if (ask && r.ok && /ndjson/i.test(String(r.headers.get("content-type") || ""))) { try { j = await askedCall(r, ask, post); } catch (e) { return gave(e); } }
+    else j = await r.json().catch(() => null);
     if (!r.ok || !j) return { text: "error: " + String((j && j.error) || "the connector call failed (" + r.status + ")").slice(0, 300), isError: true };
     const images = (Array.isArray(j.images) ? j.images : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/=]+$/.test(x.data)).slice(0, 4);
     return { text: String(j.text || ""), isError: j.isError === true, ...(images.length ? { images } : {}) };
@@ -2249,6 +2259,78 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A prompt hook's "ok": false that ends the turn: "the reason appears in the chat as a warning line".)
     if (o.endTurn) emit({ type: "note", text: scrub(event + " hook: " + o.endTurn).slice(0, 2000), hook: event, warn: true });
     return o;
+  };
+  /**
+   * A CONNECTOR'S QUESTIONS FOR THE OWNER (MCP elicitation, coder-elicit.mjs; X1 of the recheck of 2026-11-14, the owner: "yes
+   * pls all of that"): for one connector call, in Coder's own chats. Each question, in Claude Code's order: its Elicitation
+   * hooks ("Hooks can intercept this request and respond programmatically, skipping the dialog entirely"); then its card in
+   * the chat, which waits for the owner (Submit with the fields, Open link then "I'm done, continue", or Decline) while the
+   * call runs, and never pauses the job: the server's question lives in the call, which a pause would end (Claude Code: a
+   * session whose turn "waits on an MCP server's elicitation/create request" is not idle); no card where no one can be asked
+   * (permissions.denyInsteadOfPrompting, Claude Code's "cancels an elicitation request unless an Elicitation hook answers
+   * it"), cancel instead; then its ElicitationResult hooks and the Notification hooks' "elicitation_response". Stop, or the
+   * job running out of time, answers cancel; a question the server withdrew gets no answer.
+   */
+  const elicitHooks = async (event, server, extra) => {
+    const list = hookList.length ? hooksFor(hookList, event, server) : [];
+    if (!list.length) return null;
+    const input = hookInput(event, hookCtx(), extra);
+    const bg = (h) => h.type === "command" && (h.async === true || h.asyncRewake === true);
+    for (const h of list) if (bg(h)) startAsync(h, input);
+    const now0 = list.filter((h) => !bg(h));
+    for (const h of now0) if (h.statusMessage) emit({ type: "note", text: scrub(h.statusMessage).slice(0, 200), hook: event, hookStatus: true });
+    const runs = await Promise.all(now0.map(async (h) => {
+      let ran;
+      try { ran = await runHook(h, input); } catch { ran = { code: -1, stdout: "", stderr: "" }; }
+      const result = hookResult(event, ran, h);
+      // (A hook's answer counts when it exited 0; an HTTP hook's when it answered 2xx with it.)
+      return { hook: h, code: ran && ran.http ? (result.kind === "ok" ? 0 : -1) : ran && Number.isInteger(ran.code) ? ran.code : -1, result };
+    }));
+    for (const x of runs) if (x.result && x.result.kind === "error" && x.result.notice) emit({ type: "note", text: hookNoteText(scrub(event + " hook error: " + hookName(x.hook) + ": " + x.result.notice)), hook: event });
+    return elicitHookVerdict(event, runs);
+  };
+  const connectorQuestions = (c, t) => {
+    if (github || offered) return null;
+    const server = serverOf(c.name);
+    const open = new Map();
+    let closed = [], stopping = [], stopped = false;
+    const ask = async (q, e) => {
+      const mode = q.mode === "url" ? "url" : "form";
+      const pre = await elicitHooks("Elicitation", server, { mcp_server_name: server, message: String(q.message), mode, ...(mode === "url" ? { url: String(q.url) } : {}), ...(typeof q.elicitationId === "string" ? { elicitation_id: q.elicitationId } : {}), ...(mode === "form" ? { requested_schema: q.requestedSchema } : {}) });
+      // (Answered by a hook: no card, and no ElicitationResult hooks, as in Claude Code.)
+      const byHook = pre ? elicitHookAnswer(pre) : null;
+      if (byHook) return elicitReply(byHook);
+      let owner;
+      if (!canAsk() || denyInstead === true) owner = { action: "cancel" };
+      else {
+        const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+        emit({ type: "elicit", pid, connector: String(q.server || "").slice(0, 80), tool: String(t.label || c.name).slice(0, 120), mode, message: scrub(String(q.message)).slice(0, 20_000), ...(mode === "url" ? { url: String(q.url).slice(0, 20_000) } : { requestedSchema: q.requestedSchema, order: Array.isArray(q.order) ? q.order.slice(0, 200) : Object.keys((q.requestedSchema && q.requestedSchema.properties) || {}) }) });
+        let a = null;
+        try { a = await deps.ask(pid, { until: started + maxMs, gone: () => e.gone }); } catch { a = null; }
+        // (Withdrawn by the server just as the owner answered: no answer goes.)
+        if (e.gone && !(a && a.choice === "stop")) a = { choice: "gone" };
+        if (a && a.choice === "stop") { stopped = true; for (const f of stopping.splice(0)) f(); }
+        emit({ type: "permanswer", pid, choice: cardEnding(a) });
+        owner = cardAnswer(a, mode);
+        if (!owner) return null;
+      }
+      const post = await elicitHooks("ElicitationResult", server, { mcp_server_name: server, ...(mode === "url" && typeof q.elicitationId === "string" ? { elicitation_id: q.elicitationId } : {}), mode, action: owner.action, ...(owner.content !== undefined ? { content: owner.content } : {}) });
+      const final = post ? afterResultHooks(post, owner) : owner;
+      runHooks("Notification", "elicitation_response", responseNotice(server, final.action)).catch(() => {});
+      return elicitReply(final);
+    };
+    return {
+      open: () => open.size,
+      closed: () => (open.size ? new Promise((ok) => closed.push(ok)) : Promise.resolve()),
+      stopped: () => (stopped ? Promise.resolve() : new Promise((ok) => stopping.push(ok))),
+      elicit: async (q) => {
+        const e = { gone: false };
+        open.set(q.id, e);
+        try { return await ask(q, e); } finally { open.delete(q.id); if (!open.size) for (const f of closed.splice(0)) f(); }
+      },
+      withdraw: (id) => { const e = open.get(id); if (e) e.gone = true; },
+      complete: (o) => { runHooks("Notification", "elicitation_complete", completeNotice(server, String(o.elicitationId || ""))).catch(() => {}); },
+    };
   };
   /** The chat's hook env file (CLAUDE_ENV_FILE) made empty: at a chat's start, and before its CwdChanged hooks run. */
   const resetHookEnv = async (which = ["session", "cwd"]) => { for (const k of which) { try { await deps.exec({ command: "rm -f -- \"${CLAUDE_ENV_FILE:-/nonexistent/x}\" 2>/dev/null; true", timeoutS: 10, tool: true, hook: true, hookEnv: k, envReset: true }); } catch { /* none to empty */ } } };
@@ -3376,11 +3458,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // its turn below. (Not with hooks, nor under a rule denying or asking for the tool: they check each call in its turn,
     // as main's run-ahead of commands does.)
     const mcpEarly = new Map();
+    // (Each connector call's questions for the owner, MCP elicitation: one set a call, its early start's or its own.)
+    const mcpAsks = new Map();
+    const asksOf = (c) => { if (!mcpAsks.has(c.id)) mcpAsks.set(c.id, connectorQuestions(c, mcpByName.get(c.name) || {})); return mcpAsks.get(c.id); };
+    const mcpCall = (c) => { const q = asksOf(c); return q ? deps.mcp(c.name, c.args || {}, { ask: q }) : deps.mcp(c.name, c.args || {}); };
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
     const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     const notYet = back ? calls.slice(back.at) : calls;
-    if (notYet.filter(quiet).length > 1) for (const c of notYet.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
+    if (notYet.filter(quiet).length > 1) for (const c of notYet.filter(quiet)) { const p = Promise.resolve().then(() => mcpCall(c)).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
     // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
     const heldEnd = (from) => {
       const w = writeHold;
@@ -5480,11 +5566,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(t.label).slice(0, 200) });
         let r;
-        const running = mcpEarly.get(c.id) || Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }));
-        // Still running after two minutes: to the background; Coder goes on and is told the answer when it comes.
-        let timer;
-        const later = await Promise.race([running.then((x) => ({ x })), new Promise((ok) => { timer = setTimeout(() => ok(null), deps.connectorBgMs || CONNECTOR_BG_MS); })]);
-        clearTimeout(timer);
+        const running = mcpEarly.get(c.id) || Promise.resolve().then(() => mcpCall(c)).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true }));
+        // Still running after two minutes: to the background; Coder goes on and is told the answer when it comes. (Not while
+        // its server's question waits on its card: the move waits until the card closes, as Claude Code's. Stop on the card
+        // stops the turn: coder-elicit.mjs.)
+        const later = await untilBackground(running, deps.connectorBgMs || CONNECTOR_BG_MS, asksOf(c));
+        if (later && later.stop) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
         if (!later) {
           const bgId = "connector-" + (++mcpBgN);
           const b = { label: t.label, done: false, r: null };

@@ -16,7 +16,9 @@ import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
 // (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
 // owner: "Do all the talk to you tools execpt for the notify one"; coder-tasks.mjs.)
-export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "SessionEnd"];
+// (Elicitation and ElicitationResult: Claude Code's, around a connector's question for the owner, MCP elicitation; their
+// matcher is the connector's name as in its tools' names, mcp__<server>__<tool>; coder-elicit.mjs, X1 of 2026-11-14.)
+export const HOOK_EVENTS = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PostToolBatch", "PermissionDenied", "TaskCreated", "TaskCompleted", "Notification", "Stop", "StopFailure", "PreCompact", "PostCompact", "CwdChanged", "FileChanged", "Elicitation", "ElicitationResult", "SessionEnd"];
 export const TOOL_EVENTS = new Set(["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]);
 /** The events whose matcher Claude Code ignores ("If you add a matcher field to an event without matcher support, it is silently ignored"). */
 const NO_MATCHER = new Set(["UserPromptSubmit", "Stop", "PostToolBatch", "CwdChanged", "TaskCreated", "TaskCompleted"]);

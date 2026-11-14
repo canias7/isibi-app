@@ -12,6 +12,9 @@
 // from the MCP server's protected-resource metadata (RFC 9728), and Coder registered as a client on the fly (RFC 7591).
 import { seal, unseal } from "./coder-github.mjs";
 import { modelPass } from "./coder-model-gate.mjs";
+// (A connector's questions for the owner, MCP elicitation: what Coder declares, and the server's side of a request.)
+import { CLIENT_CAPS } from "../container/coder-elicit.mjs";
+import { serverTalk, keepAnswer, streamedCall, pollAnswer, elicitKey } from "./coder-elicit.mjs";
 
 export const MCP_VERSION = "2025-06-18";
 export const CONNECTORS_MAX = 20;
@@ -224,9 +227,15 @@ export class NeedsSignIn extends Error {
 }
 const transient = (e) => Object.assign(e, { transient: true });
 
-/** The JSON-RPC answer with `id` in a response: plain JSON, or the `data:` lines of an event stream. */
-export async function readAnswer(res, id, { onChunk = null, signal = null } = {}) {
+/**
+ * The JSON-RPC answer with `id` in a response: plain JSON, or the `data:` lines of an event stream. `onMessage`: what else
+ * the server sends meanwhile (its own requests, such as a question for the owner, and its notices), as it comes.
+ */
+export async function readAnswer(res, id, { onChunk = null, signal = null, onMessage = null } = {}) {
   const type = String(res.headers.get("content-type") || "");
+  // AN EVENT STREAM READ EVENT BY EVENT (MCP elicitation, container/coder-elicit.mjs): a server's question comes on the
+  // stream before its answer, which comes only once the question is answered; the answer ends the reading.
+  if (onMessage && /text\/event-stream/i.test(type) && res.body && typeof res.body.getReader === "function") return readEvents(res, id, { onChunk, signal, onMessage });
   // Read as it comes, each piece resetting the idle timer (a progress notification is such a piece).
   let text = "";
   if (onChunk && res.body && typeof res.body.getReader === "function") {
@@ -246,34 +255,87 @@ export async function readAnswer(res, id, { onChunk = null, signal = null } = {}
   } else if (text.trim()) {
     try { const j = JSON.parse(text); if (Array.isArray(j)) msgs.push(...j); else msgs.push(j); } catch { throw new Error("the MCP server's answer could not be read"); }
   }
-  const m = msgs.find((x) => x && x.id === id);
+  // (A message with a method is the server's own, even with the same id: ids are each side's own.)
+  const m = msgs.find((x) => x && x.id === id && typeof x.method !== "string");
+  if (onMessage) for (const x of msgs) if (x && typeof x.method === "string") onMessage(x);
   if (!m) throw new Error("the MCP server gave no answer");
   if (m.error) throw new Error("the MCP server said: " + String(m.error.message || "error").slice(0, 300));
   return m.result;
+}
+
+/** readAnswer's event stream, event by event: the others to `onMessage` as they come, until the answer with `id`. */
+async function readEvents(res, id, { onChunk, signal, onMessage }) {
+  const reader = res.body.getReader(), dec = new TextDecoder();
+  const stopped = signal ? new Promise((_, no) => { const go = () => { reader.cancel().catch(() => {}); no(new Error("stopped")); }; if (signal.aborted) go(); else signal.addEventListener("abort", go, { once: true }); }) : null;
+  if (stopped) stopped.catch(() => {});
+  let buf = "", size = 0, found = null;
+  const take = (block) => {
+    const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
+    if (!data) return;
+    let j;
+    try { j = JSON.parse(data); } catch { return; }
+    for (const x of Array.isArray(j) ? j : [j]) {
+      if (!x || typeof x !== "object") continue;
+      if (typeof x.method === "string") onMessage(x);
+      else if (x.id === id && !found) found = x;
+    }
+  };
+  for (;;) {
+    const { value, done } = await (stopped ? Promise.race([reader.read(), stopped]) : reader.read());
+    if (done) break;
+    if (onChunk) onChunk();
+    const piece = dec.decode(value, { stream: true });
+    size += piece.length;
+    if (size > 20_000_000) throw new Error("the MCP server's answer is too large");
+    buf += piece;
+    let cut;
+    while (!found && (cut = buf.search(/\r?\n\r?\n/)) >= 0) { take(buf.slice(0, cut)); buf = buf.slice(cut).replace(/^\r?\n\r?\n/, ""); }
+    if (found) { reader.cancel().catch(() => {}); break; }
+  }
+  if (!found) { buf += dec.decode(); if (buf.trim()) take(buf); }
+  if (!found) throw new Error("the MCP server gave no answer");
+  if (found.error) throw new Error("the MCP server said: " + String(found.error.message || "error").slice(0, 300));
+  return found.result;
 }
 
 /**
  * One MCP session: initialize, then the methods asked for, in order. `token`: the sign-in (a Bearer token) or "".
  * Throws NeedsSignIn on 401.
  */
-async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, taskWait = null } = {}) {
+async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, taskWait = null, talk: talk0 = null } = {}) {
   let session = "", id = 0;
-  const post = async (method, params, notify = false) => {
-    const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
+  // (The server's own requests and notices on a request's stream, MCP elicitation: src/coder-elicit.mjs. With no `talk`, a
+  // question is cancelled: no one can be asked.)
+  const talk = talk0 || serverTalk();
+  const headersNow = () => {
     const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": MCP_VERSION };
     if (token) headers.authorization = "Bearer " + token;
     if (session) headers["mcp-session-id"] = session;
+    return headers;
+  };
+  /** An answer of Coder's to a request of the server's: POSTed as the transport says, with the session. */
+  const reply = async (m) => {
+    try { const r = await fetchFn(url, { method: "POST", headers: headersNow(), body: JSON.stringify(m), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }); try { if (r.body) await r.body.cancel(); } catch { /* read */ } return r.status; } catch { return 0; }
+  };
+  const post = async (method, params, notify = false) => {
+    const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
+    const headers = headersNow();
     let res;
     // TIMEOUTS, LIKE CLAUDE CODE'S: the timer is reset by every piece of the answer (progress included); a tool call is
     // idle after CALL_TIMEOUT_MS, anything else after REQUEST_TIMEOUT_MS; a tool call ends at CALL_TOTAL_MS in all.
     const call = method === "tools/call";
     const ms = call ? idleMs || CALL_TIMEOUT_MS : requestMs || REQUEST_TIMEOUT_MS;
     const ctl = new AbortController();
-    let idle, why = "";
-    const arm = () => { clearTimeout(idle); idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
-    const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, CALL_TOTAL_MS) : null;
+    // (While the server's question waits for the owner the idle timer is still, and starts again when it closes, as Claude
+    // Code's: "pendingElicitations" keep a call from being idle.)
+    let idle, why = "", held = 0, over = false;
+    const arm = () => { clearTimeout(idle); if (held > 0 || over) return; idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
+    const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, totalMs || CALL_TOTAL_MS) : null;
+    // (Out of time with the question still open: Claude Code's words for it, and not a passing failure to try again.)
     const said = () => why === "total" ? "the MCP server's tool call went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes" : "the MCP server said nothing for " + Math.round(ms / 1000) + " seconds";
-    const done = () => { clearTimeout(idle); clearTimeout(total); };
+    const lost = () => why === "total" && talk.open() > 0 ? new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)) : Object.assign(transient(new Error(said())), { first: method === "initialize" });
+    const ctx = { during: method, reply, hold: () => { held++; clearTimeout(idle); }, release: () => { held = Math.max(0, held - 1); arm(); } };
+    const done = () => { over = true; clearTimeout(idle); clearTimeout(total); };
     arm();
     try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: ctl.signal }); }
     catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize" }); }
@@ -283,11 +345,11 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     const s = res.headers.get("mcp-session-id");
     if (s) session = s;
     if (notify) { done(); return null; }
-    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal }); }
-    catch (e) { throw why ? Object.assign(transient(new Error(said())), { first: method === "initialize" }) : e; }
-    finally { done(); }
+    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage: (m) => talk.message(m, ctx) }); }
+    catch (e) { throw why ? lost() : e; }
+    finally { done(); talk.end(ctx); }
   };
-  const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: {}, clientInfo: CLIENT });
+  const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
   await post("notifications/initialized", null, true);
   const out = [];
   // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".)
@@ -347,8 +409,10 @@ export async function mcpSession(url, token, steps, opts = {}) {
  * THE OLDER SSE TRANSPORT (MCP 2024-11-05): a GET opens an event stream whose first event, "endpoint", says where to POST
  * messages; the answers come back on the stream.
  */
-export async function sseSession(url, token, steps, { fetchFn = fetch } = {}) {
+export async function sseSession(url, token, steps, { fetchFn = fetch, idleMs = 0, totalMs = 0, talk: talk0 = null } = {}) {
   const auth = token ? { authorization: "Bearer " + token } : {};
+  // (The server's own requests and notices come on the same stream: MCP elicitation, src/coder-elicit.mjs.)
+  const talk = talk0 || serverTalk();
   const ctl = new AbortController();
   let res;
   try { res = await fetchFn(url, { method: "GET", headers: { accept: "text/event-stream", ...auth }, signal: ctl.signal }); }
@@ -381,25 +445,44 @@ export async function sseSession(url, token, steps, { fetchFn = fetch } = {}) {
     const endpoint = new URL(first.data.trim(), url);
     if (endpoint.origin !== new URL(url).origin) throw new Error("the MCP server sent messages elsewhere");
     let id = 0;
+    /** An answer of Coder's to a request of the server's, POSTed where its messages go. */
+    const reply = async (m) => {
+      try { const r = await fetchFn(endpoint.href, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(m), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }); try { if (r.body) await r.body.cancel(); } catch { /* read */ } return r.status; } catch { return 0; }
+    };
     const post = async (method, params, notify = false) => {
       const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
       const r = await fetchFn(endpoint.href, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(msg) });
       if (r.status === 401 || r.status === 403) throw new NeedsSignIn(r.headers.get("www-authenticate"));
       if (!r.ok) throw new Error("the MCP server answered " + r.status);
       if (notify) return null;
-      const ms = method === "tools/call" ? CALL_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+      const call = method === "tools/call";
+      const ms = call ? idleMs || CALL_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+      // (A tool call's limit is still while the server's question waits for the owner, and starts again when it closes; in
+      // all it ends at CALL_TOTAL_MS, as over Streamable HTTP.)
+      let fail = () => {}, timer = null, held = 0, over = false;
+      const failed = new Promise((_, no) => { fail = no; });
+      failed.catch(() => {});
+      const arm = () => { clearTimeout(timer); if (held > 0 || over) return; timer = setTimeout(() => fail(new Error("the MCP server did not answer within " + Math.round(ms / 1000) + " seconds")), ms); };
+      const total = call ? setTimeout(() => fail(new Error(talk.open() > 0 ? talk.timedOut(totalMs || CALL_TOTAL_MS) : "the MCP server's tool call went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes")), totalMs || CALL_TOTAL_MS) : null;
+      const ctx = { during: method, reply, hold: () => { held++; clearTimeout(timer); }, release: () => { held = Math.max(0, held - 1); arm(); } };
       const wait = async () => {
         for (;;) {
           const ev = await nextEvent();
           let m; try { m = JSON.parse(ev.data); } catch { continue; }
-          if (!m || m.id !== msg.id) continue;
+          if (!m) continue;
+          if (typeof m.method === "string") { talk.message(m, ctx); continue; }
+          if (m.id !== msg.id) continue;
           if (m.error) throw new Error("the MCP server said: " + String(m.error.message || "error").slice(0, 300));
           return m.result;
         }
       };
-      return within(wait(), ms);
+      arm();
+      const waiting = wait();
+      waiting.catch(() => {});
+      try { return await Promise.race([waiting, failed]); }
+      finally { over = true; clearTimeout(timer); clearTimeout(total); talk.end(ctx); }
     };
-    await post("initialize", { protocolVersion: "2024-11-05", capabilities: {}, clientInfo: CLIENT });
+    await post("initialize", { protocolVersion: "2024-11-05", capabilities: CLIENT_CAPS, clientInfo: CLIENT });
     await post("notifications/initialized", null, true);
     const out = [];
     for (const [method, params] of steps) out.push(await post(method, params));
@@ -734,15 +817,19 @@ export async function removeConnector(bucket, uid, id) {
   return true;
 }
 
-/** One tool call for a job: the sign-in added here (refreshed and tried once more on a 401). */
-export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), taskWait = null } = {}) {
+/**
+ * One tool call for a job: the sign-in added here (refreshed and tried once more on a 401). `ask`: the job's way to ask the
+ * owner the server's questions (src/coder-elicit.mjs), or null: then a question is cancelled.
+ */
+export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), taskWait = null, ask = null } = {}) {
   const list = await readConnectors(bucket, uid);
   const c = list.find((x) => x.id === connectorId);
   if (!c) return { text: "error: that connector was removed", isError: true };
   const meta = (c.tools || []).find((t) => t.name === tool) || {};
+  const talk = ask ? serverTalk({ ask, server: c.name, tool }) : null;
   const once = async (force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
-    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {}, ...(meta.tasks ? { task: { ttl: CALL_TOTAL_MS } } : {}) }]], { fetchFn, ...(taskWait ? { taskWait } : {}) });
+    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {}, ...(meta.tasks ? { task: { ttl: CALL_TOTAL_MS } } : {}) }]], { fetchFn, ...(taskWait ? { taskWait } : {}), ...(talk ? { talk } : {}) });
     return resultText(r);
   };
   try {
@@ -856,7 +943,7 @@ const same = (a, b) => { a = String(a); b = String(b); if (a.length !== b.length
  * `POST /api/coder/mcp` from Coder's machine: { tool, args } with the job's AI pass (the same headers as its AI calls).
  * Only the chat's current job, and only a tool it was given at its start.
  */
-export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now() } = {}) {
+export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(), pollMs = 0 } = {}) {
   if (request.method !== "POST") return answer({ error: "method" }, 405);
   const bucket = env && env.CODER_BUCKET;
   if (!bucket) return answer({ error: "storage is not available" }, 503);
@@ -872,8 +959,13 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   if (!meta || String(meta.turn) !== turn) return answer({ error: "that chat has moved on" }, 403);
   let body = null;
   try { body = JSON.parse((await request.text()).slice(0, 2_000_000)); } catch { body = null; }
+  // THE OWNER'S ANSWER TO A CONNECTOR'S QUESTION (MCP elicitation, src/coder-elicit.mjs): kept for the call that waits on it.
+  if (body && body.answer && typeof body.answer === "object") { const k = await keepAnswer(bucket, uid, id, body.answer); return answer(k, k.error ? 400 : 200); }
   if (!body || typeof body.tool !== "string") return answer({ error: "that tool call could not be read" }, 400);
   const which = await jobTool(bucket, uid, id, turn, body.tool);
   if (!which) return answer({ error: "not one of this job's connector tools" }, 403);
+  // A JOB THAT CAN ASK THE OWNER (`ask`, Coder's own chats) gets the call as a stream: the server's questions as they come,
+  // then its answer (src/coder-elicit.mjs). Any other gets the answer alone, and a question is cancelled.
+  if (body.ask === true) return streamedCall((send) => callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, ask: { send, wait: (eid, signal) => pollAnswer(bucket, elicitKey(uid, id, eid), signal, pollMs ? { every: pollMs } : {}) } }));
   return answer(await callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now }));
 }
