@@ -28,6 +28,7 @@ On my branch, not deployed yet.
 - **Existing chats** keep all their tools until they're summarized (Claude Code's rule). Connectors' tools are now always held back; before, that only happened when there were very many.
 - **Not tried live with Grok yet:** whether Grok loads tools well. That's for the live test after you say deploy.
 - **Tests:** 18 new, and the tests that listed the tools updated. The helper's full run passed 1,004 of 1,005; the one failure only happens in a helper's copy of the repo.
+- **Both parts together:** after merging both helpers' work, the full test suite passed 1,011 of 1,011.
 
 ## 2026-11-14: The last small gaps from Claude Code's docs, part 1 (your words: "yes start on that")
 
