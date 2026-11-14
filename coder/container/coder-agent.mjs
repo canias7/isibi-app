@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -196,7 +197,8 @@ export const RUN_TOOLS = {
   edit: { verb: "Edited", label: (a) => a.path },
   grep: { verb: "Searched", label: (a) => JSON.stringify(a.pattern || "") + (a.path && a.path !== "." ? " in " + a.path : "") },
   glob: { verb: "Found", label: (a) => String(a.pattern || "") },
-  lsp: { verb: "Looked up", label: (a) => String(a.action || "") + " " + String(a.path || "") + (a.line ? ":" + a.line + (a.column ? ":" + a.column : "") : "") },
+  // (Claude Code's LSP inputs since 2026-11-14: operation, filePath, line, character.)
+  lsp: { verb: "Looked up", label: (a) => String(a.operation || "") + " " + String(a.filePath || "") + (a.line ? ":" + a.line + (a.character ? ":" + a.character : "") : "") },
   web_fetch: { verb: "Fetched", label: (a) => String(a.url || "") },
 };
 /** GLOOPY'S PAGES (2026-11-09): an id like p1a2b3c4d5e; at most 5 published in one message. */
@@ -954,11 +956,14 @@ export function factsAnswer(raw) {
 }
 /**
  * A WRITE'S ANSWER: its text for Grok, and what it changed for the chat (WRITE_MARK, coder-tools.mjs), checked again here
- * (numbers, at most WRITE_SHOW_LINES lines of at most 1,001 characters, key-shaped text hidden), or none.
+ * (numbers, at most WRITE_SHOW_LINES lines of at most 1,001 characters, key-shaped text hidden), or none. And the language
+ * server's report (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): this file's problems for the
+ * chat, each with Claude Code's severity (error, warning, info, hint), and the `<new-diagnostics>` note Grok gets after the
+ * round (`diagnostics`, "" when none).
  */
 export function writeAnswer(raw) {
   raw = String(raw || "");
-  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null, problems: [], problemsAll: 0 };
+  if (!raw.startsWith(WRITE_MARK)) return { text: raw, change: null, problems: [], problemsAll: 0, diagnostics: "" };
   try {
     const j = JSON.parse(raw.slice(WRITE_MARK.length));
     const c = j && j.change, n = (x) => (Number.isInteger(x) && x >= 0 ? x : 0);
@@ -968,10 +973,11 @@ export function writeAnswer(raw) {
       ...(n(c.more) ? { more: n(c.more) } : {}), ...(c.big === true ? { big: true } : {}),
     } : null;
     const problems = (Array.isArray(j && j.problems) ? j.problems : []).filter((p) => p && typeof p.message === "string").slice(0, 20).map((p) => ({
-      severity: p.severity === "warning" ? "warning" : "error", line: n(p.line), column: n(p.column), message: scrub(p.message.slice(0, 300)), code: scrub(String(p.code || "").slice(0, 60)),
+      severity: ["warning", "info", "hint"].includes(p.severity) ? p.severity : "error", line: n(p.line), column: n(p.column), message: scrub(p.message.slice(0, 300)), code: scrub(String(p.code || "").slice(0, 60)),
     }));
-    return { text: String((j && j.text) || ""), change, problems, problemsAll: Math.max(problems.length, n(j && j.problemsAll)) };
-  } catch { return { text: "The file was written.", change: null, problems: [], problemsAll: 0 }; }
+    const d = j && typeof j.diagnostics === "string" && j.diagnostics.startsWith("<new-diagnostics>") ? scrub(j.diagnostics.slice(0, 5000)) : "";
+    return { text: String((j && j.text) || ""), change, problems, problemsAll: Math.max(problems.length, n(j && j.problemsAll)), diagnostics: d };
+  } catch { return { text: "The file was written.", change: null, problems: [], problemsAll: 0, diagnostics: "" }; }
 }
 /** Errors that mean "not a file of this project" (a mention that is not one is left alone). */
 const NOT_A_FILE = /^error: (give a path|no such file|that path (is|leads) outside the project|the \.git folder|the path cannot contain)/;
@@ -1117,6 +1123,11 @@ export function commandChangedNote(list) {
 export const changedOnDiskNote = (path, x) => "Note: " + scrub(path).slice(0, 300) + " changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. " +
   (x && typeof x.lines === "string" ? "Here are the relevant changes (shown with line numbers):\n" + x.lines : "The changes are not shown here; read it again if you need the current content.");
 
+/**
+ * HOW LONG AN LSP CALL MAY TAKE ON THE MACHINE (Coder's own: Claude Code's calls have no limit, its requests 60 seconds each):
+ * time for its server to start (60 seconds) and two requests (a call hierarchy asks twice), past the tool's own 195 seconds.
+ */
+export const LSP_EXEC_S = 200;
 export const CODER_MAX_ROUNDS = 60;
 export const CODER_MAX_MS = 45 * 60 * 1000;
 
@@ -1133,7 +1144,9 @@ export const CODER_TOOLS = Object.freeze([
   fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
   fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: SEARCH_PATH, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
   fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: SEARCH_PATH }, ["pattern"]),
-  fn("lsp", "Ask a real language server (JavaScript/TypeScript, Python) about the code: definition (where a name is defined), references (everywhere it is used), hover (its type and docs), diagnostics (the file's errors and warnings). line and column count from 1, as read shows them; point them at the name.", { action: { type: "string", enum: ["definition", "references", "hover", "diagnostics"] }, path: FILE_PATH, line: { type: "integer" }, column: { type: "integer" } }, ["action", "path"]),
+  // CLAUDE CODE'S LSP TOOL (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; LSP becomes Claude Code's
+  // plugin version): its own description, inputs and their descriptions, word for word, and nothing else taken (coder-lsp.mjs).
+  { type: "function", function: { name: "lsp", description: LSP_DESCRIPTION, parameters: { type: "object", properties: LSP_PROPERTIES, required: [...LSP_REQUIRED], additionalProperties: false } } },
   // LIKE CLAUDE CODE'S WebFetch (its docs, read 2026-11-06: the page is read by a
   // separate model call; owner: "Finish all this"): a separate reader answers
   // Coder's question from the page, so a page's text, and any tricks hidden in
@@ -4138,7 +4151,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
-        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
+        // (The lsp tool names its file `filePath`, as Claude Code's does.)
+        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(c.name === "lsp" ? (typeof args.filePath === "string" && args.filePath ? { ...args, filePath: projectPath(deps, args.filePath) } : args) : typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         // ASKED ON A CARD, AND THIS STEP WAITS (the permission modes, 2026-11-09): a protected file in any mode; any write or
         // edit in Plan mode (Claude Code: edits "stay blocked until you approve the plan", each one asked); a web page in
         // Accept edits and Plan, unless it is one of Claude Code's pre-approved documentation sites or a rule allows it
@@ -4151,7 +4165,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (The file or folder a file tool works on, in full: a glob's own full path up to its first wildcard.)
         const targetOf = () => {
           const pat = c.name === "glob" && typeof args.pattern === "string" && /^[/~]/.test(args.pattern) ? args.pattern.slice(0, Math.max(1, args.pattern.search(/[*?[{]/) < 0 ? args.pattern.length : args.pattern.search(/[*?[{]/))) : "";
-          const p = pat || (typeof args.path === "string" && args.path ? args.path : ".");
+          const named = c.name === "lsp" ? args.filePath : args.path;
+          const p = pat || (typeof named === "string" && named ? named : ".");
           return typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
         };
         if (readBlock && READ_TOOLS.has(c.name)) {
@@ -4257,13 +4272,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         }
         // WHAT A WRITE OR AN EDIT CHANGED is asked for, for the chat only (writeAnswer; edit's too since edit's turn, 2026-11-09).
         // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
-        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : c.name === "edit" ? { ...args, show_change: true, check: true } : args;
+        // (Claude Code tells only an agent that has Bash or PowerShell what the servers report; one without, Gloopy's helpers,
+        // only sends the file's new text to its server: `check: "sync"`. 2026-11-14.)
+        const lspCheck = !offered || offered.has("bash") || offered.has("powershell") ? true : "sync";
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck } : args;
         const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
         ranAt.set(c.id, now());
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? LSP_EXEC_S : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -4271,12 +4289,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // (A tool's result object for its PostToolUse hooks, behind FACTS_MARK: taken off its answer here. 2026-11-14.)
         if (code === 0) { const fa = factsAnswer(raw); raw = fa.text; if (fa.facts) toolFacts.set(c.id, fa.facts); }
+        // (What the language servers reported meanwhile, behind LSP_NOTE_MARK: told to Grok after the round, as Claude Code
+        // tells Claude after the step, its `<new-diagnostics>` note. 2026-11-14.)
+        if (c.name === "lsp" && code === 0) { const na = noteAnswer(raw); raw = na.text; if (na.note.startsWith("<new-diagnostics>")) roundNotes.push(scrub(na.note.slice(0, 5000))); }
         const toolText = raw;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
         let pics = [], thumbs = [], change = null, problems = [], problemsAll = 0;
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
-        if ((c.name === "write" || c.name === "edit") && code === 0) ({ text: raw, change, problems, problemsAll } = writeAnswer(raw));
+        if ((c.name === "write" || c.name === "edit") && code === 0) { let diagnostics = ""; ({ text: raw, change, problems, problemsAll, diagnostics } = writeAnswer(raw)); if (diagnostics) roundNotes.push(diagnostics); }
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(projectPath(deps, args.path));
@@ -4285,7 +4306,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A SEARCH'S RESULTS LEAVE OUT WHAT A READ DENY RULE COVERS (Claude Code: "a best-effort attempt to apply Read(path) deny
         // rules to all built-in tools that read files like Grep and Glob").
         if ((c.name === "grep" || c.name === "glob") && code === 0 && !github && ownRules.deny.some((r) => /^Read\(/.test(r))) raw = withoutDenied(raw, (x) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(x) : x, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }), c.name === "glob" ? "no files match " + String(args.pattern || "") : "no matches");
-        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
+        // (An lsp answer goes whole up to Claude Code's 100,000 characters; past that it is saved and its start shown: coder-lsp.mjs.)
+        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: toolText });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).

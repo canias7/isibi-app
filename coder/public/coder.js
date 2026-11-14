@@ -1867,14 +1867,17 @@
     const note = d.unavailable ? '<p class="cd-fchg-note">Some of what it changed could not be shown here: See changes has it all.</p>' : '';
     return '<div class="cd-files">' + rows + rest + note + '</div>';
   }
-  /** "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them). */
+  /**
+   * "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them), each
+   * with Claude Code's mark for its severity (✘ ⚠ ℹ ★: the owner, 2026-11-14, "start fixing and filling in gaps on those tools").
+   */
   function stepProblems(r, key) {
     const list = r && Array.isArray(r.problems) ? r.problems.filter((p) => p && typeof p.message === 'string').slice(0, 20) : [];
     if (!list.length) return '';
     const all = Math.max(list.length, Number.isInteger(r.problemsAll) ? r.problemsAll : 0);
     const k = key + ':problems', open = !!S.open[k];
     return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + all + ' new diagnostic issue' + (all === 1 ? '' : 's') + ' in 1 file<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
-      (open ? '<pre class="cd-probs-list">' + list.map((p) => (p.severity === 'warning' ? '⚠' : '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
+      (open ? '<pre class="cd-probs-list">' + list.map((p) => ({ warning: '⚠', info: 'ℹ', hint: '★' }[p.severity] || '✘') + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '')).join('\n') + (all > list.length ? '\n… and ' + (all - list.length) + ' more' : '') + '</pre>' : '') +
     '</div>';
   }
   // THE LIVE SCREEN IN A HAND-OFF CARD (2026-11-12): the live view's picture, from the same stream; asleep, paused, or

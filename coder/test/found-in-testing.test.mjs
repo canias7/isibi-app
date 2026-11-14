@@ -1866,8 +1866,8 @@ test("CD258 a protected file is written only once the owner allows it, on a card
   assert.ok(JSON.stringify(pushed).includes("Coder asks to change a protected file") && JSON.stringify(pushed).includes("Allow it to change .npmrc?"), JSON.stringify(pushed));
 });
 
-test("CD259 after each write of a file a language server takes, the new errors and warnings go to Grok and their count to the chat, as Claude Code's language server plugins give Claude \"the errors and warnings the server reports\" after each write and show \"Found N new diagnostic issues in M files\" (the owner, 2026-11-09: \"can we do those small optional extras that you said? Yeah, I want it\"); only new ones, matched without lines; nothing when no server takes the file, or none is installed", async () => {
-  const { newProblems, problemsNote, PROBLEMS_SHOWN } = await import("../container/coder-lsp.mjs");
+test("CD259 after each write or edit of a file a language server takes, what the server reports goes to Grok after the round, in Claude Code's own <new-diagnostics> note, and the file's part to the chat (Claude Code's plugins: \"each time Claude edits or writes a file the server handles, Claude gets the errors and warnings the server reports\", \"Found N new diagnostic issues in M files\"; the owner, 2026-11-14: \"start fixing and filling in gaps on those tools\"): all the file's current problems, every severity, errors first; nothing when no server takes the file, or none is installed", async () => {
+  const { syncAfterWrite, diagnosticsNote, stopKeeper } = await import("../container/coder-lsp.mjs");
   const { WRITE_MARK } = await import("../container/coder-tools.mjs");
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
@@ -1875,46 +1875,52 @@ test("CD259 after each write of a file a language server takes, the new errors a
   const fake = new URL("./fixtures/fake-lsp/", import.meta.url).pathname;
   const PATH = fake + ":" + process.env.PATH;
   const dir = await mkdtemp(join(tmpdir(), "coder-problems-"));
-  // The check itself, with the stand-in server (as pyright-langserver).
   const withPath = async (f) => { const was = process.env.PATH; process.env.PATH = PATH; try { return await f(); } finally { process.env.PATH = was; } };
-  const changed = await withPath(() => newProblems({ path: "app.py", abs: join(dir, "app.py"), before: "x = 1\nBAD one\nINFO\n", after: "y = 2\nBAD one\nBAD two\nWARN\nINFO\n" }, dir));
-  assert.deepEqual(changed, [
-    { severity: "error", line: 3, column: 1, message: "bad thing: BAD two", code: "fake-bad", source: "Fake" },
-    { severity: "warning", line: 4, column: 1, message: "a warning", code: "", source: "Fake" },
-  ], "BAD one was there before (now one line lower): not new; a hint is never reported");
-  assert.deepEqual(await withPath(() => newProblems({ path: "n.py", abs: join(dir, "n.py"), before: null, after: "BAD\n" }, dir)), [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD", code: "fake-bad", source: "Fake" }]);
-  assert.equal(await newProblems({ path: "a.go", abs: join(dir, "a.go"), after: "x" }, dir), null, "no server takes it");
-  assert.equal(await withPath(() => newProblems({ path: "a.ts", abs: join(dir, "a.ts"), after: "x" }, dir)), null, "not installed: no typescript-language-server here");
-  assert.equal(problemsNote("app.py", changed), "<new-diagnostics>The following new diagnostic issues were detected:\n\napp.py:\n  ✘ [Line 3:1] bad thing: BAD two [fake-bad] (Fake)\n  ⚠ [Line 4:1] a warning (Fake)\n</new-diagnostics>");
-  assert.equal(problemsNote("app.py", []), "");
-  const many = Array.from({ length: 25 }, (_, i) => ({ severity: "error", line: i + 1, column: 1, message: "m" + i, code: "", source: "" }));
-  assert.match(problemsNote("x.py", many), new RegExp("\\n  … and " + (25 - PROBLEMS_SHOWN) + " more\\n</new-diagnostics>$"));
-  // Through write, when Coder's app asks: Grok's answer ends with the note; the chat gets the list.
-  const run = machine(dir, undefined, { ...process.env, PATH });
-  const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
-  await writeFile(join(dir, "w.py"), "ok = 1\n");
-  const raw = await write({ path: "w.py", content: "ok = 1\nBAD here\n", show_change: true, check: true });
-  const j = JSON.parse(raw.slice(WRITE_MARK.length));
-  assert.equal(j.text, "The file w.py has been updated successfully. (file state is current in your context — no need to Read it back)\n\n<new-diagnostics>The following new diagnostic issues were detected:\n\nw.py:\n  ✘ [Line 2:1] bad thing: BAD here [fake-bad] (Fake)\n</new-diagnostics>");
-  assert.deepEqual(j.problems, [{ severity: "error", line: 2, column: 1, message: "bad thing: BAD here", code: "fake-bad", source: "Fake" }]);
-  assert.match(await write({ path: "clean.py", content: "fine = 1\n", check: true }), /^File created successfully at: clean\.py \(file state is current in your context — no need to Read it back\)$/, "no new problems: nothing said");
-  assert.match(await write({ path: "notes.md", content: "BAD\n", check: true }), /^File created successfully at: notes\.md \(file state[^\n]*\)$/, "no server for Markdown");
-  assert.match(await write({ path: "plain.py", content: "BAD\n" }), /^File created successfully at: plain\.py \(file state[^\n]*\)$/, "not asked: no check");
-  // Through Coder's app: Grok is told, the chat shows the count, and the owner's values are hidden in it when saved.
-  const { runCoder } = await import("../container/coder-agent.mjs");
-  const events = [];
-  let k = 0;
-  const out = await runCoder({ exec: machine(dir, undefined, { ...process.env, PATH }), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { path: "job.py", content: "BAD sk-secret-123\n" }, "w1")]) : say("Done.")) }, { text: "write job.py" });
-  assert.match(out.messages.find((m) => m.role === "tool" && m.tool_call_id === "w1").content, /\n\n<new-diagnostics>The following new diagnostic issues were detected:\n\njob\.py:\n  ✘ \[Line 1:1\] bad thing: BAD sk-secret-123 \[fake-bad\] \(Fake\)\n<\/new-diagnostics>$/);
-  const shown = events.find((e) => e.type === "result" && e.id === "w1");
-  assert.deepEqual(shown.problems, [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD sk-secret-123", code: "fake-bad" }]);
-  assert.equal(shown.problemsAll, 1);
-  const { hideIn } = await import("../src/coder-routes.mjs");
-  assert.equal(hideIn([shown], ["sk-secret-123"])[0].problems[0].message, "bad thing: BAD [hidden]");
-  // The chat: the line, and the list a tap away.
+  try {
+    // The check itself, with the stand-in server (as pyright-langserver): every problem the file has now, an old one too.
+    await writeFile(join(dir, "app.py"), "y = 2\nBAD one\nBAD two\nWARN\nINFO\n");
+    const got = await withPath(() => syncAfterWrite({ abs: join(dir, "app.py"), text: "y = 2\nBAD one\nBAD two\nWARN\nINFO\n" }, { root: dir }));
+    assert.deepEqual(got.problems, [
+      { severity: "error", line: 2, column: 1, message: "bad thing: BAD one", code: "fake-bad", source: "Fake" },
+      { severity: "error", line: 3, column: 1, message: "bad thing: BAD two", code: "fake-bad", source: "Fake" },
+      { severity: "warning", line: 4, column: 1, message: "a warning", code: "", source: "Fake" },
+      { severity: "info", line: 5, column: 1, message: "an info", code: "", source: "" },
+    ]);
+    assert.equal(got.note, "<new-diagnostics>The following new diagnostic issues were detected:\n\napp.py:\n  ✘ [Line 2:1] bad thing: BAD one [fake-bad] (Fake)\n  ✘ [Line 3:1] bad thing: BAD two [fake-bad] (Fake)\n  ⚠ [Line 4:1] a warning (Fake)\n  ℹ [Line 5:1] an info</new-diagnostics>");
+    assert.equal(await syncAfterWrite({ abs: join(dir, "a.go"), text: "x" }, { root: dir }), null, "no server takes it");
+    assert.equal(await withPath(async () => { const was = process.env.PATH; process.env.PATH = "/nonexistent"; try { return await syncAfterWrite({ abs: join(dir, "a.ts"), text: "x" }, { root: dir }); } finally { process.env.PATH = was; } }), null, "not installed: nothing");
+    assert.equal(diagnosticsNote([{ uri: "/w/x.py", diagnostics: [{ message: "m", severity: "Hint", range: { start: { line: 0, character: 2 } }, code: "7" }] }]), "<new-diagnostics>The following new diagnostic issues were detected:\n\nx.py:\n  ★ [Line 1:3] m [7]</new-diagnostics>");
+    // Through write, when Coder's app asks: its answer is the write's alone; the note and the chat's list travel apart.
+    const run = machine(dir, undefined, { ...process.env, PATH });
+    const write = async (args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args })).toString("base64") })).output;
+    await writeFile(join(dir, "w.py"), "ok = 1\n");
+    const raw = await write({ path: "w.py", content: "ok = 1\nBAD here\n", show_change: true, check: true });
+    const j = JSON.parse(raw.slice(WRITE_MARK.length));
+    assert.equal(j.text, "The file w.py has been updated successfully. (file state is current in your context — no need to Read it back)");
+    assert.equal(j.diagnostics, "<new-diagnostics>The following new diagnostic issues were detected:\n\nw.py:\n  ✘ [Line 2:1] bad thing: BAD here [fake-bad] (Fake)</new-diagnostics>");
+    assert.deepEqual(j.problems, [{ severity: "error", line: 2, column: 1, message: "bad thing: BAD here", code: "fake-bad", source: "Fake" }]);
+    assert.match(await write({ path: "clean.py", content: "fine = 1\n", check: true }), /^File created successfully at: clean\.py \(file state is current in your context — no need to Read it back\)$/, "no problems: nothing said");
+    assert.match(await write({ path: "notes.md", content: "BAD\n", check: true }), /^File created successfully at: notes\.md \(file state[^\n]*\)$/, "no server for Markdown");
+    assert.match(await write({ path: "plain.py", content: "BAD\n" }), /^File created successfully at: plain\.py \(file state[^\n]*\)$/, "not asked: no check");
+    // Through Coder's app: the note after the round's answers, the chat's count, and the owner's values hidden when saved.
+    const { runCoder } = await import("../container/coder-agent.mjs");
+    const events = [];
+    let k = 0;
+    const out = await runCoder({ exec: machine(dir, undefined, { ...process.env, PATH }), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { path: "job.py", content: "BAD sk-secret-123\n" }, "w1")]) : say("Done.")) }, { text: "write job.py" });
+    const at = out.messages.findIndex((m) => m.role === "tool" && m.tool_call_id === "w1");
+    assert.doesNotMatch(out.messages[at].content, /new-diagnostics/, "not in the write's answer");
+    assert.match(out.messages[at + 1].content, /^\(Note from Coder's app, not the owner, about your last commands:\n<new-diagnostics>The following new diagnostic issues were detected:\n\njob\.py:\n {2}✘ \[Line 1:1\] bad thing: BAD sk-secret-123 \[fake-bad\] \(Fake\)<\/new-diagnostics>\)$/);
+    const shown = events.find((e) => e.type === "result" && e.id === "w1");
+    assert.deepEqual(shown.problems, [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD sk-secret-123", code: "fake-bad" }]);
+    assert.equal(shown.problemsAll, 1);
+    const { hideIn } = await import("../src/coder-routes.mjs");
+    assert.equal(hideIn([shown], ["sk-secret-123"])[0].problems[0].message, "bad thing: BAD [hidden]");
+  } finally { await stopKeeper(dir); }
+  // The chat: the line, and the list a tap away, each problem with Claude Code's mark for its severity.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /stepChange\(r, key\) \+\n[^\n]*\n\s+stepFiles\(r, key\) \+\n[^\n]*\n\s+stepProblems\(r, key\) \+/);
   assert.match(ui, /">Found ' \+ all \+ ' new diagnostic issue' \+ \(all === 1 \? '' : 's'\) \+ ' in 1 file/);
+  assert.match(ui, /\(\{ warning: '⚠', info: 'ℹ', hint: '★' \}\[p\.severity\] \|\| '✘'\)/);
   assert.match(ui, /on\('\.cd-probs-row', 'click'/);
 });
 

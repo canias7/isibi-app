@@ -1033,22 +1033,28 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
   } finally { await close(); }
 });
 
-test("CD40 lsp: definition, references, hover and errors from real language servers (checked where they are installed)", async () => {
-  const { serverFor } = await import("../container/coder-lsp.mjs");
-  assert.equal(serverFor("a.ts").cmd, "typescript-language-server");
-  assert.equal(serverFor("a.py").cmd, "pyright-langserver");
+test("CD40 lsp: Claude Code's LSP tool with its typescript-lsp and pyright-lsp plugins' servers (the owner, 2026-11-14: \"start fixing and filling in gaps on those tools\"); references and a write's report from the real servers (checked where they are installed)", async () => {
+  const { serverFor, stopKeeper } = await import("../container/coder-lsp.mjs");
+  assert.equal(serverFor("a.ts").command, "typescript-language-server");
+  assert.deepEqual(serverFor("a.ts").args, ["--stdio"]);
+  assert.equal(serverFor("a.mts").extensionToLanguage[".mts"], "typescript", "the plugin sends .mts as TypeScript");
+  assert.equal(serverFor("a.py").command, "pyright-langserver");
+  assert.equal(serverFor("a.pyi").name, "pyright");
   assert.equal(serverFor("a.rb"), null);
   const dockerfile = readFileSync(HERE("container/Dockerfile"), "utf8");
   assert.match(dockerfile, /npm install -g [^\n]*typescript@5 typescript-language-server pyright/, "the servers are on Coder's machine");
-  assert.match(dockerfile, /coder-lsp\.mjs/);
+  assert.match(dockerfile, /coder-lsp\.mjs coder-lspd\.mjs/);
   let has = true; try { execFileSync("typescript-language-server", ["--version"]); } catch { has = false; }
   if (!has) return;
   const dir = await mkdtemp(join(tmpdir(), "coder-lsp-"));
-  writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
-  const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
-  const run = (args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool: "lsp", args })).toString("base64")], { cwd: dir }).toString();
-  assert.match(run({ action: "diagnostics", path: "m.ts" }), /m\.ts:2:7 error: Type 'number' is not assignable to type 'string'/);
-  assert.match(run({ action: "references", path: "m.ts", line: 1, column: 17 }), /m\.ts:1:17\nm\.ts:2:19/);
+  try {
+    writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
+    const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+    const run = (tool, args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool, args })).toString("base64")], { cwd: dir }).toString();
+    assert.match(run("lsp", { operation: "findReferences", filePath: "m.ts", line: 1, character: 17 }), /Found 2 references across 1 files:\n\nm\.ts:\n {2}Line 1:17\n {2}Line 2:19$/);
+    const w = run("write", { path: "m.ts", content: "const y: string = 3;\n", check: true });
+    assert.match(w, /Type 'number' is not assignable to type 'string'/);
+  } finally { await stopKeeper(dir); }
 });
 
 test("CD42 @coder in GitHub comments: only signed notifications, only connected+allowed accounts; Coder answers as the app and posts the result when the job ends", async () => {
