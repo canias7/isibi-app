@@ -300,13 +300,56 @@ export function watchedNames(all) {
 }
 
 /**
+ * A FILE TOOL'S PATH AS CLAUDE CODE'S HOOKS SEE IT (round 6, 2026-11-14; the owner: "do what claude code does"; Claude Code
+ * 2.1.325's hooks reference: "For the file tools Write, Edit, and Read, tool_input.file_path is always absolute: Claude Code
+ * expands ~ and relative paths before hooks run, so a hook that matches on paths can't be bypassed via ~ or a relative
+ * spelling of the same path"; its program: Read's, Write's, Edit's and NotebookEdit's backfillObservableInput, its Nb, made
+ * before its PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure and PermissionDenied hooks and its permission
+ * checks; Grep's, Glob's and LSP's paths are left as the model gave them, and so is PostToolBatch's input): trimmed; an empty
+ * one, the folder Coder's commands are in; `~` and `~/…`, the home folder; a full one made plain (a `/` at its end kept); a
+ * short one from the folder Coder's commands are in (`at.cwd`). One that is no string, is over 4,096 characters, holds a NUL
+ * byte, or ends in white space once made plain (paths Claude Code's file tools refuse before any hook) stays as given, as
+ * does a `~` one with no home folder known.
+ */
+export function hookPath(p, { cwd = "", home = "" } = {}) {
+  if (typeof p !== "string" || p.length > 4096 || p.includes("\0")) return p;
+  const base = typeof cwd === "string" && cwd.startsWith("/") ? cwd : "/";
+  const h = typeof home === "string" && home.startsWith("/") ? home : "";
+  // (Node's path.posix.normalize, which Claude Code's path code is: `..` above the root dropped, a `/` at the end kept.)
+  const plain = (x) => {
+    const out = [];
+    for (const seg of x.split("/")) {
+      if (!seg || seg === ".") continue;
+      if (seg === "..") { out.pop(); continue; }
+      out.push(seg);
+    }
+    const body = out.join("/");
+    return "/" + body + (body && x.endsWith("/") ? "/" : "");
+  };
+  const once = (x) => {
+    const n = x.trim();
+    if (!n) return plain(base);
+    if (n === "~" || n.startsWith("~/")) { if (!h) return null; const rest = n.slice(2); return n === "~" ? h : plain(rest ? h + "/" + rest : h); }
+    if (n.startsWith("/")) return plain(n);
+    const r = plain(base + "/" + n);
+    return r.length > 1 ? r.replace(/\/$/, "") : r;
+  };
+  const full = once(p);
+  return full !== null && once(full) === full ? full : p;
+}
+/** The tools whose path hooks see in full: Coder's read, write and edit (Claude Code's Read, Write and Edit). */
+const FULL_PATH_TOOLS = new Set(["read", "write", "edit"]);
+/**
  * A tool call's input as a hook sees it: Coder's own, and Claude Code's names beside them (`file_path`; for the question
  * card, AskUserQuestion's `questions` list, each question with `multiSelect`). (The lsp tool's input is Claude Code's own
  * since 2026-11-14, `operation`, `filePath`, `line`, `character`, `query`: given as it is, with no `file_path`.)
+ * `at` ({ cwd, home }, round 6): read's, write's and edit's path in full, both names, as Claude Code's hooks get it (hookPath);
+ * without it, as Grok gave it (PostToolBatch's: Claude Code gives that event the model's own input).
  */
-export function hookToolInput(name, args) {
+export function hookToolInput(name, args, at = null) {
   const a = args && typeof args === "object" ? { ...args } : {};
   if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
+  if (at && FULL_PATH_TOOLS.has(name)) for (const k of ["path", "file_path"]) if (typeof a[k] === "string") a[k] = hookPath(a[k], at);
   if (name === "ask_user") {
     // (The single question of before, as Claude Code's list of one.)
     if (!(Array.isArray(a.questions) && a.questions.length) && a.question !== undefined) a.questions = [{ question: a.question, header: a.header, options: a.options, multi_select: a.multi_select }];
@@ -325,6 +368,18 @@ export function toolInputFromHook(name, input) {
   if ((name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
   if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => (!q || typeof q !== "object" || Array.isArray(q) || typeof q.multiSelect !== "boolean" ? q : { ...q, multi_select: q.multiSelect }));
   return a;
+}
+/**
+ * THE PATH A FILE TOOL RUNS WITH AFTER A HOOK'S NEW INPUT (round 6; Claude Code 2.1.325's own way, its vCr): the hook's path
+ * made full (hookPath, as Claude Code fills in a hook's rewrite before it goes on); when that is the file Grok named
+ * (`given`, the call's input before the hook), Grok's own spelling of it, as Claude Code calls the tool with the model's path
+ * then. `args` and `given` are the tool's inputs (Coder's `path`); others are given back as they are.
+ */
+export function givenPathKept(name, args, given, at = {}) {
+  if (!FULL_PATH_TOOLS.has(name) || !args || typeof args !== "object" || typeof args.path !== "string") return args;
+  const was = given && typeof given === "object" ? (typeof given.path === "string" ? given.path : typeof given.file_path === "string" ? given.file_path : undefined) : undefined;
+  const full = hookPath(args.path, at);
+  return { ...args, path: was !== undefined && full === hookPath(was, at) ? was : full };
 }
 
 // A HOOK ANSWERS CODER'S QUESTION CARD (Claude Code's AskUserQuestion with a PreToolUse hook's "allow" and updatedInput:
