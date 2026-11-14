@@ -133,7 +133,8 @@ test("CP3 the owner's answer, minutes or hours later, takes the turn up again at
   const ev = back.events.map((e) => e.type + ":" + (e.id || e.pid || ""));
   assert.deepEqual(ev.filter((x) => /^(permission|permanswer|bash|result)/.test(x)), ["permanswer:" + first.r.parked.pid, "result:b1", "bash:b2", "result:b2"]);
   // Grok gets the round whole, then answers.
-  const sent = back.seen[0].messages.filter((m) => m.role !== "system");
+  // (Less tool search's note on the chat's deferred tools, after the owner's first message: tool-search.test.mjs.)
+  const sent = back.seen[0].messages.filter((m) => m.role !== "system" && !m.toolsAnnounced);
   assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "assistant:", "tool:b1", "tool:b2", "user:"]);
   // (Then, as at any round, the mode the owner picked meanwhile, as Claude Code says a mode change.)
   assert.equal(sent[4].content, A.modeChangeNote("acceptEdits", "auto"));

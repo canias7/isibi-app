@@ -5,6 +5,7 @@
 // "Summarize from here" and "Summarize up to here", where "the original messages stay in the session
 // transcript". Here: the part to compress becomes one message, written by Coder's own model from a
 // plain-text copy of that part; the chat on the page still shows everything.
+import { toolsLoadedIn, toolSearchOnIn } from "./coder-toolsearch.mjs";
 
 /** How a summary message starts (so it is found, and never summarized as the owner's words). */
 export const SUMMARY_TAG = "(Coder's app: a summary of an earlier part of this conversation";
@@ -47,11 +48,14 @@ export function summaryRequest(messages, focus = "") {
  * The message that stands in for what was summarized. `what`: which part ("the earlier jobs", …). `files`: the files that
  * part worked on (filesTouched), kept as `reread` until Coder's next job reads the most recently changed of them again.
  * `planRef`: the chat's plan file is still to be put back in front of Coder after it (Claude Code's plan_file_reference after
- * compaction, 2026-11-14), by the job that next reads it.
+ * compaction, 2026-11-14), by the job that next reads it. `part`: the messages it stands for, whose loaded deferred tools it
+ * carries (`toolsLoaded`, and `toolSearchOn` when tool search was on there): Claude Code's compact boundary keeps them
+ * (its preCompactDiscoveredTools), so a tool loaded with tool_search stays loaded after a summary (coder-toolsearch.mjs).
  */
-export function summaryMessage(text, what, files = []) {
+export function summaryMessage(text, what, files = [], part = null) {
   const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
-  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true };
+  const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
+  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
 }
 
 /**

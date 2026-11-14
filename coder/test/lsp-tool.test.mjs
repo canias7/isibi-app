@@ -128,7 +128,10 @@ test("LS2 a call is checked as Claude Code checks its input, before any hook, ca
     exec: async (x) => { if (x.hook) { hooksRun.push(x); return { code: 0, output: "" }; } ran.push(x.command); return { code: 0, output: "" }; },
     emit: (e) => events.push(e), here: () => "/w/shop", root: "/w/shop", where: (p) => (p.startsWith("/") ? p : "/w/shop/" + p),
   }, { text: "go", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "LSP", hooks: [{ type: "command", command: "pre.sh" }] }] } }, "settings").list });
-  assert.equal(r.messages.find((m) => m.tool_call_id === "l1").content, "error: InputValidationError: LSP failed due to the following issues:\nThe required parameter `line` is missing\nThe required parameter `character` is missing\nAn unexpected parameter `column` was provided");
+  // (lsp is one of the tools Claude Code defers: called before tool_search loaded it, its error is followed by Claude Code's
+  // note saying so, coder-toolsearch.mjs; tool-search.test.mjs.)
+  const T = await import("../container/coder-toolsearch.mjs");
+  assert.equal(r.messages.find((m) => m.tool_call_id === "l1").content, "error: InputValidationError: LSP failed due to the following issues:\nThe required parameter `line` is missing\nThe required parameter `character` is missing\nAn unexpected parameter `column` was provided" + T.notLoadedHint(A.CODER_TOOLS.find((t) => t.function.name === "lsp")));
   assert.equal(hooksRun.length, 0, "no hook ran");
   assert.ok(!ran.some((c) => c.includes("coder-tools.mjs")), "nothing ran");
   const step = events.find((e) => e.type === "bash" && e.id === "l1");

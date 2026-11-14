@@ -28,7 +28,10 @@ test("CD202 a job started from GitHub is not offered the tools that never work t
   for (const [github, tools, note] of [[true, GITHUB_TOOLS, true], [false, CODER_TOOLS, false]]) {
     const seen = [];
     await runCoder({ send: async (req) => { seen.push(req); return say("Done."); }, emit: () => {}, exec: async () => ({ code: 0, output: "" }) }, { text: "Undo the last job", github });
-    assert.deepEqual(names(seen[0].tools), names(tools));
+    // (Offered: sent, or named in tool search's note as deferred, tool-search.test.mjs; under it a chat job has exit_plan_mode
+    // too, deferred in every mode as Claude Code's ExitPlanMode.)
+    const offered = [...names(seen[0].tools), ...seen[0].messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)].filter((n) => n !== "tool_search" && n !== "exit_plan_mode");
+    assert.deepEqual(offered.sort(), names(tools).sort());
     assert.equal(seen[0].messages[0].content.includes(GITHUB_NOTE), note);
   }
   assert.match(GITHUB_NOTE, /undoing a job, asking for a key, changing the environment, posting review comments as the owner, and turning auto-fix on or off[\s\S]*say at once[\s\S]*gofarther\.dev[\s\S]*do not ask questions about it first/);
@@ -303,7 +306,9 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   const events = [], seen = [], asked = [];
   const deps = { send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir), afterFile: async (x) => { asked.push(x); return "THE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md: use semicolons"; } };
   const out = await runCoder(deps, { text: ask + fileMentions(ask), shown: ask });
-  const msgs = seen[0].messages;
+  // (Less tool search's note on the chat's deferred tools, which follows them as Claude Code's deferred_tools_delta follows its
+  // at_mentioned_files: tool-search.test.mjs.)
+  const msgs = seen[0].messages.filter((m) => !m.toolsAnnounced);
   assert.equal(msgs.length, 3, "Coder's rules, the owner's message, the note with their files");
   assert.equal(msgs[1].content, (ask + fileMentions(ask)).trim(), "the owner's message is as they wrote it");
   const note = msgs[2];
@@ -339,7 +344,7 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   const seen2 = [];
   await runCoder({ send: async (q) => { seen2.push(q); return say("Done."); }, emit: () => {}, exec: async (x) => { ran.push(x.command); return { code: 0, output: "" }; } }, { text: "@coder look at @src/app.js", github: true });
   assert.equal(ran.length, 0);
-  assert.equal(seen2[0].messages.length, 2);
+  assert.equal(seen2[0].messages.filter((m) => !m.toolsAnnounced).length, 2);
 });
 
 test("CD210 after a long job is summarized, the files it was working on are read again, like Claude Code (up to five, the most recently changed first; one over 5,000 tokens comes back as its name only, a \"Referenced file\"): not the ones its kept steps read already, nor pictures, nor files gone; they go with the summary, and show as steps", async () => {
@@ -537,15 +542,16 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.equal(reply(out.messages, "b9"), "bye", "c.js changed while Coder stopped the background command: the same");
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
-  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
-  assert.ok(!seen[0].messages.some((m) => m.appNote), "and no note before any step");
+  // (Less tool search's note on the chat's deferred tools, tool-search.test.mjs, in this test file's note checks.)
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
   let k2 = 0;
   const seen2 = [];
   const out2 = await runCoder({ ...deps, send: async (q) => { seen2.push(q); k2++; return k2 === 1 ? say("", [call("bash", { command: "echo first" }, "f1")]) : k2 === 2 ? say("", [call("edit", { path: "c.js", old_string: "5", new_string: "6" }, "e2"), call("bash", { command: "echo after" }, "f3")]) : say("Done."); } }, { messages: out.messages, text: "next" });
   // (Claude Code's task reminder may follow the owner's message: the first job took 10 steps without the task tools. 2026-11-14.)
-  assert.equal(seen2[0].messages.filter((m) => !(m.appNote && /^\(Note from Coder's app, not the owner:\nThe task tools haven't been used recently\./.test(m.content))).at(-1).content, "next", "no note before the first step");
+  assert.equal(seen2[0].messages.filter((m) => !m.toolsAnnounced && !(m.appNote && /^\(Note from Coder's app, not the owner:\nThe task tools haven't been used recently\./.test(m.content))).at(-1).content, "next", "no note before the first step");
   assert.equal(reply(out2.messages, "f1"), "first");
   assert.equal(reply(out2.messages, "f3"), "after", "Coder's own edit is no news");
   // Only on a machine that follows the files: otherwise the job is as before (no extra steps at all).
@@ -575,7 +581,7 @@ test("CD215 right after a summary made between messages (/compact, a long chat s
   ];
   const events = [], seen = [];
   const out = await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir) }, { messages: history, text: "next" });
-  const note = seen[0].messages.at(-1);
+  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1);
   assert.equal(note.appNote, true);
   assert.equal(seen[0].messages.at(-2).content, "next", "right after the owner's message");
   assert.ok(note.content.startsWith("(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)\n\n"));
@@ -624,7 +630,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await writeFile(join(dir, "src", "app.js"), "x\n");
   const seen = [];
   await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
-  const note = seen[0].messages.at(-1).content;
+  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).content;
   assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
   assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
 });
@@ -1164,10 +1170,10 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   const reply = (id) => out.messages.find((x) => x.role === "tool" && x.tool_call_id === id).content;
   assert.equal(reply("b1"), "apple\nbanana\ncherry");
   assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
-  const notes = seen.at(-1).messages.filter((m) => m.appNote).map((m) => m.content);
+  const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content);
   assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
-  const at = seen.at(-1).messages.findIndex((m) => m.appNote);
+  const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced);
   assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
   // What is kept: each line's short fingerprint, never the text.
   const marks = (await readdir(followDir)).filter((f) => f.startsWith("lines-"));
@@ -1281,7 +1287,7 @@ test("CD242 a missing file is named with the folder a short path counts from, as
   let first = null;
   await runCoder({ exec: machine(dir), emit: (e) => steps.push(e), send: async (q) => { first = first || q; return say("Done."); } }, { text: "look at @types/node please" });
   assert.equal(steps.filter((e) => e.type === "bash").length, 0);
-  assert.ok(!first.messages.some((m) => m.appNote), "no note for a path that is not a file");
+  assert.ok(!first.messages.some((m) => m.appNote && !m.toolsAnnounced), "no note for a path that is not a file");
   assert.equal(mentionNote === undefined || typeof mentionNote === "function", true);
 });
 

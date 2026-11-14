@@ -108,7 +108,7 @@ export const AGENT_HOOK_TURNS = 50;
 // (web_search is Claude Code's WebSearch since it became Coder's own tool: the owner, 2026-11-14, "start fixing and filling
 // in gaps on those tools"; its tool_input, query and the domain lists, has Claude Code's names already.)
 // (The task list's four since 2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one".)
-export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate" };
+export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate", tool_search: "ToolSearch" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
