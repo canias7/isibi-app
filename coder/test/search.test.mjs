@@ -367,6 +367,16 @@ test("SR9 the owner's rules on Grep's and Glob's inputs as Claude Code reads the
   assert.equal(H.hooksFor(hk, "PreToolUse", "Grep", { tool: "Grep", input: { pattern: "other" }, ctx: { cwd: ROOT, root: ROOT } }).length, 0);
 });
 
+test("SR13 a Grep(…) or Glob(…) rule with any other text (a pattern, a path, a glob) matches no call, in a deny, ask or allow list, as in Claude Code 2.1.325: it matches such text only for a hook's if (its preparePermissionMatcher), and its permission check takes no Grep or Glob path rule (\"A Grep(docs/**) deny rule doesn't stop Grep from searching docs\")", () => {
+  const ROOT = "/work/shop";
+  const fd = (tool, path, rules, input) => P.fileToolDecision(tool, path, { rules, root: ROOT, home: "/home/dev", input });
+  const cases = [["grep", "Grep(TODO)", { pattern: "TODO" }], ["grep", "Grep(TODO*)", { pattern: "TODO now" }], ["grep", "Grep(src/**)", { pattern: "x", path: "src" }], ["glob", "Glob(*.js)", { pattern: "*.js" }], ["glob", "Glob(src/**)", { pattern: "**", path: "src" }]];
+  for (const kind of ["deny", "ask", "allow"]) for (const [tool, rule, input] of cases) assert.deepEqual(fd(tool, ROOT + "/src", { [kind]: [rule] }, input), { verdict: "", rule: "", why: "" }, kind + " " + rule);
+  // (Kept, never matched: the parser gives no rule to match, and the whole tool's rule is still Grep or Glob alone.)
+  for (const [, rule] of cases) { assert.equal(P.parseRule(rule), null, rule); assert.equal(P.ruleSaved(rule), true, rule); }
+  assert.equal(P.wholeRule({ deny: ["Grep(TODO)"] }, "deny", "Grep"), "");
+});
+
 test("SR10 the environment's search settings as Claude Code reads its variables, under Coder's names, a repository's CLAUDE_CODE_GLOB_* mapped onto them, and handed to the search", async () => {
   assert.deepEqual(S.searchSettingsFrom({}), { timeoutMs: 20_000, hidden: true, noIgnore: true });
   assert.deepEqual(S.searchSettingsFrom({ CODER_GLOB_TIMEOUT_SECONDS: "45", CODER_GLOB_HIDDEN: "false", CODER_GLOB_NO_IGNORE: "0" }), { timeoutMs: 45_000, hidden: false, noIgnore: false });
