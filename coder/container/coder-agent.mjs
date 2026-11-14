@@ -30,12 +30,12 @@ import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS, fileInputProblem } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
-import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs } from "./coder-parallel.mjs";
+import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
@@ -1214,7 +1214,7 @@ export function secretAsk(args) {
 
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
-  fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
+  fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly, spaces and indentation included, and appear only once, unless replace_all is true (then every place changes). Copy it from what read showed without read's line-number prefix (the number and the tab before each line): that is not part of the file. Keep old_string short: the few lines that make it unique are enough. With an empty old_string, a new file is made with new_string. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
   // GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
@@ -2850,7 +2850,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * "Auto mode is unavailable: … so <tool> was not run and this turn has ended. …" (its lia), the owner "Auto mode is unavailable
    * — the server returned no safety verdict for the last 10 responses, so Coder stopped. …" (its _Fs).
    */
+  // (ROUND 6, the owner, 2026-11-14: "do what claude code does". In Coder's own runs, as Claude Code's denial for that call ends
+  // its turn: the round closes, coder-parallel.mjs's closedAs "checker": the calls beside it that started go on and keep what
+  // they return, each one not started is told SKIPPED_BY_CHECK; the owner's line at its end, closedEnd. Gloopy's as before.)
   const stopNoVerdict = (i) => {
+    if (!offered) throw closeRound("checker", NO_VERDICT_STOP_SHOWN);
     for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: noVerdictStopTold(rest.name) });
     emit({ type: "error", text: NO_VERDICT_STOP_SHOWN });
     return end("done", { summary: lastSaid || NO_VERDICT_STOP_SHOWN });
@@ -3550,6 +3554,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (The round's later calls with no answer yet get Claude Code's rejection too, as its executor gives the calls it had
         // not started when the No aborted the turn; those that ran beside the card kept their results when the job paused.)
         for (const id of rec.rest) if (!answeredNow(id)) convo.push({ role: "tool", tool_call_id: id, content: REJECTED });
+        // (And Claude Code's mark of the turn its No interrupted, after the results: round 6, closedEnd.)
+        convo.push(interruptedNote());
         convo.push(...held);
         return end("done", { summary: rec.site === "plan" ? "the plan was not approved" : "stopped: the owner said no" });
       }
@@ -3559,6 +3565,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   }
   // (The round being worked on, for a card that pauses the job: atRound, in the loop.)
   let lastRound = null;
+  // (When this round's answer from Grok came, and when the last round's calls were all done: for the mark of a Stop, closedEnd.)
+  let answeredAt = 0, roundDoneAt = 0;
   /**
    * THE JOB'S END WHEN A CARD LEFT OPEN PAUSES IT (Parked, from the step that waits): the call the card waits on as its checks
    * and hooks left it, the round's calls after it, the round's notes so far, the mode the card was shown in and the mode
@@ -3579,6 +3587,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   /** THE JOB'S END FOR A ROUND THAT ENDED EARLY (round 5): a pause as a card left open pauses it; a Stop; a No. */
   const closedEnd = () => {
     if (closing.why === "park") return parkEnd(closing.p);
+    // (The auto mode checker's denial ended the turn, round 6: the owner's line, Claude Code's, and no mark of an interrupted turn.)
+    if (closing.why === "checker") { emit({ type: "error", text: NO_VERDICT_STOP_SHOWN }); return end("done", { summary: lastSaid || NO_VERDICT_STOP_SHOWN }); }
+    // CLAUDE CODE'S MARK OF THE INTERRUPTED TURN (round 6; the owner, 2026-11-14: "do what claude code does";
+    // coder-parallel.mjs): after the round's results, its own message, "[Request interrupted by the owner for tool use]"; for a
+    // Stop that came while Grok was still answering, "[Request interrupted by the owner]", as Claude Code's when its model's
+    // answer was cut.
+    convo.push(interruptedNote(!(closing.why === "stop" && closing.at < answeredAt)));
     if (closing.why === "stop") { emit({ type: "stopped" }); return end("stopped"); }
     return end("done", { summary: lastSaid || closing.summary });
   };
@@ -3589,7 +3604,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     let answer = null;
     take: {
     if (back) break take;
-    if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
+    // (THE OWNER'S STOP BETWEEN TWO OF GROK'S ANSWERS, in Coder's own runs: Claude Code's mark of the interrupted turn, round 6,
+    // closedEnd: "for tool use" when the Stop came while the last round's calls still ran; else as one that came while its
+    // model answered, "[Request interrupted by the owner]".)
+    if (await stopped()) { if (!offered) convo.push(interruptedNote(stopTime() <= roundDoneAt)); emit({ type: "stopped" }); return end("stopped"); }
     if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
     rounds++;
@@ -3787,6 +3805,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       return end("send", { why: String((e && e.message) || e).slice(0, 200) });
     }
     if (answer && answer.usage) usage.push(answer.usage);
+    answeredAt = now();
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -3951,6 +3970,35 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const d = fileToolDecision(name, targetFor(name, a), { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: a, roots: workdirs.slice(1) });
       return d && d.verdict === "deny" && DENY_BEFORE_HOOKS.test(String(d.why || "")) ? d.why : "";
     };
+    // THE FILE TOOLS' OWN CHECKS BEFORE THEIR HOOKS (round 6; the owner, 2026-11-14: "do what claude code does"; coder-tools.mjs
+    // fileInputProblem): Claude Code 2.1.325's Read, Write and Edit check a call's input in their validateInput before its
+    // PreToolUse hooks and its permission check, so a refused call runs no hook and shows no card. In its order: read, write's
+    // and edit's own input checks (a path given, with no null byte, not over 4,096 characters, not ending in white space once
+    // resolved; read's `pages`, edit's "No changes to make"), the owner's deny
+    // rules (denyFirst), read's binary kinds; then, for write and edit, what their run checks on the machine first
+    // (fileCheck): a folder, a file not read or changed since, edit's size, a missing file, its old text not found, and the
+    // rest. → the refusal, as the tool's own failure reads ("error: …", or a deny rule's words), or "". (Not Gloopy's.)
+    const fileFirstHere = (name, args) => {
+      if (offered || !(name === "read" || name === "write" || name === "edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
+      const before = fileInputProblem(name, args, "before");
+      if (before) return "error: " + before;
+      const denied = denyFirst(name, args);
+      if (denied) return denied;
+      const after = fileInputProblem(name, args, "after");
+      return after ? "error: " + after : "";
+    };
+    /** The machine's part, for a write or an edit (its own call of the tools script, "file_check"): its refusal, or "". */
+    const fileCheck = async (name, args) => {
+      const a = { ...args };
+      const p = typeof a.path === "string" ? a.path : a.file_path;
+      const req = { tool: "file_check", args: { tool: name, args: name === "write" ? { path: p } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all } } };
+      const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
+      let r;
+      try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }
+      const out = String((r && r.output) || "");
+      return r && r.code === 1 && out.startsWith("error: ") ? out.replace(/\s+$/, "") : "";
+    };
+    const fileFirst = async (name, args) => fileFirstHere(name, args) || (!offered && (name === "write" || name === "edit") && args && typeof args === "object" && !Array.isArray(args) ? await fileCheck(name, args) : "");
     // ONE CALL OF THE TOOLS SCRIPT FOR A FILE TOOL (its turn's below, and its group's start). THE CHAT'S LANGUAGE SERVERS' KEEPER,
     // started by Coder's machine the first time a lookup, a write or an edit needs a server (coder-lsp.mjs needsKeeper; Claude
     // Code starts a server the first time a file it handles is used), and kept for the chat. A lookup goes on without it (its
@@ -4007,7 +4055,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (how === "turn") return true;
       if (how === "later") return false;
       if (how === "stopped-running") { const step = stepOf(x); if (step) { emit(step); emit({ type: "result", id: x.id, code: -1, output: "(stopped by the owner while it ran)" }); } }
-      convo.push({ role: "tool", tool_call_id: x.id, content: how === "stopped-running" ? STOPPED_RUNNING : REJECTED });
+      convo.push({ role: "tool", tool_call_id: x.id, content: how === "stopped-running" ? STOPPED_RUNNING : how === "skipped" ? SKIPPED_BY_CHECK : REJECTED });
       return false;
     };
     // (A call's own input check made at its group's start, taken again in its turn for that same input: lsp's reads the file.)
@@ -4034,7 +4082,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // lsp, web_fetch and web_search are made just before. Only the calls a group's start can run get their hooks there.)
     const hooksEarly = (x, args) => {
       if (x.name === "bash") { const cmd = typeof args.command === "string" ? args.command : ""; const bg0 = noBg !== true && (args.run_in_background === true || args.run_in_background === "true"); return !!cmd.trim() && !commandProblem(cmd) && !(bg0 ? "" : sleepBlockFor(cmd, false)); }
-      if (x.name === "read") return !denyFirst(x.name, args);
+      if (x.name === "read") return !fileFirstHere(x.name, args);
       if (READ_TOOLS.has(x.name) || x.name === "web_fetch" || x.name === "web_search") return true;
       return mcpByName.has(x.name) && !tsKeptOnly.has(x.name);
     };
@@ -4061,7 +4109,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // decided nothing its turn must act on first (no deny, no ask, no new input, no stop), its run starts right after them, as
       // one with no hook would, an allow skipping what a hook's allow skips in its turn. Its turn takes their outcome: they run
       // once. (A call refused before its hooks gets none: hooksEarly.)
-      if (x.name === "read" && denyFirst(x.name, args)) { early.refused(x.id); return; }
+      if (x.name === "read" && fileFirstHere(x.name, args)) { early.refused(x.id); return; }
       if (preHooked(x, args)) {
         if (!hooksEarly(x, args)) return;
         const tool = ccTool(x.name), input = hookToolInput(x.name, args, pathAt());
@@ -4288,8 +4336,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (bad0) { emit({ type: "bash", id: c.id, command: scrub(cmd0).slice(0, 2000), ...(c.name === "powershell" ? { shell: "powershell" } : {}), ...(c.name === "monitor" ? { monitor: true } : {}) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: bad0 }); reply(bad0); continue; }
       }
       // A READ, WRITE OR EDIT THAT ONE OF THE OWNER'S DENY RULES BLOCKS (round 5): refused here, before its hooks, as Claude Code
-      // 2.1.325's Read, Write and Edit refuse it in their input check (denyFirst).
-      if (!c.rerun) { const denied0 = denyFirst(c.name, c.args); if (denied0) { const step0 = stepOf(c); if (step0) emit(step0); emit({ type: "result", id: c.id, code: 1, ran: false, output: denied0 }); reply(denied0); continue; } }
+      // 2.1.325's Read, Write and Edit refuse it in their input check (denyFirst); and, since round 6, one their own checks
+      // refuse, in their order (fileFirst): shown as the tool's failure was when its run made the check.
+      if (!c.rerun) { const first0 = await fileFirst(c.name, c.args); if (first0) { const step0 = stepOf(c); if (step0) emit(step0); emit({ type: "result", id: c.id, code: 1, ...(first0.startsWith("error: ") ? {} : { ran: false }), output: first0 }); reply(first0); continue; } }
       if (hookList.length && !c.rerun && c.args && typeof c.args === "object") {
         const tool = ccTool(c.name, c.name === "monitor");
         const input = hookToolInput(c.name, c.args, pathAt());
@@ -6422,6 +6471,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The call taken up again is done: the mode is the chat's own again.)
     modePin = ""; if (taking) taking.used = true;
     await runPost();
+    roundDoneAt = now();
     // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
     // pause, left for the job that takes it up again. Round 5.)
     if (closing) return closedEnd();

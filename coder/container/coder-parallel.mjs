@@ -42,7 +42,33 @@
  *   that was running); one that had not started gets the rejection too. A paused job keeps its finished ones' results in the
  *   chat (its cloud session's results stay in its transcript while its machine sleeps), so the job taken up again gives them to
  *   Grok with the round's other results and runs none of them again.
+ *
+ * ROUND 6 (the owner, 2026-11-14: "do what claude code does"):
+ * - THE MARK OF AN INTERRUPTED TURN (INTERRUPTED_TOOL_USE, INTERRUPTED; interruptedNote): after a No or a Stop has ended the
+ *   round and every call has its result, Claude Code 2.1.325 adds a message of its own to the conversation, "[Request
+ *   interrupted by user for tool use]" (its query loop, when its turn was aborted while the tools ran), or "[Request
+ *   interrupted by user]" when the abort came while the model was answering (or, between two rounds, before its next answer).
+ *   Not after a pause, nor where the turn stopped for its own reasons (a check's denial, below). Coder adds the same, "the
+ *   owner" for "user" (coder-agent.mjs closedEnd).
+ * - A ROUND STOPPED BY THE AUTO MODE CHECKER (closedAs "checker"): when the checker gave no verdict too many times in a row,
+ *   Claude Code's denial for that call ends the turn ("permission-stop"): the calls beside it that started go on and keep what
+ *   they return, and each one not started is told SKIPPED_BY_CHECK; no mark follows.
  */
+
+/** Claude Code 2.1.325's own marks of an interrupted turn, "the owner" for "user" as Coder's REJECTED and STOPPED_RUNNING have it. */
+export const INTERRUPTED_TOOL_USE = "[Request interrupted by the owner for tool use]";
+export const INTERRUPTED = "[Request interrupted by the owner]";
+/**
+ * THAT MARK AS CLAUDE CODE ADDS IT: a user message of its own after the round's results (`toolUse`: the abort came while the
+ * tools ran, else while the model answered), never the owner's words (appNote: Coder's counts, cuts and summaries of the
+ * owner's messages pass it by, as Claude Code's pass its interrupt messages by).
+ */
+export const interruptedNote = (toolUse = true) => ({ role: "user", appNote: true, content: toolUse ? INTERRUPTED_TOOL_USE : INTERRUPTED });
+/**
+ * WHAT A CALL NOT STARTED IS TOLD WHEN THE AUTO MODE CHECKER'S NO-VERDICT DENIAL ON ANOTHER CALL ENDED THE TURN (Claude Code
+ * 2.1.325's own words, its "permission-stop" cancel text).
+ */
+export const SKIPPED_BY_CHECK = "[Tool call skipped: the turn was stopped before this call ran, by the check whose denial is on another call in this batch. Nothing refused this call and it had no effects; re-run it if still needed.]";
 
 /**
  * CLAUDE CODE'S CONCURRENCY-SAFE TOOLS, by Coder's names (2.1.325, each tool's isConcurrencySafe in its program): Read, Grep,
@@ -183,8 +209,9 @@ export function earlyRuns({ now = Date.now, onUsage = null, onTaken = null } = {
 }
 
 /**
- * A ROUND THAT ENDS EARLY, thrown from a call's turn (`why`: "no", "stop" or "park"): Coder's loop answers that call, if its
- * turn did not, and goes on to the next one in closing mode (coder-agent.mjs).
+ * A ROUND THAT ENDS EARLY, thrown from a call's turn (`why`: "no", "stop", "park", or "checker": the auto mode checker's
+ * no-verdict denial that ends the turn): Coder's loop answers that call, if its turn did not, and goes on to the next one in
+ * closing mode (coder-agent.mjs).
  */
 export class RoundClosing {
   constructor(why) { this.why = why; }
@@ -195,11 +222,13 @@ export class RoundClosing {
  * earlyRuns' state), as Claude Code 2.1.325's executor gives it: "turn" when it had its result by then (its turn takes that
  * result, in its words, as on any turn); for a Stop, "stopped-running" when it was running; "rejected" otherwise (Claude Code's
  * rejection after a No, and after a Stop for one that was not running); for a pause, "later": its turn comes when the job is
- * taken up again.
+ * taken up again. After the checker's denial ("checker"): "turn" for one running too (it goes on, and keeps its result), and
+ * "skipped" for one not started (SKIPPED_BY_CHECK). (Round 6.)
  */
 export function closedAs(why, state) {
   if (state === "done") return "turn";
   if (why === "park") return "later";
+  if (why === "checker") return state === "running" ? "turn" : "skipped";
   if (why === "stop" && state === "running") return "stopped-running";
   return "rejected";
 }

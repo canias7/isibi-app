@@ -130,7 +130,7 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText, envRepos, reposFrom } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
-import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents, closedEvents, CARD_CLOSED, CLOSED_BY_MESSAGE } from "../container/coder-park.mjs";
+import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stopParked, stoppedEvents, closedEvents, CARD_CLOSED, CLOSED_BY_MESSAGE } from "../container/coder-park.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
@@ -561,7 +561,8 @@ async function closeParkedWith(bucket, uid, meta, how) {
   const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   const byMessage = how === "new_input";
   // (Its record lost: the open round goes, as a job cut off mid-step does.)
-  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? (byMessage ? closeParked(msgs, mine, CARD_CLOSED) : closeParked(msgs, mine)) : msgs));
+  // (A Stop's: with Claude Code's mark of the interrupted turn after the round's results, stopParked. Round 6.)
+  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? (byMessage ? closeParked(msgs, mine, CARD_CLOSED) : stopParked(msgs, mine)) : msgs));
   const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
   const shown = byMessage ? closedEvents(mine || p) : stoppedEvents(mine || p);
   await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...shown].slice(-MAX_EVENTS));
