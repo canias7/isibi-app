@@ -89,7 +89,7 @@
   // allows one, and its previews (2026-11-14); the owner's picks are the options' places.
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
     text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true), previews: !!(e.pid && q && q.previews === true && q.multi !== true),
-    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview } : {}) })).filter((o) => e.pid || o.label),
+    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview, ...(o.previewWithheld === true ? { withheld: true } : {}) } : {}) })).filter((o) => e.pid || o.label),
   }));
   /** The answer a card sends: one question's choices as before; several, each on its own line after its header. */
   const askReply = (a) => {
@@ -106,8 +106,9 @@
   const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '', notes: '' }; const notes = q.previews ? String(x.notes || '').trim() : ''; return { options: x.picked.filter((v) => v !== '__other').map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < q.options.length), other: x.picked.includes('__other') ? String(x.other || '').trim() : '', ...(notes ? { notes } : {}) }; });
   const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).filter((n) => q.options[n]).map(String)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '', notes: (p && typeof p.notes === 'string' && p.notes) || '' });
   /** The preview of the option chosen, as Claude Code's dialog shows it beside the options ("No preview available" for one with none). */
-  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? o.preview : null) : undefined; };
-  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : esc(pv || '')) + '</pre>'; };
+  // (One past Claude Code's 2,000 characters is withheld: its line instead, as dim as "No preview available". Round 5.)
+  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? (o.withheld ? { line: o.preview } : o.preview) : null) : undefined; };
+  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : pv && pv.line ? '<span class="cd-ask-pv-none">' + esc(pv.line) + '</span>' : esc(pv || '')) + '</pre>'; };
   /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
   // (Answered by one of your PermissionRequest hooks before you did: fix round 4, 2026-11-14.)
   const askDone = (ans) => (ans.hook === true ? (ans.choice === 'yes' ? '<span class="cd-perm-ok">✓ Answered</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : '✕ Not answered') + '</span>') + ' · by your PermissionRequest hook' : ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
@@ -1371,6 +1372,9 @@
         ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') + ((e.varsDropped || []).length ? ' · ' + e.varsDropped.length + ' not given to commands' : '') : 'None'],
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
+      // ITS DESCRIPTION, the owner's to change (round 5, 2026-11-14; Claude Code's environments can be re-described): after
+      // its name, the Default's too.
+      if (e.envId) rows.splice(e.isDefault ? 0 : 1, 0, ['description', 'Description', e.description || 'None']);
       // ITS REPOSITORIES (E8 of recheck 2, 2026-11-14; Claude Code's environment "Repositories list in Settings where offered
       // (the Default environment has none)"): the repositories it is for, which the owner adds and takes away.
       if (!e.isDefault && e.envId) rows.push(['repos', 'Repositories', (e.repos || []).length ? e.repos.slice(0, 2).join(', ') + (e.repos.length > 2 ? ' +' + (e.repos.length - 2) + ' more' : '') : 'None']);
@@ -1383,6 +1387,9 @@
     } else if (page === 'name') {
       body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
+    } else if (page === 'description') {
+      body = head('Description', 'main') + '<input id="envDescIn" class="cd-em-in" maxlength="1024" autocomplete="off" value="' + esc(f.text) + '">' +
+        '<p class="cd-em-help">One line, up to 1,024 characters. Coder sees it when it looks at this environment. Leave it empty to clear it.</p>' + foot('Save changes');
     } else if (page === 'repos') {
       const have = (r) => f.repos.some((x) => x.toLowerCase() === r.toLowerCase());
       body = head('Repositories', 'main') + '<p class="cd-em-help cd-em-top">New chats of these repositories start with this environment. A repository is also added here when one of its chats uses this environment.</p>' +
@@ -1447,7 +1454,7 @@
     const n0 = e.network || { mode: 'trusted' };
     S.envForm = page === 'network' ? { mode: netLevel(n0.mode), hosts: n0.mode === 'trusted' ? [] : [...(n0.hosts || [])], defaults: n0.mode === 'trusted' || n0.defaults !== false, denied: [...(n0.denied || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
-      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : page === 'repos' ? { repos: [...(e.repos || [])], typed: '' } : null;
+      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : page === 'description' ? { text: e.description || '' } : page === 'repos' ? { repos: [...(e.repos || [])], typed: '' } : null;
     draw();
     if (page === 'repos' && !S.envRepoChoices) loadRepoChoices();
   }
@@ -1464,6 +1471,7 @@
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
+    if (page === 'description') return envPost({ description: f.text });
     if (page === 'repos') {
       S.envBusy = true; S.envMsg = ''; draw();
       const r = await call('/environments/' + encodeURIComponent(S.env.envId), { method: 'POST', body: JSON.stringify({ repos: f.repos }) });
@@ -4468,6 +4476,7 @@
       S.showEnv = false; await loadEnvInfo(); draw();
     });
     on('#envNameIn', 'input', (e) => { if (S.envForm) S.envForm.text = e.currentTarget.value; });
+    on('#envDescIn', 'input', (e) => { if (S.envForm) S.envForm.text = e.currentTarget.value; });
     on('#cdEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });
     // THE ENVIRONMENT WINDOW: typing only updates the form (no redraw), buttons move between pages.
     on('#envClose', 'click', () => { S.showEnv = false; draw(); });

@@ -360,7 +360,8 @@ test("F4H10 with no way to show a card, every tool that would ask runs its Permi
   let t = await loop(grep, { hooks: PR("Grep"), extra: { rules }, tools: { grep: (a) => "searched " + a.pattern }, hookRun: () => allowPR() });
   assert.match(t.told("g1"), /^searched TODO/);
   t = await loop(grep, { hooks: PR("Grep"), extra: { rules }, tools: { grep: (a) => "searched " + a.pattern }, hookRun: () => ({}) });
-  assert.match(t.told("g1"), /^not run: the owner's rule Read\(\*\.md\) asks them first, and no one can answer here/);
+  // (Told the card's words, Claude Code's, as for a page fetch: round 5.)
+  assert.equal(t.told("g1"), "Coder requested permissions to read from /work/shop/notes.md, but you haven't granted it yet.");
   // A page fetch the owner must approve: refused in Claude Code's words when no hook allows it.
   const fetch = [say("", [call("web_fetch", { url: "https://example.com/a", prompt: "What is it?" }, "f1")]), say("ok")];
   t = await loop(fetch, { hooks: PR("WebFetch"), hookRun: () => denyPR("No fetching from here.") });

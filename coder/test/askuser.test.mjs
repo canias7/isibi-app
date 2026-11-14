@@ -513,3 +513,33 @@ test("AQ14 zod's own words when only values are wrong (Claude Code's w0 and zod 
   assert.ok(cut.endsWith("The parameter `b` is invalid: " + "y".repeat(500) + "… [+100 chars]"));
   assert.ok(Z("T", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received number" }, { code: "invalid_union", errors: [], path: ["s"], message: "Invalid input" }]).endsWith("\nThe parameter `s` matches none of the accepted forms"));
 });
+
+test("AQ15 (round 5) Claude Code's limit on an option's preview: one of more than 2,000 characters is withheld, the card's box showing its line (\"(preview cannot be shown in full — compare the option labels and descriptions instead)\") as dim as \"No preview available\"; the question still has previews (its notes field), and choosing that option gives no \"selected preview:\"; hooks still get the whole preview", async () => {
+  assert.deepEqual([Q.PREVIEW_MAX, Q.PREVIEW_WITHHELD], [2000, "(preview cannot be shown in full — compare the option labels and descriptions instead)"]);
+  const at = "A".repeat(2000), over = "B".repeat(2001);
+  assert.deepEqual([at, over, " ".repeat(2001), " \n", undefined].map((p) => Q.previewKind({ label: "x", preview: p })), ["full", "withheld", "withheld", null, null], "the length first, as Claude Code's dialog");
+  assert.deepEqual([Q.previewOf({ preview: at }), Q.previewOf({ preview: over })], [at, null]);
+  assert.equal(Q.hasPreviews({ options: [{ preview: over }, { preview: "" }] }), true, "a withheld one is still a preview");
+  const LONG = { question: "Which layout should the dashboard use?", header: "Layout", options: [{ label: "Tall", description: "A long one.", preview: over }, { label: "Short", description: "Fits.", preview: at }, { label: "None", description: "No preview." }] };
+  const pick = (k) => job([say("", [call("ask_user", { questions: [LONG] }, "q1")]), say("Done.")], { hooks: hooksOf("PostToolUse", "post.sh"), answers: [{ choice: "answers", picks: [{ options: [k], notes: "ok" }] }] });
+  let t = await pick(0);
+  const card = t.events.find((e) => e.type === "question");
+  assert.deepEqual(card.options, [{ label: "Tall", description: "A long one.", preview: Q.PREVIEW_WITHHELD, previewWithheld: true }, { label: "Short", description: "Fits.", preview: at }, { label: "None", description: "No preview." }]);
+  assert.equal(card.previews, true);
+  assert.equal(t.told("q1"), 'The owner answered: "' + LONG.question + '"="Tall" notes: ok. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.', "no selected preview for a withheld one");
+  const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
+  assert.equal(post.tool_input.questions[0].options[0].preview, over, "hooks see the whole input");
+  assert.deepEqual(post.tool_response.annotations, { [LONG.question]: { notes: "ok" } });
+  t = await pick(1);
+  assert.match(t.told("q1"), /="Short" selected preview:\nA{2000} notes: ok\./);
+  // The page: the line in the box, dim, for the withheld one; the preview itself for the other; Claude Code's words for none.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { askPreviewHTML } = new Function("esc", ui.slice(ui.indexOf("  const askPicks = "), ui.indexOf("\n", ui.indexOf("  const askDone = "))) + "\nreturn { askPreviewHTML };")(esc);
+  const { askQuestions } = new Function(ui.slice(ui.indexOf("  const askQuestions = "), ui.indexOf("  };", ui.indexOf("  const askReply = ")) + 4) + "\nreturn { askQuestions };")();
+  const q = askQuestions({ type: "question", pid: "p1abcdef", ...card, questions: [{ text: card.text, header: card.header, options: card.options, previews: true }] })[0];
+  assert.equal(q.options[0].withheld, true);
+  assert.equal(askPreviewHTML(q, ["0"]), '<pre class="cd-ask-pv"><span class="cd-ask-pv-none">(preview cannot be shown in full — compare the option labels and descriptions instead)</span></pre>');
+  assert.equal(askPreviewHTML(q, ["1"]), '<pre class="cd-ask-pv">' + at + "</pre>");
+  assert.equal(askPreviewHTML(q, ["2"]), '<pre class="cd-ask-pv"><span class="cd-ask-pv-none">No preview available</span></pre>');
+});

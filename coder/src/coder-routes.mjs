@@ -118,6 +118,7 @@ export function usageSummary(list, turn) {
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
+import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
@@ -2220,6 +2221,15 @@ export async function handleCoder(request, env, ctx, deps) {
       const holder = nameHolder(list, n, me);
       if (holder) return json({ error: nameTakenText(holder) }, 409);
       if (me) { me.name = n; await saveEnvList(bucket, uid, list); }
+    }
+    // ITS DESCRIPTION, the owner's to change too (round 5, 2026-11-14, the owner: "Yes pls"; Claude Code's environments let you
+    // re-describe one, its update_environment's new_description): one plain line of at most 1024 characters, as that tool
+    // takes it (descriptionOk), kept trimmed; an empty one clears it. The Default environment's too.
+    if (body.description !== undefined) {
+      if (!descriptionOk(body.description)) return json({ error: "a description is one line of plain text, up to " + DESCRIPTION_MAX + " characters" }, 400);
+      const id = await theEnvId(), list = await listEnvs(bucket, uid), me = list.find((x) => x.id === id);
+      const d = body.description.trim();
+      if (me && d !== (typeof me.description === "string" ? me.description : "")) { if (d) me.description = d; else delete me.description; await saveEnvList(bucket, uid, list); }
     }
     // (A changed script starts in the folder that holds the repository checkouts, as Claude Code's; one saved before
     // 2026-11-14 kept as it is still starts inside the chat's repository: coder-environments.mjs scriptIn. E7 of recheck 2.)

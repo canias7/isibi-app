@@ -219,9 +219,17 @@ export const shownInput = (args) => ({ questions: args.questions, ...(args.metad
  * ("previews are only supported for single-select questions (not multiSelect)"; its dialog gives the notes field and the
  * chosen preview only for one).
  */
-export const previewOf = (o) => (isObj(o) && typeof o.preview === "string" && /\S/.test(o.preview.replace(/[\u200B-\u200F\u2060-\u2064\uFEFF\uFE0E\uFE0F]/g, "")) ? o.preview : null);
+export const previewOf = (o) => (previewKind(o) === "full" ? o.preview : null);
+/**
+ * CLAUDE CODE'S LIMIT ON ONE (round 5, 2026-11-14, the owner: "Yes pls"; its 2.1.325 dialog): a preview of more than 2,000
+ * characters is withheld, the box showing its line instead (PREVIEW_WITHHELD); the option still counts as one with a preview,
+ * and choosing it gives no "selected preview:". `previewKind`: "full", "withheld", or null for none (nothing visible in it).
+ */
+export const PREVIEW_MAX = 2000;
+export const PREVIEW_WITHHELD = "(preview cannot be shown in full \u2014 compare the option labels and descriptions instead)";
+export const previewKind = (o) => (!isObj(o) || typeof o.preview !== "string" ? null : o.preview.length > PREVIEW_MAX ? "withheld" : /\S/.test(o.preview.replace(/[\u200B-\u200F\u2060-\u2064\uFEFF\uFE0E\uFE0F]/g, "")) ? "full" : null);
 /** A question whose options show previews: single-select with at least one (Claude Code's dialog: then it has the notes field). */
-export const hasPreviews = (q) => isObj(q) && q.multiSelect !== true && Array.isArray(q.options) && q.options.some((o) => previewOf(o) !== null);
+export const hasPreviews = (q) => isObj(q) && q.multiSelect !== true && Array.isArray(q.options) && q.options.some((o) => previewKind(o) !== null);
 /**
  * The questions as the answer texts read them (answeredText): each one's text (the answers' key), its labels, multi-select,
  * and its options' previews (single-select only; null where an option has none).
