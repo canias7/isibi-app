@@ -156,7 +156,7 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   const ask = P.bashDecision("ls", { mode: "acceptEdits", rules: { ask: ["B*"] } });
   assert.deepEqual([ask.verdict, !!ask.byRule], ["ask", true]);
   assert.equal(P.bashDecision("npm test", { mode: "acceptEdits", rules: { allow: ["*", "B*"] } }).verdict, "ask", "an allow wildcard approves nothing");
-  assert.equal(P.fetchDecision("https://example.com/a", { mode: "auto", rules: { deny: ["Web*"] } }).why, "Permission to use WebFetch on example.com has been denied.");
+  assert.equal(P.fetchDecision("https://example.com/a", { mode: "auto", rules: { deny: ["Web*"] } }).why, "Permission to use WebFetch has been denied.");
   assert.equal(P.fetchDecision("https://example.com/a", { mode: "auto", rules: { ask: ["*"] } }).verdict, "ask");
   assert.equal(P.fileToolDecision("read", "/work/shop/a.txt", { rules: { deny: ["*"] }, root: "/work/shop" }).why, "Permission to use Read has been denied.");
   assert.equal(P.fileToolDecision("write", "/work/shop/a.txt", { rules: { ask: ["*"] }, root: "/work/shop" }).verdict, "ask");

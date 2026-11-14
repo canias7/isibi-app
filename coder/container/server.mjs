@@ -32,6 +32,7 @@ import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
 export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isArray(v)) return null; const a = autoModeSetting(JSON.stringify(v)); return a.ok && a.value ? a.value : null; };
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
+import { webFetchSettings } from "./coder-webfetch.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
 import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContext } from "./gloopy-agent.mjs";
 import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
@@ -880,7 +881,10 @@ export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPA
 export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS", BASH_MAX_TIMEOUT_MS: "BASH_MAX_TIMEOUT_MS", BASH_MAX_OUTPUT_LENGTH: "BASH_MAX_OUTPUT_LENGTH", CLAUDE_CODE_USE_POWERSHELL_TOOL: "CODER_USE_POWERSHELL_TOOL", CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR", CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "CODER_DISABLE_BACKGROUND_TASKS", CLAUDE_CODE_TOOL_MEMORY_LIMIT: "CODER_TOOL_MEMORY_LIMIT", CLAUDE_ENV_FILE: "CODER_ENV_FILE", CLAUDE_CODE_SHELL: "CODER_SHELL",
   // (Bash docs pass 9: four more that Claude Code 2.1.322 lets a project's settings set, none of them on its list of names
   // project settings can't set.)
-  CLAUDE_CODE_SHELL_PREFIX: "CODER_SHELL_PREFIX", CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE: "CODER_TOOL_MEMORY_CGROUP_EXCLUDE", CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "CODER_DISABLE_BG_SHELL_PRESSURE_REAP", CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: "CODER_SESSIONEND_HOOKS_TIMEOUT_MS" };
+  CLAUDE_CODE_SHELL_PREFIX: "CODER_SHELL_PREFIX", CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE: "CODER_TOOL_MEMORY_CGROUP_EXCLUDE", CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "CODER_DISABLE_BG_SHELL_PRESSURE_REAP", CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: "CODER_SESSIONEND_HOOKS_TIMEOUT_MS",
+  // (WebFetch's three, none on Claude Code's list of names project settings can't set: the owner, 2026-11-14, "start fixing
+  // and filling in gaps on those tools"; coder-webfetch.mjs.)
+  CLAUDE_CODE_DISABLE_WEB_FETCH: "CODER_DISABLE_WEB_FETCH", CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS: "CODER_WEBFETCH_CACHE_TTL_MS", CLAUDE_CODE_WEBFETCH_DEADLINE_MS: "CODER_WEBFETCH_DEADLINE_MS" };
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -3977,6 +3981,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
         // (The chat's id: a hook's session_id.)
         chatId: project,
+        // CLAUDE CODE'S WEBFETCH SETTINGS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): turned off,
+        // its page cache's time and its download deadline, from the chat's environment (or the repository's CLAUDE_CODE_ ones).
+        webFetch: webFetchSettings(rawVars, (n) => (fromRepo(n) ? REPO_OWN_FROM[n] : n)),
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },

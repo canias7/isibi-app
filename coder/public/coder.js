@@ -3268,7 +3268,8 @@
       (live
         ? '<p class="cd-perm-q">' + (plan ? 'Would you like to proceed?' : 'Do you want to proceed?') + '</p>' +
           '<div class="cd-perm-opts">' + opts.map(([c, label], k) => '<button type="button" class="cd-perm-opt' + (c === 'no' ? ' is-no' : '') + (sent === c ? ' is-sent' : '') + '" data-perm-pid="' + esc(e.pid) + '" data-perm-choice="' + c + '"' + (sent ? ' disabled' : '') + '><kbd>' + (k + 1) + '</kbd><span>' + label + '</span></button>').join('') + '</div>' +
-          '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change (with No, keep planning)' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>' +
+          // (No note on a page fetch's card, as Claude Code's: "WebFetch and browser prompts don't offer the field"; 2026-11-14.)
+          (e.tool === 'web_fetch' ? '' : '<input type="text" class="cd-perm-note" data-perm-note="' + esc(e.pid) + '" value="' + esc(note) + '" maxlength="2000" autocomplete="off" placeholder="' + (plan ? 'Tell Coder what to change (with No, keep planning)' : 'Add a note for Coder (optional)') + '"' + (sent ? ' disabled' : '') + '>') +
           (S.permErr && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '')
         : ans ? '<div class="cd-perm-done">' + permDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">' + (plan ? 'Waiting for your approval of the plan' : 'Waiting for your approval') + '</div>' : '');

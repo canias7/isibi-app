@@ -136,7 +136,11 @@ test("CD311 WebFetch: Claude Code's pre-approved documentation sites and rules; 
   assert.ok(docSite("https://go.dev/doc/install"));
   assert.ok(!docSite("https://go.dev/blog"));
   assert.ok(docSite("https://github.com/anthropics/claude-code"));
-  assert.ok(!docSite("https://github.com/anthropics/claude-code/issues/1"));
+  // (Claude Code 2.1.323 pre-approves all of github.com/anthropics, and only repository pages under anthropic-experimental:
+  // the owner, 2026-11-14, "start fixing and filling in gaps on those tools".)
+  assert.ok(docSite("https://github.com/anthropics/claude-code/issues/1"));
+  assert.ok(!docSite("https://github.com/anthropic-experimental/x/issues/1"));
+  assert.ok(docSite("https://github.com/anthropic-experimental/x/blob/main/README.md"));
   assert.ok(!docSite("https://github.com/someone/x"));
   assert.ok(!docSite("https://example.com"));
   const f = (mode, url, rules = {}) => fetchDecision(url, { mode, rules });
