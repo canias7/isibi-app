@@ -25,7 +25,8 @@ const numbered = (content, start) => content.split("\n").map((l, i) => String(st
  * as Coder prints it: `(tool, value)` → text, or
  * { text, pics } for a picture Grok is shown; undefined when Coder has no text for it (Claude Code's "mapper returned
  * undefined": a Read notebook, PDF or page-images object, which Coder's read never makes). `ctx`: `shownPath(full)` (a
- * path as Coder's answers name it) and `monitorText(id, ms)` (a monitor's start, coder-agent.mjs's monitorStarted).
+ * path as Coder's answers name it), `monitorText(id, ms)` (a monitor's start, coder-agent.mjs's monitorStarted) and
+ * `toolSearchText(v)` (a tool_search result's text).
  */
 export function outputTextOf(ctx = {}) {
   const shown = (p) => (typeof ctx.shownPath === "function" ? ctx.shownPath(String(p)) : String(p));
@@ -74,6 +75,9 @@ export function outputTextOf(ctx = {}) {
       case "TaskGet": return getText(v.task);
       case "TaskList": return listText(v.tasks);
       case "TaskUpdate": return updateText(v);
+      // (ToolSearch's: what its call would answer for that result object, coder-toolsearch.mjs's toolSearchAnswer, given by
+      // Coder's loop, which knows the chat's tools. 2026-11-14.)
+      case "ToolSearch": return typeof ctx.toolSearchText === "function" ? ctx.toolSearchText(v) : undefined;
       default: return plainOutputText(tool, v);
     }
   };
