@@ -499,12 +499,18 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   t = await job(one("npm install"));
   assert.doesNotMatch(String(t.checks[0].messages[1].content), /GIT STATUS/, "only before a command that can discard work");
   // A MODE SWITCHED WHILE THE CHECK RAN ("discards a verdict the new mode wouldn't have requested. You're prompted for
-  // approval instead"): the owner is asked; a switch to a mode that checks too keeps the verdict.
+  // approval instead"): the owner is asked, since round 6 on Claude Code 2.1.325's own card for the command (its ask as if auto
+  // mode had not judged it: its words and its "don't ask again"); a read-only one runs at once, as Claude Code's own ask lets it;
+  // a switch to a mode that checks too keeps the verdict.
   let m = "auto";
   t = await job(one("npm install"), { modeFn: () => m, verdict: () => { m = "acceptEdits"; return '{"decision":"block","rule":"Code from External","reason":"x"}'; }, answers: [{ choice: "yes" }] });
   assert.deepEqual([t.checks.length, t.cards.length, t.ran], [1, 1, ["npm install"]]);
-  assert.equal(t.cards[0].why, A.MODE_SWITCHED);
-  assert.equal(t.cards[0].rules, undefined, "a one-time Yes");
+  assert.equal(t.cards[0].why, "This command requires approval");
+  assert.deepEqual(t.cards[0].rules, ["Bash(npm install *)"], "its own ask's \"don't ask again\"");
+  assert.equal(A.MODE_SWITCHED, undefined, "no words of Coder's own for it");
+  m = "auto";
+  t = await job(one("cat package.json"), { modeFn: () => m, verdict: () => { m = "acceptEdits"; return '{"decision":"block","rule":"Code from External","reason":"x"}'; } });
+  assert.deepEqual([t.checks.length, t.cards.length, t.ran], [1, 0, ["cat package.json"]], "a read-only command: Claude Code's own check lets it run");
   m = "auto";
   t = await job(one("npm install"), { modeFn: () => m, verdict: () => { m = "plan"; return '{"decision":"allow"}'; } });
   assert.deepEqual([t.cards.length, t.ran], [0, ["npm install"]]);
@@ -535,16 +541,17 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   assert.match(t.hookCalls[0].reason, /^Auto mode could not evaluate this action and is blocking it for safety/);
   assert.doesNotMatch(t.told("b1"), /may retry/);
   // BLOCK COUNTS KEPT for the chat between its machine's sleeps ("The total counter persists for the session").
-  let saved = { row: 2, total: 7, paused: false, byRow: false };
+  // (No pause of Coder's own since round 6: Claude Code's fallback asks about the block at the limit, CD373.)
+  let saved = { row: 2, total: 7, byRow: false };
   const keep = { load: () => saved, save: (o) => { saved = o; } };
   const st = C.checkerState("chat-kept-" + Math.random(), keep);
   // (With the count of Auto's unanswered questions for a dangerous removal, fix 5 of "Yes all 7": 0 when none was saved.)
-  assert.deepEqual({ ...st }, { row: 2, total: 7, paused: false, byRow: false, rmUnanswered: 0 });
-  assert.equal(C.countBlock(st), true, "the third in a row, counted from before the sleep");
-  assert.deepEqual(saved, { row: 3, total: 8, paused: true, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual({ ...st }, { row: 2, total: 7, byRow: false, rmUnanswered: 0 });
+  assert.deepEqual(C.countBlock(st), { total: false, n: 3 }, "the third in a row, counted from before the sleep");
+  assert.deepEqual(saved, { row: 3, total: 8, byRow: true, rmUnanswered: 0 });
   C.resume(st);
-  assert.deepEqual(saved, { row: 0, total: 8, paused: false, byRow: true, rmUnanswered: 0 });
-  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes", rmUnanswered: -2 }) }) }, { row: 0, total: 0, paused: false, byRow: false, rmUnanswered: 0 }, "nonsense read as nothing");
+  assert.deepEqual(saved, { row: 0, total: 8, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes", rmUnanswered: -2 }) }) }, { row: 0, total: 0, byRow: false, rmUnanswered: 0 }, "nonsense read as nothing");
   const fs = await import("node:fs");
   const server = fs.readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /checkerKeep: checksKeep\(join\(memRoot, project \+ "\.checks\.json"\)\),/);

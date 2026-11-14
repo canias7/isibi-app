@@ -2156,6 +2156,12 @@ export const hookAskTold = (tool) => "Hook PreToolUse:" + tool + " asked for con
  */
 export const planWriteWhy = (path) => "Cannot write to " + ccPath(path) + " while in plan mode.";
 export const planCallWhy = (tool) => "Cannot call " + tool + " while in plan mode.";
+/**
+ * A CONNECTOR TOOL THE OWNER SET TO NEEDS APPROVAL: Claude Code's reason for a claude.ai connector tool set to ask, its card's
+ * line and its ask's message ("Claude Code prompts on every call with the reason `Your organization requires approval for
+ * this tool`"; 2.1.325's own string). Round 6, follow-up.
+ */
+export const CONNECTOR_ASK_WHY = "Your organization requires approval for this tool";
 
 // ── THE READ BLOCK ───────────────────────────────────────────────────────────
 /**

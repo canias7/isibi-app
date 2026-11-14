@@ -377,7 +377,8 @@ test("F4H10 with no way to show a card, every tool that would ask runs its Permi
   t = await loop(pay, { hooks: PR("mcp__bank__pay"), mode: "auto", extra: { connectors: conn }, deps: { mcp }, hookRun: () => allowPR() });
   assert.deepEqual(mcpCalls, ["mcp__bank__pay"]);
   t = await loop(pay, { hooks: PR("mcp__bank__pay"), mode: "auto", extra: { connectors: conn }, deps: { mcp }, hookRun: () => ({}) });
-  assert.equal(t.told("m1"), "error: this connector tool needs the owner's approval each time, and nobody can be asked here");
+  // (Claude Code's own ask for it since round 6, as its run with no one to answer returns it.)
+  assert.equal(t.told("m1"), "Coder requested permissions to use mcp__bank__pay, but you haven't granted it yet.");
   assert.equal(mcpCalls.length, 1);
   // A rule asking about another tool (TaskCreate).
   const task = [say("", [call("task_create", { subject: "Add tests", description: "Unit tests for the cart" }, "t1")]), say("ok")];
