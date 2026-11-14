@@ -4043,7 +4043,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // rest. → the refusal, as the tool's own failure reads ("error: …", or a deny rule's words), or "". (Not Gloopy's.)
     const fileFirstHere = (name, args) => {
       if (offered || !(name === "read" || name === "write" || name === "edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
-      const before = fileInputProblem(name, args, "before");
+      // (With Coder's memory file named, for its check of secrets written there: round 6's follow-up.)
+      const before = fileInputProblem(name, args, "before", { memFile: typeof deps.memFile === "string" ? deps.memFile : "" });
       if (before) return "error: " + before;
       const denied = denyFirst(name, args);
       if (denied) return denied;
@@ -4051,10 +4052,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       return after ? "error: " + after : "";
     };
     /** The machine's part, for a write or an edit (its own call of the tools script, "file_check"): its refusal, or "". */
+    // (Whether reading this file would need the owner's approval, or be refused: an ask or deny rule of the owner's on Read.
+    // Claude Code 2.1.325 waives its read-first rule for newer models only where the file could be read without asking (its wOe
+    // and Cot: Read's own permission for that path, by its "readPermissionDecisionForPath" probe): fileCheck's `guard`. Round
+    // 6's follow-up.)
+    const readWouldAsk = (p) => {
+      if (github || typeof p !== "string" || !p) return false;
+      const d = fileToolDecision("read", targetFor("read", { path: p }), { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: { path: p }, mode: modeNow(), roots: workdirs.slice(1) });
+      return !!d && (d.verdict === "ask" || d.verdict === "deny");
+    };
     const fileCheck = async (name, args) => {
       const a = { ...args };
       const p = typeof a.path === "string" ? a.path : a.file_path;
-      const req = { tool: "file_check", args: { tool: name, args: name === "write" ? { path: p } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all } } };
+      const guard = readWouldAsk(p);
+      const req = { tool: "file_check", args: { tool: name, args: name === "write" ? { path: p } : { path: p, old_string: typeof a.old_string === "string" ? a.old_string : a.old_str, new_string: typeof a.new_string === "string" ? a.new_string : a.new_str, replace_all: a.replace_all }, ...(guard ? { guard: true } : {}) } };
       const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
       let r;
       try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: 60, tool: true, here: true, ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); } catch { return ""; }

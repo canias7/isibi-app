@@ -537,3 +537,96 @@ test("MV1 Coder's machine, for real: a command moved as the turn ends says so (e
     S.usePrefs({});
   }
 });
+
+// ── ROUND 6'S FOLLOW-UP, ITEM 6: the file tools' own checks Coder still lacked (Claude Code 2.1.325's validateInput) ───────────
+
+test("FV5 the tools script, for real: a pipe in the project refused by write and edit in Claude Code's words (never waited on); edit's 'Did you mean …?'; the read-first rule where the change would need the owner's approval (guard); a settings file an edit would leave invalid; a secret written to Coder's memory file; a device or a process's file refused by read", () => {
+  const dir = mkdtempSync(join(tmpdir(), "f6-fv5-"));
+  const seen = mkdtempSync(join(tmpdir(), "f6-fv5-seen-"));
+  const mem = mkdtempSync(join(tmpdir(), "f6-fv5-mem-"));
+  const memFile = join(mem, "MEMORY.md");
+  const tool = (name, args, env = {}) => String(spawnSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool: name, args })).toString("base64")], { cwd: dir, encoding: "utf8", timeout: 20_000, env: { ...process.env, CODER_SEEN_DIR: seen, CODER_MEMORY_FILE: memFile, ...env } }).stdout || "");
+  const chk = (name, args, guard = false) => tool("file_check", { tool: name, args, ...(guard ? { guard: true } : {}) });
+  try {
+    // A pipe: refused at once (Claude Code: "… exists but is not a regular file (a device, FIFO or socket). …").
+    assert.equal(spawnSync("mkfifo", [join(dir, "pipe")]).status, 0);
+    const t0 = Date.now();
+    assert.equal(chk("write", { path: "pipe" }), "error: pipe exists but is not a regular file (a device, FIFO or socket). Write only creates or overwrites regular files.");
+    assert.equal(tool("write", { path: "pipe", content: "x" }), "error: pipe exists but is not a regular file (a device, FIFO or socket). Write only creates or overwrites regular files.");
+    assert.equal(chk("edit", { path: "pipe", old_string: "a", new_string: "b" }), "error: pipe exists but is not a regular file (a device, FIFO or socket). Edit only changes regular files.");
+    assert.ok(Date.now() - t0 < 15_000, "never waited on the pipe");
+    // Did you mean: a file beside it with another extension; the same path under the commands' folder (a subfolder here).
+    writeFileSync(join(dir, "app.js"), "a\n");
+    assert.equal(chk("edit", { path: "app.ts", old_string: "a", new_string: "b" }), "error: File does not exist. Note: your current working directory is " + dir + ". Did you mean app.js?");
+    mkdirSync(join(dir, "sub"));
+    writeFileSync(join(dir, "sub", "notes.md"), "a\n");
+    assert.equal(chk("edit", { path: join(dir, "notes.md"), old_string: "a", new_string: "b" }, false), "error: File does not exist. Note: your current working directory is " + dir + ".");
+    assert.equal(tool("file_check", { tool: "edit", args: { path: join(dir, "notes.md"), old_string: "a", new_string: "b" } }, { CODER_CWD: join(dir, "sub") }), "error: File does not exist. Note: your current working directory is " + join(dir, "sub") + ". Did you mean " + join(dir, "sub", "notes.md") + "?");
+    // The read-first rule (Claude Code: "File has not been read yet. Read it first before writing to it."), where it would ask.
+    writeFileSync(join(dir, "b.txt"), "one\ntwo\nthree\n");
+    assert.equal(T.EDIT_NOT_READ, "File has not been read yet. Read it first before writing to it.");
+    assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }, true), "error: " + T.EDIT_NOT_READ);
+    assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }), "ok", "an edit that needs no approval: waived, as Claude Code waives it for newer models");
+    tool("read", { path: "b.txt", limit: 1 });
+    assert.equal(chk("edit", { path: "b.txt", old_string: "one", new_string: "1" }, true), "ok", "read with a limit, as asked: read (Claude Code's readFileState has it, not as a partial view)");
+    // Read whole but given only its first part (a PARTIAL view, Claude Code's isPartialView): not read yet.
+    writeFileSync(join(dir, "long.txt"), "one\n" + "x".repeat(60).concat("\n").repeat(2000));
+    tool("read", { path: "long.txt" });
+    assert.equal(chk("edit", { path: "long.txt", old_string: "one", new_string: "1" }, true), "error: " + T.EDIT_NOT_READ, "only part of it shown");
+    assert.equal(chk("edit", { path: "long.txt", old_string: "one", new_string: "1" }), "ok");
+    writeFileSync(join(dir, "c.txt"), "x\n");
+    assert.equal(chk("write", { path: "c.txt" }, true), "error: c.txt " + T.WRITE_NOT_READ + ".");
+    assert.equal(chk("write", { path: "c.txt" }), "ok");
+    assert.equal(chk("write", { path: "new.txt" }, true), "ok", "a new file needs no read");
+    // A settings file left invalid (Claude Code: "Claude Code settings.json validation failed after edit: …").
+    mkdirSync(join(dir, ".claude"));
+    writeFileSync(join(dir, ".claude", "settings.json"), '{\n  "permissions": { "allow": ["Bash(ls)"] }\n}\n');
+    const bad = chk("edit", { path: ".claude/settings.json", old_string: '["Bash(ls)"]', new_string: '"Bash(ls)"' });
+    assert.ok(bad.startsWith("error: Claude Code settings.json validation failed after edit:\nSettings validation failed:\n- permissions.allow: Expected array, but received string\n\nFull schema:\n{"), bad.slice(0, 200));
+    assert.ok(bad.endsWith("\nIMPORTANT: Do not update the env unless explicitly instructed to do so."));
+    assert.match(chk("edit", { path: ".claude/settings.json", old_string: '"Bash(ls)"]', new_string: '"Bash(ls)",' }), /^error: Claude Code settings\.json validation failed after edit:\nInvalid JSON: /);
+    assert.equal(chk("edit", { path: ".claude/settings.json", old_string: "Bash(ls)", new_string: "Bash(npm test)" }), "ok");
+    writeFileSync(join(dir, ".claude", "settings.local.json"), "{ not json");
+    assert.equal(chk("edit", { path: ".claude/settings.local.json", old_string: "not", new_string: "still not" }), "ok", "invalid before: not checked, as Claude Code");
+    // A secret written to Coder's memory file (Claude Code's words for its memory, synced to the account).
+    assert.equal(tool("write", { path: memFile, content: "Style: short answers\ntoken ghp_" + "a".repeat(36) + "\n" }), "error: Content contains potential secrets (GitHub PAT) and cannot be written to memory. Memory is synced to your account. Remove the sensitive content and try again.");
+    assert.match(tool("write", { path: memFile, content: "Style: short answers\n" }), /^File created successfully at: /);
+    assert.equal(tool("edit", { path: memFile, old_string: "short answers", new_string: "AKIAABCDEFGHIJKLMNOP" }), "error: Content contains potential secrets (AWS Access Token) and cannot be written to memory. Memory is synced to your account. Remove the sensitive content and try again.");
+    assert.match(tool("write", { path: "notes.txt", content: "ghp_" + "a".repeat(36) }), /^File created successfully at: /, "not the memory file: not checked");
+    // A device or a process's file: read refuses it in Claude Code's words.
+    assert.equal(tool("read", { path: "/dev/zero" }), "error: Cannot read '/dev/zero': this path names a device or process file that this tool does not read.");
+    assert.equal(tool("read", { path: "/proc/self/environ" }), "error: Cannot read '/proc/self/environ': this path names a device or process file that this tool does not read.");
+  } finally { rmSync(dir, { recursive: true, force: true }); rmSync(seen, { recursive: true, force: true }); rmSync(mem, { recursive: true, force: true }); }
+});
+
+test("FV6 Claude Code 2.1.325's device and process files (its Read's list), its secret rules on the same samples, and in Coder's loop: those checks before the hooks; the read-first guard sent for a file whose reading would ask (a Read ask rule), as Claude Code waives the rule for newer models only where the file could be read freely", async () => {
+  for (const p of ["/dev/zero", "/dev/urandom", "/dev/stdin", "/dev/tty", "/dev/pts/3", "/proc/kcore", "/proc/self/environ", "/proc/42/cmdline", "/proc/42/fd/7", "/proc/self/fd/0", "/proc/42/task/43/status", "/proc/42/root/dev/zero", "/dev/fd/3/x"]) assert.equal(T.deviceFile(p), true, p);
+  for (const p of ["/dev/null", "/proc/self/fd/5", "/proc/cpuinfo", "/work/shop/a.txt", "/dev/sda"]) assert.equal(T.deviceFile(p), false, p);
+  const S = await import("../container/coder-secretscan.mjs");
+  assert.equal(S.SECRET_RULES.length, 52);
+  assert.deepEqual(S.secretsIn("ghp_" + "a".repeat(36) + " AKIAABCDEFGHIJKLMNOP"), ["AWS Access Token", "GitHub PAT"], "in its rules' order");
+  assert.deepEqual(S.secretsIn("gh​p_" + "a".repeat(36)), ["GitHub PAT"], "split by an invisible character");
+  assert.deepEqual(S.secretsIn("-----BEGIN RSA PRIVATE KEY-----\n" + "A".repeat(80) + "\n-----END RSA PRIVATE KEY-----"), ["Private Key"]);
+  assert.deepEqual(S.secretsIn("Style: keep answers short"), []);
+  // In Coder's loop: refused before any hook (no hook ran, no machine check).
+  const hooks = { PreToolUse: [{ matcher: "Read|Write|Edit", hooks: [{ type: "command", command: "pre.sh" }] }] };
+  const memFile = "/srv/coder-mem/shop/MEMORY.md";
+  const t = await job([say("", [call("read", { path: "/dev/zero" }, "r1"), call("write", { path: memFile, content: "key ghp_" + "a".repeat(36) }, "w1")]), say("Done.")], { hooks, deps: { memFile } });
+  assert.equal(t.told("r1"), "error: Cannot read '/dev/zero': this path names a device or process file that this tool does not read.");
+  assert.equal(t.told("w1"), "error: Content contains potential secrets (GitHub PAT) and cannot be written to memory. Memory is synced to your account. Remove the sensitive content and try again.");
+  assert.equal(t.hookIns.length, 0);
+  assert.equal(t.checks.length, 0);
+  // An edit of a file a Read ask rule covers: the machine's check is told to apply the read-first rule (its answer refuses it,
+  // before any card).
+  const rules = { allow: [], deny: [], ask: ["Read(x.txt)", "Edit(x.txt)"] };
+  const g = await job([say("", [call("edit", { path: "x.txt", old_string: "a", new_string: "b" }, "e1")]), say("Done.")], { rules, check: (a) => (a.guard === true ? { code: 1, output: "error: " + T.EDIT_NOT_READ } : { code: 0, output: "ok" }) });
+  assert.equal(g.checks[0].guard, true);
+  assert.equal(g.told("e1"), "error: " + T.EDIT_NOT_READ);
+  assert.equal(g.cards.length, 0, "refused before its card");
+  // A file that can be read freely: no guard, even where its edit asks (an Edit ask rule, Plan mode).
+  const n = await job([say("", [call("edit", { path: "y.txt", old_string: "a", new_string: "b" }, "e2")]), say("Done.")], { rules: { allow: [], deny: [], ask: ["Edit(y.txt)"] }, answer: () => ({ choice: "no" }) });
+  assert.equal(n.checks[0].guard, undefined);
+  assert.equal(n.cards.length, 1, "its card, as before");
+  const pl = await job([say("", [call("edit", { path: "y.txt", old_string: "a", new_string: "b" }, "e3")]), say("Done.")], { mode: "plan", answer: () => ({ choice: "no" }) });
+  assert.equal(pl.checks[0].guard, undefined);
+});
