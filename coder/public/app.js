@@ -58,6 +58,8 @@
     $('gfMenuMail').textContent = mail;
     $('gfMeAv').textContent = (mail[0] || '?').toUpperCase();
     $('gfTabGloopy').innerHTML = window.gloopyHTML(34);
+    // CODER'S LOGO, THE TYPEWRITER (the owner, 2026-11-14: "that will be the logo for Coder"), in place of the laptop emoji.
+    if (window.coderLogoHTML) $('gfTabCoder').innerHTML = window.coderLogoHTML(34);
     document.querySelectorAll('.gf-tab').forEach((t) => t.addEventListener('click', () => pick(t.dataset.agent, true)));
     $('gfGear').addEventListener('click', (e) => { e.stopPropagation(); $('gfMenu').hidden = !$('gfMenu').hidden; });
     document.addEventListener('click', () => { $('gfMenu').hidden = true; });

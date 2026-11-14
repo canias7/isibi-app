@@ -46,7 +46,7 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 .gf-tab:hover { background: #ece9e3; }
 .gf-tab.on { background: #e1ddd5; }
 .gf-av { width: 36px; height: 36px; flex: none; border-radius: 50%; display: grid; place-items: center; }
-.gf-av-coder { background: #0f766e; font-size: 16px; }
+.gf-av-coder { border-radius: 0; overflow: visible; } /* the typewriter (coder-logo.js), on its own like Gloopy */
 .gf-av-gloopy { border-radius: 0; overflow: visible; }
 .gf-col { width: 252px; display: flex; flex-direction: column; padding: 12px 8px 10px; min-height: 0; }
 .gf-colbrand { display: flex; align-items: center; gap: 9px; padding: 4px 10px 14px; }

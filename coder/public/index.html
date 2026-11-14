@@ -21,6 +21,7 @@
   <link rel="stylesheet" href="/app.css" />
   <link rel="stylesheet" href="/coder.css" />
   <link rel="stylesheet" href="/gloopy.css" />
+  <link rel="stylesheet" href="/coder-logo.css" />
 </head>
 <body>
   <!-- Gloopy's figure, drawn once and used as <use href="#gfGloopy"/>. -->
@@ -67,7 +68,7 @@
            account at the bottom. -->
       <div class="gf-sidewrap" id="gfSideWrap">
         <nav class="gf-rail" aria-label="Agents">
-          <button type="button" class="gf-tab" data-agent="coder" title="Coder" aria-label="Coder"><span class="gf-av gf-av-coder" aria-hidden="true">&#x1F4BB;</span></button>
+          <button type="button" class="gf-tab" data-agent="coder" title="Coder" aria-label="Coder"><span class="gf-av gf-av-coder" id="gfTabCoder" aria-hidden="true"></span></button>
           <button type="button" class="gf-tab" data-agent="gloopy" title="Gloopy agent" aria-label="Gloopy agent"><span class="gf-av gf-av-gloopy" id="gfTabGloopy" aria-hidden="true"></span></button>
         </nav>
         <div class="gf-col">
@@ -92,6 +93,7 @@
 
   <script src="/auth.js" defer></script>
   <script src="/gloopy.js" defer></script>
+  <script src="/coder-logo.js" defer></script>
   <script src="/coder.js" defer></script>
   <script src="/app.js" defer></script>
 </body>

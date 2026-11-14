@@ -2434,6 +2434,9 @@
   // GLOOPY'S CHAT (owner, 2026-11-09): its figure and name on top (the ☰ opens the side on a phone, the way back to
   // Coder), one chat in the side, and its welcome before the first message, with ways to start.
   const gloopyFig = (h) => (typeof window.gloopyHTML === 'function' ? window.gloopyHTML(h) : '');
+  // CODER'S LOGO, THE TYPEWRITER (the owner, 2026-11-14: "that will be the logo for Coder"; coder-logo.js): beside its
+  // chat's name on top, and bigger in its empty chat, as Gloopy's figure is in Gloopy's.
+  const coderFig = (h) => (typeof window.coderLogoHTML === 'function' ? window.coderLogoHTML(h) : '');
   function gloopyHeadHTML() {
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
@@ -2850,6 +2853,7 @@
     const title = p ? (p.title || 'New chat') : '';
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
+      '<span class="cd-cl-av" aria-hidden="true">' + coderFig(26) + '</span>' +
       (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
       // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
@@ -3411,7 +3415,7 @@
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
         (empty && GLOOPY ? gloopyEmptyHTML() : '') +
-        (empty && !GLOOPY ? '<div class="cd-empty"><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
+        (empty && !GLOOPY ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
@@ -3422,6 +3426,8 @@
   function draw(scroll) {
     const root = S.root;
     if (!root || !root.isConnected) return;
+    // CODER'S LOGO TYPES WHILE CODER WORKS (the owner, 2026-11-14: "like if it's actually typing"): while its open chat runs.
+    if (!GLOOPY && window.coderLogo) window.coderLogo.busy(S.phase === 'chat' && S.running);
     const log = root.querySelector('#cdLog');
     const atBottom = !log || log.scrollHeight - log.scrollTop - log.clientHeight < 80;
     const focus = document.activeElement && document.activeElement.id === 'cdIn';
