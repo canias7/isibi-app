@@ -266,7 +266,9 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
   const ev3 = [], seen3 = [];
   await runCoder({ send: async (req) => { seen3.push(req); return say("The build finished."); }, exec, emit: (e) => ev3.push(e) }, { text: "", notices: [{ id: "job2", desc: "Build", log: "/out/bg-2.log", code: 0 }] });
   assert.ok(!ev3.some((e) => e.type === "user"));
-  assert.match(seen3[0].messages.filter((m) => m.role === "user").pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
+  // (Tool search's note on the chat's deferred tools comes after it, as Claude Code's deferred_tools_delta follows its other
+  // attachments: tool-search.test.mjs.)
+  assert.match(seen3[0].messages.filter((m) => m.role === "user" && !m.toolsAnnounced).pop().content, /a background command ended since your last answer\.\nBackground command "Build" completed \(exit code 0\)\. Its output is in \/out\/bg-2\.log \(ID: job2\)\.\nThe owner sent no message: this turn is only to tell you\./);
 });
 
 test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (\"! npm test\"): run as Coder's are, with no check of Coder's; the chat shows it and what it printed; Coder gets it as Claude Code adds it (<bash-input>, <bash-stdout>, <bash-stderr> with the exit code) and answers it", async () => {
@@ -287,7 +289,8 @@ test("CD280 (tool 4, part 3) the owner's own command, Claude Code's shell mode (
   assert.deepEqual([step.verb, step.by, step.command], ["You ran", "owner", "rm -rf build && npm test"]);
   assert.equal(events.find((e) => e.type === "result" && e.id === step.id).output, "FAIL src/a.test.js\n  expected 2, got 3\nExit code 1");
   // Coder gets it as Claude Code adds it, and answers.
-  const msgs = seen[0].messages.filter((m) => m.role === "user");
+  // (Tool search's note on the chat's deferred tools after them: tool-search.test.mjs.)
+  const msgs = seen[0].messages.filter((m) => m.role === "user" && !m.toolsAnnounced);
   assert.deepEqual(msgs.slice(-2).map((m) => m.content), ["<bash-input>rm -rf build && npm test</bash-input>", "<bash-stdout>FAIL src/a.test.js\n  expected 2, got 3</bash-stdout><bash-stderr>Exit code 1</bash-stderr>"]);
   assert.match(seen[0].messages[0].content, /A command the owner ran themselves \(they typed ! in the chat\) comes as <bash-input>/);
   assert.equal(r.status, "done");

@@ -904,7 +904,10 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   CLAUDE_CODE_DISABLE_WEB_FETCH: "CODER_DISABLE_WEB_FETCH", CLAUDE_CODE_WEBFETCH_CACHE_TTL_MS: "CODER_WEBFETCH_CACHE_TTL_MS", CLAUDE_CODE_WEBFETCH_DEADLINE_MS: "CODER_WEBFETCH_DEADLINE_MS",
   // (The task list's two, neither on Claude Code's list of names project settings can't set: CLAUDE_CODE_ENABLE_TASKS=0 gives
   // todo_write in place of the task tools, CLAUDE_CODE_TASK_LIST_ID names the list. 2026-11-14; coder-tasks.mjs.)
-  CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID" };
+  CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID",
+  // (Tool search's switch, under its own name, one of the variables Claude Code applies from any settings file: 2026-11-14;
+  // coder-toolsearch.mjs.)
+  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH" };
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -4124,6 +4127,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // CLAUDE CODE'S WEBFETCH SETTINGS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): turned off,
         // its page cache's time and its download deadline, from the chat's environment (or the repository's CLAUDE_CODE_ ones).
         webFetch: webFetchSettings(rawVars, (n) => (fromRepo(n) ? REPO_OWN_FROM[n] : n)),
+        // CLAUDE CODE'S ENABLE_TOOL_SEARCH (tool search in Coder's chats, coder-toolsearch.mjs; 2026-11-14): the chat's environment's,
+        // or the repository's .claude/settings.json `env` one; unset, tool search is on.
+        toolSearch: rawVars.ENABLE_TOOL_SEARCH,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },

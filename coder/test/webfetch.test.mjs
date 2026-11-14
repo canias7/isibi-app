@@ -534,7 +534,10 @@ test("WF18 in Coder's loop: offset given as text is taken; a bad input is refuse
   });
   assert.ok(t.reads[0].messages[1].content.startsWith(W.leadText(5, 10) + "\nWeb page content:\n---\n56789\n---\n"));
   assert.equal(toolMsg(t, "o1"), "part");
-  assert.equal(toolMsg(t, "bad"), "error: InputValidationError: " + JSON.stringify([{ code: "invalid_format", format: "url", path: ["url"], message: "Invalid URL" }], null, 2));
+  // (web_fetch is one of the tools Claude Code defers: called before tool_search loaded it, its refusal is followed by Claude
+  // Code's note saying so, coder-toolsearch.mjs; tool-search.test.mjs.)
+  const TS = await import("../container/coder-toolsearch.mjs");
+  assert.equal(toolMsg(t, "bad"), "error: InputValidationError: " + JSON.stringify([{ code: "invalid_format", format: "url", path: ["url"], message: "Invalid URL" }], null, 2) + TS.notLoadedHint(A.CODER_TOOLS.find((x) => x.function.name === "web_fetch")));
   assert.deepEqual(t.hookCalls.map((x) => x.input.tool_use_id), ["o1", "big"], "no hook for the refused call");
   assert.equal(t.execs.length, 2);
   assert.deepEqual(saved, [LONG]);
@@ -548,9 +551,11 @@ test("WF19 its settings in Coder's loop: turned off, it is not offered and a cal
     deps: { webFetch: W.webFetchSettings({ CODER_DISABLE_WEB_FETCH: "1" }, () => "CLAUDE_CODE_DISABLE_WEB_FETCH") },
   });
   assert.equal(t.seen[0].tools.some((x) => x.function && x.function.name === "web_fetch"), false);
+  assert.ok(!t.seen[0].messages.some((m) => m.toolsAnnounced && m.toolsAnnounced.added.includes("web_fetch")), "nor named as a deferred tool");
   assert.equal(toolMsg(t, "w1"), "error: WebFetch is turned off by CLAUDE_CODE_DISABLE_WEB_FETCH.");
   assert.deepEqual([t.hookCalls.length, t.execs.length], [0, 0]);
-  t = await loop([say("done")], { deps: { webFetch: W.webFetchSettings({ CODER_WEBFETCH_CACHE_TTL_MS: "60000" }) } });
+  // (Its description as sent with every tool upfront, ENABLE_TOOL_SEARCH=false; a search loads the same: tool-search.test.mjs.)
+  t = await loop([say("done")], { deps: { webFetch: W.webFetchSettings({ CODER_WEBFETCH_CACHE_TTL_MS: "60000" }), toolSearch: "false" } });
   assert.match(t.seen[0].tools.find((x) => x.function && x.function.name === "web_fetch").function.description, /Responses are cached for 1 minute per URL\.$/);
   // Gloopy's helpers (an agent with its own tools): the same.
   const G = await import("../container/gloopy-agent.mjs");

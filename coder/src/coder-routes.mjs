@@ -1967,7 +1967,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
       const evAt = Math.max(0, Math.min(mark.ev, evs.length));
       const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to))), ...msgs.slice(to)]));
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to)), msgs.slice(from, to)), ...msgs.slice(to)]));
       await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
       const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
       await saveMeta(bucket, uid, next);
@@ -2437,7 +2437,7 @@ async function startGloopy(g) {
     if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
     const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Gloopy" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
-    await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs))]);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs), msgs)]);
     await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
     const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
     await saveMeta(bucket, uid, next);
