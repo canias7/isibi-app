@@ -303,9 +303,23 @@ export const NO_VERDICT = "Auto mode could not evaluate this action and is block
 export const NO_VERDICT_STOP = 10;
 export const NOT_RUN_ROW = "auto mode's check had no usable answer";
 export const STOPPED_NO_VERDICT = "Auto mode unavailable \u2014 stopped after repeated responses with no safety verdict";
-export const noVerdictTold = (model, kind, why) => NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (why ? " (" + why + ")" : "") + (kind === "hard"
-  ? ". This is a hard failure, not a transient one: the check cannot or does not judge this request, so retrying this action will get the same answer. Don't retry it. Continue with other tasks that don't require it; if it is essential, stop and tell the owner that auto mode could not evaluate it."
-  : ". This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after " + NO_VERDICT_STOP + " responses in a row without a verdict the turn stops.");
+/** Claude Code's last words of each no-verdict text (its vFo): what still works without the checker. */
+export const READ_ONLY_NOTE = "Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.";
+/**
+ * What Coder is told of a check with no verdict, in Claude Code 2.1.325's words (its hyt, from its raw program; 2026-11-14, round
+ * 3: before, Claude Code's "Auto mode could not evaluate this action and is blocking it for safety: " first, which it shows only
+ * on its own screen, and without ", so auto mode cannot determine the safety of …" and its closing notes). `what`: the tool's
+ * name, as Claude Code names its tool there ("… the safety of bash.").
+ */
+export const noVerdictTold = (model, kind, why, what = "this action") => (model || "The classifier") + " gave no verdict" + (why ? " (" + why + ")" : "") + ", so auto mode cannot determine the safety of " + what + (kind === "hard"
+  ? ". This is a hard failure, not a transient one: the check cannot or does not judge this request, so retrying this action will get the same answer. Don't retry it. Continue with other tasks that don't require it; if it is essential, stop and tell the owner that auto mode could not evaluate it. "
+  : ". This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after " + NO_VERDICT_STOP + " responses in a row without a verdict the turn stops. If it keeps failing, continue with other tasks that don't require this action and come back to it later. ") + READ_ONLY_NOTE;
+/**
+ * THE TURN STOPPED AFTER NO_VERDICT_STOP RESPONSES IN A ROW WITH NO VERDICT, in Claude Code 2.1.325's words (its lia and _Fs):
+ * what Coder is told of each call not run (`tool` its name), and the owner's line.
+ */
+export const noVerdictStopTold = (tool) => "Auto mode is unavailable: the server returned no safety verdict for " + NO_VERDICT_STOP + " responses in a row, so " + tool + " was not run and this turn has ended. Wait for the owner's next message before doing anything further.";
+export const NO_VERDICT_STOP_SHOWN = "Auto mode is unavailable \u2014 the server returned no safety verdict for the last " + NO_VERDICT_STOP + " responses, so Coder stopped. Send a message to try again, or switch out of auto mode.";
 /** How long Coder waits before a check after `row` responses in a row had none (a growing delay, 30 seconds at most). */
 export const noVerdictWait = (row) => (row > 0 ? Math.min(30_000, 1000 * 2 ** (row - 1)) : 0);
 /** Words that say the checker declined to judge (a refusal, or a request a safety system turned away). */
@@ -326,7 +340,7 @@ export function unavailableWhy(e) {
   return "";
 }
 /** No verdict (Claude Code's "… is temporarily unavailable (rate-limited), so auto mode cannot determine the safety of …"). */
-export const checkUnavailable = (model, what, why = "") => (model || "The classifier") + " is temporarily unavailable" + (why ? " (" + why + ")" : "") + ", so auto mode cannot determine the safety of " + what + " right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.";
+export const checkUnavailable = (model, what, why = "") => (model || "The classifier") + " is temporarily unavailable" + (why ? " (" + why + ")" : "") + ", so auto mode cannot determine the safety of " + what + " right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. " + READ_ONLY_NOTE;
 /** What the chat shows under a blocked step (Claude Code: "Blocked by auto mode"). */
 export const blockedShown = (rule, reason) => "Blocked by auto mode · [" + rule + "]" + (reason ? " " + reason : "");
 /** The card when auto mode has paused after repeated blocks (approving it resumes auto mode). */

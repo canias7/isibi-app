@@ -147,7 +147,9 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
   // A NESTED LIST: the text between matching brackets, read on its own (its commands go in the same list), each command
   // marked with the brackets it is in, outermost first (`groups`: a subshell, a $(…), a `…` or a <(…) runs in a shell of
   // its own, so a cd there stays there; Bash docs pass 8).
-  function nested(text, depth, inScript = false) {
+  // (`subst`: the text is a $( … ), `…`, <( … ) or >( … ), whose commands are marked `inSubst`: Claude Code 2.1.325 says of a
+  // dangerous removal found in one that it is "inside a command substitution"; coder-bashcheck.mjs. 2026-11-14, round 3.)
+  function nested(text, depth, inScript = false, subst = false) {
     const r = parseShell(text, { scriptDepth });
     if (!r.ok) fail();
     loopVars.push(...r.loopVars);
@@ -155,7 +157,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     if (r.dangling) dangling = true;
     if (r.background) background = true;
     const id = ++groupSeq;
-    for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1, groups: [id, ...(c.groups || [])] });
+    for (const c of r.commands) out.push({ ...c, depth: c.depth + depth, inScript: c.inScript || inScript, top: -1, groups: [id, ...(c.groups || [])], ...(subst ? { inSubst: true } : {}) });
   }
   // THE COMMANDS INSIDE SOME TEXT THAT IS NOT ITSELF COMMANDS (an arithmetic expression, a [[ … ]] test): its $( … ), `…`,
   // <( … ) and >( … ), read as commands of their own (Bash docs pass 9: `(( $(rm -rf ~) ))` was read by nothing, so no
@@ -245,7 +247,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
             const save = i; i = j; const e = readDollar(depth); j = i; i = save;
             text += e.raw; if (!e.literal) expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; inner.push(e); continue;
           }
-          if (s[j] === "`") { const e = findBacktick(j + 1); if (e < 0) { fail(); j = s.length; break; } nested(s.slice(j + 1, e), depth + 1); text += s.slice(j, e + 1); expand = true; subst = true; varOnly = false; j = e + 1; continue; }
+          if (s[j] === "`") { const e = findBacktick(j + 1); if (e < 0) { fail(); j = s.length; break; } nested(s.slice(j + 1, e), depth + 1, false, true); text += s.slice(j, e + 1); expand = true; subst = true; varOnly = false; j = e + 1; continue; }
           text += s[j]; varOnly = false; j++;
         }
         if (j >= s.length) { fail(); i = s.length; break; }
@@ -254,7 +256,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
         continue;
       }
       if (ch === "$") { const e = readDollar(depth); text += e.raw; if (!e.literal) expand = true; if (e.subst) subst = true; if (!e.variable) varOnly = false; parts++; continue; }
-      if (ch === "`") { const e = findBacktick(i + 1); if (e < 0) { fail(); i = s.length; break; } nested(s.slice(i + 1, e), depth + 1); text += s.slice(i, e + 1); expand = true; subst = true; varOnly = false; i = e + 1; parts++; continue; }
+      if (ch === "`") { const e = findBacktick(i + 1); if (e < 0) { fail(); i = s.length; break; } nested(s.slice(i + 1, e), depth + 1, false, true); text += s.slice(i, e + 1); expand = true; subst = true; varOnly = false; i = e + 1; parts++; continue; }
       if (ch === "*" || ch === "?") glob = true;
       if (ch === "[" && s.indexOf("]", i + 1) > i) glob = true;
       // A BRACE EXPANSION stands for several words: `{a,b}` (Claude Code: "Brace expansion") or `{1..3}` (its "A brace
@@ -276,8 +278,8 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
     // 2026-11-11. One with a variable or a command in it is too complex, as before.)
     if (ch === "(" && s[i + 1] === "(") { i += 2; const inner = readUntilClose("(", ")"); if (s[i] === ")") i++; const expr = inner.replace(/\)$/, ""); const held = arith(expr, depth); return { raw: s.slice(start, i), subst: held, variable: false, literal: !held && !arithNonLiteral(expr) }; }
     if (ch === "[") { i++; const inner = readUntilClose("[", "]"); return { raw: s.slice(start, i), subst: arith(inner, depth), variable: false }; }
-    if (ch === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); return { raw: s.slice(start, i), subst: true, variable: false }; }
-    if (ch === "{") { const e = s.indexOf("}", i); if (e < 0) { fail(); i = s.length; return { raw: s.slice(start), subst: false, variable: true }; } const inner = s.slice(i + 1, e); i = e + 1; if (/\$\(|`/.test(inner)) { nested(inner.replace(/^[^$`]*/, ""), depth + 1); } return { raw: s.slice(start, i), subst: false, variable: true, inner }; }
+    if (ch === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1, false, true); return { raw: s.slice(start, i), subst: true, variable: false }; }
+    if (ch === "{") { const e = s.indexOf("}", i); if (e < 0) { fail(); i = s.length; return { raw: s.slice(start), subst: false, variable: true }; } const inner = s.slice(i + 1, e); i = e + 1; if (/\$\(|`/.test(inner)) { nested(inner.replace(/^[^$`]*/, ""), depth + 1, false, true); } return { raw: s.slice(start, i), subst: false, variable: true, inner }; }
     if (/[A-Za-z_]/.test(ch || "")) { while (i < s.length && /[A-Za-z0-9_]/.test(s[i])) i++; return { raw: s.slice(start, i), subst: false, variable: true }; }
     if (/[0-9@*#?$!-]/.test(ch || "")) { i++; return { raw: s.slice(start, i), subst: false, variable: true }; }
     // (A $ that starts nothing, `"$'x'"` or `a$`: bash keeps it as it is; Claude Code runs `echo "$'x'"`; tried 2026-11-11.)
@@ -363,7 +365,7 @@ export function parseShell(source, { scriptDepth = 0 } = {}) {
       if (op) {
         i += op.length;
         // <( … ) and >( … ): process substitution, a command of its own.
-        if ((op === "<" || op === ">") && s[i] === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1); continue; }
+        if ((op === "<" || op === ">") && s[i] === "(") { i++; const text = readUntilClose("(", ")"); nested(text, depth + 1, false, true); continue; }
         skipBlanks();
         if (op === "<<" || op === "<<-") {
           const w = readWord(depth);

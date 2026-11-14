@@ -59,10 +59,13 @@ const expParse = () => parseOf(EXP, [pipeline(EXP, [cmdAst(EXP, str("Write-Outpu
 
 test("CD399 PowerShell read by PowerShell itself (Claude Code's parse script, word for word, run as it runs it): the request, the answer read back, the commands at every depth, and Claude Code's 24 safety checks in its own words", async () => {
   // The script and how pwsh is run.
-  assert.match(Q.PS_PARSE_SCRIPT, /^function Write-Result\(\$Json\) \{/);
+  // (Claude Code 2.1.325's, from its raw program: a line break first, and `hasStopParsingValue`; 2026-11-14, round 3.)
+  assert.match(Q.PS_PARSE_SCRIPT, /^\nfunction Write-Result\(\$Json\) \{/);
   assert.match(Q.PS_PARSE_SCRIPT, /\$ast = \[System\.Management\.Automation\.Language\.Parser\]::ParseInput\(/);
   assert.match(Q.PS_PARSE_SCRIPT, /Write-Result \(\$output \| ConvertTo-Json -Depth 10 -Compress\)\n$/);
-  assert.equal(Q.PS_PARSE_SCRIPT.length, 10878);
+  assert.equal(Q.PS_PARSE_SCRIPT.length, 11128);
+  assert.ok(Q.PS_PARSE_SCRIPT.includes("\n}\n$hasStopParsingValue = $null -ne $ast.Find({ param($n) $n -is [System.Management.Automation.Language.StringConstantExpressionAst] -and ($n.Value -replace '[\\u2013\\u2014\\u2015]','-') -eq '--%' }, $true)\n\n$statements = "));
+  assert.ok(Q.PS_PARSE_SCRIPT.includes("\n    hasStopParsing = $hasStopParsing\n    hasStopParsingValue = $hasStopParsingValue\n    originalCommand = $Command\n"));
   const req = Q.psParseRequest("Get-ChildItem | Select-Object -First 5");
   assert.deepEqual(req.args.slice(0, 4), ["-NoProfile", "-NonInteractive", "-NoLogo", "-EncodedCommand"]);
   assert.equal(Buffer.from(req.args[4], "base64").toString("utf16le"), Q.PS_PARSE_SCRIPT);
@@ -70,7 +73,7 @@ test("CD399 PowerShell read by PowerShell itself (Claude Code's parse script, wo
   assert.equal(Q.psParseRequest("x".repeat(32768)).fail.errors[0].message, "Command too long for parsing (32768 bytes). Maximum supported length is 32767 bytes.");
   assert.equal(Q.psParseRequest("Write-Output \"`u{2028}\"").fail.errors[0].errorId, "UnicodeCodepointEscape");
   // The answer read back: base64 JSON of this very command, else Claude Code's failure words.
-  const good = { code: 0, stdout: Buffer.from(JSON.stringify({ valid: true, errors: [], statements: [{ type: "PipelineAst", text: "gci", elements: [{ type: "CommandAst", text: "gci", commandElements: [{ type: "StringConstantExpressionAst", text: "gci", value: "gci" }], redirections: [] }] }], variables: [], hasStopParsing: false, originalCommand: "gci", typeLiterals: [] })).toString("base64") };
+  const good = { code: 0, stdout: Buffer.from(JSON.stringify({ valid: true, errors: [], statements: [{ type: "PipelineAst", text: "gci", elements: [{ type: "CommandAst", text: "gci", commandElements: [{ type: "StringConstantExpressionAst", text: "gci", value: "gci" }], redirections: [] }] }], variables: [], hasStopParsing: false, hasStopParsingValue: false, originalCommand: "gci", typeLiterals: [] })).toString("base64") };
   const p = Q.psParseResult("gci", good);
   assert.deepEqual([p.valid, p.statements[0].commands[0].name, p.statements[0].commands[0].nameType], [true, "gci", "unknown"]);
   assert.equal(Q.psParseResult("dir", good).errors[0].errorId, "InputMismatch");
@@ -120,6 +123,11 @@ test("CD399 PowerShell read by PowerShell itself (Claude Code's parse script, wo
   assert.equal(why(one('Write-Output "$name"', [str("Write-Output"), el("ExpandableStringExpressionAst", '"$name"', { value: "$name" })])), "Command contains expandable strings with embedded expressions");
   assert.equal(why(one("Get-Item @args", [str("Get-Item"), el("VariableExpressionAst", "@args")], { parse: { variables: [{ path: "args", isSplatted: true }] } })), "Command uses splatting (@variable)");
   assert.equal(why(one("cmd --% /c x", [str("cmd"), str("--%")], { parse: { hasStopParsing: true } })), "Command uses stop-parsing token (--%)");
+  // (A string whose value is --%, which the tokens did not show: Claude Code 2.1.325 reads its parse's hasStopParsingValue too;
+  // one that leaves it out counts as having it, as there.)
+  assert.equal(why(one("cmd \"-`-%\" /c x", [str("cmd"), str("\"-`-%\"", "--%")], { parse: { hasStopParsingValue: true } })), "Command uses stop-parsing token (--%)");
+  assert.equal(Q.psTransform({ valid: true, statements: [], hasStopParsing: false, hasStopParsingValue: false, originalCommand: "x" }).hasStopParsing, false);
+  assert.equal(Q.psTransform({ valid: true, statements: [], hasStopParsing: false, originalCommand: "x" }).hasStopParsing, true);
   assert.equal(why(one("$x.Delete()", [el("InvokeMemberExpressionAst", "$x.Delete()")])), "Command name is a dynamic expression which cannot be statically validated");
   assert.equal(why(one("Get-Item x", [str("Get-Item"), str("x")], { statement: { securityPatterns: { hasMemberInvocations: true } } })), "Command invokes .NET methods");
   assert.equal(why(one("Get-Item x", [str("Get-Item"), str("x")], { parse: { typeLiterals: ["System.IO.File"] } })), "Command uses .NET type [System.IO.File] outside the ConstrainedLanguage allowlist");
@@ -226,7 +234,7 @@ test("CD402 PowerShell in Coder's loop: pwsh's parse on the machine (once a job)
   assert.deepEqual([t.checks.length, t.ran.length], [0, 0]);
   // With no parser stand-in: Coder's machine tool parses it (ps_parse, with the environment's timeout), once a job.
   const asked = [];
-  const reply = (cmd) => ({ code: 0, output: JSON.stringify({ code: 0, stdout: Buffer.from(JSON.stringify({ valid: true, errors: [], statements: [{ type: "PipelineAst", text: cmd, elements: [{ type: "CommandAst", text: cmd, commandElements: [{ type: "StringConstantExpressionAst", text: "Get-ChildItem", value: "Get-ChildItem" }], redirections: [] }] }], variables: [], hasStopParsing: false, originalCommand: cmd })).toString("base64") }) });
+  const reply = (cmd) => ({ code: 0, output: JSON.stringify({ code: 0, stdout: Buffer.from(JSON.stringify({ valid: true, errors: [], statements: [{ type: "PipelineAst", text: cmd, elements: [{ type: "CommandAst", text: cmd, commandElements: [{ type: "StringConstantExpressionAst", text: "Get-ChildItem", value: "Get-ChildItem" }], redirections: [] }] }], variables: [], hasStopParsing: false, hasStopParsingValue: false, originalCommand: cmd })).toString("base64") }) });
   t = await job([say("", [call("powershell", { command: "Get-ChildItem", description: "List" }, "p1"), call("powershell", { command: "Get-ChildItem", description: "List" }, "p2")]), say("ok")], {
     mode: "plan", extra: { powershell: { bypass: true, parseMs: 7000 } }, parse: null,
     deps: { exec: async (x) => { const m = /coder-tools\.mjs ([A-Za-z0-9+/=]+)/.exec(String(x.command)); if (m) { const q = JSON.parse(Buffer.from(m[1], "base64").toString("utf8")); if (q.tool === "ps_parse") { asked.push(q.args); return reply(q.args.command); } } return { code: 0, output: "ok\n" }; } },
@@ -263,7 +271,7 @@ test("CD403 a risky rm under the owner's own Ask rule in Auto (Claude Code: \"If
   assert.match(dangerousRm('bash -c "rm -rf ~"', o), /'~'/);
   assert.equal(dangerousRm('bash -c "rm -rf ~"', { ...o, off: { inline: true } }), "");
   assert.match(dangerousRm('sh -c "rm -rf $1/*" _ x', { ...o, off: { inline: true } }), /shell -c script/, "a variable in a -c script is another check");
-  assert.match(dangerousRm("rm -rf /mnt/data", o), /mounted drive path: \/mnt\/data/);
+  assert.match(dangerousRm("rm -rf /mnt/data", o), /^Dangerous rm operation detected: '\/mnt\/data'\n\nThis command would remove a mounted drive/);
   assert.equal(dangerousRm("rm -rf /mnt/data", { ...o, off: { mounted: true } }), "");
   assert.match(dangerousRm("rm -rf /", { ...o, off: { subst: true, inline: true, mounted: true } }), /'\/'/);
   // From the environment's own variables only.

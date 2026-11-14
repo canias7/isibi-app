@@ -151,7 +151,8 @@ export function leadsTo(full, workdirs = [], real = realPath) {
 // Claude Code's permission-modes docs, Critical paths: "Critical paths are the directories Claude Code protects from rm
 // and rmdir commands, such as the filesystem root, your home directory, and your working directory". In auto mode, away
 // from a terminal, Claude Code "denies it"; Coder asks no one about commands, so it does the same. Claude Code's own
-// words (2.1.319) for each kind.
+// words (2.1.319) for each kind; those of a variable target, a backslash, a top-level name and a mounted drive, and "rmdir"
+// for an rmdir, as Claude Code 2.1.325's raw program has them (2026-11-14, round 3).
 const NEEDS = " This requires explicit approval and cannot be auto-allowed by permission rules.";
 export const RM_UNCHECKED = "This command could not be checked for dangerous rm operations: the shell may read it differently than it was parsed. This requires explicit approval.";
 const SYSTEM_WHY = "This command would remove a critical system directory.";
@@ -167,7 +168,135 @@ const TOP_NAMES = new Set(["bin", "boot", "data", "dev", "etc", "home", "lib", "
 /** Substitutions that print a folder: a variable set from one names the working directory or the repository's root. */
 const DIR_SUBST = /^\$\(\s*(pwd(\s+-[LP])?|git\s+rev-parse\s+--show-(toplevel|cdup|prefix)|dirname\b[^)]*|realpath\b[^)]*|readlink\s+-f\b[^)]*|cd\b[^)]*&&\s*pwd)\s*\)$|^`\s*pwd\s*`$/;
 
-const say = (target, why) => "Dangerous rm operation detected: '" + target + "'\n\n" + why + NEEDS;
+// (Claude Code 2.1.325's raw program, 2026-11-14, round 3: "rm" or "rmdir", as the command is; after the backslash-only,
+// top-level-name and mounted-drive refusals a paragraph of advice of their own, `then`.)
+const say = (target, why, prog = "rm", then = "") => "Dangerous " + prog + " operation detected: '" + target + "'\n\n" + why + NEEDS + (then ? "\n\n" + then : "");
+const BACKSLASH_THEN = "Write the directory you mean as a path, for example /c/work/build or C:/work/build.";
+const LITERAL_THEN = "Use a literal absolute path instead.";
+const MOUNT_THEN = "If you meant something deeper inside, name it by its full path.";
+
+// ── A TARGET THAT IS A SHELL VARIABLE, IN CLAUDE CODE 2.1.325'S WORDS (its jRe, from its raw program; 2026-11-14, round 3) ─────
+// The command as written from rm on ("Dangerous rm operation detected in `rm -rf "$DIR"/*`"), what the variable is set from
+// when the command sets it from a folder, and its advice: guard the variable, bind a positional, or use a literal path.
+/** Variables that are normally set: a `${NAME:?}` guard on one would not stop the removal (Claude Code's list). */
+const NORMALLY_SET = new Set(["HOME", "USERPROFILE", "HOMEPATH", "HOMEDRIVE", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME", "APPDATA", "LOCALAPPDATA", "SYSTEMDRIVE", "SYSTEMROOT", "WINDIR", "PROGRAMFILES", "PROGRAMW6432", "PROGRAMDATA", "ALLUSERSPROFILE", "PUBLIC", "HOMESHARE", "XDG_RUNTIME_DIR", "PWD", "OLDPWD", "TMPDIR", "TMP", "TEMP"]);
+/** The most of the command, or of a variable's value, shown (Claude Code's 120 characters, then "…"). */
+const SHOWN_MAX = 120;
+const cutShown = (s) => { let c = s.slice(0, SHOWN_MAX); if (/[\uD800-\uDBFF]$/.test(c)) c = c.slice(0, -1); return c; };
+/**
+ * Words as Claude Code shows them: each unquoted $( … ) or `…` as "$(…)", white space and control characters as one space.
+ * (Inside quotes it keeps them as written, as Claude Code's first reading does.)
+ */
+export function shownWords(text) {
+  const s = String(text);
+  let out = "", q = null;
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "\\" && q !== "'") { out += ch + (s[i + 1] ?? ""); i++; continue; }
+    if (q) { if (ch === q) q = null; out += ch; continue; }
+    if (ch === "'" || ch === "\"") { q = ch; out += ch; continue; }
+    if (ch === "`") { const e = s.indexOf("`", i + 1); if (e > i) { out += "$(\u2026)"; i = e; continue; } }
+    if (ch === "$" && s[i + 1] === "(" && s[i + 2] !== "(") {
+      let level = 0, j = i + 1;
+      for (; j < s.length; j++) { if (s[j] === "(") level++; else if (s[j] === ")" && --level === 0) break; }
+      if (j < s.length) { out += "$(\u2026)"; i = j; continue; }
+    }
+    out += ch;
+  }
+  return out.replace(/[\s\p{Cc}]+/gu, " ");
+}
+/** A target without its closing quotes' trailing "/", "/*" or "/." (Claude Code's ffn). */
+function withoutTail(e) {
+  let n = e.length;
+  while (n > 0 && /["']/.test(e[n - 1])) n--;
+  let r = n;
+  while (r > 0 && /[/*.]/.test(e[r - 1])) r--;
+  return r < n && e[r] === "/" ? e.slice(0, r) : e;
+}
+/** The variable a word is, quoted or not ($D, "${D}", ${D:?}), or undefined (Claude Code's mfn). */
+const onlyVariable = (e) => { const m = /^["']*\$(?:\{([A-Za-z_][A-Za-z0-9_]*)(?::?[?-][^}]*)?\}|([A-Za-z_][A-Za-z0-9_]*))["']*$/.exec(e); return m ? m[1] ?? m[2] : undefined; };
+/** The quote a place in a word is inside: '"', "'" or null (Claude Code's URe). */
+function quoteAt(s, n) {
+  let q = null;
+  for (let i = 0; i < n; i++) {
+    const h = s[i];
+    if (h === "\\" && (q === null || (q === "\"" && /["\\$`]/.test(s[i + 1] ?? "")))) { i++; continue; }
+    if (q === null) { if (h === "\"" || h === "'") q = h; } else if (h === q) q = null;
+  }
+  return q;
+}
+/**
+ * What a variable set from a folder-printing command or $PWD is (Claude Code's `becomes`): pwd "prints the current directory",
+ * git rev-parse "prints a git value such as the repository root", dirname and cd its own words. (realpath and readlink -f, and
+ * a dirname or a cd of a plain folder, are caught by Coder only: Claude Code does not count them; said as they are.)
+ */
+function folderValue(value) {
+  const x = value.replace(/^"|"$/g, "");
+  if (/^\$\{?PWD\}?\/?$/.test(x)) return { value, becomes: "is the current directory" };
+  if (!DIR_SUBST.test(x)) return null;
+  const inner = x.startsWith("`") ? x.slice(1, -1) : x.slice(2, -1);
+  let becomes = "prints a folder";
+  if (/^\s*git\s+rev-parse\b/.test(inner)) becomes = "prints a git value such as the repository root";
+  else if (/^\s*pwd(?![A-Za-z0-9_-])/.test(inner)) becomes = "prints the current directory";
+  else {
+    const m = /^\s*(cd|dirname)(?![A-Za-z0-9_-])/.exec(inner);
+    if (m) {
+      const arg = (/^\s*(?:cd|dirname)\s+(?:--?\w*\s+)*([^\s;&|]*)/.exec(inner) || [])[1];
+      const plain = arg !== undefined && arg !== "" && !/[$`]/.test(arg) && !/^(?:""|'')$/.test(arg);
+      const up = (p) => p.replace(/\/+[^/]*\/*$/, "") || (p.startsWith("/") ? "/" : ".");
+      if (m[1] === "dirname") becomes = plain ? "prints " + up(arg.replace(/^(["'])(.*)\1$/, "$2")) : "prints the current directory (as `.`) when its input is empty";
+      else becomes = plain ? "prints the current directory" : "prints the current directory when its input is empty (`cd \"\"` stays put)";
+    }
+  }
+  return { value, becomes };
+}
+/**
+ * CLAUDE CODE'S REFUSAL OF A VARIABLE TARGET: `prog` rm or rmdir, `words` the command's words from rm on, `at` the target's
+ * place among them, `inSubst` the command is inside a $( … ), `reparsed` it is read again before it runs (a double-quoted
+ * shell -c script), `derived` { value, becomes } when the command set the variable from a folder.
+ */
+function variableRmWhy({ prog, words, at, inSubst = false, reparsed = false, derived = null }) {
+  const raws = words.map((x) => x.raw);
+  const all = shownWords(raws.join(" "));
+  const s = shownWords(raws[at]);
+  let h = all;
+  if (all.length > SHOWN_MAX) h = cutShown(all) + "\u2026" + (shownWords(raws.slice(0, at + 1).join(" ")).length <= SHOWN_MAX ? "" : " " + s);
+  const names = [], parts = [];
+  const guarded = s.replace(/\$(?:\{([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*!])(?::?-(?:["']{2}|"?\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?"?)?)?\}|([A-Za-z_][A-Za-z0-9_]*|[0-9]+|[@*!]))/g, (written, braced, fallback, bare, offset) => {
+    const name = braced ?? bare;
+    names.push(name);
+    let g = "${" + name + ":?}";
+    if (fallback !== undefined) { names.push(fallback); g = "${" + name + ":-${" + fallback + ":?}}"; }
+    if (quoteAt(s, offset) === null) g = "\"" + g + "\"";
+    parts.push({ name, written, guarded: g });
+    return g;
+  });
+  const list = names.length ? [...new Set(names)] : ["VAR"];
+  const vars = list.map((n) => "$" + n).join(" or ");
+  const where = inSubst ? " (inside a command substitution)" : "";
+  const head = "Dangerous " + prog + " operation detected in `" + h + "`" + where + ". ";
+  if (derived) {
+    const name = onlyVariable(withoutTail(s)) ?? list[0];
+    const value = derived.value.replace(/[\s\p{Cc}]+/gu, " ");
+    const shown = value.length > SHOWN_MAX ? cutShown(value) + "\u2026" : value;
+    return head + "This command sets $" + name + " from `" + shown + "`, which " + derived.becomes + ", so this " + prog + " can remove that directory. A `${" + name + ":?}` guard does not help, because $" + name + " is not empty." + NEEDS + "\n\n" + LITERAL_THEN;
+  }
+  const hint = (() => {
+    const normally = list.filter((n) => NORMALLY_SET.has(n.toUpperCase())).map((n) => "$" + n).join(" or ");
+    if (normally) return "use a literal absolute path: " + normally + " is normally set, so a guard on it would not stop this " + prog;
+    const positional = (n) => /^(?:[0-9]+|[@*!])$/.test(n);
+    const bound = list.filter(positional);
+    if (bound.length) {
+      const rewrite = parts.filter((p) => !positional(p.name) && !reparsed).map((p) => "`" + p.written + "` as `" + p.guarded + "`").join(" and ");
+      return "bind " + bound.map((n) => "$" + n).join(" or ") + (rewrite ? " and rewrite its " + rewrite : "") + " (in an inline `sh -c` script, single-quote the script so this shell does not expand the positional) or use a literal absolute path";
+    }
+    if (reparsed) return "use a literal absolute path: this " + prog + " is parsed again before it runs (it is inside a quoted string or after eval), so a pasted guard's quotes would not protect it";
+    const rest = parts.reduce((t, p) => t.replace(p.guarded, ""), guarded);
+    if (!parts.length || rest.includes("$")) return "use a literal absolute path: this check cannot verify part of this target";
+    return "rewrite it as `" + guarded + "`, which makes the shell stop with an error instead of running " + prog + " when " + vars + " is unset or empty, or use a literal absolute path";
+  })();
+  return head + "The target '" + s + "' is a shell variable expansion: when " + vars + " is unset or empty it becomes `/`, `/*` or a top-level path." + NEEDS + "\n\nThis check does not fire on a target that cannot expand to the filesystem root: " + hint + ".";
+}
 
 /**
  * Why this command is a dangerous removal ("" when it is not). `cwd`: where the command starts. `home`: the AI's home.
@@ -188,13 +317,15 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
   const work = workdirs.filter((d) => typeof d === "string" && d.startsWith("/")).map((d) => posix.normalize(d).replace(/\/$/, "") || "/");
   const primary = work[0] || "";
   // Variables the command itself sets: to a folder-printing substitution (never safe), or to something else.
-  const fromDirSubst = new Set(), assigned = new Set();
+  // (Each with what it was set from and what that is, in Claude Code 2.1.325's words: folderValue.)
+  const fromDirSubst = new Map(), assigned = new Set();
   // Where the command's own `cd`s take it: a literal folder, or unknown.
   let here = posix.normalize(cwd || "/"), hereKnown = true, cdSeen = false;
   const homeDir = posix.normalize(home || "/home/dev");
   // (Bash docs pass 9, Claude Code 2.1.281: "a variable derived from the working directory" too: one set from $PWD, after
   // export, local, declare, typeset or readonly, or a copy of one: `D=$PWD; rm -rf "$D"` was not caught.)
-  const derived = (v) => { const x = v.replace(/^"|"$/g, ""); const copy = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?\/?$/.exec(x); return DIR_SUBST.test(x) || /^\$\{?PWD\}?\/?$/.test(x) || (!!copy && fromDirSubst.has(copy[1])); };
+  // (A copy of one is what its source was set from, as in Claude Code.)
+  const derived = (v) => { const x = v.replace(/^"|"$/g, ""); const copy = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?\/?$/.exec(x); return folderValue(v) || (copy && copy[1] !== "PWD" ? fromDirSubst.get(copy[1]) || null : null); };
   for (const c of r.commands) {
     const lw = leadWords(c.words);
     const decl = !!lw[0] && !lw[0].quoted && /^(export|local|declare|typeset|readonly)$/.test(lw[0].text);
@@ -203,7 +334,8 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       const m = /^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/s.exec(w.raw);
       if (!m) { if (decl) continue; break; }
       assigned.add(m[1]);
-      if (derived(m[2])) fromDirSubst.add(m[1]); else fromDirSubst.delete(m[1]);
+      const d = derived(m[2]);
+      if (d) fromDirSubst.set(m[1], d); else fromDirSubst.delete(m[1]);
     }
   }
   // (A positional parameter the command gives a value itself, with `set -- …` or in a function it defines: Claude Code
@@ -243,14 +375,16 @@ export function dangerousRm(command, { cwd = "/", home = "/home/dev", workdirs =
       args.push(a);
     }
     for (const a of args) {
-      const why = targetDanger(a, { c, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
+      const why = targetDanger(a, { c, prog, words: w, recursive, here, hereKnown: hereKnown && c.top >= 0, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven, off: off || {} });
       if (why) return why;
     }
     return "";
   }
 }
 
-function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven = false, off = {} }) {
+function targetDanger(a, { c, prog = "rm", words = [a], recursive, here, hereKnown, cdSeen, homeDir, work, primary, fromDirSubst, assigned, positionalGiven = false, off = {} }) {
+  // (Claude Code 2.1.325's refusal of a variable target names the command from rm on: variableRmWhy.)
+  const varWhy = (derived = null) => variableRmWhy({ prog, words, at: Math.max(0, words.indexOf(a)), inSubst: !!c.inSubst, reparsed: !!c.inScript && c.scriptQuote === "double", derived });
   const raw = a.raw, text = a.text;
   // INSIDE A SHELL -c SCRIPT: a double-quoted script's variables are the outer shell's (empty $1 there); a single-quoted
   // one's are its own, and a $1 the script is given counts as given.
@@ -266,18 +400,18 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
   // ONLY A SUBSTITUTION'S OUTPUT, when recursive (Claude Code: rm -rf "$(pwd)"); not with CODER_DISABLE_SUBSTITUTION_RM_PROMPT.
   if (recursive && a.subst && /^(\$\([^]*\)|`[^`]*`)$/.test(text)) return off.subst ? "" : SUBST_WHY;
   // ONLY BACKSLASHES.
-  if (/^\\+$/.test(text)) return say(raw, BACKSLASH_WHY);
+  if (/^\\+$/.test(text)) return say(raw, BACKSLASH_WHY, prog, BACKSLASH_THEN);
   // A VARIABLE FROM A FOLDER-PRINTING SUBSTITUTION ("A ${D:?} guard doesn't clear this check, because the variable isn't empty").
   // (Only the folder itself, `$D`, `$D/` or `$D/*`, as Claude Code's: `"$ROOT/dist"` is a folder inside it.)
   const v = /^\$\{?([A-Za-z_][A-Za-z0-9_]*)(:\?[^}]*)?\}?(.*)$/s.exec(text);
-  if (v && fromDirSubst.has(v[1]) && /^(\/|\/\*)?$/.test(v[3])) return say(raw, "The variable $" + v[1] + " is set from a command that prints a folder, so it can name your working directory or repository root: a ${" + v[1] + ":?} guard does not help, because $" + v[1] + " is not empty.");
+  if (v && fromDirSubst.has(v[1]) && /^(\/|\/\*)?$/.test(v[3])) return varWhy(fromDirSubst.get(v[1]));
   // A GLOB OR TRAILING SLASH DIRECTLY UNDER A VARIABLE, unguarded ("rm -rf "$DIR"/*": "The command becomes a removal from
   // the filesystem root when the variable is empty"); positional parameters the same, when nothing gives them a value.
   const under = /^\$\{?([A-Za-z_][A-Za-z0-9_]*|[0-9@*])(:\?[^}]*)?\}?\/(\*\/?|\.\*|)$/s.exec(text);
-  if (under && !under[2] && !(positionalGiven && !c.inScript && /^[0-9@*]$/.test(under[1]))) return say(raw, "If $" + under[1] + " is unset or empty, this removes from the filesystem root. Guard it as \"${" + under[1] + ":?}\"" + text.slice(text.indexOf("/")) + ", which makes the shell stop with an error instead, or use a literal path.");
+  if (under && !under[2] && !(positionalGiven && !c.inScript && /^[0-9@*]$/.test(under[1]))) return varWhy();
   // A VARIABLE FOLLOWED BY A TOP-LEVEL FOLDER'S NAME ("rm -rf "$TMPDIR/mnt"": when it is empty, /mnt goes).
   const top = /^\$\{?([A-Za-z_][A-Za-z0-9_]*|[0-9@*])(:\?[^}]*)?\}?\/([^/]+)\/?$/s.exec(text);
-  if (top && !top[2] && TOP_NAMES.has(top[3]) && top[1] !== "HOME") return say(raw, "The target starts with a shell expansion this check cannot read and ends in a top-level directory name: if the expansion is empty, this removes '/" + top[3] + "'.");
+  if (top && !top[2] && TOP_NAMES.has(top[3]) && top[1] !== "HOME") return say(raw, "The target starts with a shell expansion this check cannot read and ends in a top-level directory name: if the expansion is empty, this removes '/" + top[3] + "'.", prog, LITERAL_THEN);
   // WHERE IT IS: ~ and $HOME are the home folder; a trailing substitution counts as empty ("rm -rf ~/$(cmd)": the home
   // folder); a relative target counts from where the command is.
   let path = text.replace(/^\$\{?HOME\}?(?=\/|$)/, homeDir);
@@ -286,9 +420,9 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
   if (/\$/.test(path)) return ""; // another variable: not known before it runs, and none of the cases above
   const relative = !path.startsWith("/");
   // A RELATIVE GLOB AFTER A cd IN THE SAME COMMAND (Claude Code's example: "cd logs && rm -rf a/*").
-  if (relative && a.glob && cdSeen) return say(raw, CD_GLOB_WHY);
+  if (relative && a.glob && cdSeen) return say(raw, CD_GLOB_WHY, prog);
   if (relative) {
-    if (!hereKnown) return /^\.\.?(\/|$)/.test(path) ? say(raw, "This command's removal target cannot be statically resolved to a directory.") : "";
+    if (!hereKnown) return /^\.\.?(\/|$)/.test(path) ? say(raw, "This command's removal target cannot be statically resolved to a directory.", prog) : "";
     path = posix.join(here, path);
   }
   let target = posix.normalize(path).replace(/\/$/, "") || "/", whole = false;
@@ -298,20 +432,22 @@ function targetDanger(a, { c, recursive, here, hereKnown, cdSeen, homeDir, work,
     if (trailing) parts.pop();
     const firstGlob = parts.findIndex((x) => /[*?[]/.test(x));
     // Through folders it cannot list first ("rm -rf logs/*/*", "rm -rf logs/*/").
-    if (firstGlob < parts.length - 1 || trailing) return say(raw, GLOB_DEEP_WHY);
+    if (firstGlob < parts.length - 1 || trailing) return say(raw, GLOB_DEEP_WHY, prog);
     // Only a glob that takes a folder's whole contents counts as removing that folder ("rm -rf <dir>/*"); "*.log" does not.
     if (!/^(\*|\.\*|\*\.\*|\.\[!.\]\*|\{\*,\.\*\}|\.\?\*)$/.test(parts[parts.length - 1])) return "";
     target = posix.normalize(parts.slice(0, -1).join("/") || "/").replace(/\/$/, "") || "/";
     whole = true;
   }
   // THE ROOT, A TOP-LEVEL FOLDER, THE HOME FOLDER (and the folders above it).
-  if (target === "/" || /^\/[^/]+$/.test(target)) return say(raw, SYSTEM_WHY);
-  if (target === homeDir || homeDir.startsWith(target + "/")) return say(raw, SYSTEM_WHY);
+  if (target === "/" || /^\/[^/]+$/.test(target)) return say(raw, SYSTEM_WHY, prog);
+  if (target === homeDir || homeDir.startsWith(target + "/")) return say(raw, SYSTEM_WHY, prog);
   // THE WORKING DIRECTORY AND ITS PARENTS; another working directory and its parents only for a glob under them.
-  if (primary && (target === primary || primary.startsWith(target + "/"))) return say(raw, WORKSPACE_WHY);
-  if (whole) for (const d of work.slice(1)) if (target === d || d.startsWith(target + "/")) return say(raw, WORKSPACE_WHY);
+  if (primary && (target === primary || primary.startsWith(target + "/"))) return say(raw, WORKSPACE_WHY, prog);
+  if (whole) for (const d of work.slice(1)) if (target === d || d.startsWith(target + "/")) return say(raw, WORKSPACE_WHY, prog);
   // MOUNTED DRIVES (a recursive removal, or a /* under one).
-  if (!off.mounted && (recursive || whole) && mountShape(target)) return "Dangerous rm operation on mounted drive path: " + target + "\n\n" + MOUNT_WHY + NEEDS;
+  // (Claude Code 2.1.325: "Dangerous rm operation detected: '<the path, as resolved>'", then its advice; "on mounted drive
+  // path: …" is only its reason's line.)
+  if (!off.mounted && (recursive || whole) && mountShape(target)) return say(path, MOUNT_WHY, prog, MOUNT_THEN);
   return "";
 }
 function mountShape(p) {

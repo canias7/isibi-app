@@ -377,7 +377,7 @@ test("WF11 what Coder is told, Claude Code's own texts: a redirect to another ho
   assert.equal(W.statusText(599), "Unknown Status");
   assert.equal(W.pastEndText(300000, 250000), "Nothing left to read from offset 300000: this page's text is 250000 characters long.");
   assert.equal(W.leadText(100000, 250000), "The content below is one part of a longer page: it starts 100000 characters into the page's 250000.\n");
-  assert.equal(W.readOnNote(0, 100000, 250000), "\n\n[WebFetch note: this page's text is 250000 characters long and the answer above covers only characters 0 to 100000; the final 150000 were not read — to read on, call web_fetch again with the same url and offset: 100000.]");
+  assert.equal(W.readOnNote(0, 100000, 250000), "\n\n[web_fetch note: this page's text is 250000 characters long and the answer above covers only characters 0 to 100000; the final 150000 were not read — to read on, call web_fetch again with the same url and offset: 100000.]");
   const persisted = W.persistedText("x".repeat(60000), "/out/a.txt");
   assert.equal(persisted, "<persisted-output>\nOutput too large (58.6KB). Full output saved to: /out/a.txt\n\nPreview (first 2KB):\n" + "x".repeat(2000) + "\n...\n</persisted-output>");
   // (The preview ends at the last line break past its first 1,000 characters.)
