@@ -919,7 +919,9 @@ export function parseRule(text) {
   if (m[1] === "Read" || m[1] === "Edit") {
     // (`:*` is Bash's alone: ruleProblem says so; a rule on the path itself, Read(file_path:…), is kept and never matches.)
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
-    return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
+    // (`Read(**)` and `Edit(**)` are path rules, as Claude Code 2.1.325's parser leaves them (only an empty or "*" content is
+    // the whole tool): the tool stays, and each call on a path the rule matches is refused. Round 4, 2026-11-14.)
+    return { tool: m[1], spec: spec === "*" ? null : spec };
   }
   // A RULE ON ONE OF GREP'S OR GLOB'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
   // Code's permissions docs, "Match by input parameter": "Deny and ask rules can match a top-level input parameter on any
@@ -1571,8 +1573,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles({ ...read, cmds: ruleCmds(read.cmds) }, { cwd, home });
-  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`.)
-  const fctx = { root: workdirs[0] || cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`;
+  // and a relative rule's path counts from the folder the command starts in first, Claude Code's current folder: round 4.)
+  const fctx = { root: workdirs[0] || cwd, cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const ruleFiles = [...files, ...commandFiles({ ...shadow, cmds: ruleCmds(shadow.cmds) }, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
@@ -1878,11 +1881,12 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
   // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
-  const ctx = { root, home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (`cwd`: the folder Coder's commands are in, where a relative rule's path counts from first, as Claude Code's: round 4.)
+  const ctx = { root, ...(cwd ? { cwd } : {}), home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
@@ -1891,9 +1895,9 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
   const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, ...(pathOnly ? [] : [edits ? "Edit" : "Read"])].some((n) => toolGlobMatches(x.tool, n)); }) || "";
   // (A rule on the whole tool names no path: Read, Read(*), a wildcard naming the tool. Claude Code's parser makes only an empty
-  // or "*" content the whole tool, so Read(**) and Edit(**) are path rules, in a path rule's words though they match every path
-  // here. 2026-11-14.)
-  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null && !/\(\s*\*\*\s*\)$/.test(String(r).trim()); };
+  // or "*" content the whole tool, so Read(**) and Edit(**) are path rules, matching the paths below the folders a relative
+  // rule counts from. 2026-11-14; round 4.)
+  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
   const p = typeof path === "string" && path ? path : root;
   // (A search's folder: the rule matches the folder, or what is in it.)
   const search = tool === "grep" || tool === "glob";

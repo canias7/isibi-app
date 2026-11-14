@@ -2,8 +2,9 @@
 // own pattern syntax. Its permissions docs, "Read and Edit": "Read and Edit rules both use gitignore pattern syntax with four
 // distinct pattern types": `//path` "Absolute path from filesystem root", `~/path` "Path from home directory", `/path` "Path
 // relative to the settings source", `path` or `./path` "Path relative to current directory". Coder keeps the owner's rules per
-// repository, as Claude Code's local settings are, so `/path` and `path` both count from the project's folder ("Local settings
-// rules anchor at the session's primary working directory"), and `~/` is the AI's home on Coder's machine.
+// repository, as Claude Code's local settings are, so `/path` counts from the project's folder ("Local settings rules anchor
+// at the session's primary working directory"), `path` from the folder Coder's commands are in (its current folder, as
+// Claude Code's), and `~/` is the AI's home on Coder's machine.
 // (No node: modules here: coder-perms.mjs uses this file, and Coder's Worker loads that one. Paths are the machine's, POSIX.)
 
 /** A POSIX path without `.`, `..` or doubled slashes. */
@@ -23,7 +24,6 @@ function relative(from, to) {
   while (i < a.length && i < b.length && a[i] === b[i]) i++;
   return [...Array(a.length - i).fill(".."), ...b.slice(i)].join("/");
 }
-const isAbsolute = (p) => String(p).startsWith("/");
 const join = (...parts) => normalize(parts.join("/"));
 
 /** Claude Code's file tools whose rules take a path (its "Ur"): a `:*` in one is refused, in its words (ruleProblem). */
@@ -40,99 +40,155 @@ export const STAR_EDIT_TOOLS = new Set(["Edit", "Write", "NotebookEdit"]);
 /** Whether an allow rule's text is one of those, `X(*)` or `X()` exactly: the tool's name, or "". */
 export const starAllowTool = (text) => { const m = /^([A-Za-z]+)\((\*?)\)$/.exec(String(text ?? "").trim()); return m && STAR_PATH_TOOLS.has(m[1]) ? m[1] : ""; };
 
-const esc = (c) => c.replace(/[.+^${}()|[\]\\*?]/g, "\\$&");
+// ── CLAUDE CODE'S PATH MATCHER (round 4, 2026-11-14; the owner: "yes" to copying Claude Code 2.1.325's matching exactly) ──
+// Claude Code matches a path rule with the `ignore` library (node-ignore, MIT), created with its defaults, so letters match
+// in either case; this is that library's own way of turning a pattern into a test, copied from the copy inside Claude Code's
+// program (/opt/claude-code/bin/claude 2.1.325), and its way of testing a path, folder by folder.
 
-/** One segment of a gitignore pattern as a regular expression: `*` and `?` within the segment, `[…]` a class, `\x` literal. */
-function segRe(seg) {
-  let out = "";
-  for (let i = 0; i < seg.length; i++) {
-    const c = seg[i];
-    if (c === "\\" && i + 1 < seg.length) { out += esc(seg[++i]); continue; }
-    if (c === "*") { out += "[^/]*"; continue; }
-    if (c === "?") { out += "[^/]"; continue; }
-    if (c === "[") {
-      const j = seg.indexOf("]", i + 2);
-      if (j > i) { const body = seg.slice(i + 1, j); out += "[" + (body[0] === "!" ? "^" + body.slice(1) : body).replace(/\\/g, "\\\\") + "]"; i = j; continue; }
-    }
-    out += esc(c);
-  }
-  return out;
+/** node-ignore's replacers, in its order (its `Id`): each pattern becomes a regular expression's text. */
+const IG_REPLACERS = [
+  [/^\uFEFF/, () => ""],
+  [/((?:\\\\)*?)(\\?\s+)$/, (e, n, r) => n + (r.indexOf("\\") === 0 ? " " : "")],
+  [/(\\+?)\s/g, (e, n) => { const { length: r } = n; return n.slice(0, r - r % 2) + " "; }],
+  [/[\\$.|*+(){^]/g, (e) => `\\${e}`],
+  [/(?!\\)\?/g, () => "[^/]"],
+  [/^\//, () => "^"],
+  [/\//g, () => "\\/"],
+  [/^\^*\\\*\\\*\\\//, () => "^(?:.*\\/)?"],
+  [/^(?=[^^])/, function () { return !/\/(?!$)/.test(this) ? "(?:^|\\/)" : "^"; }],
+  [/\\\/\\\*\\\*(?=\\\/|$)/g, (e, n, r) => (n + 6 < r.length ? "(?:\\/[^\\/]+)*" : "\\/.+")],
+  [/(^|[^\\]+)(\\\*)+(?=.+)/g, (e, n, r) => { const s = r.replace(/\\\*/g, "[^\\/]*"); return n + s; }],
+  [/\\\\\\(?=[$.|*+(){^])/g, () => "\\"],
+  [/\\\\/g, () => "\\"],
+  [/(\\)?\[([^\]/]*?)(\\*)($|\])/g, (e, n, r, s, h) => (n === "\\" ? `\\[${r}${s.slice(0, s.length - s.length % 2)}${h}` : h === "]" ? (s.length % 2 === 0 ? `[${r.replace(/([0-z])-([0-z])/g, (m, a, b) => (a.charCodeAt(0) <= b.charCodeAt(0) ? m : ""))}${s}]` : "[]") : "[]")],
+  [/(?:[^*])$/, (e) => (/\/$/.test(e) ? `${e}$` : `${e}(?=$|\\/$)`)],
+];
+/** Whether node-ignore takes a pattern at all (its `Ld`: not blank, not a comment, no lone backslash at its end). */
+const igUsable = (e) => typeof e === "string" && !!e && !/^\s+$/.test(e) && !/(?:[^\\]|^)\\$/.test(e) && e.indexOf("#") !== 0;
+/** One pattern as node-ignore's rule (its `jd` and `regex`): `{ pattern, negative, regex }`; throws as the library does. */
+function igRule(pattern) {
+  const known = IG_MADE.get(pattern);
+  if (known) return known;
+  let negative = false, h = pattern;
+  if (h.indexOf("!") === 0) { negative = true; h = h.slice(1); }
+  h = h.replace(/^\\!/, "!").replace(/^\\#/, "#");
+  const prefix = IG_REPLACERS.reduce((n, [r, s]) => n.replace(r, (...a) => s.apply(h, a)), h);
+  const source = prefix.replace(/(^|\\\/)?\\\*$/, (m, n) => `${n ? `${n}[^/]+` : "[^/]*"}(?=$|\\/$)`);
+  const made = { pattern, negative, regex: new RegExp(source, "i") };
+  // (Kept, as Claude Code keeps its compiled rules: a search checks each path it finds against the same rules.)
+  if (IG_MADE.size >= 1000) IG_MADE.clear();
+  IG_MADE.set(pattern, made);
+  return made;
 }
-
+const IG_MADE = new Map();
+/** node-ignore's `add` of a list: the patterns it takes, as rules. */
+const igRules = (patterns) => patterns.filter(igUsable).map(igRule);
 /**
- * A GITIGNORE PATTERN (relative to its anchor) as `{ re, dirOnly }`, or null when it can't be read as one: a pattern with a
- * slash at its start or in its middle is anchored, one without matches at any depth; `**` crosses folders (`**\/x`, `x/**`,
- * `x/**\/y`); a trailing `/` matches folders only.
+ * node-ignore's test of one path against its rules, in order (its `Ki.test`, as its `test` calls it): `{ ignored, rule }`. A
+ * rule that can't change the answer is passed over, so the rule given is the first that matched since the last `!` one did.
  */
-export function gitPattern(pattern) {
-  let p = String(pattern);
-  let dirOnly = false;
-  if (p.length > 1 && p.endsWith("/") && !p.endsWith("\\/")) { dirOnly = true; p = p.replace(/\/+$/, ""); }
-  const anchored = p.includes("/");
-  if (p.startsWith("/")) p = p.slice(1);
-  if (!p) return null;
-  const segs = p.split("/");
-  let re = "";
-  segs.forEach((seg, k) => {
-    const last = k === segs.length - 1;
-    if (seg === "**") {
-      if (segs.length === 1) re += ".*";
-      else if (k === 0) re += "(?:.*/)?";
-      else if (last) re += "/.*";
-      else re += "/(?:.*/)?";
-      return;
-    }
-    if (k > 0 && segs[k - 1] !== "**") re += "/";
-    re += segRe(seg);
-  });
-  try { return { re: new RegExp((anchored ? "^" : "^(?:.*/)?") + re + "$"), dirOnly }; } catch { return null; }
+function igTestOne(rules, path) {
+  let ignored = false, unignored = false, rule;
+  for (const k of rules) {
+    const M = k.negative;
+    if (unignored === M && ignored !== unignored) continue;
+    if (!k.regex.test(path)) continue;
+    ignored = !M; unignored = M; rule = M ? undefined : k;
+  }
+  return { ignored, rule };
+}
+/** node-ignore's `test` (its `_t`): each folder on the way first ("a/", "a/b/"), and a folder that is matched covers all in it. */
+function igTest(rules, path) {
+  const slices = path.split("/").filter(Boolean);
+  const walk = (p, s) => {
+    s.pop();
+    if (!s.length) return igTestOne(rules, p);
+    const up = walk(s.join("/") + "/", s);
+    return up.ignored ? up : igTestOne(rules, p);
+  };
+  return walk(path, slices);
+}
+/** Whether node-ignore takes a path to test (its isPathValid): not empty, not `.`, `..`, or one starting `/`, `./` or `../`. */
+const igPathValid = (p) => typeof p === "string" && !!p && !/^\.{0,2}\/|^\.{1,2}$/.test(p);
+/** The test node-ignore can't make of a pattern (Claude Code's `rKn`): its error, or null. */
+function igCompileError(e) {
+  try { igRules([e]); return null; } catch (x) { return x instanceof Error ? x.message : String(x); }
+}
+/** Why a pattern is no use to node-ignore (Claude Code's `br`): skipped by it, or a test it can't make; null when it is fine. */
+const igProblem = (e) => (/^\s*$|^#|(?:^|[^\\])\\$/.test(e) ? "skipped by the ignore library (blank, comment, or trailing backslash)" : igCompileError(e));
+
+/**
+ * A PATTERN AS CLAUDE CODE GIVES IT TO THE LIBRARY (its `_t`): `x/**` is the folder `x`, which the library matches at any
+ * depth when it has no other slash; in an allow rule a single folder is anchored (`/x`). Its permissions docs: "Allow rules:
+ * Edit(src/**) matches only <cwd>/src … Deny and ask rules: Read(secrets/**) matches a directory named secrets at any depth";
+ * "Every other pattern shape matches at the same depth in every rule type: Edit(/src/**) and Edit(src/components/**) match
+ * only at their anchored location".
+ */
+function ccTrim(e, allow) {
+  if (e.endsWith("/**")) {
+    const r = e.slice(0, -3);
+    return /[^/]/.test(r) ? (r.includes("/") || !allow || /^[!#]/.test(r) ? r : "/" + r) : "/**";
+  }
+  return e;
+}
+/** A rule's pattern made plain (Claude Code's `At`): doubled slashes as one, and a byte-order mark before `!` or `#` escaped. */
+function ccClean(e) {
+  const n = e.replace(/\/{2,}/g, "/");
+  if (/^\s*(?:\/\*\*)?$/.test(n)) return n;
+  return n.replace(/^\uFEFF([!#]?)/, (r, s) => (s ? "\\" + s : "")).replace(/^\uFEFF/, "[\uFEFF]");
+}
+/** Claude Code's `EAe` and `NZn`: a path's characters the library would read as pattern characters, escaped. */
+function ccEscape(e) {
+  let t = e.replaceAll("\\", "\\\\").replace(/[[\]()|+^$]/g, (r) => `\\${r}`);
+  if (t.startsWith("!") || t.startsWith("#")) t = `\\${t}`;
+  return t.replace(/\s+$/, (r) => Array.from(r, (o) => `\\${o}`).join(""));
+}
+const ccUnescape = (e) => e.replace(/\\([^])/g, (n, t) => (/^[\\[\]!#()|+^$*?\s]$/.test(t) ? t : n));
+/** A pattern as the literal path it spells (Claude Code's `Ci`), its `!` and `/**` kept. */
+function ccLiteral(e) {
+  const n = e.startsWith("!") ? "!" : "", r = e.endsWith("/**") ? "/**" : "", s = e.slice(n.length, e.length - r.length);
+  return n + ccEscape(ccUnescape(s)) + r;
+}
+/**
+ * WHAT CLAUDE CODE KEEPS OF A RULE'S PATTERN (its `Nr`): the pattern; or, for one the library can't use, in a deny or ask rule
+ * the literal path it spells ("A deny or ask rule whose path isn't usable as a gitignore pattern still guards that exact
+ * path"), or, when even that can't be used, everything below its anchor; nothing for an allow rule or a `!` one ("An allow
+ * rule with an unusable pattern doesn't approve anything"; Claude Code 2.1.269: "a bare ! negation is ignored").
+ */
+function ccKept(e, allow) {
+  const r = ccTrim(e, allow);
+  const s = !allow && /^!\s*$/.test(r) ? "a negation of every path" : igProblem(r);
+  if (s === null) return e;
+  const neg = e.startsWith("!"), drop = neg ? !allow : allow;
+  if (drop) return null;
+  const v = ccLiteral(e);
+  return igCompileError(ccTrim(v, false)) === null ? v : (neg ? "!" : "") + "**";
 }
 
 /**
- * WHERE A RULE'S PATH IS ANCHORED, and its pattern there: `{ root, pattern }` (root a full path). `kind` matters for one shape
- * (Claude Code: "A relative pattern with a single directory segment, such as src/**, matches at different depths depending on
- * the rule type": an allow rule only at `<cwd>/src`, a deny or ask rule "a directory named secrets at any depth").
+ * WHERE A RULE'S PATH IS ANCHORED, and its pattern there (Claude Code's `Fc`): `{ root, pattern }`, `root` a full path for
+ * `//path` (the machine's root), `~/path` (the home folder) and `/path` (the project), and null for `path` and `./path`, which
+ * count from the current folder (and, for a deny or ask rule, from the other working folders: fileRuleHit). A pattern that
+ * starts with "/" is anchored at its root; one without a slash before its end matches at any depth below it, as gitignore's.
  */
 export function anchorOf(spec, kind, { root = "/", home = "" } = {}) {
   const s = String(spec);
-  if (s.startsWith("//")) return { root: "/", pattern: "/" + s.slice(2).replace(/^\/+/, "") };
-  if (s === "~" || s.startsWith("~/")) return home ? { root: home, pattern: "/" + s.slice(2) } : null;
+  if (s.startsWith("//")) return { root: "/", pattern: s.slice(1) };
+  if (s.startsWith("~/")) return home ? { root: home, pattern: s.slice(1) } : null;
   if (s.startsWith("/")) return { root, pattern: s };
-  let rel = s.startsWith("./") ? s.slice(2) : s;
-  // (`src/**` as a deny or ask rule: `**/src/**`.)
-  if (kind !== "allow" && /^[^/]+\/[^/]+$/.test(rel) && !rel.startsWith("**/")) rel = "**/" + rel;
-  return { root, pattern: rel };
+  return { root: null, pattern: s.startsWith("./") ? s.slice(2) : s };
 }
 
 /** A full path, made plain (no `.`, `..` or doubled slashes, no trailing slash). */
 export const plainPath = (p) => { const n = normalize(String(p || "/")); return n.length > 1 ? n.replace(/\/+$/, "") : n; };
 
 /**
- * WHETHER ONE GROUP OF RULES (one anchor's, in order, `!` ones among them) COVERS A PATH, gitignore's way: the last rule that
- * matches decides; a folder that is covered covers everything in it (Claude Code: "A carve-out can't reopen a file inside a
- * directory that a rule blocks as a whole"). The rule that covers it, or null.
- */
-function groupCovers(rules, rel, isDir) {
-  const segs = rel.split("/");
-  for (let i = 1; i <= segs.length; i++) {
-    const part = segs.slice(0, i).join("/"), dir = i < segs.length || isDir;
-    let hit = null;
-    for (const r of rules) {
-      if (r.exact !== undefined) { if (part === r.exact) hit = r.neg ? null : r; continue; }
-      if (r.dirOnly && !dir) continue;
-      if (r.re.test(part)) hit = r.neg ? null : r;
-    }
-    if (hit) return hit;
-  }
-  return null;
-}
-
-/**
  * THE RULE OF ONE LIST THAT MATCHES A FILE OR FOLDER, for one of Claude Code's file rules (`Read` or `Edit`), or "":
  * `list` the owner's rules of one kind (`allow`, `ask` or `deny`, texts like "Read(./.env)"); `path` a full path; `ctx`
- * `{ root, home, real, isDir }` (`real(p)`: where a path really leads, "" when unknown). A rule on the whole tool (`Read`,
- * `Read(*)`, `Read(**)`) matches every path. Claude Code's symlink rule: a deny or ask rule matches when the path asked for or
- * the one it leads to matches; an allow rule only when both do.
+ * `{ root, cwd, home, roots, real, isDir }` (`real(p)`: where a path really leads, "" when unknown). A rule on the whole tool
+ * (`Read`, `Read(*)`) matches every path; `Read(**)` is a path rule, as Claude Code's parser makes only an empty or "*"
+ * content the whole tool. Claude Code's symlink rule: a deny or ask rule matches when the path asked for or the one it leads
+ * to matches; an allow rule only when both do.
  */
 export function fileRuleHit(list, tool, path, kind, ctx = {}) {
   // WHICH SETTINGS EACH RULE CAME FROM (Claude Code: "The carve-out reaches only rules from the same source"; Bash docs pass
@@ -150,65 +206,85 @@ export function fileRuleHit(list, tool, path, kind, ctx = {}) {
   const rules = (Array.isArray(list) ? list : []).map((t) => String(t || "").trim()).map((t) => {
     const m = /^([A-Za-z]+)(?:\(([\s\S]*)\))?$/.exec(t);
     if (!m || m[1] !== tool) return null;
-    // (An allow rule `Read(*)` or `Read()`: the path "*", from the project's folder, not the whole tool: STAR_PATH_TOOLS.)
+    // (An allow rule `Read(*)` or `Read()`: the working folders, not the whole tool: STAR_PATH_TOOLS, and below.)
     if (kind === "allow" && starAllowTool(t)) return { text: t, spec: "*", srcs: srcsOf(t), star: true };
     return { text: t, spec: m[2] === undefined ? null : m[2].trim(), srcs: srcsOf(t) };
   }).filter((r) => r && !(ctx.pathOnly === true && !r.star && (r.spec === null || r.spec === "*" || r.spec === "")));
   if (!rules.length) return "";
-  const whole = rules.find((r) => !r.star && (r.spec === null || r.spec === "*" || r.spec === "**"));
+  const whole = rules.find((r) => !r.star && (r.spec === null || r.spec === "*"));
   if (whole) return whole.text;
   const p = plainPath(path);
   let to = p;
   if (typeof ctx.real === "function") { try { to = ctx.real(p) || ""; } catch { to = ""; } }
-  const asked = hitOne(rules, p, kind, ctx);
-  if (kind === "allow") { if (!asked || !to || to === p) return asked; return hitOne(rules, plainPath(to), kind, ctx) ? asked : ""; }
+  // (An allow rule `X(*)` is no pattern in Claude Code 2.1.325: its `Lha` approves a path inside the working folders, the
+  // project's and the chat's other ones (its `vy` over `pk`), before the path rules. Round 4, 2026-11-14.)
+  const star = rules.find((r) => r.star);
+  const paths = rules.filter((r) => !r.star);
+  const work = [plainPath(ctx.root || "/"), ...(Array.isArray(ctx.roots) ? ctx.roots.filter((x) => typeof x === "string" && x.startsWith("/")).map(plainPath) : [])];
+  const inWork = (x) => work.some((d) => x === d || x.startsWith(d === "/" ? "/" : d + "/"));
+  const one = (x) => (star && inWork(x) ? star.text : "") || hitOne(paths, x, kind, ctx);
+  const asked = one(p);
+  if (kind === "allow") { if (!asked || !to || to === p) return asked; return one(plainPath(to)) ? asked : ""; }
   return asked || (to && to !== p ? hitOne(rules, plainPath(to), kind, ctx) : "");
 }
 
 /**
- * fileRuleHit for one path as it is (no link followed). (`ctx.roots`: the chat's other working folders, where a deny or ask
- * rule's plain relative path, `path` or `./path`, applies too: Claude Code 2.1.325, "relative deny and ask permission rules
- * (e.g. Read(./.env)) … now also apply in added directories"; an allow rule's stays at the project's folder, as Claude Code's
- * stays at its current one. Round 3, 2026-11-14.)
+ * THE FOLDERS A RULE'S RELATIVE PATH (`path`, `./path`) COUNTS FROM (Claude Code 2.1.325's `wfn`): for an allow rule, the
+ * current folder alone; for a deny or ask rule, the current folder, then the project's (its original folder and its project
+ * root, each with the place its links lead) and each of the chat's other working folders ("relative deny and ask permission
+ * rules (e.g. Read(./.env)) no longer covering the project after a cd; they now also apply in added directories"). `ctx.cwd`
+ * is Coder's current folder (the project's when not given), `ctx.roots` the other working folders.
+ */
+function relativeBases(kind, ctx) {
+  const root = plainPath(ctx.root || "/");
+  const cwd = typeof ctx.cwd === "string" && ctx.cwd.startsWith("/") ? plainPath(ctx.cwd) : root;
+  if (kind === "allow") return [cwd];
+  // (Each folder's real place, looked up once for each `real` (Claude Code keeps its working folders' spellings too).)
+  let known = typeof ctx.real === "function" ? SPELLINGS.get(ctx.real) : null;
+  if (typeof ctx.real === "function" && !known) { known = new Map(); SPELLINGS.set(ctx.real, known); }
+  const spell = (x) => {
+    const out = [x];
+    if (typeof ctx.real === "function") {
+      let r = known.get(x);
+      if (r === undefined) { try { r = ctx.real(x) || ""; } catch { r = ""; } known.set(x, r); }
+      if (r && plainPath(r) !== x) out.push(plainPath(r));
+    }
+    return out;
+  };
+  const more = Array.isArray(ctx.roots) ? ctx.roots.filter((x) => typeof x === "string" && x.startsWith("/")).map(plainPath) : [];
+  return [...new Set([cwd, ...[root, ...more, root].flatMap(spell).filter((x) => x !== cwd)])];
+}
+const SPELLINGS = new WeakMap();
+
+/**
+ * fileRuleHit for one path as it is (no link followed), as Claude Code's `Jt` and `ic`: the rules by where they are anchored
+ * (one group for the relative ones), and in each group one library per settings source for deny and ask rules (a `!` rule
+ * carves out of its own source's relative rules only), one for all allow rules; each anchor's groups in the order their rules
+ * come, the relative group at each of its folders, a source's library from the last one made.
  */
 function hitOne(rules, p, kind, ctx) {
   const root = plainPath(ctx.root || "/"), home = ctx.home ? plainPath(ctx.home) : "";
-  const more = kind === "allow" || !Array.isArray(ctx.roots) ? [] : ctx.roots.filter((x) => typeof x === "string" && x.startsWith("/")).map(plainPath).filter((x) => x !== root);
-  // One group per anchor; the plain relative rules (`path`, `./path`) a group of their own, the only one a `!` rule reaches.
+  const allow = kind === "allow";
   const groups = new Map();
-  const add = (key, base, r) => { if (!groups.has(key)) groups.set(key, { base, list: [] }); groups.get(key).list.push(r); };
-  for (const r of rules) {
-    // A `!` rule (deny and ask lists only): read from the project's folder whatever follows it (Claude Code: "reads a ! pattern
-    // relative to the current directory even when /, ~/, or // follows the !, so the pattern can't reach a rule anchored with
-    // one of those prefixes"); it carves out of the plain relative rules before it ("A ! rule listed first carves nothing out").
-    // (Only the rules from its own settings: each source's relative rules are a group of their own. A bare `!` does
-    // nothing: Claude Code 2.1.269, "a bare ! negation is ignored".)
-    if (r.spec.startsWith("!")) {
-      if (kind === "allow") continue;
-      const gp = r.spec.slice(1).trim() ? gitPattern(r.spec.slice(1).replace(/^\.\//, "")) : null;
-      for (const src of r.srcs || ["own"]) {
-        const g = groups.get("rel|" + src);
-        if (!g || !g.list.length) continue;
-        if (gp) add("rel|" + src, root, { ...gp, neg: true, text: r.text });
-      }
-      continue;
-    }
+  const groupOf = (base) => { const key = base === null ? "\u0000relative" : base; let g = groups.get(key); if (!g) { g = { base, matchers: [] }; groups.set(key, g); } return g; };
+  const matcherOf = (g, src) => { let m = g.matchers.find((x) => x.src === src); if (!m) { m = { src, map: new Map(), lib: null }; g.matchers.push(m); } return m; };
+  // (A deny or ask rule's pattern written again moves to its place; an allow list keeps the first place: Claude Code's `Jt`.)
+  const put = (base, src, ce, text, again) => { const m = matcherOf(groupOf(base), src); if (again) m.map.delete(ce); m.map.set(ce, text); };
+  // (Claude Code puts an allow `!` rule it can't use, nor its literal path, after the others: its `oc`.)
+  const unusableNeg = (r) => { const c = String(r.spec); if (!/^(?:\.\/)?!/.test(c)) return false; const n = ccClean(c.replace(/^\.\//, "")); return igProblem(ccTrim(n, false)) !== null && igCompileError(ccTrim(ccLiteral(n), false)) !== null; };
+  const ordered = allow ? [...rules.filter((r) => !unusableNeg(r)), ...rules.filter(unusableNeg)] : rules;
+  for (const r of ordered) {
     const a = anchorOf(r.spec, kind, { root, home });
     if (!a) continue;
-    const base = plainPath(a.root);
-    const gp = gitPattern(a.pattern);
-    for (const src of r.srcs || ["own"]) {
-      const key = (a.pattern.startsWith("/") ? "at:" + base : "rel") + "|" + src;
-      // ("A deny or ask rule whose path isn't usable as a gitignore pattern still guards that exact path. An allow rule with
-      // an unusable pattern doesn't approve anything.")
-      if (!gp) { if (kind !== "allow") add(key, base, { exact: a.pattern.replace(/^\/+/, ""), neg: false, text: r.text }); continue; }
-      add(key, base, { ...gp, neg: false, text: r.text });
-    }
-    if (!gp) continue;
+    const base = a.root === null ? null : plainPath(a.root);
+    const J = ccClean(a.pattern);
+    const ce = ccKept(J, allow);
+    if (ce === null) continue;
+    for (const src of allow ? ["*"] : r.srcs || ["own"]) put(base, src, ce, r.text, !allow || (ce === "!**" && ce !== J));
     // A DENY OR ASK RULE WRITTEN THROUGH A LINKED FOLDER (Claude Code: "a deny or ask rule written through a symlinked
     // directory with a //, ~/, or / pattern also applies at the directory's real location"): its fixed start, followed.
-    if (kind !== "allow" && typeof ctx.real === "function" && a.pattern.startsWith("/")) {
-      const segs = a.pattern.slice(1).split("/");
+    if (!allow && base !== null && typeof ctx.real === "function" && ce === J && J.startsWith("/")) {
+      const segs = J.slice(1).split("/");
       const k = segs.findIndex((s) => /[*?[\\]/.test(s));
       const fixed = segs.slice(0, k < 0 ? segs.length - 1 : k);
       if (fixed.length) {
@@ -216,18 +292,36 @@ function hitOne(rules, p, kind, ctx) {
         try { real = ctx.real(join(base, ...fixed)) || ""; } catch { real = ""; }
         const realBase = real ? plainPath(real) : "";
         if (realBase && realBase !== plainPath(join(base, ...fixed))) {
-          const gp2 = gitPattern("/" + segs.slice(fixed.length).join("/"));
-          if (gp2) add("at:" + realBase + "|" + (r.srcs || ["own"])[0], realBase, { ...gp2, neg: false, text: r.text });
+          const twin = "/" + segs.slice(fixed.length).join("/");
+          if (igProblem(ccTrim(twin, false)) === null) for (const src of r.srcs || ["own"]) { const m = matcherOf(groupOf(realBase), src); if (!m.map.has(twin)) m.map.set(twin, r.text); }
         }
       }
     }
   }
-  for (const [key, { base, list }] of groups.entries()) {
-    for (const b of key.startsWith("rel|") ? [base, ...more] : [base]) {
+  for (const g of groups.values()) {
+    for (const b of g.base === null ? relativeBases(kind, ctx) : [g.base]) {
       const rel = relative(b, p);
-      if (!rel || rel.startsWith("..") || isAbsolute(rel)) continue;
-      const hit = groupCovers(list, rel, !!ctx.isDir);
-      if (hit) return hit.text;
+      if (!igPathValid(rel)) continue;
+      const tested = ctx.isDir && igPathValid(rel + "/") ? rel + "/" : rel;
+      for (let q = g.matchers.length - 1; q >= 0; q--) {
+        const m = g.matchers[q];
+        let res;
+        try { if (!m.lib) m.lib = igRules(Array.from(m.map.keys(), (x) => ccTrim(x, allow))); res = igTest(m.lib, tested); } catch {
+          // (A test the library can't make: Claude Code's allow approves nothing; its deny and ask take the source's first rule
+          // that isn't a `!` one.)
+          if (allow) return "";
+          const first = Array.from(m.map).find(([x]) => !x.startsWith("!"));
+          if (first !== undefined) return first[1];
+          continue;
+        }
+        if (!res.ignored || !res.rule) continue;
+        // (The rule the library matched, by its pattern: Claude Code's lookup, `x/**` first.)
+        const oe = res.rule.pattern, pe = oe + "/**";
+        if (m.map.has(pe) && (oe.includes("/") || !allow)) return m.map.get(pe);
+        if (oe.startsWith("/") && m.map.has(oe.slice(1) + "/**")) return m.map.get(oe.slice(1) + "/**");
+        const we = m.map.get(oe);
+        if (we !== undefined || allow) return we || "";
+      }
     }
   }
   return "";

@@ -7,6 +7,7 @@ import { readFileSync } from "node:fs";
 
 const F = await import("../container/coder-filerules.mjs");
 const P = await import("../container/coder-perms.mjs");
+const S = await import("../container/coder-search.mjs");
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 const ROOT = "/work/shop", HOME = "/home/dev";
 const ctx = { root: ROOT, home: HOME };
@@ -45,13 +46,19 @@ test("CD382 a Read or Edit rule's path, as Claude Code reads it: gitignore patte
   assert.equal(hit(["Read(!sample.env)", "Read(*.env)"], ROOT + "/c/sample.env"), "Read(*.env)");
   assert.equal(hit(["Read(~/notes/**)", "Read(!~/notes/public/**)"], HOME + "/notes/public/x"), "Read(~/notes/**)");
   assert.equal(hit(["Read(secrets/**)", "Read(!secrets/public/**)"], ROOT + "/secrets/public/a.txt"), "Read(secrets/**)");
-  assert.equal(hit(["Read(*.env)", "Read(!sample.env)"], ROOT + "/c/sample.env", "allow"), "Read(*.env)", "a ! rule is a deny or ask pattern: in an allow list it carves nothing out");
+  // (In an allow list too, as Claude Code 2.1.325 matches it: its one library for all allow rules takes a `!` rule as gitignore
+  // does. Round 4, 2026-11-14.)
+  assert.equal(hit(["Read(*.env)", "Read(!sample.env)"], ROOT + "/c/sample.env", "allow"), "");
+  assert.equal(hit(["Read(*.env)", "Read(!sample.env)"], ROOT + "/c/prod.env", "allow"), "Read(*.env)");
   // Parentheses need no escaping; a class and a folder-only pattern.
   assert.equal(hit(["Edit(./Finance (2024)/**)"], ROOT + "/Finance (2024)/q.xlsx", "deny", "Edit"), "Edit(./Finance (2024)/**)");
   assert.equal(hit(["Read(*.[ch])"], ROOT + "/x/y.c"), "Read(*.[ch])");
   assert.equal(hit(["Read(secrets/)"], ROOT + "/a/secrets/k"), "Read(secrets/)");
-  // A rule on the whole tool, as Read, Read(*) or Read(**): every path. Edit rules are not Read rules.
-  for (const r of ["Read", "Read(*)", "Read(**)"]) assert.equal(hit([r], "/anywhere/at/all"), r);
+  // A rule on the whole tool, as Read or Read(*): every path. Read(**) is a path rule (round 4): every path below the project,
+  // nothing outside it. Edit rules are not Read rules.
+  for (const r of ["Read", "Read(*)"]) assert.equal(hit([r], "/anywhere/at/all"), r);
+  assert.equal(hit(["Read(**)"], "/anywhere/at/all"), "");
+  assert.equal(hit(["Read(**)"], ROOT + "/deep/a.txt"), "Read(**)");
   assert.equal(hit(["Edit(.env)"], ROOT + "/.env"), "");
   // Links: a deny rule matches the path asked for or where it leads; an allow rule only when both match ("with
   // Read(./project/**) allowed and Read(~/.ssh/**) denied, a symlink at ./project/key pointing to ~/.ssh/id_rsa is blocked").
@@ -77,7 +84,8 @@ test("CD382 a Read or Edit rule's path, as Claude Code reads it: gitignore patte
 test("CD382b Read and Edit rules are saved and applied; Claude Code's error for :* in a file rule; Write, Glob and Grep rules with a path are kept but never match, with its warning; whole-tool Write, Grep, Glob and LSP rules apply to Coder's tools", async () => {
   assert.deepEqual(P.parseRule("Read(./.env)"), { tool: "Read", spec: "./.env" });
   assert.deepEqual(P.parseRule("Edit(src/**)"), { tool: "Edit", spec: "src/**" });
-  for (const r of ["Read", "Read(*)", "Read(**)"]) assert.deepEqual(P.parseRule(r), { tool: "Read", spec: null }, r);
+  for (const r of ["Read", "Read(*)"]) assert.deepEqual(P.parseRule(r), { tool: "Read", spec: null }, r);
+  assert.deepEqual(P.parseRule("Read(**)"), { tool: "Read", spec: "**" }, "a path rule (round 4)");
   for (const t of ["Write", "Grep", "Glob", "LSP"]) assert.deepEqual(P.parseRule(t), { tool: t, spec: null });
   // Claude Code: 'The ":*" syntax is only for Bash prefix rules', with its suggestion and examples.
   assert.equal(P.ruleProblem("Read(src:*)"), 'The ":*" syntax is only for Bash prefix rules. Use glob patterns like "*" or "**" for file matching. Examples: Read(*.ts) - matches .ts files, Read(src/**) - matches all files in src, Read(**/*.test.ts) - matches test files');
@@ -188,7 +196,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   assert.ok(!tools.includes("edit") && !tools.includes("write"), "nothing was touched: " + tools.join(","));
   // (A search's results leave out what a Read deny rule covers inside the search itself, as Claude Code's do, since
   // 2026-11-14: its run gets the owner's Read deny rules, coder-search.mjs; search.test.mjs SR7 runs it.)
-  assert.deepEqual(reqs.find((q) => q.tool === "grep").ctx.deny, { rules: ["Read(.env)"], sources: null, root: ROOT, home: "" });
+  assert.deepEqual(reqs.find((q) => q.tool === "grep").ctx.deny, { rules: ["Read(.env)"], sources: null, root: ROOT, cwd: ROOT, home: "" });
   assert.equal(out("g1"), "Found 2 files\nsecrets/k.txt\nsrc/a.js");
   assert.equal(cards.length, 1);
   assert.deepEqual([cards[0].tool, cards[0].path, cards[0].why, cards[0].rules], ["read", "docs/a.md", "Your rule Read(docs/**) asks first for reading /work/shop/docs/a.md.", undefined]);
@@ -331,4 +339,159 @@ test("CD382h an allow rule Read(*), Edit(*), Write(*), Grep(*), Glob(*) or LSP(*
   assert.equal(said("LSP"), null);
   assert.equal(P.ruleSaved("LSP(*)"), true, "still saved");
   assert.match(P.ruleProblem("LSP()"), /^Empty parentheses\./, "LSP() refused as before, as Claude Code's settings check refuses it");
+});
+
+// ── ROUND 4 (2026-11-14, the owner: "yes" to copying Claude Code 2.1.325 for each) ─────────────────────────────────────────
+// Each expected value below was worked out with Claude Code 2.1.325's own functions (its `_t`, `At`, `Nr`, `Fc`, `Jt`, `ic`
+// and `wfn`, and its copy of the ignore library, read from /opt/claude-code/bin/claude), not from Coder's.
+test("CD382i a path rule matches as Claude Code 2.1.325 matches it, with its own matcher (the ignore library's): a relative path with two parts is anchored where it counts from (Read(config/app.json), Read(src/*)), only a single folder's x/** matches at any depth in a deny or ask rule; letters in either case; the first rule that matches is the one named; a pattern the library can't use guards its literal path in a deny or ask rule and approves nothing in an allow one; a `!` rule carves out of allow rules too", () => {
+  for (const kind of ["deny", "ask"]) {
+    assert.equal(hit(["Read(config/app.json)"], ROOT + "/config/app.json", kind), "Read(config/app.json)", kind);
+    assert.equal(hit(["Read(config/app.json)"], ROOT + "/x/config/app.json", kind), "", kind + ": anchored (Coder had matched it at any depth)");
+    assert.equal(hit(["Read(./config/app.json)"], ROOT + "/x/config/app.json", kind), "", kind);
+    assert.equal(hit(["Read(src/*)"], ROOT + "/src/a.js", kind), "Read(src/*)", kind);
+    assert.equal(hit(["Read(src/*)"], ROOT + "/src/deep/a.js", kind), "Read(src/*)", kind + ": src/deep is matched as a folder");
+    assert.equal(hit(["Read(src/*)"], ROOT + "/vendor/src/a.js", kind), "", kind + ": anchored");
+    assert.equal(hit(["Read(docs/*.md)"], ROOT + "/sub/docs/a.md", kind), "", kind + ": anchored");
+    assert.equal(hit(["Read(secrets/**)"], ROOT + "/a/b/secrets/k", kind), "Read(secrets/**)", kind + ": a single folder's x/**, any depth");
+    assert.equal(hit(["Read(**/src/*)"], ROOT + "/vendor/src/a.js", kind), "Read(**/src/*)", kind + ": **/ at any depth");
+  }
+  // Letters in either case: the ignore library's default, as Claude Code creates it.
+  assert.equal(hit(["Read(.ENV)"], ROOT + "/.env"), "Read(.ENV)");
+  assert.equal(hit(["Edit(SRC/**)"], ROOT + "/src/a.ts", "allow", "Edit"), "Edit(SRC/**)");
+  // The first rule that matches since the last `!` one that did (the library's own order).
+  assert.equal(hit(["Read(.env)", "Read(**/.env)"], ROOT + "/a/.env"), "Read(.env)");
+  assert.equal(hit(["Read(*.env)", "Read(!*.env)", "Read(prod.env)"], ROOT + "/c/prod.env"), "Read(prod.env)");
+  // A pattern the library skips (a comment's #): a deny or ask rule guards the literal path; an allow rule approves nothing.
+  assert.equal(hit(["Read(#notes)"], ROOT + "/#notes"), "Read(#notes)");
+  assert.equal(hit(["Read(#notes)"], ROOT + "/#notes", "allow"), "");
+  // A `!` rule in an allow list carves out of the allow rules (Claude Code keeps one library for all of them).
+  assert.equal(hit(["Read(*.env)", "Read(!sample.env)"], ROOT + "/c/sample.env", "allow"), "");
+  // The docs' table, unchanged: Edit(src/**) as an allow rule at the top only, as a deny or ask rule at any depth; /src/** and
+  // **/src/** the same in every rule type; src/components/** anchored.
+  assert.equal(hit(["Edit(src/components/**)"], ROOT + "/x/src/components/a.js", "deny", "Edit"), "");
+  assert.equal(hit(["Edit(src/**)"], ROOT + "/vendor/pkg/src/lib.js", "allow", "Edit"), "");
+  assert.equal(hit(["Edit(src/**)"], ROOT + "/vendor/pkg/src/lib.js", "deny", "Edit"), "Edit(src/**)");
+  // The search's own globs are as Claude Code's (its DHr): a relative rule at any depth, as before.
+  assert.deepEqual(S.denyGlobs({ rules: ["Read(config/app.json)", "Read(src/*)", "Read(/top.txt)"], root: ROOT }, ROOT), ["!**/config/app.json", "!**/src/*", "!/top.txt"]);
+});
+
+test("CD382j Read(**) and Edit(**) are path rules, as in Claude Code 2.1.325 (its parser makes only an empty or \"*\" content the whole tool): a deny takes no tool away from Coder, and each call on a path below the folders a relative rule counts from is refused (a path outside them is not covered); Read(*) and Read are still the whole tool", async () => {
+  assert.deepEqual(P.parseRule("Edit(**)"), { tool: "Edit", spec: "**" });
+  assert.equal(P.wholeRule({ deny: ["Read(**)"] }, "deny", "Read"), "", "not the whole tool");
+  assert.equal(P.wholeRule({ deny: ["Read(*)"] }, "deny", "Read"), "Read(*)");
+  const fd = (tool, p, rules) => P.fileToolDecision(tool, p, { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, home: HOME });
+  assert.deepEqual(fd("read", ROOT + "/src/a.js", { deny: ["Read(**)"] }), { verdict: "deny", rule: "Read(**)", why: "File is in a directory that is denied by your permission settings." });
+  assert.equal(fd("read", "/etc/hostname", { deny: ["Read(**)"] }).verdict, "", "outside the project: not covered");
+  assert.equal(fd("edit", "/tmp/x.txt", { deny: ["Edit(**)"] }).verdict, "");
+  assert.equal(P.bashDecision("cat /etc/hostname", { mode: "auto", rules: { allow: [], ask: [], deny: ["Read(**)"] }, cwd: ROOT, workdirs: [ROOT], home: HOME }).verdict, "allow", "a command reading outside the project");
+  assert.equal(P.bashDecision("cat a.txt", { mode: "auto", rules: { allow: [], ask: [], deny: ["Read(**)"] }, cwd: ROOT, workdirs: [ROOT], home: HOME }).verdict, "deny");
+  // The search's glob for it, Claude Code's: nothing below the folder searched.
+  assert.deepEqual(S.denyGlobs({ rules: ["Read(**)"], root: ROOT }, ROOT), ["!**/**"]);
+  // In Coder's loop: the read tool is offered, and a read of a file of the project is refused in Read's words.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const seen = [], ran = [];
+  let n = 0;
+  const steps = [say("", [call("read", { path: "a.txt" }, "r1"), call("edit", { path: "a.txt", old_string: "a", new_string: "b" }, "e1")]), say("Done.")];
+  const r = await runCoder({
+    send: async (q) => { seen.push(q); return steps[Math.min(n++, steps.length - 1)]; },
+    exec: async (x) => { ran.push(String(x.command)); return { code: 0, output: "ok" }; }, emit: () => {},
+    here: () => ROOT, root: ROOT, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p), toolSearch: "false",
+  }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(**)", "Edit(**)"] } });
+  const offered = (seen[0].tools || []).map((t) => t.function.name);
+  assert.ok(offered.includes("read") && offered.includes("edit") && offered.includes("write") && offered.includes("grep"), offered.join(","));
+  const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.equal(out("r1"), "File is in a directory that is denied by your permission settings.");
+  assert.equal(out("e1"), "File is in a directory that is denied by your permission settings.");
+  assert.ok(!ran.some((c) => /coder-tools\.mjs/.test(c)), "nothing read or changed");
+});
+
+test("CD382k a relative rule's path counts from the folder Coder's commands are in, as Claude Code's from its current folder (2.1.325's wfn): a deny or ask rule from that folder, then the project's, then each other working folder; an allow rule from that folder alone; Coder's loop, its commands and its searches give that folder", async () => {
+  const SUB = ROOT + "/sub", W = "/work/extra";
+  const at = (cwd, more = []) => ({ ...ctx, cwd, roots: more });
+  // Deny and ask: the current folder, and the project's too ("no longer covering the project after a cd" fixed in 2.1.325).
+  for (const kind of ["deny", "ask"]) {
+    assert.equal(hit(["Read(config/app.json)"], SUB + "/config/app.json", kind, "Read", at(SUB)), "Read(config/app.json)", kind);
+    assert.equal(hit(["Read(config/app.json)"], ROOT + "/config/app.json", kind, "Read", at(SUB)), "Read(config/app.json)", kind);
+    assert.equal(hit(["Read(config/app.json)"], W + "/config/app.json", kind, "Read", at(SUB, [W])), "Read(config/app.json)", kind);
+    assert.equal(hit(["Read(.env)"], "/work/.env", kind, "Read", at(SUB)), "", kind + ": not above the project");
+  }
+  // Allow: the current folder alone (the project's own, as before, when Coder is in it; /path stays the project's).
+  assert.equal(hit(["Edit(src/**)"], SUB + "/src/a.ts", "allow", "Edit", at(SUB)), "Edit(src/**)");
+  assert.equal(hit(["Edit(src/**)"], ROOT + "/src/a.ts", "allow", "Edit", at(SUB)), "");
+  assert.equal(hit(["Edit(/src/**)"], ROOT + "/src/a.ts", "allow", "Edit", at(SUB)), "Edit(/src/**)");
+  assert.equal(hit(["Edit(src/**)"], ROOT + "/src/a.ts", "allow", "Edit"), "Edit(src/**)", "no current folder given: the project's");
+  // (An allow rule X(*) is no pattern: Claude Code's Lha approves a path in the working folders, the project's and the others.)
+  assert.equal(hit(["Read(*)"], ROOT + "/src/a.ts", "allow", "Read", at(SUB)), "Read(*)");
+  assert.equal(hit(["Read(*)"], W + "/a.txt", "allow", "Read", at(SUB, [W])), "Read(*)");
+  assert.equal(hit(["Read(*)"], "/etc/hostname", "allow", "Read", at(SUB, [W])), "");
+  // The file tools' decision and a command's files.
+  assert.equal(P.fileToolDecision("read", SUB + "/config/app.json", { rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] }, root: ROOT, cwd: SUB }).verdict, "deny");
+  assert.equal(P.fileToolDecision("read", SUB + "/config/app.json", { rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] }, root: ROOT }).verdict, "", "from the project only, without it");
+  const bd = (cmd, cwd) => P.bashDecision(cmd, { mode: "auto", rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] }, cwd, workdirs: [ROOT], home: HOME }).verdict;
+  assert.deepEqual([bd("cat config/app.json", SUB), bd("cat ../config/app.json", SUB), bd("cat x/config/app.json", ROOT)], ["deny", "deny", "allow"]);
+  // Coder's loop: its current folder (deps.here) goes to the rules' checks and to the search.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const reqs = [];
+  let n = 0;
+  const steps = [say("", [call("read", { path: "config/app.json" }, "r1"), call("read", { path: "x/config/app.json" }, "r2"), call("grep", { pattern: "k" }, "g1")]), say("Done.")];
+  const r = await runCoder({
+    send: async () => steps[Math.min(n++, steps.length - 1)],
+    exec: async (x) => { const b = String(x.command).split(" ").pop(); try { reqs.push(JSON.parse(Buffer.from(b, "base64").toString("utf8"))); } catch { /* a command */ } return { code: 0, output: "     1\tx\n" }; },
+    emit: () => {}, here: () => SUB, root: ROOT, where: (p) => (p.startsWith("/") ? p : SUB + "/" + p), toolSearch: "false",
+  }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: ["Read(config/app.json)"] } });
+  const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  assert.equal(out("r1"), "File is in a directory that is denied by your permission settings.");
+  assert.match(out("r2"), /\tx/, "anchored: x/config/app.json is read");
+  assert.equal(reqs.find((q) => q.tool === "grep").ctx.deny.cwd, SUB);
+  // The search's own check counts from that folder too (coder-search.mjs, as the tools script runs it).
+  assert.match(read("container/coder-search.mjs"), /\.\.\.\(typeof deny\.cwd === "string" && deny\.cwd \? \{ cwd: deny\.cwd \} : \{\}\)/);
+});
+
+test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory under .claude (\".claude/plans\"), is written without the protected-file card in every mode, as Claude Code's \"Plan files for current session are allowed for writing\" (its exceptions to .claude: \"The current session's own plan files … in the plansDirectory you set\"); another file there still asks; the owner's deny and ask rules still apply to it", async () => {
+  const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const PF = await import("../container/coder-plan-file.mjs");
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const root = await mkdtemp(join(tmpdir(), "coder-d3-"));
+  await mkdir(join(root, ".claude", "plans"), { recursive: true });
+  const run = async (mode, calls, rules = {}, answers = []) => {
+    const box = PF.planStore({ dir: await mkdtemp(join(tmpdir(), "coder-d3-dir-")), stateFile: join(await mkdtemp(join(tmpdir(), "coder-d3-st-")), "plan.json"), rand: () => 0, custom: { dir: join(root, ".claude", "plans"), root } });
+    const f = await box.name("Fix the cart");
+    const events = [], cards = [], wrote = [];
+    let n = 0, k = 0;
+    const steps = [say("", calls(f)), say("Done.")];
+    const r = await runCoder({
+      send: async () => steps[Math.min(n++, steps.length - 1)],
+      exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); if (tm) { const q = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8")); if (q.tool === "write") { wrote.push(q.args.path); await writeFile(q.args.path, q.args.content); return { code: 0, output: "File created successfully at: " + q.args.path }; } } return { code: 0, output: "ok" }; },
+      emit: (e) => events.push(e), here: () => root, root, chatId: "d3", where: (p) => (p.startsWith("/") ? p : join(root, p)),
+      ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || null; },
+      plan: box, toolSearch: "false",
+    }, { text: "Fix the cart", mode, messages: [], rules: { allow: [], ask: [], deny: [], ...rules } });
+    return { f, cards, wrote, told: (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content };
+  };
+  for (const mode of ["plan", "acceptEdits", "auto"]) {
+    const t = await run(mode, (f) => [call("write", { path: f, content: "1. Fix it\n" }, "w1")]);
+    assert.equal(t.cards.length, 0, mode + ": no card for the chat's own plan file");
+    assert.deepEqual(t.wrote, [t.f], mode);
+    assert.equal(t.told("w1"), "File created successfully at: " + t.f, mode);
+  }
+  // Another file in that folder is still a protected file of the project: asked.
+  const other = await run("acceptEdits", () => [call("write", { path: ".claude/plans/notes.md", content: "x" }, "w2")], {}, [{ choice: "yes" }]);
+  assert.equal(other.cards.length, 1);
+  assert.equal(other.cards[0].why, ".claude/plans/notes.md is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built.");
+  // The owner's deny and ask rules still apply to the plan file (Claude Code checks them before its plan files' exception).
+  const denied = await run("acceptEdits", (f) => [call("write", { path: f, content: "x" }, "w3")], { deny: ["Edit(.claude/**)"] });
+  assert.equal(denied.told("w3"), "File is in a directory that is denied by your permission settings.");
+  assert.deepEqual(denied.wrote, []);
+  const asked = await run("acceptEdits", (f) => [call("write", { path: f, content: "x" }, "w4")], { ask: ["Edit(.claude/plans/**)"] }, [{ choice: "yes" }]);
+  assert.equal(asked.cards.length, 1);
+  assert.match(asked.cards[0].why, /^Your rule Edit\(\.claude\/plans\/\*\*\) asks first for writing /);
 });

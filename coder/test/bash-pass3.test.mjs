@@ -120,7 +120,7 @@ test("CD343 a write through a link to a protected file is asked about in every m
 test("CD344 the machine wires it in: both checks get the link resolver, the permission check the call's settings; the page's card for a write through a link", () => {
   const agent = src("coder-agent.mjs");
   // (Since Bash docs pass 9: an Edit allow rule matching the path and where it leads, never a Bash rule.)
-  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(full\) => !github && !!fileRuleHit\(rulesB\.allow, "Edit", full, "allow", \{ root: deps\.root \|\| "\/", home: deps\.home \|\| "", real: \(p\) => realPath\(p\) \}\) \}\)/);
+  assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(full\) => !github && !!fileRuleHit\(rulesB\.allow, "Edit", full, "allow", \{ root: deps\.root \|\| "\/", cwd: where0 \|\| deps\.root \|\| "\/", home: deps\.home \|\| "", real: \(p\) => realPath\(p\) \}\) \}\)/);
   assert.match(agent, /const rulesB = c\.monitor \? monitorRules\(ownRules, modeB\) : ownRules;/, "a monitor's command: Bash's rules and Monitor's (CD385)");
   assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: rulesB, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.monitor \? c\.monitorArgs : c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false, scratch: \[SCRATCH\], \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
