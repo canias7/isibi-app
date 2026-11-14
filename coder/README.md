@@ -2262,9 +2262,9 @@ Gloopy turn by the Worker (`jobConnectors`) and offered after Gloopy's own tools
 (with the tool search when there are many); each call goes through the Worker's
 gate with the turn's pass, as Coder's do. Each tool as the owner set it: **Always
 allow** runs at once; **Needs approval**, and a tool its server asks about every
-time, asks on Gloopy's own card and the turn ends there (Gloopy has no modes, so
-Coder's "in Auto it runs" does not apply; nor do read-only tools start side by side
-before their card). On the card, **Allow once** has the Worker make that one call
+time, asks on Gloopy's own card and the turn ends there (Gloopy has no modes;
+Coder's chats ask in every mode too, Auto included, since round 6; nor do read-only
+tools start side by side before their card). On the card, **Allow once** has the Worker make that one call
 with the owner's sign-in (`gloopyCard`), and Gloopy hears the answer with the next
 message, fenced off as the connector's data (up to 20,000 characters); **Always
 allow** also sets that tool to Always allow on the Connectors page (not offered for
