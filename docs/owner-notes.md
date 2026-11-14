@@ -17,6 +17,135 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Round 6: Claude Code's way on the open questions (your words: "do what claude code does")
+
+On my branch with rounds 4 and 5, not deployed yet. Four helpers, each with follow-ups. All 1,181 tests passed after
+merging.
+
+- **After No or Stop:** Coder's record gets Claude Code's line "[Request interrupted by the owner for tool use]". Stop
+  while Grok is still writing cuts the answer off and drops it. Stop during your own `!` command keeps the command in
+  Coder's memory of the chat, but not its output. Stop on a card that waited while the machine slept tells each
+  unanswered step you don't want it done right now.
+- **Auto mode:**
+  - If the safety checker can't answer ten times in a row, steps already running finish and keep their results, and the
+    rest are skipped in Claude Code's words. Commands still running move to the background.
+  - After 3 blocks in a row (or 20 in a chat), Coder no longer pauses: it asks you about the blocked step, in Claude
+    Code's words, and your Yes starts the count again.
+  - If you change the mode while a step is being checked, you get that step's normal card.
+- **Checks before your hooks:** read, write and edit now check their input before your hooks or any card, in Claude
+  Code's order and words, so a step that would fail anyway never asks you. New checks from Claude Code:
+  - device files and pipes are refused;
+  - edit says "Did you mean …?" for a missing file;
+  - a file must be read first when reading it would need your approval;
+  - an edit that breaks `.claude/settings.json` is refused;
+  - tokens or keys written into Coder's memory file are refused;
+  - `.bmp` and `.tif` pictures are refused, as in Claude Code (it shows png, jpg, gif and webp).
+- **Paths:** read, write, edit and lsp treat `~` as Coder's home and ignore spaces around a path, like Claude Code. Files
+  outside the project are still refused. Your hooks now get the file's full path.
+- **Hooks:**
+  - A hook with `if: "WebFetch(domain:…)"` now never runs, as in Claude Code; use `if: "WebFetch"` or no `if`.
+  - PowerShell commands that write the chat's plan file no longer ask.
+  - The once-per-round PostToolBatch hook sees each call as Coder wrote it.
+- **Cards in Claude Code's words:** rules ("Permission rule X requires confirmation for this command"), plan mode
+  ("Cannot write to … while in plan mode"), protected files, hooks that ask, WebSocket watches. Where no one can answer,
+  Coder is told Claude Code's ask. The Environment window shows a description once. Coder no longer tells Grok "the
+  permission mode is now …", because Claude Code doesn't.
+- **Connectors:**
+  - Coder speaks the newer connector version (2026-07-28) with servers that support it. It checks which version once,
+    when it reads a connector's tools, as Claude Code checks once per connection.
+  - A server that forgot Coder's session gets the call again once.
+  - There are no long connector jobs ("tasks"), as in Claude Code's cloud.
+  - Cards show a connector tool's display name.
+- **Needs approval connector tools now ask in every mode, Auto included,** with Claude Code's line "Coder requested
+  permissions to use <tool>, but you haven't granted it yet." Allow rules and hooks that run before a step no longer skip
+  that question; set the tool to Always allow on the Connectors page instead. This reverses my 2026-11-11 note that Auto
+  goes ahead.
+- **Already like Claude Code, no change:** hooks may call any connector tool except one set to Blocked or switched off in
+  the chat.
+- **Kept on purpose:** an empty page number from Grok counts as none (Grok fills unused fields that way); Coder still
+  names itself "Go Farther" to connector servers.
+- **Cost:** nothing new; one extra quick check on the machine per write or edit.
+- **Not tried live yet:** that's for the deploy.
+
+## 2026-11-14: Round 5: the leftover differences (your words: "Yes pls")
+
+On my branch with round 4, not deployed yet. Four helpers. All 1,136 tests passed after merging.
+
+- **No and Stop keep finished steps:** when you say No on a card or press Stop, steps that already finished keep
+  their real results. A step still running is told it was stopped while it ran; steps not started are told they
+  were rejected, in Claude Code's words. A card left waiting saves the finished steps first, so answering it later
+  never runs a search or a check twice.
+- **Hooks at the same time:** your PreToolUse hooks for a reply's read-only steps now run side by side. A read,
+  write or edit your deny rules block is refused before your hooks run, as in Claude Code. PowerShell still runs
+  one step at a time: Claude Code does the same (that finding was wrong).
+- **Cards in Claude Code's words:** read, write, edit, grep and glob cards now say "Coder requested permissions to
+  read from …". Question cards hold back previews over 2,000 characters with Claude Code's line. The plan card
+  says "with a changed input" only when a hook really changed it. "Exited Auto Mode" is told only when Auto ends.
+- **Environment window:** each environment's description is a row you can edit.
+- **File rules and hooks:** a hook's `if` on a file counts from the folder Coder is working in and compares the
+  whole path, as Claude Code's. Searching the project under a `Read(**)` deny rule now runs and finds nothing
+  (it used to refuse). Commands that write the chat's own plan file don't ask any more.
+- **Connectors:** a connector's question card can show the connector's own title; Coder answers a connector that
+  asks which folders it works in; a connector's long task that needs your input is cancelled, as in Claude Code's
+  cloud; a broken answer stream is picked up where it stopped; the newest connector version (older ones still
+  work).
+- **Web fetch:** its card for a site offers "Yes, and don't ask again for <site>".
+- **Tool search:** tools Grok got at the start of a chat stay for the whole chat, as in Claude Code.
+- **Cost:** nothing new. Fewer repeat paid calls (no second search or check after a pause). One extra tiny
+  Worker request per connector call.
+- **Not tried live yet:** that's for the deploy.
+
+## 2026-11-14: Round 4: your choices (your words: "On yes start", "yes pls do both")
+
+On my branch, not deployed yet. Five helpers, then two extras you said yes to. All 1,109 tests passed after merging.
+
+- **A bug fixed:** saving the Environment window no longer changes a value with a backslash before "n" (like
+  `C:\new\tmp`, or a key written with `\n`). Every value now comes back exactly as saved.
+- **Environment lookups show as a table** in the chat (the design is ours: Claude Code doesn't publish its table's look).
+- **Cheaper chats:** Coder's opening instructions to Grok now stay exactly the same for the whole chat, as Claude Code's
+  do. What changes (the folder, the date, the repo's instructions, Coder's memory) goes into the chat as short notes,
+  only what changed. So Grok keeps reusing what it already read. Changes to the repo's instructions or memory reach
+  Grok after the chat's machine restarts or after a summary, as in Claude Code.
+- **Hooks:** hooks can call your connectors ("mcp_tool" hooks). A card now shows at once while your permission hooks
+  run, and whichever answers first wins ("Allowed · by your PermissionRequest hook"). In GitHub jobs your permission
+  hooks get to allow or refuse before Coder refuses.
+- **File rules match exactly like Claude Code's:** `Read(src/*)` only matches that place; letter case doesn't matter;
+  `Read(**)` refuses each file instead of taking the read tool away; relative rules count from the folder Coder is in.
+  Coder's own plan file under `.claude/plans` no longer gets the "protected file" card.
+- **Long command output** is saved to a file, and Coder sees its start and end, as Claude Code does (it used to be cut).
+- **Write and edit** refuse UTF-16 files and files with null bytes; **read** refuses Claude Code's 121 binary file
+  types (`.zip`, `.db`, `.bin` …) in its words. Coder still shows `.bmp` and `.tif` pictures.
+- **Small ones:** the background-update heading when news arrives with your message; the shell setup lines and web
+  fetch's "proxy refused the connection" are Claude Code's; Coder's own Accept edits note is gone.
+- **Found wrong, no change:** Claude Code's cloud shows no startup warning for broken rules (it only logs them), so
+  Coder keeps warning when you save one.
+- **For you to decide:** should hooks from a repository's settings be allowed to call your connectors without asking
+  (Claude Code's cloud allows it)? Should a hook be able to call connector tools that normally ask first, including
+  real-money ones, without a card (Claude Code only stops tools set to Blocked)?
+- **Cost to know:** each existing chat re-reads everything once after the deploy, then the savings start.
+- **Not tried live yet:** that's for the next deploy.
+
+## 2026-11-14: Round 3 is live on gofarther.dev, tested with Grok on Low (your words: "On yes start")
+
+Merged to main and deployed. The first deploy stopped at its own test run: one new test (SR15) expected a file its own
+user couldn't read, which holds when tests run as root but not on GitHub's runner. I fixed the test (not Coder) and the
+second deploy passed. Tested live in one new chat on the test repo, with Grok on Low:
+
+1. **grep and glob in a subfolder:** glob with the pattern `a/*.txt` inside the folder `deep` found both files.
+   Before round 3 it said "No files found". Passed.
+2. **Several steps at once, in Auto, with quick searches:** one reply read README.md, listed the .md files and made two
+   quick web searches; all four worked, and xAI took the quick search (one search each, with links). Passed.
+3. **Tool search after the shorter answer:** Coder loaded the task tools, then created the task and ticked it
+   (Tasks 1/1 done). Passed.
+4. **A new message closes a waiting card:** a command card was left alone until the job paused after 5 minutes; then
+   I sent "Never mind, don't run it". The card showed "Closed · you sent a new message before answering", the step
+   "not run", and Coder answered at once ("skipped"). Passed.
+5. **Claude Code's words for a risky delete:** `rm -rf $CODER_TEST_UNSET/` got Claude Code 2.1.325's full text (the
+   variable could be empty and become `/`; how to rewrite it safely) on its card. Passed.
+6. **The Environment window** shows the new Repositories row. Passed.
+
+Nothing new to fix. Cost: about 10 Grok calls on Low, 2 quick searches and a few safety checks.
+
 ## 2026-11-14: The third check against Claude Code's docs, fixed (your words: "yes pls all of that")
 
 On my branch, not deployed yet. Six checkers compared our tools with Claude Code's newest docs and program, and seven

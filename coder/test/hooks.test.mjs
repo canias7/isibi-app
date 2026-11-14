@@ -102,7 +102,9 @@ async function hooked(steps, hooks, { hookRun, mode = "auto", text = "go", messa
     },
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-h1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); return answers[k++] || { choice: "yes" }; },
+    // (The owner answers after `askWait`; a card one of its PermissionRequest hooks answered first is withdrawn sooner: its
+    // `gone`, fix round 4.)
+    ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); for (const until = Date.now() + askWait; Date.now() < until;) { if (o.gone && o.gone()) return { choice: "gone" }; await new Promise((ok) => setTimeout(ok, 2)); } return answers[k++] || { choice: "yes" }; },
     ...(notifyMs !== undefined ? { promptNotifyMs: notifyMs } : {}),
   }, { text, mode, messages, hooks: H.hooksFrom({ hooks }, "settings").list });
   return { r, events, seen, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls, cards };
@@ -157,9 +159,11 @@ test("CD383b in Coder's loop: PreToolUse blocks, rewrites, asks or allows; PostT
   t = await hooked([say("", [call("bash", { command: "make", description: "Build" }, "b1")]), say("never")], { PostToolUse: hk("stop.sh") }, { hookRun: () => ({ stdout: '{"continue":false,"stopReason":"Build failed, fix errors before continuing"}' }) });
   assert.equal(t.seen.length, 1);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "Build failed, fix errors before continuing"));
-  // PERMISSIONREQUEST: allow answers the card for the owner; the NOTIFICATION hooks run when a card waits.
-  t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PermissionRequest: hk("ok.sh") }, { mode: "acceptEdits", hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}' }) });
-  assert.deepEqual([t.cards.length, t.ran.length], [0, 1]);
+  // PERMISSIONREQUEST: allow answers the card for the owner (shown at once beside its hooks, closed with the hook's answer
+  // when it decides first: fix round 4, D4); the NOTIFICATION hooks run when a card waits.
+  t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { PermissionRequest: hk("ok.sh") }, { mode: "acceptEdits", askWait: 2000, hookRun: () => ({ stdout: '{"hookSpecificOutput":{"hookEventName":"PermissionRequest","decision":{"behavior":"allow"}}}' }) });
+  assert.deepEqual([t.cards.length, t.ran.length], [1, 1]);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["yes", true]]);
   // (The Notification hooks of a card that waits: after Claude Code's 6 seconds, never for one answered sooner. Bash docs
   // pass 9; here the wait made short.)
   t = await hooked([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: "notify.sh" }] }] }, { mode: "acceptEdits", hookRun: () => ({}) });

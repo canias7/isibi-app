@@ -221,13 +221,51 @@ export function kbSize(bytes) {
 }
 /**
  * `inlineMax` and `readBack`: the environment's sizes (Coder's machine, bashOutputLimits; Claude Code's bashOutputMaxChars and
- * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
- * its start, then a blank line and "... [N lines truncated] ...", in Claude Code 2.1.325's words (its raw program: `${start}\n\n...
- * [${n} lines truncated] ...`; a strings dump that drops blank lines had shown it as " ... ["; 2026-11-14, round 3).
+ * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default.
+ *
+ * A COMMAND THAT WORKED AND PRINTED MORE THAN `readBack` IS SAVED, NEVER CUT (Claude Code 2.1.325, its raw program, read on
+ * 2026-11-14, round 4; the owner: yes): its shell keeps the command's output file once the output passes
+ * BASH_MAX_OUTPUT_LENGTH, reads that much of it back, and the model gets the file and a preview in its <persisted-output>
+ * words. In a cloud session (its tengu_quiet_pike, on there) the preview is the first 500 characters and the last 1,500, from
+ * the file's end ("Preview (start and end):\n…\n[… 45.3KB omitted …]\n…"), once the output passes `readBack` by more than
+ * 1,500 bytes and is under 64 MB; otherwise its first 2,000 ("Preview (first 2KB):"). A PowerShell command, and one the owner
+ * typed with ! (`ends` false), get only the first 2,000. Output past `inlineMax` but within `readBack` is saved as Claude Code
+ * saves any long result, named by the result's own length. A failure is never saved (its tengu_parallel_sunrise is off).
+ * With no file (one could not be made), what passes `readBack` is cut, said with Claude Code's "... [N lines truncated] ...".
+ * `end`: the last bashEndBytes(readBack) bytes of the output file, as Coder's machine read them (outputEnd); `endAt`: how
+ * many bytes come before them.
  */
+export const BASH_CUT_MARK = "\n[… output cut here; the full output was saved to a file …]\n";
+export const BASH_END_SHOWN = 1500, BASH_PERSIST_MAX = 64 * 1024 * 1024;
+/** How many bytes of a long output's end are read back from its file (0: none): Claude Code's min(1,500, `readBack` - 500 - its cut mark), and one more. */
+export function bashEndBytes(readBack = BASH_READ_BACK) {
+  const k = Math.min(BASH_END_SHOWN, (Number(readBack) || 0) - (BASH_PREVIEW - BASH_END_SHOWN) - BASH_CUT_MARK.length);
+  return k > 0 ? k + 1 : 0;
+}
+// (A text's first or last `n` characters, a letter of two halves never split: Claude Code's own cuts.)
+const headChars = (s, n) => { if (n <= 0) return ""; if (s.length <= n) return s; const c = s.charCodeAt(n - 1); return s.slice(0, c >= 0xd800 && c <= 0xdbff ? n - 1 : n); };
+const tailChars = (s, n) => { if (n <= 0) return ""; if (s.length <= n) return s; const t = s.slice(s.length - n); const c = t.charCodeAt(0); return c >= 0xdc00 && c <= 0xdfff ? t.slice(1) : t; };
+/** A preview's start, by Claude Code's rule: all of it up to `n` characters; past that, to its last line break in the first `n` when that is past the half, else `n` characters. */
+function previewOf(s, n) {
+  if (s.length <= n) return { preview: s, more: false };
+  const at = s.slice(0, n).lastIndexOf("\n");
+  return { preview: headChars(s, at > n * 0.5 ? at : n), more: true };
+}
+/** A preview never opens or closes the block it is in (Claude Code: "<\" for an opening angle bracket before persisted-output). */
+const untagged = (s) => s.replace(/<(?!\\)(?=[^A-Za-z0-9_\-<>]*?persisted[_-]output(?:[^A-Za-z0-9_-]|$))/giu, "<\\");
+/** The end Claude Code shows of a long output: from its file's last bytes, from a line start when one is in their first half. */
+function outputTail(end, endAt, total, back) {
+  const k = bashEndBytes(back) - 1;
+  if (typeof end !== "string" || !end || k <= 0 || total >= BASH_PERSIST_MAX || total <= back + k) return "";
+  let buf = Buffer.from(end), at = Number(endAt) || 0;
+  if (buf.length > k + 1) { let i = buf.length - (k + 1); while (i < buf.length && (buf[i] & 0xc0) === 0x80) i++; at += i; buf = buf.subarray(i); }
+  if (at < back) return "";
+  const got = buf.toString("utf8"), nl = got.indexOf("\n");
+  return scrub(nl !== -1 && nl < got.length / 2 ? got.slice(nl + 1) : got).replace(/^(\s*\n)+/, "").trimEnd();
+}
 /** How far past 10,000 characters a failure goes before it is cut (Claude Code 2.1.322: cut only past 11,024). */
 export const BASH_FAIL_SLACK = 1024;
-export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0, tool = "Bash" }) {
+export function bashResultText({ output = "", isError = false, code = 0, size = null, file = "", inlineMax = BASH_INLINE_MAX, readBack = BASH_READ_BACK, truncatedAt = 0, tool = "Bash", end = "", endAt = 0, ends = true }) {
   // The output's last line break is no part of what is shown (Claude Code, tried: "2c2\n< b\n---\n> c" from diff), nor any
   // white space at its end; and from a command that worked, nor blank lines at its start (Claude Code 2.1.322: its Bash result
   // drops /^(\s*\n)+/ and trims the end; Bash docs pass 9).
@@ -236,24 +274,32 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
   const inline = Number.isInteger(inlineMax) && inlineMax > 0 ? inlineMax : BASH_INLINE_MAX;
   const back = Number.isInteger(readBack) && readBack > 0 ? readBack : BASH_READ_BACK;
   if (!isError) {
-    // ("(PowerShell completed with no output)" for a PowerShell command: Claude Code names its tool; Bash docs pass 9.)
-    if (!text.length) return "(" + (tool === "PowerShell" ? "PowerShell" : "Bash") + " completed with no output)";
-    if (text.length <= inline && !(file && total > inline)) {
+    // ("(PowerShell completed with no output)" for a PowerShell command: Claude Code names its tool; Bash docs pass 9. One
+    // that printed only white space past the window is saved all the same, its preview empty, as Claude Code's.)
+    if (!text.length && !(file && total > back)) return "(" + (tool === "PowerShell" ? "PowerShell" : "Bash") + " completed with no output)";
+    // (A file cut at its limit says so, in Claude Code 2.1.322's words: "Output exceeded the 64MB persist limit; only the
+    // first 64MB were saved to: …"; Bash docs pass 8.)
+    const saved = (n, cut) => (cut > 0
+      ? "Output exceeded the " + kbSize(cut) + " persist limit; only the first " + kbSize(cut) + " were saved to: " + file
+      : "Output too large (" + kbSize(n) + "). Full output saved to: " + file);
+    // (The first 2,000 characters, to the last line break in them when that is past the first 1,000: Claude Code 2.1.322.)
+    const firstPart = (s, n, cut) => { const p = previewOf(s, BASH_PREVIEW); return "<persisted-output>\n" + saved(n, cut) + "\n\nPreview (first 2KB):\n" + untagged(p.preview) + (p.more ? "\n...\n" : "\n") + "</persisted-output>"; };
+    if (file && total > back) {
+      // ITS FILE KEPT: what Claude Code reads back (the first `readBack` characters), and in a cloud session its end too.
+      const head = scrub(output).slice(0, back).replace(/^(\s*\n)+/, "").trimEnd();
+      const tail = ends && tool !== "PowerShell" ? outputTail(end, endAt, total, back) : "";
+      if (!tail) return firstPart(head, total, Number(truncatedAt) || 0);
+      const start = previewOf(headChars(head, back - BASH_CUT_MARK.length - tail.length), BASH_PREVIEW - BASH_END_SHOWN).preview;
+      const last = tailChars(tail, BASH_END_SHOWN);
+      const omitted = Math.max(0, total - Buffer.byteLength(start) - Buffer.byteLength(last));
+      return "<persisted-output>\n" + saved(total, Number(truncatedAt) || 0) + "\n\nPreview (start and end):\n" + untagged(start) + "\n[… " + kbSize(omitted) + " omitted …]\n" + untagged(last) + "\n</persisted-output>";
+    }
+    if (text.length <= inline) {
       if (text.length <= back) return text;
       const rest = text.slice(back).split("\n").length;
       return text.slice(0, back) + "\n\n... [" + rest + " lines truncated] ...";
     }
-    // (It ends at the last line break in its first 2,000 characters when that is past the first 1,000: Claude Code 2.1.322.)
-    const lastBreak = text.slice(0, BASH_PREVIEW).lastIndexOf("\n");
-    const preview = text.slice(0, lastBreak > BASH_PREVIEW * 0.5 ? lastBreak : BASH_PREVIEW);
-    // (A file cut at its limit says so, in Claude Code 2.1.322's words: "Output exceeded the 64MB persist limit; only the
-    // first 64MB were saved to: …"; Bash docs pass 8.)
-    const saved = Number(truncatedAt) > 0
-      ? "Output exceeded the " + kbSize(truncatedAt) + " persist limit; only the first " + kbSize(truncatedAt) + " were saved to: " + file
-      : "Output too large (" + kbSize(total) + "). Full output saved to: " + file;
-    return file
-      ? "<persisted-output>\n" + saved + "\n\nPreview (first 2KB):\n" + preview + "\n...\n</persisted-output>"
-      : capOutput(text, inline);
+    return file ? firstPart(text, text.length, 0) : capOutput(text, inline);
   }
   const full = ("Exit code " + code + "\n" + text.slice(0, back)).trimEnd();
   if (full.length <= BASH_FAIL_MAX + BASH_FAIL_SLACK) return full;

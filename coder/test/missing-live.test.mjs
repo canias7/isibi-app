@@ -27,7 +27,8 @@ test("CD560 the environment's CODER_TEST_NETWORK_GATE_FAIL makes the network gat
       let st;
       for (let i = 0; i < 400; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
       assert.ok(st && st.result, "the message ended");
-      return { events: st.events || [], told: String(((seen[0] || {}).messages || [])[0] && seen[0].messages[0].content || "") };
+      // (The chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+      return { events: st.events || [], told: ((seen[0] || {}).messages || []).filter((m) => m.ctx).map((m) => m.content).join("\n") };
     } finally { srv.close(); }
   }
   const limited = { mode: "trusted" };

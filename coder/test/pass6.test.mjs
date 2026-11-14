@@ -192,7 +192,7 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.ok(!t.events.some((e) => e.type === "todo"));
   // An ask rule on Coder's other tools: a card first; Yes runs it, No stops.
   t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] } });
-  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "task_create", "Use TaskCreate", "Your rule * asks first for TaskCreate."]);
+  assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].what, t.cards[0].why], [1, "task_create", "Use TaskCreate", "Ask rule * overrides auto mode for this tool."]);
   assert.ok(t.events.some((e) => e.type === "todo"));
   t = await job([say("", [call("task_create", { subject: "a", description: "a" }, "t1")]), say("ok")], { rules: { deny: [], ask: ["TaskCreate"], allow: [] }, answers: [{ choice: "no" }] });
   assert.ok(!t.events.some((e) => e.type === "todo"));
@@ -409,8 +409,9 @@ test("CD393 Auto mode turned off (Claude Code's disableAutoMode \"disable\": \"A
   let t = await job([say("", [call("bash", { command: "npm test", description: "Test" }, "b1")]), say("ok")], { mode: "auto", extra: { autoOff: true } });
   assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["acceptEdits", "autoOff"]]);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "Auto mode is turned off, so this chat works in Accept edits."));
-  // (In the conversation, never the system message, since fix round 3, 2026-11-14.)
-  assert.ok(t.seen[0].messages.some((m) => m.modeNote === "acceptEdits" && /PERMISSION MODE: Accept edits/.test(m.content)));
+  // (No note for Accept edits since fix round 4: Claude Code has none for that mode, the owner's choice; never in the system
+  // message either.)
+  assert.ok(!t.seen[0].messages.some((m) => m.modeNote === "acceptEdits" || /PERMISSION MODE/.test(String(m.content))));
   assert.equal(t.cards.length, 1, "npm test asks in Accept edits");
   assert.equal(t.cards[0].toAuto, undefined, "no switch to Auto offered");
   t = await job([say("", [call("exit_plan_mode", { plan: "1. Fix it" }, "p1")]), say("ok")], { mode: "plan", extra: { autoOff: true }, answers: [{ choice: "auto" }] });

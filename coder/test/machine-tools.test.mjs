@@ -172,7 +172,8 @@ test("CD136 the full image is built for Fly.io only, built again only when Coder
   // CODER KNOWS ITS TOOLS on the full image.
   for (const w of ["Ubuntu 24.04", "check-tools", "Python 3.12", "uv", "poetry", "pytest", "Node 22", "/opt/node24/bin", "nvm install", "yarn", "pnpm", "bun", "Ruby 3.3", "rbenv local", "PHP 8.3", "Composer", "Java 21", "Maven", "Gradle", "Go.", "Rust", "clippy", "clang", "cmake", "gh (it uses the owner's GitHub login, added by Coder's server, for this chat's own repositories only", "yq", "service postgresql start", "service redis-server start", "psql -d postgres", "Docker and docker compose work without admin rights", "/usr/bin/google-chrome", "--no-sandbox", "your home folder, never in the project", "Playwright", "require(\"playwright\")", "ffmpeg", "ImageMagick", "pdftotext", "pandoc", "pandas", "python-docx", "markitdown", "strace", "valgrind"]) assert.ok(MACHINE_TOOLS.includes(w), w);
   // Made by contextFor (at the start, and from disk again after a job's summary: CD222).
-  assert.match(read("container/server.mjs"), /return \(env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\) \+ style \+ /);
+  // (As the first piece of the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+  assert.match(read("container/server.mjs"), /return \[\n\s+piece\("s:THIS MACHINE", env\.CODER_IMAGE === "full" \? \(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\) \+ "\\n\\n" : ""\),\n\s+piece\("i:THE OWNER'S STYLE", style\),/);
   assert.match(read("container/server.mjs"), /const context = contextFor\(notes, /);
 });
 

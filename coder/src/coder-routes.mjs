@@ -118,6 +118,7 @@ export function usageSummary(list, turn) {
 import { normMode, ruleProblem, ruleWarning, ruleSaved, MODES } from "../container/coder-perms.mjs";
 import { hooksSetting } from "../container/coder-hooks.mjs";
 import { autoModeSetting } from "../container/coder-checker.mjs";
+import { descriptionOk, DESCRIPTION_MAX } from "../container/coder-envtools.mjs";
 import { modelAccess } from "./coder-model-gate.mjs";
 import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/coder-checks.mjs";
 // (The check for a secret-looking variable is shared with Coder's machine, which tells Grok of them: coder-checks.mjs.)
@@ -129,7 +130,7 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText, envRepos, reposFrom } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
-import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents, closedEvents, CARD_CLOSED, CLOSED_BY_MESSAGE } from "../container/coder-park.mjs";
+import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stopParked, stoppedEvents, closedEvents, CARD_CLOSED, CLOSED_BY_MESSAGE } from "../container/coder-park.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
@@ -495,6 +496,8 @@ export function hideIn(events, values) {
     if (ev && Array.isArray(ev.problems)) ev.problems = ev.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || "") } : p));
     // What the language servers reported, one row for each note Coder was given (its files' paths and problems).
     if (ev && ev.type === "diagnostics" && Array.isArray(ev.files)) ev.files = ev.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), problems: Array.isArray(f.problems) ? f.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || ""), source: hide(p.source || "") } : p)) : [] } : f));
+    // An environment lookup's answer as the page draws it, a table (CL3 of recheck 3): every text in it.
+    if (ev && ev.envTable && typeof ev.envTable === "object") { const all = (x) => (typeof x === "string" ? hide(x) : Array.isArray(x) ? x.map(all) : x && typeof x === "object" ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, all(y)])) : x); ev.envTable = all(ev.envTable); }
     // The files a command changed (their names and lines, under its step).
     if (ev && ev.files && typeof ev.files === "object") {
       if (Array.isArray(ev.files.files)) ev.files.files = ev.files.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), lines: Array.isArray(f.lines) ? f.lines.map(hide) : [] } : f));
@@ -537,9 +540,9 @@ async function endLostJob(env, bucket, uid, meta, note) {
 }
 /**
  * A PAUSED CARD CLOSED WITHOUT ITS JOB (coder-park.mjs: the owner's Stop while it waited, or a Rewind or an Undo, which go on
- * from the chat as it is): every call of the round still without a result is told the owner rejected it, Claude Code's words
- * for a Stop on such a card, so every call has its answer again; the chat shows the card stopped. Answers the chat as it is
- * then.
+ * from the chat as it is): every call of the round still without a result is told the owner doesn't want it done right now
+ * (NOT_NOW), Claude Code's words for a Stop on such a card, so every call has its answer again, then its mark of the
+ * interrupted turn (stopParked, round 6); the chat shows the card stopped. Answers the chat as it is then.
  */
 async function closeParkedCard(bucket, uid, meta) {
   return (await closeParkedWith(bucket, uid, meta, "stop")).meta;
@@ -558,7 +561,8 @@ async function closeParkedWith(bucket, uid, meta, how) {
   const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
   const byMessage = how === "new_input";
   // (Its record lost: the open round goes, as a job cut off mid-step does.)
-  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? (byMessage ? closeParked(msgs, mine, CARD_CLOSED) : closeParked(msgs, mine)) : msgs));
+  // (A Stop's: with Claude Code's mark of the interrupted turn after the round's results, stopParked. Round 6.)
+  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? (byMessage ? closeParked(msgs, mine, CARD_CLOSED) : stopParked(msgs, mine)) : msgs));
   const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
   const shown = byMessage ? closedEvents(mine || p) : stoppedEvents(mine || p);
   await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...shown].slice(-MAX_EVENTS));
@@ -2218,6 +2222,15 @@ export async function handleCoder(request, env, ctx, deps) {
       const holder = nameHolder(list, n, me);
       if (holder) return json({ error: nameTakenText(holder) }, 409);
       if (me) { me.name = n; await saveEnvList(bucket, uid, list); }
+    }
+    // ITS DESCRIPTION, the owner's to change too (round 5, 2026-11-14, the owner: "Yes pls"; Claude Code's environments let you
+    // re-describe one, its update_environment's new_description): one plain line of at most 1024 characters, as that tool
+    // takes it (descriptionOk), kept trimmed; an empty one clears it. The Default environment's too.
+    if (body.description !== undefined) {
+      if (!descriptionOk(body.description)) return json({ error: "a description is one line of plain text, up to " + DESCRIPTION_MAX + " characters" }, 400);
+      const id = await theEnvId(), list = await listEnvs(bucket, uid), me = list.find((x) => x.id === id);
+      const d = body.description.trim();
+      if (me && d !== (typeof me.description === "string" ? me.description : "")) { if (d) me.description = d; else delete me.description; await saveEnvList(bucket, uid, list); }
     }
     // (A changed script starts in the folder that holds the repository checkouts, as Claude Code's; one saved before
     // 2026-11-14 kept as it is still starts inside the chat's repository: coder-environments.mjs scriptIn. E7 of recheck 2.)

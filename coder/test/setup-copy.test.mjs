@@ -283,7 +283,8 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     assert.equal(s.result.status, "done");
     assert.ok(!s.events.some((e) => e.tool === "setup"), "the setup did not run");
     assert.ok(s.events.some((e) => e.type === "note" && /started from the environment's saved copy/.test(e.text)), "said in the chat");
-    assert.match(JSON.stringify(b.seen[0].messages[0].content), /started from the environment's saved copy of its result[\s\S]*run the project's own install yourself/, "and to Coder");
+    // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(JSON.stringify(b.seen[0].messages.filter((m) => m.ctx).map((m) => m.content)), /started from the environment's saved copy of its result[\s\S]*run the project's own install yourself/, "and to Coder");
     // (Beside it, root's link named after its repository, where the setup script starts: E7 of recheck 2, server.mjs repoLinks.)
     assert.deepEqual((await readdir(b.dirs.root)).sort(), ["shop", "shop-eee1"], "A's repository is gone; B's is a fresh clone");
     assert.equal(await readlink(join(b.dirs.root, "shop")), "shop-eee1");

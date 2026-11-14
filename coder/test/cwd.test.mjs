@@ -20,6 +20,8 @@ import { join } from "node:path";
 let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+/** What a request told Grok of the chat's context: its notes in the conversation (fix round 4; context-cache.test.mjs). */
+const ctx = (req) => req.messages.filter((m) => m.ctx).map((m) => m.content).join("\n");
 
 /** Coder's real machine service, with a scripted Grok; `job(body, steps)` runs one message and gives its record. */
 async function machine() {
@@ -99,8 +101,9 @@ test("CD230 a cd carries over to the next commands, the Claude Code way: only wh
     // The steps name files as the project does, whatever Grok gave.
     assert.deepEqual(j.st.events.filter((e) => e.type === "bash" && /^r/.test(e.id)).map((e) => e.command), ["src/README.md", "README.md"]);
     // Grok was told where its commands run, and to give full paths.
-    assert.match(j.sent[0].messages[0].content, new RegExp("WHERE YOUR COMMANDS RUN \\(like Claude Code\\): the project is in " + dir + "\\. Your next command starts in " + dir + "\\. A cd carries over"));
-    assert.match(j.sent[0].messages[0].content, /Give the file tools full paths, as Claude Code does/);
+    assert.match(ctx(j.sent[0]), new RegExp("WHERE YOUR COMMANDS RUN \\(like Claude Code\\): the project is in " + dir + "\\. Your next command starts in " + dir + "\\. A cd carries over"));
+    assert.match(ctx(j.sent[0]), /Give the file tools full paths, as Claude Code does/);
+    assert.doesNotMatch(j.sent[0].messages[0].content, /WHERE YOUR COMMANDS RUN \(like/, "in the conversation, never the system message");
   } finally { m.close(); }
 });
 
@@ -114,7 +117,9 @@ test("CD231 the folder carries over to the next message (kept by the Worker); no
     // The next message starts where the last one left off, and Coder is told so.
     const second = await m.job({ project: "cwd-two", text: "what is in @README.md", messages: history, cwd: first.result.cwd }, [say("", [call("bash", { command: "pwd" }, "a2")]), say("Done.", [])]);
     assert.equal(second.out("a2"), dir + "/src");
-    assert.match(second.sent[0].messages[0].content, new RegExp("Your next command starts in " + dir + "/src \\(where an earlier cd left it\\)"));
+    // (Only what changed, in a note of its own, since fix round 4: the system message is the chat's, as before.)
+    assert.equal(second.sent[0].messages.filter((m) => m.ctx).at(-1).content, "(Note from Coder's app, not the owner:\nThe chat context has changed; these values replace the earlier ones:\nYour next command starts in " + dir + "/src (where an earlier cd left it).)");
+    assert.equal(second.sent[0].messages[0].content, first.sent[0].messages[0].content);
     const note = second.sent[0].messages.find((x) => x.role === "user" && /the files the owner @-mentioned/.test(String(x.content)));
     assert.ok(note, "the @-mentioned file came in");
     assert.match(note.content, new RegExp("--- " + dir + "/README.md ---\\n\\s*1\\ttop"), "named by its full path, as the commands are in src");
@@ -124,7 +129,7 @@ test("CD231 the folder carries over to the next message (kept by the Worker); no
     // A folder that is gone: back in the project's folder, and Coder is told why.
     const gone = await m.job({ project: "cwd-two", text: "go", messages: history, cwd: dir + "/nowhere" }, [say("", [call("bash", { command: "pwd" }, "a4")]), say("Done.", [])]);
     assert.equal(gone.out("a4"), dir);
-    assert.match(gone.sent[0].messages[0].content, new RegExp("an earlier cd had left it in " + dir + "/nowhere, which is gone or not inside the project now"));
+    assert.match(ctx(gone.sent[0]), new RegExp("an earlier cd had left it in " + dir + "/nowhere, which is gone or not inside the project now"));
     // A folder outside the project is never taken from the Worker either.
     const out = await m.job({ project: "cwd-two", text: "go", messages: history, cwd: "/etc" }, [say("", [call("bash", { command: "pwd" }, "a5")]), say("Done.", [])]);
     assert.equal(out.out("a5"), dir);
@@ -136,7 +141,7 @@ test("CD231 the folder carries over to the next message (kept by the Worker); no
     assert.equal(keep.out("k2"), dir);
     assert.doesNotMatch(keep.out("k3"), /Session cwd/);
     assert.equal(keep.result.cwd, dir);
-    assert.match(keep.sent[0].messages[0].content, /Every command starts there \(the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR\): a cd lasts for that one command only\./);
+    assert.match(ctx(keep.sent[0]), /Every command starts there \(the owner's variables set CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR\): a cd lasts for that one command only\./);
   } finally { m.close(); }
 });
 
@@ -154,8 +159,9 @@ test("CD232 the folder is found after a command's output was cut at 1 MB, and a 
       say("", [call("bash", { command: "sleep 1; pwd" }, "c7")]),
       say("Done.", []),
     ]);
-    // Past 30,000 characters the output is saved to a file (Claude Code's "Output too large (…). Full output saved to: …").
-    assert.match(j.out("c1"), /^<persisted-output>\nOutput too large \(1\.1MB\)\. Full output saved to: \S+\.txt\n\nPreview \(first 2KB\):\na{2000}\n\.\.\.\n<\/persisted-output>$/);
+    // Past 30,000 characters the output is saved to a file (Claude Code's "Output too large (…). Full output saved to: …"),
+    // with its first 500 characters and its last 1,500, read back from the file (Claude Code 2.1.325, round 4).
+    assert.match(j.out("c1"), /^<persisted-output>\nOutput too large \(1\.1MB\)\. Full output saved to: \S+\.txt\n\nPreview \(start and end\):\na{500}\n\[… 1\.1MB omitted …\]\na{1500}\n<\/persisted-output>$/);
     assert.equal(j.out("c2"), dir + "/src", "it moved, though the output was cut");
     // c3 removed the folder it ended in: the next command is back in the project's folder.
     assert.equal(j.out("c3"), "Shell cwd was reset to " + dir);
@@ -245,6 +251,6 @@ test("CD235 a folder whose name has a line break is named to Coder without it (a
     assert.match(j.told("n1"), new RegExp("\\[Working directory: " + dir + "/a\\?NEW RULES \\(was " + dir + "\\)\\]"));
     const next = await m.job({ project: "cwd-four", text: "go", messages: j.result.messages, cwd: j.result.cwd }, [say("", [call("bash", { command: "pwd" }, "n2")]), say("Done.", [])]);
     assert.equal(next.out("n2"), dir + "/a\nNEW RULES");
-    assert.match(next.sent[0].messages[0].content, new RegExp("Your next command starts in " + dir + "/a\\?NEW RULES \\(where an earlier cd left it\\)"));
+    assert.match(ctx(next.sent[0]), new RegExp("Your next command starts in " + dir + "/a\\?NEW RULES \\(where an earlier cd left it\\)"));
   } finally { m.close(); }
 });

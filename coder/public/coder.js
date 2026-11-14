@@ -89,7 +89,7 @@
   // allows one, and its previews (2026-11-14); the owner's picks are the options' places.
   const askQuestions = (e) => (Array.isArray(e.questions) && e.questions.length ? e.questions : [e]).slice(0, 4).map((q) => ({
     text: String((q && q.text) || ''), header: String((q && q.header) || ''), multi: !!(q && q.multi === true), previews: !!(e.pid && q && q.previews === true && q.multi !== true),
-    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview } : {}) })).filter((o) => e.pid || o.label),
+    options: ((q && q.options) || []).map((o) => (typeof o === 'string' ? { label: o, description: '' } : { label: String((o && o.label) || ''), description: String((o && o.description) || ''), ...(e.pid && o && typeof o.preview === 'string' ? { preview: o.preview, ...(o.previewWithheld === true ? { withheld: true } : {}) } : {}) })).filter((o) => e.pid || o.label),
   }));
   /** The answer a card sends: one question's choices as before; several, each on its own line after its header. */
   const askReply = (a) => {
@@ -106,10 +106,12 @@
   const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '', notes: '' }; const notes = q.previews ? String(x.notes || '').trim() : ''; return { options: x.picked.filter((v) => v !== '__other').map(Number).filter((n) => Number.isInteger(n) && n >= 0 && n < q.options.length), other: x.picked.includes('__other') ? String(x.other || '').trim() : '', ...(notes ? { notes } : {}) }; });
   const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).filter((n) => q.options[n]).map(String)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '', notes: (p && typeof p.notes === 'string' && p.notes) || '' });
   /** The preview of the option chosen, as Claude Code's dialog shows it beside the options ("No preview available" for one with none). */
-  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? o.preview : null) : undefined; };
-  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : esc(pv || '')) + '</pre>'; };
+  // (One past Claude Code's 2,000 characters is withheld: its line instead, as dim as "No preview available". Round 5.)
+  const askPreview = (q, picked) => { const n = (picked || []).find((v) => v !== '__other'); const o = n === undefined ? null : q.options[Number(n)]; return o ? (typeof o.preview === 'string' && o.preview ? (o.withheld ? { line: o.preview } : o.preview) : null) : undefined; };
+  const askPreviewHTML = (q, picked) => { const pv = askPreview(q, picked); return '<pre class="cd-ask-pv"' + (pv === undefined ? ' hidden' : '') + '>' + (pv === null ? '<span class="cd-ask-pv-none">No preview available</span>' : pv && pv.line ? '<span class="cd-ask-pv-none">' + esc(pv.line) + '</span>' : esc(pv || '')) + '</pre>'; };
   /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
-  const askDone = (ans) => (ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
+  // (Answered by one of your PermissionRequest hooks before you did: fix round 4, 2026-11-14.)
+  const askDone = (ans) => (ans.hook === true ? (ans.choice === 'yes' ? '<span class="cd-perm-ok">✓ Answered</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : '✕ Not answered') + '</span>') + ' · by your PermissionRequest hook' : ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -1370,18 +1372,24 @@
         ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') + ((e.varsDropped || []).length ? ' · ' + e.varsDropped.length + ' not given to commands' : '') : 'None'],
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
+      // ITS DESCRIPTION, the owner's to change (round 5, 2026-11-14; Claude Code's environments can be re-described): after
+      // its name, the Default's too.
+      if (e.envId) rows.splice(e.isDefault ? 0 : 1, 0, ['description', 'Description', e.description || 'None']);
       // ITS REPOSITORIES (E8 of recheck 2, 2026-11-14; Claude Code's environment "Repositories list in Settings where offered
       // (the Default environment has none)"): the repositories it is for, which the owner adds and takes away.
       if (!e.isDefault && e.envId) rows.push(['repos', 'Repositories', (e.repos || []).length ? e.repos.slice(0, 2).join(', ') + (e.repos.length > 2 ? ' +' + (e.repos.length - 2) + ' more' : '') : 'None']);
+      // (Its description once, in its Description row: round 6, 2026-11-14. It had shown twice, here at the top too; Claude
+      // Code's own page, claude.ai/code, is in neither its docs nor its program.)
       body = head('Environment: ' + (e.name || 'Default')) +
-        // (Its description, as Claude Code's environments have one: Coder writes it when it proposes an environment.)
-        (e.description ? '<p class="cd-em-help cd-em-top">' + esc(e.description) + '</p>' : '') +
         '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
         '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
         (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');
     } else if (page === 'name') {
       body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
+    } else if (page === 'description') {
+      body = head('Description', 'main') + '<input id="envDescIn" class="cd-em-in" maxlength="1024" autocomplete="off" value="' + esc(f.text) + '">' +
+        '<p class="cd-em-help">One line, up to 1,024 characters. Coder sees it when it looks at this environment. Leave it empty to clear it.</p>' + foot('Save changes');
     } else if (page === 'repos') {
       const have = (r) => f.repos.some((x) => x.toLowerCase() === r.toLowerCase());
       body = head('Repositories', 'main') + '<p class="cd-em-help cd-em-top">New chats of these repositories start with this environment. A repository is also added here when one of its chats uses this environment.</p>' +
@@ -1446,7 +1454,7 @@
     const n0 = e.network || { mode: 'trusted' };
     S.envForm = page === 'network' ? { mode: netLevel(n0.mode), hosts: n0.mode === 'trusted' ? [] : [...(n0.hosts || [])], defaults: n0.mode === 'trusted' || n0.defaults !== false, denied: [...(n0.denied || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
-      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : page === 'repos' ? { repos: [...(e.repos || [])], typed: '' } : null;
+      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : page === 'description' ? { text: e.description || '' } : page === 'repos' ? { repos: [...(e.repos || [])], typed: '' } : null;
     draw();
     if (page === 'repos' && !S.envRepoChoices) loadRepoChoices();
   }
@@ -1463,6 +1471,7 @@
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
+    if (page === 'description') return envPost({ description: f.text });
     if (page === 'repos') {
       S.envBusy = true; S.envMsg = ''; draw();
       const r = await call('/environments/' + encodeURIComponent(S.env.envId), { method: 'POST', body: JSON.stringify({ repos: f.repos }) });
@@ -1870,6 +1879,50 @@
     if (hb) return '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by your hook</div><div class="cd-autoblock-why cd-hookblock-why">' + esc(hb.event) + ' hook error: ' + esc(hb.why) + '</div></div>';
     return why ? '<div class="cd-autoblock"><div class="cd-autoblock-head">Blocked by auto mode</div><div class="cd-autoblock-why">Auto mode: ' + esc(why) + '</div></div>' : '';
   }
+  // AN ENVIRONMENT LOOKUP'S ANSWER AS A TABLE (CL3 of recheck 3, 2026-11-14, the owner said yes to a table; Claude Code 2.1.314:
+  // "[Cloud sessions] Improved cloud session transcripts: … repository and environment lists show as a table instead of one
+  // line of JSON"), in the opened step: list_environments' list one row for each environment, get_environment one row for each
+  // field, a list of rows in it (network_secrets, saved_for_session_repositories) as a table of its own under its name; the
+  // fields' own names and values, as Coder read them. More than ENVT_ROWS rows fold behind "Show N more rows". Only text, never
+  // markup.
+  const ENVT_ROWS = 10;
+  const envtObj = (v) => !!v && typeof v === 'object' && !Array.isArray(v);
+  const envtIsRows = (v) => Array.isArray(v) && v.length > 0 && v.every(envtObj);
+  /** The answer to draw: the step's table (coder-envtools.mjs envTable), or for a step from before, its output when it is whole. */
+  function envTableOf(e, r) {
+    if (!r || r.code !== 0) return null;
+    if (envtObj(r.envTable)) return r.envTable;
+    if (!e || e.tool !== 'environment' || !/^(Listed|Looked up)$/.test(String(e.verb || ''))) return null;
+    try { const v = JSON.parse(String(r.output || '')); return envtObj(v) ? v : null; } catch { return null; }
+  }
+  const envtKey = (k) => esc(k).replace(/_/g, '_<wbr>');
+  function envtCell(v, k) {
+    if (v === null || v === undefined || v === '' || (Array.isArray(v) && !v.length)) return '<span class="cd-envt-none">—</span>';
+    if (typeof v === 'string') return v.includes('\n') ? '<pre class="cd-envt-pre">' + esc(v) + '</pre>' : esc(v);
+    if (typeof v !== 'object') return esc(String(v));
+    if (envtIsRows(v)) return '<div class="cd-envt-sub">' + envtRows(v, k) + '</div>';
+    if (!Array.isArray(v)) return envtPairs(v, k);
+    return esc(v.map((x) => (x && typeof x === 'object' ? JSON.stringify(x) : String(x))).join(', '));
+  }
+  function envtPairs(o, k) {
+    return '<table class="cd-envt-pairs"><colgroup><col class="cd-envt-kcol"><col></colgroup><tbody>' + Object.keys(o).map((f) => envtIsRows(o[f])
+      ? '<tr class="cd-envt-caprow"><th scope="row" colspan="2">' + envtKey(f) + '</th></tr><tr class="cd-envt-widerow"><td colspan="2">' + envtCell(o[f], k + '.' + f) + '</td></tr>'
+      : '<tr><th scope="row">' + envtKey(f) + '</th><td>' + envtCell(o[f], k + '.' + f) + '</td></tr>').join('') + '</tbody></table>';
+  }
+  function envtRows(list, k) {
+    const cols = [];
+    for (const o of list) for (const f of Object.keys(o)) if (!cols.includes(f)) cols.push(f);
+    const all = !!S.open[k], shown = all ? list : list.slice(0, ENVT_ROWS), more = list.length - shown.length;
+    return '<table class="cd-envt-rows"><thead><tr>' + cols.map((f) => '<th scope="col">' + envtKey(f) + '</th>').join('') + '</tr></thead><tbody>' +
+      shown.map((o, i) => '<tr>' + cols.map((f) => '<td data-k="' + esc(f) + '">' + envtCell(o[f], k + '.' + i + '.' + f) + '</td>').join('') + '</tr>').join('') + '</tbody></table>' +
+      (more ? '<button type="button" class="cd-wchg-more cd-envt-more" data-change="' + esc(k) + '">Show ' + more + ' more row' + (more === 1 ? '' : 's') + '</button>'
+        : all && list.length > ENVT_ROWS ? '<button type="button" class="cd-wchg-more cd-envt-more" data-change="' + esc(k) + '">Show less</button>' : '');
+  }
+  /** The table: a list's answer ({ environments: […] }) as its rows, any other answer as its fields. */
+  function envTableHtml(d, key) {
+    const f = Object.keys(d), k = key + ':envt';
+    return '<div class="cd-envt">' + (f.length === 1 && envtIsRows(d[f[0]]) ? envtRows(d[f[0]], k) : envtPairs(d, k)) + '</div>';
+  }
   function cmdHTML(e, r, state, key) {
     const open = !!S.open[key];
     // File and web tools say what they did: Read, Edited, Wrote, Searched… (2026-11-05).
@@ -1891,6 +1944,7 @@
     // A COMMAND'S DESCRIPTION (tool 4, like Claude Code's app: "Run the test suite" in place of the command); the command
     // itself when the step is opened. A step with none (from before, or Grok gave none) shows its command as before.
     const desc = !e.tool && typeof e.desc === 'string' && e.desc.trim() ? e.desc.trim() : '';
+    const table = open && r ? envTableOf(e, r) : null;
     return '<div class="cd-cmd is-' + state + (open ? ' is-open' : '') + '">' +
       '<button type="button" class="cd-cmd-row" data-step="' + esc(key) + '"' + (r ? '' : ' disabled') + '>' +
         stepIcon(e) + (desc ? '<span class="cd-cmd-desc">' + esc(desc) + '</span>' : '<span class="cd-cmd-verb">' + (said ? '<span class="cd-cmd-said" title="' + esc(said) + '">' + esc(said) + '</span>' : (who ? esc(who[0]) : '') + verb) + '</span>' + (said || !what ? '' : ' <code class="cd-cmd-text">' + esc(what.split('\n')[0]) + '</code>')) +
@@ -1912,7 +1966,7 @@
       stepFiles(r, key) +
       // THE NEW PROBLEMS IT MADE, by the language server (Claude Code: "Found N new diagnostic issues in M files").
       stepProblems(r, key) +
-      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>' : '') +
+      (open && r ? (desc ? '<pre class="cd-cmd-in">$ ' + esc(e.command) + '</pre>' : '') + (table ? envTableHtml(table, key) : '<pre class="cd-out">' + esc(noColor(r.output) || '(no output)') + '</pre>') : '') +
     '</div>';
   }
   /**
@@ -3380,6 +3434,9 @@
     // (Closed by the owner's next message while Coder's job was paused on it, as Claude Code closes such a card: no longer
     // answerable, and what it asked for did not run.)
     if (c === 'closed') return '<span class="cd-perm-no">Closed</span> · you sent a new message before answering';
+    // (Answered by one of your PermissionRequest hooks before you did: Claude Code runs them beside the card, and the first
+    // answer counts. Fix round 4, 2026-11-14.)
+    if (ans.hook === true) return (c === 'yes' ? '<span class="cd-perm-ok">✓ ' + (e.tool === 'plan' ? 'Approved' : 'Allowed') + '</span>' : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : '✕ ' + (e.tool === 'plan' ? 'Not approved' : 'Not allowed')) + '</span>') + ' · by your PermissionRequest hook';
     if (e.tool === 'plan') return c === 'auto' || c === 'acceptEdits' ? '<span class="cd-perm-ok">✓ Approved · ' + (c === 'auto' ? 'Auto' : 'Accept edits') + '</span>' + note : c === 'no' ? '<span class="cd-perm-no">Kept planning</span>' + note : '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
     if (c === 'yes') return '<span class="cd-perm-ok">✓ Allowed</span>' + note;
     if (c === 'always') return '<span class="cd-perm-ok">✓ Allowed</span> · won\'t ask again for ' + (e.rules || []).map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ');
@@ -3470,8 +3527,12 @@
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
     const opts = permOptions(e);
     const note = (S.permNotes && S.permNotes[e.pid]) || '';
+    // (A DISPLAY NAME at the heading's end, round 6, the owner: "do what claude code does": Claude Code sends its cloud page
+    // each permission request's `display_name`, for a connector tool made from the tool's own name; how its page draws it is
+    // in neither its docs nor its program, so a small label here, as on a connector question's card.)
+    const dn = !plan && typeof e.displayName === 'string' ? e.displayName.trim() : '';
     return '<div class="cd-perm' + (plan ? ' cd-plan' : '') + (live ? ' is-live' : '') + '" data-perm="' + esc(e.pid) + '" tabindex="-1">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b></div>' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' +
       body +
       (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
       // (Auto's question for a dangerous removal blocks it by itself after 2 minutes: Claude Code's line, counting down.)
@@ -3488,7 +3549,8 @@
   // A CONNECTOR'S QUESTION FOR YOU (MCP elicitation, container/coder-elicit.mjs; X1 of the recheck of 2026-11-14, the owner:
   // "yes pls all of that"): Claude Code's cloud card, "Form mode: fill in the fields, then click Submit", "URL mode: click Open
   // link, finish the flow it opens, then click I'm done, continue", "To refuse the request, click Decline". Its header names
-  // the connector that asks (Claude Code's own words: "MCP server “…” requests your input", "… wants to open a URL"). The
+  // the connector that asks (Claude Code's own words: "MCP server “…” requests your input", "… wants to open a URL"), unless
+  // the question gives its own title (its server's _meta["anthropic/permissionDisplay"]: then that, its description under). The
   // fields are the server's: nothing is filled in for you but a default the server gave, and the browser fills nothing in
   // either. While Coder's step waits, the card keeps its own fields through the page's redraws (as the key card does), so
   // what you type is in no state of the page's; once answered, it says how it ended, never what was sent.
@@ -3538,7 +3600,14 @@
     // (Live while its step waits: the job runs, the card is unanswered and the job that showed it has not ended.)
     const live = !!e.pid && S.running && !ans && !S.events.slice(i + 1).some((x) => x.type === 'done' || x.type === 'stopped');
     const url = e.mode === 'url', who = String(e.connector || 'the connector');
-    const head = 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
+    // (The question's own title when its server gives one, and its description under it: Claude Code passes its cloud page
+    // the title and description of the request's _meta["anthropic/permissionDisplay"]. Round 5.)
+    const own = typeof e.title === 'string' && e.title.trim() ? e.title : '';
+    const head = own ? esc(own) : 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
+    const sub = typeof e.description === 'string' && e.description.trim() ? '<p class="cd-el-sub">' + esc(e.description) + '</p>' : '';
+    // (Its display name, the same permissionDisplay's "short tool/server label", at the heading's end as on a permission card.
+    // Round 6.)
+    const dn = typeof e.displayName === 'string' ? e.displayName.trim() : '';
     let body = '<p class="cd-el-msg">' + esc(String(e.message || '')) + '</p>';
     const link = url ? elLink(e.url) : null;
     if (url) {
@@ -3551,7 +3620,7 @@
       ? '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button>' + (link ? '<a class="cd-el-open" href="' + esc(link.href) + '" target="_blank" rel="noopener noreferrer" data-el-open>Open link</a><button type="button" class="cd-secret-save" data-el-accept>I’m done, continue</button>' : '') + '</div>'
       : '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button><button type="button" class="cd-secret-save" data-el-accept>Submit</button></div>';
     return '<div class="cd-perm cd-elicit' + (live ? ' is-live' : '') + '"' + (live ? ' data-elicit-pid="' + esc(e.pid) + '"' : '') + ' data-elicit-at="' + i + '">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b></div>' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' + sub +
       (e.tool ? '<p class="cd-el-from">While using ' + esc(String(e.tool)) + '</p>' : '') + body +
       (live ? '<p class="cd-secret-err cd-el-said" hidden></p>' + btns : ans ? '<div class="cd-perm-done">' + elDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">Needs your input</div>' : '');
@@ -3676,7 +3745,7 @@
     };
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Permission rules</div>' +
-        '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>. For files, <code>Read(./.env)</code> or <code>Edit(src/**)</code>, written as in a .gitignore: <code>//</code> starts at the machine\'s root, <code>~/</code> at Coder\'s home, any other path at the project.</div>' +
+        '<div class="cd-sure-text">For ' + esc(repo) + ', in all its chats. Deny rules come first, then ask, then allow, as in Claude Code. A rule looks like <code>Bash(npm test *)</code> (a <code>*</code> is any text), <code>Bash(git push *)</code>, or <code>WebFetch(domain:example.com)</code>. For files, <code>Read(./.env)</code> or <code>Edit(src/**)</code>, written as in a .gitignore: <code>//</code> starts at the machine\'s root, <code>~/</code> at Coder\'s home, <code>/</code> at the project, and any other path at the folder Coder is in. Deny and ask rules with such a path also apply from the project and the working folders.</div>' +
         KINDS.map(([k, name, info]) => '<div class="cd-rules-k"><div class="cd-rules-h"><b>' + name + '</b> <span>' + info + '</span></div>' + ((rules[k] || []).length ? '<ul>' + rules[k].map((x) => '<li><span class="cd-rules-r"><code>' + esc(x) + '</code>' + (notices[k + '\n' + x] ? '<span class="cd-rules-note">⚠ ' + esc(notices[k + '\n' + x]) + '</span>' : '') + '</span><button type="button" data-rule-del="' + k + '" data-rule="' + esc(x) + '" aria-label="Remove ' + esc(x) + '">×</button></li>').join('') + '</ul>' : '<p class="cd-rules-none">None yet</p>') + '</div>').join('') +
         '<form class="cd-rules-add"><select aria-label="Kind">' + KINDS.map(([k, n]) => '<option value="' + k + '">' + n + '</option>').join('') + '</select><input type="text" placeholder="Bash(npm test *)" aria-label="Rule" maxlength="300" autocomplete="off" spellcheck="false"><button type="submit">Add</button></form>' +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : '') +
@@ -4419,6 +4488,7 @@
       S.showEnv = false; await loadEnvInfo(); draw();
     });
     on('#envNameIn', 'input', (e) => { if (S.envForm) S.envForm.text = e.currentTarget.value; });
+    on('#envDescIn', 'input', (e) => { if (S.envForm) S.envForm.text = e.currentTarget.value; });
     on('#cdEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });
     // THE ENVIRONMENT WINDOW: typing only updates the form (no redraw), buttons move between pages.
     on('#envClose', 'click', () => { S.showEnv = false; draw(); });

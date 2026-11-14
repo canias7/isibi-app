@@ -310,7 +310,7 @@ test("SR8 in Coder's loop: the search gets the owner's Read deny rules and the s
   assert.deepEqual(g1.req.args, { pattern: "TODO first", path: "." });
   // (And what the loop's permission check saw of the path, its spellings, which the search checks again before it runs:
   // Claude Code's stash and its gPo, round 3.)
-  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, home: "" }, spellings: { path: d, list: S.pathSpellings(d).spellings } });
+  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, cwd: d, home: "" }, spellings: { path: d, list: S.pathSpellings(d).spellings } });
   assert.equal(g1.x.timeoutS, 45);
   assert.equal(t.answer("g1"), "Found 1 file\na.js\n\nNote: Grep's parameter for where to search is named `path`. `file_path` was read as `path`.");
   assert.equal(t.answer("f1"), "No files found", "the Read deny rule leaves docs/secret.md out");
@@ -352,7 +352,7 @@ test("SR9 the owner's rules on Grep's and Glob's inputs as Claude Code reads the
   assert.deepEqual(fd("glob", ROOT, { ask: ["Glob"] }, { pattern: "*" }), { verdict: "ask", rule: "Glob", why: "Coder requested permissions to use Glob, but you haven't granted it yet." });
   assert.deepEqual(fd("grep", ROOT + "/docs", { ask: ["Read(docs/**)", "Grep"] }, { pattern: "x" }), { verdict: "ask", rule: "Read(docs/**)", why: "Coder requested permissions to read from /work/shop/docs, but you haven't granted it yet." });
   assert.equal(fd("grep", ROOT + "/docs", { deny: ["Read(docs/**)"] }, { pattern: "x" }).why, "Permission to read /work/shop/docs has been denied.");
-  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }).why, "Your rule Read(*.md) asks first for reading /work/shop/a.md.", "read's own wording is not this change's");
+  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }).why, "Coder requested permissions to read from /work/shop/a.md, but you haven't granted it yet.", "read's own in the same words since round 5");
   // A hook's if: the rule's content against the call's pattern (Claude Code's wildcard).
   const m = (rule, pattern, tool = "Grep") => P.ifRuleMatches(rule, tool, { pattern, path: "src" }, { cwd: ROOT, root: ROOT });
   assert.equal(m("Grep(TODO*)", "TODO.*fix"), true);
@@ -467,7 +467,10 @@ test("SR12 (Claude Code 2.1.325; the owner, 2026-11-14: \"Fix base on Claude Cod
   assert.equal(dec("read", d + "/a.js", { deny: ["Read"] }).why, "Permission to use Read has been denied.");
   assert.equal(dec("write", d + "/a.js", { deny: ["Read"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be written.");
   for (const tool of ["grep", "glob"]) assert.equal(dec(tool, d, { ask: ["Read"] }).verdict, "", tool + " ask");
-  assert.equal(dec("grep", d, { deny: ["Read(**)"] }).why, "Permission to read " + d + " has been denied.");
+  // (Read(**) is a path rule: a search of the project's own folder runs and finds nothing, as Claude Code 2.1.325's does (its
+  // Grep and Glob check their folder's own path); a folder below the project is refused. Round 5, file-rules CD382m.)
+  assert.equal(dec("grep", d, { deny: ["Read(**)"] }).verdict, "");
+  assert.equal(dec("grep", d + "/src", { deny: ["Read(**)"] }).why, "Permission to read " + d + "/src has been denied.");
   // (And a search's results: a whole Read deny rule beside a path one leaves out only what the path one covers.)
   assert.equal((await grep(d, { pattern: "TODO" }, { deny: { rules: ["Read", "Read(*.ts)"], root: d } })).text.split("\n").includes("a.js"), true);
   // No warning for a Grep rule with a path (Claude Code warns of Write's, NotebookEdit's, MultiEdit's and Glob's only).

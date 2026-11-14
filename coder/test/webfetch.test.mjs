@@ -176,8 +176,10 @@ test("WF4 Claude Code's pre-approved documentation sites (its 96; all of github.
   assert.equal(f("https://github.com/anthropics/claude-code/pulls", {}).verdict, "allow", "pre-approved");
   assert.equal(f("https://a.b.example.com/x", { allow: ["WebFetch(domain:*.example.com)"] }).verdict, "allow");
   assert.equal(f("https://example.com/x", { allow: ["WebFetch(domain:*.example.com)"] }).verdict, "ask");
-  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://a.b.example.com/x" }), true, "a hook's `if` matches as a rule does");
-  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://example.com/x" }), false);
+  // (A hook's `if` is no rule check: Claude Code 2.1.325's WebFetch has no matcher for one, so a domain in it matches no call;
+  // round 6, R6R3.)
+  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://a.b.example.com/x" }), false);
+  assert.equal(P.ifRuleMatches("WebFetch", "WebFetch", { url: "https://example.com/x" }), true);
 });
 
 test("WF5 the URL as Claude Code takes it: at most 2,000 characters, no user name or password, a dot in the host; http upgraded to https; a redirect followed only on the same host", () => {
@@ -335,7 +337,8 @@ test("WF9 never a private address (Coder's own refusal, kept), nor a host withou
   try {
     await assert.rejects(W.requestOnce("https://blocked.example/x", { proxy }), (e) => e.message === '{"error_type":"EGRESS_BLOCKED","domain":"blocked.example","message":"Access to blocked.example is blocked by the network egress proxy."}');
     await assert.rejects(W.requestOnce("https://private.example/x", { proxy }), (e) => e.message === "that address is on a private network");
-    await assert.rejects(W.requestOnce("https://down.example/x", { proxy }), (e) => e.message === "the proxy refused down.example");
+    // (Any other answer, the gate's 502 for an allowed site it could not reach too: Claude Code 2.1.325's words, round 4.)
+    await assert.rejects(W.requestOnce("https://down.example/x", { proxy }), (e) => e.message === "proxy refused the connection" && e.code === "ERR_PROXY_TUNNEL" && W.PROXY_REFUSED === e.message);
     assert.deepEqual(connects, ["blocked.example:443", "private.example:443", "down.example:443"]);
     // Coder's tools script, as the agent runs it, with the chat's network list on: the same words, as a failed call.
     const b64 = Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url: "http://blocked.example/x", deadline_ms: 20000 } })).toString("base64");
@@ -730,4 +733,68 @@ test("WEB12 a failed fetch's text in Claude Code's words is told whole (its word
   // And Coder is told it whole (webFetchRun hands the tools script's failure on as it is).
   const r = await A.webFetchRun({ exec: async () => ({ code: 1, output: "error: " + got.message }) }, { model: "m", args: { url: "https://" + host + "/x", prompt: "p" }, chat: "chat:w6" });
   assert.deepEqual([r.code, r.out], [1, "error: " + got.message]);
+});
+
+test("WEB14 an ask rule's question still carries the domain's allow rule as its suggestion, as Claude Code 2.1.325's WebFetch does (its checkPermissions adds `suggestions` to a rule's ask: W7 of the recheck of 2026-11-14, round 5): PermissionRequest hooks see it in permission_suggestions, the card offers \"Yes, and don't ask again\" for it, as Claude Code's prompt does, and the ask rule still asks the next time", async () => {
+  assert.deepEqual(P.fetchDecision("https://api.example.com/a", { mode: "auto", rules: { ask: ["WebFetch(domain:api.example.com)"] } }), { verdict: "ask", rule: "WebFetch(domain:api.example.com)", why: "Coder wants to fetch content from api.example.com", suggest: ["WebFetch(domain:api.example.com)"], byRule: true, host: "api.example.com" });
+  assert.deepEqual(P.fetchDecision("https://example.com/x", { mode: "acceptEdits", rules: { ask: ["WebFetch"] } }).suggest, ["WebFetch(domain:example.com)"], "a rule on the whole tool: the URL's domain, as Claude Code's");
+  const two = [say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "w1")]), say("", [call("web_fetch", { url: "https://example.com/b", prompt: "p" }, "w2")]), say("done")];
+  const run = async (opts, answer) => {
+    const events = [], hookCalls = [], execs = [];
+    let n = 0;
+    const r = await A.runCoder({
+      send: async (req) => (isReader(req) ? { message: { role: "assistant", content: "read" }, usage: { in: 2, out: 1 } } : two[Math.min(n++, two.length - 1)]),
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) { hookCalls.push(JSON.parse(x.payload)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
+        if (/coder-tools\.mjs (\S+)$/.test(String(x.command))) { execs.push(x); return { code: 0, output: pageOut("PAGE") }; }
+        return { code: 0, output: "ok\n" };
+      },
+      emit: (e) => events.push(e), here: () => "/work/shop", root: "/work/shop", chatId: "shop-w7-" + Math.random().toString(36).slice(2, 8), where: (p) => p,
+      ask: async () => answer,
+    }, { text: "go", messages: [], ...opts });
+    return { r, events, hookCalls, execs, cards: events.filter((e) => e.type === "permission" && e.tool === "web_fetch") };
+  };
+  const rules = { allow: [], deny: [], ask: ["WebFetch(domain:example.com)"] };
+  const hooks = H.hooksFrom({ hooks: { PermissionRequest: [{ matcher: "WebFetch", hooks: [{ type: "command", command: "perm.sh" }] }] } }, "settings").list;
+  const t = await run({ mode: "auto", rules, hooks }, { choice: "always" });
+  const pr = t.hookCalls.find((x) => x.hook_event_name === "PermissionRequest");
+  assert.deepEqual(pr.permission_suggestions, [{ type: "addRules", rules: [{ toolName: "WebFetch", ruleContent: "domain:example.com" }], behavior: "allow", destination: "localSettings" }]);
+  assert.deepEqual(t.cards[0].rules, ["WebFetch(domain:example.com)"]);
+  // "Don't ask again" adds the allow rule; the ask rule still asks for the next fetch (ask rules come before allow rules).
+  assert.equal(t.cards.length, 2, "asked again");
+  assert.deepEqual(t.r.rulesAdded, ["WebFetch(domain:example.com)"]);
+  assert.equal(t.execs.length, 2);
+  // The card shows it as Claude Code's prompt does ("Yes, and don't ask again for <domain>").
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /if \(Array\.isArray\(e\.rules\) && e\.rules\.length\) o\.push\(\['always', 'Yes, and don\\'t ask again for ' \+/);
+});
+
+test("R6R3 (round 6) a hook's `if` on WebFetch or WebSearch, as Claude Code 2.1.325 matches it (the owner: \"do what claude code does\"): what follows the tool's name goes to the tool's own matcher for hooks, and neither tool has one (only Read, Edit, Write, NotebookEdit, Grep, Glob, Bash, Monitor and PowerShell do), so `WebFetch(domain:example.com)`, or anything else in the brackets, runs its hook for no call; `WebFetch`, `WebFetch()` and `WebFetch(*)` for every call; WebSearch's the same; on every tool event", async () => {
+  const m = (rule, tool, input) => P.ifRuleMatches(rule, tool, input, { cwd: "/work/shop", root: "/work/shop", home: "/home/dev" });
+  const page = { url: "https://example.com/a", prompt: "x" };
+  for (const r of ["WebFetch(domain:example.com)", "WebFetch(domain:*.example.com)", "WebFetch(domain:*)", "WebFetch(https://example.com/a)", "WebFetch(example.com)", "WebFetch(url:https://example.com/a)"]) assert.equal(m(r, "WebFetch", page), false, r);
+  for (const r of ["WebFetch", "WebFetch()", "WebFetch(*)", " WebFetch "]) assert.equal(m(r, "WebFetch", page), true, r);
+  const q = { query: "react hooks", mode: "standard" };
+  for (const r of ["WebSearch(react hooks)", "WebSearch(react*)", "WebSearch(*hooks)", "WebSearch(query:react hooks)", "WebSearch(domain:react.dev)"]) assert.equal(m(r, "WebSearch", q), false, r);
+  for (const r of ["WebSearch", "WebSearch()", "WebSearch(*)"]) assert.equal(m(r, "WebSearch", q), true, r);
+  assert.equal(m("WebFetch", "WebSearch", q), false, "another tool's name");
+  // As Coder's loop picks a call's hooks (hooksFor), on each tool event.
+  const all = ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"].flatMap((event) => [
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "domain.sh", if: "WebFetch(domain:example.com)", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "fetch.sh", if: "WebFetch", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "search.sh", if: "WebSearch(*)", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "react.sh", if: "WebSearch(react hooks)", timeout: 600 },
+  ]);
+  for (const event of ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]) {
+    assert.deepEqual(H.hooksFor(all, event, "WebFetch", { tool: "WebFetch", input: page, ctx: {} }).map((h) => h.command), ["fetch.sh"], event);
+    assert.deepEqual(H.hooksFor(all, event, "WebSearch", { tool: "WebSearch", input: q, ctx: {} }).map((h) => h.command), ["search.sh"], event);
+  }
+  // In Coder's loop: the domain's hook does not run for a fetch of that domain; the tool's own does.
+  const t = await loop([say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "f1")]), say("done")], {
+    tools: { web_fetch: () => pageOut("hello") },
+    hooks: { PreToolUse: [{ matcher: "WebFetch", hooks: [{ type: "command", command: "domain.sh", if: "WebFetch(domain:example.com)" }, { type: "command", command: "fetch.sh", if: "WebFetch" }] }] },
+  });
+  assert.deepEqual(t.hookCalls.map((x) => /\b(\w+)\.sh\b/.exec(String(x.x.command))[1]), ["fetch"]);
+  assert.equal(toolMsg(t, "f1"), "read");
 });

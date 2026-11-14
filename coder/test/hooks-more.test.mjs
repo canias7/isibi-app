@@ -18,7 +18,7 @@ const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
 test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, prompt and agent hooks and where each runs; their timeouts; async, asyncRewake and onFailure; the narrow matcher; what each new event's output means", () => {
   // THE KINDS: http (a url), prompt and agent (a prompt); SessionStart takes only command hooks, PermissionRequest no agent
-  // hook, the observing events command and http; mcp_tool is named (Coder has no MCP servers).
+  // hook, the observing events command, http and mcp_tool (since fix round 4: a tool of one of the chat's connectors).
   const s = H.hooksFrom({
     allowedHttpHookUrls: ["https://hooks.example.com/*"], httpHookAllowedEnvVars: ["MY_TOKEN"],
     hooks: {
@@ -36,10 +36,11 @@ test("CD384 Claude Code's other hook kinds and fields, as it reads them: http, p
     { event: "PreToolUse", matcher: "Bash", type: "agent", timeout: 60, statusMessage: "Checking…", source: "settings", prompt: "Look first" },
     { event: "PostToolUse", matcher: "Write", type: "command", timeout: 600, source: "settings", command: "./tests.sh", async: true },
     { event: "PostToolUse", matcher: "Write", type: "command", timeout: 120, ownTimeout: true, source: "settings", command: "./watch.sh", asyncRewake: true },
+    { event: "PostToolUse", matcher: "Write", type: "mcp_tool", timeout: 600, source: "settings", server: "x", tool: "y" },
   ]);
-  assert.deepEqual(s.problems, ["PostToolUse: mcp_tool hooks don't run on Coder (it has no MCP servers)", "SessionStart doesn't take http hooks", "PermissionRequest doesn't take agent hooks", "CwdChanged doesn't take prompt hooks", "Stop: an http hook needs an http or https url", "Stop: a prompt hook needs its prompt"]);
+  assert.deepEqual(s.problems, ["SessionStart doesn't take http hooks", "PermissionRequest doesn't take agent hooks", "CwdChanged doesn't take prompt hooks", "Stop: an http hook needs an http or https url", "Stop: a prompt hook needs its prompt"]);
   assert.deepEqual([s.httpUrls, s.httpEnvVars], [["https://hooks.example.com/*"], ["MY_TOKEN"]]);
-  assert.deepEqual([H.typesFor("SessionStart"), H.typesFor("PermissionRequest"), H.typesFor("FileChanged"), H.typesFor("PostToolBatch")], [["command"], ["command", "http", "prompt"], ["command", "http"], ["command", "http", "prompt", "agent"]]);
+  assert.deepEqual([H.typesFor("SessionStart"), H.typesFor("PermissionRequest"), H.typesFor("FileChanged"), H.typesFor("PostToolBatch")], [["command", "mcp_tool"], ["command", "http", "mcp_tool", "prompt"], ["command", "http", "mcp_tool"], ["command", "http", "mcp_tool", "prompt", "agent"]]);
   // TIMEOUTS: 30 for prompt, 60 for agent; SessionEnd shares 1.5 seconds, raised by a hook's own up to 60, or set outright.
   assert.deepEqual([H.timeoutFor("Stop", undefined, "prompt"), H.timeoutFor("Stop", undefined, "agent"), H.timeoutFor("SessionEnd")], [30, 60, 1.5]);
   const se = H.hooksFrom({ hooks: { SessionEnd: [{ hooks: [{ type: "command", command: "a" }, { type: "command", command: "b", timeout: 10 }] }] } }).list;

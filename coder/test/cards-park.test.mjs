@@ -43,7 +43,7 @@ async function loop(steps, opts = {}, { ask = PARK, deps = {} } = {}) {
 const takeUp = (first, answer, opts = {}, more = {}) => loop([say("Done.")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer }, ...opts }, { ask: NO_ASK, ...more });
 const tools = (r) => r.messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m.content]);
 
-test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code 2.1.325's for every call of a paused turn its Stop closes: REJECTED); the owner's next message's (CARD_CLOSED, raw binary); no Node module, and the machine's image copies it", () => {
+test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code 2.1.325's for every call of a paused turn its Stop closes: NOT_NOW, round 6); the owner's next message's (CARD_CLOSED, raw binary); no Node module, and the machine's image copies it", () => {
   assert.equal(P.PARK_MS, 5 * 60 * 1000, "a few minutes, as Claude Code's idle VM");
   const rec = { pid: "p1abcdef", kind: "permission", site: "bash", call: { id: "b1", name: "bash", args: { command: "npm i" } }, rest: ["b2"], mode: "acceptEdits", told: "acceptEdits", rounds: 3, notes: ["n"], shown: [], at: 5 };
   const ok = P.parkRecord(rec);
@@ -66,7 +66,7 @@ test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the ans
   const msgs = [{ role: "user", content: "go" }, { role: "assistant", content: "x", tool_calls: [{ id: "b0" }, { id: "b1" }, { id: "b2" }] }, { role: "tool", tool_call_id: "b0", content: "ran" }];
   assert.equal(P.parkedRound(msgs, rec).at, 1);
   const closed = P.closeParked(msgs, rec);
-  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }], "Claude Code's Stop on a paused card: its \"user-rejected\" words for every call of that turn");
+  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: NOT_NOW }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }], "Claude Code's Stop on a paused card: its words for every call of a turn it hands back stopped (its KR, \"cancelled\"; round 6)");
   assert.equal(REJECTED, "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.");
   assert.notEqual(REJECTED, NOT_NOW);
   // The owner's next message: Claude Code 2.1.325's words for it (its "new_input", raw binary), "owner" for "user".
@@ -146,13 +146,16 @@ test("CP3 the owner's answer, minutes or hours later, takes the turn up again at
   // Grok gets the round whole, then answers.
   // (Less tool search's note on the chat's deferred tools, after the owner's first message: tool-search.test.mjs.)
   const sent = back.seen[0].messages.filter((m) => m.role !== "system" && !m.toolsAnnounced);
-  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "user:", "assistant:", "tool:b1", "tool:b2", "user:", "user:", "user:"]);
-  assert.equal(sent[1].modeNote, "acceptEdits", "the first job's note of its mode, in the conversation (never the system message)");
-  assert.deepEqual(sent[5], { role: "user", content: "go ahead" }, "the owner's words exactly as typed, right after the round's results");
+  // (No note of Accept edits, the first job's mode, since fix round 4: Claude Code has none for that mode.)
+  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "assistant:", "tool:b1", "tool:b2", "user:", "user:"]);
+  assert.ok(!sent.some((m) => m.modeNote === "acceptEdits"));
+  assert.deepEqual(sent[4], { role: "user", content: "go ahead" }, "the owner's words exactly as typed, right after the round's results");
   assert.ok(sent.every((m) => !("words" in m)), "never sent as a field of the result");
-  // (Then, as at any round, the mode the owner picked meanwhile, as Claude Code says a mode change, and auto mode's note.)
-  assert.equal(sent[6].content, A.modeChangeNote("acceptEdits", "auto"));
-  assert.equal(sent[7].modeNote, "auto");
+  // (Then, as at any round, auto mode's note for the mode the owner picked meanwhile, as Claude Code gives it: since round 6
+  // nothing of the mode as such, which Claude Code never says.)
+  assert.equal(A.modeChangeNote("acceptEdits", "auto"), "");
+  assert.equal(sent[5].modeNote, "auto");
+  assert.ok(!sent.some((m) => /permission mode is now/.test(String(m.content))));
   // In Accept edits the second command asked; in the chat's Auto it ran at once: the card's mode was for its own call only.
   assert.equal(back.asked.length, 0);
   // "Yes, and don't ask again" saves its rule; "Yes, and switch to auto mode" switches, as on the card while the job ran.
@@ -168,7 +171,8 @@ test("CP4 No without a note ends the turn in Claude Code's words, the round's la
   const no = await takeUp(first, { choice: "no" });
   assert.equal(no.r.status, "done");
   assert.equal(no.seen.length, 0, "no call to Grok");
-  assert.deepEqual(tools(no.r), [["b1", REJECTED], ["b2", NOT_NOW]]);
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too, as its executor gives it.)
+  assert.deepEqual(tools(no.r), [["b1", REJECTED], ["b2", REJECTED]]);
   assert.equal(no.r.summary, "stopped: the owner said no");
   assert.deepEqual(no.events.map((e) => [e.type, e.id || e.pid, e.output || e.choice]), [["permanswer", first.r.parked.pid, "no"], ["result", "b1", "Not run: you said no."]]);
   assert.deepEqual(no.ran, []);
@@ -188,10 +192,14 @@ test("CP4 No without a note ends the turn in Claude Code's words, the round's la
 test("CP5 a question card (AskUserQuestion), the key card (request_credential) and the plan's card pause and are taken up the same way: the owner's picks, Skip, a reply typed in the chat, Saved, Decline, an approved plan switching the mode", async () => {
   const q = { questions: [{ question: "Which database?", header: "DB", options: [{ label: "Postgres", description: "SQL" }, { label: "SQLite", description: "a file" }], multiSelect: false }] };
   const ask = await loop([say("Let me ask.", [call("ask_user", q, "a1"), call("bash", { command: "echo after" }, "b1")])]);
-  assert.deepEqual([ask.r.status, ask.r.parked.kind, ask.r.parked.site, ask.r.parked.rest], ["parked", "question", "question", ["b1"]]);
+  // (Round 5: the command that only reads ran beside the question and returned before the job paused, so it keeps its result in
+  // the chat, as Claude Code's session keeps it, and the record holds no later call; it is not run again.)
+  assert.deepEqual([ask.r.status, ask.r.parked.kind, ask.r.parked.site, ask.r.parked.rest], ["parked", "question", "question", []]);
+  assert.deepEqual(tools(ask.r), [["b1", "ran: echo after"]]);
   assert.equal(ask.asked[0].o.chat, true, "a message typed while it waits is its reply");
   const picked = await takeUp(ask, { choice: "answers", picks: [{ options: [1], other: "" }] });
   assert.equal(picked.r.messages.find((m) => m.tool_call_id === "b1").content, "ran: echo after", "the round goes on");
+  assert.deepEqual(picked.ran, [], "nothing run again");
   assert.match(picked.r.messages.find((m) => m.tool_call_id === "a1").content, /^Your questions have been answered: "Which database\?"="SQLite"\./);
   assert.equal((await takeUp(ask, { choice: "skip" })).r.messages.find((m) => m.tool_call_id === "a1").content, "The owner did not answer the questions.");
   const reply = await takeUp(ask, { choice: "chat", text: "use mysql", qid: "qabc1234" });
@@ -271,7 +279,7 @@ test("CP7 what the job's start says while a round is taken up (a SessionStart ho
   assert.equal(odd.seen.length, 0);
   assert.ok(odd.events.some((e) => e.type === "error" && /could not take up your answer/.test(e.text)));
   const bad = await loop([say("never")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer: { choice: "maybe" } } }, { ask: NO_ASK });
-  assert.deepEqual(tools(bad.r), [["b1", REJECTED]], "every call has its answer again, in the words of Claude Code's Stop on a paused turn");
+  assert.deepEqual(tools(bad.r), [["b1", NOT_NOW]], "every call has its answer again, in the words of Claude Code's Stop on a paused turn");
 });
 
 test("CP8 Coder's machine: a card's job pauses after its time with the card open (/state says which card waits; /answer says the job paused); a turn taken up again (resume) goes on from that call, with the messages that waited for the card; a bad resume is refused", async () => {
@@ -419,12 +427,13 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   const rt = qq.w.turns()[0];
   assert.deepEqual([rt.resume.answer.choice, rt.resume.answer.text], ["chat", "Use MySQL."]);
   assert.match(rt.resume.answer.qid, /^q[0-9a-z]{6,20}$/);
-  // Stop closes the card as Claude Code's Stop on a paused card does (its "user-rejected" words for every call of that turn);
+  // Stop closes the card as Claude Code's Stop on a paused card does (NOT_NOW, its words for every call of a turn it hands back stopped);
   // what waited goes out next.
   const st = await parked();
   const stop = await st.w.go("projects/" + st.w.id + "/stop", { method: "POST" });
   assert.deepEqual(stop.data, { ok: true, reload: true });
-  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }]);
+  // (And Claude Code's mark of the turn its Stop interrupted, after the results: round 6.)
+  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: NOT_NOW }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }, { role: "user", appNote: true, content: "[Request interrupted by the owner for tool use]" }]);
   assert.deepEqual(st.w.json("events.json").slice(-3).map((e) => [e.type, e.pid || e.id || "", e.choice || e.output || ""]), [["permanswer", "p1abcdef", "stop"], ["result", "b1", "Not run: stopped."], ["stopped", "", ""]]);
   assert.equal(st.w.turns()[0].text, "and fix what it finds", "sent next, as after any job's end");
   assert.equal(st.w.turns()[0].resume, undefined);

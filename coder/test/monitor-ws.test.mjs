@@ -121,7 +121,8 @@ test("CD385c a WebSocket watch in Coder's loop: asked about on a card (no \"don'
   // ASKED in Accept edits: the card names the address; Yes opens it as a monitor in the background.
   let t = await job([say("", [wsCall()]), say("Watching.")]);
   assert.deepEqual([t.cards.length, t.cards[0].tool, t.cards[0].url, t.cards[0].desc, t.cards[0].rules], [1, "monitor", "wss://feed.example.com/deploys", "Deploy feed", undefined]);
-  assert.equal(t.cards[0].why, "Coder wants to open a WebSocket to feed.example.com and watch its messages.");
+  // (Claude Code 2.1.325's own ask for it since round 6, with its subprotocols.)
+  assert.equal(t.cards[0].why, 'Monitor will open a WebSocket to wss://feed.example.com/deploys (subprotocols: "v1")');
   const x = t.execs.find((e) => e.ws);
   assert.deepEqual([x.monitor, x.inBg, x.limitMs, x.desc], [true, true, 600000, "Deploy feed"]);
   const req = JSON.parse(Buffer.from(/coder-tools\.mjs (\S+)$/.exec(x.command)[1], "base64").toString("utf8"));
@@ -149,7 +150,8 @@ test("CD385c a WebSocket watch in Coder's loop: asked about on a card (no \"don'
   // A RULE ASKING FOR EVERY BASH COMMAND: the owner is asked, and a PreToolUse hook's allow does not approve it.
   t = await job([say("", [wsCall()]), say("ok")], { mode: "auto", rules: { ask: ["Bash"] }, hooks: { PreToolUse: [{ matcher: "Monitor", hooks: [{ type: "command", command: "allow.sh" }] }] }, hookRun: () => ({ stdout: '{"hookSpecificOutput":{"permissionDecision":"allow"}}' }) });
   assert.deepEqual([t.cards.length, t.cards[0] && t.cards[0].byRule], [1, true]);
-  assert.match(t.cards[0].why, /^Your rule Bash asks first for every command, and a WebSocket watch runs code as Bash does, so only you can approve it\.$/);
+  // (Claude Code's card line for a rule since round 6: its Monitor dialog's for a WebSocket, "this tool"; in Auto, "Ask rule".)
+  assert.equal(t.cards[0].why, "Ask rule Bash overrides auto mode for this tool.");
   // Where no one can answer (a job from GitHub): the checker, or with none, it is opened.
   t = await job([say("", [wsCall()]), say("ok")], { github: true });
   assert.equal(t.execs.filter((e) => e.ws).length, 1);
@@ -235,6 +237,7 @@ test("CD385e CODER_SHELL (Claude Code's CLAUDE_CODE_SHELL): bash or zsh by name 
     assert.equal((await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "zsh-t1", text: "go", messages: [], setup: { vars: { CODER_SHELL: "zsh" } } }) })).status, 200);
     let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=zsh-t1&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     assert.equal(st.events.find((e) => e.type === "result" && e.id === "z1").output, "hi from zshrc\nzsh");
-    assert.match(seen[0].messages[0].content, /YOUR SHELL: your commands run in zsh \(\/(usr\/)?bin\/zsh\), the owner's CODER_SHELL, not bash/);
+    // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), /YOUR SHELL: your commands run in zsh \(\/(usr\/)?bin\/zsh\), the owner's CODER_SHELL, not bash/);
   } finally { srv.close(); }
 });

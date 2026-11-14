@@ -26,7 +26,10 @@ const zj = (issues) => JSON.stringify(issues, null, 2);
 const TAIL = "The tool input from the model was valid; the hook's rewrite of it was not.";
 const post = (json) => ({ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", ...json } } } });
 
-async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = async () => ({ choice: "yes" }), mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {}, opts = {} } = {}) {
+// (The owner's Yes, after a card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+// `gone`, as they run beside it since fix round 4.)
+const slowYes = async (pid, o = {}) => { if (o.gone) for (let w = 0; w < 300 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : { choice: "yes" }; };
+async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = slowYes, mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {}, opts = {} } = {}) {
   const events = [], hookCalls = [], requests = [], ran = [];
   let n = 0;
   const r = await A.runCoder({
@@ -269,8 +272,11 @@ test("HR9 a hook's new input for lsp gets lsp's own file checks before the call 
   assert.equal(t.answer("l1"), "PreToolUse hook for LSP returned updatedInput that the tool refused: File does not exist: missing.py\n" + TAIL);
   assert.equal(t.answer("l2"), "PreToolUse hook for LSP returned updatedInput that the tool refused: Path is not a file: src\n" + TAIL);
   assert.equal(t.events.find((e) => e.type === "result" && e.id === "l1").hookBlocked, true);
-  // Each call's own file was checked before its hooks, the rewrite's after them; only the good rewrite was looked up.
-  assert.deepEqual(t.requests.filter((q) => q.tool === "lsp_file").map((q) => q.args.filePath), ["a.py", "missing.py", "b.py", "src", "c.py", "d.py"]);
+  // Each call's own file was checked before its hooks, the rewrite's after them; only the good rewrite was looked up. (Round 5:
+  // the three calls' own files are checked at their group's start, where their hooks then run side by side, as Claude Code runs
+  // each call's checks and hooks in its own run; each rewrite in its call's turn.)
+  const checked = t.requests.filter((q) => q.tool === "lsp_file").map((q) => q.args.filePath);
+  assert.deepEqual(checked, ["a.py", "b.py", "c.py", "missing.py", "src", "d.py"]);
   assert.deepEqual(t.requests.filter((q) => q.tool === "lsp").map((q) => q.args.filePath), ["d.py"]);
   // A PermissionRequest hook's new input: the same check, its refusal the hook's no.
   const allow = (u) => hookOut({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: u } } });

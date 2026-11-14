@@ -168,8 +168,9 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   // A picture over 20 MB (the old limit) is read now: made smaller, as Claude Code does (when ImageMagick is here).
   let hasConvert = true; try { execFileSync("convert", ["-version"]); } catch { hasConvert = false; }
   if (hasConvert) {
-    execFileSync("convert", ["-size", "2700x2700", "xc:red", join(dir, "big.bmp")]);
-    assert.match(read({ path: "big.bmp" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.bmp \(\d+×\d+, BMP, 2\d\.\d MB\)/);
+    // (A PNG of noise, as big as the BMP this was: BMP is refused as binary since round 6, as Claude Code's Read refuses it.)
+    execFileSync("convert", ["-size", "2700x2700", "xc:", "+noise", "Random", "-depth", "8", join(dir, "big.png")]);
+    assert.match(read({ path: "big.png" }), /^\u0000coder-pictures\u0000[\s\S]*Picture: big\.png \(\d+×\d+, PNG, 2\d\.\d MB\)/);
   }
 });
 
@@ -188,7 +189,7 @@ test("CD206 every PDF page reaches Grok as a picture: Coder's machine passes a f
   const tool = await execIn(dir, cmd, 60, { kill: true, outMax: TOOL_OUTPUT_MAX });
   assert.equal(tool.output.length, 3_000_000, "a file tool's answer: all 3 MB");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: t\.outLimits\.inlineMax, keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/, "the job's file tools get it; its commands save long output to a file");
+  assert.match(server, /\.\.\.\(tool \? \{ outMax: TOOL_OUTPUT_MAX \} : \{ spillDir: outDir, spillAt: Math\.min\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\), keep: Math\.max\(t\.outLimits\.inlineMax, t\.outLimits\.readBack\) \+ 10_000, stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/, "the job's file tools get it; its commands save long output to a file");
   // The agent: 20 pictures from one read reach Grok, all of them.
   const { runCoder, PICS_PER_READ, PICS_KEEP } = await import("../container/coder-agent.mjs");
   const { PICS_MARK } = await import("../container/coder-tools.mjs");
@@ -448,7 +449,8 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
+  // (Read's named too since round 6, as Claude Code's "Read file_path cannot contain null bytes …", before its hooks.)
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "read path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), POPPLER ? /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s : /^error: this machine has no PDF reader \(poppler\); use bash$/);
@@ -618,13 +620,17 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await writeFile(join(dir, "Sheet 1.xlsx"), "x");
   await writeFile(join(dir, "t.parquet"), "x");
   await writeFile(join(dir, "photo.heic"), "x");
-  assert.equal(await read("data.zip"), "error: data.zip is a binary file (ZIP), not text, so read does not open it: list it with `unzip -l 'data.zip'`, or print one file in it with `unzip -p 'data.zip' path/inside`");
-  assert.match(await read("Sheet 1.xlsx"), /^error: Sheet 1\.xlsx is a binary file \(XLSX\), not text, so read does not open it: read it with a script, e\.g\. python3 with openpyxl or pandas/);
-  assert.match(await read("t.parquet"), /\(PARQUET\).*python3 with pandas and pyarrow, or duckdb$/);
-  assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it in the scratch folder with a command \(ImageMagick: `mkdir -p \/tmp\/coder-scratch && convert 'photo\.heic' \/tmp\/coder-scratch\/out\.png`/);
-  // Any other binary file: by the NUL byte in its start, with how to see what it is.
-  await writeFile(join(dir, "blob.dat"), Buffer.from([1, 2, 0, 3]));
-  assert.equal(await read("blob.dat"), "error: blob.dat is a binary file (not text): see what it is with `file 'blob.dat'`, then use a command or a script that reads that kind of file");
+  // (Claude Code 2.1.325's own list and words since round 4, the owner: "yes pls do both"; Coder had its own way to read each kind.)
+  const binary = (ext) => "error: This tool cannot read binary files. The file appears to be a binary " + ext + " file. Use a shell command or script that can read the format.";
+  assert.equal(await read("data.zip"), binary(".zip"));
+  assert.equal(await read("Sheet 1.xlsx"), binary(".xlsx"));
+  assert.equal(await read("t.parquet"), binary(".parquet"));
+  assert.equal(await read("photo.heic"), binary(".heic"));
+  // Any other file with a NUL byte in its start: its lines, with Claude Code 2.1.325's note after them, as its Read shows one
+  // (round 4; Coder had refused it in its own words).
+  const { notTextNote } = await import("../container/coder-tools.mjs");
+  await writeFile(join(dir, "blob.raw"), Buffer.from([1, 2, 0, 3]));
+  assert.equal(await read("blob.raw"), "     1\t\u0001\u0002\u0000\u0003\n" + notTextNote("nul"));
   // A folder.
   await mkdir(join(dir, "src"));
   assert.equal(await read("src"), "error: " + join(dir, "src") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
@@ -635,7 +641,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
   const note = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).content;
   assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
-  assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
+  assert.ok(note.includes("--- data.zip: not included (This tool cannot read binary files. The file appears to be a binary .zip file."));
 });
 
 test("CD217 the review (2026-11-08): a job that reads a lot never wipes the saved chat. While Coder works, a read reaches Grok whole; the chat saved between messages keeps each tool's answer and each app note to 12,000 characters (a summary to 40,000), and the chat's record keeps each step's output to 12,000; the size cap cuts only at the owner's messages, and one job over it is shortened, never dropped", async () => {
@@ -770,7 +776,7 @@ test("CD221 a PDF's own page count is not trusted (Claude Code 2.1.317: \"Fixed 
   const run = machine(dir);
   const read = async (args) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out, pictures: [] }; };
   await writeFile(join(dir, "book.epub"), "PK");
-  assert.match((await read({ path: "book.epub" })).text, /^error: book\.epub is a binary file \(EPUB\), not text, so read does not open it: list it with `unzip -l 'book\.epub'`/);
+  assert.equal((await read({ path: "book.epub" })).text, "error: This tool cannot read binary files. The file appears to be a binary .epub file. Use a shell command or script that can read the format.");
   let tools = true;
   try { execFileSync("python3", ["-c", "import pypdf"]); execFileSync("pdfinfo", ["-v"], { stdio: "ignore" }); } catch { tools = false; }
   if (!tools) return; // pypdf and poppler are on Coder's machine (the machine check, test/read-check.mjs, reads one there)
@@ -804,21 +810,25 @@ test("CD221 a PDF's own page count is not trusted (Claude Code 2.1.317: \"Fixed 
 test("CD222 after a job's summary, Coder's instructions and memory come fresh from disk (Claude Code's docs, \"What survives compaction\": \"Project-root CLAUDE.md and unscoped rules | Re-injected from disk\", \"Auto memory | Re-injected from disk\"; its 2.1.311: \"Fixed Claude seeing stale MEMORY.md and CLAUDE.md content right after automatic compaction when those files were edited earlier in the session\")", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
   let k = 0, summarized = false, fresh = 0;
-  const systems = [];
+  const systems = [], reqs = [];
   await runCoder({
     get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     freshContext: async () => { fresh++; return "CONTEXT FROM DISK: CODER.md now says use tabs"; },
     send: async (q) => {
       if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY"); }
-      systems.push(q.messages[0].content); k++;
+      systems.push(q.messages[0].content); reqs.push(q.messages); k++;
       return k <= 12 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done.");
     },
     emit: () => {},
     exec: async () => ({ code: 0, output: "z".repeat(3000) }),
   }, { text: "go", context: "CONTEXT AT THE START: CODER.md says use spaces" });
   assert.equal(fresh, 1, "once, after the summary");
-  assert.ok(systems.slice(0, 12).every((c) => c.endsWith("CONTEXT AT THE START: CODER.md says use spaces")));
-  assert.ok(systems.at(-1).endsWith("CONTEXT FROM DISK: CODER.md now says use tabs"), "the next step has it fresh");
+  // (Since fix round 4 the context is told in the conversation, and the system message never changes: context-cache.test.mjs.)
+  assert.ok(systems.every((c) => c === systems[0]) && !systems[0].includes("CONTEXT AT THE START"));
+  const ctxNotes = (msgs) => msgs.filter((m) => m.ctx).map((m) => m.content);
+  assert.deepEqual(ctxNotes(reqs[0]), ["(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nCONTEXT AT THE START: CODER.md says use spaces)"]);
+  assert.ok(reqs.slice(0, 12).every((msgs) => ctxNotes(msgs).length === 1));
+  assert.equal(ctxNotes(reqs.at(-1)).at(-1), "(Note from Coder's app, not the owner:\nThe chat context has changed; these values replace the earlier ones:\nCONTEXT FROM DISK: CODER.md now says use tabs)", "the next step has it fresh");
   // On Coder's machine it is made again from the repository's files and the memory file (server.mjs).
   const src = (await import("node:fs")).readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(src, /freshContext: async \(\) => contextFor\(await topNotes\(dir, notes\), \(await readMemory\(memFile\)\) \?\? "", later\),/);
@@ -868,9 +878,15 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   const be = Buffer.from(words, "utf16le"); be.swap16();
   await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
   assert.equal(await tool("read", { path: "le.txt" }), "     1\théllo\n     2\twörld");
-  assert.equal(await tool("read", { path: "be.txt" }), "     1\théllo\n     2\twörld");
+  // A big-endian file (FE FF) is read as UTF-8, with Claude Code 2.1.325's note, as its Read reads only UTF-16LE behind its mark
+  // (round 4; Coder had read it as UTF-16).
+  const { notTextNote, notTextRefused } = await import("../container/coder-tools.mjs");
+  const beLines = Buffer.concat([Buffer.from([0xfe, 0xff]), be]).toString("utf8").split("\n").slice(0, -1);
+  assert.equal(await tool("read", { path: "be.txt" }), beLines.map((l, i) => String(i + 1).padStart(6) + "\t" + l).join("\n") + "\n" + notTextNote("utf16be"));
+  assert.match(await tool("edit", { path: "be.txt", old_string: "w", new_string: "v" }), /^error: be\.txt is UTF-16 big-endian \(it starts FE FF\), which these tools cannot write\. These tools write UTF-8/);
   await writeFile(join(dir, "nul.txt"), Buffer.from([0x61, 0, 0x62]));
-  assert.match(await tool("read", { path: "nul.txt" }), /is a binary file \(not text\)/, "zero bytes without a byte-order mark: binary, as before");
+  assert.equal(await tool("read", { path: "nul.txt" }), "     1\ta\u0000b\n" + notTextNote("nul"), "zero bytes without a byte-order mark: shown, with the note");
+  assert.equal(await tool("edit", { path: "nul.txt", old_string: "a", new_string: "c" }), "error: nul.txt " + notTextRefused("nul"));
   // Edit changes UTF-16 files as UTF-16 since its turn (tool 3, 2026-11-09), as Claude Code's Edit ("unless the file starts with a little-endian UTF-16 byte-order mark").
   assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /^The file le\.txt has been updated successfully\./);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("jéllo\nwörld\n", "utf16le")]), "still UTF-16, its mark kept");
@@ -1327,7 +1343,7 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   assert.match((await bare({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path: "nb2.ipynb", content: "{}" } })).toString("base64") })).output, /^The file nb2\.ipynb has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
 });
 
-test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16 file keeps its UTF-16 (little- or big-endian, with its byte-order mark), as there", async () => {
+test("CD244 write does not replace a file that is not valid UTF-8 (an old encoding, or binary): nothing is written, as Claude Code's Write (tried side by side: \"File is not valid UTF-8 … so nothing was written … delete it first, then Write it\"); deleted first, it may; a UTF-16LE file keeps its UTF-16LE (with its byte-order mark), as there; a UTF-16BE one is refused (Claude Code 2.1.325)", async () => {
   const { mkdtemp, writeFile, readFile, unlink } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
@@ -1346,11 +1362,11 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("old\n", "utf16le")]));
   assert.match(await write("le.txt", "nëw\n"), /^The file le\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   assert.deepEqual(await readFile(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("nëw\n", "utf16le")]));
-  const be = Buffer.from("old\n", "utf16le"); be.swap16();
-  await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
-  assert.match(await write("be.txt", "nëw\n"), /^The file be\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
-  const want = Buffer.from("nëw\n", "utf16le"); want.swap16();
-  assert.deepEqual(await readFile(join(dir, "be.txt")), Buffer.concat([Buffer.from([0xfe, 0xff]), want]));
+  // A big-endian one (FE FF) is refused, as Claude Code 2.1.325's Write refuses it, in its words (round 4; Coder wrote it as UTF-16BE).
+  const be = Buffer.concat([Buffer.from([0xfe, 0xff]), (() => { const b = Buffer.from("old\n", "utf16le"); b.swap16(); return b; })()]);
+  await writeFile(join(dir, "be.txt"), be);
+  assert.equal(await write("be.txt", "nëw\n"), "error: be.txt is UTF-16 big-endian (it starts FE FF), which these tools cannot write. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  assert.deepEqual(await readFile(join(dir, "be.txt")), be, "untouched");
   // A UTF-8 file stays UTF-8.
   await writeFile(join(dir, "u8.txt"), "olé\n");
   assert.match(await write("u8.txt", "nëw\n"), /^The file u8\.txt has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
@@ -1423,7 +1439,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.ok(page.includes("A file over <b>" + T.READ_WHOLE_MAX / 1024 + " KB</b>"));
   assert.ok(page.includes("up to <b>" + n(T.PIC_SIDES[0]) + " pixels</b>"));
   assert.ok(page.includes("up to " + T.PIC_MAX_BYTES / 1048576 + " MB"));
-  assert.ok(page.includes("PNG, JPEG, GIF, WebP, BMP and TIFF") && Object.keys(T.PIC_KINDS).length === 8);
+  assert.ok(page.includes("PNG, JPEG, GIF and WebP") && page.includes("BMP and TIFF files are not opened as pictures (as in Claude Code)") && Object.keys(T.PIC_KINDS).length === 5);
   assert.ok(page.includes("Up to " + T.PDF_PAGES_FREE + " pages are read whole") && page.includes("at most <b>" + T.PDF_PAGES_MAX + " pages</b> at a time"));
   assert.ok(page.includes("<code>" + T.PICTURES + "</code>"));
   assert.equal(A.REREAD_FILES, 5);
@@ -1608,7 +1624,8 @@ test("CD252 write does not replace an instruction file Coder was shown only the 
   await tool("read", { path: "sub/AGENTS.md", offset: 1, limit: 2000 });
   assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused, "a part asked for, even all of its lines, is not a read in one call");
   assert.match(await tool("read", { path: "sub/AGENTS.md" }), /\[PARTIAL view: /);
-  assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^error: sub\/AGENTS\.md has not been read yet/);
+  // (Given only from its start comes first, before a part read, as Claude Code 2.1.325's Write checks them: round 6.)
+  assert.equal(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), refused);
   // All of it in one call: allowed.
   assert.doesNotMatch(await tool("read", { path: "sub/AGENTS.md", allow_large: true, max_chars: 400000 }), /PARTIAL view|\[lines /, "allow_large, sized as the agent sizes it");
   assert.match(await tool("write", { path: "sub/AGENTS.md", content: "short\n" }), /^The file sub\/AGENTS\.md has been updated successfully\./);
@@ -1867,7 +1884,8 @@ test("CD258 a protected file is written only once the owner allows it, on a card
   k = 0; events = [];
   const gh = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("write", { path: ".vscode/tasks.json", content: "{}\n" }, "w7")]) : say("Done.")) }, { text: "add a task", github: true });
   await assert.rejects(access(join(dir, ".vscode/tasks.json")));
-  assert.match(told(gh.messages, "w7"), /^error: \.vscode\/tasks\.json is a protected file .* not changed in a job started from GitHub/);
+  // (Told Claude Code's ask itself since round 6, as its run with no one to answer returns it: Write's check of a protected path.)
+  assert.equal(told(gh.messages, "w7"), "Coder requested permissions to edit .vscode/tasks.json which is a sensitive file.");
   assert.ok(!events.some((e) => e.type === "writeask"));
   // The chat: the card, its buttons, and the chat waiting for the owner.
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
@@ -2174,7 +2192,7 @@ test("CD264 Coder's app treats edit as it treats write (tool 3): a protected fil
   // From GitHub, where no one can allow it: not edited.
   events = []; k = 0;
   const gh = await runCoder({ exec: machine(dir), emit: (e) => events.push(e), send: async () => (++k === 1 ? say("", [call("edit", { path: ".husky/pre-commit", old_string: "npm run lint", new_string: "npm test" }, "e4")]) : say("Done.")) }, { text: "put npm test back", github: true });
-  assert.match(told(gh.messages, "e4"), /^error: \.husky\/pre-commit is a protected file .* so it is not changed in a job started from GitHub/);
+  assert.equal(told(gh.messages, "e4"), "Coder requested permissions to edit .husky/pre-commit which is a sensitive file.");
   assert.equal(await readFile(join(dir, ".husky/pre-commit"), "utf8"), "#!/bin/sh\nnpm run lint\n");
   // old_str and new_str: edited, and the security check (afterFile) gets the new text as new_string.
   const after = [];

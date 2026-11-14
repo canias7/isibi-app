@@ -20,9 +20,17 @@
  * CARD_CLOSED) and is answered at once. A question card's is its reply ("replied_in_chat"), as before. While the job still
  * runs, Claude Code keeps the card and the message waits in line (its live prompt is closed by no message): so does Coder.
  *
+ * THE CALLS THAT RAN BESIDE THE CARD (round 5, 2026-11-14; coder-parallel.mjs): before the job pauses, those of the round that
+ * had their results take their turns, as Claude Code's session keeps a finished call's result while its machine sleeps, so the
+ * chat holds their answers and the record's `rest` only the calls still without one; the job taken up again runs none of them
+ * again, and Stop, the owner's next message or a No on the card leave their answers as they are (closeParked answers only the
+ * calls without one; a No gives the others Claude Code's rejection, REJECTED; a Stop, its words for a turn it hands back
+ * stopped, NOT_NOW: round 6).
+ *
  * No Node modules here: Coder's Worker uses the same record (src/coder-routes.mjs).
  */
-import { REJECTED } from "./coder-perms.mjs";
+import { NOT_NOW } from "./coder-perms.mjs";
+import { interruptedNote } from "./coder-parallel.mjs";
 
 /** How long a card waits inside its job before the job pauses ("after a few minutes without activity"). */
 export const PARK_MS = 5 * 60 * 1000;
@@ -155,10 +163,13 @@ export function parkedRound(messages, record) {
 /**
  * THE CARD CLOSED WITHOUT ITS JOB (the owner's Stop, a Rewind or an Undo while it waited; or the owner's next message,
  * CARD_CLOSED): every call of the round still without a result is told so, the waiting call and the ones after it it held
- * back alike, as Claude Code tells every call of a paused turn (a Stop: REJECTED, its "user-rejected" words). Every call
- * then has its answer, as the AI's API needs. Answers the messages (unchanged when they do not end on that round).
+ * back alike, as Claude Code tells every call of a paused turn. A Stop's (the default): NOT_NOW, "The owner doesn't want to
+ * take this action right now. STOP …", as Claude Code 2.1.325's own Stop on a turn it took up stopped gives every call still
+ * without a result (its handleHandedOffTurn, "stopped": its KR, toolDenialKind "cancelled"; round 6, the owner, 2026-11-14:
+ * "do what claude code does"). Every call then has its answer, as the AI's API needs. Answers the messages (unchanged when
+ * they do not end on that round).
  */
-export function closeParked(messages, record, said = REJECTED, rest = said) {
+export function closeParked(messages, record, said = NOT_NOW, rest = said) {
   const r = parkRecord(record);
   const round = r ? parkedRound(messages, r) : null;
   if (!round) return Array.isArray(messages) ? messages : [];
@@ -167,6 +178,16 @@ export function closeParked(messages, record, said = REJECTED, rest = said) {
   out.push({ role: "tool", tool_call_id: r.call.id, content: said });
   for (const tc of round.msg.tool_calls) if (tc && tc.id !== r.call.id && !replied.has(tc.id)) out.push({ role: "tool", tool_call_id: tc.id, content: rest });
   return out;
+}
+/**
+ * THE CARD CLOSED BY THE OWNER'S STOP (or a Rewind or an Undo, which close it as a Stop does): closeParked, NOT_NOW for every
+ * call still without a result, then Claude Code 2.1.325's mark of the turn its Stop interrupted, "[Request interrupted by the
+ * owner for tool use]", after the round's results (its kC({ toolUse: true }) there; round 6, coder-parallel.mjs). Unchanged when
+ * the messages do not end on that round.
+ */
+export function stopParked(messages, record) {
+  const out = closeParked(messages, record);
+  return out === messages || !Array.isArray(messages) ? out : [...out, interruptedNote()];
 }
 /**
  * What the chat shows when the owner's next message closes a paused card (`p`: its record, or the chat's meta.parked): its

@@ -16,8 +16,8 @@
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
-import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS } from "./coder-filerules.mjs";
-import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
+import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS, fullPathFrom, ifPathMatches } from "./coder-filerules.mjs";
+import { docSite, pickDomainRule, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -919,7 +919,9 @@ export function parseRule(text) {
   if (m[1] === "Read" || m[1] === "Edit") {
     // (`:*` is Bash's alone: ruleProblem says so; a rule on the path itself, Read(file_path:…), is kept and never matches.)
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
-    return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
+    // (`Read(**)` and `Edit(**)` are path rules, as Claude Code 2.1.325's parser leaves them (only an empty or "*" content is
+    // the whole tool): the tool stays, and each call on a path the rule matches is refused. Round 4, 2026-11-14.)
+    return { tool: m[1], spec: spec === "*" ? null : spec };
   }
   // A RULE ON ONE OF GREP'S OR GLOB'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
   // Code's permissions docs, "Match by input parameter": "Deny and ask rules can match a top-level input parameter on any
@@ -986,13 +988,14 @@ export function monitorRules(rules, mode = "auto") {
   return out;
 }
 /**
- * A MONITOR'S DECISION NAMING THE OWNER'S OWN RULE (monitorRules' `named`): the rule, and an ask's "Your rule … asks first"
- * sentence, as the owner wrote it. A deny's sentence stays Claude Code's, which says Bash for a monitor too.
+ * A MONITOR'S DECISION NAMING THE OWNER'S OWN RULE (monitorRules' `named`): the rule, and an ask's sentence for it, Claude
+ * Code's "Permission rule … requires confirmation" (ruleAskWhy), as the owner wrote it; Coder is told Claude Code's words for
+ * a Monitor rule's ask, "… to use Monitor, …" (round 6). A deny's sentence stays Claude Code's, which says Bash for a monitor too.
  */
 export function namedForMonitor(dec, rules) {
   const orig = dec && typeof dec.rule === "string" && rules && rules.named ? rules.named[dec.verdict + ":" + dec.rule] : "";
   if (!orig) return dec;
-  return { ...dec, rule: orig, ...(dec.verdict === "ask" && typeof dec.why === "string" ? { why: dec.why.replace("Your rule " + dec.rule + " ", "Your rule " + orig + " ") } : {}) };
+  return { ...dec, rule: orig, ...(dec.verdict === "ask" && typeof dec.why === "string" ? { why: dec.why.replace(" rule " + dec.rule + " ", " rule " + orig + " "), told: askedWhy("Monitor") } : {}) };
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
@@ -1019,12 +1022,24 @@ export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[ki
 export function wsDecision({ rules = {}, mode = "auto" } = {}) {
   if (wholeRule(rules, "deny", "Bash")) return { verdict: "deny", why: MONITOR_BASH_DENIED };
   if (wholeRule(rules, "deny", "Monitor")) return { verdict: "deny", why: "Permission to use Monitor has been denied." };
+  // (A rule's ask on Claude Code's card for a watch, its Monitor dialog's for a WebSocket: "… requires confirmation for this
+  // tool."; round 6. What Coder is told is the watch's own ask, in coder-agent.mjs: a rule adds nothing to it in Claude Code.)
   const bashAsk = wholeRule(rules, "ask", "Bash");
-  if (bashAsk) return { verdict: "ask", byRule: true, strict: true, rule: bashAsk, why: "Your rule " + bashAsk + " asks first for every command, and a WebSocket watch runs code as Bash does, so only you can approve it." };
+  if (bashAsk) return { verdict: "ask", byRule: true, strict: true, rule: bashAsk, why: ruleAskWhy(bashAsk, normMode(mode), "tool") };
   const monAsk = wholeRule(rules, "ask", "Monitor");
-  if (monAsk) return { verdict: "ask", byRule: true, rule: monAsk, why: "Your rule " + monAsk + " asks first." };
+  if (monAsk) return { verdict: "ask", byRule: true, rule: monAsk, why: ruleAskWhy(monAsk, normMode(mode), "tool") };
   if (mode !== "auto" && wholeRule(rules, "allow", "Monitor")) return { verdict: "allow" };
   return mode === "auto" ? { verdict: "check" } : { verdict: "ask", why: "" };
+}
+/**
+ * A WEBSOCKET WATCH'S ASK in Claude Code 2.1.325's words (its Monitor's permission check for `ws`; round 6): "Monitor will open
+ * a WebSocket to <url>", with its subprotocols, " (subprotocols: "a", "b")", at most 4 named, each cut at 48 characters with
+ * "…", and " (+N more)".
+ */
+export function wsAskText(url, protocols = []) {
+  const list = Array.isArray(protocols) ? protocols.filter((x) => typeof x === "string") : [];
+  const named = list.slice(0, 4).map((x) => ([...x].length > 48 ? [...x].slice(0, 48).join("") + "…" : x));
+  return "Monitor will open a WebSocket to " + url + (list.length ? " (subprotocols: " + named.map((x) => '"' + x + '"').join(", ") + (list.length > named.length ? " (+" + (list.length - named.length) + " more)" : "") + ")" : "");
 }
 /**
  * A MONITOR CALL'S `ws` INPUT CHECKED, in Claude Code's words (its Monitor tool's input): "" when it is right.
@@ -1370,7 +1385,8 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
   const m = /^([A-Za-z_][A-Za-z0-9_-]*)(?:\(([\s\S]*)\))?$/.exec(String(rule || "").trim());
   if (!m || m[1] !== tool) return false;
   const spec = m[2] === undefined ? null : m[2].trim();
-  if (spec === null || spec === "*") return true;
+  // (`X()` is the whole tool too, as `X` and `X(*)` are: Claude Code 2.1.325's rule parser, its Er. Round 5.)
+  if (spec === null || spec === "" || spec === "*") return true;
   const args = input && typeof input === "object" ? input : {};
   if (tool === "Bash" || tool === "Monitor") {
     const sp = settingSpec(spec, tool === "Monitor" ? MONITOR_SETTINGS : BASH_SETTINGS);
@@ -1392,15 +1408,36 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     const parts = psAllParts(String(args.command || ""));
     return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
-  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainRuleMatches(spec, host); }
+  // (WEBFETCH AND WEBSEARCH, round 6, 2026-11-14; the owner: "do what claude code does": Claude Code 2.1.325 matches a hook's
+  // `if` with what follows the tool's name through the tool's own matcher for hooks (its preparePermissionMatcher), which only
+  // Read, Edit, Write, NotebookEdit, Grep, Glob, Bash, Monitor and PowerShell have; so `WebFetch(domain:example.com)`, or
+  // anything else in the brackets, runs its hook for no call at all, while `WebFetch`, `WebFetch()` and `WebFetch(*)` run it
+  // for every one; WebSearch's the same. Coder had matched the domain, as a permission rule does.)
+  if (tool === "WebFetch" || tool === "WebSearch") return false;
   // GREP'S AND GLOB'S `if` ON THEIR PATTERN (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
   // Code 2.1.323: their matcher for a hook's `if` compares the rule's content with the call's pattern, not its path):
   // `Grep(TODO*)` runs for a search of "TODO.*fix".
   if (tool === "Grep" || tool === "Glob") return typeof args.pattern === "string" && ruleWildcardMatches(spec, args.pattern);
-  const path = typeof args.file_path === "string" ? args.file_path : typeof args.path === "string" ? args.path : "";
-  if (!path) return false;
-  const full = path.startsWith("/") ? path : (cwd.replace(/\/+$/, "") || "") + "/" + path;
-  return !!fileRuleHit([tool + "(" + spec + ")"], tool, full, "allow", { root, home });
+  // A FILE TOOL'S PATH, as Claude Code 2.1.325's akt matches it (round 5, 2026-11-14): the path in full from the folder Coder's
+  // commands are in, as Claude Code's hooks see it; the pattern as an allow rule's, a relative one at that folder too, as its
+  // permission rules count since round 4 (coder-filerules.mjs ifPathMatches); failing that, a pattern that starts with `*` or
+  // has no `*` at all, as text against the whole path (`Edit(*.ts)` outside that folder too). Only its Read, Edit, Write and
+  // NotebookEdit have that matcher: a rule with a path on any other tool never runs the hook.
+  if (!IF_PATH_TOOLS.has(tool)) return false;
+  const path = typeof args.file_path === "string" ? args.file_path : typeof args.notebook_path === "string" ? args.notebook_path : typeof args.path === "string" ? args.path : "";
+  const full = fullPathFrom(path, typeof cwd === "string" && cwd.startsWith("/") ? cwd : root, home);
+  if (!full) return false;
+  if (ifPathMatches(spec, full, { cwd, root, home })) return true;
+  const x = spec.trim();
+  return (x.startsWith("*") || (!starIn(x) && !x.endsWith(":*"))) && ruleWildcardMatches(spec, full);
+}
+/** The tools whose hooks' `if` takes a path (Claude Code 2.1.325's, those that give akt as their matcher). */
+const IF_PATH_TOOLS = new Set(["Read", "Edit", "Write", "NotebookEdit"]);
+/** Whether a rule's text has a `*` no backslash takes away (Claude Code's loi; one ending `:*` has none). */
+function starIn(e) {
+  if (e.endsWith(":*")) return false;
+  for (let n = 0; n < e.length; n++) if (e[n] === "*") { let r = 0, s = n - 1; while (s >= 0 && e[s] === "\\") { r++; s--; } if (r % 2 === 0) return true; }
+  return false;
 }
 /** The texts a command is matched as: as written and with its quotes taken away, each with spaces made single. */
 function textsOf(words) {
@@ -1543,7 +1580,7 @@ export function suggestFor(cmd) {
  * on a setting). Coder's own checks (control characters, long sleeps, dangerous removals, protected files, very long
  * commands, writes through a link) come first, in coder-agent.mjs.
  */
-export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS } = {}) {
+export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", workdirs = [], isProtected = () => "", real = null, input = null, home = "", ownDirs = [], byCommand = true, scratch = [], settings = BASH_SETTINGS, planFile = "" } = {}) {
   const read = readCommand(command, { cwd, home });
   // (For deny and ask rules, the command read a second time with the variables it sets put in: readCommand's `vars`.)
   const shadow = readCommand(command, { cwd, home, vars: true });
@@ -1571,8 +1608,9 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles({ ...read, cmds: ruleCmds(read.cmds) }, { cwd, home });
-  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`.)
-  const fctx = { root: workdirs[0] || cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`;
+  // and a relative rule's path counts from the folder the command starts in first, Claude Code's current folder: round 4.)
+  const fctx = { root: workdirs[0] || cwd, cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const ruleFiles = [...files, ...commandFiles({ ...shadow, cmds: ruleCmds(shadow.cmds) }, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
@@ -1582,9 +1620,10 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // 2026-11-11; the owner: "yes copy all of them".)
   if (fd) return { verdict: "deny", rule: fd.rule, why: "Permission to use Bash with command " + String(command).trim() + " has been denied.", suggest: null };
   const a = settingHit(ask) || exactHit(ask) || commandHit(ask);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
+  // (In Claude Code's words since round 6: its card's line for a rule, ruleAskWhy; Coder told its ask message, askedWhy.)
+  if (a) return { verdict: "ask", rule: a.text, why: ruleAskWhy(a.text, normMode(mode)), told: askedWhy("Bash"), suggest: null, byRule: true };
   const fa = fileHit("ask");
-  if (fa) return { verdict: "ask", rule: fa.rule, why: "Your rule " + fa.rule + " asks first for this command.", suggest: null, byRule: true };
+  if (fa) return { verdict: "ask", rule: fa.rule, why: ruleAskWhy(fa.rule, normMode(mode)), told: askedWhy("Bash"), suggest: null, byRule: true };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   // WHAT THE OWNER'S READ AND EDIT ALLOW RULES OPEN outside the project (Claude Code: an input redirect's "target outside the
   // working directories needs your approval unless an allow rule covers it"; the same for the paths a command reads, and, in
@@ -1692,6 +1731,12 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   const inScratch = (p) => !!p && scr.some((d) => (p === d || p.startsWith(d.replace(/\/+$/, "") + "/")) && (typeof real !== "function" || (() => { try { const to = real(p); return !to || to === p || to.startsWith(d.replace(/\/+$/, "") + "/"); } catch { return true; } })()));
   const own = [...(Array.isArray(ownDirs) ? ownDirs : []), ...scr].filter((x) => typeof x === "string" && x);
   const isOwn = (p) => own.some((d) => p === d || p.startsWith(d.replace(/\/+$/, "") + "/"));
+  // THE CHAT'S OWN PLAN FILE (round 5, 2026-11-14; Claude Code 2.1.325's "Plan files for current session are allowed for
+  // writing", and "… for reading", in its check of each path a file command (mkdir, touch, rm, rmdir, mv, cp, sed, tee) or
+  // an output redirection names, before its protected paths): as the scratch folder is, after the deny and ask rules; that
+  // one file only, not through a link. (A target written with ~ or a wildcard, or after a cd, asks as before.)
+  const planF = typeof planFile === "string" && planFile.startsWith("/") ? normalPath(planFile) : "";
+  const isPlan = (p) => !!planF && p === planF && (typeof real !== "function" || (() => { try { return real(p) === p; } catch { return false; } })());
   // EACH FILE IT WRITES (redirections, tee): in Accept edits, a file inside the project that is not protected, not named
   // with a wildcard (Claude Code: a target that "contains a glob character needs your approval"), and no link out of the
   // project or to a protected file; in Plan, none.
@@ -1705,7 +1750,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
     if (x.glob) { needFor(x.cmd, SHELL_EXPANSION); continue; }
     if (x.tildeUser) { needFor(x.cmd, TILDE_WHY); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
-    if (inScratch(x.path)) continue;
+    if (inScratch(x.path) || isPlan(x.path)) continue;
     const pw = pathWhy(x.path);
     if (pw.why === "protected") needFor(x.cmd, sensitiveWhy(pw.to || x.path, pw.to ? x.path : ""), true);
     else if (pw.why === "outside" && !String(x.raw || "").startsWith("~") && editOk(x.path)) continue;
@@ -1723,7 +1768,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   for (const x of read.reads) {
     if (x.glob || x.afterCd) { needFor(x.cmd, inputUnsureWhy(x.raw)); continue; }
     if (x.expand || !x.path) { needFor(x.cmd, VAR_UNCHECKED); continue; }
-    if (isOwn(x.path)) continue;
+    if (isOwn(x.path) || isPlan(x.path)) continue;
     const inside = insideWork(x.path, workdirs), to = inside ? leads(x.path) : x.path;
     if (inside && (to === x.path || insideWork(to, workdirs))) continue;
     if (readOk(x.path)) continue;
@@ -1765,7 +1810,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
         // (rm and rmdir: Claude Code's removal check follows the cd and names a protected file first, as seen in 2.1.322
         // for `cd .husky && rm pre-commit && cd ..`; any other write after such a cd asks in its words, CD_WRITE_WHY.)
         if ((uname === "rm" || uname === "rmdir") && fc.sure) {
-          const hit = fc.paths.map((p) => p.replace(/\/\*$/, "")).map((p) => ({ p, pw: pathWhy(p) })).find((x) => x.pw.why === "protected");
+          const hit = fc.paths.map((p) => p.replace(/\/\*$/, "")).filter((p) => !isPlan(p)).map((p) => ({ p, pw: pathWhy(p) })).find((x) => x.pw.why === "protected");
           if (hit) { needFor(c, sensitiveWhy(hit.pw.to || hit.p, hit.pw.to ? hit.p : ""), true); parts.push(c); continue; }
         }
         needFor(c, CD_WRITE_WHY);
@@ -1774,7 +1819,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
       const odd = pathArgs(c, { cwd, home }).find((a) => a.computed || a.tildeUser || a.dotdot);
       if (odd) { needFor(c, odd.tildeUser ? TILDE_WHY : odd.dotdot ? globDotDotWhy(odd.p, " against the working directories") : runtimeTargetWhy(uname || name)); continue; }
       if (fc.sure) {
-        const bare = fc.paths.map((p) => p.replace(/\/\*$/, "")).filter((p) => !inScratch(p));
+        const bare = fc.paths.map((p) => p.replace(/\/\*$/, "")).filter((p) => !inScratch(p) && !isPlan(p));
         // (Only the scratch folder: Accept edits' own, as inside the project; otherwise a part as any command is.)
         if (!bare.length && fc.paths.length) { if (editsOk || (ro && !sem)) continue; parts.push(c); continue; }
         const ways = bare.map((p) => pathWhy(p));
@@ -1822,7 +1867,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
         if (a.dotdot) { needFor(c, globDotDotWhy(a.p, " against the working directories")); break; }
         if (a.unknownDir) { if (a.updir) { needFor(c, (uname || name) + " in '" + a.p + "' requires manual approval: the path it names depends on a directory change in the same command."); break; } continue; }
         if (a.computed || !a.full) { needFor(c, VAR_UNCHECKED); break; }
-        if (isOwn(a.full)) continue;
+        if (isOwn(a.full) || isPlan(a.full)) continue;
         const inside = insideWork(a.full, workdirs), to = inside ? leads(a.full) : a.full;
         if (inside && (to === a.full || insideWork(to, workdirs))) continue;
         // (A folder it lists or searches counts as read when the rule opens what is in it.)
@@ -1878,11 +1923,12 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "", home = "", real = null, isDir = false, input = null, roots = [], mode = "" } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
   // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
-  const ctx = { root, home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (`cwd`: the folder Coder's commands are in, where a relative rule's path counts from first, as Claude Code's: round 4.)
+  const ctx = { root, ...(cwd ? { cwd } : {}), home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
@@ -1891,14 +1937,17 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
   const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, ...(pathOnly ? [] : [edits ? "Edit" : "Read"])].some((n) => toolGlobMatches(x.tool, n)); }) || "";
   // (A rule on the whole tool names no path: Read, Read(*), a wildcard naming the tool. Claude Code's parser makes only an empty
-  // or "*" content the whole tool, so Read(**) and Edit(**) are path rules, in a path rule's words though they match every path
-  // here. 2026-11-14.)
-  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null && !/\(\s*\*\*\s*\)$/.test(String(r).trim()); };
+  // or "*" content the whole tool, so Read(**) and Edit(**) are path rules, matching the paths below the folders a relative
+  // rule counts from. 2026-11-14; round 4.)
+  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
   const p = typeof path === "string" && path ? path : root;
-  // (A search's folder: the rule matches the folder, or what is in it.)
+  // (A search's folder is checked as Claude Code 2.1.325's Grep and Glob check theirs (its Yx): the path itself, as any path
+  // is; what is in it is left to the search, whose results leave out what a Read deny rule covers, so a search of the
+  // project's own folder under Read(**) runs and finds nothing. Round 5, 2026-11-14: Coder had also tried a file inside it,
+  // and refused that search.)
   const search = tool === "grep" || tool === "glob";
   const rctx = pathOnly ? { ...ctx, pathOnly: true } : ctx;
-  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, search ? { ...rctx, isDir: true } : rctx) || (search ? fileRuleHit(list, t, p.replace(/\/+$/, "") + "/coder-any-file", kind, rctx) : "");
+  const hit = (list, t, kind) => fileRuleHit(list, t, p, kind, rctx);
   // DENY.
   const wd = (name !== "Read" && name !== "Edit" ? whole("deny") : "") || globWhole("deny");
   if (wd) return { verdict: "deny", rule: wd, why: "Permission to use " + name + " has been denied." };
@@ -1928,7 +1977,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // permissions to use Grep, but you haven't granted it yet."; "Claude" is Coder here.)
   if (search) {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
     const sa = whole("ask") || globWhole("ask") || paramHit("ask");
     return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
@@ -1939,15 +1988,25 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // to read from <path>, but you haven't granted it yet." Round 3, 2026-11-14.)
   if (tool === "lsp") {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
     const la = whole("ask") || globWhole("ask") || paramHit("ask");
     return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
-  const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
-  const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
+  // (READ, WRITE AND EDIT IN CLAUDE CODE'S WORDS TOO, as Grep's, Glob's and LSP's: round 5, 2026-11-14, the owner: "Yes pls".
+  // Claude Code 2.1.325 runs the tool's own file check first: a Read ask rule on the path asks in Read's words, its Yx,
+  // "Claude requested permissions to read from <path>, but you haven't granted it yet."; an Edit ask rule on it in Write's and
+  // Edit's, its YT, "Claude requested permissions to write to <path>, …" (both tools). A rule on the whole tool alone asks in
+  // the words its permission check gives when the file check lets the call through, its bYn, "Claude requested permissions to
+  // use Read, …" (Write, Edit); but in Auto, Write's and Edit's own check asks too, in its words, "… to write to <path> …".
+  // "Claude" is Coder here.)
+  const pa = fileRuleHit(rules.ask, edits ? "Edit" : "Read", p, "ask", { ...ctx, pathOnly: true });
+  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to " + (edits ? "write to " : "read from ") + ccPath(p) + ", but you haven't granted it yet." };
+  const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask") || hit(rules.ask, edits ? "Edit" : "Read", "ask");
+  if (wa) return { verdict: "ask", rule: wa, why: edits && mode === "auto" ? "Coder requested permissions to write to " + ccPath(p) + ", but you haven't granted it yet." : "Coder requested permissions to use " + name + ", but you haven't granted it yet." };
   return { verdict: "", rule: "", why: "" };
 }
+/** A path as Claude Code writes it in these words (its Hc): each control character as a character reference, "&#10;". */
+export const ccPath = (p) => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => "&#" + c.charCodeAt(0) + ";");
 /**
  * THE FILES A COMMAND NAMES, for the owner's Read and Edit rules: `{ tool: "Read" | "Edit", path, name, how, glob }` for each
  * path a reading command names (READ_PATHS: cat, head, tail, sed …), each input redirection (Read), each file an output
@@ -2070,6 +2129,33 @@ export const sensitiveWhy = (target, from = "") => (settingsFileOf(target) ? "Co
 /** A wildcard before a `..` (Claude Code: "A glob before the '..' in '…' is expanded by the shell before the path is opened, so the target cannot be checked …"). */
 export const globDotDotWhy = (p, against) => "A glob before the '..' in '" + p + "' is expanded by the shell before the path is opened, so the target cannot be checked" + against + ". Spell the path without the glob.";
 export const linkOutWhy = (from, to) => from + " resolves through a symlink to " + to + ", which is outside the allowed working directories";
+
+// ── CLAUDE CODE'S WORDS FOR AN ASK RULE, A HOOK'S ASK AND PLAN MODE (round 6, 2026-11-14) ──
+// (The owner: "do what claude code does". Each from Claude Code 2.1.325's program: its permission dialog's reason line, which
+// Coder's card shows, and the ask's own message, what its model is told where no one can answer (a bare -p run returns the
+// ask) or, after its "What required approval:", under denyInsteadOfPrompting.)
+/**
+ * AN ASK RULE'S LINE ON A CARD: "Permission rule <rule> requires confirmation for this command." (its dialog's words for a rule,
+ * the rule in bold there; "… this tool." on any card but a command's: Bash, PowerShell and a Monitor command say "command"),
+ * and in auto mode "Ask rule <rule> overrides auto mode for this command." (the owner's rules are never managed policy here).
+ */
+export const ruleAskWhy = (rule, mode = "", what = "command") => (mode === "auto" ? "Ask rule " + rule + " overrides auto mode for this " + what + "." : "Permission rule " + rule + " requires confirmation for this " + what + ".");
+/** A rule's ask as its model is told it: "Claude requested permissions to use Bash, but you haven't granted it yet." */
+export const askedWhy = (tool) => "Coder requested permissions to use " + tool + ", but you haven't granted it yet.";
+/**
+ * A PreToolUse hook's ask with no reason of its own: its dialog's line, "Hook PreToolUse:Bash requires confirmation for this
+ * command." (with one, the hook's reason, as its cloud card is given it), and what its model is told, "Hook PreToolUse:Bash asked
+ * for confirmation for this tool".
+ */
+export const hookAskWhy = (tool, what = "tool") => "Hook PreToolUse:" + tool + " requires confirmation for this " + what + ".";
+export const hookAskTold = (tool) => "Hook PreToolUse:" + tool + " asked for confirmation for this tool";
+/**
+ * PLAN MODE'S ASK: a write or an edit, "Cannot write to <path> while in plan mode." (Write's and Edit's check, after the
+ * protected paths'); another call that may change something, "Cannot call <tool> while in plan mode." (its MCP tools'). Its
+ * dialog has no line for plan mode: the card shows these, as round 5's file cards show the ask's own words.
+ */
+export const planWriteWhy = (path) => "Cannot write to " + ccPath(path) + " while in plan mode.";
+export const planCallWhy = (tool) => "Cannot call " + tool + " while in plan mode.";
 
 // ── THE READ BLOCK ───────────────────────────────────────────────────────────
 /**
@@ -2445,7 +2531,10 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   const d = pick(rules.deny, true);
   if (d) return { verdict: "deny", rule: d.text, why: d.spec === null ? "Permission to use WebFetch has been denied." : "WebFetch denied access to domain:" + host + ".", suggest: null };
   const a = pick(rules.ask, true);
-  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: null, byRule: true };
+  // (An ask rule's question still carries the domain's allow rule as its suggestion, as Claude Code's does (its checkPermissions
+  // adds `suggestions` to the rule's ask: W7, round 5): PermissionRequest hooks see it, and the card offers it, though the ask
+  // rule still asks next time.)
+  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, byRule: true, host };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };
   return { verdict: "ask", why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
@@ -2490,7 +2579,7 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   const gone = psRemovals(p, pieces, { pathAbs, cwd, home });
   if (gone.deny) return { verdict: "deny", why: gone.deny, suggest: null, removal: true };
   const a = settingHit(rulesFor(rules.ask, "PowerShell", true)) || hit(rulesFor(rules.ask, "PowerShell", true), [...texts, ...pieces]);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this command.", suggest: null, byRule: true };
+  if (a) return { verdict: "ask", rule: a.text, why: ruleAskWhy(a.text, m), told: askedWhy("PowerShell"), suggest: null, byRule: true };
   // (The "don't ask again" rule each question offers is Claude Code's: the command itself for its safety checks, provider
   // paths and file redirections; none for a command it cannot parse, the git, archive and .git checks, or deleting the
   // working folder; on the last question, each command that needs approval. See psExactRule.)
@@ -2537,6 +2626,30 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   // the reading ones beside them, when every path they are given is inside the working folders.
   if (m === "acceptEdits" && byCommand !== false && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
   return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks(outsideWhy || (all.some((c) => psPathArgs(c).some(psQuoted)) ? PS_QUOTED_WHY : ""), [...new Set(need.flatMap(psExactRule))]);
+}
+/**
+ * WHETHER A POWERSHELL COMMAND'S PATH IS THE CHAT'S OWN PLAN FILE (round 6, 2026-11-14; the owner: "do what claude code
+ * does"): Claude Code 2.1.325 gives each path its PowerShell cmdlets and output redirections name (its Fe) to the same path
+ * check as Bash's (its nPo, then Rre and Pot), where "Plan files for current session are allowed for writing" (and "… for
+ * reading") comes before its protected paths and its working folders. Only a plain path reaches that check: a quote, a
+ * backtick, a variable ($ or %), a wildcard, `::`, `~user`, a network or provider path, or `..` after a folder asks first,
+ * there and in Coder; `~` and `~/…` are the home folder; a short path counts from the folder Coder's commands are in. That
+ * one file, named as itself and not through a link (`real(p)`, where a path leads; Claude Code checks the path and where it
+ * lands). `planFile`: the chat's plan file in full, or "" when it has none.
+ */
+export function psPlanFile(word, { planFile = "", cwd = "/", home = "", real = null } = {}) {
+  const pf = typeof planFile === "string" && planFile.startsWith("/") ? normalPath(planFile) : "";
+  const w = String(word ?? "");
+  if (!pf || !w || /['"\u2018-\u201F`$%*?[\]]/.test(w) || w.includes("::")) return false;
+  let t = w.replace(/\\/g, "/");
+  if (t === "~" || t.startsWith("~/")) { if (typeof home !== "string" || !home.startsWith("/")) return false; t = home + t.slice(1); }
+  else if (t.startsWith("~") || t.startsWith("//") || /^[a-z0-9]+:/i.test(t)) return false;
+  let named = false;
+  for (const s of t.split("/")) { if (!s || s === ".") continue; if (s === "..") { if (named) return false; } else named = true; }
+  const full = normalPath(t.startsWith("/") ? t : (typeof cwd === "string" && cwd.startsWith("/") ? cwd : "/") + "/" + t);
+  if (full !== pf) return false;
+  if (typeof real !== "function") return true;
+  try { return real(full) === full; } catch { return false; }
 }
 /** Claude Code's words for a PowerShell command that changes folder beside another one. */
 export const PS_CD_COMPOUND_WHY = "Compound command changes working directory (Set-Location/Push-Location/Pop-Location/New-PSDrive) \u2014 relative paths cannot be validated against the original cwd and require manual approval";

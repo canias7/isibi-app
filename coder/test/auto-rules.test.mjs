@@ -79,7 +79,7 @@ test("CD386b in Auto, the owner's rules go to every check, and classifyAllShell 
   assert.match(t.told("f1"), /Never fetch from unknown\.example\.net/);
 });
 
-test("CD386c refusing instead of asking (Claude Code's permissions.denyInsteadOfPrompting): no card; the call refused in Claude Code's words and Coder goes on; 20 in a row end the turn", async () => {
+test("CD386c refusing instead of asking (Claude Code's permissions.denyInsteadOfPrompting): no card; the call refused in Claude Code's words and Coder goes on, however many in a row (Claude Code 2.1.325 counts only its checker's refusals: fix6-flow's RS1)", async () => {
   const A = await import("../container/coder-agent.mjs");
   assert.match(A.DENY_INSTEAD_TEXT, /^Permission for this tool use was denied\. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically\. The action was NOT performed; do not claim it succeeded, and do not retry it: this action, and anything else that requires approval, will be denied the same way for the rest of this session\. Tell the user what was blocked and why you needed it, then continue with the parts of the task that do not require approval\. What required approval: $/);
   let t = await job([say("", [call("bash", { command: "npm publish" }, "b1")]), say("I could not publish it.")], { mode: "acceptEdits", denyInstead: true, checker: false });
@@ -89,12 +89,13 @@ test("CD386c refusing instead of asking (Claude Code's permissions.denyInsteadOf
   assert.ok(t.events.some((e) => e.type === "note" && e.denied === true && /^Refused without asking you \(Settings: refuse instead of asking\): /.test(e.text)));
   assert.ok(t.events.some((e) => e.type === "result" && e.id === "b1" && e.output === "Not run: refused without asking you (Settings: refuse instead of asking)." && e.denied === true), "the step says \"✕ refused\"");
   assert.match(read("public/coder.js"), /r\.denied === true \? 'refused' : /);
-  // TWENTY IN A ROW: the turn ends.
+  // TWENTY-TWO IN A ROW, each refused instead of asked: the turn goes on (round 6's follow-up; the owner, 2026-11-14: "do
+  // what claude code does": Claude Code's run of refusals counts its checker's blocks and refusals, not these).
   const many = Array.from({ length: 22 }, (_, k) => call("bash", { command: "npm publish --tag t" + k }, "p" + k));
-  t = await job([say("", many), say("never")], { mode: "acceptEdits", denyInstead: true, checker: false });
-  assert.equal(t.seen.length, 1);
-  assert.ok(t.events.some((e) => e.type === "note" && e.text === "20 calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"));
-  assert.equal(t.told("p21"), "not run: 20 calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn");
+  t = await job([say("", many), say("I could not publish.")], { mode: "acceptEdits", denyInstead: true, checker: false });
+  assert.equal(t.seen.length, 2, "Grok is asked again");
+  assert.ok(!t.events.some((e) => e.type === "note" && /in a row refused/.test(e.text)));
+  assert.ok(t.told("p21").startsWith(A.DENY_INSTEAD_TEXT));
   // Off: the card, as before.
   t = await job([say("", [call("bash", { command: "npm publish" }, "b1")]), say("ok")], { mode: "acceptEdits", checker: false });
   assert.equal(t.cards.length, 1);
@@ -156,6 +157,7 @@ test("CD386e on a real machine: a working folder of the owner's is one of the ch
     assert.equal((await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "wf-t1", text: "go", messages: [], rules: { allow: [], ask: [], deny: [], dirs: [shared, "/nope/at/all"] } }) })).status, 200);
     let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=wf-t1&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     assert.equal(st.events.find((e) => e.type === "result" && e.id === "c2").output, shared, "the cd carried over");
-    assert.match(seen[0].messages[0].content, new RegExp("THE OWNER'S ADDITIONAL WORKING DIRECTORIES \\(Claude Code's additionalDirectories\\): " + shared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\."));
+    // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), new RegExp("THE OWNER'S ADDITIONAL WORKING DIRECTORIES \\(Claude Code's additionalDirectories\\): " + shared.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\."));
   } finally { srv.close(); }
 });

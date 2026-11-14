@@ -40,7 +40,9 @@ async function job(steps, { hooks = null, hookRun = () => ({}), answers = [], ex
     },
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-aq", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid, opts) => { waited.push({ pid, opts, card: events.find((e) => e.pid === pid) }); const a = answers[k++]; return typeof a === "function" ? a() : a || null; },
+    // (With hooks and no answer of the owner's, the card waits for its PermissionRequest hooks: withdrawn when one decides,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, opts) => { waited.push({ pid, opts, card: events.find((e) => e.pid === pid) }); const a = answers[k++]; if (typeof a === "function") return a(); if (a || !hooks) return a || null; for (let w = 0; w < 300 && !(opts && opts.gone && opts.gone()); w++) await new Promise((ok) => setTimeout(ok, 2)); return opts && opts.gone && opts.gone() ? { choice: "gone" } : null; },
     ...deps,
   }, { text: "Build the sign-up page", mode: "auto", messages: [], ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), ...extra });
   const msg = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id);
@@ -185,13 +187,16 @@ test("AQ5 the card's other ways out: Skip (Claude Code's \"The user did not answ
   assert.deepEqual([resp.response, resp.answers, resp.annotations], ["Neither: use MySQL, the team knows it.", {}, { [DBQ]: { unanswered: "replied_in_chat" } }]);
   assert.ok(!c.r.messages.some((m) => m.role === "user" && /use MySQL/.test(String(m.content))), "told as the tool's result only");
   const st = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("never")], { answers: [{ choice: "stop" }] });
-  assert.deepEqual([st.r.status, st.told("q1"), st.seen.length], ["stopped", "stopped by the owner", 1]);
-  const none = await job([say("", [call("ask_user", { questions: [DB] }, "q1"), call("bash", { command: "echo no" }, "b1")]), say("never")], { answers: [null] });
+  // (Round 5: Stop on the card, Claude Code's rejection, as its executor gives a call that was not running when Stop came.)
+  assert.deepEqual([st.r.status, st.told("q1"), st.seen.length], ["stopped", "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.", 1]);
+  const none = await job([say("", [call("ask_user", { questions: [DB] }, "q1"), call("bash", { command: "echo no" }, "b1")]), say("never")], { answers: [async () => { await new Promise((ok) => setTimeout(ok, 30)); return null; }] });
   assert.equal(none.told("q1"), "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.");
   // (2026-11-14, Claude Code's groups, coder-parallel.mjs: a command that only reads, asked beside the question, ran while the
-  // question waited, as Claude Code runs AskUserQuestion's siblings; after the No, Coder is told it was not done now, its rule.)
-  assert.deepEqual([none.r.status, none.seen.length, none.ran.includes("echo no")], ["done", 1, true]);
-  assert.equal(none.told("b1"), "The owner doesn't want to take this action right now. STOP what you are doing and wait for the owner to tell you how to proceed.");
+  // question waited, as Claude Code runs AskUserQuestion's siblings.)
+  assert.deepEqual([none.r.status, none.seen.length, none.ran.filter((x) => x === "echo no").length], ["done", 1, 1]);
+  // (Round 5: it had returned before the No, so it keeps what it returned, as Claude Code's executor keeps a finished call's
+  // result; it is not run again.)
+  assert.equal(none.told("b1"), "ok");
   const late = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("never")], { extra: { maxMs: 300 }, answers: [() => new Promise((ok) => setTimeout(() => ok(null), 450))] });
   assert.equal(late.r.status, "time");
   assert.equal(late.told("q1"), "not run: Coder ran out of time waiting for the owner's answer");
@@ -199,11 +204,13 @@ test("AQ5 the card's other ways out: Skip (Claude Code's \"The user did not answ
 });
 
 test("AQ6 its hooks as Claude Code's: a PreToolUse rewrite checked as Claude Code checks one; PermissionRequest hooks before the card (an allow answers it only with updatedInput; a deny is told, and Coder goes on); the Notification hook (\"permission_prompt\") once the card has waited", async () => {
-  // PermissionRequest: allow with updatedInput answers it, no card; the hook sees the card's input.
+  // PermissionRequest: allow with updatedInput answers it, the card withdrawn (shown at once beside the hooks, closed with the
+  // hook's answer: fix round 4, D4); the hook sees the card's input.
   const ans = (answers) => () => out("PermissionRequest", { decision: { behavior: "allow", updatedInput: { questions: [READ], answers } } });
   let t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: ans({ [DBQ]: "SQLite" }) });
-  assert.equal(t.waited.length, 0, "no card");
-  assert.ok(!t.events.some((e) => e.type === "question"));
+  assert.equal(t.waited.length, 1, "the card, at once");
+  const qe = t.events.find((e) => e.type === "question");
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.pid, e.choice, e.hook]), [[qe.pid, "yes", true]], "closed with the hook's answer");
   const pr = t.hookCalls.find((x) => x.hook_event_name === "PermissionRequest");
   assert.deepEqual([pr.tool_name, pr.tool_input], ["AskUserQuestion", { questions: [READ] }]);
   assert.equal(t.told("q1"), 'Your questions have been answered: "' + DBQ + '"="SQLite". You can now continue with these answers in mind.');
@@ -214,16 +221,19 @@ test("AQ6 its hooks as Claude Code's: a PreToolUse rewrite checked as Claude Cod
   // A rewrite that fails the schema: refused in Claude Code's words.
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: ans({ [DBQ]: 3 }) });
   assert.equal(t.told("q1"), "PermissionRequest hook for AskUserQuestion returned updatedInput that failed schema validation: AskUserQuestion failed due to the following issue:\nThe parameter `answers." + DBQ + "` type is expected as `string` but provided as `number`\nThe tool input from the model was valid; the hook's rewrite of it was not.");
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["no", true]], "a refused rewrite closes the card as a no");
   // Its allow alone: the card all the same (Claude Code: AskUserQuestion needs updatedInput with "allow").
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "allow" } }), answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
   assert.equal(t.waited.length, 1);
   assert.match(t.told("q1"), /^Your questions have been answered: /);
-  // A deny: its message is told (or Claude Code's "Permission denied by hook"), no card, Coder goes on; interrupt stops.
+  // A deny: its message is told (or Claude Code's words beside a card, "Permission denied by PermissionRequest hook"), the card
+  // closed, Coder goes on; interrupt stops.
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny", message: "Decide yourself in this repo." } }) });
-  assert.deepEqual([t.told("q1"), t.waited.length, t.seen.length], ["Decide yourself in this repo.", 0, 2]);
+  assert.deepEqual([t.told("q1"), t.waited.length, t.seen.length], ["Decide yourself in this repo.", 1, 2]);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["no", true]]);
   assert.equal(t.events.find((e) => e.type === "note" && e.hook === "PermissionRequest").text, "Your PermissionRequest hook said no to Coder's question: Decide yourself in this repo.");
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny" } }) });
-  assert.equal(t.told("q1"), "Permission denied by hook");
+  assert.equal(t.told("q1"), "Permission denied by PermissionRequest hook");
   t = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("never")], { hooks: hooksOf("PermissionRequest"), hookRun: () => out("PermissionRequest", { decision: { behavior: "deny", message: "No.", interrupt: true } }) });
   assert.equal(t.r.status, "stopped");
   // A PreToolUse hook's rewrite, whatever it decided: checked as Claude Code checks it (its keys of its own left aside).
@@ -505,4 +515,34 @@ test("AQ14 zod's own words when only values are wrong (Claude Code's w0 and zod 
   const cut = Z("T", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received undefined" }, { code: "custom", path: ["b"], message: "y".repeat(600) }]);
   assert.ok(cut.endsWith("The parameter `b` is invalid: " + "y".repeat(500) + "… [+100 chars]"));
   assert.ok(Z("T", [{ expected: "string", code: "invalid_type", path: ["a"], message: "Invalid input: expected string, received number" }, { code: "invalid_union", errors: [], path: ["s"], message: "Invalid input" }]).endsWith("\nThe parameter `s` matches none of the accepted forms"));
+});
+
+test("AQ15 (round 5) Claude Code's limit on an option's preview: one of more than 2,000 characters is withheld, the card's box showing its line (\"(preview cannot be shown in full — compare the option labels and descriptions instead)\") as dim as \"No preview available\"; the question still has previews (its notes field), and choosing that option gives no \"selected preview:\"; hooks still get the whole preview", async () => {
+  assert.deepEqual([Q.PREVIEW_MAX, Q.PREVIEW_WITHHELD], [2000, "(preview cannot be shown in full — compare the option labels and descriptions instead)"]);
+  const at = "A".repeat(2000), over = "B".repeat(2001);
+  assert.deepEqual([at, over, " ".repeat(2001), " \n", undefined].map((p) => Q.previewKind({ label: "x", preview: p })), ["full", "withheld", "withheld", null, null], "the length first, as Claude Code's dialog");
+  assert.deepEqual([Q.previewOf({ preview: at }), Q.previewOf({ preview: over })], [at, null]);
+  assert.equal(Q.hasPreviews({ options: [{ preview: over }, { preview: "" }] }), true, "a withheld one is still a preview");
+  const LONG = { question: "Which layout should the dashboard use?", header: "Layout", options: [{ label: "Tall", description: "A long one.", preview: over }, { label: "Short", description: "Fits.", preview: at }, { label: "None", description: "No preview." }] };
+  const pick = (k) => job([say("", [call("ask_user", { questions: [LONG] }, "q1")]), say("Done.")], { hooks: hooksOf("PostToolUse", "post.sh"), answers: [{ choice: "answers", picks: [{ options: [k], notes: "ok" }] }] });
+  let t = await pick(0);
+  const card = t.events.find((e) => e.type === "question");
+  assert.deepEqual(card.options, [{ label: "Tall", description: "A long one.", preview: Q.PREVIEW_WITHHELD, previewWithheld: true }, { label: "Short", description: "Fits.", preview: at }, { label: "None", description: "No preview." }]);
+  assert.equal(card.previews, true);
+  assert.equal(t.told("q1"), 'The owner answered: "' + LONG.question + '"="Tall" notes: ok. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.', "no selected preview for a withheld one");
+  const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
+  assert.equal(post.tool_input.questions[0].options[0].preview, over, "hooks see the whole input");
+  assert.deepEqual(post.tool_response.annotations, { [LONG.question]: { notes: "ok" } });
+  t = await pick(1);
+  assert.match(t.told("q1"), /="Short" selected preview:\nA{2000} notes: ok\./);
+  // The page: the line in the box, dim, for the withheld one; the preview itself for the other; Claude Code's words for none.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const esc = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const { askPreviewHTML } = new Function("esc", ui.slice(ui.indexOf("  const askPicks = "), ui.indexOf("\n", ui.indexOf("  const askDone = "))) + "\nreturn { askPreviewHTML };")(esc);
+  const { askQuestions } = new Function(ui.slice(ui.indexOf("  const askQuestions = "), ui.indexOf("  };", ui.indexOf("  const askReply = ")) + 4) + "\nreturn { askQuestions };")();
+  const q = askQuestions({ type: "question", pid: "p1abcdef", ...card, questions: [{ text: card.text, header: card.header, options: card.options, previews: true }] })[0];
+  assert.equal(q.options[0].withheld, true);
+  assert.equal(askPreviewHTML(q, ["0"]), '<pre class="cd-ask-pv"><span class="cd-ask-pv-none">(preview cannot be shown in full — compare the option labels and descriptions instead)</span></pre>');
+  assert.equal(askPreviewHTML(q, ["1"]), '<pre class="cd-ask-pv">' + at + "</pre>");
+  assert.equal(askPreviewHTML(q, ["2"]), '<pre class="cd-ask-pv"><span class="cd-ask-pv-none">No preview available</span></pre>');
 });

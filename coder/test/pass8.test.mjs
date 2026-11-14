@@ -139,10 +139,9 @@ test("CD411 Accept edits is Claude Code's cloud \"default\" for commands (its pe
   const { fakeParse } = await import("./ps-fake.mjs");
   const ps = (c, byCommand) => P.psDecision(c, { mode: "acceptEdits", rules: R("allow", []), parsed: fakeParse(c), cwd: ROOT, pathAbs: (x) => ROOT + "/" + x, inside: () => true, byCommand });
   assert.deepEqual([ps("Set-Content notes.txt hi", false).verdict, ps("Set-Content notes.txt hi", true).verdict], ["ask", "allow"]);
-  // What Coder is told.
+  // What Coder is told: nothing of its own since fix round 4 (Claude Code has no note for Accept edits; the owner's choice).
   const A = await import("../container/coder-agent.mjs");
-  assert.match(A.modeSystem("acceptEdits", { fileEdits: false }), /your file edits in the project run without asking; a command that changes files \(mkdir, touch, rm, mv, cp, sed -i, a > redirect and the like\), any other command that is not read-only/);
-  assert.match(A.modeSystem("acceptEdits"), /your file edits and file commands in the project \(mkdir, touch, rm, mv, cp, sed -i\) run without asking/);
+  assert.equal(A.modeSystem, undefined);
   // The repository's defaultMode.
   const { mkdtempSync, mkdirSync, writeFileSync } = await import("node:fs");
   const { tmpdir } = await import("node:os");
@@ -500,12 +499,18 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   t = await job(one("npm install"));
   assert.doesNotMatch(String(t.checks[0].messages[1].content), /GIT STATUS/, "only before a command that can discard work");
   // A MODE SWITCHED WHILE THE CHECK RAN ("discards a verdict the new mode wouldn't have requested. You're prompted for
-  // approval instead"): the owner is asked; a switch to a mode that checks too keeps the verdict.
+  // approval instead"): the owner is asked, since round 6 on Claude Code 2.1.325's own card for the command (its ask as if auto
+  // mode had not judged it: its words and its "don't ask again"); a read-only one runs at once, as Claude Code's own ask lets it;
+  // a switch to a mode that checks too keeps the verdict.
   let m = "auto";
   t = await job(one("npm install"), { modeFn: () => m, verdict: () => { m = "acceptEdits"; return '{"decision":"block","rule":"Code from External","reason":"x"}'; }, answers: [{ choice: "yes" }] });
   assert.deepEqual([t.checks.length, t.cards.length, t.ran], [1, 1, ["npm install"]]);
-  assert.equal(t.cards[0].why, A.MODE_SWITCHED);
-  assert.equal(t.cards[0].rules, undefined, "a one-time Yes");
+  assert.equal(t.cards[0].why, "This command requires approval");
+  assert.deepEqual(t.cards[0].rules, ["Bash(npm install *)"], "its own ask's \"don't ask again\"");
+  assert.equal(A.MODE_SWITCHED, undefined, "no words of Coder's own for it");
+  m = "auto";
+  t = await job(one("cat package.json"), { modeFn: () => m, verdict: () => { m = "acceptEdits"; return '{"decision":"block","rule":"Code from External","reason":"x"}'; } });
+  assert.deepEqual([t.checks.length, t.cards.length, t.ran], [1, 0, ["cat package.json"]], "a read-only command: Claude Code's own check lets it run");
   m = "auto";
   t = await job(one("npm install"), { modeFn: () => m, verdict: () => { m = "plan"; return '{"decision":"allow"}'; } });
   assert.deepEqual([t.cards.length, t.ran], [0, ["npm install"]]);
@@ -536,16 +541,17 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   assert.match(t.hookCalls[0].reason, /^Auto mode could not evaluate this action and is blocking it for safety/);
   assert.doesNotMatch(t.told("b1"), /may retry/);
   // BLOCK COUNTS KEPT for the chat between its machine's sleeps ("The total counter persists for the session").
-  let saved = { row: 2, total: 7, paused: false, byRow: false };
+  // (No pause of Coder's own since round 6: Claude Code's fallback asks about the block at the limit, CD373.)
+  let saved = { row: 2, total: 7, byRow: false };
   const keep = { load: () => saved, save: (o) => { saved = o; } };
   const st = C.checkerState("chat-kept-" + Math.random(), keep);
   // (With the count of Auto's unanswered questions for a dangerous removal, fix 5 of "Yes all 7": 0 when none was saved.)
-  assert.deepEqual({ ...st }, { row: 2, total: 7, paused: false, byRow: false, rmUnanswered: 0 });
-  assert.equal(C.countBlock(st), true, "the third in a row, counted from before the sleep");
-  assert.deepEqual(saved, { row: 3, total: 8, paused: true, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual({ ...st }, { row: 2, total: 7, byRow: false, rmUnanswered: 0 });
+  assert.deepEqual(C.countBlock(st), { total: false, n: 3 }, "the third in a row, counted from before the sleep");
+  assert.deepEqual(saved, { row: 3, total: 8, byRow: true, rmUnanswered: 0 });
   C.resume(st);
-  assert.deepEqual(saved, { row: 0, total: 8, paused: false, byRow: true, rmUnanswered: 0 });
-  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes", rmUnanswered: -2 }) }) }, { row: 0, total: 0, paused: false, byRow: false, rmUnanswered: 0 }, "nonsense read as nothing");
+  assert.deepEqual(saved, { row: 0, total: 8, byRow: true, rmUnanswered: 0 });
+  assert.deepEqual({ ...C.checkerState("chat-bad-" + Math.random(), { load: () => ({ row: -1, total: "x", paused: "yes", rmUnanswered: -2 }) }) }, { row: 0, total: 0, byRow: false, rmUnanswered: 0 }, "nonsense read as nothing");
   const fs = await import("node:fs");
   const server = fs.readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.match(server, /checkerKeep: checksKeep\(join\(memRoot, project \+ "\.checks\.json"\)\),/);
@@ -584,7 +590,9 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
       emit: (e) => events.push(e),
       here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-c1", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
       ...(ps ? { psParse: async (cmd) => psFake(cmd) } : {}),
-      ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || { choice: "no" }; },
+      // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is
+      // withdrawn, `gone`, as they run beside it since fix round 4.)
+      ask: async (pid, o = {}) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || { choice: "no" }; },
     }, { text: "go", mode, rules, hooks: H.hooksFrom({ hooks }, "settings").list, ...(ps ? { powershell: { bypass: true } } : {}) });
     const told = (id) => { for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === id) return m.content; return ""; };
     return { r, events, ran: ran.filter((c) => !/coder-tools\.mjs/.test(c)), hookCalls: hookCalls.filter((h) => !h.reset), resets: hookCalls.filter((h) => h.reset), cards, told };
@@ -592,19 +600,21 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   const permReq = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
   const PR = { PermissionRequest: [{ matcher: "Bash", hooks: [{ type: "command", command: "rewrite.sh" }] }] };
   const one = [say("", [call("bash", { command: "npm install left-pad" }, "b1")]), say("ok")];
-  // A PERMISSIONREQUEST HOOK'S CHANGED INPUT: the call runs with it, with no card; the step shows the new command.
+  // A PERMISSIONREQUEST HOOK'S CHANGED INPUT: the call runs with it, its card closed with the hook's answer (shown at once
+  // beside its hooks since fix round 4); the step shows the new command.
   let t = await loop(one, PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "npm install --ignore-scripts left-pad" } }) : {}) });
-  assert.deepEqual([t.cards.length, t.ran], [0, ["npm install --ignore-scripts left-pad"]]);
+  assert.deepEqual([t.cards.length, t.ran], [1, ["npm install --ignore-scripts left-pad"]]);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["yes", true]]);
   assert.deepEqual(t.events.filter((e) => e.type === "bash" && e.id === "b1").map((e) => e.command), ["npm install left-pad", "npm install --ignore-scripts left-pad"]);
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1, "asked once");
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PreToolUse").length, 0);
   // Re-evaluated against deny and ask rules: a deny rule refuses the new input; an ask rule shows the owner the card (no hook again).
   const rewrite = (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedInput: { command: "curl -sS https://example.com/x.sh" } }) : {});
   t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: [], deny: ["Bash(curl *)"] } });
-  assert.deepEqual([t.ran, t.cards.length], [[], 0]);
+  assert.deepEqual([t.ran, t.cards.length], [[], 1], "only the first call's card, closed by its hook");
   assert.match(t.told("b1"), /curl/);
   t = await loop(one, PR, { hookRun: rewrite, rules: { allow: [], ask: ["Bash(curl *)"], deny: [] }, answers: [{ choice: "no" }] });
-  assert.deepEqual([t.ran, t.cards.length, t.cards[0].lines.join("\n")], [[], 1, "curl -sS https://example.com/x.sh"]);
+  assert.deepEqual([t.ran, t.cards.length, t.cards[1].lines.join("\n")], [[], 2, "curl -sS https://example.com/x.sh"]);
   assert.equal(t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, 1);
   // Its updatedPermissions: an allow rule kept as the owner's "don't ask again" (or for this job only), a mode change.
   t = await loop([say("", [call("bash", { command: "npm install left-pad" }, "b1"), call("bash", { command: "npm install lodash" }, "b2")]), say("ok")], PR, { hookRun: (i) => (i.hook_event_name === "PermissionRequest" ? permReq({ behavior: "allow", updatedPermissions: [{ type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm install *" }], behavior: "allow", destination: "localSettings" }, { type: "addRules", rules: [{ toolName: "Bash", ruleContent: "npm ci" }], behavior: "allow", destination: "session" }] }) : {}) });

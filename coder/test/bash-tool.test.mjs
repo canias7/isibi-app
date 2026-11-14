@@ -196,7 +196,8 @@ test("CD274 bash in the agent: Claude Code's inputs (description shown in place 
   // From GitHub, where no one can answer: refused, not asked.
   const ev3 = []; n = 0;
   const gh = await runCoder({ send: async () => [say("", [call("bash", { command: "echo x > .npmrc" }, "h1")]), say("Done.")][Math.min(n++, 1)], exec, emit: (e) => ev3.push(e), here: () => "/work/p", root: "/work/p", where: (p) => "/work/p/" + p }, { text: "go", github: true });
-  assert.match(gh.messages.find((m) => m.tool_call_id === "h1").content, /^error: this command writes \.npmrc, a protected file, so it is not run in a job started from GitHub/);
+  // (Told Claude Code's ask itself since round 6, as its run with no one to answer returns it.)
+  assert.equal(gh.messages.find((m) => m.tool_call_id === "h1").content, "Coder requested permissions to edit /work/p/.npmrc which is a sensitive file.");
   assert.ok(!ev3.some((e) => e.type === "runask"));
   // A background command that ends while Coder works: told once, in Claude Code's words.
   const ev4 = []; n = 0; bgAlive = true;
@@ -260,7 +261,9 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
   assert.deepEqual(ev2.filter((e) => e.type === "note").map((e) => e.text), ["Background command \"Build\" completed (exit code 0)", "Background command \"Watch\" was stopped after reaching its background time limit"]);
   const msgs = seen2[0].messages;
   const at = msgs.findIndex((m) => m.role === "user" && m.content === "and now?");
-  assert.ok(at >= 0 && /^\(Note from Coder's app, not the owner: 2 background commands ended since your last answer\.\n/.test(msgs[at + 1].content), "right after the owner's message");
+  // (Claude Code 2.1.325's header for a notice that comes with a message of the owner's, since fix round 4: it is no input of its own.)
+  const { BG_EVENT_WITH_OWNER } = await import("../container/coder-agent.mjs");
+  assert.ok(at >= 0 && msgs[at + 1].content.startsWith(BG_EVENT_WITH_OWNER + "\n\n(Note from Coder's app, not the owner: 2 background commands ended since your last answer.\n"), "right after the owner's message");
   assert.ok(!/The owner sent no message/.test(msgs[at + 1].content));
   // A turn only to tell it (Coder's Worker starts one, as Claude Code "re-invokes you when it exits"): no message of the owner's.
   const ev3 = [], seen3 = [];

@@ -180,8 +180,12 @@ const varsProblem = (vars, max) => {
 };
 const reasonProblem = (r) => (typeof r !== "string" || !r.trim() ? "error: reason is required: one short plain sentence" : /[\r\n]/.test(r.trim()) ? "error: reason is one sentence on one line" : "");
 const nameProblem = (n, what) => (typeof n !== "string" || !NAME_RE.test(n.trim()) ? "error: " + what + " is plain single-line text of 1 to " + NAME_MAX + " characters" : "");
-/** An environment's description as Claude Code's update_environment takes it: "plain single-line text", up to 1024 characters. */
-const descriptionProblem = (d) => (typeof d !== "string" || d.length > DESCRIPTION_MAX || /[\u0000-\u001f\u007f]/.test(d.trim()) ? "error: new_description is plain single-line text of at most " + DESCRIPTION_MAX + " characters (an empty string clears it)" : "");
+/**
+ * An environment's description as Claude Code's update_environment takes it: "plain single-line text", up to 1024 characters
+ * (kept trimmed; "" clears it). The owner's own edit in the Environment window gets the same check (round 5, 2026-11-14).
+ */
+export const descriptionOk = (d) => typeof d === "string" && d.length <= DESCRIPTION_MAX && !/[\u0000-\u001f\u007f]/.test(d.trim());
+const descriptionProblem = (d) => (!descriptionOk(d) ? "error: new_description is plain single-line text of at most " + DESCRIPTION_MAX + " characters (an empty string clears it)" : "");
 /** The description a new environment gets: its reason, as one plain line (Claude Code: "Also summarized in the new environment's description"). */
 export const descriptionOf = (reason) => String(reason || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DESCRIPTION_MAX);
 /**
@@ -397,6 +401,27 @@ export function listInfo(st, limit = LIST_DEFAULT) {
   if (!list.some((e) => e.id === DEFAULT_ENV_ID)) list.unshift({ id: DEFAULT_ENV_ID, name: "Default" });
   const ordered = [...list.filter((e) => e.id === DEFAULT_ENV_ID), ...list.filter((e) => e.id !== DEFAULT_ENV_ID)];
   return { environments: ordered.slice(0, n).map((e) => ({ environment_id: e.id, name: String(e.name || ""), kind: "cloud", state: e.archived ? "archived" : "active" })) };
+}
+/**
+ * A LOOKUP'S ANSWER AS THE PAGE DRAWS IT, A TABLE (CL3 of recheck 3, 2026-11-14, the owner said yes to a table; Claude Code
+ * 2.1.314: "[Cloud sessions] Improved cloud session transcripts: … repository and environment lists show as a table instead
+ * of one line of JSON"): get_environment's or list_environments' answer, the same fields in the same order as Coder reads
+ * them, for the step's result (public/coder.js envTableHtml), whole where the step's output is cut at 4,000 characters. A
+ * text over ENV_TABLE_TEXT characters (a setup script; Environment → Setup script has all of it) ends in "…" after them. null
+ * for anything else (a refusal's words). Coder still reads the answer's own text.
+ */
+export const ENV_TABLE_TEXT = 2000;
+export function envTable(text) {
+  let v;
+  try { v = JSON.parse(String(text)); } catch { return null; }
+  if (!isObj(v)) return null;
+  const cut = (s) => { if (s.length <= ENV_TABLE_TEXT) return s; const t = s.slice(0, ENV_TABLE_TEXT); return (/[\ud800-\udbff]$/.test(t) ? t.slice(0, -1) : t) + "…"; };
+  const keep = (x, depth) => typeof x === "string" ? cut(x)
+    : typeof x === "number" || typeof x === "boolean" || x === null ? x
+    : depth >= 4 ? null
+    : Array.isArray(x) ? x.map((y) => keep(y, depth + 1))
+    : isObj(x) ? Object.fromEntries(Object.entries(x).map(([k, y]) => [k, keep(y, depth + 1)])) : null;
+  return keep(v, 0);
 }
 
 // ── THE CHECKS AGAINST THE ENVIRONMENT AS IT IS NOW (Coder's server, at the call and again when the owner approves) ─────

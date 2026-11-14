@@ -105,9 +105,12 @@ test("CD364 the card says Claude Code's sentence alone (no \"This command requir
   const A = await import("../container/coder-agent.mjs");
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.ok(!agent.includes('"This command requires approval: " + ask.why'), "no prefix");
-  assert.match(agent, /why: String\(rmWhy \|\| \(ask \? ask\.why : pausedCard \? pausedWhy\(checkSt\.byRow\) : switchedCard \? MODE_SWITCHED : dec\.why\)\)\.slice\(0, 800\)/);
+  // (At the limit of blocks, Claude Code's fallback line since round 6, limitCard; no pause or mode-switch words of Coder's own.)
+  assert.match(agent, /why: String\(rmWhy \|\| \(ask \? ask\.why : limitCard \? limitCard\.why : dec\.why\)\)\.slice\(0, 800\)/);
   assert.match(agent, /reply\("not run yet: " \+ \(ask\.note \|\| ask\.why\)/);
-  assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false, scratch: \[SCRATCH\], \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
+  // (Through decideIn since round 6, the mode and Accept edits' way with file commands given.)
+  assert.match(agent, /home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: byCmd, scratch: \[SCRATCH\], planFile: planPath\(\), \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
+  assert.match(agent, /let dec = github \? \{ verdict: "allow" \} : await decideIn\(modeB, fileEdits !== false\);/);
   // The read block's sentence is kept as Claude Code says it (it was lowercased into "This command requires approval: …").
   assert.match(agent, /ask = \{ kind: "readblock", paths: \[\], allow: \[allowRunText\(command\)\], why: rb, note: w, github: w \}/);
   // commandAsk, every mode: a protected file by its full path, in Claude Code's sentence.

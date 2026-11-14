@@ -614,8 +614,9 @@ test("EN11 the page: the cards show exactly what changes and never the reason; A
   const described = state({ list: st.list.map((e) => (e.id === "default" ? { ...e, description: "Old words." } : e)) });
   assert.match(envCardHtml(E.envCard(described, "update_environment", upd({ reason, new_description: "" })).card, 9, true), /<small>Description<\/small><div>Cleared<\/div>/);
   assert.doesNotMatch(envCardHtml(upd1, 7, true), /Description/, "no description change: no line for it");
-  // The Environment dialog shows the environment's description, when it has one.
-  assert.match(ui, /\(e\.description \? '<p class="cd-em-help cd-em-top">' \+ esc\(e\.description\) \+ '<\/p>' : ''\)/);
+  // The Environment dialog shows the environment's description once, in its Description row (round 6: WD4), not at the top.
+  assert.doesNotMatch(ui, /\(e\.description \? '<p class="cd-em-help cd-em-top">' \+ esc\(e\.description\) \+ '<\/p>' : ''\)/);
+  assert.match(ui, /\['description', 'Description', e\.description \|\| 'None'\]/);
   assert.match(ui, /<input id="envNameIn" class="cd-em-in" maxlength="64"/);
   const scriptCard = E.envCard(state({ envId: "shop-ab12" }), "update_environment", { environment_name: "shop", applies_to: A, reason, setup_script: "npm ci", script_change: "removes the setup script" }).card;
   assert.match(envCardHtml(scriptCard, 1, true), /<small>Setup script \(removed\)<\/small><pre class="cd-envchange-pre"><span class="cd-ne-n">1<\/span>npm ci<\/pre>/);
@@ -894,7 +895,8 @@ test("EN16 E1: the environment tools and request_secret by Claude Code's names, 
   // An ask rule by one tool's name: a card in Coder's name for it; once approved the call goes on.
   t = await envLoop([say("", [call("get_environment", {}, "g1")]), say("Done.")], { rules: { ask: ["mcp__claude-code-remote__get_environment"] } });
   const card = t.events.find((e) => e.type === "permission");
-  assert.deepEqual([card.what, card.why], ["Use get_environment", "Your rule mcp__claude-code-remote__get_environment asks first for get_environment."]);
+  // (Its line in Claude Code's words since round 6, in Auto: "Ask rule … overrides auto mode for this tool.")
+  assert.deepEqual([card.what, card.why, card.told], ["Use get_environment", "Ask rule mcp__claude-code-remote__get_environment overrides auto mode for this tool.", undefined]);
   assert.match(t.told("g1"), /"environment_id": "default"/);
   // HOOKS: tool_name is Claude Code's; a matcher or an `if` with any of the server's three names fires, Coder's own name or the
   // bare server does not ("a matcher like mcp__memory … is compared as an exact string and matches no tool"); mcp_server goes
@@ -1112,4 +1114,225 @@ test("EN21 E8: the Environment window shows which repositories an environment is
   assert.match(h, /New chats of these repositories start with this environment\. A repository is also added here when one of its chats uses this environment\./);
   assert.match(h, /id="envYes"[^>]*>Save changes</);
   assert.match(ui, /if \(page === 'repos'\) \{\n\s*S\.envBusy = true; S\.envMsg = ''; draw\(\);\n\s*const r = await call\('\/environments\/' \+ encodeURIComponent\(S\.env\.envId\), \{ method: 'POST', body: JSON\.stringify\(\{ repos: f\.repos \}\) \}\);/);
+});
+
+test("EN22 CL2 of recheck 3: the Environment window's variables come back as they were saved (Claude Code 2.1.309 \"Fixed the cloud environment editor shuffling environment variables and adding backslashes to values that contain both kinds of quote\"): parseEnv undoes toEnv's \\\\ and \\\" and a typed \\n in one pass, so Windows paths, a key's literal \\n, quotes, a lone backslash, real line breaks and \\\\n survive every save of the box, in their order, touched or not", async () => {
+  const { parseEnv, toEnv } = await import("../container/coder-secrets.mjs");
+  const values = {
+    WIN: "C:\\new\\tmp", WIN2: "C:\\Users\\me\\repos\\n1", UNC: "\\\\server\\share\\next", RE: "^a\\n$",
+    PEM_LITERAL: "-----BEGIN PRIVATE KEY-----\\nMIIEvQIBADANBg\\nkqhkiG9w0BAQEF\\n-----END PRIVATE KEY-----\\n",
+    PEM_LINES: "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBg\nkqhkiG9w0BAQEF\n-----END PRIVATE KEY-----\n",
+    DQ: 'say "hi"', SQ: "it's", BOTH: `it's "x"`, ESCQ: 'a\\"b', ESCQ2: '\\\\"', LONE: "\\", TRAIL: "abc\\", BSN: "\\\\n", BSBS: "\\\\",
+    LINES: "line1\nline2\n\nline4", TAB: "a\tb", HASH: "a # not a comment", EMPTY: "", SPACES: "  padded  ", EQ: "a=b=c", DOLLAR: "$HOME/x", PLAIN: "abc",
+  };
+  const once = parseEnv(toEnv(values));
+  assert.deepEqual(once, values);
+  assert.deepEqual(Object.keys(once), Object.keys(values), "in the order they were saved");
+  assert.deepEqual(parseEnv(toEnv(once)), values, "and the same at the next save");
+  // (The mistake: \n was undone before \\, so C:\new came back as C:\ and a line break, then "ew".)
+  assert.equal(parseEnv(toEnv({ W: "C:\\new\\tmp" })).W, "C:\\new\\tmp");
+  assert.equal(toEnv({ W: "C:\\new\\tmp" }), 'W="C:\\\\new\\\\tmp"');
+  // What the owner types: \n in double quotes is a line break, as before; \\ is one backslash; single quotes and no quotes keep
+  // every backslash; a value over lines is quoted.
+  assert.deepEqual(parseEnv('A="x\\ny"\nB=\'C:\\new\'\nC=C:\\new\nD="C:\\\\new"\nE="say \\"hi\\""\nF="one\ntwo"'), { A: "x\ny", B: "C:\\new", C: "C:\\new", D: "C:\\new", E: 'say "hi"', F: "one\ntwo" });
+  // A sweep of 3,000 values made of the characters that matter: each comes back as it was, twice.
+  let seed = 11;
+  const rnd = () => (seed = (seed * 1103515245 + 12345) % 2147483648) / 2147483648;
+  const parts = ["\\", '"', "'", "n", "#", " ", "\t", "\n", "=", "a", "Z", "0", "$", "`", "é", "😀", "\u00a0", "\u2028", "export ", "A=", "\\n", "\\\\", '\\"', "-----BEGIN KEY-----"];
+  for (let i = 0; i < 3000; i++) {
+    let v = "";
+    for (let j = Math.floor(rnd() * 12); j > 0; j--) v += parts[Math.floor(rnd() * parts.length)];
+    const vars = { FIRST: v, MID: "x", LAST: v + "\\" + v };
+    assert.deepEqual(parseEnv(toEnv(parseEnv(toEnv(vars)))), vars, JSON.stringify(v));
+  }
+  // THROUGH CODER'S SERVER: the box's text (varsText), saved back untouched, leaves every value as it was, and so does a save
+  // that changed another line.
+  const k = await routeKit("user-envrt");
+  assert.equal((await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ vars: values }) })).status, 200);
+  const shown = await (await k.go("projects/" + k.id + "/env")).json();
+  assert.equal(shown.varsText, toEnv(values));
+  const saved = async () => (await readEnvData(k.e2, k.b, k.uid, "default")).vars;
+  assert.deepEqual(await saved(), values);
+  for (let n = 0; n < 2; n++) {
+    const r = await (await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ varsText: shown.varsText }) })).json();
+    assert.equal(r.varsText, shown.varsText, "the box shows the same text after each save");
+    assert.deepEqual(await saved(), values);
+  }
+  const edited = shown.varsText.replace(/^PLAIN=abc$/m, "PLAIN=changed");
+  await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ varsText: edited }) });
+  assert.deepEqual(await saved(), { ...values, PLAIN: "changed" });
+  // (The page sends the box's text as it is; it reads and writes no value itself.)
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /page === 'vars' \? \{ text: e\.varsText \|\| '' \}/);
+  assert.match(ui, /if \(page === 'vars'\) return envPost\(\{ varsText: f\.text \}\);/);
+});
+
+test("EN23 CL3 of recheck 3: get_environment's and list_environments' answers show on the page as a table (Claude Code 2.1.314: \"repository and environment lists show as a table instead of one line of JSON\"), the fields' own names in their order, while Coder still reads the same text", async () => {
+  const long = Array.from({ length: 150 }, (_, i) => "echo step " + i + " && npm run build:part-" + i).join("\n");
+  const st = state({ list: state().list.map((e) => (e.id === "default" ? { ...e, description: "Shared defaults; old key sk_live_ABCDEFGH12345678" } : e)) });
+  st.data.default = { ...st.data.default, script: long };
+  // THE TABLE'S DATA (envTable): the answer itself, the same fields in the same order; a text over 2,000 characters cut, with "…".
+  const getText = JSON.stringify(E.envInfo(st), null, 2);
+  const t = E.envTable(getText);
+  assert.deepEqual(Object.keys(t), Object.keys(E.envInfo(st)));
+  assert.equal(t.setup_script.length, E.ENV_TABLE_TEXT + 1);
+  assert.equal(t.setup_script, long.slice(0, 2000) + "…");
+  assert.deepEqual({ ...t, setup_script: long }, E.envInfo(st), "the rest as it is");
+  assert.deepEqual(E.envTable(JSON.stringify(E.listInfo(st))), E.listInfo(st));
+  assert.equal(E.envTable(JSON.stringify({ s: "x".repeat(1999) + "😀" })).s, "x".repeat(1999) + "…", "never half a character");
+  for (const no of ["error: no environment with environment_id \"x\"", "[1,2]", "{\"cut\": \"half", "", "null"]) assert.equal(E.envTable(no), null, no);
+  // IN CODER'S LOOP: each lookup's result carries its table, a failed one none; Coder reads the same text as before.
+  const envApi = async (body) => E.envAnswer(st, body);
+  let n = 0; const seen = []; const events = [];
+  const turns = [say("", [call("get_environment", {}, "g1"), call("list_environments", {}, "l1"), call("get_environment", { environment_id: "nope" }, "g2")]), say("done")];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi }, { text: "which environment is this?" });
+  const told = (id) => seen[1].messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
+  const result = (id) => events.find((e) => e.type === "result" && e.id === id);
+  assert.equal(told("g1"), getText, "Coder reads the answer's own text");
+  assert.equal(told("l1"), JSON.stringify(E.listInfo(st), null, 2));
+  assert.equal(result("g1").output, getText.replace("sk_live_ABCDEFGH12345678", "[hidden]").slice(0, 4000), "the step's output as before");
+  assert.equal(result("g1").envTable.description, "Shared defaults; old key [hidden]", "a key's shape hidden in the table as in the output");
+  assert.equal(result("g1").envTable.setup_script.length, E.ENV_TABLE_TEXT + 1);
+  assert.deepEqual(result("l1").envTable, E.listInfo(st));
+  assert.equal(result("g2").code, 1);
+  assert.equal(result("g2").envTable, undefined, "an error has no table");
+  // CODER'S SERVER keeps the owner's values out of the table, as out of the output.
+  const { hideIn } = await import("../src/coder-routes.mjs");
+  const [ev] = hideIn([{ type: "result", id: "g9", output: "x", envTable: { setup_script: "export T=tok_VALUE_9876543210", saved: [{ name: "a tok_VALUE_9876543210 b" }], n: 3, ok: true, none: null } }], ["tok_VALUE_9876543210"]);
+  assert.deepEqual(ev.envTable, { setup_script: "export T=[hidden]", saved: [{ name: "a [hidden] b" }], n: 3, ok: true, none: null });
+  // THE PAGE: the table in the opened step, in place of its output.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  // AN ENVIRONMENT LOOKUP'S ANSWER AS A TABLE"), b = ui.indexOf("  function cmdHTML(e, r, state, key) {");
+  assert.ok(a > 0 && b > a);
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = { open: {} };
+  const { envTableOf, envTableHtml } = new Function("esc", "S", ui.slice(a, b) + "\nreturn { envTableOf, envTableHtml };")(esc, S);
+  assert.match(ui, /const table = open && r \? envTableOf\(e, r\) : null;/);
+  assert.match(ui, /\(table \? envTableHtml\(table, key\) : '<pre class="cd-out">' \+ esc\(noColor\(r\.output\) \|\| '\(no output\)'\) \+ '<\/pre>'\)/);
+  const step = { type: "bash", id: "l1", tool: "environment", verb: "Listed", command: "environments" };
+  assert.equal(envTableOf(step, result("l1")), result("l1").envTable);
+  // (A step from before has no table: its output, when it is whole; a cut one, an error, or another tool's JSON stays text.)
+  assert.deepEqual(envTableOf(step, { code: 0, output: JSON.stringify(E.listInfo(st), null, 2) }), E.listInfo(st));
+  assert.equal(envTableOf(step, { code: 0, output: JSON.stringify(E.listInfo(st), null, 2).slice(0, 60) }), null);
+  assert.equal(envTableOf(step, { code: 1, output: "error: Coder's server could not be reached" }), null);
+  assert.equal(envTableOf({ type: "bash", id: "b1", command: "cat x.json" }, { code: 0, output: "{\"a\": 1}" }), null);
+  // list_environments: one row for each environment, its fields as the columns.
+  let h = envTableHtml(E.listInfo(st), "l1");
+  assert.match(h, /^<div class="cd-envt"><table class="cd-envt-rows"><thead><tr><th scope="col">environment_<wbr>id<\/th><th scope="col">name<\/th><th scope="col">kind<\/th><th scope="col">state<\/th><\/tr><\/thead><tbody>/);
+  assert.match(h, /<tr><td data-k="environment_id">default<\/td><td data-k="name">Default<\/td><td data-k="kind">cloud<\/td><td data-k="state">active<\/td><\/tr>/);
+  assert.equal((h.match(/<tr><td /g) || []).length, E.listInfo(st).environments.length);
+  // A long list: the first 10 rows, then "Show N more rows" (the same fold as a write's lines); open, all of them and "Show less".
+  const many = { environments: Array.from({ length: 14 }, (_, i) => ({ environment_id: "env-" + i, name: "e" + i, kind: "cloud", state: "active" })) };
+  h = envTableHtml(many, "l2");
+  assert.equal((h.match(/<tr><td /g) || []).length, 10);
+  assert.match(h, /<button type="button" class="cd-wchg-more cd-envt-more" data-change="l2:envt">Show 4 more rows<\/button><\/div>$/);
+  assert.match(ui, /on\('\.cd-wchg-more', 'click', \(e\) => \{ const k = e\.currentTarget\.dataset\.change; S\.open\[k\] = !S\.open\[k\]; draw\(\); \}\);/);
+  S.open["l2:envt"] = true;
+  h = envTableHtml(many, "l2");
+  assert.equal((h.match(/<tr><td /g) || []).length, 14);
+  assert.match(h, />Show less<\/button>/);
+  assert.match(envTableHtml({ environments: many.environments.slice(0, 11) }, "l3"), />Show 1 more row<\/button>/);
+  // get_environment: one row for each field, in its order; an empty one "—"; a list of names in one line; a text over lines in
+  // its own box; a list of rows (saved_for_session_repositories, network_secrets) as a table of its own, under its name.
+  const info = E.envInfo(state());
+  h = envTableHtml(info, "g1");
+  assert.deepEqual([...h.matchAll(/<tr(?: class="cd-envt-caprow")?><th scope="row"(?: colspan="2")?>([^<]*(?:<wbr>[^<]*)*)<\/th>/g)].map((m) => m[1].replace(/<wbr>/g, "")), Object.keys(info));
+  assert.match(h, /^<div class="cd-envt"><table class="cd-envt-pairs"><colgroup><col class="cd-envt-kcol"><col><\/colgroup><tbody><tr><th scope="row">environment_<wbr>id<\/th><td>default<\/td><\/tr><tr><th scope="row">name<\/th><td>Default<\/td><\/tr><tr><th scope="row">description<\/th><td><span class="cd-envt-none">—<\/span><\/td><\/tr>/);
+  assert.match(h, /<th scope="row">is_<wbr>default<\/th><td>true<\/td>/);
+  assert.match(h, /<th scope="row">environment_<wbr>variables<\/th><td>NODE_ENV<\/td>/);
+  assert.match(h, /<th scope="row">setup_<wbr>script<\/th><td><span class="cd-envt-none">—<\/span><\/td>/);
+  assert.match(h, /<tr class="cd-envt-caprow"><th scope="row" colspan="2">network_<wbr>secrets<\/th><\/tr><tr class="cd-envt-widerow"><td colspan="2"><div class="cd-envt-sub"><table class="cd-envt-rows"><thead><tr><th scope="col">name<\/th><th scope="col">hosts<\/th><th scope="col">header<\/th><\/tr><\/thead><tbody><tr><td data-k="name">Stripe test<\/td><td data-k="hosts">api\.stripe\.com<\/td><td data-k="header">Authorization<\/td><\/tr><\/tbody><\/table><\/div><\/td><\/tr>/);
+  assert.match(h, /<td data-k="name">wide<\/td><td data-k="repositories">ana\/shop<\/td><td data-k="switchable_by_you">false<\/td><td data-k="not_switchable_reason">its network access is unrestricted: start a new chat on it instead<\/td>/);
+  assert.match(h, /<td data-k="name">shop<\/td><td data-k="repositories">ana\/shop<\/td><td data-k="switchable_by_you">true<\/td><td data-k="not_switchable_reason"><span class="cd-envt-none">—<\/span><\/td>/, "a field one row lacks: —");
+  assert.doesNotMatch(h, /sk_test_SECRETVALUE123/);
+  const shop = E.envInfo(state({ envId: "shop-ab12" }));
+  assert.match(envTableHtml(shop, "g2"), /<th scope="row">setup_<wbr>script<\/th><td>npm ci<\/td>/);
+  assert.match(envTableHtml({ ...shop, setup_script: "npm ci\nnpm test" }, "g3"), /<td><pre class="cd-envt-pre">npm ci\nnpm test<\/pre><\/td>/);
+  assert.match(envTableHtml(shop, "g2"), /<th scope="row">allowed_<wbr>hosts<\/th><td>api\.example\.com<\/td>/);
+  assert.match(envTableHtml({ ...shop, allowed_hosts: ["a.example.com", "b.example.com"] }, "g4"), /<td>a\.example\.com, b\.example\.com<\/td>/);
+  // Only text, never markup.
+  h = envTableHtml({ environments: [{ environment_id: "x", name: "<img src=x onerror=alert(1)>", kind: "cloud", state: "active" }] }, "l4");
+  assert.doesNotMatch(h, /<img/);
+  assert.match(h, /&lt;img src=x onerror=alert\(1\)&gt;/);
+  // THE LOOK: Coder's step box, the names in Coder's code font, empty ones dim; on a phone each field's name over its value and
+  // each row of a list inside as its own block of "name: value" lines.
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(css, /\.cd-envt \{ margin: 4px 0 8px; border: 1px solid #ebe7e0; border-radius: 10px; background: #fff; overflow-x: auto; \}/);
+  assert.match(css, /\.cd-envt-none \{ color: #a19c94; \}/);
+  assert.match(css, /@media \(max-width: 640px\) \{\n  \.cd-envt-pairs, \.cd-envt-pairs > tbody, \.cd-envt-pairs > tbody > tr, \.cd-envt-pairs > tbody > tr > th, \.cd-envt-pairs > tbody > tr > td \{ display: block; width: auto; \}/);
+  assert.match(css, /\.cd-envt-sub td::before \{ content: attr\(data-k\) ": ";/);
+});
+
+test("EN24 (round 5) the Environment window lets the owner change the environment's description, as Claude Code's environments can be re-described (update_environment's new_description): a Description row (the Default's too) and its page; saved with that tool's own check (one plain line of at most 1024 characters, kept trimmed; empty clears it); what get_environment then gives Coder", async () => {
+  // The check, shared with update_environment's new_description.
+  assert.deepEqual(["", "Shop with Stripe", " padded ", "x".repeat(1024), "x".repeat(1025), "two\nlines", "tab\there", 7].map(E.descriptionOk), [true, true, true, true, false, false, false, false]);
+  assert.deepEqual(E.checkUpdateInput({ environment_name: "Default", applies_to: E.APPLIES_TO, reason: "Describe it.", new_description: "two\nlines" }), { error: "error: new_description is plain single-line text of at most 1024 characters (an empty string clears it)" }, "the tool's own words, as before");
+  // THE ROUTE: the chat's environment, the Default here.
+  const k = await routeKit("user-envdesc");
+  const post = (body) => k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify(body) });
+  let r = await post({ description: "  Shop: Stripe test keys, Node 22.  " });
+  assert.equal(r.status, 200);
+  let out = await r.json();
+  assert.deepEqual([out.envId, out.isDefault, out.description], ["default", true, "Shop: Stripe test keys, Node 22."]);
+  assert.equal((await listEnvs(k.b, k.uid)).find((x) => x.id === "default").description, "Shop: Stripe test keys, Node 22.");
+  for (const bad of ["two\nlines", "x".repeat(1025), 7]) {
+    r = await post({ description: bad });
+    assert.deepEqual([r.status, (await r.json()).error], [400, "a description is one line of plain text, up to 1024 characters"], String(bad).slice(0, 20));
+  }
+  assert.equal((await (await k.go("projects/" + k.id + "/env")).json()).description, "Shop: Stripe test keys, Node 22.", "a refused one changes nothing");
+  out = await (await post({ description: "" })).json();
+  assert.equal(out.description, "");
+  assert.equal("description" in (await listEnvs(k.b, k.uid)).find((x) => x.id === "default"), false, "cleared");
+  // Another environment's, beside its name.
+  const made = await (await k.go("environments", { method: "POST", body: JSON.stringify({ name: "shop env" }) })).json();
+  await k.go("projects/" + k.id + "/environment", { method: "POST", body: JSON.stringify({ envId: made.environment.id }) });
+  out = await (await post({ name: "shop env 2", description: "For the shop." })).json();
+  assert.deepEqual([out.name, out.description], ["shop env 2", "For the shop."]);
+  // What Coder sees of it (get_environment: "for this session's own environment, its description").
+  const own = (await listEnvs(k.b, k.uid)).find((x) => x.id === made.environment.id);
+  assert.equal(own.description, "For the shop.");
+  // THE PAGE: a Description row after Name (first for Default), its page with one line of up to 1024 characters, and Save.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  const NET = "), b = ui.indexOf("\n  }\n", ui.indexOf("  function envHTML("));
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = {};
+  const { envHTML } = new Function("esc", "ICON", "S", ui.slice(a, b + 4) + "\nreturn { envHTML };")(esc, { cloud: "" }, S);
+  Object.assign(S, { envPage: "main", env: { envId: "e1", name: "shop env", description: "For <the> shop.", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
+  let h = envHTML();
+  assert.match(h, /data-envgo="name"><span><b>Name<\/b><small>shop env<\/small><\/span><span aria-hidden="true">›<\/span><\/button><button type="button" class="cd-em-row" data-envgo="description"><span><b>Description<\/b><small>For &lt;the&gt; shop\.<\/small>/);
+  S.env = { ...S.env, envId: "default", isDefault: true, description: "" };
+  assert.match(envHTML(), /<div class="cd-em-rows"><button type="button" class="cd-em-row" data-envgo="description"><span><b>Description<\/b><small>None<\/small>/, "the Default's, first");
+  Object.assign(S, { envPage: "description", envForm: { text: "For the shop." } });
+  h = envHTML();
+  assert.match(h, /<b>Description<\/b>/);
+  assert.match(h, /<input id="envDescIn" class="cd-em-in" maxlength="1024" autocomplete="off" value="For the shop\.">/);
+  assert.match(h, /One line, up to 1,024 characters\. Coder sees it when it looks at this environment\. Leave it empty to clear it\./);
+  assert.match(h, /id="envYes"[^>]*>Save changes</);
+  assert.match(ui, /if \(page === 'description'\) return envPost\(\{ description: f\.text \}\);/);
+  assert.match(ui, /: page === 'description' \? \{ text: e\.description \|\| '' \}/);
+  assert.match(ui, /on\('#envDescIn', 'input', \(e\) => \{ if \(S\.envForm\) S\.envForm\.text = e\.currentTarget\.value; \}\);/);
+});
+
+test("WD4 (round 6, the owner: \"do what claude code does\") the Environment window shows an environment's description once, in its Description row, and no longer also in the line at its top (Claude Code's own page, claude.ai/code, is in neither its docs nor its program: the simplest of the two kept)", () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  const NET = "), b = ui.indexOf("\n  }\n", ui.indexOf("  function envHTML("));
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = {};
+  const { envHTML } = new Function("esc", "ICON", "S", ui.slice(a, b + 4) + "\nreturn { envHTML };")(esc, { cloud: "" }, S);
+  const count = (h, t) => h.split(t).length - 1;
+  for (const env of [
+    { envId: "e1", name: "shop env", description: "Stripe test keys, Node 22.", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" },
+    { envId: "default", name: "Default", description: "Every repo's defaults.", isDefault: true, network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" },
+  ]) {
+    Object.assign(S, { envPage: "main", env });
+    const h = envHTML();
+    const shown = esc(env.description);
+    assert.equal(count(h, shown), 1, env.name + ": once");
+    assert.match(h, new RegExp('data-envgo="description"><span><b>Description</b><small>' + shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "</small>"), env.name + ": in its row");
+    // The top of the window keeps its one line about who uses the environment.
+    assert.equal(count(h, 'class="cd-em-help cd-em-top"'), 1, env.name);
+  }
+  // With none: "None" in its row, nothing at the top.
+  Object.assign(S, { envPage: "main", env: { envId: "e1", name: "shop env", description: "", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
+  assert.match(envHTML(), /data-envgo="description"><span><b>Description<\/b><small>None<\/small>/);
 });

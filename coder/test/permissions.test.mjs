@@ -214,9 +214,9 @@ test("CD314 Accept edits: a command that is not read-only waits on a card (Claud
   // Claude Code: a Yes's comment comes after the result, exactly as typed, as the owner's own text (fix round 3, 2026-11-14).
   assert.doesNotMatch(seen[1].messages[at].content, /only the cart ones matter|with a note/);
   assert.deepEqual(seen[1].messages[at + 1], { role: "user", content: "only the cart ones matter" });
-  // What Grok is told of the mode: Coder's own note for Accept edits, in the conversation (never the system message).
-  assert.ok(seen[0].messages.some((m) => m.modeNote === "acceptEdits" && /PERMISSION MODE: Accept edits \(the owner's pick\)/.test(m.content)));
-  assert.doesNotMatch(seen[0].messages[0].content, /PERMISSION MODE/);
+  // What Grok is told of the mode: nothing (fix round 4: Coder's own Accept edits note is gone, as Claude Code has none for that
+  // mode, the owner's choice), in the conversation or the system message.
+  assert.ok(!seen[0].messages.some((m) => m.modeNote === "acceptEdits" || /PERMISSION MODE/.test(String(m.content))));
 });
 
 test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same command runs without a card after; 'Yes, and switch to auto mode' switches the chat to Auto", async () => {
@@ -229,7 +229,8 @@ test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same
   assert.deepEqual(b.ran, ["npm test", "npm run build"]);
   assert.equal(b.r.mode, "auto");
   assert.ok(b.events.some((e) => e.type === "mode" && e.mode === "auto" && e.by === "card"));
-  assert.ok(b.seen[1].messages.some((m) => m.role === "user" && /The owner's permission mode is now Auto\./.test(m.content)));
+  // (Nothing of the mode as such since round 6: Claude Code says nothing of a mode change, only its notes of the modes.)
+  assert.ok(!b.seen[1].messages.some((m) => m.role === "user" && /permission mode is now/.test(String(m.content))));
   // (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", with Coder's names: in the conversation since fix round
   // 3, as its auto_mode attachment.)
   assert.ok(b.seen[1].messages.some((m) => m.modeNote === "auto" && /^\(Note from Coder's app, not the owner:\n## Auto Mode Active\n\nBias toward working without stopping for clarifying questions/.test(m.content)));
@@ -241,7 +242,8 @@ test("CD316 No stops the turn with Claude Code's words (its other calls are not 
   assert.deepEqual(a.ran, []);
   const msgs = a.r.messages;
   assert.equal(msgs.find((m) => m.tool_call_id === "b1").content, REJECTED);
-  assert.equal(msgs.find((m) => m.tool_call_id === "b2").content, "The owner doesn't want to take this action right now. STOP what you are doing and wait for the owner to tell you how to proceed.");
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too, as its executor gives it.)
+  assert.equal(msgs.find((m) => m.tool_call_id === "b2").content, REJECTED);
   assert.ok(a.events.some((e) => e.type === "result" && e.id === "b1" && e.output === "Not run: you said no."));
   assert.ok(a.events.some((e) => e.type === "permanswer" && e.choice === "no"));
   const b = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("OK, only the linter then.")], { answers: [{ choice: "no", comment: "run the linter instead" }] });
@@ -267,15 +269,16 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   assert.ok(offered(seen[0]).includes("exit_plan_mode"));
   assert.deepEqual(cards.map((c) => c.tool), ["write", "plan", "bash"], "ls ran without a card");
   assert.equal(cards[0].path, "notes.md");
-  assert.equal(cards[0].why, "Plan mode is on: files change only after you approve the plan.");
+  // (Claude Code's own ask since round 6, Write's check in plan mode, by the path in full.)
+  assert.equal(cards[0].why, "Cannot write to " + ROOT + "/notes.md while in plan mode.");
   assert.deepEqual(cards[0].change.lines, ["+x"]);
   assert.equal(cards[1].plan, "1. Add a total() test\n2. Fix the cart");
   assert.deepEqual(ran, ["ls src", "npm test"]);
   const approved = seen[3].messages.find((m) => m.tool_call_id === "x1").content;
   assert.equal(approved, "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add a total() test\n2. Fix the cart");
   // ("## Exited Plan Mode" as its own note after the approval, before the next step, as Claude Code's plan_mode_exit.)
-  assert.match(seen[3].messages.filter((m) => !m.modeNote).at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
-  assert.ok(seen[3].messages.at(-1).modeNote === "acceptEdits", "then the note of the mode the approval chose");
+  assert.match(seen[3].messages.at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
+  assert.ok(!seen[3].messages.some((m) => m.modeNote === "acceptEdits"), "and no note of Accept edits, the mode the approval chose (fix round 4)");
   assert.equal(seen[3].messages[0].content, seen[0].messages[0].content, "the system message is the same in every mode");
   assert.equal(r.mode, "acceptEdits");
   assert.equal(cards[2].toAuto, true);
@@ -298,7 +301,8 @@ test("CD319 the owner changes the mode while Coder works: from its next step on,
   assert.equal(cards.length, 0, "mkdir runs without asking in Accept edits");
   const note = seen[1].messages.filter((m) => !m.modeNote).at(-1);
   assert.equal(note.role, "user");
-  assert.match(note.content, /## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\.\n\nThe owner's permission mode is now Accept edits\./);
+  // (Claude Code's note alone since round 6: nothing of the mode as such.)
+  assert.equal(note.content, "(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.)");
   assert.equal(r.mode, "acceptEdits");
 });
 
@@ -335,7 +339,8 @@ test("CD321 a dangerous removal: in Auto, a card that blocks it by itself after 
   assert.equal(c.cards[0].rules, undefined);
   const d = await job([say("", [call("write", { path: ".husky/pre-commit", content: "npm test\n" }, "w1")]), say("ok")], { mode: "auto", answers: [{ choice: "no", comment: "not now" }] });
   assert.equal(d.cards[0].tool, "write");
-  assert.match(d.cards[0].why, /^\.husky\/pre-commit is a protected file/);
+  // (Claude Code's words since round 6, Write's own check of a protected path, by the path in full.)
+  assert.equal(d.cards[0].why, "Coder requested permissions to edit " + ROOT + "/.husky/pre-commit which is a sensitive file.");
 });
 
 test("CD322 Coder's machine: the turn starts in the chat's mode, the owner's answer reaches the waiting step (/answer, only for the card that waits), and the mode changes while it runs (/mode)", async () => {

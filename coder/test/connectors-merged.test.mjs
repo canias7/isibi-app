@@ -37,7 +37,9 @@ async function go({ steps, mode = "acceptEdits", rules = null, hooks = null, hoo
     },
     emit: (e) => events.push(e), sleep: async () => {},
     here: () => "/work/shop", root: "/work/shop", home: "/home/dev", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
-    ask: async (pid) => { const card = events.find((e) => e.type === "permission" && e.pid === pid); cards.push(card); return answer(card); },
+    // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, o = {}) => { const card = events.find((e) => e.type === "permission" && e.pid === pid); cards.push(card); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answer(card); },
     mcp: async (name, args) => {
       mcpCalls.push([name, args]);
       order.push("start:" + name);
@@ -74,23 +76,24 @@ test("MC18 (2026-11-13, merged with main's rules) a deny rule naming a connector
   const P = await import("../container/coder-perms.mjs");
   assert.deepEqual([P.parseRule("mcp__linear__create_issue"), P.parseRule("mcp__linear"), P.parseRule("mcp__linear(x)")], [{ tool: "mcp__linear__create_issue", spec: null, mcp: true }, { tool: "mcp__linear", spec: null, mcp: true }, null]);
   assert.deepEqual([P.ruleSaved("mcp__linear"), P.ruleWarning("deny", "mcp__linear")], [true, null]);
-  // An allow rule approves a tool on Needs approval (its name, its connector's, or mcp__<server>__*); an unanchored allow
-  // wildcard approves nothing (Claude Code: "An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped"); in Plan
-  // mode an allow rule does not approve a tool that changes something.
-  for (const [allow, cards] of [[["mcp__linear__create_issue"], 0], [["mcp__linear"], 0], [["mcp__linear__*"], 0], [["mcp__*"], 1], [["*"], 1]]) {
+  // No allow rule skips a tool on Needs approval since round 6's follow-up 3 (until then its name, its connector's or
+  // mcp__<server>__* approved it): it asks as Claude Code's ask it can't skip, an organization's "ask" ("allow rules for that
+  // tool don't take effect"), with that ask's line; the owner's Yes runs it. In Plan mode an allow rule does not approve a
+  // tool that changes something either.
+  for (const allow of [["mcp__linear__create_issue"], ["mcp__linear"], ["mcp__linear__*"], ["mcp__*"], ["*"]]) {
     t = await go({ steps: create, rules: { allow } });
-    assert.deepEqual([t.cards.length, t.mcpCalls.length], [cards, 1], allow[0]);
+    assert.deepEqual([t.cards.length, t.cards[0].why, t.mcpCalls.length], [1, "Coder requested permissions to use mcp__linear__create_issue, but you haven't granted it yet.", 1], allow[0]);
   }
   t = await go({ steps: create, mode: "plan", rules: { allow: ["mcp__linear__create_issue"] } });
   assert.equal(t.cards.length, 1, "Plan mode still asks");
   // An ask rule on a tool that is on Needs approval: one card (the rule's), then it runs once.
   t = await go({ steps: create, rules: { ask: ["mcp__linear__create_issue"] } });
   assert.equal(t.cards.length, 1, "asked once");
-  assert.match(t.cards[0].why, /Your rule mcp__linear__create_issue asks first/);
+  assert.equal(t.cards[0].why, "Permission rule mcp__linear__create_issue requires confirmation for this tool.");
   assert.deepEqual(t.mcpCalls, [["mcp__linear__create_issue", { title: "Bug" }]]);
 });
 
-test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see its own name (mcp__<server>__<tool>): PreToolUse can block it, ask, or approve it (not in Plan mode for one that changes something); PermissionRequest answers its card; PostToolUse follows it", async () => {
+test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see its own name (mcp__<server>__<tool>): PreToolUse can block it or ask (its allow skips no ask: not Needs approval's since round 6's follow-up 3, nor Plan mode's for one that changes something); PermissionRequest answers its card; PostToolUse follows it", async () => {
   const create = [say("", [call("mcp__linear__create_issue", { title: "Bug" }, "k1")]), say("ok")];
   const list = [say("", [call("mcp__linear__list_issues", {}, "k1")]), say("ok")];
   const preHook = { PreToolUse: [{ matcher: "mcp__linear__.*", hooks: [{ type: "command", command: "check.sh" }] }] };
@@ -105,20 +108,25 @@ test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see i
   assert.equal(t.cards.length, 1);
   assert.equal(t.cards[0].why, "check Linear reads");
   assert.equal(t.mcpCalls.length, 1);
-  // A PreToolUse allow approves a tool on Needs approval: no card.
+  // A PreToolUse allow does not skip a tool on Needs approval since round 6's follow-up 3 (until then: no card): Claude Code's
+  // ask it can't skip still asks, with its line; the owner's Yes runs it. On Always allow it runs with no card.
   t = await go({ steps: create, hooks: preHook, hookOut: () => pre("allow", "fine") });
+  assert.deepEqual([t.cards.length, t.cards[0].why, t.mcpCalls.length], [1, "Coder requested permissions to use mcp__linear__create_issue, but you haven't granted it yet.", 1]);
+  t = await go({ steps: list, hooks: preHook, hookOut: () => pre("allow", "fine") });
   assert.deepEqual([t.cards.length, t.mcpCalls.length], [0, 1]);
   // ...but not in Plan mode, for a tool that changes something: Plan mode asks.
   t = await go({ steps: create, mode: "plan", hooks: preHook, hookOut: () => pre("allow", "fine") });
   assert.equal(t.cards.length, 1);
-  assert.match(t.cards[0].why, /^Plan mode is on/);
+  // (Claude Code's words since round 6: its plan mode's ask for an MCP tool that may change something.)
+  assert.equal(t.cards[0].why, "Cannot call mcp__linear__create_issue while in plan mode.");
   // A PermissionRequest hook sees the tool's own name, not the card's "connector"; its no is given to Coder as its message
-  // (as for every tool since 2026-11-13), no card shows and nothing runs.
+  // (as for every tool since 2026-11-13), its card closed with that no (shown at once beside its hooks since fix round 4) and
+  // nothing runs.
   const permHook = { PermissionRequest: [{ matcher: "mcp__linear__create_issue", hooks: [{ type: "command", command: "perm.sh" }] }] };
   t = await go({ steps: create, hooks: permHook, hookOut: (x) => (x.hook_event_name === "PermissionRequest" ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "deny", message: "Linear is read-only here" } } }) : "") });
   assert.equal(t.hookIns.find((x) => x.hook_event_name === "PermissionRequest").tool_name, "mcp__linear__create_issue");
   assert.equal(t.told("k1"), "Linear is read-only here");
-  assert.deepEqual([t.cards.length, t.mcpCalls.length, t.seen.length], [0, 0, 2], "no card, nothing ran, Coder went on");
+  assert.deepEqual([t.cards.length, t.mcpCalls.length, t.seen.length], [1, 0, 2], "the card closed by the hook, nothing ran, Coder went on");
   // PostToolUse runs after the call, by the tool's name.
   t = await go({ steps: list, hooks: { PostToolUse: [{ matcher: "mcp__.*", hooks: [{ type: "command", command: "after.sh" }] }] } });
   const post = t.hookIns.find((x) => x.hook_event_name === "PostToolUse");
@@ -130,7 +138,8 @@ test("MC20 (2026-11-13, merged) a No on a connector's card ends the turn as on e
   const two = [say("", [call("mcp__linear__create_issue", { title: "Bug" }, "k1"), call("mcp__linear__list_issues", {}, "k2")]), say("ok")];
   // A plain No: Claude Code's words for it, the rest of the round not run, and Grok is not asked again.
   let t = await go({ steps: two, answer: () => ({ choice: "no" }) });
-  assert.deepEqual([t.told("k1"), t.told("k2")], [REJECTED, NOT_NOW]);
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too.)
+  assert.deepEqual([t.told("k1"), t.told("k2")], [REJECTED, REJECTED]);
   assert.deepEqual([t.r.status, t.seen.length, t.mcpCalls.length], ["done", 1, 0]);
   // The card: a connector's, shown as one, its hooks' name kept beside it.
   assert.deepEqual([t.cards[0].tool, t.cards[0].hookTool, t.cards[0].what], ["connector", "mcp__linear__create_issue", "Use Linear: create_issue"]);
@@ -146,12 +155,14 @@ test("MC20 (2026-11-13, merged) a No on a connector's card ends the turn as on e
   assert.equal(t.mcpCalls.length, 2, "both ran after the Yes");
 });
 
-test("MC21 (2026-11-13, merged; 2026-11-14, Claude Code's groups, coder-parallel.mjs) read-only connector tools start side by side only where nothing checks each call first: with a PreToolUse hook that runs for them, they run one after another; a hook for other tools holds nothing back", async () => {
+test("MC21 (2026-11-13, merged; 2026-11-14, Claude Code's groups, coder-parallel.mjs; round 5) read-only connector tools start side by side; with a PreToolUse hook that runs for them, each runs its hook at the group's start and starts after it, still side by side, as Claude Code runs each call's hooks in its own run; a hook for other tools holds nothing back", async () => {
   const twoReads = [say("", [call("mcp__linear__list_issues", {}, "k1"), call("mcp__linear__list_issues", { q: "b" }, "k2")]), say("ok")];
   let t = await go({ steps: twoReads, slowMcp: 20 });
   assert.deepEqual(t.order, ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side");
   t = await go({ steps: twoReads, slowMcp: 20, hooks: { PreToolUse: [{ matcher: "mcp__linear__.*", hooks: [{ type: "command", command: "x.sh" }] }] } });
-  assert.deepEqual(t.order.filter((x) => !x.startsWith("hook:")), ["start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "one after another");
+  assert.deepEqual(t.order.filter((x) => !x.startsWith("hook:")), ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side, after their hooks");
+  assert.equal(t.order.filter((x) => x === "hook:PreToolUse").length, 2, "each call's hook once");
+  assert.ok(t.order.lastIndexOf("hook:PreToolUse") < t.order.indexOf("start:mcp__linear__list_issues"), "both hooks before either call");
   // (A hook only for Bash: Claude Code runs each call's own hooks in its own run, so these two still go side by side.)
   t = await go({ steps: twoReads, slowMcp: 20, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "x.sh" }] }] } });
   assert.deepEqual(t.order, ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side");

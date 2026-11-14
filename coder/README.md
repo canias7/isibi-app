@@ -378,14 +378,25 @@ code in **each user's own GitHub**.
      of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
      web_search, read-only commands and connector tools, and the others it marks so)
      run together, each with its own checks, hooks and card; any other call runs alone,
-     in order; results go back in call order. Gloopy keeps its run-ahead. Tests:
+     in order; results go back in call order. Gloopy keeps its run-ahead. Round 5: each
+     call's PreToolUse hooks start with its group; a No, Stop or a pause keeps the
+     results that already came back, and the other calls get Claude Code's interrupt
+     texts (REJECTED; STOPPED_RUNNING for one still running when Stop came); calls
+     answered before a pause are not run again when the owner answers; read, write and
+     edit calls a deny rule blocks are refused before hooks, as Claude Code's
+     validateInput refuses them; PowerShell runs alone, as in 2.1.325. Tests:
      `test/parallel.test.mjs`.
    - *Connectors' questions* (`src/coder-elicit.mjs`, `container/coder-elicit.mjs`;
      Claude Code's MCP elicitation, round 3): Coder declares form and url elicitation;
      a connector's question during a call shows a card (fields and Submit, or Open link
      and "I'm done, continue"; Decline), the call waits for it; the answer goes back on
      `/api/coder/mcp` (`{answer}`); nobody to answer means cancel; hooks
-     `Elicitation` and `ElicitationResult`. Tests: `test/elicit.test.mjs`.
+     `Elicitation` and `ElicitationResult`. Round 5: a question's
+     `_meta["anthropic/permissionDisplay"]` titles its card; `roots/list` is answered
+     with the chat's working folders; a connector task that asks for input is cancelled,
+     as in Claude Code's cloud; a broken answer stream is taken up again with
+     Last-Event-ID; MCP 2025-11-25 (servers on versions back to 2024-10-07 still work).
+     Tests: `test/elicit.test.mjs`, `test/connectors.test.mjs`.
    - *task_create, task_get, task_list, task_update* (`coder-tasks.mjs`) in place of
      `todo`: Claude Code's four Task tools, as its cloud sessions have them; one list
      a chat, kept beside its memory; TaskCreated and TaskCompleted hooks. Gloopy
@@ -421,7 +432,9 @@ code in **each user's own GitHub**.
      see these tools by Claude Code's names (`mcp__claude-code-remote__…`, its three
      server names) with `mcp_server`; after a move Coder is told whether the machine
      took the network; the Environment window lists each environment's repositories.
-     Tests: `test/env-tools.test.mjs`.
+     Round 4: a lookup's answer shows in its opened step as a table (`envTable`), and the
+     Environment window's variables round-trip exactly (`parseEnv`). Tests:
+     `test/env-tools.test.mjs`.
    - *Cards stay open until answered* (`coder-park.mjs`; Claude Code: "Questions stay
      open until you answer them"): a permission, plan, question, key or environment
      card that has waited 5 minutes (the owner: "5 is fine") pauses the job, saved with
@@ -435,7 +448,56 @@ code in **each user's own GitHub**.
      go into the chat as notes (plan mode's reminder in full the first time and every
      5th, a short line between; Auto's once; Exited Plan/Auto Mode), so a mode change
      doesn't make Grok read the whole chat again at full price. Words typed with a Yes
-     reach Coder as typed, after the round's results. Tests: `test/plan-mode.test.mjs`.
+     reach Coder as typed, after the round's results. Round 4: the system message is
+     only Coder's instructions (and the GitHub note in GitHub jobs) for the whole chat;
+     the context (CODER.md, memory, the working folder, the environment, the date) goes
+     into the chat as notes (`coder-context.mjs`): all of it at the first message, then
+     only what changed; instruction files are told again after the machine restarts or
+     a summary, as Claude Code's. Coder's own Accept edits note is gone. Tests:
+     `test/plan-mode.test.mjs`, `test/context-cache.test.mjs`.
+   - *Hooks and cards* (round 4): `mcp_tool` hooks call the chat's connectors through the
+     Worker (`/api/coder/mcp` `{hook}`), as Claude Code's; a card shows at once while its
+     PermissionRequest hooks run, and the first answer wins ("· by your PermissionRequest
+     hook"); where no one can answer, those hooks still run before Coder refuses. Tests:
+     `test/hooks-race.test.mjs`.
+   - *Long output and file kinds* (round 4, Claude Code 2.1.325): a command's long output
+     is saved to a file with Claude Code's preview (first 500 and last 1,500 characters,
+     or the first 2KB); write and edit refuse UTF-16BE files and files with NUL bytes;
+     read refuses Claude Code's 121 binary file types in its words (Coder still shows
+     .bmp and .tif pictures); the shell setup lines are Claude Code's. Tests:
+     `test/fix4-bash.test.mjs`.
+   - *Round 5, the leftover differences* (the owner: "Yes pls"): read, write, edit, grep
+     and glob cards in Claude Code's words ("Coder requested permissions to read from
+     …"); question-card previews over 2,000 characters held back with its line; "Exited
+     Auto Mode" only when Auto ends; the plans-folder warning only in the machine's log;
+     the plan card's "with a changed input" only when a hook changed it; the
+     Environment window's Description row (`POST /projects/:id/env {description}`). A
+     hook's `if` on a file tool counts from the folder Coder's commands are in and
+     compares the whole path (Claude Code's akt); a search of the project under a
+     `Read(**)` deny rule runs and finds nothing; commands that write the chat's own plan
+     file don't ask. Tools a chat's first request carried stay in its requests
+     (`toolsDeclared`), as Claude Code keeps them; web_fetch's card for a site offers
+     "Yes, and don't ask again for <site>" (PermissionRequest hooks see it). Tests:
+     `test/file-rules.test.mjs` (CD382m-p), `test/askuser.test.mjs`,
+     `test/permissions.test.mjs`, `test/env-tools.test.mjs`, `test/tool-search.test.mjs`.
+   - *Round 6, Claude Code's way on the open questions* (the owner: "do what claude code does"): after a No or Stop
+     the record gets "[Request interrupted by the owner for tool use]" after the round's results ("…by the owner]" when
+     Stop cuts Grok's answer, which is dropped; an owner's `!` command keeps its input, not its output); the checker's
+     10th no-verdict in a row stops the turn as Claude Code's permission-stop (calls not started: SKIPPED_BY_CHECK;
+     running commands moved to the background); auto mode's limits (3 blocks in a row, 20 a chat) ask about the blocked
+     step in its words instead of pausing; denyInsteadOfPrompting counts checker refusals (20 end the turn). read, write
+     and edit run Claude Code's validateInput checks before hooks (path, pages, no-change, deny rules, binary kinds,
+     device files, FIFOs, "Did you mean …?", read-first, .claude/settings*.json validation, secrets in Coder's memory
+     file: `coder-secretscan.mjs`, Claude Code's 52 rules) and a `file_check` step for write/edit's own checks; BMP and
+     TIFF refused. Paths resolve as Claude Code's (`toolPath`: trimmed, `~`); hooks get full paths (`hookPath`), the
+     PostToolBatch hook the model's own calls; a hook `if` with content on WebFetch/WebSearch never matches; PowerShell
+     plan-file writes exempt (`psPlanFile`). Cards in Claude Code's words (rule, plan mode, protected file, hook ask,
+     WebSocket; `told` carries the ask where no one can answer); no "permission mode is now" note. Connectors: Claude
+     Code's `server/discover` probe and MCP 2026-07-28 (`src/coder-mcp-era.mjs`), found once when tools are read and kept
+     as `era`, dropped where Claude Code reconnects; an expired session's call resent once; no MCP tasks (Claude Code's
+     cloud runs none); display names on cards; Needs approval asks in every mode and no allow rule or PreToolUse allow
+     skips it. Tests: `test/fix6-flow.test.mjs`, `test/words6.test.mjs`, `test/file-rules.test.mjs` (R6R1-6),
+     `test/elicit.test.mjs` (EL21-31), `test/tool-search.test.mjs` (TS33).
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
      Coder's open chat runs, and one line on a hover or a click. Made more real the
@@ -869,7 +931,11 @@ TaskOutput is: Coder reads the output file. Tests: `test/monitor.test.mjs`, CD39
 
 **Read(…) and Edit(…) rules** (Claude Code's file rules; owner, 2026-11-10: "yea do
 all 4"). The rules list takes `Read(path)` and `Edit(path)` besides Bash and
-WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`):
+WebFetch rules, written as in a .gitignore (`container/coder-filerules.mjs`; since
+round 4 matched exactly as Claude Code matches them, with a port of node-ignore, its
+MIT notice in the file: case-insensitive, `Read(**)` a path rule, relative paths from
+the folder Coder is in, and for deny and ask rules also from the project and the
+working folders; the chat's own plan file needs no protected-file card):
 `//path` from the machine's root, `~/path` from Coder's home, any other path from
 the project (Coder keeps rules per repository, as Claude Code's local settings);
 a bare name matches at any depth; `src/**` matches a `src` folder at any depth in a
@@ -2214,9 +2280,9 @@ Gloopy turn by the Worker (`jobConnectors`) and offered after Gloopy's own tools
 (with the tool search when there are many); each call goes through the Worker's
 gate with the turn's pass, as Coder's do. Each tool as the owner set it: **Always
 allow** runs at once; **Needs approval**, and a tool its server asks about every
-time, asks on Gloopy's own card and the turn ends there (Gloopy has no modes, so
-Coder's "in Auto it runs" does not apply; nor do read-only tools start side by side
-before their card). On the card, **Allow once** has the Worker make that one call
+time, asks on Gloopy's own card and the turn ends there (Gloopy has no modes;
+Coder's chats ask in every mode too, Auto included, since round 6; nor do read-only
+tools start side by side before their card). On the card, **Allow once** has the Worker make that one call
 with the owner's sign-in (`gloopyCard`), and Gloopy hears the answer with the next
 message, fenced off as the connector's data (up to 20,000 characters); **Always
 allow** also sets that tool to Always allow on the Connectors page (not offered for

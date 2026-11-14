@@ -70,7 +70,8 @@ test("CD427 CLAUDE_CODE_REMOTE=true in every command's environment and the setup
 
 test("CD428 zsh: the snapshot lists options with KSH_OPTION_PRINT off (Claude Code 2.1.321: \"Fixed Bash commands coming back empty for zsh users whose .zshrc sets KSH_OPTION_PRINT\"), and zsh's bare glob qualifiers are off in every command, as Claude Code's own line has it (NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL)", { timeout: 60_000 }, () => {
   assert.match(S.SNAPSHOT_TAKE_ZSH, /\nunsetopt kshoptionprint 2>\/dev\/null\nfor o in \$\(setopt\)/);
-  assert.equal(S.EXTGLOB_OFF_ZSH, "setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_KSH_GLOB 2>/dev/null || true\n");
+  // (Claude Code 2.1.325's own line since round 4: `\builtin` first, NO_BRACE_CCL and NO_MAGIC_EQUAL_SUBST, no NO_KSH_GLOB.)
+  assert.equal(S.EXTGLOB_OFF_ZSH, "\\builtin setopt NO_EXTENDED_GLOB NO_BARE_GLOB_QUAL NO_BRACE_CCL NO_MAGIC_EQUAL_SUBST 2>/dev/null || true\n");
   let zsh = "";
   try { zsh = execFileSync("bash", ["-c", "command -v zsh"], { encoding: "utf8" }).trim(); } catch { zsh = ""; }
   if (!zsh) return;
@@ -115,7 +116,8 @@ test("CD430 an output file cut at its limit says so, in Claude Code's words (\"O
   const big = "x".repeat(40_000);
   assert.match(C.bashResultText({ output: big, size: 40_000, file: "/out/a.txt" }), /^<persisted-output>\nOutput too large \(39\.1KB\)\. Full output saved to: \/out\/a\.txt\n/);
   assert.match(C.bashResultText({ output: big, size: 90 * 1024 * 1024, file: "/out/a.txt", truncatedAt: 64 * 1024 * 1024 }), /^<persisted-output>\nOutput exceeded the 64MB persist limit; only the first 64MB were saved to: \/out\/a\.txt\n\nPreview \(first 2KB\):\n/);
-  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0, \.\.\.\(c\.ps \? \{ tool: "PowerShell" \} : \{\}\) \}\);/);
+  // (With the end of the file the machine read back, for Claude Code 2.1.325's start-and-end preview: round 4.)
+  assert.match(read("container/coder-agent.mjs"), /truncatedAt: r && Number\(r\.truncatedAt\) > 0 \? Number\(r\.truncatedAt\) : 0, \.\.\.\(r && typeof r\.end === "string" \? \{ end: r\.end, endAt: Number\(r\.endAt\) \|\| 0 \} : \{\}\), \.\.\.\(c\.ps \? \{ tool: "PowerShell" \} : \{\}\) \}\);/);
 });
 
 test("CD431 a monitor at its deadline: how many events it delivered, and with none, Claude Code's \"widen the filter if silence was unexpected\"", () => {

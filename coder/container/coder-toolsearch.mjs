@@ -37,6 +37,15 @@
  * the definitions (`toolDefs`), so a loaded tool whose source goes away stays in the request's tools, as Claude Code keeps
  * its tool list, and Grok is told to disregard it (its deferred_tools_delta's retracted tools).
  *
+ * THE TOOLS SENT UPFRONT STAY TOO (round 5, the owner: "Yes pls"; prompt-caching.md: "Claude Code keeps the tool list from the
+ * conversation's first request for the whole conversation"): the chat's record keeps the upfront tools its requests carried
+ * (`toolsDeclared`, on the answer of the request that first carried them: Coder's own by name, as the job can make their
+ * definitions again, a connector's with its definition), and one that leaves (a deny rule on it, its connector off or
+ * removed, a setting) stays in the request's tools where it was, with the same definition (its Cta and the declared tools'
+ * record), so Grok's cache is kept. Grok is told why it can't be used (the same retracted words, by cause), a call is
+ * refused ("still listed", or by the deny rule), and when it comes back Grok is told that too (its restoredNames and
+ * runsAgainNames).
+ *
  * No Node module here: Coder's Worker loads this file, through the summaries' module (coder-compact.mjs).
  */
 import { inputErrorText, typeIssue } from "./coder-zodtext.mjs";
@@ -115,6 +124,10 @@ export const NAMES_LISTED_MAX = 30;
 export const RETRACTED = "Definitions of the following tools were loaded earlier in this conversation and their source has since been removed. Disregard those definitions, including any instructions in their descriptions, and do not call these tools:";
 export const RETRACT_CAUSES = Object.freeze({ denied: "Denied by a permission rule", disabled: "MCP server disabled by the owner", switched_off: "MCP server switched off", not_configured: "MCP server removed from the configuration" });
 export const SOURCE_REMOVED = "Source removed";
+/** A tool Grok was told to disregard, back in the chat's tools (its restoredNames), "this session" being the chat. */
+export const RESTORED = "The following tools are available again in this chat. The earlier instruction to disregard their definitions and not call them no longer applies:";
+/** A tool whose call was refused as "still listed", back in the chat's tools (its runsAgainNames). */
+export const RUNS_AGAIN = "The earlier error that said the following tools cannot run no longer applies. You can call them now:";
 /** Whether a cause takes a loaded tool's definition back (its T0r): the ones above, and one it can't name. */
 export const retracts = (cause) => Object.hasOwn(RETRACT_CAUSES, cause) || cause === "unclassified";
 /**
@@ -122,6 +135,8 @@ export const retracts = (cause) => Object.hasOwn(RETRACT_CAUSES, cause) || cause
  * for this conversation"): refused, in its words, "this session" being the chat.
  */
 export const stillListed = (name) => "error: No such tool available: " + name + ". " + name + " is still listed for this conversation, but nothing in this chat provides it right now (its source was removed or disconnected, or this version no longer has it), so it cannot run. Continue without it.";
+/** That refusal in the chat's record (its qCn): the tool's name, when the call it answers was to that tool. */
+const STILL_LISTED_RE = /^error: No such tool available: ([\w-]+)\. \1 is still listed for this conversation/;
 /**
  * CONNECTORS WAITING FOR THEIR SIGN-IN, in the note (Claude Code 2.1.325's needsAuthMcpServers, as its cloud sessions say
  * it): Coder can't sign in for the owner, so it says where the owner does (Claude Code's "via their claude.ai connector
@@ -235,6 +250,15 @@ export function toolDefsIn(messages) {
   for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolDefs)) for (const d of m.toolDefs) if (isDef(d)) out.set(d.function.name, d);
   return [...out.values()];
 }
+/** One entry of the record of upfront tools: a tool of Coder's own by its name, a connector's by its definition. */
+const isEntry = (e) => (typeof e === "string" && !!e) || isDef(e);
+export const entryName = (e) => (typeof e === "string" ? e : isDef(e) ? e.function.name : "");
+/** The upfront tools the requests carried, as last recorded (`toolsDeclared`, a summary's carried one included): for a summary. */
+export function toolsDeclaredIn(messages) {
+  let out = null;
+  for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolsDeclared)) out = m.toolsDeclared.filter(isEntry);
+  return out;
+}
 /** Whether tool search was on in some messages: for a summary of them. */
 export function toolSearchOnIn(messages) {
   return (Array.isArray(messages) ? messages : []).some((m) => m && typeof m === "object" && ((m.role === "tool" && Array.isArray(m.toolsLoaded)) || (m.toolsAnnounced && typeof m.toolsAnnounced === "object") || m.toolSearchOn === true));
@@ -245,14 +269,19 @@ export function toolSearchOnIn(messages) {
  * again"), the loaded tools whose definitions Grok was told to disregard and that did not come back (`told`), the
  * connectors waiting for their sign-in and those failed as last named (`lastNeedsAuth`, `lastFailed`), whether tool search
  * was on (`declared`), and whether the chat already ran without it (`ranWithout`: it has answers, no sign of tool search,
- * and no summary made since Coder has it, which starts it afresh, as Claude Code's compaction does).
+ * and no summary made since Coder has it, which starts it afresh, as Claude Code's compaction does). Round 5: the upfront
+ * tools its requests carried, in order, as last recorded (`upfront`: names, and a connector tool's definition), and the tools
+ * whose calls were refused as "still listed" and not said to run again since (`refused`).
  */
 export function toolSearchRecord(messages) {
-  const loaded = new Set(), announced = new Set(), listed = new Set(), told = new Set(), kept = new Map();
-  let declared = false, answered = false, summarized = false, lastNeedsAuth = [], lastFailed = [];
+  const loaded = new Set(), announced = new Set(), listed = new Set(), told = new Set(), kept = new Map(), refused = new Set(), callNames = new Map();
+  let declared = false, answered = false, summarized = false, lastNeedsAuth = [], lastFailed = [], upfront = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== "object") continue;
     if (m.role === "assistant") answered = true;
+    if (Array.isArray(m.toolsDeclared)) upfront = m.toolsDeclared.filter(isEntry);
+    if (m.role === "assistant" && Array.isArray(m.tool_calls)) for (const c of m.tool_calls) if (c && c.id && c.function) callNames.set(String(c.id), String(c.function.name || ""));
+    if (m.role === "tool" && typeof m.content === "string") { const x = STILL_LISTED_RE.exec(m.content); if (x && callNames.get(String(m.tool_call_id)) === x[1]) refused.add(x[1]); }
     if (Array.isArray(m.toolsLoaded)) {
       for (const n of names(m.toolsLoaded)) loaded.add(n);
       if (m.role === "tool") declared = true; else summarized = true;
@@ -265,11 +294,13 @@ export function toolSearchRecord(messages) {
       for (const n of names(a.added)) { announced.add(n); listed.add(n); told.delete(n); }
       for (const n of names(a.removed)) announced.delete(n);
       for (const n of names(a.retracted)) told.add(n);
+      for (const n of names(a.restored)) { told.delete(n); refused.delete(n); }
+      for (const n of names(a.runsAgain)) refused.delete(n);
       if (Array.isArray(a.needsAuth)) lastNeedsAuth = names(a.needsAuth);
       if (Array.isArray(a.failed)) lastFailed = a.failed.filter((f) => f && typeof f.name === "string");
     }
   }
-  return { loaded, kept, announced, listed, told, lastNeedsAuth, lastFailed, declared, ranWithout: answered && !declared && !summarized };
+  return { loaded, kept, announced, listed, told, refused, upfront, lastNeedsAuth, lastFailed, declared, ranWithout: answered && !declared && !summarized };
 }
 
 // ── ON OR OFF, FOR ONE JOB ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -309,14 +340,50 @@ export const isDeferred = (name, upfront = new Set()) => DEFERRED_TOOLS.includes
  * they were first loaded (`loaded`, a Set, keeps it). The same chat gives the same list, and a load only adds a tool at
  * its end, so Grok's prompt cache keeps everything before it. A loaded tool whose source went away stays, with the
  * definition it was loaded with (`kept`, the chat's record), as Claude Code keeps its tool list for the whole conversation
- * ("a server connecting or disconnecting mid-session doesn't disturb anything already cached"); at most XAI_TOOLS_MAX.
+ * ("a server connecting or disconnecting mid-session doesn't disturb anything already cached"); at most XAI_TOOLS_MAX. So
+ * does an upfront tool that left (`upfront`, the chat's record of them: upfrontTools). Round 5.
  */
-export function requestTools(pool, deferred, loaded, kept = new Map()) {
+export function requestTools(pool, deferred, loaded, kept = new Map(), upfront = [], catalog = new Map()) {
   const list = (Array.isArray(pool) ? pool : []).filter((t) => t && t.function && t.function.name);
-  const up = list.filter((t) => !deferred.has(t.function.name));
-  const later = [...loaded].map((n) => { const t = list.find((x) => x.function.name === n); return t ? (deferred.has(n) ? t : null) : kept instanceof Map ? kept.get(n) || null : null; }).filter(Boolean);
+  const up = upfrontTools(list, deferred, upfront, catalog);
+  const have = new Set(up.map((t) => t.function.name));
+  const later = [...loaded].filter((n) => !have.has(n)).map((n) => { const t = list.find((x) => x.function.name === n); return t ? (deferred.has(n) ? t : null) : kept instanceof Map ? kept.get(n) || null : null; }).filter(Boolean);
   return [...up, ...later].slice(0, XAI_TOOLS_MAX);
 }
+/**
+ * THE UPFRONT PART OF THE REQUEST'S TOOLS (round 5; Claude Code 2.1.325's declared tools, its Cta): the chat's upfront tools in
+ * its order, and each tool of the chat's record (`upfront`, the upfront tools its requests carried, in order) that is no
+ * longer one of the chat's tools put back where it was: after the nearest one before it in the record that is in the list,
+ * else before the first of the record's in the list, else first. Its definition: a connector tool's as recorded, one of
+ * Coder's own as this job makes it (`catalog`, by name: its own tools whatever rules or settings took them out); one with
+ * none is left out.
+ */
+export function upfrontTools(pool, deferred, upfront = [], catalog = new Map()) {
+  const list = (Array.isArray(pool) ? pool : []).filter((t) => t && t.function && t.function.name);
+  const out = list.filter((t) => !deferred.has(t.function.name));
+  const rec = (Array.isArray(upfront) ? upfront : []).filter(isEntry);
+  if (!rec.length) return out;
+  const inPool = new Set(list.map((t) => t.function.name)), order = rec.map(entryName), inRec = new Set(order);
+  const at = (n) => out.findIndex((t) => t.function.name === n);
+  rec.forEach((d, v) => {
+    const n = order[v];
+    if (inPool.has(n) || at(n) >= 0) return;
+    const def = typeof d === "string" ? (catalog instanceof Map ? catalog.get(n) : null) : d;
+    if (!isDef(def) || def.function.name !== n) return;
+    let k = -1;
+    for (let e = v - 1; e >= 0 && k === -1; e--) { const p = at(order[e]); if (p >= 0) k = p + 1; }
+    if (k === -1) { const c = out.findIndex((t) => inRec.has(t.function.name)); k = c === -1 ? 0 : c; }
+    out.splice(k, 0, def);
+  });
+  return out;
+}
+/**
+ * WHAT THE CHAT'S RECORD KEEPS OF THE UPFRONT TOOLS A REQUEST CARRIES (`toolsDeclared`): each in order, one of Coder's own (a
+ * name `catalog` knows) by its name, a connector's by its definition, which nothing could make again once its connector goes.
+ */
+export const upfrontRecord = (sent, catalog = new Map()) => (Array.isArray(sent) ? sent : []).filter(isDef).map((t) => (catalog instanceof Map && catalog.has(t.function.name) ? t.function.name : t));
+/** Whether two records are the same, in order: the record is written again only when they differ. */
+export const sameTools = (a, b) => Array.isArray(a) && Array.isArray(b) && a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
 
 // ── THE ANNOUNCEMENT ────────────────────────────────────────────────────────────────────────────────────────────────────
 const serverOf = (x) => (isMcpName(x) ? x.split("__", 2).join("__") : null);
@@ -344,10 +411,18 @@ const failedKey = (list) => list.map((f) => [String(f.name), String(f.error || "
  * to disregard them; after either, its ambient line; then the connectors waiting for their sign-in (`needsAuth`) and those
  * that failed (`failed`, { name, error }), each time the note is said, and a change in them says it. A note of Coder's app,
  * with its record (`toolsAnnounced`), or null when nothing changed. `loaded`, `announced`, `listed`, `told`,
- * `lastNeedsAuth` and `lastFailed`: the chat's record (toolSearchRecord).
+ * `lastNeedsAuth` and `lastFailed`: the chat's record (toolSearchRecord). Round 5: `retracted` may name upfront tools that
+ * left too (upfrontTools keeps them in the request); `upfront`, the names of the chat's upfront tools now, and `refused`, the
+ * record's tools refused as "still listed": one Grok was told to disregard that is back is "available again" (RESTORED), one
+ * refused that is back runs again (RUNS_AGAIN), after the deferred tools available again, as its delta says them.
  */
-export function announcement({ deferred = [], loaded = new Set(), announced = new Set(), listed = new Set(), retracted = new Map(), told = new Set(), needsAuth = null, failed = null, lastNeedsAuth = [], lastFailed = [] } = {}) {
+export function announcement({ deferred = [], loaded = new Set(), announced = new Set(), listed = new Set(), retracted = new Map(), told = new Set(), needsAuth = null, failed = null, lastNeedsAuth = [], lastFailed = [], upfront = null, refused = new Set() } = {}) {
   const now = new Set(deferred);
+  // (Round 5: tools Grok was told to disregard, or whose calls were refused as "still listed", back among the chat's upfront
+  // tools (`upfront`, names): its restoredNames and runsAgainNames.)
+  const back = upfront instanceof Set ? upfront : new Set();
+  const restored = [...told].filter((n) => back.has(n)).sort();
+  const runsAgain = [...(refused instanceof Set ? refused : new Set())].filter((n) => back.has(n) && !told.has(n)).sort();
   const comers = [...now].filter((n) => !announced.has(n)).sort();
   const again = comers.filter((n) => listed.has(n));
   const added = comers.filter((n) => !listed.has(n) && !loaded.has(n));
@@ -356,12 +431,14 @@ export function announcement({ deferred = [], loaded = new Set(), announced = ne
   const auth = Array.isArray(needsAuth) ? [...new Set(names(needsAuth))].sort() : null;
   const fail = Array.isArray(failed) ? failed.filter((f) => f && typeof f.name === "string" && f.name).map((f) => ({ name: f.name, ...(f.error ? { error: String(f.error) } : {}) })).sort((a, b) => a.name.localeCompare(b.name)) : null;
   const serversChanged = (auth !== null && !sameList(auth, [...lastNeedsAuth].sort())) || (fail !== null && !sameList(failedKey(fail), failedKey([...lastFailed].sort((a, b) => String(a.name).localeCompare(String(b.name))))));
-  if (!comers.length && !removed.length && !pulled.length && !serversChanged) return null;
+  if (!comers.length && !removed.length && !pulled.length && !serversChanged && !restored.length && !runsAgain.length) return null;
   const parts = [];
   if (added.length) parts.push(DEFERRED_NOW + "\n" + added.join("\n"));
   const againMcp = again.filter(isMcpName), againOther = again.filter((n) => !isMcpName(n));
   if (againMcp.length) parts.push(availableAgain(againMcp.length, serverLines(againMcp).join(", ")));
   if (againOther.length) parts.push(availableAgain(againOther.length, againOther.join(", ")));
+  if (restored.length) parts.push(RESTORED + "\n" + restored.join("\n"));
+  if (runsAgain.length) parts.push(RUNS_AGAIN + "\n" + runsAgain.join("\n"));
   if (removed.length) {
     // (Its causeNeutral: a connector's tool among those gone or back. Otherwise none of them is one.)
     if ([...removed, ...again].some(isMcpName)) parts.push(DEFERRED_GONE_ANY + "\n" + serverLines([...removed.filter(isMcpName), ...removed.filter((n) => !isMcpName(n))]).join("\n"));
@@ -377,7 +454,7 @@ export function announcement({ deferred = [], loaded = new Set(), announced = ne
   if (fail && fail.length) parts.push(failedText(fail));
   // (A change that leaves nothing to say, a connector no longer waiting with none of its tools back yet: no note.)
   if (!parts.length) return null;
-  return { role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + parts.join("\n\n") + ")", toolsAnnounced: { added: comers, removed, ...(pulled.length ? { retracted: pulled.map(([n]) => n) } : {}), ...(auth ? { needsAuth: auth } : {}), ...(fail ? { failed: fail } : {}) } };
+  return { role: "user", appNote: true, content: "(Note from Coder's app, not the owner:\n" + parts.join("\n\n") + ")", toolsAnnounced: { added: comers, removed, ...(pulled.length ? { retracted: pulled.map(([n]) => n) } : {}), ...(restored.length ? { restored } : {}), ...(runsAgain.length ? { runsAgain } : {}), ...(auth ? { needsAuth: auth } : {}), ...(fail ? { failed: fail } : {}) } };
 }
 
 // ── ITS INPUT ───────────────────────────────────────────────────────────────────────────────────────────────────────────

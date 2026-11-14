@@ -52,7 +52,9 @@ async function loop(steps, { mode = "plan", answers = [], hooks = null, hookRun 
     },
     emit: (e) => events.push(e),
     here: () => ROOT, root: ROOT, chatId: "shop-pm", where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
-    ask: async (pid) => { if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || null; },
+    // (The owner answers once the card's PermissionRequest hooks have had their turn: a card one of them answered is withdrawn,
+    // `gone`, as they run beside it since fix round 4.)
+    ask: async (pid, o = {}) => { if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); if (o.gone) for (let w = 0; w < 50 && !o.gone(); w++) await new Promise((ok) => setTimeout(ok, 2)); return o.gone && o.gone() ? { choice: "gone" } : answers[k++] || null; },
     ...(box ? { plan: box } : {}),
     ...(modeOf ? { mode: () => modeSet || modeOf(n), setMode: (m) => { modeSet = m; } } : {}),
     // (Which plan tool is offered when, every tool upfront: ENABLE_TOOL_SEARCH=false. Under tool search, Claude Code's
@@ -109,11 +111,10 @@ test("PM2 plan mode's note: Claude Code's full reminder with the plan file (wher
   const noTool = P.planModeNote({ exitOffered: false });
   assert.ok(noTool.includes("This session has no plan file. Give your plan to the owner as text in your reply, and do not write it to a file."));
   assert.ok(noTool.includes("### Phase 5: Hand Over To The Owner\nWhen your plan is final, end your turn with it. You cannot leave plan mode yourself"));
-  // The same, as coder-perms.mjs gives them on, and in the system's note of each round.
+  // The same, as coder-perms.mjs gives them on. (No "PERMISSION MODE" wrapper of Coder's own since fix round 4: modeSystem is
+  // gone, its Accept edits words with it; the notes of the modes are Claude Code's, in the conversation.)
   assert.equal(PERMS.PLAN_NOTE, P.PLAN_NOTE);
-  assert.equal(A.modeSystem("plan", { planFile: f }), "PERMISSION MODE: Plan (the owner's pick).\n" + fresh);
-  assert.equal(A.modeSystem("plan"), "PERMISSION MODE: Plan (the owner's pick).\n" + P.PLAN_NOTE);
-  assert.equal(A.modeSystem("plan", { exitOffered: false }), "PERMISSION MODE: Plan (the owner's pick).\n" + noTool);
+  assert.equal(A.modeSystem, undefined);
 });
 
 test("PM3 what Coder is told back: Claude Code's results (with where the plan is kept, edited, an edit not saved, an empty plan), plan mode's end and re-entry, and its refusals", () => {
@@ -137,10 +138,11 @@ test("PM3 what Coder is told back: Claude Code's results (with where the plan is
   assert.equal(P.PLAN_ARG_NEEDED, "error: Pass the whole plan as non-empty text in the `plan` argument, and pass no other argument. This session has no plan file to read it from.");
   assert.equal(P.planTooBig(40000), "error: The plan is 40000 bytes as JSON, over the 32768 that the owner's approval card can carry. A quote, backslash or line break counts as two bytes, and a non-ASCII character as two to four. Shorten the plan and call this tool again.");
   assert.equal(P.PLAN_SHOW_MAX, 200000);
-  // The owner's change of mode, from Plan: plan mode's end with where the plan file is.
-  assert.equal(A.modeChangeNote("plan", "acceptEdits", { planExited: P.planExitedNote(f, true) }), "(Note from Coder's app, not the owner:\n" + P.planExitedNote(f, true) + "\n\nThe owner's permission mode is now Accept edits.)");
-  assert.match(A.modeChangeNote("auto", "plan", { planFile: true }), /The owner's permission mode is now Plan: plan mode is active; make no changes, and call exit_plan_mode when your plan is final\.\)$/);
-  assert.match(A.modeChangeNote("auto", "plan"), /call exit_plan_mode with your plan when it is final\.\)$/);
+  // The owner's change of mode, from Plan: plan mode's end with where the plan file is, and nothing of the mode as such (Claude
+  // Code's plan_mode_exit alone; round 6).
+  assert.equal(A.modeChangeNote("plan", "acceptEdits", { planExited: P.planExitedNote(f, true) }), "(Note from Coder's app, not the owner:\n" + P.planExitedNote(f, true) + ")");
+  assert.equal(A.modeChangeNote("auto", "plan", { autoExit: false }), "", "into Plan: its reminder comes on its own");
+  assert.equal(A.modeChangeNote("acceptEdits", "plan"), "");
 });
 
 test("PM4 its input, as Claude Code's normalizeToolInput and validateInput: the plan file's text and path put in (Coder's own `plan` dropped), refused out of plan mode, and with no plan file the plan must come as `plan`", () => {
@@ -254,8 +256,10 @@ test("PM7 in Plan mode Coder is told where its plan file is; it writes it withou
   // tool's result; once.
   const exitNote = "(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions. The plan file is located at " + f + " if you need to reference it.)";
   const last = t.seen[2].messages;
-  // (Then Coder's own note for Accept edits, the mode the plan's approval chose: Claude Code has none for that mode.)
-  assert.deepEqual(last.slice(-2), [{ role: "user", appNote: true, content: exitNote }, { role: "user", appNote: true, modeNote: "acceptEdits", content: "(Note from Coder's app, not the owner:\n" + A.modeSystem("acceptEdits") + ")" }]);
+  // (No note for Accept edits, the mode the plan's approval chose: Claude Code has none for that mode, and Coder's own words
+  // for it are gone since fix round 4, the owner's choice.)
+  assert.deepEqual(last.slice(-1), [{ role: "user", appNote: true, content: exitNote }]);
+  assert.ok(!last.some((m) => m.modeNote === "acceptEdits" || /PERMISSION MODE/.test(String(m.content))));
   assert.equal(last.filter((m) => m.content === exitNote).length, 1);
   assert.equal(last.filter((m) => typeof m.content === "string" && m.content.includes("## Exited Plan Mode")).length, 1, "nowhere else");
   assert.equal(t.r.mode, "acceptEdits");
@@ -297,10 +301,12 @@ test("PM9 PermissionRequest hooks answer the plan's card, as Claude Code's hooks
   const stored = async () => { const b = await newStore(); await writeFile(await fileOf(b), PLAN); return b; };
   const PR = (cmd = "pr.sh") => ({ PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: cmd }] }] });
   const out = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
-  // The guide's own: allow with updatedInput = tool_input. No card; back to the start mode (Accept edits here).
+  // The guide's own: allow with updatedInput = tool_input. The card closed with the hook's answer (shown at once beside its
+  // hooks since fix round 4); back to the start mode (Accept edits here).
   let box = await stored();
   let t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { plan: box, hooks: PR(), hookRun: (i) => out({ behavior: "allow", updatedInput: i.tool_input }), extra: { planExit: "acceptEdits" } });
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1);
+  assert.deepEqual(t.events.filter((e) => e.type === "permanswer").map((e) => [e.choice, e.hook]), [["yes", true]]);
   const prIn = t.hookCalls.find((h) => h.hook_event_name === "PermissionRequest");
   assert.deepEqual([prIn.tool_name, prIn.tool_input], ["ExitPlanMode", { plan: PLAN, planFilePath: await fileOf(box) }]);
   assert.equal(t.r.mode, "acceptEdits");
@@ -323,7 +329,7 @@ test("PM9 PermissionRequest hooks answer the plan's card, as Claude Code's hooks
   // Its deny: its message to Coder, plan mode stays.
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("ok")], { plan: await stored(), hooks: PR(), hookRun: () => out({ behavior: "deny", message: "Plans need a test step." }) });
   assert.equal(t.told("x1"), "Plans need a test step.");
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1, "shown, then closed with the hook's no");
   assert.equal(t.r.mode, "plan");
   // The card's Notification hook, as Claude Code's "Claude needs your permission to use ExitPlanMode".
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("ok")], { plan: await stored(), hooks: { Notification: [{ matcher: "permission_prompt", hooks: [{ type: "command", command: "n.sh" }] }] }, answers: [{ choice: "auto" }], askWait: 80, deps: { promptNotifyMs: 10 } });
@@ -370,9 +376,9 @@ test("PM11 Claude Code's other plan mode notes: plan mode's end with where the p
   const f = await fileOf(box);
   await writeFile(f, PLAN);
   let t = await loop([say("", [call("bash", { command: "ls" }, "b1")]), say("Done.")], { plan: box, modeOf: (n) => (n < 1 ? "plan" : "acceptEdits") });
-  assert.equal(t.seen[1].messages.at(-2).content, "(Note from Coder's app, not the owner:\n" + P.planExitedNote(f, true) + "\n\nThe owner's permission mode is now Accept edits.)");
-  // (Then Coder's own note for Accept edits, once in that mode: fix round 3. No second "## Exited Plan Mode".)
-  assert.equal(t.seen[1].messages.at(-1).modeNote, "acceptEdits");
+  assert.equal(t.seen[1].messages.at(-1).content, "(Note from Coder's app, not the owner:\n" + P.planExitedNote(f, true) + ")");
+  // (No note of Accept edits since fix round 4: Claude Code has none for that mode. No second "## Exited Plan Mode".)
+  assert.ok(!t.seen[1].messages.some((m) => m.modeNote === "acceptEdits"));
   assert.equal(t.seen[1].messages.filter((m) => /Exited Plan Mode/.test(m.content)).length, 1);
   assert.equal(box.flags().on, false);
   // Between two messages: the last one was in Plan (on), this one starts in Auto: said at its start, once.
@@ -406,7 +412,9 @@ test("PM12 the file tools and the plan file: Plan asks before any other write, n
   const f = await fileOf(box);
   let t = await loop([say("", [call("write", { path: f, content: PLAN }, "w1"), call("write", { path: "notes.md", content: "x\n" }, "w2")]), say("Done.")], { plan: box, answers: [{ choice: "no", comment: "plan only" }] });
   assert.deepEqual(t.cards.map((c) => [c.tool, c.path]), [["write", "notes.md"]]);
-  assert.equal(t.cards[0].why, "Plan mode is on: files change only after you approve the plan.");
+  // (Claude Code's own ask since round 6: Write's check in plan mode, "Cannot write to <path> while in plan mode.", by the path
+  // in full; Coder told the same where no one can answer.)
+  assert.equal(t.cards[0].why, "Cannot write to " + ROOT + "/notes.md while in plan mode.");
   // The write block (CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) and the read block, in Auto.
   t = await loop([say("", [call("write", { path: f, content: "1. Again\n" }, "w1"), call("read", { path: f }, "r1"), call("write", { path: "/tmp/elsewhere.md", content: "x\n" }, "w2")]), say("Done.")], { plan: box, mode: "auto", extra: { writeBlock: true, readBlock: true } });
   assert.equal(readFileSync(f, "utf8"), "1. Again\n");
@@ -617,9 +625,10 @@ test("PM20 enter_plan_mode in a chat: no card (a session with a disk), the chat 
   assert.equal(t.r.mode, "plan");
   assert.deepEqual(t.events.filter((e) => e.type === "mode").map((e) => [e.mode, e.by]), [["plan", "enterPlan"]]);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === P.ENTERED_PLAN_SHOWN));
-  // Before it: Accept edits (Coder's own note for it); after it: plan mode's reminder with the chat's plan file, in the
-  // conversation; exit_plan_mode is listed all along, and the system message and tools stay the same (fix round 3).
-  assert.equal(t.seen[0].messages.find((m) => m.modeNote).modeNote, "acceptEdits");
+  // Before it: Accept edits (no note for it since fix round 4, as Claude Code has none); after it: plan mode's reminder with
+  // the chat's plan file, in the conversation; exit_plan_mode is listed all along, and the system message and tools stay the
+  // same (fix round 3).
+  assert.ok(!t.seen[0].messages.some((m) => m.modeNote));
   assert.equal(t.seen[0].tools.find((x) => x.function.name === "exit_plan_mode"), P.EXIT_PLAN_TOOL);
   const f = box.current();
   assert.ok(f.startsWith(box.dir + "/fix-the-cart-total-") && f.endsWith(".md"), f);
@@ -685,7 +694,7 @@ test("PM22 enter_plan_mode and the modes around it, as Claude Code's: from Auto 
   const f = await fileOf(box);
   const PR = { PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: "pr.sh" }] }] };
   t = await loop([say("", [call("enter_plan_mode", {}, "e1")]), say("", [call("write", { path: f, content: PLAN }, "w1")]), say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { mode: "acceptEdits", plan: box, hooks: PR, hookRun: (i) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: i.tool_input } } }) }), extra: { planExit: "auto" } });
-  assert.equal(t.cards.length, 0);
+  assert.equal(t.cards.length, 1, "its card closed with the hook's answer (beside its hooks since fix round 4)");
   assert.ok(t.told("x1").startsWith("The owner has approved your plan."));
   assert.equal(t.r.mode, "acceptEdits");
   // Back in Plan after an approved plan whose file is there: Claude Code's re-entry note, once.
@@ -806,7 +815,7 @@ test("PM24 plansDirectory as Claude Code 2.1.325 takes it: resolved from the pro
   assert.equal(await box2.read(), null);
 });
 
-test("PM25 Coder's machine with a repository's plansDirectory: the chat's plan file in that folder of the project (the AI writes it, the owner's card shows it), kept inside the project by the tools script; one outside the project: the chat's own plans folder, with Claude Code's warning in the chat", async () => {
+test("PM25 Coder's machine with a repository's plansDirectory: the chat's plan file in that folder of the project (the AI writes it, the owner's card shows it), kept inside the project by the tools script; one outside the project: the chat's own plans folder, with Claude Code's warning in the machine's log only (round 5: Claude Code only logs it)", async () => {
   const S = await import("../container/server.mjs");
   const http = (await import("node:http")).default;
   const { mkdir } = await import("node:fs/promises");
@@ -875,10 +884,15 @@ test("PM25 Coder's machine with a repository's plansDirectory: the chat's plan f
   assert.equal(x.st.events.find((e) => e.type === "permission" && e.tool === "plan").plan, PLAN);
   assert.ok(x.seen[2].messages.find((m) => m.role === "tool" && m.tool_call_id === "x1").content.includes("Your plan has been saved to: " + x.file + "\n"));
   assert.ok(!x.st.events.some((e) => e.type === "note" && /plansDirectory/.test(String(e.text))));
-  x = await run("../elsewhere", 2);
+  // (One it does not use: the default folder, its warning only in the machine's log, once a chat, as Claude Code only logs it
+  // (to its debug log); nothing of it in the chat. Round 5, 2026-11-14.)
+  const logged = [], log0 = console.log;
+  console.log = (...a) => { logged.push(a.join(" ")); };
+  try { x = await run("../elsewhere", 2); } finally { console.log = log0; }
   assert.ok(x.file.startsWith(join(x.r.memRoot, x.project + ".plans") + "/"), x.file);
-  const warned = (st) => st.events.filter((e) => e.type === "note" && e.warn === true && e.text === "plansDirectory must be within project root, with no backslash in its path off Windows: ../elsewhere").length;
-  assert.deepEqual(x.sts.map(warned), [1, 0], "told once a chat (Claude Code only logs it)");
+  const WARN = "plansDirectory must be within project root, with no backslash in its path off Windows: ../elsewhere";
+  assert.deepEqual(logged.filter((l) => l.includes(WARN)), ["coder: chat " + x.project + ": " + WARN], "logged once a chat");
+  assert.ok(!x.sts.some((st) => st.events.some((e) => /plansDirectory/.test(String(e.text || "")))), "not in the chat");
   // The repository's setting as read: the later file's (settings.local.json over settings.json).
   const proj = await tmp("proj");
   await mkdir(join(proj, ".claude"));
@@ -908,9 +922,8 @@ test("PM26 the words typed on the plan's card go to Coder with every Yes, 'Yes, 
 
 test("PM27 auto mode's note is Claude Code 2.1.325's reminder ('## Auto Mode Active', with its 'If the user, a skill, or the shape of the task suggests they want you to ask'), Coder's names; leaving it, its '## Exited Auto Mode'", () => {
   assert.equal(PERMS.AUTO_NOTE, "## Auto Mode Active\n\nBias toward working without stopping for clarifying questions — when you'd normally pause to check, make the reasonable call and keep going; they'll redirect you if needed. If the owner, a skill, or the shape of the task suggests they want you to ask (with ask_user or otherwise), do so. And even absent that signal, it's still fine to stop when you're genuinely blocked — unclear direction, missing input, a decision only they can make.\n\nBefore any command that could discard uncommitted work — `git checkout`/`restore`/`reset`/`clean`, `rm -rf` in the repo, restoring from a snapshot — run `git status` first and stash (with `-u` for untracked) or commit anything that's there. When staging or committing, review what's included (`git status` after a broad `git add`), and if you see anything suspicious that might reveal secrets — even if the filename looks innocuous — double-check the file's contents before pushing.");
-  assert.equal(A.modeSystem("auto"), "PERMISSION MODE: Auto (the owner's pick).\n" + PERMS.AUTO_NOTE);
   assert.equal(PERMS.AUTO_EXITED, "## Exited Auto Mode\n\nYou have exited auto mode. The owner may now want to interact more directly. You should ask clarifying questions when the approach is ambiguous rather than making assumptions.");
-  assert.equal(A.modeChangeNote("auto", "acceptEdits"), "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + "\n\nThe owner's permission mode is now Accept edits.)");
+  assert.equal(A.modeChangeNote("auto", "acceptEdits"), "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + ")");
   assert.ok(!/AskUserQuestion|the user\b|Claude\b/.test(PERMS.AUTO_NOTE + PERMS.AUTO_EXITED));
 });
 
@@ -952,7 +965,7 @@ test("PM28 fix round 3 (T4): plan mode's reminder as Claude Code 2.1.325 gives i
   assert.equal(A.ownersMessage({ role: "user", appNote: true, content: "x" }), false);
 });
 
-test("PM29 fix round 3 (T4, the coordinator's check): the system message is byte-identical for the whole chat, across the owner's mode changes mid-job and the plan file's first write, and so are the tools (exit_plan_mode listed in every mode); the notes of the modes are in the conversation, as Claude Code places them: plan mode's reminder, its end, auto mode's note and its end, each once; Coder's own Accept edits note once in that mode", async () => {
+test("PM29 fix round 3 (T4, the coordinator's check): the system message is byte-identical for the whole chat, across the owner's mode changes mid-job and the plan file's first write, and so are the tools (exit_plan_mode listed in every mode); the notes of the modes are in the conversation, as Claude Code places them: plan mode's reminder, its end, auto mode's note and its end, each once; no note for Accept edits (fix round 4: Claude Code has none, the owner's choice)", async () => {
   const box = await newStore();
   const f = await fileOf(box);
   // Plan (the plan file written), then Auto, then Accept edits, then Auto again: the owner switches as Coder works.
@@ -972,13 +985,16 @@ test("PM29 fix round 3 (T4, the coordinator's check): the system message is byte
   assert.ok(t.seen[0].tools.some((x) => x.function.name === "exit_plan_mode"));
   const all = t.seen[4].messages;
   const kinds = all.filter((m) => m.role === "user" && m.appNote).map((m) => m.planReminder ? "plan:" + m.planReminder : m.modeNote ? "mode:" + m.modeNote : /The owner's permission mode is now (\w[\w ]*)/.test(m.content) ? "now:" + /The owner's permission mode is now (\w[\w ]*)/.exec(m.content)[1] : "other");
-  assert.deepEqual(kinds, ["plan:file", "now:Auto", "mode:auto", "now:Accept edits", "mode:acceptEdits", "now:Auto", "mode:auto"]);
+  // (Auto mode's end on its own after the owner's switch, as Claude Code gives its auto_mode_exit: round 5, 2026-11-14.)
+  // (Since round 6 nothing of the mode as such: plan mode's end ("other"), auto mode's note, its end, its note again.)
+  assert.deepEqual(kinds, ["plan:file", "other", "mode:auto", "other", "mode:auto"]);
+  assert.ok(!all.some((m) => typeof m.content === "string" && /permission mode is now/.test(m.content)));
   assert.equal(all.filter((m) => typeof m.content === "string" && m.content.includes("## Exited Plan Mode")).length, 1);
   assert.equal(all.filter((m) => typeof m.content === "string" && m.content.includes("## Exited Auto Mode")).length, 1);
-  // Between two messages: a chat left in Auto now in Accept edits is told auto mode's end (and Coder's Accept edits note) once.
+  // Between two messages: a chat left in Auto now in Accept edits is told auto mode's end once (and nothing of Accept edits).
   const next = await loop([say("", [call("bash", { command: "ls" }, "b9")]), say("Done.")], { plan: box, mode: "acceptEdits", extra: { messages: t.r.messages } });
   const told = next.seen[1].messages.slice(t.r.messages.length);
-  assert.deepEqual(told.filter((m) => m.appNote).map((m) => (m.modeNote ? "mode:" + m.modeNote : m.content.includes("## Exited Auto Mode") ? "auto ended" : "other")), ["auto ended", "mode:acceptEdits"]);
+  assert.deepEqual(told.filter((m) => m.appNote).map((m) => (m.modeNote ? "mode:" + m.modeNote : m.content.includes("## Exited Auto Mode") ? "auto ended" : "other")), ["auto ended"]);
   assert.equal(next.seen[1].messages[0].content, t.seen[0].messages[0].content);
 });
 
@@ -1017,4 +1033,107 @@ test("PM30 fix round 3 (T4, T5): no note of a mode in a job from GitHub (its own
   assert.ok(!dn.seen[0].tools.some((y) => y.function.name === "exit_plan_mode"));
   const di = await loop([say("Done.")], { mode: "auto", plan: box, extra: { denyInstead: true } });
   assert.ok(!di.seen[0].tools.some((y) => y.function.name === "exit_plan_mode"));
+});
+
+// ── ROUND 5 (2026-11-14, the owner: "Yes pls"): "## Exited Auto Mode" on the owner's switch as Claude Code gives it, and the plan
+// card's "with a changed input" only for a new plan. ──────────────────────────────────────────────────────────────────────────
+/** The notes Coder's app gave before one request, after the owner's message, by what each says. */
+const modeTags = (msgs) => msgs.filter((m) => m.role === "user" && m.appNote).map((m) => {
+  if (m.planReminder) return "plan:" + m.planReminder;
+  if (m.modeNote) return "mode:" + m.modeNote;
+  const c = String(m.content), tags = [];
+  if (c.includes("## Exited Plan Mode")) tags.push("plan ended");
+  if (c.includes("## Exited Auto Mode")) tags.push("auto ended");
+  const now = /The owner's permission mode is now (\w[\w ]*)/.exec(c);
+  if (now) tags.push("now:" + now[1]);
+  return tags.join("+") || "other";
+});
+const CHECKS = { checker: true, checkWhere: { key: "k1", repo: "ana/shop", branch: "coder/shop-1" } };
+
+test("PM31 the owner switches from Auto to Plan while Coder works: \"## Exited Auto Mode\" only when auto mode really ends (with auto mode's checks on in Plan it goes on there, as Claude Code's prepareContextForPlanMode keeps it), then on its own, after plan mode's reminder (Claude Code's auto_mode_exit after its plan_mode), and when Plan is left for Accept edits", async () => {
+  // (Each step a read: no checker request in between, whatever the mode when it runs.)
+  const ls = (id) => say("", [call("read", { path: "src/cart.js" }, id)]);
+  // Auto mode's checks off in Plan: auto mode ends with the switch.
+  let box = await newStore();
+  let t = await loop([ls("b1"), ls("b2"), say("Done.")], { plan: box, mode: "auto", modeOf: (n) => (n < 1 ? "auto" : "plan") });
+  assert.equal(t.seen.length, 3);
+  assert.deepEqual(modeTags(t.seen[0].messages), ["mode:auto"]);
+  // (Nothing of the mode as such since round 6: Claude Code's plan mode reminder, then its auto mode's end.)
+  assert.deepEqual(modeTags(t.seen[1].messages), ["mode:auto", "plan:file", "auto ended"]);
+  assert.equal(t.seen[1].messages.find((m) => m.appNote && String(m.content).includes("## Exited Auto Mode")).content, "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + ")");
+  assert.deepEqual(modeTags(t.seen[2].messages), modeTags(t.seen[1].messages), "said once");
+  // Auto mode's checks on in Plan: auto mode goes on under plan mode, so no "## Exited Auto Mode" at the switch; it comes when
+  // Plan is left for Accept edits, after plan mode's end.
+  box = await newStore();
+  t = await loop([ls("b1"), ls("b2"), ls("b3"), say("Done.")], { plan: box, mode: "auto", modeOf: (n) => (n < 1 ? "auto" : n < 2 ? "plan" : "acceptEdits"), extra: CHECKS });
+  assert.equal(t.seen.length, 4);
+  assert.deepEqual(modeTags(t.seen[1].messages), ["mode:auto", "plan:file"]);
+  assert.deepEqual(modeTags(t.seen[2].messages).slice(2), ["plan ended", "auto ended"]);
+  // Back to Auto from Plan, checks on: auto mode never ended, so neither its end nor its note again (Claude Code's).
+  box = await newStore();
+  t = await loop([ls("b1"), ls("b2"), ls("b3"), say("Done.")], { plan: box, mode: "auto", modeOf: (n) => (n < 1 ? "auto" : n < 2 ? "plan" : "auto"), extra: CHECKS });
+  assert.deepEqual(modeTags(t.seen[2].messages), ["mode:auto", "plan:file", "plan ended"]);
+  // Gloopy's notes, and a call of the helper with no word of how auto mode's end is told: auto mode's end alone (round 6).
+  assert.equal(A.modeChangeNote("auto", "plan"), "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + ")");
+  assert.equal(A.modeChangeNote("auto", "plan", { autoExit: false }), "");
+});
+
+test("PM32 a PermissionRequest hook that approves the plan's card: \"with a changed input\" only when its plan is not the one it was shown (Claude Code drops an unchanged plan from a hook's updatedInput and takes only a new one as an edit); the echo its allow needs, or the same plan alone, is no change", async () => {
+  const stored = async () => { const b = await newStore(); await writeFile(await fileOf(b), PLAN); return b; };
+  const PR = { PermissionRequest: [{ matcher: "ExitPlanMode", hooks: [{ type: "command", command: "pr.sh" }] }] };
+  const out = (decision) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision } }) });
+  const noted = (t) => t.events.filter((e) => e.type === "note" && e.hook === "PermissionRequest").map((e) => e.text);
+  const go = async (upd) => loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Done.")], { plan: await stored(), hooks: PR, hookRun: (i) => out({ behavior: "allow", updatedInput: upd(i.tool_input) }) });
+  // Its own input echoed (the hooks guide's example): no change.
+  let t = await go((x) => x);
+  assert.deepEqual(noted(t), ["A PermissionRequest hook allowed this."]);
+  assert.ok(t.told("x1").includes("\n\n## Approved Plan:\n" + PLAN));
+  // The same plan alone, without its planFilePath: no change either.
+  t = await go((x) => ({ plan: x.plan }));
+  assert.deepEqual(noted(t), ["A PermissionRequest hook allowed this."]);
+  assert.ok(t.told("x1").includes("\n\n## Approved Plan:\n" + PLAN));
+  // A new plan: changed, and said as edited, as before.
+  t = await go((x) => ({ ...x, plan: "1. Only the cart\n" }));
+  assert.deepEqual(noted(t), ["A PermissionRequest hook allowed this, with a changed input."]);
+  assert.ok(t.told("x1").includes("\n\n## Approved Plan (edited by the owner):\n1. Only the cart\n"));
+});
+
+// ── ROUND 6 (2026-11-14, the owner: "do what claude code does"): the owner's mode change as Claude Code tells it ─────────────
+test("WD3 the owner changes the mode while Coder works: only Claude Code 2.1.325's own notes of the modes, at its next step and between messages (its plan_mode, plan_mode_exit, auto_mode and auto_mode_exit, in that order; none for Accept edits); never \"The owner's permission mode is now …\", which Claude Code does not say", async () => {
+  const ls = (id) => say("", [call("read", { path: "src/cart.js" }, id)]);
+  const NOW = /permission mode is now/;
+  const appNotes = (msgs) => msgs.filter((m) => m.role === "user" && m.appNote);
+  // Accept edits, then Plan: plan mode's reminder alone.
+  let box = await newStore();
+  let t = await loop([ls("r1"), ls("r2"), say("Done.")], { plan: box, mode: "acceptEdits", modeOf: (n) => (n < 1 ? "acceptEdits" : "plan") });
+  assert.deepEqual(modeTags(t.seen[0].messages), []);
+  assert.deepEqual(modeTags(t.seen[1].messages), ["plan:file"]);
+  // Plan, then Accept edits: plan mode's end alone, with where its file is.
+  box = await newStore();
+  const f = await fileOf(box);
+  await writeFile(f, PLAN);
+  t = await loop([ls("r1"), ls("r2"), say("Done.")], { plan: box, mode: "plan", modeOf: (n) => (n < 1 ? "plan" : "acceptEdits") });
+  assert.deepEqual(modeTags(t.seen[1].messages), ["plan:file", "plan ended"]);
+  assert.equal(appNotes(t.seen[1].messages).at(-1).content, "(Note from Coder's app, not the owner:\n" + P.planExitedNote(f, true) + ")");
+  // Auto, then Accept edits: auto mode's end alone; Accept edits, then Auto: auto mode's note alone.
+  t = await loop([ls("r1"), ls("r2"), say("Done.")], { plan: null, mode: "auto", modeOf: (n) => (n < 1 ? "auto" : "acceptEdits") });
+  assert.deepEqual(modeTags(t.seen[1].messages), ["mode:auto", "auto ended"]);
+  assert.equal(appNotes(t.seen[1].messages).at(-1).content, "(Note from Coder's app, not the owner:\n" + PERMS.AUTO_EXITED + ")");
+  t = await loop([ls("r1"), ls("r2"), say("Done.")], { plan: null, mode: "acceptEdits", modeOf: (n) => (n < 1 ? "acceptEdits" : "auto") });
+  assert.deepEqual(modeTags(t.seen[1].messages), ["mode:auto"]);
+  // Plan, then Auto (auto mode's checks off in Plan): plan mode's end, then auto mode's note, Claude Code's order.
+  box = await newStore();
+  t = await loop([ls("r1"), ls("r2"), say("Done.")], { plan: box, mode: "plan", modeOf: (n) => (n < 1 ? "plan" : "auto") });
+  assert.deepEqual(modeTags(t.seen[1].messages), ["plan:file", "plan ended", "mode:auto"]);
+  for (const req of t.seen) assert.ok(!req.messages.some((m) => typeof m.content === "string" && NOW.test(m.content)));
+  // Between two messages: the same notes, from the conversation; nothing of the mode as such either.
+  const next = await loop([say("Done.")], { plan: box, mode: "acceptEdits", extra: { messages: t.r.messages } });
+  assert.deepEqual(modeTags(next.seen[0].messages.slice(t.r.messages.length)), ["auto ended"]);
+  assert.ok(!next.seen[0].messages.some((m) => typeof m.content === "string" && NOW.test(m.content)));
+  // The helper: Claude Code's notes alone, "" when none.
+  assert.equal(A.modeChangeNote("acceptEdits", "plan"), "");
+  assert.equal(A.modeChangeNote("acceptEdits", "auto"), "");
+  assert.equal(A.modeChangeNote("plan", "plan"), "");
+  assert.equal(A.modeChangeNote("plan", "auto"), "(Note from Coder's app, not the owner:\n" + P.PLAN_EXITED + ")");
+  assert.doesNotMatch(read("container/coder-agent.mjs"), /The owner's permission mode is now/);
 });
