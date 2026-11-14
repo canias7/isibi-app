@@ -833,6 +833,20 @@ export function readCommand(command, { cwd = "/", home = "" , vars = false } = {
 
 // ── RULES ────────────────────────────────────────────────────────────────────
 /**
+ * GREP'S AND GLOB'S INPUTS A RULE MAY NAME (Claude Code 2.1.323's schemas; never `path`, their "primary content field"), and a
+ * rule's content read as one (Claude Code: the name before the first colon, the value after it, "Whitespace around the colon
+ * is ignored"), or null.
+ */
+export const SEARCH_RULE_PARAMS = Object.freeze({ Grep: ["pattern", "glob", "output_mode", "-B", "-A", "-C", "context", "-n", "-i", "-o", "type", "head_limit", "offset", "multiline"], Glob: ["pattern"] });
+function searchParamSpec(tool, spec) {
+  const k = String(spec).indexOf(":");
+  if (k <= 0) return null;
+  const name = spec.slice(0, k).trim(), value = spec.slice(k + 1).trim();
+  return name && value && (SEARCH_RULE_PARAMS[tool] || []).includes(name) ? { name, value } : null;
+}
+/** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
+const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
+/**
  * A rule's parts (`Bash(npm test *)`, `Bash`, `WebFetch(domain:x.com)`, `Read(./.env)`, `Edit(src/**)`, `Write`); null when
  * Coder does not apply it. FILE RULES (Bash docs, the owner, 2026-11-10: "yea do all 4"; coder-filerules.mjs): `Read` and
  * `Edit` with a path pattern or on the whole tool; Coder's other file tools by Claude Code's names (`Write`, `Grep`, `Glob`,
@@ -860,6 +874,12 @@ export function parseRule(text) {
     if (spec !== null && (spec.includes(":*") || /^file_path\s*:/.test(spec))) return null;
     return { tool: m[1], spec: spec === "*" || spec === "**" ? null : spec };
   }
+  // A RULE ON ONE OF GREP'S OR GLOB'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
+  // Code's permissions docs, "Match by input parameter": "Deny and ask rules can match a top-level input parameter on any
+  // built-in tool with Tool(param:value)"; "You can't match a tool's primary content field this way: … path for Grep and
+  // Glob"): `Grep(output_mode:content)`, `Glob(pattern:*.env)`, used by deny and ask lists (fileToolDecision); `param` its
+  // name and value.
+  if ((m[1] === "Grep" || m[1] === "Glob") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only.)
   if (m[1] === "Write" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "TodoWrite") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
@@ -1039,6 +1059,9 @@ function keptPathRule(r) {
   const c = String(r.content || "").trim();
   if (!c || c === "*" || c.includes(":*")) return "";
   if (r.tool === "Write" || r.tool === "NotebookEdit" || r.tool === "MultiEdit") return "Edit";
+  // (A Grep or Glob rule on one of its inputs is applied, not kept; one on its `path` is kept, Claude Code's raw-string rule.)
+  if ((r.tool === "Glob" || r.tool === "Grep") && searchParamSpec(r.tool, c)) return "";
+  if (searchPathSpec(r.tool, c)) return r.tool;
   if (r.tool === "Glob" || r.tool === "Grep") return "Read";
   if ((r.tool === "Read" || r.tool === "Edit") && /^file_path\s*:/.test(c)) return r.tool;
   return "";
@@ -1169,6 +1192,9 @@ function ruleWarningOf(kind, text) {
       return { warning: t + " is not matched by file permission checks — only " + use + "(path) rules are. Use " + instead + " instead (" + use + " rules cover all file-" + (use === "Edit" ? "editing" : "reading") + " tools).", notice: k === "allow" ? "" : t + " never matches · use " + instead };
     }
     if (k !== "deny" && k !== "ask") return null;
+    // (Grep's and Glob's own `path`, in Claude Code's words, 2.1.325's list: "Permission deny rule "Grep(path:src)" targets path
+    // as a raw string and will not match.", and Glob's "… — use Read(…) to match file-read paths.")
+    if (use && searchPathSpec(r.tool, r.content)) return r.tool === "Grep" ? { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match.', notice: t + " never matches" } : { warning: "Permission " + k + ' rule "' + t + '" targets path as a raw string and will not match \u2014 use Read(\u2026) to match file-read paths.', notice: t + " never matches \u00b7 use Read(\u2026)" };
     if (use) return { warning: "Permission " + k + ' rule "' + t + '" targets file_path as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     if (r.tool === "Bash" || r.tool === "PowerShell") return { warning: "Permission " + k + ' rule "' + t + '" targets command as a raw string and will not match — use ' + r.tool + "(…) for " + r.tool + "'s own matcher.", notice: t + " never matches · use " + r.tool + "(…)" };
     return { warning: "Permission " + k + ' rule "' + t + '" matches no known tool — check for typos.', notice: t + " matches no tool · check for typos" };
@@ -1227,6 +1253,26 @@ export function bashSpecMatches(spec, text) {
   return (p.match(/\*/g) || []).length === 1 && p.endsWith(" *") && text === p.slice(0, -2);
 }
 /**
+ * CLAUDE CODE'S WILDCARD FOR A RULE'S TEXT (2.1.323's dZ): `*` any text, `\*` a star itself, `\\` a backslash, `/**\/` any
+ * folders between, a trailing ` *` after the only star also matching nothing; the whole text, across lines.
+ */
+export function ruleWildcardMatches(rule, text) {
+  const c = String(rule ?? "");
+  if (c.includes("\u0000")) return false;
+  const s = c.trim();
+  let f = "";
+  for (let i = 0; i < s.length;) {
+    if (s[i] === "\\" && i + 1 < s.length) {
+      if (s[i + 1] === "*") { f += "\u0000ESCAPED_STAR\u0000"; i += 2; continue; }
+      if (s[i + 1] === "\\") { f += "\u0000ESCAPED_BACKSLASH\u0000"; i += 2; continue; }
+    }
+    f += s[i++];
+  }
+  let b = f.replace(/[.+?^${}()|[\]\\'"]/g, "\\$&").replace(/\/(?:\*\*\/)+/g, "\u0000GLOBSTAR\u0000").replaceAll("*", ".*").replace(/\u0000GLOBSTAR\u0000/g, "/(?:.*/)?").replace(/\u0000ESCAPED_STAR\u0000/g, "\\*").replace(/\u0000ESCAPED_BACKSLASH\u0000/g, "\\\\");
+  if (b.endsWith(" .*") && (f.match(/\*/g) || []).length === 1) b = b.slice(0, -3) + "( .*)?";
+  try { return new RegExp("^" + b + "$", "s").test(String(text ?? "")); } catch { return false; }
+}
+/**
  * A HOOK'S `if` FILTER (Claude Code's hooks: "if uses permission rule syntax to match against the tool name and arguments
  * together, so "Bash(git *)" runs when any subcommand of the Bash input matches git * and "Edit(*.ts)" runs only for
  * TypeScript files"): whether one rule matches one tool call (`tool` by Claude Code's name, `input` its arguments, `ctx`
@@ -1263,6 +1309,10 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
   if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainMatches(spec, host); }
+  // GREP'S AND GLOB'S `if` ON THEIR PATTERN (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
+  // Code 2.1.323: their matcher for a hook's `if` compares the rule's content with the call's pattern, not its path):
+  // `Grep(TODO*)` runs for a search of "TODO.*fix".
+  if (tool === "Grep" || tool === "Glob") return typeof args.pattern === "string" && ruleWildcardMatches(spec, args.pattern);
   const path = typeof args.file_path === "string" ? args.file_path : typeof args.path === "string" ? args.path : "";
   if (!path) return false;
   const full = path.startsWith("/") ? path : (cwd.replace(/\/+$/, "") || "") + "/" + path;
@@ -1743,7 +1793,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
   const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
@@ -1759,6 +1809,13 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // DENY.
   const wd = (name !== "Read" && name !== "Edit" ? whole("deny") : "") || globWhole("deny");
   if (wd) return { verdict: "deny", rule: wd, why: "Permission to use " + name + " has been denied." };
+  // A GREP OR GLOB RULE ON ONE OF THE CALL'S INPUTS (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+  // Claude Code's "Match by input parameter": "A parameter rule matches when Claude calls the tool with that parameter set to
+  // that exact value", "* … matches any sequence of characters", "A parameter the model omits is never matched"), denied in
+  // its words, 2.1.325's: "Permission to use Grep with output_mode:content has been denied.".
+  const paramHit = (kind) => (search && input && typeof input === "object" ? (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== name || !x.param) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "" : "");
+  const pd = paramHit("deny");
+  if (pd) return { verdict: "deny", rule: pd, why: "Permission to use " + name + " with " + parseRule(pd).spec + " has been denied." };
   if (edits) {
     const e = hit(rules.deny, "Edit", "deny");
     if (e) return { verdict: "deny", rule: e, why: isWhole(e) ? "Permission to use " + name + " has been denied." : "File is in a directory that is denied by your permission settings." };
@@ -1769,6 +1826,15 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     if (r) return { verdict: "deny", rule: r, why: isWhole(r) ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
   }
   // ASK (the owner's rule asks each time: no "don't ask again" for it).
+  // (Grep and Glob in Claude Code's words: a Read ask rule on the path, its read check's "Claude requested permissions to read
+  // from <path>, but you haven't granted it yet."; a rule on the whole tool or on one of its inputs, "Claude requested
+  // permissions to use Grep, but you haven't granted it yet."; "Claude" is Coder here.)
+  if (search) {
+    const ra = hit(rules.ask, "Read", "ask");
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    const sa = whole("ask") || globWhole("ask") || paramHit("ask");
+    return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
+  }
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
   if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };

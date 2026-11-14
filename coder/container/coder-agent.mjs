@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } from "./coder-search.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -648,23 +649,6 @@ export function namesUserAgentWithAddress(text, mark) {
 export const READ_TOOLS = new Set(["read", "grep", "glob", "lsp"]);
 /** Coder's file tools the owner's Read and Edit rules (and whole-tool Write, Grep, Glob, LSP rules) apply to. */
 const FILE_RULE_TOOLS_HERE = new Set(["read", "grep", "glob", "lsp", "write", "edit"]);
-/**
- * A search's lines without those whose file a Read deny rule covers: a glob's lines are paths; a grep's are a path, or
- * "path:line:text" / "path:count". Coder's notes after a blank line (how many more, …) are kept.
- */
-export function withoutDenied(text, denied, empty = "no matches") {
-  const lines = String(text).split("\n");
-  let cut = 0, left = 0;
-  const kept = lines.filter((l) => {
-    if (!l.trim() || /^\(|^\[|^no (matches|files match)/i.test(l)) return true;
-    const m = /^(.+?):(\d+)(?::|-|$)/.exec(l);
-    const p = m ? m[1] : l.trim();
-    if (denied(p)) { cut++; return false; }
-    left++;
-    return true;
-  });
-  return !cut ? String(text) : left ? kept.join("\n") : empty;
-}
 /** The file tools' refusal under the read block (Claude Code 2.1.322's words: "/etc/hostname is outside /home/user/cc-live-bash; the permissions.blockReadsOutsideWorkingDirectories setting blocks reads outside the working directories. Ask the user to add the directory with /add-dir, or to remove that setting."), with Coder's setting; Coder has no /add-dir. */
 export const READ_BLOCKED = (path, dirs) => "error: " + path + " is outside " + (Array.isArray(dirs) ? dirs : []).filter((x) => typeof x === "string" && x).join(", ") + "; the CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES setting blocks reads outside the working directories. Ask the owner to remove that setting.";
 /**
@@ -859,13 +843,14 @@ export async function fitOwnerPics(pics, fitOne) {
   }
   return { send, notes };
 }
-async function appTool(deps, tool, args) {
-  const json = JSON.stringify({ tool, args });
+async function appTool(deps, tool, args, { ctx = null, timeoutS = 60 } = {}) {
+  // (`ctx`: what a tool gets from Coder's loop besides Grok's input, Grep's and Glob's: coder-search.mjs.)
+  const json = JSON.stringify({ tool, args, ...(ctx ? { ctx } : {}) });
   const b64 = Buffer.from(json).toString("base64");
   // A big request (a picture) travels in a file, not on the command line (Linux caps one argument at 128 KB).
   const big = b64.length > 100_000;
   try {
-    const r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (big ? "@REQUEST" : b64), timeoutS: 60, tool: true, ...(big ? { payload: json } : {}) });
+    const r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (big ? "@REQUEST" : b64), timeoutS, tool: true, ...(big ? { payload: json } : {}) });
     return { code: r && Number.isInteger(r.code) ? r.code : -1, output: String((r && r.output) || "") };
   } catch (e) { return { code: -1, output: "error: " + String((e && e.message) || e).slice(0, 200) }; }
 }
@@ -1125,14 +1110,15 @@ export const CODER_MAX_MS = 45 * 60 * 1000;
  * "Claude is instructed to always pass absolute paths"): a full path, or one from where Grok's commands are.
  */
 const FILE_PATH = { type: "string", description: "the file's full path (best, as with Claude Code's tools), or a path from the folder your commands are in" };
-const SEARCH_PATH = { type: "string", description: "where to search: a full path, or one from the folder your commands are in (that folder when left out)" };
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP, BMP, TIFF; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
   fn("edit", "Change a file by replacing an exact piece of text (old_string) with new text (new_string). old_string must match the file exactly, spaces and indentation included, and appear only once, unless replace_all is true (then every place changes). Copy it from what read showed without read's line-number prefix (the number and the tab before each line): that is not part of the file. Keep old_string short: the few lines that make it unique are enough. With an empty old_string, a new file is made with new_string. Use this instead of sed.", { path: FILE_PATH, old_string: { type: "string" }, new_string: { type: "string" }, replace_all: { type: "boolean" } }, ["path", "old_string", "new_string"]),
   fn("write", "Write a whole file: a new one, or one you have read, replaced in full (it is not appended to or merged). For a change to part of a file, use edit instead. At most about 90,000 characters per call; for a longer file write the start, then add the rest with edit.", { path: FILE_PATH, content: { type: "string" } }, ["path", "content"]),
-  fn("grep", "Search the project's files for text or a regular expression (ripgrep). Gives file:line:text.", { pattern: { type: "string" }, path: SEARCH_PATH, glob: { type: "string" }, ignore_case: { type: "boolean" } }, ["pattern"]),
-  fn("glob", "List the project's files whose path matches a pattern, e.g. src/**/*.js or **/*.md.", { pattern: { type: "string" }, path: SEARCH_PATH }, ["pattern"]),
+  // GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
+  // its short descriptions, the ones a model that isn't one of Claude's older ones gets, and its inputs, word for word.
+  searchToolDef("grep"),
+  searchToolDef("glob"),
   fn("lsp", "Ask a real language server (JavaScript/TypeScript, Python) about the code: definition (where a name is defined), references (everywhere it is used), hover (its type and docs), diagnostics (the file's errors and warnings). line and column count from 1, as read shows them; point them at the name.", { action: { type: "string", enum: ["definition", "references", "hover", "diagnostics"] }, path: FILE_PATH, line: { type: "integer" }, column: { type: "integer" } }, ["action", "path"]),
   // LIKE CLAUDE CODE'S WebFetch (its docs, read 2026-11-06: the page is read by a
   // separate model call; owner: "Finish all this"): a separate reader answers
@@ -1617,6 +1603,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   for (const k of ["allow", "ask", "deny"]) for (const r of Array.isArray(rules && rules[k]) ? rules[k].slice(0, 200) : []) if (typeof r === "string" && r.length <= RULE_MAX + 20 && parseRule(r)) ownRules[k].push(r);
   // (Which settings each deny and ask rule came from, the owner's or the repository's, for a `!` file rule: rulesSources.)
   ownRules.sources = rulesSources(rules);
+  // GREP'S AND GLOB'S CONTEXT ON CODER'S MACHINE (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on
+  // those tools"): the owner's Read deny rules, which Claude Code applies inside the search and before its caps ("a best-effort
+  // attempt to apply Read(path) deny rules to all built-in tools that read files like Grep and Glob"; none in a job from
+  // GitHub), and the environment's search settings (CODER_GLOB_TIMEOUT_SECONDS, CODER_GLOB_HIDDEN, CODER_GLOB_NO_IGNORE).
+  const searchCtx = () => ({ ...(deps.searchSettings && typeof deps.searchSettings === "object" ? deps.searchSettings : {}), ...(github ? {} : { deny: { rules: ownRules.deny.filter((x) => /^Read\(/.test(String(x))), sources: ownRules.sources || null, root: deps.root || "/", home: deps.home || "" } }) });
+  // (Its run's own limit: the search's, with the 10 seconds Claude Code gives a search it stops, and room to start.)
+  const searchExecS = () => Math.ceil(((deps.searchSettings && Number(deps.searchSettings.timeoutMs)) || SEARCH_TIMEOUT_MS) / 1000) + 30;
   const rulesAdded = [];
   const addRule = (r) => { if (typeof r === "string" && parseRule(r) && !ownRules.allow.includes(r)) { ownRules.allow.push(r); rulesAdded.push(r); } };
   // RULES A PERMISSIONREQUEST HOOK ADDS (Bash docs pass 9): for the "session", the chat's, which Coder's Worker keeps for its
@@ -1876,10 +1869,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const full = typeof deps.where === "function" ? deps.where(given) : given;
     if (c.name === "read" && !(typeof a.path === "string" && a.path)) return "error: read needs a path";
     a.path = full;
-    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x) });
+    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: a });
     if (d && (d.verdict === "deny" || d.verdict === "ask")) return "error: " + (d.why || "the owner's rules do not let this hook read there");
     if (c.name === "read") { delete a.allow_large; delete a.max_chars; }
-    return readAnswer((await appTool(deps, c.name, a)).output).text.slice(0, 30_000);
+    // (A search with the owner's Read deny rules, its result object left off: coder-search.mjs.)
+    const search = c.name === "grep" || c.name === "glob";
+    return readAnswer(factsAnswer((await appTool(deps, c.name, a, search ? { ctx: searchCtx(), timeoutS: searchExecS() } : {})).output).text).text.slice(0, 30_000);
   };
   /**
    * A HOOK IN THE BACKGROUND (Claude Code's async: "runs in the background without blocking"; asyncRewake: "runs in the
@@ -4190,7 +4185,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // the call in Claude Code's words ("Permission to read … has been denied.", "File is covered by a Read deny rule in your
         // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
         const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
-        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x) }) : null;
+        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: args }) : null;
         if (fileDec && fileDec.verdict === "deny") { emit({ type: "result", id: c.id, code: 1, ran: false, output: fileDec.why }); reply(fileDec.why); continue; }
         const ruleAsk = !!(fileDec && fileDec.verdict === "ask") || !!(c.hook && c.hook.decision === "ask" && !github && !c.rerun);
         const modeT = modeNow();
@@ -4258,12 +4253,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // WHAT A WRITE OR AN EDIT CHANGED is asked for, for the chat only (writeAnswer; edit's too since edit's turn, 2026-11-09).
         // And whether it made new problems, by the language server (Claude Code's plugins: "Found N new diagnostic issues").
         const reqArgs = c.name === "write" ? { ...given, show_change: true, check: true } : c.name === "edit" ? { ...args, show_change: true, check: true } : args;
-        const b64 = Buffer.from(JSON.stringify({ tool: c.name, args: reqArgs })).toString("base64");
+        // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
+        const search = c.name === "grep" || c.name === "glob";
+        const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: searchCtx() } : {}) };
+        const b64 = Buffer.from(JSON.stringify(req)).toString("base64");
         let r;
         // Big requests (a long file) travel in a file, not on the command line (the audit: Linux caps one argument at 128 KB).
         // `here`: a short path counts from where Grok's commands are, and grep and glob search there by default.
         ranAt.set(c.id, now());
-        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify({ tool: c.name, args: reqArgs }) } : {}) }); }
+        try { r = await deps.exec({ command: "node --no-warnings " + TOOLS_SCRIPT + " " + (b64.length > 100_000 ? "@REQUEST" : b64), timeoutS: c.name === "lsp" ? 90 : search ? searchExecS() : 60, tool: true, here: true, ...(c.name === "lsp" ? { kind: "lsp" } : {}), ...(b64.length > 100_000 ? { payload: JSON.stringify(req) } : {}) }); }
         catch (e) { r = { code: -1, output: "the tool could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
         // The folder Grok's commands were in was gone, so this counted from the project's folder: said first.
         const cwdSaid = r && typeof r.cwdNote === "string" && r.cwdNote ? r.cwdNote + "\n" : "";
@@ -4271,6 +4269,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const code = r && Number.isInteger(r.code) ? r.code : -1;
         // (A tool's result object for its PostToolUse hooks, behind FACTS_MARK: taken off its answer here. 2026-11-14.)
         if (code === 0) { const fa = factsAnswer(raw); raw = fa.text; if (fa.facts) toolFacts.set(c.id, fa.facts); }
+        // A SEARCH'S LONG RESULT, SAVED (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code
+        // 2.1.323 keeps a Grep result inline up to 20,000 characters, its maxResultSizeChars, and a Glob result up to 50,000, its
+        // cap for every tool; past that it saves it as it does a long Bash result, which its hooks reference describes: "saves the
+        // output to a file in the session directory. It replaces the output with the file path and a preview of up to the first
+        // 2,000 characters"): in the chat's output folder, which read may open, in Claude Code's words (bashResultText).
+        if (search && code === 0 && typeof deps.saveText === "function" && raw.length > (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX)) {
+          let f = "";
+          try { f = String(deps.saveText(raw) || ""); } catch { f = ""; }
+          if (f) raw = bashResultText({ output: raw, size: raw.length, file: f, inlineMax: c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX });
+        }
         const toolText = raw;
         // A READ THAT OPENED PICTURES (a picture, a PDF page with no text, a notebook's plots): its text, and
         // its pictures for Grok (only PNG and JPEG, as the read tool makes them).
@@ -4280,12 +4288,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(projectPath(deps, args.path));
-        // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read); other
-        // tools' output is, to MAX_OUTPUT_CHARS.
-        // A SEARCH'S RESULTS LEAVE OUT WHAT A READ DENY RULE COVERS (Claude Code: "a best-effort attempt to apply Read(path) deny
-        // rules to all built-in tools that read files like Grep and Glob").
-        if ((c.name === "grep" || c.name === "glob") && code === 0 && !github && ownRules.deny.some((r) => /^Read\(/.test(r))) raw = withoutDenied(raw, (x) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(x) : x, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y) }), c.name === "glob" ? "no files match " + String(args.pattern || "") : "no matches");
-        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : undefined);
+        // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
+        // own limits and the saved file above, Claude Code's); other tools' output is, to MAX_OUTPUT_CHARS.
+        let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : undefined);
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
         if (c.name === "web_fetch" && code === 0) out = await readPage(deps, { model, url: String(args.url || ""), prompt: String(args.prompt || ""), page: toolText });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).

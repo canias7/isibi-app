@@ -896,7 +896,9 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
   // grep and glob use ripgrep, which Coder's machine has (the Dockerfile); checked when this machine has it too.
   let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }
   if (hasRg) {
-    assert.match(tool("grep", { pattern: "const b" }).out, /src\/app\.js:2:const b = 3;/);
+    // (Claude Code's Grep, 2026-11-14: file paths by default, its lines with output_mode "content", named from where the commands are.)
+    assert.match(tool("grep", { pattern: "const b" }).out, /\nFound 1 file\nsrc\/app\.js$/);
+    assert.match(tool("grep", { pattern: "const b", output_mode: "content" }).out, /\nsrc\/app\.js:2:const b = 3;$/);
     assert.match(tool("glob", { pattern: "**/*.js" }).out, /src\/app\.js/);
   }
   // OUTSIDE THE PROJECT: refused, also through a link and in .git.

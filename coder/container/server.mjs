@@ -43,6 +43,7 @@ import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRI
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
+import { searchSettingsFrom } from "./coder-search.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -880,7 +881,10 @@ export const REPO_ENV_OFF = /^(PATH|HOME|SHELL|USER|LOGNAME|TMPDIR|TMP|TEMP|CDPA
 export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS", BASH_MAX_TIMEOUT_MS: "BASH_MAX_TIMEOUT_MS", BASH_MAX_OUTPUT_LENGTH: "BASH_MAX_OUTPUT_LENGTH", CLAUDE_CODE_USE_POWERSHELL_TOOL: "CODER_USE_POWERSHELL_TOOL", CLAUDE_BASH_MAINTAIN_PROJECT_WORKING_DIR: "CODER_BASH_MAINTAIN_PROJECT_WORKING_DIR", CLAUDE_CODE_DISABLE_BACKGROUND_TASKS: "CODER_DISABLE_BACKGROUND_TASKS", CLAUDE_CODE_TOOL_MEMORY_LIMIT: "CODER_TOOL_MEMORY_LIMIT", CLAUDE_ENV_FILE: "CODER_ENV_FILE", CLAUDE_CODE_SHELL: "CODER_SHELL",
   // (Bash docs pass 9: four more that Claude Code 2.1.322 lets a project's settings set, none of them on its list of names
   // project settings can't set.)
-  CLAUDE_CODE_SHELL_PREFIX: "CODER_SHELL_PREFIX", CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE: "CODER_TOOL_MEMORY_CGROUP_EXCLUDE", CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "CODER_DISABLE_BG_SHELL_PRESSURE_REAP", CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: "CODER_SESSIONEND_HOOKS_TIMEOUT_MS" };
+  CLAUDE_CODE_SHELL_PREFIX: "CODER_SHELL_PREFIX", CLAUDE_CODE_TOOL_MEMORY_CGROUP_EXCLUDE: "CODER_TOOL_MEMORY_CGROUP_EXCLUDE", CLAUDE_CODE_DISABLE_BG_SHELL_PRESSURE_REAP: "CODER_DISABLE_BG_SHELL_PRESSURE_REAP", CLAUDE_CODE_SESSIONEND_HOOKS_TIMEOUT_MS: "CODER_SESSIONEND_HOOKS_TIMEOUT_MS",
+  // (Grep's and Glob's, the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; none of them on Claude Code's
+  // list of names project settings can't set: coder-search.mjs's searchSettingsFrom.)
+  CLAUDE_CODE_GLOB_TIMEOUT_SECONDS: "CODER_GLOB_TIMEOUT_SECONDS", CLAUDE_CODE_GLOB_HIDDEN: "CODER_GLOB_HIDDEN", CLAUDE_CODE_GLOB_NO_IGNORE: "CODER_GLOB_NO_IGNORE" };
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -3975,6 +3979,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           return file;
         },
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },
+        // GREP'S AND GLOB'S SETTINGS (coder-search.mjs; Claude Code's CLAUDE_CODE_GLOB_TIMEOUT_SECONDS, CLAUDE_CODE_GLOB_HIDDEN and
+        // CLAUDE_CODE_GLOB_NO_IGNORE, under Coder's names), for their runs on this machine.
+        searchSettings: searchSettingsFrom(rawVars),
         // (The chat's id: a hook's session_id.)
         chatId: project,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
