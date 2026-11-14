@@ -369,16 +369,21 @@ test("F4H10 with no way to show a card, every tool that would ask runs its Permi
   assert.equal(t.told("f1"), "No fetching from here.");
   t = await loop(fetch, { hooks: PR("WebFetch"), hookRun: () => ({}) });
   assert.equal(t.told("f1"), "Coder requested permissions to use WebFetch, but you haven't granted it yet.");
-  // A connector tool its server asks about every time.
+  // A connector tool its server asks about every time: its hooks run, but since round 6's follow-up 2 their allow does not
+  // approve it (Claude Code 2.1.325: "a hook can't skip its approval prompt with "allow""): refused with its ask, as with none.
   const conn = [{ name: "mcp__bank__pay", label: "Bank: pay", description: "Pay", parameters: { type: "object", properties: {} }, readOnly: false, perm: "ask", server: "c1", connector: "Bank", always: true }];
   const mcpCalls = [];
   const mcp = async (name, args) => { mcpCalls.push(name); return { text: "paid", isError: false }; };
   const pay = [say("", [call("mcp__bank__pay", {}, "m1")]), say("ok")];
   t = await loop(pay, { hooks: PR("mcp__bank__pay"), mode: "auto", extra: { connectors: conn }, deps: { mcp }, hookRun: () => allowPR() });
-  assert.deepEqual(mcpCalls, ["mcp__bank__pay"]);
+  // (Claude Code's own ask for it since round 6, as its run with no one to answer returns it.)
+  assert.deepEqual([t.hookCalls.filter((h) => h.input.hook_event_name === "PermissionRequest").length, t.told("m1"), mcpCalls], [1, "Coder requested permissions to use mcp__bank__pay, but you haven't granted it yet.", []]);
   t = await loop(pay, { hooks: PR("mcp__bank__pay"), mode: "auto", extra: { connectors: conn }, deps: { mcp }, hookRun: () => ({}) });
-  assert.equal(t.told("m1"), "error: this connector tool needs the owner's approval each time, and nobody can be asked here");
-  assert.equal(mcpCalls.length, 1);
+  assert.equal(t.told("m1"), "Coder requested permissions to use mcp__bank__pay, but you haven't granted it yet.");
+  assert.equal(mcpCalls.length, 0);
+  // One set to Needs approval (asked in Auto too since follow-up 2): its hook's allow approves it, as for an ask rule.
+  t = await loop(pay, { hooks: PR("mcp__bank__pay"), mode: "auto", extra: { connectors: [{ ...conn[0], always: false }] }, deps: { mcp }, hookRun: () => allowPR() });
+  assert.deepEqual(mcpCalls, ["mcp__bank__pay"]);
   // A rule asking about another tool (TaskCreate).
   const task = [say("", [call("task_create", { subject: "Add tests", description: "Unit tests for the cart" }, "t1")]), say("ok")];
   t = await loop(task, { hooks: PR("TaskCreate"), extra: { rules: { allow: [], ask: ["TaskCreate"], deny: [] } }, hookRun: () => allowPR() });

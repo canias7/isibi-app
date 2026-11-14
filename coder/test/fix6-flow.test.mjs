@@ -460,6 +460,8 @@ test("RS1 refusals in a row under denyInsteadOfPrompting, as Claude Code 2.1.325
   // The checker's blocks count too (each counted, and blocked), Gloopy's runs keep their own count: the source.
   const src = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
   assert.equal(src.split("refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0))").length - 1, 4, "the four places a check blocks a call");
+  // (A block at auto mode's limit, which falls back to asking, counted too, before that fallback, as Claude Code counts it.)
+  assert.equal(src.split("refusedAtLimit(c, reply, v);").length - 1, 4);
   assert.match(src, /if \(offered\) \{ deniedRow\+\+; deniedLast = true; \}/);
 });
 

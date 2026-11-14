@@ -156,39 +156,50 @@ test("CD372 the checker's answer is read leniently, and no verdict blocks (Claud
   assert.equal(C.checkerState(key).row, 0, "no verdict is not a block");
 });
 
-test("CD373 after 3 blocks in a row (or 20 in all) auto mode pauses and the owner is asked; their Yes runs it and resumes auto mode (Claude Code: \"Approving the prompted action resumes auto mode\"); where no one can answer, it doesn't run", async () => {
+test("CD373 (round 6: Claude Code 2.1.325's own fallback) at 3 blocks in a row, or 20 in all, the block that reaches the limit is not refused: the owner is asked about that action, the card's line Claude Code's dialog's (\"Auto mode needs your confirmation for this command.\" with \"3 consecutive actions were blocked. Please review the transcript before continuing.\" and \"Latest blocked action: …\"), with its own ask's \"don't ask again\"; their Yes runs it and starts the row again (\"Approving the prompted action resumes auto mode\"); there is no pause of its own: every later action still goes to the checker; the 20 in all start both counts again; where no one can answer, Coder is told the action's own ask", async () => {
   const C = await import("../container/coder-checker.mjs");
   const key = "chat-pause";
   const blockAll = () => '{"decision":"block","rule":"Git Destructive","reason":"force push"}';
   const steps = [say("", [call("bash", { command: "git push -f origin main" }, "b1"), call("bash", { command: "git push --force origin main" }, "b2"), call("bash", { command: "git push origin +main" }, "b3"), call("bash", { command: "npm test" }, "b4")]), say("ok")];
   const j = await job(steps, { verdict: blockAll, key, answers: [{ choice: "yes" }] });
-  assert.equal(j.checks.length, 3, "three checks, then paused");
-  assert.equal(j.cards.length, 1, "the fourth is asked");
-  assert.equal(j.cards[0].why, "Auto mode paused after 3 blocks in a row, so this action needs your approval. Approving it resumes auto mode.");
-  assert.equal(j.cards[0].rules, undefined, "a one-time Yes");
-  assert.deepEqual(j.ran, ["npm test"]);
-  assert.deepEqual(C.checkerState(key), { row: 0, total: 3, paused: false, byRow: true, rmUnanswered: 0 }, "resumed (with the count of Auto's unanswered questions for a dangerous removal, fix 5)");
-  // Three in a row pause; an allowed one in between resets the row, not the total.
+  assert.equal(j.checks.length, 4, "every action goes to the checker, the fourth too");
+  assert.equal(j.cards.length, 1, "the third, at the limit, is asked about");
+  assert.equal(j.cards[0].id, "b3");
+  assert.equal(j.cards[0].why, "Auto mode needs your confirmation for this command.\n3 consecutive actions were blocked. Please review the transcript before continuing.\n\nLatest blocked action: [Git Destructive] force push");
+  assert.deepEqual(j.cards[0].rules, ["Bash(git push *)"], "its own ask's \"don't ask again\", as Claude Code's fallback keeps its suggestions");
+  assert.equal("told" in j.cards[0], false, "not on the page");
+  assert.deepEqual(j.ran, ["git push origin +main"], "the Yes runs it; the fourth, blocked, does not run");
+  assert.match(j.told("b1"), /^Permission for this action was denied by the Coder auto mode classifier\. Reason: \[Git Destructive\] force push\./);
+  assert.match(j.told("b4"), /^Permission for this action was denied by the Coder auto mode classifier\./);
+  assert.deepEqual(C.checkerState(key), { row: 1, total: 4, byRow: true, rmUnanswered: 0 }, "the Yes started the row again; the fourth's block counts");
+  // The counts: the block that reaches 3 in a row gives the limit; the row goes on past it (Claude Code's "4 consecutive …");
+  // an allowed action, or the owner's Yes, starts it again; the total goes on.
   const st = C.checkerState("chat-count");
-  assert.deepEqual([C.countBlock(st), C.countBlock(st), C.countBlock(st)], [false, false, true]);
+  assert.deepEqual([C.countBlock(st), C.countBlock(st), C.countBlock(st)], [null, null, { total: false, n: 3 }]);
   assert.equal(st.byRow, true);
+  assert.deepEqual(C.countBlock(st), { total: false, n: 4 });
+  assert.equal(C.limitReason({ total: false, n: 4 }), "4 consecutive actions were blocked. Please review the transcript before continuing.");
   C.resume(st);
-  assert.deepEqual([C.countBlock(st), (C.countAllowed(st), C.countBlock(st)), C.countBlock(st)], [false, false, false]);
-  assert.equal(st.total, 6);
-  // 20 in all pauses too, and the total starts again.
+  assert.deepEqual([C.countBlock(st), (C.countAllowed(st), C.countBlock(st)), C.countBlock(st)], [null, null, null]);
+  assert.equal(st.total, 7);
+  // 20 in all: its limit, its words, and both counts start again (Claude Code: "resets only when its own limit triggers a fallback").
   const s2 = C.checkerState("chat-twenty");
-  for (let i = 0; i < 19; i++) { C.countBlock(s2); C.countAllowed(s2); }
-  assert.equal(s2.paused, false);
-  assert.equal(C.countBlock(s2), true);
-  assert.equal(s2.total, 0);
-  assert.equal(C.pausedWhy(false), "Auto mode paused after 20 blocks, so this action needs your approval. Approving it resumes auto mode.");
-  // A job from GitHub, where no one can answer: paused means not run.
-  const g = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { key, github: true });
-  C.checkerState(key).paused = true;
-  const g2 = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { key, github: true });
-  assert.deepEqual(g2.ran, []);
-  assert.match(g2.told("b1"), /^Permission for this action was denied by the Coder auto mode classifier\. Reason: auto mode is paused after repeated blocks, and no one can approve actions in this job\./);
-  assert.deepEqual(g.ran, ["npm test"]);
+  for (let i = 0; i < 19; i++) { assert.equal(C.countBlock(s2), null); C.countAllowed(s2); }
+  assert.deepEqual(C.countBlock(s2), { total: true, n: 20 });
+  assert.deepEqual([s2.total, s2.row, s2.byRow], [0, 0, false]);
+  assert.equal(C.limitWhy({ total: true, n: 20 }, "[Data Exfiltration] sends the token", "tool"), "Auto mode needs your confirmation for this tool.\n20 actions were blocked this session. Please review the transcript before continuing.\n\nLatest blocked action: [Data Exfiltration] sends the token");
+  assert.equal(C.limitWhy({ total: false, n: 3 }, ""), "Auto mode needs your confirmation for this command.\n3 consecutive actions were blocked. Please review the transcript before continuing.\n\nLatest blocked action: No reason provided", "Claude Code's words for a block with no reason");
+  assert.equal(C.pausedWhy, undefined, "no pause of Coder's own");
+  // A job from GitHub, where no one can answer: at the limit, not run, and Coder is told the action's own ask (Claude Code's run
+  // with no one to answer returns it), not a block.
+  const gkey = "chat-pause-gh";
+  const g = await job([say("", [call("bash", { command: "git push -f origin main" }, "b1"), call("bash", { command: "git push --force origin main" }, "b2"), call("bash", { command: "npm test" }, "b3")]), say("ok")], { verdict: blockAll, key: gkey, github: true });
+  assert.deepEqual(g.ran, []);
+  assert.equal(g.told("b3"), "This command requires approval");
+  assert.equal(g.cards.length, 0);
+  // A pause kept by an older Coder is dropped: the next action goes to the checker.
+  const old = C.checkerState("chat-old", { load: () => ({ row: 0, total: 5, paused: true, byRow: true }), save: () => {} });
+  assert.deepEqual(old, { row: 0, total: 5, byRow: true, rmUnanswered: 0 });
 });
 
 test("CD374 Plan: a command Plan would ask about is judged instead (Claude Code: \"Approved commands run, and rejected ones are blocked\"); CODER_USE_AUTO_MODE_DURING_PLAN off asks as before", async () => {
@@ -252,6 +263,7 @@ test("CD377 a step auto mode's checker blocked shows why under it, as Claude Cod
   assert.match(css, /\.cd-autoblock-head \{ color: #b3261e; font-weight: 600; \}/, "in the red the page uses for a failed step");
   // All of the checker's blocks (bash, web_fetch, a WebSocket watch, CD385c, and web_search since 2026-11-14) send it in this shape.
   const agent = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  // (Marked as never run since Bash docs pass 9, part F: `ran: false`.)
-  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 4);
+  // (Marked as never run since Bash docs pass 9, part F: `ran: false`. And a block at auto mode's limit that is the 20th refusal
+  // in a row under denyInsteadOfPrompting, refusedAtLimit: round 6's flow follow-up.)
+  assert.equal(agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, ran: false, output: blockedShown\(v\.rule, v\.reason\) \}\)/g).length, 5);
 });

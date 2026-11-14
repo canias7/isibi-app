@@ -122,7 +122,11 @@ test("CD344 the machine wires it in: both checks get the link resolver, the perm
   // (Since Bash docs pass 9: an Edit allow rule matching the path and where it leads, never a Bash rule.)
   assert.match(agent, /commandAsk\(command, deps, where0, \{ real: \(p\) => realPath\(p\), allowed: \(full\) => !github && !!fileRuleHit\(rulesB\.allow, "Edit", full, "allow", \{ root: deps\.root \|\| "\/", cwd: where0 \|\| deps\.root \|\| "\/", home: deps\.home \|\| "", real: \(p\) => realPath\(p\) \}\), planFile: planPath\(\) \}\)/);
   assert.match(agent, /const rulesB = c\.monitor \? monitorRules\(ownRules, modeB\) : ownRules;/, "a monitor's command: Bash's rules and Monitor's (CD385)");
-  assert.match(agent, /bashDecision\(command, \{ mode: modeB, rules: rulesB, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.monitor \? c\.monitorArgs : c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: fileEdits !== false, scratch: \[SCRATCH\], planFile: planPath\(\), \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
+  // (Since round 6 the call is made by decideIn, in a mode with that mode's rules, so a mode switch while auto mode checked can
+  // ask Claude Code's own ask; the command's own decision is decideIn(modeB, …), with Bash's rules and Monitor's in modeB.)
+  assert.match(agent, /const decideIn = async \(m, byCmd\) => \{ const r = c\.monitor \? monitorRules\(ownRules, m\) : ownRules;/);
+  assert.match(agent, /bashDecision\(command, \{ mode: m, rules: r, cwd: where0 \|\| deps\.root \|\| "\/", workdirs, isProtected: isProt, real: \(p\) => realPath\(p\), input: c\.monitor \? c\.monitorArgs : c\.args, home: deps\.home \|\| "", ownDirs: Array\.isArray\(deps\.ownDirs\) \? deps\.ownDirs : \[\], byCommand: byCmd, scratch: \[SCRATCH\], planFile: planPath\(\), \.\.\.\(c\.monitor \? \{ settings: MONITOR_SETTINGS \} : \{\}\) \}\)/);
+  assert.match(agent, /let dec = github \? \{ verdict: "allow" \} : await decideIn\(modeB, fileEdits !== false\);/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /link = e\.kind === 'link' && paths\.length/);
   assert.match(page, /This command writes through a link that leads out of the project/);

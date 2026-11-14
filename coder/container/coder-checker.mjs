@@ -347,8 +347,17 @@ export function unavailableWhy(e) {
 export const checkUnavailable = (model, what, why = "") => (model || "The classifier") + " is temporarily unavailable" + (why ? " (" + why + ")" : "") + ", so auto mode cannot determine the safety of " + what + " right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. " + READ_ONLY_NOTE;
 /** What the chat shows under a blocked step (Claude Code: "Blocked by auto mode"). */
 export const blockedShown = (rule, reason) => "Blocked by auto mode · [" + rule + "]" + (reason ? " " + reason : "");
-/** The card when auto mode has paused after repeated blocks (approving it resumes auto mode). */
-export const pausedWhy = (row) => "Auto mode paused after " + (row ? AUTO_LIMITS.row + " blocks in a row" : AUTO_LIMITS.total + " blocks") + ", so this action needs your approval. Approving it resumes auto mode.";
+/**
+ * AT THE LIMIT OF BLOCKS, CLAUDE CODE 2.1.325'S OWN FALLBACK (round 6, the owner: "do what claude code does"; its denial limits,
+ * lH = { maxConsecutive: 3, maxTotal: 20 }, and its xVn): the block that brings them to 3 in a row, or to 20 in the chat, is not
+ * refused: the owner is asked about that very action, its card's line its dialog's for auto mode's ask, "Auto mode needs your
+ * confirmation for this command." with its reason, "3 consecutive actions were blocked. Please review the transcript before
+ * continuing." (the count of blocks in a row then: 4 after a No and another block) or "20 actions were blocked this session.
+ * …", and "Latest blocked action: <its reason>". There is no pause of its own: every action still goes to the checker, and a
+ * block past the limit asks again; an allowed one, or the owner's Yes on such a card, starts the row again. `lim`: countBlock's.
+ */
+export const limitReason = (lim) => (lim && lim.total ? lim.n + " actions were blocked this session. Please review the transcript before continuing." : (lim ? lim.n : AUTO_LIMITS.row) + " consecutive actions were blocked. Please review the transcript before continuing.");
+export const limitWhy = (lim, latest, what = "command") => "Auto mode needs your confirmation for this " + what + ".\n" + limitReason(lim) + "\n\nLatest blocked action: " + (String(latest || "").trim() || "No reason provided");
 
 // ── EACH CHAT'S COUNT OF BLOCKS ──────────────────────────────────────────────────────────────────────────────────────────
 // (Claude Code: "The total counter persists for the session and resets only when its own limit triggers a fallback".) Kept
@@ -356,31 +365,37 @@ export const pausedWhy = (row) => "Auto mode paused after " + (row ? AUTO_LIMITS
 const STATES = new Map();
 /** Where a chat's counts are kept (`{ load, save }`, from Coder's machine): Claude Code's total "persists for the session", and the session outlives the machine's sleep. */
 const KEEP = new WeakMap();
-const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, paused: st.paused, byRow: st.byRow, rmUnanswered: st.rmUnanswered || 0 }); } catch { /* counted in memory still */ } } };
+const keepState = (st) => { const k = KEEP.get(st); if (k && typeof k.save === "function") { try { k.save({ row: st.row, total: st.total, byRow: st.byRow, rmUnanswered: st.rmUnanswered || 0 }); } catch { /* counted in memory still */ } } };
 export function checkerState(key, keep = null) {
   const k = String(key || "");
   if (!STATES.has(k)) {
     let was = null;
     if (keep && typeof keep.load === "function") { try { was = keep.load(); } catch { was = null; } }
     const n = (x, most) => (Number.isInteger(x) && x >= 0 && x < most ? x : 0);
-    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, AUTO_LIMITS.row + 1), total: n(was.total, AUTO_LIMITS.total), paused: was.paused === true, byRow: was.byRow === true, rmUnanswered: n(was.rmUnanswered, 101) } : { row: 0, total: 0, paused: false, byRow: false, rmUnanswered: 0 });
+    // (A row past the limit is kept, as Claude Code counts on after its fallback; a pause kept by an older Coder is dropped:
+    // round 6, there is none.)
+    STATES.set(k, was && typeof was === "object" ? { row: n(was.row, 1000), total: n(was.total, AUTO_LIMITS.total), byRow: was.byRow === true, rmUnanswered: n(was.rmUnanswered, 101) } : { row: 0, total: 0, byRow: false, rmUnanswered: 0 });
   }
   const st = STATES.get(k);
   if (keep && !KEEP.has(st)) KEEP.set(st, keep);
   return st;
 }
-/** Counts a block; true when auto mode now pauses. */
+/**
+ * Counts a block: null, or, at the limit, which one (`{ total, n }`: the 20 in all, or the row, and its count), when Claude Code
+ * asks the owner about that action instead of refusing it. The 20 in all start both counts again from 0 (Claude Code's own
+ * reset: "resets only when its own limit triggers a fallback"); the row goes on until an allowed action or the owner's Yes.
+ */
 export function countBlock(st) {
   st.row += 1; st.total += 1;
+  let lim = null;
   if (st.row >= AUTO_LIMITS.row || st.total >= AUTO_LIMITS.total) {
-    st.byRow = st.row >= AUTO_LIMITS.row;
-    st.paused = true;
-    if (st.total >= AUTO_LIMITS.total) st.total = 0;
-    keepState(st);
-    return true;
+    const total = st.total >= AUTO_LIMITS.total;
+    lim = { total, n: total ? st.total : st.row };
+    st.byRow = !total;
+    if (total) { st.total = 0; st.row = 0; }
   }
   keepState(st);
-  return false;
+  return lim;
 }
 export function countAllowed(st) { if (st.row !== 0) { st.row = 0; keepState(st); } }
 /**
@@ -390,7 +405,8 @@ export function countAllowed(st) { if (st.row !== 0) { st.row = 0; keepState(st)
  */
 export function rmUnanswered(st) { st.rmUnanswered = (st.rmUnanswered || 0) + 1; keepState(st); return st.rmUnanswered; }
 export function rmAnswered(st) { if (st.rmUnanswered) { st.rmUnanswered = 0; keepState(st); } }
-export function resume(st) { st.paused = false; st.row = 0; keepState(st); }
+/** The owner's Yes on the card at the limit: the row starts again (Claude Code: "Approving the prompted action resumes auto mode"). */
+export function resume(st) { st.row = 0; keepState(st); }
 
 /**
  * ALLOW RULES AUTO MODE DROPS (Claude Code: "On entering auto mode, broad allow rules that grant arbitrary code execution
