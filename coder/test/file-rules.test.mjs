@@ -551,8 +551,8 @@ test("CD382p (round 5) read's, write's and edit's ask cards in Claude Code 2.1.3
 
 // ── ROUND 5 (2026-11-14, the owner: "Yes pls" to the last differences round 4's rules helper found) ──
 // Coder's loop with its tools run for real on a project (coder-tools.mjs, as Coder's machine runs it).
-// (Round 6: `hookRun(input)` answers a command hook with its stdout; `home`, the AI's home folder; `ask`, the owner's cards;
-// `toolReqs`, each request the tools script got.)
+// (Round 6: `hookRun(input)` answers a command hook with its stdout; `home`, the AI's home folder (the tools script's too, as
+// on Coder's machine); `ask`, the owner's cards; `toolReqs`, each request the tools script got.)
 async function realLoop(d, steps, { rules = {}, mode = "acceptEdits", hooks = null, here = d, hookRun = null, home = undefined, ask = null } = {}) {
   const { runCoder } = await import("../container/coder-agent.mjs");
   const H = await import("../container/coder-hooks.mjs");
@@ -568,7 +568,7 @@ async function realLoop(d, steps, { rules = {}, mode = "acceptEdits", hooks = nu
       if (!tm) { ran.push(String(x.command)); return { code: 0, output: "ok\n" }; }
       const req = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"));
       toolReqs.push(req);
-      const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: d, encoding: "utf8", env: { PATH: process.env.PATH, ...(here !== d ? { CODER_CWD: here } : {}) } });
+      const out = spawnSync(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: d, encoding: "utf8", env: { PATH: process.env.PATH, ...(here !== d ? { CODER_CWD: here } : {}), ...(home !== undefined ? { HOME: home } : {}) } });
       return { code: out.status, output: out.stdout };
     },
     emit: (e) => events.push(e), here: () => here, root: d, chatId: "r5", where: (p) => (p.startsWith("/") ? p : here + "/" + p),
@@ -817,7 +817,7 @@ test("R6R1 (round 6) read's, write's and edit's path reaches their hooks in full
   assert.equal((agentSrc.match(/hookToolInput\((?:x|c)\.name, (?:c\.)?args, pathAt\(\)\)/g) || []).length, 3, "PreToolUse: its if, its group's start, its turn");
   assert.match(agentSrc, /hookToolInput\(card\.hookTool \|\| card\.tool, callArgs, pathAt\(\)\)/);
   assert.match(agentSrc, /const callInput = \(c, at = pathAt\(\)\) =>/);
-  assert.match(agentSrc, /tool_input: callInput\(c, null\)/);
+  assert.match(agentSrc, /tool_input: sentInput\(c\)/);
   assert.match(agentSrc, /hookInputCheck\(c\.name, u, "PreToolUse", c\.args\)/);
   assert.match(agentSrc, /hookInputCheck\(name0, upd, "PermissionRequest", callArgs\)/);
 });
@@ -898,4 +898,92 @@ test("R6R2 (round 6) a PowerShell command that writes or reads the chat's own pl
   const rr = await psLoop((f) => ["Write-Output x > " + f], { parse: redirected });
   assert.equal(rr.cards.length, 1);
   assert.equal(rr.cards[0].why, "Command contains file redirections that could write to arbitrary paths");
+});
+
+test("R6R5 (round 6) read, write, edit and lsp take their path as Claude Code 2.1.325's Read, Write, Edit and LSP do (its St) before they use it, as grep and glob already did: trimmed, `~` and `~/` the home folder, a short one from the folder Coder's commands are in; the project-only rule stays, so a ~ path outside the project is refused as any outside path; the checks, the card and the step name the file the tool opens; the chat keeps what Grok wrote", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const { mkdtemp, mkdir, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  // The agent's view of a file tool's path: as the tool opens it.
+  const deps = { root: ROOT, home: HOME, where: (p) => (p.startsWith("/") ? p : ROOT + "/sub/" + p) };
+  assert.equal(A.toolFullPath(deps, " src/a.ts "), ROOT + "/sub/src/a.ts");
+  assert.equal(A.toolFullPath(deps, "~/notes.md"), HOME + "/notes.md");
+  assert.equal(A.toolFullPath(deps, "~"), HOME);
+  assert.equal(A.toolFullPath(deps, "  "), ROOT + "/sub/.");
+  assert.equal(A.toolFullPath(deps, "~user/x"), ROOT + "/sub/~user/x", "~user is no home folder");
+  assert.equal(A.toolFullPath({ ...deps, home: "" }, "~/x"), ROOT + "/sub/~/x", "no home known: as written");
+  assert.equal(A.toolProjectPath(deps, " src/a.ts"), "sub/src/a.ts");
+  assert.equal(A.toolProjectPath(deps, "~/notes.md"), HOME + "/notes.md", "outside the project: in full");
+  // The tools script on its own: read, write, edit and lsp's file check.
+  const d = await mkdtemp(join(tmpdir(), "coder-r6-tilde-"));
+  await mkdir(join(d, "sub", "src"), { recursive: true }); await mkdir(join(d, "home"), { recursive: true });
+  await writeFile(join(d, "sub", "src", "a.txt"), "one\n"); await writeFile(join(d, "home", "n.md"), "home note\n");
+  const TOOLS = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
+  const tool = (req, home) => { const o = spawnSync(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify(req)).toString("base64")], { cwd: d, encoding: "utf8", env: { PATH: process.env.PATH, CODER_CWD: join(d, "sub"), HOME: home } }); return { code: o.status, out: o.stdout.replace(/^\u0000coder-facts\u0000[^\n]*\n/, "").trimEnd() }; };
+  const inHome = join(d, "home"), outHome = await mkdtemp(join(tmpdir(), "coder-r6-home-"));
+  assert.match(tool({ tool: "read", args: { path: "  src/a.txt\t" } }, inHome).out, /\tone/);
+  assert.match(tool({ tool: "read", args: { path: "~/n.md" } }, inHome).out, /\thome note/, "~ is the home folder (here inside the project)");
+  assert.deepEqual(tool({ tool: "read", args: { path: "~/n.md" } }, outHome), { code: 1, out: "error: that path is outside the project" }, "outside the project: refused as any outside path");
+  assert.equal(tool({ tool: "write", args: { path: " ~/w.txt ", content: "w\n" } }, inHome).code, 0);
+  assert.equal(await readFile(join(d, "home", "w.txt"), "utf8"), "w\n");
+  assert.equal(tool({ tool: "edit", args: { path: "~/w.txt", old_string: "w", new_string: "W" } }, inHome).code, 0);
+  assert.equal(await readFile(join(d, "home", "w.txt"), "utf8"), "W\n");
+  assert.deepEqual(tool({ tool: "write", args: { path: "~/x.txt", content: "x" } }, outHome), { code: 1, out: "error: that path is outside the project" });
+  assert.deepEqual(tool({ tool: "lsp_file", args: { filePath: " src/a.txt " } }, inHome), { code: 0, out: "ok" }, "lsp's file check: the trimmed file");
+  assert.match(tool({ tool: "lsp_file", args: { filePath: "~/none.ts" } }, inHome).out, /^error: File does not exist: ~\/none\.ts$/, "its words name the path as Grok wrote it, as Claude Code's do");
+  // Coder's loop, its commands in sub, its home inside the project: Grok's spellings with spaces and ~.
+  const cards = [];
+  const t = await realLoop(d, [
+    sayR("", [callR("read", { path: " src/a.txt " }, "r1"), callR("read", { path: " .env" }, "r2")]),
+    sayR("", [callR("write", { path: "~/notes.md", content: "n\n" }, "w1")]),
+    sayR("", [callR("write", { path: " .bashrc", content: "b\n" }, "w2")]),
+    sayR("Done."),
+  ], { here: join(d, "sub"), home: inHome, rules: { deny: ["Read(.env)"] }, ask: async (pid) => { cards.push(pid); return { choice: "no" }; } });
+  assert.match(t.told("r1"), /\tone/);
+  // The owner's deny rule meets the file the tool would open (before, " .env" passed the check as another name).
+  assert.equal(t.told("r2"), "File is in a directory that is denied by your permission settings.");
+  assert.match(t.told("w1"), /^File created successfully at: .*\/home\/notes\.md/);
+  assert.equal(await readFile(join(d, "home", "notes.md"), "utf8"), "n\n");
+  // A protected file named with a space before it: still a protected file, asked on a card (No: not written).
+  const w2card = t.events.find((e) => e.type === "permission");
+  assert.equal(cards.length, 1);
+  assert.match(String(w2card.why), /sub\/\.bashrc/);
+  assert.match(t.told("w2"), /^The owner doesn't want to proceed/);
+  // The steps name the file the tool opened, as the project names it.
+  assert.deepEqual(t.events.filter((e) => e.type === "bash").map((e) => [e.id, e.command]), [["r1", "sub/src/a.txt"], ["r2", "sub/.env"], ["w1", "home/notes.md"], ["w2", "sub/.bashrc"]]);
+  // The chat keeps what Grok wrote, as Claude Code's transcript keeps its model's input.
+  const asked = t.r.messages.filter((m) => m.role === "assistant" && Array.isArray(m.tool_calls)).flatMap((m) => m.tool_calls.map((c) => JSON.parse(c.function.arguments).path));
+  assert.deepEqual(asked, [" src/a.txt ", " .env", "~/notes.md", " .bashrc"]);
+  // A ~ path outside the project: the step in full, the tool's refusal.
+  const o = await realLoop(d, [sayR("", [callR("read", { path: "~/n2.md" }, "h1")]), sayR("Done.")], { here: join(d, "sub"), home: outHome });
+  assert.equal(o.told("h1"), "error: that path is outside the project");
+  assert.deepEqual(o.events.filter((e) => e.type === "bash").map((e) => e.command), [join(outHome, "n2.md")]);
+});
+
+test("R6R6 (round 6) PostToolBatch gets each call's input as Grok sent it, as Claude Code 2.1.325 gives that event its model's own tool calls (the reply's tool_use blocks): not a PreToolUse hook's rewrite of it, nor Coder's fixes of an input", async () => {
+  const { mkdtemp, mkdir, writeFile, readFile } = await import("node:fs/promises");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const d = await mkdtemp(join(tmpdir(), "coder-r6-batch-"));
+  await mkdir(join(d, "src"), { recursive: true });
+  await writeFile(join(d, "src", "a.txt"), "TODO one\n");
+  const hooks = { PreToolUse: [{ matcher: "Write", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolBatch: [{ hooks: [{ type: "command", command: "batch.sh" }] }] };
+  const hookRun = (i) => (i.hook_event_name === "PreToolUse" ? JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: { ...i.tool_input, content: "REWRITTEN\n" } } }) : "");
+  const t = await realLoop(d, [
+    sayR("", [callR("grep", { pattern: "TODO", file_path: "src", "-i": "true" }, "g1"), callR("read", { path: "src/a.txt" }, "r1")]),
+    sayR("", [callR("write", { path: "src/b.txt", content: "mine\n" }, "w1")]),
+    sayR("Done."),
+  ], { hooks, hookRun });
+  const batches = t.hookCalls.filter((x) => x.hook_event_name === "PostToolBatch");
+  assert.equal(batches.length, 2);
+  // Grep's input as sent: `file_path` and the text "true", which Coder's check fixed (path, true) before the call ran.
+  assert.deepEqual(batches[0].tool_calls.map((x) => [x.tool_name, x.tool_input]), [["Grep", { pattern: "TODO", file_path: "src", "-i": "true" }], ["Read", { path: "src/a.txt", file_path: "src/a.txt" }]]);
+  assert.ok(t.toolReqs.some((q) => q.tool === "grep" && q.args.path === "src" && q.args["-i"] === true), "the search ran with the fixed input");
+  // The write ran with the hook's text; the batch shows Grok's.
+  assert.equal(await readFile(join(d, "src", "b.txt"), "utf8"), "REWRITTEN\n");
+  assert.deepEqual(batches[1].tool_calls.map((x) => x.tool_input), [{ path: "src/b.txt", content: "mine\n", file_path: "src/b.txt" }]);
+  // And its tool response is the call's answer, as before.
+  assert.match(String(batches[1].tool_calls[0].tool_response), /^File created successfully at: src\/b\.txt/);
+  assert.match(read("container/coder-agent.mjs"), /tool_input: sentInput\(c\), tool_use_id: c\.id/);
 });

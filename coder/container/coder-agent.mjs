@@ -139,6 +139,21 @@ export function projectPath(deps, p) {
   const full = deps.where(p);
   return full === deps.root ? "." : full.startsWith(deps.root + "/") ? full.slice(deps.root.length + 1) : full;
 }
+/**
+ * A FILE TOOL'S PATH IN FULL, AS THE TOOL OPENS IT (round 6, 2026-11-14; the owner: "do what claude code does"): Claude Code
+ * 2.1.325's Read, Write, Edit, Grep, Glob and LSP take their path trimmed, with `~` and `~/…` as the home folder and a short
+ * one from the folder the commands are in (its St), and so do Coder's (coder-tools.mjs toolPath, coder-search.mjs fullPath):
+ * the checks before a call, its card and its step name that same file. (`deps.home`: the AI's home; `deps.where`: from the
+ * folder Coder's commands are in.) toolProjectPath: the same, as the project names it.
+ */
+export function toolFullPath(deps, p) {
+  if (typeof p !== "string") return p;
+  const n = p.trim();
+  const home = deps && typeof deps.home === "string" && deps.home.startsWith("/") ? deps.home.replace(/\/+$/, "") || "/" : "";
+  const q = home && (n === "~" || n.startsWith("~/")) ? (n === "~" ? home : home.replace(/\/$/, "") + n.slice(1)) : n || ".";
+  return deps && typeof deps.where === "function" ? deps.where(q) : q;
+}
+export const toolProjectPath = (deps, p) => (typeof p === "string" && p ? projectPath(deps, toolFullPath(deps, p)) : p);
 /** The most a Write may hold in one call (it travels as one command argument). */
 export const WRITE_MAX = 1_000_000;
 /** Commands that need root, which the setup script's own lines (run as `dev`) never have (live test, 2026-11-06). Plain `apt-get install -y <packages>` lines are the exception: Coder's app does those as root (see splitSetup). */
@@ -2374,7 +2389,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (typeof a.path !== "string" && typeof a.file_path === "string") a.path = a.file_path;
     delete a.file_path;
     const given = typeof a.path === "string" && a.path ? a.path : ".";
-    const full = typeof deps.where === "function" ? deps.where(given) : given;
+    const full = toolFullPath(deps, given);
     if (c.name === "read" && !(typeof a.path === "string" && a.path)) return "error: read needs a path";
     a.path = full;
     const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: a, roots: workdirs.slice(1) });
@@ -3901,8 +3916,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const targetFor = (name, args) => {
       const pat = name === "glob" && typeof args.pattern === "string" && args.pattern.startsWith("/") ? splitPattern(args.pattern).baseDir : "";
       const named = name === "lsp" ? args.filePath : args.path;
-      const p = pat || (typeof named === "string" && named ? named : ".");
-      return typeof deps.where === "function" ? deps.where((p === "~" || p.startsWith("~/")) && deps.home ? deps.home + p.slice(1) : p) : p;
+      // (The path as the tool opens it, trimmed, ~ the home folder: toolFullPath. Round 6.)
+      if (!pat) return toolFullPath(deps, typeof named === "string" && named ? named : ".");
+      return typeof deps.where === "function" ? deps.where(pat) : pat;
     };
     // A READ, WRITE OR EDIT THAT ONE OF THE OWNER'S DENY RULES BLOCKS, REFUSED BEFORE ITS HOOKS (round 5; the owner, 2026-11-14:
     // "Yes pls"). Claude Code 2.1.325's Read, Write and Edit check the deny rules on the file's path in their validateInput,
@@ -3959,7 +3975,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const spec = RUN_TOOLS[x.name];
       if (!spec) return null;
       const p = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : undefined;
-      return { type: "bash", id: x.id, tool: x.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(p !== undefined ? { ...a, path: projectPath(deps, p) } : a) || ""))).slice(0, 300) };
+      return { type: "bash", id: x.id, tool: x.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(p !== undefined ? { ...a, path: toolProjectPath(deps, p) } : a) || ""))).slice(0, 300) };
     };
     // THE OWNER'S STOP SEEN IN A CALL'S TURN BEFORE IT RUNS (round 5): Gloopy's job stops there, as before; in Coder's own runs a
     // call started at its group's start whose result came before the Stop goes on to take it (null: the turn goes on), one
@@ -5785,7 +5801,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const emailTool = c.name === "write" ? "Write" : c.name === "edit" ? "Edit" : c.name === "web_fetch" ? "WebFetch" : "";
         const emailNo = !!emailMark && !!emailTool && await emailRefused(emailTool, args, emailMark);
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
-        const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? projectPath(deps, args.path) : "";
+        const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? toolProjectPath(deps, args.path) : "";
         // (But not the chat's own plan file, wherever plansDirectory puts it, `.claude/plans` too: Claude Code's "Plan files for
         // current session are allowed for writing", which it checks after the owner's deny and ask rules and before its
         // protected paths; permission-modes: ".claude, with a few exceptions, such as: … The current session's own plan files
@@ -5819,7 +5835,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // The chat names the file as the project does ("src/app.js"), however Grok gave it (a full path, or one from the
         // folder its commands are in).
         // (The lsp tool names its file `filePath`, as Claude Code's does.)
-        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(c.name === "lsp" ? (typeof args.filePath === "string" && args.filePath ? { ...args, filePath: projectPath(deps, args.filePath) } : args) : typeof args.path === "string" && args.path ? { ...args, path: projectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
+        emit({ type: "bash", id: c.id, tool: c.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(c.name === "lsp" ? (typeof args.filePath === "string" && args.filePath ? { ...args, filePath: toolProjectPath(deps, args.filePath) } : args) : typeof args.path === "string" && args.path ? { ...args, path: toolProjectPath(deps, args.path) } : args) || ""))).slice(0, 300) });
         // ASKED ON A CARD, AND THIS STEP WAITS (the permission modes, 2026-11-09): a protected file in any mode; any write or
         // edit in Plan mode (Claude Code: edits "stay blocked until you approve the plan", each one asked); a web page in
         // Accept edits and Plan, unless it is one of Claude Code's pre-approved documentation sites or a rule allows it
@@ -6011,8 +6027,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (c.name === "read" && code === 0) ({ text: raw, pics, thumbs } = readAnswer(raw));
         if ((c.name === "write" || c.name === "edit") && code === 0) { let diagnostics = ""; ({ text: raw, change, problems, problemsAll, diagnostics } = writeAnswer(raw)); if (diagnostics) roundNotes.push(diagnostics); }
         if (cwdSaid) raw = cwdSaid + raw;
-        if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
-        if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(projectPath(deps, args.path));
+        if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(toolProjectPath(deps, args.path));
+        if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(toolProjectPath(deps, args.path));
         // (The owner's Stop while it ran: as for a page fetch, above, once what it changed is noted.)
         if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
@@ -6025,7 +6041,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
-        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
+        if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: toolFullPath(deps, args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
         // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs; only when the call
         // worked, as Claude Code adds its note only to a result that is not an error.)
         // (What follows the tool's own text is kept apart, for a PostToolUse hook's rewrite of it: c.keepTail.)
@@ -6377,7 +6393,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // or says "continue": false ends the turn, its reason a warning that stays in the chat.
     if (hookList.some((h) => h.event === "PostToolBatch")) {
       const answerOf = (id) => { for (let k = convo.length - 1; k >= 0; k--) if (convo[k].role === "tool" && convo[k].tool_call_id === id) return String(convo[k].content || ""); return ""; };
-      const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: callTool(c), tool_input: callInput(c, null), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
+      // (Each call's input as Grok sent it, before Coder's fixes of an input and any hook's rewrite of it: Claude Code 2.1.325
+      // gives PostToolBatch its model's own tool calls, the reply's tool_use blocks as they came. Round 6.)
+      const sent = new Map((Array.isArray(msg && msg.tool_calls) ? msg.tool_calls : []).map((t, k) => {
+        const f = (t && t.function) || {};
+        let a = null;
+        try { a = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : f.arguments; } catch { a = null; }
+        return [t && typeof t.id === "string" && t.id ? t.id : "call_" + k, { name: String(f.name || ""), args: a }];
+      }));
+      const sentInput = (c) => { const x = sent.get(c.id); return x && x.args && typeof x.args === "object" && !Array.isArray(x.args) ? hookToolInput(x.name, x.args) : callInput(c, null); };
+      const b = await runHooks("PostToolBatch", "", { tool_calls: calls.map((c) => ({ tool_name: callTool(c), tool_input: sentInput(c), tool_use_id: c.id, tool_response: answerOf(c.id) })) });
       if (b && b.context.length) roundNotes.push(hookNote("PostToolBatch", b.context));
       if (b && (b.stop || b.decision === "block")) {
         const why = (b.stop && b.stop.reason) || b.blocks.join("\n") || b.reason || "A PostToolBatch hook stopped Coder.";
