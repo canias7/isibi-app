@@ -30,7 +30,7 @@ On my branch, not deployed yet. Fix 4 of 6.
 - **If you change your permission rules while a card waits,** a Yes runs the step under your new rules, so a new "never allow" rule still blocks it.
 - **Gloopy and GitHub jobs work as before.**
 - **Tests:** 11 new (the machine, the server and the page, including answering at the same moment the job pauses). The helper also ran the real page, server and machine with a stand-in for Grok in a browser. Not tried with real Grok yet: that's for the live test after you say deploy.
-- **For you to decide:** the pause comes after 5 minutes (Claude Code says "after a few minutes without activity"). Declining an environment card tells Coder "Denied by owner".
+- **Your decisions:** the pause stays at 5 minutes (your words: "5 is fine"; Claude Code says "after a few minutes without activity"), and declining an environment card tells Coder "Denied by owner", the same as the key card (your words: "yes do that").
 
 ## 2026-11-14: Hooks and search, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
