@@ -5,7 +5,7 @@
 // "Summarize from here" and "Summarize up to here", where "the original messages stay in the session
 // transcript". Here: the part to compress becomes one message, written by Coder's own model from a
 // plain-text copy of that part; the chat on the page still shows everything.
-import { toolsLoadedIn, toolSearchOnIn, toolDefsIn, toolsDeclaredIn } from "./coder-toolsearch.mjs";
+import { toolsLoadedIn, toolSearchOnIn, toolDefsIn, toolsDeclaredIn, toolLocksIn } from "./coder-toolsearch.mjs";
 
 /** How a summary message starts (so it is found, and never summarized as the owner's words). */
 export const SUMMARY_TAG = "(Coder's app: a summary of an earlier part of this conversation";
@@ -52,13 +52,15 @@ export function summaryRequest(messages, focus = "") {
  * carries (`toolsLoaded`, and `toolSearchOn` when tool search was on there): Claude Code's compact boundary keeps them
  * (its preCompactDiscoveredTools), so a tool loaded with tool_search stays loaded after a summary (coder-toolsearch.mjs);
  * and their definitions as loaded (`toolDefs`), which keep one whose source goes away in the request's tools; and the upfront
- * tools its requests carried (`toolsDeclared`, round 5), which keep one that leaves in them too.
+ * tools its requests carried (`toolsDeclared`, round 5), which keep one that leaves in them too; and each tool's definition as
+ * the chat first sent it (`toolLocks`, the cache fix of 2026-11-14), so the request's tools stay the same bytes after it.
  */
 export function summaryMessage(text, what, files = [], part = null) {
   const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
   const defs = Array.isArray(part) ? toolDefsIn(part) : [];
   const declared = Array.isArray(part) ? toolsDeclaredIn(part) : null;
-  const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
+  const locks = Array.isArray(part) ? toolLocksIn(part) : [];
+  const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(locks.length ? { toolLocks: locks } : {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
   return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
 }
 

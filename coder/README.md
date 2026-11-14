@@ -901,6 +901,16 @@ a "high" an account saved before then counts as not chosen (`savedEffort`, and
 used (`coderSend`: cached and reasoning tokens, the effort sent and the one xAI
 says it used), and the chat's record keeps the last message's sum as `usage`
 (`usageSummary`, the auto mode checker's calls apart). Tests CD378 and CD379.
+Each request of a chat starts with the one before it, byte for byte: the system
+message, the tools, then the earlier messages. Every tool keeps the definition
+the chat first sent it with (`toolLocks` in the chat's record, carried by a
+summary; Claude Code's tool schema cache), whatever a setting makes of it later
+(Settings' background limit, the command time limits and output limits, the
+network gate, web_fetch's cache time, a connector's description); a connector
+tool whose inputs changed, or a new version of Coder's tool code, sends the
+tool as it is now (`lockTools`). With Grok, any change in the tools (a
+tool_search load too) costs the whole prompt once. Tests:
+`test/cache-prefix.test.mjs`.
 
 **Settings** (owner, 2026-11-10: "the setting put it in setings"). Settings, in
 the account menu, keeps three choices on the account (`prefsOf`, `prefsChange` in

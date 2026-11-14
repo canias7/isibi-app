@@ -38,7 +38,7 @@ import { inputCheckFor } from "./coder-inputs.mjs";
 import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
-import { WEB_SEARCH_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
+import { WEB_SEARCH_TOOL, WEB_SEARCH_MODE_TOOL, WEB_SEARCH_NAME, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews } from "./coder-askuser.mjs";
@@ -46,7 +46,7 @@ import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
-import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
+import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice, toolDisplayName } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
@@ -1799,6 +1799,21 @@ async function exitFromLog(deps, log) {
   } catch { return null; }
 }
 
+/**
+ * CODER'S OWN TOOLS AS ITS CODE DEFINES THEM, NO SETTING CHANGING THEM (the cache fix of 2026-11-14; coder-toolsearch.mjs
+ * lockTools): what a name in the chat's record of the tools sent (`toolLocks`) stands for, byte for byte. web_search as Coder's
+ * chats send it (searchModeTools), and the tools only tool search or a setting brings in.
+ */
+export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_SEARCH_TOOL, TODO_WRITE_TOOL, EXIT_PLAN_TOOL].map((t) => [t.function.name, t]));
+/**
+ * THE VERSION OF CODER'S TOOL CODE (Claude Code's tool schema cache lasts for its session, and an update starts a new one): a
+ * hash of the stock definitions and of the code that makes the others from them (the settings' changes to bash, the
+ * allowed_domains input and PowerShell's tool, made in runCoder; web_fetch's and PowerShell's descriptions; exit_plan_mode
+ * without a plan file). A definition one of Coder's own tools was locked with is sent again only while this is the same, so
+ * a deploy that changes a tool sends it as it is now (and one that changes nothing in it makes the same bytes again).
+ */
+export const TOOLS_V = createHash("sha256").update(JSON.stringify([...STOCK_TOOLS.values(), EXIT_PLAN_TOOL_NO_FILE, HOSTS_DESC, NO_BG_TIMEOUT]) + toolsFor.toString() + webFetchTools.toString() + webFetchDescription.toString() + psDescription.toString() + runCoder.toString()).digest("hex").slice(0, 16);
+
 /** Gloopy's lines as it works (2026-11-12): one in the chat at most this often; the others in the status line only. */
 export const SAY_EVERY_MS = 20_000;
 
@@ -3119,6 +3134,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let tsKeptOnly = new Set();
   // (The upfront tools this request carries, for the chat's record when they differ from it: round 5, upfrontTools.)
   let tsUpfrontNew = null;
+  // (The locks this request's tools add to the chat's record, for its answer: the cache fix, lockTools.)
+  let tsLocksNew = null;
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
@@ -3518,6 +3535,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const INSTALL_RE = /(?:^|[;&|(]\s*|\s)((?:npm (?:ci|install|i)|pnpm (?:install|i)|yarn(?: install)?|pip3? install -r [^\s;&|]+|pip3? install -e \.|poetry install|bundle install|go mod download|cargo fetch)(?=$|[\s;&|)]))/g;
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
+  /** A message as a job's size counts it: no pictures, and not the record of its request's tools (`toolLocks`, never sent). */
+  const unsent = (m) => { const x = noPics(m); if (!x || !x.toolLocks) return x; const { toolLocks: _l, ...rest } = x; return rest; };
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
   const saved = (m) => forSaving(noPics(m));
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
@@ -3703,7 +3722,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
     const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
     // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
-    const textNow = convo.map(noPics);
+    // (Nor the chat's record of the tools its requests carried, `toolLocks`, which Grok is never sent: the cache fix.)
+    const textNow = convo.map(unsent);
     const sizeNow = JSON.stringify(textNow).length;
     if (room && compactions < COMPACT_JOB_MAX && sizeNow > room && sizeNow >= summarizeAgainAt) {
       const stays = JSON.stringify(textNow.slice(0, jobStart + 1)).length;
@@ -3746,7 +3766,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           }
           // A SUMMARY THAT CANNOT BRING THE JOB BACK UNDER ITS ROOM (the chat before it is near the room) is not made again
           // until the job has grown by a tenth of the room (Claude Code too stops when "context refills immediately").
-          const after = JSON.stringify(convo.map(noPics)).length;
+          const after = JSON.stringify(convo.map(unsent)).length;
           summarizeAgainAt = after > room * 0.9 ? after + Math.floor(room * 0.1) : 0;
           // POSTCOMPACT HOOKS, and SESSIONSTART HOOKS as "compact" (Claude Code's matcher values), their context with the summary.
           if (hookList.length) {
@@ -3880,11 +3900,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // GitHub, which has no connectors.)
     // (And an upfront tool that left stays where it was, with the definition it was sent with: the chat's record of the upfront
     // tools its requests carried, written again on this request's answer when they changed. Round 5.)
-    tsUpfrontNew = null;
-    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(upfrontTools(pool, tsDeferred(pool), was, tsCatalog), tsCatalog); if (!sameTools(up, was)) tsUpfrontNew = up; } }
+    tsUpfrontNew = null; tsLocksNew = null;
+    // EVERY TOOL AS THE CHAT FIRST SENT IT (the cache fix of 2026-11-14; Claude Code's tool schema cache, coder-toolsearch.mjs
+    // lockTools): the tools this request carries, each with the definition its lock in the chat's record
+    // holds, whatever this job's settings now make of it, so a setting changed between two messages, the machine started
+    // again, a No, a Stop, the owner's `!` command or a summary leave the request's tools the same bytes. Those with no lock
+    // are locked on this request's answer. Coder's own chats only: not Gloopy's, nor a job from GitHub, which keeps its own.
+    const locking = !offered && !github, recNow = locking ? toolSearchRecord(convo) : null;
+    const locked = (list) => (locking ? lockTools(list, recNow.locks, { stock: STOCK_TOOLS, version: TOOLS_V }) : { tools: list, locks: null });
+    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(locked(upfrontTools(pool, tsDeferred(pool), was, tsCatalog)).tools, tsCatalog); if (!sameTools(up, was)) tsUpfrontNew = up; } }
+    const sending = locked(offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools);
+    tsLocksNew = sending.locks;
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
     // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions.)
-    try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools, tool_choice: "auto" }); }
+    try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -3896,7 +3925,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     answeredAt = now();
     // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
     // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
-    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push(interruptedNote(false)); emit({ type: "stopped" }); return end("stopped"); }
+    // (The chat's record of what that request carried goes on the mark, as its answer is not kept: the cache fix.)
+    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push({ ...interruptedNote(false), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew } : {}) }); emit({ type: "stopped" }); return end("stopped"); }
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -3909,7 +3939,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     calls0 = calls;
-    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}) });
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
