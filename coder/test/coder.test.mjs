@@ -788,13 +788,14 @@ test("CD27 the history is capped from the oldest, at a user's message; the time 
     exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
   assert.equal(r2.status, "time");
   assert.deepEqual(ran, ["echo a", "echo b"]);
-  // (A run asked for once the time is up never starts.)
+  // (A run asked for once the time is up never starts. 2026-11-14: commands that only read, asked together, start together,
+  // as Claude Code's groups run them (coder-parallel.mjs), so the first here is one that changes something: it runs alone.)
   t = 0; ran.length = 0;
   let round = 0;
-  const r3 = await runCoder({ now: () => t, send: async () => { round++; if (round === 1) return { message: { content: "", tool_calls: [{ id: "0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo z", run_in_background: true }) } }, { id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }; return { message: { content: "Done." } }; },
+  const r3 = await runCoder({ now: () => t, send: async () => { round++; if (round === 1) return { message: { content: "", tool_calls: [{ id: "0", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "touch z", run_in_background: true }) } }, { id: "1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo a" }) } }, { id: "2", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "echo b" }) } }] } }; return { message: { content: "Done." } }; },
     exec: async ({ command }) => { ran.push(command); t += 1000; return { code: 0, output: "" }; } }, { text: "go", maxMs: 500 });
   assert.equal(r3.status, "time");
-  assert.deepEqual(ran, ["echo z"]);
+  assert.deepEqual(ran, ["touch z"]);
 });
 
 test("CD28 the page uses no browser popups (confirm, alert, prompt): Coder draws its own", () => {
