@@ -848,10 +848,11 @@ function searchParamSpec(tool, spec) {
 }
 /**
  * WEBSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code's "Match by input parameter", which "works for any scalar
- * parameter the tool accepts": its query; its two lists are no scalars and never match), and such a rule's content read as
- * one, or null. (No `*` or `?`: Claude Code's rule check refuses them, "WebSearch does not support wildcards".)
+ * parameter the tool accepts": its query, and its mode in Coder's chats since they have it, coder-websearch.mjs; its two lists
+ * are no scalars and never match), and such a rule's content read as one, or null. (No `*` or `?`: Claude Code's rule check
+ * refuses them, "WebSearch does not support wildcards".)
  */
-export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains"]);
+export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains", "mode"]);
 function webSearchParamSpec(spec) {
   const t = String(spec), k = t.indexOf(":");
   if (k <= 0 || /[*?]/.test(t)) return null;
