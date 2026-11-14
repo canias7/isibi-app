@@ -40,7 +40,7 @@ import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMax
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
 import { webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
-import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
+import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS } from "./coder-envtools.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1524,8 +1524,8 @@ HOW YOU TALK (owner, 2026-11-05)
 - A style request lasts for the rest of the chat. If they say "always" or "from now on", also save it in your memory file for this repo as ONE line starting with "Style: " (e.g. "Style: keep answers short"), replacing any older Style: line, so new chats follow it too. To drop it, delete that line.
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
-- API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key (only after they decline it, tell them it can be added in the environment's settings, as request_secret's description says). Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
-- THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with update_environment, create_environment or switch_environment, like Claude Code's, which the owner approves on a card; get_environment looks it up, and its description says when to propose a change and where it belongs. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) when a request was "Blocked by this repo's network list" (the environment's list) (curl shows it as "CONNECT tunnel failed, response 403"), propose adding that exact host (update_environment, add_allowed_hosts). Apart from (b), never tell the owner to edit settings themselves instead.
+- API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, ask with request_secret for that exact host (e.g. api.stripe.com, prefix Bearer) as soon as you know the work needs it, as its description says: first make the move get_environment's description calls for. Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key (only after they decline it, tell them it can be added in the environment's settings, as request_secret's description says). Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
+- THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with update_environment, create_environment or switch_environment, like Claude Code's, which the owner approves on a card; get_environment looks it up, and its description says when to propose a change and where it belongs. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) a request the task needs that was "Blocked by this repo's network list" (the environment's list; curl shows it as "CONNECT tunnel failed, response 403") is a need as get_environment's description defines it: call get_environment, then propose the change where its description puts it. Apart from (b), never tell the owner to edit settings themselves instead.
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user: 1 to 4 questions in one card, each with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
@@ -3181,7 +3181,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
           // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call. A tool with no
-          // step of its own, as the environment tools, shows its name once, with nothing after it.)
+          // step of its own shows its name once, with nothing after it.)
           if (!v.quiet) {
             emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: what ? scrub(String(what.label(c.args))).slice(0, 300) : "" });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
@@ -3800,8 +3800,31 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // card, and the turn ends (Claude Code: "Calling this tool IS the request for permission"; all of Coder's cards end the
         // turn, the owner's answer being the next message).
         if (github) { reply("error: the environment cannot be looked up or changed in a job started from GitHub; mention it in your answer instead"); continue; }
-        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached" + (c.name === "get_environment" ? "" : "; nothing was proposed")); continue; }
+        const looks = c.name === "get_environment" || c.name === "list_environments";
+        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached" + (looks ? "" : "; nothing was proposed")); continue; }
+        // ITS INPUT, CHECKED NOW, AFTER THE PRETOOLUSE HOOKS (2026-11-14, the owner: "Fix base on Claude Code docs, please"):
+        // Claude Code's environment tools are its MCP server's, whose input Claude Code takes as any object and its server
+        // checks when called (coder-envtools.mjs), as request_secret's. A refusal is a failed call, shown as the tool's name.
+        {
+          const v = ENV_INPUT_CHECKS[c.name](c.args && typeof c.args === "object" && !Array.isArray(c.args) ? c.args : {});
+          if (v.error) {
+            emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" });
+            emit({ type: "result", id: c.id, code: 1, output: scrub(v.error).slice(0, 2000) });
+            reply(v.error);
+            continue;
+          }
+          c.args = v.args;
+        }
         const ask = async (body) => { try { return (await deps.envApi(body)) || {}; } catch { return { error: "error: Coder's server could not be reached" }; } };
+        // CLAUDE CODE'S list_environments (read-only, at once): the owner's environments, their ids, names, kinds and states.
+        if (c.name === "list_environments") {
+          emit({ type: "bash", id: c.id, tool: "environment", verb: "Listed", command: "environments" });
+          const r = await ask({ action: "list", ...(c.args.limit !== undefined ? { limit: c.args.limit } : {}) });
+          const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
+          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000) });
+          reply(text);
+          continue;
+        }
         if (c.name === "get_environment") {
           const id = typeof c.args.environment_id === "string" && c.args.environment_id.trim() ? c.args.environment_id.trim() : "";
           emit({ type: "bash", id: c.id, tool: "environment", verb: "Looked up", command: id ? "environment " + scrub(id).slice(0, 60) : "this chat's environment" });
@@ -5086,7 +5109,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);

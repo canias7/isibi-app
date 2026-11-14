@@ -1303,6 +1303,8 @@
       title = 'Change the environment ' + esc(envQuote(e.name)) + '?';
       body += sec('Applies to', line(esc(e.appliesTo || '')));
       if (c.rename) body += sec('Name', plus(esc(c.rename)));
+      // (A new description, Claude Code's new_description; "" clears it.)
+      if (typeof c.description === 'string') body += sec('Description', c.description ? plus(esc(c.description)) : line('Cleared'));
       if (c.network) body += sec('Network access', (c.level ? line(esc(c.network.from) + ' → ' + esc(c.network.to)) : '') + (c.add || []).map((h) => plus(esc(h))).join('') + (c.remove || []).map((h) => minus(esc(h))).join('') + (!c.level && c.packageManagers !== null && c.packageManagers !== undefined ? (c.packageManagers ? plus('package managers') : minus('package managers')) : ''));
       body += sec('Environment variables', vars(c.set) + (c.unset || []).map((k) => minus('<code>' + esc(k) + '</code>')).join(''));
       if (c.script) body += sec(c.script.change === 'removes the setup script' ? 'Setup script (removed)' : c.script.change === 'adds a setup script' ? 'Setup script (added)' : 'Setup script (replaced)', c.script.change === 'removes the setup script' ? box((e.args && e.args.setup_script) || '') : box(c.script.text));
@@ -1359,11 +1361,13 @@
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
       body = head('Environment: ' + (e.name || 'Default')) +
+        // (Its description, as Claude Code's environments have one: Coder writes it when it proposes an environment.)
+        (e.description ? '<p class="cd-em-help cd-em-top">' + esc(e.description) + '</p>' : '') +
         '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
         '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
         (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');
     } else if (page === 'name') {
-      body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="40" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
+      body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
     } else if (page === 'network') {
       body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
@@ -1402,7 +1406,7 @@
     } else if (page === 'script') {
       body = head('Setup script', 'main') + '<div class="cd-em-code"><div class="cd-em-codebar"><span class="cd-em-tag">Bash</span><label class="cd-em-file">⬆ Choose file<input type="file" id="envFile" hidden></label><button type="button" id="envCopy" aria-label="Copy">⧉</button></div>' +
         '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
-        '<p class="cd-em-help">Runs on Coder\'s machine before Coder starts, once per machine and again when you change it. It can\'t read your variables or secrets.</p>' +
+        '<p class="cd-em-help">Runs when a new chat starts, before Coder starts. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat. It can\'t read your variables or secrets.</p>' +
         '<p class="cd-em-help">System packages: put each install on its own line, like <code>apt-get install -y jq</code>. Coder installs those as admin; every other line runs as Coder\'s own user, so other sudo commands don\'t work. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
     } else if (page === 'vars') {
       body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +

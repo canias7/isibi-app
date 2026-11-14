@@ -127,7 +127,7 @@ import { credentialHost, credentialHeader, credentialPrefix, hostMatches } from 
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
-import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
+import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
@@ -1075,11 +1075,14 @@ export async function handleCoder(request, env, ctx, deps) {
     if (parts.length === 1) {
       if (list.filter((e) => !e.archived).length >= MAX_ENVS) return json({ error: "at most " + MAX_ENVS + " environments" }, 409);
       const name = String(body.name || "").trim();
-      if (!ENV_NAME.test(name)) return json({ error: "give it a name (up to 40 characters)" }, 400);
+      if (!ENV_NAME.test(name)) return json({ error: "give it a name (up to 64 characters)" }, 400);
+      // (A name another listed environment has is refused, not numbered: Claude Code 2.1.311, coder-environments.mjs.)
+      const holder = nameHolder(list, name);
+      if (holder) return json({ error: nameTakenText(holder) }, 409);
       const script = typeof body.script === "string" ? body.script.replace(/\r/g, "") : "";
       if (script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413);
       const id = envIdFor(name, list);
-      const e = { id, name: uniqueName(name, list), at: Date.now(), repos: (Array.isArray(body.repos) ? body.repos : []).map(String).filter((r) => REPO.test(r)).slice(0, 20) };
+      const e = { id, name, at: Date.now(), repos: (Array.isArray(body.repos) ? body.repos : []).map(String).filter((r) => REPO.test(r)).slice(0, 20) };
       if (e.repos.length) e.used = Date.now(); // made for these repos: their next chat starts with it
       await writeEnvData(env, bucket, uid, id, { script, vars: {}, secrets: [], network: normNetwork(body.network && typeof body.network === "object" ? body.network : null) });
       list.push(e);
@@ -1091,8 +1094,10 @@ export async function handleCoder(request, env, ctx, deps) {
     if (target.id === DEFAULT_ENV && (body.name !== undefined || body.archive !== undefined)) return json({ error: "the Default environment keeps its name and is never archived" }, 400);
     if (body.name !== undefined) {
       const n = String(body.name).trim();
-      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
-      target.name = uniqueName(n, list.filter((e) => e !== target));
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 64 characters)" }, 400);
+      const holder = nameHolder(list, n, target);
+      if (holder) return json({ error: nameTakenText(holder) }, 409);
+      target.name = n;
     }
     if (body.archive === true) target.archived = true;
     if (body.archive === false) delete target.archived;
@@ -2000,7 +2005,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const list = await listEnvs(bucket, uid);
     const id = await theEnvId();
     const me = list.find((x) => x.id === id) || { id, name: "Default" };
-    return { ok: true, repo: meta.repo, envId: id, name: me.name, isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, description: typeof me.description === "string" ? me.description : "", isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
   };
   const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
   // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within
@@ -2038,8 +2043,10 @@ export async function handleCoder(request, env, ctx, deps) {
       const id = await theEnvId(), list = await listEnvs(bucket, uid), me = list.find((x) => x.id === id);
       const n = String(body.name).trim();
       if (id === DEFAULT_ENV) return json({ error: "the Default environment keeps its name" }, 400);
-      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 40 characters)" }, 400);
-      if (me) { me.name = uniqueName(n, list.filter((x) => x !== me)); await saveEnvList(bucket, uid, list); }
+      if (!ENV_NAME.test(n)) return json({ error: "give it a name (up to 64 characters)" }, 400);
+      const holder = nameHolder(list, n, me);
+      if (holder) return json({ error: nameTakenText(holder) }, 409);
+      if (me) { me.name = n; await saveEnvList(bucket, uid, list); }
     }
     if (typeof body.script === "string") { if (body.script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
     if (typeof body.varsText === "string") {
@@ -2129,6 +2136,14 @@ export async function handleCoder(request, env, ctx, deps) {
       // longer replaces it. Gloopy's card does, as before: Gloopy has no screen to remove one.
       const had = isGloopy(meta) ? null : cur.secrets.find((s) => s.hosts.includes(String(hosts[0]).toLowerCase()));
       if (had) return json({ error: "This environment already has a secret for " + hosts[0] + (had.name ? " (" + had.name + ")" : "") + ". To change it, delete it in Environment → Network secrets, then save this one again." }, 409);
+    }
+    // THE ADD SECRET FORM: ONE SECRET PER HOST (Claude Code 2.1.317: "Fixed adding a network secret for a host that already has
+    // one silently replacing it; the Add secret form now refuses and points you to the existing secret"; its docs: "To change a
+    // secret's hosts or value, delete it and add it again"): a host already on another secret is refused, naming that secret.
+    if (form) {
+      const lower = hosts.map((h) => h.toLowerCase());
+      const had = cur.secrets.find((s) => s.hosts.some((h) => lower.includes(String(h).toLowerCase())));
+      if (had) { const h = had.hosts.find((x) => lower.includes(String(x).toLowerCase())); return json({ error: "This environment already has a secret for " + h + ": “" + (had.name || had.hosts.join(", ")) + "” in Network secrets. To change it, delete it there, then add the new one.", existing: had.id }, 409); }
     }
     if (kind === "headers" && !headers.length) return json({ error: "add a header with the key" }, 400);
     for (const h of headers) {

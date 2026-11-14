@@ -223,7 +223,8 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     assert.equal(existsSync(join(m.data, m.S.COPY_NOTE)), true);
     assert.equal(existsSync(join(m.data, m.S.USED_NOTE)), true);
     assert.deepEqual(await m.post("/go", { project: "shop-aaa1" }), { ok: true, went: false }, "a second go changes nothing");
-    // A DISK A JOB HAS WORKED ON: never saved as the copy (the setup changed and ran again here); its own note stays.
+    // A DISK A JOB HAS WORKED ON: never saved as the copy (the setup changed; since 2026-11-14 it does not run again on this
+    // machine, as Claude Code's: test/env-tools.test.mjs EN14); its own note stays.
     assert.deepEqual(await m.turn("shop-aaa1", { setup: { script: script + " again" }, cache: { make: true } }), { ok: true });
     await m.done("shop-aaa1");
     assert.equal(JSON.parse(await readFile(join(m.data, m.S.COPY_NOTE), "utf8")).from, "shop-aaa1");
@@ -289,7 +290,7 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     assert.equal(await readFile(join(b.dirs.home, ".cache", "pip.txt"), "utf8"), "installed by the setup\n", "what the setup installed stays");
     assert.equal(existsSync(join(b.data, ".coder-admin", "v1", "upper")), true, "the admin sandbox's layer stays");
     assert.equal(existsSync(join(b.data, b.S.COPY_NOTE)), false);
-    // Its seven days count from the copy: the next message does not run the setup either.
+    // The next message does not run the setup either (it runs once on a chat's machine, as Claude Code's).
     await b.turn("shop-eee1", { setup: { script }, cache: { make: true } });
     assert.ok(!(await b.done("shop-eee1")).events.some((e) => e.tool === "setup"));
   } finally { await b.close(); }
