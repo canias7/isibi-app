@@ -57,6 +57,9 @@ anything missed (that list is waiting for your answer, below).
 - **Connectors can ask you things**, as in Claude Code: a card names the connector; fill in its fields and Submit, or
   Open link, finish there, then "I'm done, continue"; Decline refuses. What you type isn't kept in the chat. Your hooks
   can answer or block these questions.
+- **Copied texts:** a checker compared about 500 texts we copied from Claude Code with its program and found 22 that
+  had lost blank lines or sentences, or had older wording. All are fixed now (the safety refusals for risky deletes,
+  auto mode's messages, the PowerShell instructions, the note about changed files, and others).
 - **Costs to know:** a quick search is about half a cent, a full one up to about 4 cents (xAI's prices), plus Grok's
   tokens. A long chat can now make more searches in total (200 every message). The search note adds about 110 tokens
   per message. A connector question card keeps the chat's machine awake while it waits (up to the call's 30 minutes).
