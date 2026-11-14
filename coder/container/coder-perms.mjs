@@ -1837,7 +1837,8 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   }
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
+  // (An lsp lookup reads its file: "reading", as for read. 2026-11-14.)
+  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" || tool === "lsp" ? "reading " : "searching ") + p + "." };
   return { verdict: "", rule: "", why: "" };
 }
 /**

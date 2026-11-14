@@ -277,11 +277,12 @@ export function watchedNames(all) {
 
 /**
  * A tool call's input as a hook sees it: Coder's own, and Claude Code's names beside them (`file_path`; for the question
- * card, AskUserQuestion's `questions` list, each question with `multiSelect`).
+ * card, AskUserQuestion's `questions` list, each question with `multiSelect`). (The lsp tool's input is Claude Code's own
+ * since 2026-11-14, `operation`, `filePath`, `line`, `character`, `query`: given as it is, with no `file_path`.)
  */
 export function hookToolInput(name, args) {
   const a = args && typeof args === "object" ? { ...args } : {};
-  if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
+  if ((name === "read" || name === "write" || name === "edit") && typeof a.path === "string" && a.file_path === undefined) a.file_path = a.path;
   if (name === "ask_user") {
     // (The single question of before, as Claude Code's list of one.)
     if (!(Array.isArray(a.questions) && a.questions.length) && a.question !== undefined) a.questions = [{ question: a.question, header: a.header, options: a.options, multi_select: a.multi_select }];
@@ -293,7 +294,7 @@ export function hookToolInput(name, args) {
 export function toolInputFromHook(name, input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const a = { ...input };
-  if ((name === "read" || name === "write" || name === "edit" || name === "lsp") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
+  if ((name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
   if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => { if (!q || typeof q !== "object" || Array.isArray(q) || q.multiSelect === undefined) return q; const o = { ...q }; if (typeof o.multiSelect === "boolean") o.multi_select = o.multiSelect; delete o.multiSelect; return o; });
   return a;
 }

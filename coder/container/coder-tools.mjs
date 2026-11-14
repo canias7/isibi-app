@@ -721,7 +721,8 @@ function writeInputs(args) {
 }
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
-  const show_change = !!(args && args.show_change === true), check = !!(args && args.check === true);
+  // (`check`: true, the language server's report for Grok after the round; "sync", the file's new text for its server only.)
+  const show_change = !!(args && args.show_change === true), check = args && (args.check === true || args.check === "sync") ? args.check : false;
   const { abs, rel: inRel } = await inside(path, { tool: "write" });
   // NAMED IN FULL OUTSIDE THE PROJECT'S OWN FOLDER (Claude Code 2.1.304: "Fixed Write results … showing a file outside the
   // working directory as `../../…`; they now show `~/…` or the full path"): a file in one of the chat's other repositories
@@ -765,20 +766,21 @@ export async function toolWrite(args) {
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  // NEW PROBLEMS THE LANGUAGE SERVER FINDS (coder-lsp.mjs newProblems), when Coder's app asks (`check`), as Claude Code's
-  // language server plugins give Claude "the errors and warnings the server reports" after each write.
-  let problems = null;
-  if (check && oldText !== undefined) {
-    const { newProblems } = await import("./coder-lsp.mjs");
-    problems = await newProblems({ path: rel, abs, before: oldText, after: content.replace(/^\ufeff/, "") }, ROOT).catch(() => null);
-  }
-  let problemsSaid = "";
-  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
-  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote + problemsSaid;
-  if (show_change !== true) return text;
-  const change = await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null);
-  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
+  // THE FILE'S LANGUAGE SERVER IS TOLD, AND WHAT IT REPORTS IS TAKEN (coder-lsp.mjs syncAfterWrite; the owner, 2026-11-14:
+  // "start fixing and filling in gaps on those tools"; Claude Code: "each time Claude edits or writes a file the server
+  // handles, Claude gets the errors and warnings the server reports"), when Coder's app asks (`check`): the note goes to Grok
+  // after the round (`diagnostics`), this file's problems to the chat (`problems`); none of it in this answer.
+  const lsp = check ? await lspAfterWrite(abs, content.replace(/^\ufeff/, ""), check) : null;
+  const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
+  const change = show_change === true ? await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null) : null;
+  return change || lsp ? WRITE_MARK + JSON.stringify({ text, change, ...lspFields(lsp) }) : text;
 }
+/** A write's or an edit's language server report (coder-lsp.mjs), or null: never costs the write. */
+async function lspAfterWrite(abs, text, check) {
+  try { const { syncAfterWrite } = await import("./coder-lsp.mjs"); return await syncAfterWrite({ abs, text, deliver: check === true }, { root: ROOT }); } catch { return null; }
+}
+/** What a write's answer carries of it: this file's problems for the chat, and the note for Grok after the round. */
+const lspFields = (lsp) => (lsp ? { problems: lsp.problems.slice(0, 20), problemsAll: lsp.problemsAll, diagnostics: lsp.note } : {});
 
 /**
  * EDIT, AS CLAUDE CODE'S EDIT (tool 3; the owner, 2026-11-09: "Notebook for later, but yea do this"; its docs read whole,
@@ -840,7 +842,7 @@ export async function toolEdit(args) {
   // `replace_all` as the text "true" or "false" is read as yes or no (Claude Code: "Fixed intermittent 'expected boolean,
   // received string' validation errors on Edit"); Coder took any text, "false" too, for yes and replaced them all.
   const all = a.replace_all === true || (typeof a.replace_all === "string" && a.replace_all.trim().toLowerCase() === "true");
-  const show_change = a.show_change === true, check = a.check === true;
+  const show_change = a.show_change === true, check = a.check === true || a.check === "sync" ? a.check : false;
   const { abs, rel: inRel } = await inside(path, { tool: "edit" });
   // Named in full outside the project's own folder, as write's answers (Claude Code 2.1.304).
   const rel = abs === ROOT || abs.startsWith(ROOT + sep) ? inRel : abs;
@@ -947,21 +949,15 @@ async function writeOver(abs, bytes, rel) {
     try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
   }
 }
-/** Edit's answer, as write's: its memory note, the language server's new problems (`check`), and the change (`show_change`). */
+/** Edit's answer, as write's: its memory note, the language server's report (`check`), and the change (`show_change`). */
 async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes }) {
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  let problems = null;
-  if (check) {
-    const { newProblems } = await import("./coder-lsp.mjs");
-    problems = await newProblems({ path: rel, abs, before: before === null ? undefined : before, after }, ROOT).catch(() => null);
-  }
-  let problemsSaid = "";
-  if (problems && problems.length) { const { problemsNote } = await import("./coder-lsp.mjs"); problemsSaid = "\n\n" + problemsNote(rel, problems); }
-  const text = said + (memSaid ? "\n" + memSaid : "") + problemsSaid;
-  if (show_change !== true) return text;
-  const change = await writeChange(before, after).catch(() => null);
-  return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
+  // (The file's language server told, as after a write: lspAfterWrite.)
+  const lsp = check ? await lspAfterWrite(abs, after, check) : null;
+  const text = said + (memSaid ? "\n" + memSaid : "");
+  const change = show_change === true ? await writeChange(before, after).catch(() => null) : null;
+  return change || lsp ? WRITE_MARK + JSON.stringify({ text, change, ...lspFields(lsp) }) : text;
 }
 
 /**
@@ -1072,10 +1068,15 @@ export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
   return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, WEB_MAX) + (text.length > WEB_MAX ? "\n[cut]" : "");
 }
 
-export async function toolLsp({ action, path, line, column }) {
-  const { abs, rel } = await inside(path, { mustExist: true });
-  const { runLsp } = await import("./coder-lsp.mjs");
-  return runLsp({ action, path: rel, abs, line, column }, ROOT, BASE === ROOT ? ROOT : null);
+/**
+ * CLAUDE CODE'S LSP TOOL (coder-lsp.mjs runLsp; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): its
+ * answer for Grok, its result object for the hooks (`facts`), and, behind LSP_NOTE_MARK, the diagnostics the servers sent
+ * meanwhile, for Coder's loop to tell Grok after the round. The file stays inside the project, never in .git (`inside`).
+ */
+export async function toolLsp(args) {
+  const { runLsp, LSP_NOTE_MARK } = await import("./coder-lsp.mjs");
+  const r = await runLsp(args, { root: ROOT, base: BASE, inside: (p) => inside(p), scratch: SCRATCH });
+  return { text: r.text + (r.note ? LSP_NOTE_MARK + r.note : ""), facts: r.facts };
 }
 
 /**
