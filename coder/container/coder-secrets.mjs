@@ -300,7 +300,12 @@ export function parseEnv(text) {
   let m, n = 0;
   while ((m = re.exec(src)) && n < 50) {
     let v = m[2];
-    if (v.startsWith('"')) v = v.slice(1, -1).replace(/\\n/g, "\n").replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+    // UNDONE IN ONE PASS, LEFT TO RIGHT (CL2 of recheck 3, 2026-11-14; Claude Code 2.1.309 "Fixed the cloud environment editor
+    // shuffling environment variables and adding backslashes to values that contain both kinds of quote": its box gives back
+    // the values it was given): each \\ and \" toEnv wrote, and a \n the owner typed, is read once. One kind after another,
+    // \n went first, so the \n of a doubled backslash before an n (C:\new, a key's literal \n) became a line break, at the
+    // next save of the box even when that variable wasn't touched.
+    if (v.startsWith('"')) v = v.slice(1, -1).replace(/\\(["\\n])/g, (_, c) => (c === "n" ? "\n" : c));
     else if (v.startsWith("'")) v = v.slice(1, -1);
     out[m[1]] = v.slice(0, 4000); n++;
   }
