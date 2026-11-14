@@ -24,11 +24,11 @@ const CC_INPUTS = {
   prefix: "Optional. The word the API expects before the key in the header: one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, in any letter case. With the Authorization header it defaults to Bearer; with any other header_name it defaults to none, so pass prefix whenever the documentation shows a word before the key, Bearer included. The form cannot save a key with any other word before it: for an API that expects one, the user adds the key in the environment's settings. Not used with suggested_type \"basic\". Never put a key's value in this or any other field.",
   suggested_type: "Optional hint for the form's default: \"bearer\" for a token or API key sent in a header (Authorization: Bearer unless header_name and prefix say otherwise), \"basic\" for username and password.",
 };
-/** Claude Code's words with Coder's: the owner for the user, a chat for a session, Coder's proxy's own line (its environment
- * tools have Claude Code's names since 2026-11-14: get_environment and the allowed hosts are said as Claude Code says them). */
+/** Claude Code's words with Coder's: the owner for the user, a chat for a session (its environment tools have Claude Code's
+ * names since 2026-11-14: get_environment and the allowed hosts are said as Claude Code says them; its proxy's block too since
+ * E5 of recheck 2, as Coder's proxy now answers in Claude Code's words). */
 const asCoder = (s) => s
   .replace("from every session in that environment, including other people's sessions when the environment is shared: this session usually within a few seconds, and later sessions", "from every chat in that environment: this chat usually within a few seconds, and later chats")
-  .replace("`request blocked: no rule allows host`", "`Blocked by this repo's network list`")
   .replace("GitHub (use the repository tools)", "GitHub (git and gh reach it through Coder's GitHub proxy)")
   .replace(/\bthe user\b/g, "the owner").replace(/\bthe user's\b/g, "the owner's").replace(/\bThe user\b/g, "The owner")
   .replace(/\bsessions\b/g, "chats").replace(/\bsession's\b/g, "chat's").replace(/\bsession\b/g, "chat");
@@ -135,7 +135,9 @@ async function loop(steps, { hooks = {}, answer = async () => ({ choice: "saved"
   }, { text: "check my stripe balance", messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...opts });
   return { r, events, seen, hookCalls, asked };
 }
-const HOOKS = { PostToolUse: [{ matcher: "request_secret", hooks: [{ type: "command", command: "post.sh" }] }], PostToolUseFailure: [{ matcher: "request_secret", hooks: [{ type: "command", command: "fail.sh" }] }], PreToolUse: [{ matcher: "request_secret", hooks: [{ type: "command", command: "pre.sh" }] }] };
+// (Its hooks see Claude Code's name for it, its claude-code-remote MCP server's request_credential: E1 of recheck 2.)
+const RC = "mcp__claude-code-remote__request_credential";
+const HOOKS = { PostToolUse: [{ matcher: RC, hooks: [{ type: "command", command: "post.sh" }] }], PostToolUseFailure: [{ matcher: RC, hooks: [{ type: "command", command: "fail.sh" }] }], PreToolUse: [{ matcher: RC, hooks: [{ type: "command", command: "pre.sh" }] }] };
 
 test("RS4 the card waits in the turn, as Claude Code's form does: Save answers \"saved\" and Coder goes on at once; its hooks see Claude Code's inputs and the result", async () => {
   const input = { host: "api.stripe.com", reason: "The balance check got 401 from api.stripe.com; a key unblocks it.", display_name: "Stripe test key", suggested_type: "bearer" };
@@ -154,8 +156,8 @@ test("RS4 the card waits in the turn, as Claude Code's form does: Save answers \
   assert.equal(t.seen.length, 2);
   // Its hooks: Claude Code's input names as given, and its result.
   const pre = t.hookCalls.find((x) => x.hook_event_name === "PreToolUse");
-  assert.deepEqual([pre.tool_name, pre.tool_input], ["request_secret", input]);
-  const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse" && x.tool_name === "request_secret");
+  assert.deepEqual([pre.tool_name, pre.tool_input], [RC, input]);
+  const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse" && x.tool_name === RC);
   // (Claude Code's request_credential is a tool of its MCP server: its answer, as an MCP tool's, is what the hooks get. 2026-11-14.)
   assert.deepEqual([post.tool_input, post.tool_response], [input, "saved"]);
   assert.equal(t.hookCalls.some((x) => x.hook_event_name === "PostToolUseFailure"), false);
@@ -174,7 +176,7 @@ test("RS5 Decline is Claude Code's denial (\"Denied by user\", an error), and Co
   assert.equal(t.seen.length, 2, "Coder answers in the same turn, as Claude did");
   assert.match(t.r.summary || "", /form was closed/);
   const fail = t.hookCalls.find((x) => x.hook_event_name === "PostToolUseFailure");
-  assert.deepEqual([fail.tool_name, fail.error], ["request_secret", "error: Denied by owner"]);
+  assert.deepEqual([fail.tool_name, fail.error], [RC, "error: Denied by owner"]);
   assert.equal(t.hookCalls.some((x) => x.hook_event_name === "PostToolUse"), false);
   assert.ok(t.events.some((e) => e.type === "permanswer" && e.choice === "no"));
   // An answer that never came counts as declined.
@@ -471,7 +473,7 @@ test("RS14 a PreToolUse hook's rewrite of request_secret's input gets request_se
       emit: (e) => events.push(e),
       ask: async (pid, o) => { asked.push({ pid, o }); return { choice: "saved" }; },
       here: () => "/work/shop", root: "/work/shop", chatId: "shop-rs14",
-    }, { text: "check my stripe balance", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "request_secret", hooks: [{ type: "command", command: "pre.sh" }] }] } }, "settings").list });
+    }, { text: "check my stripe balance", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: RC, hooks: [{ type: "command", command: "pre.sh" }] }] } }, "settings").list });
     return { events, asked, told: String((r.messages.find((m) => m.tool_call_id === "k1") || {}).content || "") };
   };
   // A bad rewrite: request_secret's own words (not "failed schema validation"), and no card.

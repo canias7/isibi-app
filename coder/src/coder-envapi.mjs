@@ -69,14 +69,23 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   return answer(envAnswer(await envState(env, bucket, uid, meta, also), body));
 }
 
-/** A MOVED CHAT'S NETWORK, AT ONCE (Claude Code: "requests through the session's HTTPS proxy follow the new environment's allowed hosts"): its machine, when it runs something. */
+/**
+ * A MOVED CHAT'S NETWORK, AT ONCE (Claude Code: "requests through the session's HTTPS proxy follow the new environment's allowed
+ * hosts"): its machine, when it runs something. → { taken: true } when the machine took it (or runs nothing now, and takes it
+ * when it next does), else { taken: false, why }: what the result tells Coder (E2 of recheck 2, 2026-11-14: "the result says
+ * exactly what changed on this machine and what did not").
+ */
 export async function pushNetwork(env, deps, uid, id, meta, data) {
-  if (!deps || typeof deps.container !== "function") return false;
+  const unreached = { taken: false, why: "Coder's machine could not be reached" };
+  if (!deps || typeof deps.container !== "function") return unreached;
   try {
     const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn, pass: await egressPass(env, uid + "/" + id, meta.turn) };
     const r = await deps.container(uid + "-" + id).fetch(new Request("http://coder/network", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: id, setup: { network: data.network }, secrets: meta.jobFromGithub ? [] : machineKeyRules(data.secrets), egress }) }));
-    return r.ok;
-  } catch { return false; }
+    if (r.ok) return { taken: true };
+    const j = await r.json().catch(() => null);
+    const why = j && typeof j.why === "string" ? j.why.replace(/[\u0000-\u001f]+/g, " ").trim().slice(0, 200) : "";
+    return { taken: false, why: why ? "Coder's machine could not change its network: " + why : "Coder's machine did not answer (" + r.status + ")" };
+  } catch { return unreached; }
 }
 
 /**
@@ -128,16 +137,17 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
     await writeEnvData(env, bucket, uid, newId, p.data);
     list.push(entry);
     await saveEnvList(bucket, uid, list);
-    let moved = false;
+    let moved = false, push = null;
     if (p.moves) {
       const m2 = await fresh();
       const next = { ...m2, envId: newId, envMoved: true };
       await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });
-      await pushNetwork(env, deps, uid, id, next, p.data);
+      // (What the push really did is the result's: E2 of recheck 2.)
+      push = await pushNetwork(env, deps, uid, id, next, p.data);
       moved = true;
     }
     const from = (st.list.find((e) => e.id === st.envId) || { name: "Default" }).name;
-    return { ok: true, said: approvedText({ kind: "create", name: entry.name, args, from }, { moved, stayWhy: p.stayWhy }), result: envResultText(now.card, { moved, stayWhy: p.stayWhy, name: entry.name, from }), envId: moved ? newId : st.envId, name: moved ? entry.name : (list.find((e) => e.id === st.envId) || { name: "Default" }).name, created: { id: newId, name: entry.name }, environments: envListOut(list) };
+    return { ok: true, said: approvedText({ kind: "create", name: entry.name, args, from }, { moved, stayWhy: p.stayWhy }), result: envResultText(now.card, { moved, stayWhy: p.stayWhy, name: entry.name, from, push }), envId: moved ? newId : st.envId, name: moved ? entry.name : (list.find((e) => e.id === st.envId) || { name: "Default" }).name, created: { id: newId, name: entry.name }, environments: envListOut(list) };
   }
   const p = planSwitch(st, args);
   if (p.error) return { error: p.error.replace(/^error: /, "") };
@@ -146,7 +156,7 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
   await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });
   // (A chat of this repo used it: Coder offers it first for the repo's next chat, as when a chat picks it.)
   if (meta.repo) await markUsed(bucket, uid, p.target.id, meta.repo).catch(() => {});
-  await pushNetwork(env, deps, uid, id, next, st.data[p.target.id]);
-  return { ok: true, said: approvedText({ kind: "switch", name: p.target.name }), result: envResultText(now.card, { name: p.target.name, from: p.from }), envId: p.target.id, name: p.target.name, environments: envListOut(await listEnvs(bucket, uid)) };
+  const push = await pushNetwork(env, deps, uid, id, next, st.data[p.target.id]);
+  return { ok: true, said: approvedText({ kind: "switch", name: p.target.name }), result: envResultText(now.card, { name: p.target.name, from: p.from, push }), envId: p.target.id, name: p.target.name, environments: envListOut(await listEnvs(bucket, uid)) };
 }
 

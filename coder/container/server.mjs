@@ -21,7 +21,7 @@ import http from "node:http";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
@@ -437,7 +437,7 @@ export function varsNote(vars) {
   const names = Object.keys(vars && typeof vars === "object" ? vars : {});
   if (!names.length) return "";
   const secret = names.filter((k) => secretVar(k, vars[k]));
-  return "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): " + names.join(", ") + (secret.length ? ". Never print the values of those that look secret: " + secret.join(", ") + " (the chat hides them)" : "");
+  return "\n\nENVIRONMENT VARIABLES the owner set in this chat's environment (available to your commands): " + names.join(", ") + (secret.length ? ". Never print the values of those that look secret: " + secret.join(", ") + " (the chat hides them)" : "");
 }
 /** A SAVED WORKING FOLDER THAT IS NOT THERE, said in the chat (round 5: it was left out without a word). "" for none. */
 export function missingDirsSaid(missing, from, inBox = false) {
@@ -2665,6 +2665,33 @@ export function extrasNote(extras) {
     extras.map((x) => "- " + x.repo + " in " + x.dir + " (from " + x.base + ")" + (x.readOnly ? " (READ-ONLY for the owner: kept on this machine, never sent to GitHub; no pull request)" : "")).join("\n") +
     "\nWork in them with the same tools: give the file tools paths in those folders, and cd there in bash. A pull request for one of them: pull_request with its repo.";
 }
+/**
+ * THE FOLDER THAT HOLDS THE REPOSITORY CHECKOUTS, WHERE THE SETUP SCRIPT STARTS (E7 of recheck 2, 2026-11-14; Claude Code's
+ * environment tools: "The script normally starts in the directory that holds the repository checkouts, not inside one …
+ * Reach a repository by its relative subdirectory, normally its name"; its example: "if [ -d myapp ]; then (cd myapp && npm
+ * install); fi"). Coder's checkouts are named after the chat (root/<chat>, root/<chat>-x1 …), so `root` keeps a link named
+ * after each of the chat's repositories to its checkout: "myapp" for acme/myapp (a second one of the same name as
+ * "<owner>-<name>"). Root's own, made at each job's start, so Coder can try a script from the same folder ("the parent of
+ * your working directory"); a real folder of that name is left as it is. `repos`: [{ repo, dir }]. → { name: dir }.
+ */
+export async function repoLinks(root, repos) {
+  const made = {};
+  for (const { repo, dir } of Array.isArray(repos) ? repos : []) {
+    const [owner, name] = String(repo || "").split("/");
+    if (!owner || !name || typeof dir !== "string" || resolve(dirname(dir)) !== resolve(root)) continue;
+    const n = Object.hasOwn(made, name) ? owner + "-" + name : name;
+    if (!/^[A-Za-z0-9._-]{1,141}$/.test(n) || n === "." || n === ".." || Object.hasOwn(made, n)) continue;
+    const at = join(root, n);
+    const was = await lstat(at).catch(() => null);
+    if (was && !was.isSymbolicLink()) continue;
+    try {
+      if (was) await unlink(at);
+      await symlink(basename(dir), at);
+      made[n] = dir;
+    } catch { /* that one is left out */ }
+  }
+  return made;
+}
 // ── A READ-ONLY CHAT'S WORK, FROM THIS MACHINE (owner item 5) ─────────────────
 // A repository the owner may read but not push to: Coder's work is committed
 // here, on the chat's branch, and nowhere else. The owner sees it (See changes)
@@ -3708,7 +3735,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             ? "\n\nNETWORK: FULL, but for the environment's blocked sites: " + (net.denied || []).join(", ") + ". Any other site on the internet works; a request to a blocked one fails with \"Blocked: … is on this environment's blocked sites\" (curl: \"CONNECT tunnel failed, response 403\"), whatever else allows it. Don't retry those; only the owner can change that list."
             : net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs a host, that is a need as get_environment's description defines it (it says when and where to propose a change)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"request blocked: no rule or allowlist entry allows host\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) {
         const why = String((e && e.message) || e).slice(0, 120);
@@ -3783,6 +3810,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (t.resume) { t.resume(); t.resume = null; }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let setupFailed = null, setupRan = false, setupCopied = null, setupMoved = false;
+    // WHERE THE SETUP SCRIPT STARTS (E7 of recheck 2, 2026-11-14): in the folder that holds the repository checkouts, as Claude
+    // Code's, each of the chat's repositories by its name there (repoLinks); a script saved before then still starts inside
+    // the chat's repository, as it did when it was written, until it is changed (the Worker's `scriptIn`: "repo").
+    const setupLinks = body.repo ? await repoLinks(root, [{ repo: String(body.repo), dir }, ...extras.map((x) => ({ repo: x.repo, dir: x.dir }))]).catch(() => ({})) : {};
+    const scriptInRepo = !!(body.setup && body.setup.scriptIn === "repo");
+    // (Said with the script in what Coder is told, so a script it tries or proposes starts where it will run.)
+    const linkNames = Object.keys(setupLinks);
+    const setupWhere = () => "\n(" + (scriptInRepo ? "It starts inside this chat's repository folder: it was saved before 2026-11-14 and keeps starting there until it is changed. A script you send starts in " : "It starts in ") + root + ", the folder that holds the repository checkouts" + (linkNames.length ? ", where this chat's repositories are " + linkNames.join(", ") : "") + ".)";
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
     // browser test, 2026-11-06: the owner fixed the setup script between two
     // messages, yet Coder kept saying the broken line was still there). The
@@ -3846,7 +3881,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
+          const u = await execIn(scriptInRepo ? dir : root, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -3855,8 +3890,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         await setupMark(setupFailed ? "failed" : "ok");
         // WHAT SETUP MADE IS NEVER SAVED TO THE BRANCH (live test, 2026-11-05: an
         // `npm ci` would have committed node_modules): new files from the setup go
-        // in the git folder's own ignore list (root's folder, not the repo).
-        await ignoreNew(dir, gitRoot, remote, root);
+        // in the git folder's own ignore list (root's folder, not the repo). (Each of the chat's repositories': the script starts
+        // above them all now, E7.)
+        for (const d of [dir, ...extras.map((x) => x.dir)]) await ignoreNew(d, gitRoot, remote, root);
       }
       // A CHAT MOVED TO THIS ENVIRONMENT (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one";
       // Claude Code's switch_environment: "Its setup script does NOT run now or at a restart: it runs only if the machine is
@@ -3916,7 +3952,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
     // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,

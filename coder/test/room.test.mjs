@@ -91,7 +91,7 @@ test("CD141 the service runs the AI's commands in the room (as the AI's user), f
   assert.match(s, /t\.room = walled = await enterRoom\(px, true\);/, "a limited network: the room, with the gate and no link");
   assert.match(s, /if \(!net\.limited\) t\.room = await enterRoom\(px, false\);/, "Full access: the room with its link");
   assert.match(s, /\+ \(walled \|\| fwOn \? "" : " \(On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall\.\)"\);/, "Coder is told when it is only a guard");
-  assert.match(s, /const u = await execIn\(dir, userPart, left, \{ bgDir, kill: true, home, room: t\.room, /, "the setup script's own part");
+  assert.match(s, /const u = await execIn\(scriptInRepo \? dir : root, userPart, left, \{ bgDir, kill: true, home, room: t\.room, /, "the setup script's own part");
   assert.match(s, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, room: t\.room, /, "every command and tool");
   assert.match(s, /const gate = list\.length \|\| net\.limited \? await proxyFor\(\) : null;\n\s+t\.room = await enterRoom\(gate, net\.limited\);\n\s+gateForApt\(net\.limited && gate \? "http:\/\/127\.0\.0\.1:" \+ gate\.port : ""\);/, "a change of setting mid-job: the room (and apt) follow at once");
   assert.match(s, /if \(room\) gateForApt\(net\.limited && px \? "http:\/\/127\.0\.0\.1:" \+ px\.port : ""\);/, "the master key's apt goes through the gate when the network is limited");

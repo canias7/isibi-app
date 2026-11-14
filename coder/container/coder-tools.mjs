@@ -1061,7 +1061,7 @@ function viaProxy(url) {
   return { createConnection: (_o, cb) => {
     const c = http.request({ host: px.hostname, port: px.port, method: "CONNECT", path: url.hostname + ":" + (url.port || 443) });
     c.on("connect", (res, sock) => {
-      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "blocked by this repo's network list: " + url.hostname : "the proxy refused " + url.hostname)); }
+      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + url.hostname : "the proxy refused " + url.hostname)); }
       cb(null, tls.connect({ socket: sock, servername: url.hostname }));
     });
     c.on("error", (e) => cb(e));
@@ -1634,7 +1634,7 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
     if (px) {
       const p = new URL(px);
       const c = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: (host.includes(":") ? "[" + host + "]" : host) + ":" + port });
-      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "blocked by this repo's network list: " + host : "the proxy refused " + host }); } done({ sock }); });
+      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + host : "the proxy refused " + host }); } done({ sock }); });
       c.on("error", (e) => done({ error: String((e && e.message) || e).slice(0, 300) }));
       c.end();
       return;

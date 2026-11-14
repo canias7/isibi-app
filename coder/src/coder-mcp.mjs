@@ -216,7 +216,8 @@ export function toolsFor(list, off = [], toolsOff = [], { allOff = false } = {})
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
       // Real money (Robinhood: CATALOG askWrites): every tool that is not read-only asks the owner each time, even in Auto.
       const always = t.always || (!t.readOnly && CATALOG.some((k) => k.askWrites && k.url === c.url));
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), server: c.id, ...(c.status === "error" ? { failed: true } : {}), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}), ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint } : {}),
+      // (`connector`: the connector's name, its MCP server's in the hooks' mcp_server: D2 of recheck 3. `server` is its id.)
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), server: c.id, connector: c.name, ...(c.status === "error" ? { failed: true } : {}), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}), ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint } : {}),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, DESCRIPTION_MAX), parameters: params });
     }
   }

@@ -127,7 +127,7 @@ import { credentialHost, credentialHeader, credentialPrefix, hostMatches } from 
 import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
-import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText } from "./coder-environments.mjs";
+import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText, envRepos, reposFrom } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
 import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents } from "../container/coder-park.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
@@ -1091,7 +1091,7 @@ export async function handleCoder(request, env, ctx, deps) {
   // the user's own, named, not tied to repos; Default is made for them.
   //   GET  /environments                 the list (names only)
   //   POST /environments { name, script?, network?, repos? }   a new one
-  //   POST /environments/:id { name? | archive? }               rename, archive (never Default)
+  //   POST /environments/:id { name? | archive? | repos? }      rename, archive, its repositories (never Default)
   if (parts[0] === "environments") {
     const list = await listEnvs(bucket, uid);
     if (parts.length === 1 && request.method === "GET") return json({ ok: true, environments: envListOut(list) });
@@ -1124,10 +1124,21 @@ export async function handleCoder(request, env, ctx, deps) {
       if (holder) return json({ error: nameTakenText(holder) }, 409);
       target.name = n;
     }
+    // ITS REPOSITORIES (E8 of recheck 2, 2026-11-14; Claude Code's environment settings: "the environment's Repositories list
+    // in Settings where offered (the Default environment has none)"): the whole list as the owner leaves it in Environment.
+    // One added is offered first for its next chat, as for an environment made for it.
+    if (body.repos !== undefined) {
+      if (target.id === DEFAULT_ENV) return json({ error: "the Default environment has no repositories list" }, 400);
+      const r = reposFrom(body.repos);
+      if (r.error) return json({ error: r.error }, 400);
+      const had = envRepos(target).map((x) => x.toLowerCase());
+      if (r.repos.some((x) => !had.includes(x.toLowerCase()))) target.used = Date.now();
+      target.repos = r.repos;
+    }
     if (body.archive === true) target.archived = true;
     if (body.archive === false) delete target.archived;
     await saveEnvList(bucket, uid, list);
-    return json({ ok: true, environment: { id: target.id, name: target.name, archived: !!target.archived }, environments: envListOut(list) });
+    return json({ ok: true, environment: { id: target.id, name: target.name, archived: !!target.archived, repos: envRepos(target) }, environments: envListOut(list) });
   }
 
   // YOUR GLOOPY (owner, 2026-11-09), made the first time it is asked for: its meta and its chat. Its turns then go
@@ -2119,7 +2130,10 @@ export async function handleCoder(request, env, ctx, deps) {
     const list = await listEnvs(bucket, uid);
     const id = await theEnvId();
     const me = list.find((x) => x.id === id) || { id, name: "Default" };
-    return { ok: true, repo: meta.repo, envId: id, name: me.name, description: typeof me.description === "string" ? me.description : "", isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), script: e.script, vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
+    // (`repos`: the repositories it is for, Claude Code's environment "Repositories list in Settings where offered (the
+    // Default environment has none)", E8 of recheck 2; `scriptInRepo`: its script was saved before 2026-11-14 and still starts
+    // inside the chat's repository, E7.)
+    return { ok: true, repo: meta.repo, envId: id, name: me.name, description: typeof me.description === "string" ? me.description : "", isDefault: id === DEFAULT_ENV, archived: !!me.archived, locked: meta.turn > 0, environments: envListOut(list), repos: id === DEFAULT_ENV ? [] : envRepos(me), script: e.script, ...(e.scriptIn === "repo" && String(e.script || "").trim() ? { scriptInRepo: true } : {}), vars: Object.keys(e.vars), varsText: toEnv(e.vars), varsDropped: varsDropped(e.vars), secrets: secretList(e.secrets), network: e.network };
   };
   const readEnv2 = async () => readEnvData(env, bucket, uid, await theEnvId());
   // NETWORK AND KEY CHANGES REACH JOBS THAT ARE RUNNING (like Claude Code: "within
@@ -2162,7 +2176,9 @@ export async function handleCoder(request, env, ctx, deps) {
       if (holder) return json({ error: nameTakenText(holder) }, 409);
       if (me) { me.name = n; await saveEnvList(bucket, uid, list); }
     }
-    if (typeof body.script === "string") { if (body.script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413); cur.script = body.script; }
+    // (A changed script starts in the folder that holds the repository checkouts, as Claude Code's; one saved before
+    // 2026-11-14 kept as it is still starts inside the chat's repository: coder-environments.mjs scriptIn. E7 of recheck 2.)
+    if (typeof body.script === "string") { if (body.script.length > SETUP_SCRIPT_MAX) return json({ error: "the setup script is over 64 KB" }, 413); if (body.script !== cur.script) delete cur.scriptIn; cur.script = body.script; }
     if (typeof body.varsText === "string") {
       if (body.varsText.length > 100000) return json({ error: "that is too long" }, 413);
       cur.vars = parseEnv(body.varsText);
@@ -2302,7 +2318,7 @@ export async function handleCoder(request, env, ctx, deps) {
     const sec = normSecret({ id: form ? "s" + Date.now().toString(36) : okPattern(hosts[0]), name: String(body.name || "").slice(0, 60), kind, config, hosts, paths, headers: headers.map((h) => ({ name: String(h.name).trim(), prefix: String(h.prefix || ""), value: String(h.value).trim() })), at: Date.now() });
     if (!sec) return json({ error: "that secret is not complete" }, 400);
     cur.secrets = [...cur.secrets.filter((s) => s.id !== sec.id), sec];
-    if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per repo" }, 400);
+    if (cur.secrets.length > 20) return json({ error: "at most 20 secrets per environment" }, 400);
     await saveEnv(cur);
     return json({ ok: true, secrets: secretList(cur.secrets), reached: await reachRunning(cur) });
   }
