@@ -391,7 +391,7 @@ export function rulesSources(rules) {
   const part = (x) => ({ ask: list(x && x.ask), deny: list(x && x.deny) });
   return { own: part(s.own), repo: part(s.repo) };
 }
-export function commandAsk(command, deps, where0 = "", { real = null, allowed = null } = {}) {
+export function commandAsk(command, deps, where0 = "", { real = null, allowed = null, planFile = "" } = {}) {
   if (String(command).length > MAX_COMMAND_CHARS) return { kind: "long", paths: [], allow: [allowRunText(command)], why: "This command is over 10,000 characters, more than Coder's checks read through", note: "this command is over 10,000 characters, more than Coder's checks read through", github: "this command is over 10,000 characters" };
   // (`says`: each one in Claude Code's words, for the card: "Claude requested permissions to edit … which is a sensitive
   // file.", with the link it was reached through.)
@@ -402,11 +402,19 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   // "<project>/~/.zshrc"; Claude Code names the file in its home folder).
   const home0 = deps && typeof deps.home === "string" && deps.home.startsWith("/") ? deps.home.replace(/\/+$/, "") : "";
   const tilde = (p) => (home0 && (p === "~" || String(p).startsWith("~/")) ? home0 + String(p).slice(1) : p);
+  // THE CHAT'S OWN PLAN FILE (round 5, 2026-11-14; Claude Code 2.1.325's "Plan files for current session are allowed for
+  // writing", in its check of each path a file command or an output redirection writes, before its protected paths): not a
+  // protected file here, wherever plansDirectory puts it (.claude/plans too); that one file, named by a plain path (not a
+  // redirection's ~ or a wildcard), and not through a link.
+  const planF = typeof planFile === "string" && planFile.startsWith("/") ? planFile : "";
+  const ownPlan = (full) => !!planF && full === planF && (typeof real !== "function" || (() => { try { return real(full) === full; } catch { return false; } })());
+  const fullOf = (p) => (deps && typeof deps.where === "function" ? deps.where(p) : p);
   for (const x of writeTargets(command).targets) {
     // After a cd in the same command, or with a variable in it, the name as written is checked (its folder is not known);
     // a full path, or one from ~, doesn't depend on a cd before it.
     const p = x.unsure ? x.path : tilde(x.path);
     const asWritten = x.unsure || ((x.afterCd || x.path === "~" || String(x.path).startsWith("~/")) && !String(p).startsWith("/"));
+    if (!asWritten && !String(x.path).startsWith("~") && ownPlan(fullOf(p))) continue;
     const name = asWritten ? x.path : projectPath(deps, p);
     if (name && protectedFile(name)) add(name, sensitiveWhy(asWritten || !deps || typeof deps.where !== "function" ? x.path : deps.where(p)));
   }
@@ -418,6 +426,9 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
   const from = where0 || (deps && typeof deps.root === "string" ? deps.root : "") || "/";
   const read = readCommand(command, { cwd: from });
   const parts = read.cmds;
+  // (A file command that, from its own folder, changes only the chat's plan file: Claude Code's check after such a cd finds
+  // the plan file there, which is no protected path.)
+  const planOnly = (c) => { if (!planF || c.dir === false) return false; const fc = fileCommandTargets(c, typeof c.dir === "string" ? c.dir : from); return !!fc && fc.sure && fc.paths.length > 0 && fc.paths.every((x) => ownPlan(String(x).replace(/\/\*$/, ""))); };
   // A cd into a protected folder, at any level (in a subshell too), and a file command in the same command: asked about.
   let into = "", intoFull = "";
   for (const c of parts) {
@@ -428,7 +439,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
       for (const x of p0.split("/")) { if (!x || x === ".") continue; if (x === "..") segs.pop(); else segs.push(x); }
       const name = projectPath(deps, "/" + segs.join("/"));
       if (name && protectedFile(name + "/x") && !into) { into = name; intoFull = "/" + segs.join("/"); }
-    } else if (into && fileCommandTargets(c, "/")) add(into, sensitiveWhy(intoFull));
+    } else if (into && fileCommandTargets(c, "/") && !planOnly(c)) add(into, sensitiveWhy(intoFull));
   }
   // WHERE EACH WRITE REALLY LANDS (Bash docs pass 3, the owner, 2026-11-10: "Ok yes do that"; Claude Code's permissions
   // docs, "Writes through a symlink": a write by a Bash command whose file "resolves to a protected path that the requested
@@ -458,6 +469,7 @@ export function commandAsk(command, deps, where0 = "", { real = null, allowed = 
     for (const p of fc.paths) {
       if (!p) continue;
       const bare = p.replace(/\/\*$/, "");
+      if (known && ownPlan(bare)) continue;
       const name = known ? projectPath(deps, bare) : bare.replace(/^\/+/, "");
       if (name && (protectedFile(name) || protectedFile(name + "/x"))) { add(name, sensitiveWhy(bare)); continue; }
       if (known) through(bare, name, c);
@@ -3757,8 +3769,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (readCommand(cmd).cmds.some((k) => ["cd", "pushd", "popd", "chdir"].includes(String(((k.words || [])[0] || {}).text || "").split("/").pop()))) return false;
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       if (commandAsk(cmd, deps, here, { real: (q) => realPath(q), allowed: () => false })) return false;
-      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH], exists: (q) => pathExists(q) })) return false;
-      return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }).verdict === "allow";
+      if (readBlock && readBlockWhy(cmd, { cwd: here || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (q) => realPath(q), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : [])], exists: (q) => pathExists(q) })) return false;
+      return bashDecision(cmd, { mode: "plan", rules: ownRules, cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }).verdict === "allow";
     };
     const startAhead = (x) => {
       const descIn = [x.args.description, x.args.command_description].find((d) => typeof d === "string" && d.trim());
@@ -3862,7 +3874,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (x.name === "bash") {
         if (!runsAhead(x, true) || (emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: here || deps.root || "" }))) return;
         const command = x.args.command;
-        const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] };
+        const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() };
         if (!checker || mode0 !== "auto" || autoRulesCover(command, ctxB)) { early.start(x.id, "bash\n" + command, () => startAhead(x)); return; }
         const dec = bashDecision(command, { mode: "auto", rules: ownRules, ...ctxB, input: x.args, byCommand: fileEdits !== false });
         if (dec.verdict !== "allow" || dec.byRule || discardsWork(command)) return;
@@ -4207,7 +4219,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (A PowerShell command's paths as this machine resolves them, ~ as the home folder; inside the working folders or not.)
         const psAbs = (p) => { let t = String(p ?? "").replace(/^['"]|['"]$/g, "").replace(/\\/g, "/"); if (!t) return null; if (t === "~" || t.startsWith("~/")) t = (deps.home || "/home/dev") + t.slice(1); const abs = pathPosix.resolve(where0 || deps.root || "/", t); return leadsTo(abs, workdirs, realPath) || abs; };
         const psInside = (p) => { const a = psAbs(p); return !!a && workdirs.some((w) => a === w || a.startsWith(w + "/")); };
-        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH], ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) });
+        let dec = github ? { verdict: "allow" } : c.ps ? psDecision(command, { mode: modeB, rules: modeB === "auto" ? autoPsRules(rulesB) : rulesB, nativeReadOnly: nativeRO, parsed: await psParse(command), pathAbs: psAbs, inside: psInside, cwd: where0 || deps.root || "/", home: deps.home || "", byCommand: fileEdits !== false , input: c.args, dirs: workdirs }) : bashDecision(command, { mode: modeB, rules: rulesB, cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), input: c.monitor ? c.monitorArgs : c.args, home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], byCommand: fileEdits !== false, scratch: [SCRATCH], planFile: planPath(), ...(c.monitor ? { settings: MONITOR_SETTINGS } : {}) });
         // (A monitor's card names the owner's Monitor rule as written: namedForMonitor.)
         if (c.monitor) dec = namedForMonitor(dec, rulesB);
         if (dec.verdict === "deny") { refuse(dec.why); continue; }
@@ -4248,12 +4260,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         // (A PowerShell command's protected writes: psProtectedAsk, fix 4 of "Yes all 7".)
-        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
+        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }), planFile: planPath() });
         // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
         if (!ask && readBlock && !c.ps) {
-          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH], exists: (p) => pathExists(p) });
+          const rb = readBlockWhy(command, { cwd: where0 || deps.root || "/", workdirs: readBlockDirs(), home: deps.home || "", real: (p) => realPath(p), ownDirs: [...(Array.isArray(deps.ownDirs) ? deps.ownDirs : []), SCRATCH, ...(planPath() ? [planPath()] : [])], exists: (p) => pathExists(p) });
           if (rb) { const w = rb.charAt(0).toLowerCase() + rb.slice(1).replace(/\.$/, ""); ask = { kind: "readblock", paths: [], allow: [allowRunText(command)], why: rb, note: w, github: w }; }
         }
         if (ask && ask.allow.every((a) => ownerSaid(convo, a))) ask = null;
@@ -4290,7 +4302,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let pausedCard = false, switchedCard = false;
         const checkSt = checkerState(...checkKey());
         const autoLike = modeB === "auto" || github;
-        let wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH] }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
+        let wantsCheck = !c.rerun && !!checker && (!rmWhy || rmToChecker) && !ask && !dec.byRule && (!!protToChecker || (!!hostsFor && dec.verdict === "allow") || (!(c.hook && c.hook.decision === "allow" && modeB !== "plan") && ((autoLike && dec.verdict === "allow" && !(github && autoOff === true && (c.ps ? dec.readOnly === true : wholeReadOnly(command))) && !(c.ps ? dec.covered === true : autoRulesCover(command, { cwd: where0 || deps.root || "/", workdirs, isProtected: isProt, real: (p) => realPath(p), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() }))) || (modeB === "plan" && planChecks && dec.verdict === "ask"))));
         // (Auto mode turned off, in a job from GitHub: no checker may approve, and no one can answer a card there; Claude
         // Code's session then starts in "default", where a run that can't ask is denied what needs approval, and a read-only
         // command runs unreviewed, as no review runs outside auto mode.)

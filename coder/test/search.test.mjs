@@ -467,7 +467,10 @@ test("SR12 (Claude Code 2.1.325; the owner, 2026-11-14: \"Fix base on Claude Cod
   assert.equal(dec("read", d + "/a.js", { deny: ["Read"] }).why, "Permission to use Read has been denied.");
   assert.equal(dec("write", d + "/a.js", { deny: ["Read"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be written.");
   for (const tool of ["grep", "glob"]) assert.equal(dec(tool, d, { ask: ["Read"] }).verdict, "", tool + " ask");
-  assert.equal(dec("grep", d, { deny: ["Read(**)"] }).why, "Permission to read " + d + " has been denied.");
+  // (Read(**) is a path rule: a search of the project's own folder runs and finds nothing, as Claude Code 2.1.325's does (its
+  // Grep and Glob check their folder's own path); a folder below the project is refused. Round 5, file-rules CD382m.)
+  assert.equal(dec("grep", d, { deny: ["Read(**)"] }).verdict, "");
+  assert.equal(dec("grep", d + "/src", { deny: ["Read(**)"] }).why, "Permission to read " + d + "/src has been denied.");
   // (And a search's results: a whole Read deny rule beside a path one leaves out only what the path one covers.)
   assert.equal((await grep(d, { pattern: "TODO" }, { deny: { rules: ["Read", "Read(*.ts)"], root: d } })).text.split("\n").includes("a.js"), true);
   // No warning for a Grep rule with a path (Claude Code warns of Write's, NotebookEdit's, MultiEdit's and Glob's only).
