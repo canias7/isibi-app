@@ -200,10 +200,12 @@ test("BR6 read refuses Claude Code 2.1.325's own list of binary kinds (121 exten
     assert.equal(read("blob.raw"), "     1\ta\u0000b\n" + T.notTextNote("nul"));
     writeFileSync(join(dir, "data.avro"), "Obj\n");
     assert.equal(read("data.avro"), "     1\tObj");
-    // A picture read shows is still taken as a picture (Claude Code refuses .bmp, .tif and .tiff: Coder shows them, kept).
-    writeFileSync(join(dir, "x.bmp"), "not really a picture");
-    const bmp = read("x.bmp");
-    assert.ok(bmp.startsWith("error: x.bmp cannot be shown") && !bmp.includes("cannot read binary files"), bmp);
+    // .bmp, .tif and .tiff refused as binary too, as Claude Code 2.1.325's Read refuses them (its pictures are png, jpg, jpeg,
+    // gif and webp: round 6, the owner, "do what claude code does"); a picture read shows is still taken as a picture.
+    for (const f of ["x.bmp", "y.tif", "z.TIFF"]) { writeFileSync(join(dir, f), "not really a picture"); assert.equal(read(f), "error: " + T.BINARY_REFUSED(f.slice(f.lastIndexOf(".")).toLowerCase()), f); }
+    writeFileSync(join(dir, "x.png"), "not really a picture");
+    const png = read("x.png");
+    assert.ok(png.startsWith("error: x.png cannot be shown") && !png.includes("cannot read binary files"), png);
     assert.equal(T.notTextKind("/w/model.bin"), true, "not read again after a summary");
     assert.equal(T.notTextKind("/w/notes.txt"), false);
   } finally { rmSync(dir, { recursive: true, force: true }); }

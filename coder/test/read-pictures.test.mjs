@@ -46,7 +46,7 @@ function makePdf(pages) {
   return Buffer.from(out + "trailer\n<< /Size " + objs.length + " /Root 1 0 R >>\nstartxref\n" + xref + "\n%%EOF\n", "latin1");
 }
 
-test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, WebP, BMP and TIFF made PNG first, a big one made smaller, its size said; a broken one, or one too big, is refused; a text file reads as before, never with the pictures' mark", { skip: !MAGICK && "ImageMagick is not installed here (it is on Coder's machine)" }, async () => {
+test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF and WebP made PNG first (BMP and TIFF refused as binary, as Claude Code 2.1.325's Read refuses them: round 6), a big one made smaller, its size said; a broken one, or one too big, is refused; a text file reads as before, never with the pictures' mark", { skip: !MAGICK && "ImageMagick is not installed here (it is on Coder's machine)" }, async () => {
   const dir = await mkdtemp(join(tmpdir(), "coder-pics-"));
   execFileSync("convert", ["-size", "2400x1200", "gradient:blue-white", join(dir, "shot.png")]);
   execFileSync("convert", ["-size", "640x480", "plasma:", join(dir, "photo.jpg")]);
@@ -62,7 +62,8 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF, W
   const photo = read(dir, { path: "photo.jpg" });
   assert.equal(photo.pictures[0].type, "image/jpeg");
   assert.deepEqual(T.picSize(pngOf(photo.pictures[0])), { w: 640, h: 480 });
-  for (const k of ["gif", "webp", "bmp", "tiff"]) {
+  for (const k of ["bmp", "tiff"]) assert.deepEqual([read(dir, { path: "pic." + k }).code, read(dir, { path: "pic." + k }).text], [1, "error: " + T.BINARY_REFUSED("." + k)], k);
+  for (const k of ["gif", "webp"]) {
     const r = read(dir, { path: "pic." + k });
     assert.equal(r.code, 0, k + ": " + r.text);
     assert.match(r.text, new RegExp("^Picture: pic\\." + k + " \\(300×200, " + k.toUpperCase() + ", "));
@@ -108,7 +109,9 @@ test("CD194 read opens a PDF like Claude Code's Read: each page's text, and ever
   // PAST 10 PAGES, pages is needed; at most 20 at a time.
   await writeFile(join(dir, "long.pdf"), makePdf(Array.from({ length: 25 }, (_, i) => "Long page " + (i + 1))));
   assert.equal(read(dir, { path: "long.pdf" }).text, 'error: long.pdf has 25 pages: give pages, e.g. "1-5" (at most 20 at a time)');
-  assert.equal(read(dir, { path: "long.pdf", pages: "2-22" }).text, 'error: at most 20 pages at a time: ask for fewer (e.g. "2-21")');
+  // (Claude Code 2.1.325's words for a range past 20 pages and for a `pages` it cannot take, its Read's checks before its hooks:
+  // round 6. One past the PDF's pages is the run's, as Claude Code's call finds it.)
+  assert.equal(read(dir, { path: "long.pdf", pages: "2-22" }).text, 'error: Page range "2-22" exceeds maximum of 20 pages per request. Please use a smaller range.');
   const some = read(dir, { path: "long.pdf", pages: "24-25" });
   assert.equal(some.text, "long.pdf: PDF, 25 pages, pages 24-25; each page is also shown to you as a picture after these results, in order\n\n--- Page 24 (picture 1) ---\nLong page 24\n\n--- Page 25 (picture 2) ---\nLong page 25");
   // 20 PAGES AT ONCE, the most: all 20 as pictures, within the read's room, each at most PIC_ONE_MAX.
@@ -116,7 +119,8 @@ test("CD194 read opens a PDF like Claude Code's Read: each page's text, and ever
   assert.equal(twenty.pictures.length, 20, twenty.text.slice(0, 300));
   assert.ok(twenty.pictures.reduce((n, p) => n + p.data.length, 0) <= T.PICS_BUDGET && twenty.pictures.every((p) => p.data.length <= T.PIC_ONE_MAX));
   assert.match(twenty.text, /--- Page 20 \(picture 20\) ---\nLong page 20$/);
-  for (const bad of ["0", "26", "5-3", "one", "1-2-3"]) assert.equal(read(dir, { path: "long.pdf", pages: bad }).text, 'error: pages must be one page or a range like "1-5", within the PDF\'s 25 pages', bad);
+  for (const bad of ["0", "5-3", "one", "1-2-3", "2\u20134"]) assert.equal(read(dir, { path: "long.pdf", pages: bad }).text, 'error: Invalid pages parameter: "' + bad + '". Give one page ("3") or one range ("1-5"), not a list. To read several pages or ranges, read each one separately. Pages are 1-indexed.', bad);
+  assert.equal(read(dir, { path: "long.pdf", pages: "26" }).text, 'error: pages must be one page or a range like "1-5", within the PDF\'s 25 pages');
   // NOT A PDF after all.
   await writeFile(join(dir, "fake.pdf"), "not a pdf");
   assert.match(read(dir, { path: "fake.pdf" }).text, /^error: fake\.pdf is not a valid PDF; it could not be opened/);
