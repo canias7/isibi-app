@@ -196,7 +196,8 @@ test("CD274 bash in the agent: Claude Code's inputs (description shown in place 
   // From GitHub, where no one can answer: refused, not asked.
   const ev3 = []; n = 0;
   const gh = await runCoder({ send: async () => [say("", [call("bash", { command: "echo x > .npmrc" }, "h1")]), say("Done.")][Math.min(n++, 1)], exec, emit: (e) => ev3.push(e), here: () => "/work/p", root: "/work/p", where: (p) => "/work/p/" + p }, { text: "go", github: true });
-  assert.match(gh.messages.find((m) => m.tool_call_id === "h1").content, /^error: this command writes \.npmrc, a protected file, so it is not run in a job started from GitHub/);
+  // (Told Claude Code's ask itself since round 6, as its run with no one to answer returns it.)
+  assert.equal(gh.messages.find((m) => m.tool_call_id === "h1").content, "Coder requested permissions to edit /work/p/.npmrc which is a sensitive file.");
   assert.ok(!ev3.some((e) => e.type === "runask"));
   // A background command that ends while Coder works: told once, in Claude Code's words.
   const ev4 = []; n = 0; bgAlive = true;

@@ -341,7 +341,8 @@ test("F4H9 a job from GitHub: a command that would ask (a protected file) is run
   assert.equal(t.events.find((e) => e.type === "result" && e.id === "b1").output, "Not run: your PermissionRequest hook said no.");
   t = await loop(steps, { hooks: PR(), mode: "auto", extra: { github: true }, hookRun: () => ({}) });
   assert.deepEqual(t.ran, []);
-  assert.match(t.told("b1"), /^error: this command writes \.npmrc, a protected file, so it is not run in a job started from GitHub, where no one can allow it/);
+  // (Told Claude Code's ask itself since round 6, as its run with no one to answer returns it.)
+  assert.equal(t.told("b1"), "Coder requested permissions to edit /work/shop/.npmrc which is a sensitive file.");
   // Auto mode off in a GitHub job: no checker may approve; a hook's allow runs it, unreviewed; none, refused as before.
   const steps2 = [say("", [call("bash", { command: "touch x.txt" }, "b2")]), say("done")];
   const gh = { github: true, autoOff: true, checker: true, checkWhere: { key: "k1", repo: "ana/shop", branch: "coder/shop-1" } };
@@ -383,7 +384,8 @@ test("F4H10 with no way to show a card, every tool that would ask runs its Permi
   t = await loop(task, { hooks: PR("TaskCreate"), extra: { rules: { allow: [], ask: ["TaskCreate"], deny: [] } }, hookRun: () => allowPR() });
   assert.match(t.told("t1"), /^Task #1 created successfully: Add tests/);
   t = await loop(task, { hooks: PR("TaskCreate"), extra: { rules: { allow: [], ask: ["TaskCreate"], deny: [] } }, hookRun: () => ({}) });
-  assert.equal(t.told("t1"), "not run: the owner's rule TaskCreate asks first for TaskCreate, and no one can answer in this job");
+  // (Claude Code's ask itself since round 6: a rule adds only its line on the card.)
+  assert.equal(t.told("t1"), "Coder requested permissions to use TaskCreate, but you haven't granted it yet.");
   // Coder's question: a hook's answers, or its no; with none, the turn ends with the question, as before.
   const DB = { question: "Which database?", header: "Database", options: [{ label: "Postgres", description: "Already here." }, { label: "SQLite", description: "One file." }] };
   const q = [say("", [call("ask_user", { questions: [DB] }, "q1")]), say("ok")];

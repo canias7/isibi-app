@@ -614,8 +614,9 @@ test("EN11 the page: the cards show exactly what changes and never the reason; A
   const described = state({ list: st.list.map((e) => (e.id === "default" ? { ...e, description: "Old words." } : e)) });
   assert.match(envCardHtml(E.envCard(described, "update_environment", upd({ reason, new_description: "" })).card, 9, true), /<small>Description<\/small><div>Cleared<\/div>/);
   assert.doesNotMatch(envCardHtml(upd1, 7, true), /Description/, "no description change: no line for it");
-  // The Environment dialog shows the environment's description, when it has one.
-  assert.match(ui, /\(e\.description \? '<p class="cd-em-help cd-em-top">' \+ esc\(e\.description\) \+ '<\/p>' : ''\)/);
+  // The Environment dialog shows the environment's description once, in its Description row (round 6: WD4), not at the top.
+  assert.doesNotMatch(ui, /\(e\.description \? '<p class="cd-em-help cd-em-top">' \+ esc\(e\.description\) \+ '<\/p>' : ''\)/);
+  assert.match(ui, /\['description', 'Description', e\.description \|\| 'None'\]/);
   assert.match(ui, /<input id="envNameIn" class="cd-em-in" maxlength="64"/);
   const scriptCard = E.envCard(state({ envId: "shop-ab12" }), "update_environment", { environment_name: "shop", applies_to: A, reason, setup_script: "npm ci", script_change: "removes the setup script" }).card;
   assert.match(envCardHtml(scriptCard, 1, true), /<small>Setup script \(removed\)<\/small><pre class="cd-envchange-pre"><span class="cd-ne-n">1<\/span>npm ci<\/pre>/);
@@ -894,7 +895,8 @@ test("EN16 E1: the environment tools and request_secret by Claude Code's names, 
   // An ask rule by one tool's name: a card in Coder's name for it; once approved the call goes on.
   t = await envLoop([say("", [call("get_environment", {}, "g1")]), say("Done.")], { rules: { ask: ["mcp__claude-code-remote__get_environment"] } });
   const card = t.events.find((e) => e.type === "permission");
-  assert.deepEqual([card.what, card.why], ["Use get_environment", "Your rule mcp__claude-code-remote__get_environment asks first for get_environment."]);
+  // (Its line in Claude Code's words since round 6, in Auto: "Ask rule … overrides auto mode for this tool.")
+  assert.deepEqual([card.what, card.why, card.told], ["Use get_environment", "Ask rule mcp__claude-code-remote__get_environment overrides auto mode for this tool.", undefined]);
   assert.match(t.told("g1"), /"environment_id": "default"/);
   // HOOKS: tool_name is Claude Code's; a matcher or an `if` with any of the server's three names fires, Coder's own name or the
   // bare server does not ("a matcher like mcp__memory … is compared as an exact string and matches no tool"); mcp_server goes
@@ -1309,4 +1311,28 @@ test("EN24 (round 5) the Environment window lets the owner change the environmen
   assert.match(ui, /if \(page === 'description'\) return envPost\(\{ description: f\.text \}\);/);
   assert.match(ui, /: page === 'description' \? \{ text: e\.description \|\| '' \}/);
   assert.match(ui, /on\('#envDescIn', 'input', \(e\) => \{ if \(S\.envForm\) S\.envForm\.text = e\.currentTarget\.value; \}\);/);
+});
+
+test("WD4 (round 6, the owner: \"do what claude code does\") the Environment window shows an environment's description once, in its Description row, and no longer also in the line at its top (Claude Code's own page, claude.ai/code, is in neither its docs nor its program: the simplest of the two kept)", () => {
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  const NET = "), b = ui.indexOf("\n  }\n", ui.indexOf("  function envHTML("));
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = {};
+  const { envHTML } = new Function("esc", "ICON", "S", ui.slice(a, b + 4) + "\nreturn { envHTML };")(esc, { cloud: "" }, S);
+  const count = (h, t) => h.split(t).length - 1;
+  for (const env of [
+    { envId: "e1", name: "shop env", description: "Stripe test keys, Node 22.", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" },
+    { envId: "default", name: "Default", description: "Every repo's defaults.", isDefault: true, network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" },
+  ]) {
+    Object.assign(S, { envPage: "main", env });
+    const h = envHTML();
+    const shown = esc(env.description);
+    assert.equal(count(h, shown), 1, env.name + ": once");
+    assert.match(h, new RegExp('data-envgo="description"><span><b>Description</b><small>' + shown.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "</small>"), env.name + ": in its row");
+    // The top of the window keeps its one line about who uses the environment.
+    assert.equal(count(h, 'class="cd-em-help cd-em-top"'), 1, env.name);
+  }
+  // With none: "None" in its row, nothing at the top.
+  Object.assign(S, { envPage: "main", env: { envId: "e1", name: "shop env", description: "", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
+  assert.match(envHTML(), /data-envgo="description"><span><b>Description<\/b><small>None<\/small>/);
 });

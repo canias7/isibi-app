@@ -207,7 +207,10 @@ test("CD347 rules on one of the command's settings, such as Bash(run_in_backgrou
   assert.equal(d("npm run dev", { command: "npm run dev", run_in_background: false }, { deny: ["Bash(run_in_background:true)"] }).verdict, "allow");
   // Ask: any value with *, never one the call leaves out ("A parameter the model omits is never matched").
   const t = d("make", { command: "make", timeout: 600000 }, { ask: ["Bash(timeout:*)"] });
-  assert.deepEqual([t.verdict, t.why, t.byRule], ["ask", "Your rule Bash(timeout:*) asks first for this command.", true]);
+  // (Claude Code 2.1.325's words for a rule's ask since round 6: its card's line, in Auto "Ask rule … overrides auto mode …";
+  // what its model is told, the ask itself.)
+  assert.deepEqual([t.verdict, t.why, t.told, t.byRule], ["ask", "Ask rule Bash(timeout:*) overrides auto mode for this command.", "Coder requested permissions to use Bash, but you haven't granted it yet.", true]);
+  assert.equal(d("make", { command: "make", timeout: 600000 }, { ask: ["Bash(timeout:*)"] }, "acceptEdits").why, "Permission rule Bash(timeout:*) requires confirmation for this command.");
   assert.equal(d("make", { command: "make" }, { ask: ["Bash(timeout:*)"] }).verdict, "allow");
   assert.equal(d("make", { command: "make", timeout: 600000 }, { ask: ["Bash(timeout:6*)"] }).verdict, "ask");
   assert.equal(d("make", { command: "make", timeout: 120000 }, { ask: ["Bash(timeout:6*)"] }).verdict, "allow");
