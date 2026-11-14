@@ -30,6 +30,7 @@ import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
+import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1152,9 +1153,9 @@ export const CODER_TOOLS = Object.freeze([
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
   fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted when your turn ends.", { summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert. Like Claude Code: if it is not clear what they mean (your last job changed no files, or they might mean something else, such as an environment change or a saved key), ask first with ask_user; when they choose that job, call it with confirmed: true. Do not make other changes in the same turn. Your turn ends here.", { confirmed: { type: "boolean", description: "true only after the owner chose undoing that job on your question card" } }, []),
-  // UP TO 4 QUESTIONS IN ONE CARD (owner pick 4, 2026-11-08), like Claude Code's AskUserQuestion (1 to 4
-  // questions, each with a short header chip, 2 to 4 options and multi-select; Other is always there).
-  fn("ask_user", "Ask the owner 1 to 4 questions at once, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Put related questions in one call. Each question: its text, a header (at most 12 characters, shown as a chip, e.g. \"Database\"), 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens, and multi_select: true when they may choose several. If you recommend an option, put it first and add \" (Recommended)\" to its label. The owner can always choose Other and type their own answer, or Skip. Your turn ends there; their answers come back as the next message. Do not use it for things you can decide yourself.", { questions: { type: "array", description: "1 to 4 questions", items: { type: "object", properties: { question: { type: "string" }, header: { type: "string", description: "at most 12 characters" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, required: ["question", "options"] } } }, ["questions"]),
+  // CLAUDE CODE'S AskUserQuestion (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; before,
+  // up to 4 questions in one card, owner pick 4, 2026-11-08): its description and inputs word for word (coder-askuser.mjs).
+  fn("ask_user", ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, ["questions"]),
   fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
   // CLAUDE CODE'S BASH, ITS INPUTS AND WHAT ITS DESCRIPTION TELLS THE MODEL (tool 4; the owner, 2026-11-09: "do all of
   // those"; its hooks reference: command, description, timeout in milliseconds, run_in_background; its tools reference
@@ -1763,6 +1764,36 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     emit({ type: "permanswer", pid, choice, ...(comment ? { comment } : {}) });
     return { choice, comment };
   };
+  /**
+   * CODER'S QUESTIONS, WHILE IT WAITS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+   * Claude Code's AskUserQuestion: its permission prompt is the question dialog, and the owner's answers are the tool's
+   * result in the same turn): the card shows in the chat and this step waits for the owner's answers, for a message they
+   * type instead (Claude Code's "replied_in_chat"), for the Stop button or for the job's time limit. Its PermissionRequest
+   * hooks first, as for any card (an allow answers it only with updatedInput: Claude Code's "AskUserQuestion and
+   * ExitPlanMode need this field"), and its Notification hooks ("permission_prompt") once it has waited 6 seconds.
+   * Answers: answers (with the owner's picks), skip, chat (with their message), yes (a hook's, with its updatedInput), no (a
+   * hook's), stop, none.
+   */
+  const askQuestions = async (event, hookIn) => {
+    let notifyTool = "";
+    if (hookList.length) {
+      const tool = ccTool("ask_user");
+      const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: hookIn }, { tool, input: hookIn, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+      if (o && o.decision === "allow" && o.updatedInput) { if (o.updatedPermissions) applyUpdates(o.updatedPermissions); return { choice: "yes", updatedInput: o.updatedInput }; }
+      if (o && o.decision === "deny") { if (o.stop) return { choice: "stop" }; const why = o.reason ? scrub(o.reason) : ""; return { choice: "no", comment: why || HOOK_DENIED, hookDenied: true, hookWhy: why }; }
+      notifyTool = tool;
+    }
+    const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+    emit({ type: "question", pid, ...event });
+    const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
+    const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
+    let a = null;
+    try { a = await deps.ask(pid, { until: started + maxMs, chat: true }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    const choice = a && ["answers", "skip", "chat", "stop"].includes(a.choice) ? a.choice : "none";
+    const picks = choice === "answers" && Array.isArray(a.picks) ? a.picks : null;
+    emit({ type: "permanswer", pid, choice, ...(picks ? { picks } : {}) });
+    return { choice, ...(picks ? { picks } : {}), ...(choice === "chat" ? { text: String(a.text || ""), qid: String(a.qid || "") } : {}) };
+  };
   // (Refused instead of asked: how many in a row; the last call was one.)
   let deniedRow = 0, deniedLast = false;
   // WHAT AN ANSWER MEANS for the step that asked (Claude Code: No without a note stops the turn; No with a note goes on
@@ -2268,7 +2299,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (A tool its server marks `_meta["anthropic/alwaysLoad"]` is loaded at the start even with tool search.)
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && toolDenied(t.function.name))).map(withHosts), ...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  // (ask_user, Claude Code's AskUserQuestion, is not offered under permissions.denyInsteadOfPrompting: its isEnabled. The
+  // owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: lim.inlineMax, bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && t.function.name === "ask_user")))).map(withHosts),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
@@ -2883,14 +2916,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code: "Validation rejections are returned as
       // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"): the input
       // fixed as Claude Code fixes it (its note told to Coder with the call's answer), or refused before any hook or card.
+      // (Claude Code's AskUserQuestion is not offered at all under permissions.denyInsteadOfPrompting, its isEnabled: a call to
+      // ask_user anyway is a tool that does not exist, "No such tool available", before any check or hook. The owner,
+      // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
+      if (!offered && denyInstead === true && c.name === "ask_user") { reply("error: No such tool available: ask_user"); continue; }
       const inputCheck = !c.rerun && c.args && typeof c.args === "object" ? inputCheckFor(c.name) : null;
       if (inputCheck) {
         let v;
-        try { v = inputCheck(c.args, { github: !!github }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
+        try { v = inputCheck(c.args, { github: !!github, who }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
-          emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: scrub(String(what ? what.label(c.args) : c.name)).slice(0, 300) });
-          emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
+          // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call.)
+          if (!v.quiet) {
+            emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: scrub(String(what ? what.label(c.args) : c.name)).slice(0, 300) });
+            emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
+          }
           reply(v.error);
           continue;
         }
@@ -3410,38 +3450,106 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         emit({ type: "envchange", ...change, reason });
         return end("done", { summary: lastSaid || (kind === "allow_host" ? "asked to allow " + change.host : kind === "new_environment" ? "proposed a new environment, " + change.name : "proposed a new setup script") });
       } else if (c.name === "ask_user") {
-        // QUESTIONS FOR THE OWNER: the turn ends here; their answers are the next message. 1 to 4 of them
-        // (owner pick 4, like Claude Code); the single question of before (question, options) is still taken.
-        const raw = Array.isArray(c.args.questions) && c.args.questions.length ? c.args.questions : [{ question: c.args.question, header: c.args.header, options: c.args.options, multi_select: c.args.multi_select }];
-        // Each choice: a label and a one-line description (owner, "2", like Claude Code); plain strings still work.
+        // CODER'S QUESTIONS (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+        // notify one"; before, up to 4 in one card, owner pick 4, 2026-11-08): Coder's already read as Claude Code's schema
+        // reads them (coder-askuser.mjs). Gloopy's own ask_user as before: the single question of before (question, options)
+        // is still taken there, and plain strings for options.
+        const gl = who === "Gloopy";
+        // A HOOK'S REWRITE OF CODER'S QUESTIONS, checked as Claude Code checks it (whatever the hook decided): refused in its
+        // words ("PreToolUse hook for AskUserQuestion returned updatedInput that failed schema validation: …").
+        if (!gl && c.hook && c.hook.updated) {
+          const v = checkHookRewrite(c.args, "PreToolUse");
+          if (v.problem) {
+            emit({ type: "bash", id: c.id, tool: c.name, verb: "Blocked", command: scrub((Array.isArray(c.args.questions) ? c.args.questions : []).map((q) => String((q && q.question) || "")).join(" ")).slice(0, 300) });
+            emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.problem).slice(0, 2000), hookBlocked: true });
+            reply(scrub(v.problem));
+            continue;
+          }
+          c.args = v.value;
+        }
+        const raw = !gl ? c.args.questions : Array.isArray(c.args.questions) && c.args.questions.length ? c.args.questions : [{ question: c.args.question, header: c.args.header, options: c.args.options, multi_select: c.args.multi_select }];
+        // Each choice: a label and a one-line description (owner, "2", like Claude Code). Coder's keep every option in its
+        // place, as Claude Code's dialog does (the owner's picks come back by their place); Gloopy's as before.
         const one = (q) => {
           if (!q || typeof q !== "object") return null;
           const text = scrub(String(q.question || "")).trim().slice(0, 500);
-          const options = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: scrub(String(o.label || "")).trim().slice(0, 120), description: scrub(String(o.description || "")).trim().slice(0, 300) } : { label: scrub(String(o == null ? "" : o)).trim().slice(0, 120), description: "" })).filter((o) => o.label).slice(0, 4);
+          const all = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: scrub(String(o.label || "")).trim().slice(0, 120), description: scrub(String(o.description || "")).trim().slice(0, 300) } : { label: scrub(String(o == null ? "" : o)).trim().slice(0, 120), description: "" }));
+          const options = gl ? all.filter((o) => o.label).slice(0, 4) : all;
           const header = scrub(String(q.header || "")).replace(/\s+/g, " ").trim().slice(0, 20);
-          return text && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multi_select === true ? { multi: true } : {}) } : null;
+          return (text || !gl) && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multiSelect === true || q.multi_select === true ? { multi: true } : {}) } : null;
         };
         const qs = raw.slice(0, 4).map(one);
         if (raw.length > 4 || !qs.length || qs.some((q) => !q)) { reply("error: give 1 to 4 questions, each with its text and 2 to 4 options (a label and a one-line description each)"); continue; }
+        // (Coder's questions as its answers name them, and as the card shows them: Claude Code's shownCardInput, without
+        // answers the model wrote itself. What its PostToolUse hooks get: the input the tool ran with, and its result object.)
+        let keys = !gl ? answerKeys(c.args) : raw.slice(0, 4).map((q, n) => ({ key: String(q.question ?? ""), text: qs[n].text, labels: qs[n].options.map((o) => o.label), multi: qs[n].multi === true }));
+        let shown = !gl ? shownInput(c.args) : null;
+        const answered = (answers, annotations, response = "") => {
+          if (!shown) return;
+          const notes = annotations && Object.keys(annotations).length ? { annotations } : {};
+          c.args = { ...shown, answers, ...notes };
+          toolFacts.set(c.id, { questions: shown.questions, answers, ...(String(response).trim() ? { response } : {}), ...notes });
+        };
         // ANSWERED BY A HOOK (Claude Code: "Returning \"allow\" alone is not sufficient for these tools"; "For AskUserQuestion,
         // echo back the original questions array and add an answers object mapping each question's text to the chosen
         // answer"): a PreToolUse hook's allow with updatedInput answers the card itself, which is not shown, and Coder goes on
         // with Claude Code's words for the answers. Its allow alone still shows the card; an ask rule on AskUserQuestion
         // still shows it too (Claude Code: hook decisions "don't bypass permission rules").
         if (c.hook && c.hook.decision === "allow" && c.hook.updated && !wholeRule(ownRules, "ask", "AskUserQuestion")) {
-          const got = hookAnswers(c.args);
+          const got = gl ? hookAnswers(c.args) : { answers: c.args.answers, annotations: c.args.annotations };
           if (got.problem) {
             emit({ type: "bash", id: c.id, tool: c.name, verb: "Blocked", command: scrub(qs.map((q) => q.text).join(" ")).slice(0, 300) });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(got.problem).slice(0, 2000), hookBlocked: true });
             reply(scrub(got.problem));
             continue;
           }
-          const asked = raw.slice(0, 4).map((q, n) => ({ key: String(q.question ?? ""), text: qs[n].text, labels: qs[n].options.map((o) => o.label), multi: qs[n].multi === true }));
-          const said = answeredText(asked, got.answers, got.annotations);
+          const said = answeredText(keys, got.answers, got.annotations);
           emit({ type: "note", text: said.shown ? scrub("A PreToolUse hook answered Coder's question" + (qs.length > 1 ? "s" : "") + " for you: " + said.shown).slice(0, 2000) : "A PreToolUse hook took Coder's question" + (qs.length > 1 ? "s" : "") + " and gave no answer, so you were not asked.", hook: "PreToolUse" });
-          reply(scrub(said.text));
+          answered(got.answers || {}, got.annotations);
+          // (Marked for the auto mode checker, which reads an answer as the owner's: Claude Code's "[User answered AskUserQuestion]".)
+          reply(scrub(said.text), gl ? undefined : { ownerAnswer: true });
           continue;
         }
+        // THE CARD, WHILE CODER WAITS (Claude Code's: the answers are the tool's result, and Coder goes on in the same turn).
+        // Coder's own, in a chat the owner can answer while it works; on GitHub, for Gloopy, or with no way to ask, the
+        // card ends the turn as before (below).
+        if (!gl && canAsk()) {
+          const a = await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown));
+          if (a.choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (a.choice === "none") {
+            if (now() - started > maxMs) { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+            reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner gave no answer" });
+          }
+          // (A PermissionRequest hook's no: its message, or Claude Code's "Permission denied by hook"; Coder goes on.)
+          if (a.choice === "no") { emit({ type: "note", text: scrub("Your PermissionRequest hook said no to Coder's question" + (qs.length > 1 ? "s" : "") + (a.hookWhy ? ": " + a.hookWhy : ".")).slice(0, 2000), hook: "PermissionRequest" }); reply(saidReply(a)); continue; }
+          let answers = {}, annotations = {}, response = "";
+          if (a.choice === "yes") {
+            // (A PermissionRequest hook's allow with updatedInput: checked as Claude Code checks a hook's rewrite, and the tool
+            // runs with it, its questions too; an empty one changes nothing.)
+            const upd = a.updatedInput && typeof a.updatedInput === "object" && Object.keys(a.updatedInput).length ? a.updatedInput : shown;
+            const v = checkHookRewrite(toolInputFromHook("ask_user", upd) || {}, "PermissionRequest");
+            if (v.problem) { reply(scrub(v.problem)); continue; }
+            if (Array.isArray(v.value.questions)) { keys = answerKeys(v.value); shown = shownInput(v.value); }
+            answers = v.value.answers || {};
+            annotations = v.value.annotations || {};
+            const s0 = answeredText(keys, answers, annotations);
+            emit({ type: "note", text: s0.shown ? scrub("A PermissionRequest hook answered Coder's question" + (qs.length > 1 ? "s" : "") + " for you: " + s0.shown).slice(0, 2000) : "A PermissionRequest hook took Coder's question" + (qs.length > 1 ? "s" : "") + " and gave no answer, so you were not asked.", hook: "PermissionRequest" });
+          } else if (a.choice === "answers") ({ answers, annotations } = cardAnswers(keys, a.picks));
+          else if (a.choice === "skip") annotations = allUnanswered(keys, "skipped");
+          else if (a.choice === "chat") {
+            // (A message the owner typed while the card waited is their reply: Claude Code's `response`, "The user responded:
+            // …", with each question marked "replied_in_chat". It shows in the chat as their message.)
+            response = a.text;
+            annotations = allUnanswered(keys, "replied_in_chat");
+            emit({ type: "user", text: a.text.trim(), queued: true, ...(a.qid ? { qid: a.qid } : {}) });
+          }
+          const said = answeredText(keys, answers, annotations, { response });
+          answered(answers, annotations, response);
+          reply(scrub(said.text), { ownerAnswer: true });
+          continue;
+        }
+        // THE CARD THAT ENDS THE TURN (as before, on GitHub, for Gloopy, or with no way to ask while working): the answers are
+        // the owner's next message.
         reply("asked the owner; their answer" + (qs.length > 1 ? "s come" : " comes") + " as the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you asked the owner a question first" });
         // The first question as before (what older readers show), and all of them when there are several.

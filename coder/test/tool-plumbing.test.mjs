@@ -54,7 +54,7 @@ test("TP1 a tool's result object travels behind FACTS_MARK: printed first as one
   // The machine's copy holds the new modules (CD78 checks every import).
   const copy = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8").split("\n").find((l) => /^COPY package\.json /.test(l));
   for (const f of ["coder-inputs.mjs", "coder-search.mjs", "coder-webfetch.mjs", "coder-websearch.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
-  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["glob", "grep", "lsp", "web_fetch", "web_search"]);
+  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["ask_user", "glob", "grep", "lsp", "web_fetch", "web_search"]);
   assert.equal(I.inputCheckFor("read"), null);
   assert.equal(I.inputCheckFor("toString"), null);
 });

@@ -98,6 +98,13 @@
     if (a.answers.length === 1) return said[0];
     return a.qs.map((q, k) => (q.header || q.text) + ': ' + (said[k] || '(no answer)')).join('\n');
   };
+  // A CARD CODER WAITS ON (it has its pid; Claude Code's AskUserQuestion, the owner, 2026-11-14): the owner's picks as its
+  // step takes them, each question's options by their place and what they typed under Other ("(Recommended)" and all: the
+  // step names them by the labels Coder gave); and back, to show them once it is answered.
+  const askPicks = (a) => a.qs.map((q, k) => { const x = a.answers[k] || { picked: [], other: '' }; return { options: x.picked.filter((v) => v !== '__other').map((v) => q.options.findIndex((o) => o.label === v)).filter((n) => n >= 0), other: x.picked.includes('__other') ? String(x.other || '').trim() : '' }; });
+  const askShown = (q, p) => ({ picked: [...((p && Array.isArray(p.options) ? p.options : []).map((n) => (q.options[n] || {}).label).filter(Boolean)), ...(p && p.other ? ['__other'] : [])], other: (p && p.other) || '' });
+  /** How a waiting card ended, under it: answered (on the card, or by a message in the chat), skipped, stopped, or no answer. */
+  const askDone = (ans) => (ans.choice === 'answers' ? '<span class="cd-perm-ok">✓ Answered</span>' : ans.choice === 'chat' ? '<span class="cd-perm-ok">✓ Answered in the chat</span>' : ans.choice === 'skip' ? '<span class="cd-perm-no">Skipped</span>' : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>');
 
   // THE SIGN-IN PROOF goes with the token on every call (the audit, 2026-11-06).
   // A call refused because the session is over (signed out here or on another
@@ -2108,21 +2115,28 @@
         // 2026-11-08): each with its header chip and its choices with their explanations, the recommended
         // one first and already chosen, Other to type your own answer; one Skip and one Submit. Live only
         // on the last card.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        // A CARD CODER WAITS ON WHILE IT WORKS (it has its pid; Claude Code's AskUserQuestion, the owner, 2026-11-14: "Do all
+        // the talk to you tools execpt for the notify one"): live while the job runs and it is unanswered; Submit and Skip go
+        // to the waiting step (/answer), not as a message, and a message sent meanwhile is the reply. Once answered, it shows
+        // what was chosen, and how it ended under it.
+        const ans = e.pid ? S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid) : null;
+        const live = e.pid ? S.running && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const sent = !!(e.pid && S.permSent && S.permSent[e.pid]);
         const qs = askQuestions(e);
         // The choices are kept here, not in the page, so a redraw never loses them.
         const chatId = S.project ? S.project.id : '';
         if (live && (!S.ask || S.ask.at !== i || S.ask.chat !== chatId)) S.ask = { chat: chatId, at: i, qs, answers: qs.map((q) => ({ picked: q.multi || !q.options.length ? [] : [q.options[0].label], other: '' })) };
         const many = qs.length > 1;
+        const off = !live || sent ? ' disabled' : '';
         out.push('<div class="cd-ask' + (live ? ' is-live' : '') + (many ? ' is-many' : '') + '" data-ask="' + i + '">' + qs.map((q, k) => {
-          const a = live ? S.ask.answers[k] : { picked: [], other: '' };
+          const a = live ? S.ask.answers[k] : ans && ans.choice === 'answers' && Array.isArray(ans.picks) ? askShown(q, ans.picks[k]) : { picked: [], other: '' };
           const kind = q.multi ? 'checkbox' : 'radio', name = 'cdq' + i + '-' + k;
           return '<div class="cd-ask-one" data-q="' + k + '"><div class="cd-ask-q">' + (q.header ? '<span class="cd-ask-h">' + esc(q.header) + '</span>' : '') + '<span class="cd-ask-qt">' + esc(q.text) + '</span>' + (q.multi ? '<span class="cd-ask-multi">Choose any</span>' : '') + '</div><div class="cd-ask-list" role="' + (q.multi ? 'group' : 'radiogroup') + '">' +
-            q.options.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
-            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + (live ? '' : ' disabled') + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off">' : '') + '</span></label>' +
+            q.options.map((o) => '<label class="cd-ask-row"><input type="' + kind + '" name="' + name + '" value="' + esc(o.label) + '"' + (a.picked.includes(o.label) ? ' checked' : '') + off + '><span class="cd-ask-t"><b>' + esc(o.label) + '</b>' + (o.description ? '<small>' + esc(o.description) + '</small>' : '') + '</span></label>').join('') +
+            '<label class="cd-ask-row cd-ask-other"><input type="' + kind + '" name="' + name + '" value="__other"' + (a.picked.includes('__other') ? ' checked' : '') + off + '><span class="cd-ask-t"><b>Other</b>' + (live ? '<input type="text" class="cd-ask-in" placeholder="Type your own answer" value="' + esc(a.other) + '" maxlength="500" autocomplete="off"' + (sent ? ' disabled' : '') + '>' : a.other ? '<small>' + esc(a.other) + '</small>' : '') + '</span></label>' +
             '</div></div>';
-        }).join('') + (live ? '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '">Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '">Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
-          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ''));
+        }).join('') + (live ? (S.permErr && e.pid && S.permErr.pid === e.pid ? '<p class="cd-secret-err">' + esc(S.permErr.text) + '</p>' : '') + '<div class="cd-ask-btns"><button type="button" class="cd-ask-skip" data-ask-skip="' + i + '"' + (sent ? ' disabled' : '') + '>Skip</button><button type="button" class="cd-ask-go" data-ask-go="' + i + '"' + (sent ? ' disabled' : '') + '>Submit' + (many ? ' answers' : '') + ' <kbd>Ctrl ↵</kbd></button></div>' : '') + '</div>' +
+          (live ? '<div class="cd-ask-wait">Needs your input</div>' : ans ? '<div class="cd-perm-done">' + askDone(ans) + '</div>' : ''));
       }
       else if (e.type === 'writeask') {
         // A PROTECTED FILE CODER WANTS TO WRITE (the owner, 2026-11-09: "do that"; like Claude Code's prompt for them): the
@@ -3284,6 +3298,20 @@
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
     draw();
   }
+  // A QUESTION CARD CODER WAITS ON (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools
+  // execpt for the notify one"): Submit sends the owner's picks (nothing when nothing is chosen), Skip sends none; the step
+  // that waits takes them (/answer), as a permission card's answer.
+  async function askAnswer(pid, choice) {
+    if (!S.project || !S.ask || (S.permSent && S.permSent[pid])) return;
+    const answers = choice === 'answers' ? askPicks(S.ask) : null;
+    if (answers && !answers.some((p) => p.options.length || p.other)) return;
+    S.permSent = { ...(S.permSent || {}), [pid]: choice };
+    S.permErr = null;
+    draw();
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, ...(answers ? { answers } : {}) }) });
+    if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    draw();
+  }
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
   async function showRules() {
     S.modeMenu = false; draw();
@@ -3429,6 +3457,10 @@
     // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
     const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id) ? document.activeElement.id : '';
+    // (And a question card's Other box, where its cursor was: a card Coder waits on is live while the page redraws. The owner,
+    // 2026-11-14: "Do all the talk to you tools execpt for the notify one".)
+    const askEl = document.activeElement && document.activeElement.classList && document.activeElement.classList.contains('cd-ask-in') ? document.activeElement : null;
+    const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, a: askEl.selectionStart, b: askEl.selectionEnd } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
@@ -3437,6 +3469,7 @@
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
+    if (askAt) { const f = root.querySelector('.cd-ask[data-ask="' + askAt.at + '"] .cd-ask-one[data-q="' + askAt.q + '"] .cd-ask-in'); if (f && !f.disabled) { f.focus(); try { f.setSelectionRange(askAt.a, askAt.b); } catch (e) { /* not a text box */ } } }
     const term = root.querySelector('#cdWebTerm');
     if (term) term.scrollTop = term.scrollHeight;
     if (GLOOPY) setTimeout(hoSync, 0);
@@ -3478,8 +3511,10 @@
     on('.cd-cmd-row', 'click', (e) => { const k = e.currentTarget.dataset.step; S.open[k] = !S.open[k]; draw(); });
     on('.cd-wchg-more', 'click', (e) => { const k = e.currentTarget.dataset.change; S.open[k] = !S.open[k]; draw(); });
     on('.cd-probs-row', 'click', (e) => { const k = e.currentTarget.dataset.problems; S.open[k] = !S.open[k]; draw(); });
-    // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply).
-    const askSend = () => { const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
+    // THE QUESTION CARD: the choices live in S.ask; Submit sends them as your answer (askReply), or, to a card Coder waits on
+    // (its pid), to its waiting step (askAnswer).
+    const askWaiting = () => { const x = S.ask ? S.events[S.ask.at] : null; return x && x.type === 'question' && x.pid ? x : null; };
+    const askSend = () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'answers'); return; } const t = askReply(S.ask); if (!t) return; S.ask = null; send(t); };
     const askOf = (el) => { const one = el.closest('.cd-ask-one'); return S.ask && one ? S.ask.answers[Number(one.dataset.q)] : null; };
     on('.cd-ask.is-live input[type="radio"], .cd-ask.is-live input[type="checkbox"]', 'change', (e) => {
       const a = askOf(e.currentTarget);
@@ -3497,7 +3532,7 @@
     on('.cd-ask-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); askSend(); } });
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
-    on('[data-ask-skip]', 'click', () => { const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
+    on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
     on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];

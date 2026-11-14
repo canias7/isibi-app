@@ -191,9 +191,10 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.ok(t.events.some((e) => e.type === "todo"));
   t = await job([say("", [call("todo", { items: [{ text: "a", status: "pending" }] }, "t1")]), say("ok")], { rules: { deny: [], ask: ["TodoWrite"], allow: [] }, answers: [{ choice: "no" }] });
   assert.ok(!t.events.some((e) => e.type === "todo"));
-  // Its own question is the question for ask_user: no card first.
-  t = await job([say("", [call("ask_user", { question: "Which?", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }, "q1")])], { rules: { deny: [], ask: ["*"], allow: [] } });
-  assert.equal(t.cards.length, 0);
+  // Its own question is the question for ask_user: no card first (its question card is the one card; 2026-11-14, Claude
+  // Code's AskUserQuestion input).
+  t = await job([say("", [call("ask_user", { questions: [{ question: "Which?", header: "Pick", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }] }] }, "q1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] }, answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
+  assert.ok(!t.events.some((e) => e.type === "permission"));
   assert.ok(t.events.some((e) => e.type === "question"));
   // Bash under an ask wildcard: asked, in Auto too.
   t = await job([say("", [call("bash", { command: "ls", description: "List" }, "b1")]), say("ok")], { rules: { deny: [], ask: ["*"], allow: [] } });
@@ -716,7 +717,7 @@ test("CD397 the PowerShell tool (Claude Code's, opt-in on Linux: CODER_USE_POWER
 
 test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion with a PreToolUse hook's \"allow\" and updatedInput: \"echo back the original questions array and add an answers object\"): no card, Coder goes on in the same turn, told in Claude Code's words; its allow alone, or an ask rule, still shows the card; a bad rewrite is refused in Claude Code's words", async () => {
   const Q = { question: "Which database?", header: "Database", options: [{ label: "Postgres", description: "A server" }, { label: "SQLite", description: "A file" }] };
-  const X = { question: "Which extras?", header: "Extras", options: [{ label: "Auth", description: "Sign-in" }, { label: "Search, fast", description: "Full text" }, { label: "Logs", description: "Kept 30 days" }], multi_select: true };
+  const X = { question: "Which extras?", header: "Extras", options: [{ label: "Auth", description: "Sign-in" }, { label: "Search, fast", description: "Full text" }, { label: "Logs", description: "Kept 30 days" }], multiSelect: true };
   const ask = (args) => [say("", [call("ask_user", args, "q1")]), say("Done.")];
   const AQ = { PreToolUse: [{ matcher: "AskUserQuestion", hooks: [{ type: "command", command: "answer.sh" }] }] };
   const answer = (answers, more = {}) => (input) => ({ stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "allow", updatedInput: { questions: input.tool_input.questions, ...(answers === undefined ? {} : { answers }), ...more } } }) });
@@ -729,12 +730,12 @@ test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion 
   assert.equal(t.told("q1"), 'Your questions have been answered: "Which database?"="Postgres". You can now continue with these answers in mind.');
   assert.equal(noteOf(t), 'A PreToolUse hook answered Coder\'s question for you: "Which database?"="Postgres"');
   assert.equal(t.seen.length, 2, "Coder went on in the same turn");
-  // The hook sees Claude Code's AskUserQuestion input (multiSelect beside Coder's multi_select).
+  // The hook sees Claude Code's AskUserQuestion input, as its schema reads it (multiSelect false when left out).
   assert.equal(t.hookCalls[0].input.tool_name, "AskUserQuestion");
   assert.deepEqual(t.hookCalls[0].input.tool_input.questions, [{ ...Q, multiSelect: false }]);
   // An answer that is not one of the choices: Claude Code's other words.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Whichever is cheaper" }) });
-  assert.equal(t.told("q1"), 'The user answered: "Which database?"="Whichever is cheaper". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.');
+  assert.equal(t.told("q1"), 'The owner answered: "Which database?"="Whichever is cheaper". Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.');
   // Several choices: a list is joined with ", "; a label with ", " in it is quoted, as Claude Code joins them.
   t = await job(ask({ questions: [Q, X] }), { hooks: AQ, hookRun: answer({ "Which database?": "SQLite", "Which extras?": ["Auth", "Logs"] }) });
   assert.deepEqual(t.hookCalls[0].input.tool_input.questions.map((q) => q.multiSelect), [false, true]);
@@ -744,7 +745,7 @@ test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion 
   assert.match(t.told("q1"), /^Your questions have been answered: /);
   // Several choices for a one-choice question: not one of its choices.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Postgres, SQLite" }) });
-  assert.match(t.told("q1"), /^The user answered: "Which database\?"="Postgres, SQLite"\. Read the answers carefully/);
+  assert.match(t.told("q1"), /^The owner answered: "Which database\?"="Postgres, SQLite"\. Read the answers carefully/);
   // The hook may turn on several choices with Claude Code's name (multiSelect).
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: (input) => answer({ "Which database?": "Postgres, SQLite" })({ tool_input: { questions: input.tool_input.questions.map((q) => ({ ...q, multiSelect: true })) } }) });
   assert.match(t.told("q1"), /^Your questions have been answered: /);
@@ -753,32 +754,36 @@ test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion 
   assert.equal(t.told("q1"), 'Your questions have been answered: "Which database?"="Postgres". You can now continue with these answers in mind.');
   // A note beside the answer (Claude Code's annotations): told, in its other words.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Postgres" }, { annotations: { "Which database?": { notes: "the team knows it" } } }) });
-  assert.equal(t.told("q1"), 'The user answered: "Which database?"="Postgres" notes: the team knows it. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.');
+  assert.equal(t.told("q1"), 'The owner answered: "Which database?"="Postgres" notes: the team knows it. Read the answers carefully — they may request clarification, changes, or that you not proceed — and follow what they actually say.');
   // New input with no answers: no card all the same, and Claude Code's words for it.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer(undefined) });
   assert.equal(cardsOf(t).length, 0);
-  assert.equal(t.told("q1"), "The user did not answer the questions.");
+  assert.equal(t.told("q1"), "The owner did not answer the questions.");
   assert.equal(noteOf(t), "A PreToolUse hook took Coder's question and gave no answer, so you were not asked.");
-  // The single question of before: the hook sees a list of one, and answers it.
+  // The single question of before is not Claude Code's input (2026-11-14, "Do all the talk to you tools execpt for the notify
+  // one"): refused in its schema's words before any hook (test/askuser.test.mjs has the rest).
   t = await job(ask({ question: "Which database?", options: ["Postgres", "SQLite"] }), { hooks: AQ, hookRun: answer({ "Which database?": "SQLite" }) });
-  assert.deepEqual(t.hookCalls[0].input.tool_input.questions, [{ question: "Which database?", options: ["Postgres", "SQLite"], multiSelect: false }]);
-  assert.match(t.told("q1"), /^Your questions have been answered: "Which database\?"="SQLite"\./);
+  assert.equal(t.hookCalls.length, 0);
+  assert.match(t.told("q1"), /^error: InputValidationError: AskUserQuestion failed due to the following issues:\nThe required parameter `questions` is missing\nAn unexpected parameter `question` was provided\nAn unexpected parameter `options` was provided$/);
 
-  // Its allow alone is not enough (Claude Code: "Returning "allow" alone is not sufficient for these tools"): the card, as before.
-  t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: ALLOW });
+  // Its allow alone is not enough (Claude Code: "Returning "allow" alone is not sufficient for these tools"): the card, as before,
+  // and its answer is told in the same turn (2026-11-14: Claude Code's question waits for the answer).
+  t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: ALLOW, answers: [{ choice: "answers", picks: [{ options: [1] }] }] });
   assert.equal(cardsOf(t).length, 1);
-  assert.equal(t.seen.length, 1, "the turn ended at the card");
+  assert.equal(t.seen.length, 2, "Coder went on in the same turn");
+  assert.equal(t.told("q1"), 'Your questions have been answered: "Which database?"="SQLite". You can now continue with these answers in mind.');
   assert.ok(!t.events.some((e) => e.type === "note" && e.hook === "PreToolUse"));
   // An ask rule on AskUserQuestion: the card all the same (hook decisions don't bypass permission rules).
-  t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Postgres" }), rules: { deny: [], ask: ["AskUserQuestion"], allow: [] } });
+  t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Postgres" }), rules: { deny: [], ask: ["AskUserQuestion"], allow: [] }, answers: [{ choice: "skip" }] });
   assert.equal(cardsOf(t).length, 1);
+  assert.equal(t.told("q1"), "The owner did not answer the questions.", "the card's own answer, not the hook's");
   // A deny rule: refused before any hook answers.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": "Postgres" }), rules: { deny: ["AskUserQuestion"], ask: [], allow: [] } });
   assert.equal(t.told("q1"), "Permission to use AskUserQuestion has been denied.");
   // A rewrite that fails the tool's schema: refused, in Claude Code's words; no card.
   t = await job(ask({ questions: [Q] }), { hooks: AQ, hookRun: answer({ "Which database?": 2 }) });
   assert.equal(cardsOf(t).length, 0);
-  assert.equal(t.told("q1"), "PreToolUse hook for AskUserQuestion returned updatedInput that failed schema validation: AskUserQuestion failed due to the following issue: The parameter `answers.Which database?` type is expected as `string` but provided as `number` The tool input from the model was valid; the hook's rewrite of it was not.");
+  assert.equal(t.told("q1"), "PreToolUse hook for AskUserQuestion returned updatedInput that failed schema validation: AskUserQuestion failed due to the following issue:\nThe parameter `answers.Which database?` type is expected as `string` but provided as `number`\nThe tool input from the model was valid; the hook's rewrite of it was not.");
   assert.ok(t.events.some((e) => e.type === "result" && e.id === "q1" && e.hookBlocked === true));
   assert.equal(t.seen.length, 2, "Coder is told and goes on");
 
@@ -790,7 +795,8 @@ test("CD398 a hook answers Coder's question card (Claude Code's AskUserQuestion 
   assert.deepEqual(H.hookAnswers({ answers: { a: ["x", "y"] }, annotations: { a: { notes: "n" } } }), { answers: { a: "x, y" }, annotations: { a: { notes: "n" } } });
   assert.match(H.hookAnswers({ answers: "Postgres" }).problem, /The parameter `answers` type is expected as `record` but provided as `string`/);
   assert.match(H.hookAnswers({ answers: { a: 1 }, annotations: { a: { notes: 2 } } }).problem, /following issues: The parameter `answers\.a` type is expected as `string` but provided as `number`\nThe parameter `annotations\.a\.notes` type/);
-  // The machine's question tool still ends the turn when no hook answers (its card is the next message's question).
-  t = await job(ask({ questions: [Q] }));
-  assert.deepEqual([cardsOf(t).length, t.seen.length], [1, 1]);
+  // With no hook answering, the card waits for the owner and Coder goes on in the same turn (2026-11-14; before, the card
+  // ended the turn and the answer was the next message).
+  t = await job(ask({ questions: [Q] }), { answers: [{ choice: "answers", picks: [{ options: [0] }] }] });
+  assert.deepEqual([cardsOf(t).length, t.seen.length], [1, 2]);
 });

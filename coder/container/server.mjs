@@ -43,6 +43,8 @@ import { makeRoom, roomArgs, roomGate, roomInternet, gateForApt, NSENTER, SETPRI
 import { sandboxBase, makeLower, makeUpper, startSandbox, sandboxArgs, sandboxWhy, SBX_BASE, SBX_RANGE } from "./coder-sandbox.mjs";
 import { pauseAI, endOthers, resumeAI, aiProcesses, markOf, TASK_MARK } from "./coder-freeze.mjs";
 import { globMatch } from "./coder-globs.mjs";
+// (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
+import { questionPicks } from "./coder-askuser.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -4207,13 +4209,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         hooksNow: () => t.hooksNext || null,
         blocksNow: () => t.blocksNext || null,
         setMode: (m) => { t.mode = normMode(m); },
-        ask: async (pid, { until = 0 } = {}) => {
+        // (A QUESTION CARD, `chat` (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools execpt
+        // for the notify one"): a message the owner sends while it waits is their reply to it, Claude Code's
+        // "replied_in_chat"; taken once, as Coder takes the others, and only one sent after the card showed.)
+        ask: async (pid, { until = 0, chat = false } = {}) => {
           t.asking = String(pid);
+          const shownAt = Date.now();
           try {
             for (;;) {
               if (t.stop) return { choice: "stop" };
               const a = t.answers.get(String(pid));
               if (a) { t.answers.delete(String(pid)); return a; }
+              if (chat) { const q = t.queue.find((x) => !x.read && x.at >= shownAt); if (q) { q.read = true; return { choice: "chat", text: q.text, qid: q.qid }; } }
               if (until && Date.now() > until) return null;
               await new Promise((ok) => setTimeout(ok, 250));
             }
@@ -4499,11 +4506,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE OWNER'S ANSWER TO A CARD (Claude Code's permission prompt: Yes, don't ask again, switch to auto mode, No with a
       // note; a plan approved with Auto or Accept edits, or not): only for the card a step waits on now.
+      // (And a question card's answer, Claude Code's AskUserQuestion: the owner's picks, or Skip. The owner, 2026-11-14.)
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "answers", "skip"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        const picks = choice === "answers" ? questionPicks(body.answers) : null;
+        if (choice === "answers" && !picks) return send(400, { ok: false, why: "bad answer" });
         if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
-        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" });
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}) });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").
