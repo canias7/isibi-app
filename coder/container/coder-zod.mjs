@@ -1,16 +1,19 @@
 /**
  * CLAUDE CODE'S SCHEMAS, CHECKED AS ITS ZOD 4 CHECKS THEM (the owner, 2026-11-14: "Fix base on Claude Code docs, please"):
- * the issues zod gives for a value, in its words and its order, and what Claude Code makes of them. Pure (no Node module):
- * coder-hooks.mjs, which Coder's Worker also loads, uses it. Read in Claude Code 2.1.325's program (its zod is 4.6) and
- * checked against zod 4.6's own output:
+ * the issues zod gives for a value, in its words and its order, and what Claude Code makes of them. Pure (no Node module, and
+ * it loads only coder-zodtext.mjs, which has none): coder-hooks.mjs, which Coder's Worker also loads, uses it. Read in Claude
+ * Code 2.1.325's program (its zod is 4.6) and checked against zod 4.6's own output:
  *   - zodIssues(schema, value): zod's issue list (`expected`/`code`/`path`/`message`, …), each issue's keys in zod's order;
  *   - zodMessage(issues): zod's error message, the issues as JSON (what Claude Code shows when nothing better applies);
  *   - failedText(tool, issues): Claude Code's own wording of them (its w0): "<Tool> failed due to the following issue(s):"
- *     with the missing, unexpected and wrongly typed parameters first; with none of those, zod's message as it is;
+ *     with the missing, unexpected and wrongly typed parameters first; with none of those, zod's message as it is (the one
+ *     copy of that wording, coder-zodtext.mjs's issuesText, as zodMessage and pathText are its);
  *   - OUTPUT_SHAPES: each of Claude Code's tools' output schema, which a PostToolUse hook's updatedToolOutput must match
  *     (its hooks reference: "The value must match the tool's output shape"), and checkRewrite, its check of one;
  *   - fromJsonSchema(parameters): a tool's JSON schema (what Grok is given) as such a schema, for a hook's updatedInput.
  */
+import { issuesText, zodMessage, pathText } from "./coder-zodtext.mjs";
+export { zodMessage, pathText };
 
 // ── A SCHEMA ─────────────────────────────────────────────────────────────────
 const node = (t, o = {}) => Object.freeze({ t, ...o });
@@ -139,34 +142,16 @@ export function zodIssues(schema, value) {
   run(schema, value, [], out);
   return out;
 }
-/** zod's error message: the issues as JSON, two spaces deep. */
-export const zodMessage = (issues) => JSON.stringify(issues, null, 2);
+// (zodMessage, zod's error message: the issues as JSON, two spaces deep; pathText, a parameter's path as Claude Code writes it:
+// coder-zodtext.mjs's.)
 
 // ── CLAUDE CODE'S WORDS FOR THEM (its w0) ────────────────────────────────────
-/** A parameter's path as Claude Code writes it: questions[0].options. */
-export const pathText = (p) => p.reduce((s, x, i) => (typeof x === "number" ? s + "[" + x + "]" : i === 0 ? String(x) : s + "." + String(x)), "");
-/** Its cut of a long message: the first 500 characters, then "… [+N chars]". */
-const cut500 = (t) => { if (t.length <= 500) return t; let n = t.slice(0, 500); if (/[\ud800-\udbff]$/.test(n)) n = n.slice(0, -1); return n + "… [+" + (t.length - n.length) + " chars]"; };
 /**
  * WHAT CLAUDE CODE SAYS OF A SCHEMA'S ISSUES (2.1.325's w0): the missing parameters, the unexpected ones, those of the wrong
  * type, then the rest ("is invalid: …", at most 20, then "(N more issues not listed)"), headed "<tool> failed due to the
- * following issue(s):"; with none of the first three, zod's own message, the issues as JSON.
+ * following issue(s):"; with none of the first three, zod's own message, the issues as JSON. (coder-zodtext.mjs's issuesText.)
  */
-export function failedText(tool, issues) {
-  const missing = issues.filter((x) => x.code === "invalid_type" && String(x.message || "").includes("received undefined")).map((x) => "The required parameter `" + pathText(x.path) + "` is missing");
-  const unexpected = issues.filter((x) => x.code === "unrecognized_keys").flatMap((x) => x.keys.map((k) => "An unexpected parameter `" + pathText([...x.path, k]) + "` was provided"));
-  const wrong = issues.filter((x) => x.code === "invalid_type" && !String(x.message || "").includes("received undefined")).map((x) => "The parameter `" + pathText(x.path) + "` type is expected as `" + x.expected + "` but provided as `" + ((/received (\w+)/.exec(String(x.message || "")) || [])[1] || "unknown") + "`");
-  const lines = [...missing, ...unexpected, ...wrong];
-  if (!lines.length) return zodMessage(issues);
-  const other = issues.filter((x) => x.code !== "invalid_type" && x.code !== "unrecognized_keys").map((x) => {
-    const p = pathText(x.path), who = p === "" ? "The input" : "The parameter `" + p + "`";
-    const why = cut500(String(x.message || "").replace(/^Invalid input(?:: |$)/, ""));
-    return why !== "" ? who + " is invalid: " + why : x.code === "invalid_union" ? who + " matches none of the accepted forms" : who + " is invalid";
-  });
-  lines.push(...other.slice(0, 20));
-  if (other.length > 20) lines.push("(" + (other.length - 20) + " more " + (other.length - 20 === 1 ? "issue" : "issues") + " not listed)");
-  return tool + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n");
-}
+export const failedText = (tool, issues) => issuesText(tool, issues);
 
 // ── A TOOL'S JSON SCHEMA AS ONE OF THESE ─────────────────────────────────────
 /**

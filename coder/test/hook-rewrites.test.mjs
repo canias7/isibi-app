@@ -317,6 +317,27 @@ test("HR10 EnterPlanMode's and TodoWrite's output shapes, as Claude Code 2.1.325
   assert.ok(Z.OUTPUT_SHAPES.EnterPlanMode && Z.OUTPUT_SHAPES.TodoWrite);
 });
 
+test("HR11 one copy of Claude Code's words for a schema's issues (its w0, coder-zodtext.mjs): the hooks' and searches' (coder-zod.mjs), web_fetch's and web_search's (coder-issues.mjs) and lsp's give its text, a long message cut as it cuts one", async () => {
+  const ZT = await import("../container/coder-zodtext.mjs");
+  const IS = await import("../container/coder-issues.mjs");
+  const L = await import("../container/coder-lsp.mjs");
+  assert.equal(IS.issuesText, ZT.issuesText);
+  assert.equal(IS.pathText, ZT.pathText);
+  assert.deepEqual([IS.OTHER_MAX, IS.MESSAGE_MAX], [ZT.ISSUES_LISTED_MAX, ZT.ISSUE_MESSAGE_MAX]);
+  assert.equal(Z.zodMessage, ZT.zodMessage);
+  assert.equal(Z.pathText, ZT.pathText);
+  const many = Array.from({ length: 22 }, (_, i) => ({ code: "custom", path: ["p" + i], message: i === 0 ? "x".repeat(600) : "bad" }));
+  const lists = [[{ expected: "string", code: "invalid_type", path: ["q"], message: "Invalid input: expected string, received undefined" }, ...many], [{ code: "invalid_value", values: ["a"], path: ["m"], message: 'Invalid input: expected "a"' }], [{ code: "unrecognized_keys", keys: ["x", "y"], path: [], message: 'Unrecognized keys: "x", "y"' }]];
+  for (const issues of lists) {
+    const want = ZT.issuesText("LSP", issues);
+    assert.equal(Z.failedText("LSP", issues), want);
+    assert.equal(IS.issuesText("LSP", issues), want);
+    assert.equal(L.zodText(issues), want);
+  }
+  // (lsp's cut a long message at 500 characters with nothing after it: now Claude Code's "… [+N chars]" too.)
+  assert.ok(L.zodText(lists[0]).includes("The parameter `p0` is invalid: " + "x".repeat(500) + "… [+100 chars]\n"));
+});
+
 test("HR7 read, write and edit build Claude Code's result objects when Coder's loop asks (`facts`): Read's text object (the lines without numbers), Write's (create or update, the diff's hunks, the text it had), Edit's (old and new strings, replace_all); none when not asked", () => {
   const d = mkdtempSync(join(tmpdir(), "hr7-"));
   try {
@@ -344,5 +365,8 @@ test("HR7 read, write and edit build Claude Code's result objects when Coder's l
 test("HR8 the machine's copy holds the new modules, and the Worker's part loads none of Node's", () => {
   const copy = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8").split("\n").find((l) => /^COPY package\.json /.test(l));
   for (const f of ["coder-zod.mjs", "coder-hookcheck.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
-  assert.doesNotMatch(readFileSync(new URL("../container/coder-zod.mjs", import.meta.url), "utf8"), /from "node:|^import /m);
+  // (Its one import, the formatter's single copy, loads nothing either.)
+  const imports = (f) => [...readFileSync(new URL("../container/" + f, import.meta.url), "utf8").matchAll(/^\s*(?:import|export)\b[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
+  assert.deepEqual(imports("coder-zod.mjs"), ["./coder-zodtext.mjs"]);
+  assert.deepEqual(imports("coder-zodtext.mjs"), []);
 });
