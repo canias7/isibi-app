@@ -52,6 +52,7 @@ import { searchSettingsFrom } from "./coder-search.mjs";
 import { taskStore } from "./coder-tasks.mjs";
 // (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
 import { questionPicks } from "./coder-askuser.mjs";
+import { parkRecord, parkAnswer } from "./coder-park.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -3038,6 +3039,21 @@ const turns = new Map(); // project → { running, stop, events, result, started
  * `workingMs`: how long the oldest working job has run; `unsavedMs`: how long
  * the oldest ended job has waited to be saved.
  */
+/**
+ * A PAUSED TURN TAKEN UP AGAIN (coder-park.mjs): the paused job's record and the owner's answer to its card, from Coder's
+ * Worker, checked as the machine's /answer checks an answer (a question card's picks too); null when it is not one.
+ */
+export function resumeFrom(x) {
+  const rec = parkRecord(x);
+  if (!rec || !x || typeof x.answer !== "object") return null;
+  let a = parkAnswer(rec.kind, x.answer);
+  if (a && a.choice === "answers") { const picks = questionPicks(a.picks); a = picks ? { ...a, picks } : null; }
+  return a ? { ...rec, answer: a } : null;
+}
+/** The owner's messages that waited for a paused turn's card (Coder's Worker's queue): read in the turn taken up again. */
+export function queuedFrom(list) {
+  return (Array.isArray(list) ? list : []).filter((q) => q && typeof q.qid === "string" && /^q[0-9a-z]{6,20}$/.test(q.qid) && typeof q.text === "string" && q.text.trim()).slice(0, 20).map((q) => ({ qid: q.qid, text: q.text.slice(0, QUEUE_TEXT_MAX), at: Number(q.at) || Date.now(), read: false }));
+}
 export function busyState(map, now = Date.now(), jobs = JOBS) {
   let working = 0, unsaved = 0, workingMs = 0, unsavedMs = 0;
   for (const t of map.values()) {
@@ -3244,7 +3260,7 @@ export function wakeStarters(jobs, { cont = (pid) => { try { process.kill(pid, "
 /** Why the gate didn't start when the environment's CODER_TEST_NETWORK_GATE_FAIL switch is on (a test of its failing closed). */
 export const GATE_TEST_FAIL = "switched off for a test: the environment sets CODER_TEST_NETWORK_GATE_FAIL";
 
-export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
+export function createApp({ kept = null, gitVia = false, modelVia = false, liveFetch = null, setupRoot = null, keepaliveMs = KEEPALIVE_MS, streamMs = SCREEN_STREAM_MS, root = PROJECT_ROOT, env = process.env, send = null, remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, memRoot = MEM_ROOT, bgRoot = BG_DIR, proxyDir = "/srv/coder-proxy", proxyOpts = {}, apt = null, home = null, room = false, sandbox = false, data = null, image = "", holdMs = HOLD_MS, parkMs = 0, copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null } = {}) {
   // The setup script's packages are installed as root (this service's own user), never as `dev`.
   const aptRun = apt || ((dir, command, timeoutS, o) => execIn(dir, command, timeoutS, { ...o, uid: null, gid: null, kill: true, extraEnv: { DEBIAN_FRONTEND: "noninteractive" } }));
   const sendFn = send || coderSend(env);
@@ -3385,6 +3401,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // first answer was lost on the way (it is then sent once more); the turn already running is that start's own.
     const start = typeof body.start === "string" && /^[A-Za-z0-9_-]{8,64}$/.test(body.start) ? body.start : "";
     if (cur && cur.running) return start && cur.start === start ? [200, { ok: true, again: true }] : [409, { error: "busy" }];
+    // (A paused turn taken up again: its record and the owner's answer must be one Coder can take up. coder-park.mjs.)
+    const takeUp = body.resume === undefined ? null : resumeFrom(body.resume);
+    if (body.resume !== undefined && !takeUp) return [400, { error: "bad resume" }];
     // A TURN THAT ONLY TELLS CODER A BACKGROUND COMMAND ENDED (Coder's Worker starts it, like Claude Code, which "re-invokes
     // you when it exits"): not started when there is nothing to tell (another turn told it already).
     if (body.wake === true) { checkJobs(); if (!untoldOf(project).length) return [409, { error: "nothing to tell" }]; }
@@ -3395,6 +3414,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (`mode`: the chat's permission mode, which the owner may change while it runs, /mode; `answers`: the owner's answers
     // to its cards, /answer; `asking`: the card a step waits on.)
     const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "", writes: { check: null }, start };
+    // (A paused turn taken up again starts with the messages that waited for its card: queuedFrom. coder-park.mjs.)
+    t.queue = queuedFrom(body.queued);
 
     turns.set(project, t);
     // THE CHAT SAVED AS IT GOES (like Claude Code): its steps, the setup's included, go to the Worker every few seconds.
@@ -4304,7 +4325,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // (A QUESTION CARD, `chat` (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools execpt
         // for the notify one"): a message the owner sends while it waits is their reply to it, Claude Code's
         // "replied_in_chat"; taken once, as Coder takes the others, and only one sent after the card showed.)
-        ask: async (pid, { until = 0, chat = false } = {}) => {
+        // (A CARD LEFT OPEN, `park` (coder-park.mjs; Claude Code: "Questions stay open until you answer them", "permission
+        // prompts, including plan approval, never auto-resolve on idle"): at that time the step's job pauses, its card kept
+        // open, and this machine may stop; the owner's answer then starts a job that takes the turn up again at that call.)
+        ask: async (pid, { until = 0, chat = false, park = 0 } = {}) => {
           t.asking = String(pid);
           const shownAt = Date.now();
           try {
@@ -4313,11 +4337,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
               const a = t.answers.get(String(pid));
               if (a) { t.answers.delete(String(pid)); return a; }
               if (chat) { const q = t.queue.find((x) => !x.read && x.at >= shownAt); if (q) { q.read = true; return { choice: "chat", text: q.text, qid: q.qid }; } }
+              if (park && Date.now() >= park) return { choice: "park" };
               if (until && Date.now() > until) return null;
               await new Promise((ok) => setTimeout(ok, 250));
             }
           } finally { t.asking = ""; }
         },
+        ...(parkMs > 0 ? { parkMs } : {}),
         ...(gloopy ? { freshContext: async () => gloopyNow((await readMemory(memFile)) ?? "") } : {}),
         // The file tools follow the files Coder read or changed (CODER_SEEN_DIR), so a command that changes one says so.
         seen: true,
@@ -4346,7 +4372,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
-      runCoder(turnDeps, { notices, lost, stalls, timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
@@ -4558,7 +4584,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const background = jobsOf(project);
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}) });
+        // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
+        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
@@ -4601,15 +4628,21 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // (And "saved" from Coder's key card, Claude Code's request_credential form, once Coder's Worker has the key: the owner,
       // 2026-11-14, "Do all the talk to you tools execpt for the notify one".)
       // (And a question card's answer, Claude Code's AskUserQuestion: the owner's picks, or Skip. The owner, 2026-11-14.)
+      // (And an environment card's answer, Claude Code's update_environment, create_environment and switch_environment: what
+      // Coder's server did once the owner approved, `result`, or its refusal; Decline is "no". A5 of the recheck, 2026-11-14.)
+      // (A card whose job has just paused, before Coder's Worker saved it, says so: `parked`, so its answer starts the job that
+      // takes the turn up again. coder-park.mjs.)
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
         const picks = choice === "answers" ? questionPicks(body.answers) : null;
         if (choice === "answers" && !picks) return send(400, { ok: false, why: "bad answer" });
+        if ((choice === "approved" || choice === "refused") && !(typeof body.result === "string" && body.result)) return send(400, { ok: false, why: "bad answer" });
+        if (t && !t.running && t.result && t.result.parked && t.result.parked.pid === pid) return send(200, { ok: false, parked: true, why: "Coder paused while that card waited; your answer takes it up again." });
         if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
         // (And the plan as the owner edited it on the plan's card, with a Yes: Claude Code's "edit it directly before Claude
         // proceeds"; coder-plan.mjs, the owner, 2026-11-14. At most PLAN_SHOW_MAX characters, as the card shows.)
-        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}) });
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}), ...(choice === "approved" || choice === "refused" ? { result: body.result.slice(0, 4000) } : {}) });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").

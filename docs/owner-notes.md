@@ -17,6 +17,21 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Cards stay open until you answer, like Claude Code (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 4 of 6.
+
+- **Cards no longer run out.** Before, a card Coder was waiting on (a permission question, the plan's card, a question card, the key card or an environment card) closed when the job hit its 45-minute limit. Claude Code's docs: "Questions stay open until you answer them", and permission prompts "never auto-resolve on idle". Now:
+  - an answer while the job is still running is used at once, as before;
+  - after 5 minutes without an answer, the job pauses and saves where it was, so the machine can sleep;
+  - whenever you answer, even hours later, Coder picks up at that exact step and goes on.
+- **While a card waits:** messages you send wait in line and are read when Coder goes on. A message typed into a waiting question card counts as your answer. Stop closes the card. Rewind, Undo and deleting the chat close it too.
+- **Environment cards wait in the turn**, like the key card already did. When you approve, Coder's server makes the change and Coder is told what changed, then goes on in the same turn. When you decline, Coder is told no and goes on. Before, the card ended Coder's turn and your answer came as a new message.
+- **If you change your permission rules while a card waits,** a Yes runs the step under your new rules, so a new "never allow" rule still blocks it.
+- **Gloopy and GitHub jobs work as before.**
+- **Tests:** 11 new (the machine, the server and the page, including answering at the same moment the job pauses). The helper also ran the real page, server and machine with a stand-in for Grok in a browser. Not tried with real Grok yet: that's for the live test after you say deploy.
+- **For you to decide:** the pause comes after 5 minutes (Claude Code says "after a few minutes without activity"). Declining an environment card tells Coder "Denied by owner".
+
 ## 2026-11-14: Hooks and search, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 3 of 6. Hooks are your own scripts that run before and after Coder's actions.

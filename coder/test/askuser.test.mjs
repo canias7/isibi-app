@@ -371,7 +371,7 @@ test("AQ10 the page: a card Coder waits on (its pid) is live while the job runs 
   assert.match(html({ running: false, project: { id: "c1" } }, [old]), /^<div class="cd-ask is-live" data-ask="0">[\s\S]*data-ask-go="0">Submit <kbd>/, "an older card, live once the job ended");
   assert.doesNotMatch(html({ running: true, project: { id: "c1" } }, [old]), /is-live/);
   // Live while the job runs and it is unanswered; an older card (no pid) as before.
-  assert.match(ui, /const ans = e\.pid \? S\.events\.find\(\(x\) => x\.type === 'permanswer' && x\.pid === e\.pid\) : null;\n\s+const live = e\.pid \? S\.running && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);/);
+  assert.match(ui, /const ans = e\.pid \? S\.events\.find\(\(x\) => x\.type === 'permanswer' && x\.pid === e\.pid\) : null;\n\s+const live = e\.pid \? \(S\.running \|\| !!\(S\.project && S\.project\.parked && S\.project\.parked\.pid === e\.pid\)\) && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);/);
   assert.match(ui, /\(live \? '<div class="cd-ask-wait">Needs your input<\/div>' : ans \? '<div class="cd-perm-done">' \+ askDone\(ans\) \+ '<\/div>' : ''\)/);
   // Submit and Skip on a waiting card go to its step.
   assert.match(ui, /const askSend = \(\) => \{ const w = askWaiting\(\); if \(w\) \{ askAnswer\(w\.pid, 'answers'\); return; \} const t = askReply\(S\.ask\); if \(!t\) return; S\.ask = null; send\(t\); \};/);
