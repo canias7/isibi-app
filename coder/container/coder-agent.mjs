@@ -27,7 +27,7 @@ import { retryLine } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
-import { accountEmailRefused, emailRefused, refusedNow } from "./coder-privacy.mjs";
+import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
@@ -3524,6 +3524,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (A connector call that holds the account's email as a client's identity: refused, as Claude Code's privacy check refuses
         // such an MCP call, after the deny rules and before any card; coder-privacy.mjs.)
         if (emailMark && mcpByName.has(c.name) && refusedNow(c.name, c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(c.name).label).slice(0, 200) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+        // (So is an environment tool's or request_secret's call, by Claude Code's name for it: its claude-code-remote MCP tools,
+        // mcp__claude-code-remote__…, which its privacy check reads as any MCP call; coder-privacy.mjs REMOTE_TOOLS. 2026-11-14.)
+        if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(REMOTE_TOOLS[c.name]); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc);
         if (askRule) {
           if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
