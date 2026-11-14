@@ -19,6 +19,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
 import { extname, relative, resolve, basename, join, isAbsolute } from "node:path";
 import { kbSize } from "./coder-checks.mjs";
+import { issuesText } from "./coder-zodtext.mjs";
 
 // ── WHAT GROK IS TOLD ───────────────────────────────────────────────────────────────────────────────────────────────────
 /** Claude Code 2.1.323's own description of its LSP tool, word for word (the owner, 2026-11-14). */
@@ -118,29 +119,12 @@ export function zodIssues(args) {
   return out;
 }
 /**
- * CLAUDE CODE'S WORDS FOR THOSE ISSUES (its formatter, 2.1.325, copied): missing parameters, then unexpected ones, then wrong
- * types, then the rest ("The parameter `operation` is invalid: …", at most 20); and when nothing is missing, unexpected or of
- * the wrong type, only values wrong (line 0, an unknown operation), zod's own raw list of the issues, as Claude Code gives it.
+ * CLAUDE CODE'S WORDS FOR THOSE ISSUES (its formatter, 2.1.325, coder-zodtext.mjs's issuesText): missing parameters, then
+ * unexpected ones, then wrong types, then the rest ("The parameter `operation` is invalid: …", at most 20); and when nothing is
+ * missing, unexpected or of the wrong type, only values wrong (line 0, an unknown operation), zod's own raw list of the issues,
+ * as Claude Code gives it.
  */
-export function zodText(issues, tool = "LSP") {
-  const key = (path) => path.reduce((n, r, s) => (typeof r === "number" ? n + "[" + r + "]" : s === 0 ? String(r) : n + "." + r), "");
-  const missing = issues.filter((q) => q.code === "invalid_type" && String(q.message || "").includes("received undefined")).map((q) => key(q.path));
-  const unexpected = issues.filter((q) => q.code === "unrecognized_keys").flatMap((q) => q.keys.map((y) => key([...q.path, y])));
-  const types = issues.filter((q) => q.code === "invalid_type" && !String(q.message || "").includes("received undefined")).map((q) => { const m = /received (\w+)/.exec(String(q.message || "")); return [key(q.path), q.expected, m ? m[1] : "unknown"]; });
-  const rest = issues.filter((q) => q.code !== "invalid_type" && q.code !== "unrecognized_keys").map((q) => {
-    const p = key(q.path), who = p === "" ? "The input" : "The parameter `" + p + "`", said = String(q.message || "").replace(/^Invalid input(?:: |$)/, "").slice(0, 500);
-    return said !== "" ? who + " is invalid: " + said : q.code === "invalid_union" ? who + " matches none of the accepted forms" : who + " is invalid";
-  });
-  const lines = [
-    ...missing.map((k) => "The required parameter `" + k + "` is missing"),
-    ...unexpected.map((k) => "An unexpected parameter `" + k + "` was provided"),
-    ...types.map(([k, want, got]) => "The parameter `" + k + "` type is expected as `" + want + "` but provided as `" + got + "`"),
-  ];
-  if (!lines.length) return JSON.stringify(issues, null, 2);
-  lines.push(...rest.slice(0, 20));
-  if (rest.length > 20) lines.push("(" + (rest.length - 20) + " more issue" + (rest.length - 20 === 1 ? "" : "s") + " not listed)");
-  return tool + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n");
-}
+export const zodText = (issues, tool = "LSP") => issuesText(tool, issues);
 /**
  * THE LSP TOOL'S INPUT, AS CLAUDE CODE TAKES IT (coder-inputs.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on
  * those tools"): refused before any hook in Claude Code's words ("InputValidationError: LSP failed due to the following

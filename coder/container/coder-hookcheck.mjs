@@ -13,15 +13,16 @@ import { checkRewrite, zodIssues, failedText, fromJsonSchema, coerceInput, witho
 import { plainOutputText, toolInputFromHook, answeredText } from "./coder-hooks.mjs";
 import { grepText, globText } from "./coder-search.mjs";
 import { searchText } from "./coder-websearch.mjs";
-import { createdText, getText, listText, updateText } from "./coder-tasks.mjs";
-import { planApproved } from "./coder-plan.mjs";
+import { createdText, getText, listText, updateText, TODO_WRITE_RESULT } from "./coder-tasks.mjs";
+import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs";
 import { WRITE_FRESH, EDIT_OTHER_CHANGES } from "./coder-tools.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
 const numbered = (content, start) => content.split("\n").map((l, i) => String(start + i).padStart(6) + "\t" + l).join("\n");
 /**
- * EACH TOOL'S TEXT FOR ITS RESULT OBJECT (Claude Code's tool by tool), as Coder prints it: `(tool, value)` → text, or
+ * EACH TOOL'S TEXT FOR ITS RESULT OBJECT (Claude Code's tool by tool, EnterPlanMode's and TodoWrite's too since 2026-11-14),
+ * as Coder prints it: `(tool, value)` → text, or
  * { text, pics } for a picture Grok is shown; undefined when Coder has no text for it (Claude Code's "mapper returned
  * undefined": a Read notebook, PDF or page-images object, which Coder's read never makes). `ctx`: `shownPath(full)` (a
  * path as Coder's answers name it) and `monitorText(id, ms)` (a monitor's start, coder-agent.mjs's monitorStarted).
@@ -66,6 +67,9 @@ export function outputTextOf(ctx = {}) {
         if (v.awaitingLeaderApproval) return "Your plan has been submitted to the team lead for approval.\n\nPlan file: " + v.filePath + "\n\n**What happens next:**\n1. Wait for the team lead to review your plan\n2. You will receive a message in your inbox with approval/rejection\n3. If approved, you can proceed with implementation\n4. If rejected, refine your plan based on the feedback\n\n**Important:** Do NOT proceed until you receive approval. Check your inbox for response.\n\nRequest ID: " + v.requestId;
         if (v.isAgent) return 'The owner has approved the plan. There is nothing else needed from you now. Please respond with "ok"';
         return planApproved(v.plan || "", { file: v.filePath || "", edited: v.planWasEdited === true, unsaved: v.planWasEdited === true && !v.filePath });
+      // (EnterPlanMode's: its message, then what plan mode asks, as Coder is told on entering it; TodoWrite's: its fixed words.)
+      case "EnterPlanMode": return v.message + ENTERED_PLAN_TEXT.slice(ENTERED_PLAN.length);
+      case "TodoWrite": return TODO_WRITE_RESULT;
       case "TaskCreate": return createdText(v.task);
       case "TaskGet": return getText(v.task);
       case "TaskList": return listText(v.tasks);
@@ -91,13 +95,15 @@ const plain = (v) => typeof v === "object" && v !== null && !Array.isArray(v);
  *      key it does not know refuses it: "<Event> hook for <Tool> returned updatedInput that failed schema validation: <its
  *      schema's words> / The tool input from the model was valid; the hook's rewrite of it was not.";
  *   2. the keys it does not know dropped;
- *   3. the tool's own check (`check(args)`, coder-inputs.mjs's for the tools that have one): its schema's refusal as above, any
- *      other as "… returned updatedInput that the tool refused: <its words>"; a check that throws, "… that the tool could not
- *      check: <why> / The tool input from the model was valid.".
- * `name` Coder's tool, `tool` its name for hooks, `input` the hook's (hooks' names: `file_path`). → { ok: true, args } (Coder's
- * names, as the tool takes them), or { ok: false, message }. A tool with no schema (a connector's) takes any object.
+ *   3. the tool's own check (`check(args)`, coder-inputs.mjs's for the tools that have one), awaited as Claude Code awaits the
+ *      tool's validateInput on the rewrite (lsp's file checks, "File does not exist: …", need the chat's files): its schema's
+ *      refusal as above, any other as "… returned updatedInput that the tool refused: <its words>"; a check that throws, "…
+ *      that the tool could not check: <why> / The tool input from the model was valid.".
+ * `name` Coder's tool, `tool` its name for hooks, `input` the hook's (hooks' names: `file_path`). → a Promise of { ok: true,
+ * args } (Coder's names, as the tool takes them), or { ok: false, message }. A tool with no schema (a connector's) takes any
+ * object.
  */
-export function checkHookInput({ name, tool, input, event = "PreToolUse", params = null, check = null, ctx = {} }) {
+export async function checkHookInput({ name, tool, input, event = "PreToolUse", params = null, check = null, ctx = {} }) {
   const lead = event + " hook for " + tool;
   let a = toolInputFromHook(name, input);
   if (!a) return { ok: false, message: lead + " returned updatedInput that failed schema validation: " + failedText(tool, zodIssues(fromJsonSchema({ type: "object", properties: {} }), input)) + "\n" + REWRITE_TAIL };
@@ -112,7 +118,7 @@ export function checkHookInput({ name, tool, input, event = "PreToolUse", params
   a = withoutUnknown(params, a);
   if (typeof check !== "function") return { ok: true, args: a };
   let v;
-  try { v = check(a, ctx); } catch (e) { return { ok: false, message: lead + " returned updatedInput that the tool could not check: " + String((e && e.message) || e) + "\nThe tool input from the model was valid." }; }
+  try { v = await check(a, ctx); } catch (e) { return { ok: false, message: lead + " returned updatedInput that the tool could not check: " + String((e && e.message) || e) + "\nThe tool input from the model was valid." }; }
   if (v && typeof v.error === "string") {
     const m = v.error.replace(/^error: /, "");
     if (m.startsWith("InputValidationError: ")) return { ok: false, message: lead + " returned updatedInput that failed schema validation: " + m.slice("InputValidationError: ".length) + "\n" + REWRITE_TAIL };
