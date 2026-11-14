@@ -46,7 +46,7 @@ import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
-import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
+import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
@@ -1338,16 +1338,19 @@ export function gloopyConnectorTools(list) {
 /**
  * A connector tool call through the Worker (the job's AI pass; the Worker adds the sign-in): { text, isError }. With
  * `opts.ask` (a connector's questions for the owner, MCP elicitation: coder-elicit.mjs) the call comes as a stream, its
- * server's questions asked as they come, the owner's answers sent back the same way.
+ * server's questions asked as they come, the owner's answers sent back the same way. `roots`: the chat's working folders
+ * (the project's, the other repositories', the owner's additional ones), sent with each call for the server's roots/list
+ * (Claude Code answers it with its session's working directory and additional working directories; round 5).
  */
-export function connectorCaller(via, fetchFn = fetch) {
+export function connectorCaller(via, fetchFn = fetch, { roots = [] } = {}) {
   const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/mcp");
   const post = async (answer) => { const r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ answer }), signal: AbortSignal.timeout(60_000) }); return r.ok; };
+  const folders = Array.isArray(roots) ? roots.filter((x) => typeof x === "string" && x) : [];
   return async (tool, args, opts = null) => {
     const ask = opts && opts.ask && typeof opts.ask.elicit === "function" ? opts.ask : null;
     const gave = (e) => ({ text: e && e.name === "TimeoutError" ? "error: the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : "error: Coder's server could not be reached", isError: true });
     let r;
-    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args, ...(ask ? { ask: true } : {}) }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
+    try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ tool, args, ...(ask ? { ask: true } : {}), ...(folders.length ? { roots: folders } : {}) }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
     catch (e) { return gave(e); }
     let j;
     if (ask && r.ok && /ndjson/i.test(String(r.headers.get("content-type") || ""))) { try { j = await askedCall(r, ask, post); } catch (e) { return gave(e); } }
@@ -2470,7 +2473,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!canAsk() || denyInstead === true) owner = { action: "cancel" };
       else {
         const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
-        emit({ type: "elicit", pid, connector: String(q.server || "").slice(0, 80), tool: String(t.label || c.name).slice(0, 120), mode, message: scrub(String(q.message)).slice(0, 20_000), ...(mode === "url" ? { url: String(q.url).slice(0, 20_000) } : { requestedSchema: q.requestedSchema, order: Array.isArray(q.order) ? q.order.slice(0, 200) : Object.keys((q.requestedSchema && q.requestedSchema.properties) || {}) }) });
+        // (The question's own words for its card, its `_meta["anthropic/permissionDisplay"]`: Claude Code gives its cloud page
+        // the title, display_name and description. Round 5.)
+        const shown = q.display && typeof q.display === "object" ? q.display : {};
+        const words = Object.fromEntries([["title", 2000], ["displayName", 2000], ["description", 20_000]].filter(([k]) => typeof shown[k] === "string" && shown[k].trim()).map(([k, n]) => [k, scrub(shown[k]).slice(0, n)]));
+        emit({ type: "elicit", pid, connector: String(q.server || "").slice(0, 80), tool: String(t.label || c.name).slice(0, 120), mode, message: scrub(String(q.message)).slice(0, 20_000), ...(mode === "url" ? { url: String(q.url).slice(0, 20_000) } : { requestedSchema: q.requestedSchema, order: Array.isArray(q.order) ? q.order.slice(0, 200) : Object.keys((q.requestedSchema && q.requestedSchema.properties) || {}) }), ...words });
         let a = null;
         try { a = await deps.ask(pid, { until: started + maxMs, gone: () => e.gone }); } catch { a = null; }
         // (Withdrawn by the server just as the owner answered: no answer goes.)
@@ -2902,7 +2909,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one". Nor enter_plan_mode and exit_plan_mode, its
   // EnterPlanMode and ExitPlanMode: "Claude Code leaves out AskUserQuestion, EnterPlanMode, and ExitPlanMode, so a session in
   // plan mode can't leave it on its own"; 2026-11-14.)
-  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).filter((t) => !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name))))).map(withHosts),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
+  // (Coder's own tools as this job makes them, whatever rules or settings take out: an upfront tool the chat's requests carried
+  // that one took out keeps this definition in the request under tool search. Round 5, coder-toolsearch.mjs upfrontTools.)
+  const tsCatalog = new Map([[TOOL_SEARCH, TOOL_SEARCH_TOOL]]);
+  const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
+  const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell })).map(withHosts).filter(ownOffered),...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   // (web_search with Claude Code's `mode`, and its note as its own part of the system prompt while the tool is offered,
@@ -2956,13 +2967,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   /** Tool search's note before a step, from the chat's record and its tools now (coder-toolsearch.mjs announcement). */
   const tsNote = (pool) => {
     const rec = toolSearchRecord(convo), here = new Set(pool.map((t) => (t && t.function ? t.function.name : "")));
-    const retracted = new Map([...rec.loaded].filter((n) => !here.has(n)).map((n) => [n, tsCause(n)]).filter(([, c]) => c));
-    return announcement({ deferred: [...tsDeferred(pool)], loaded: rec.loaded, announced: rec.announced, listed: rec.listed, retracted, told: rec.told, needsAuth: github ? null : mcpWaiting, failed: github ? null : mcpFailed, lastNeedsAuth: rec.lastNeedsAuth, lastFailed: rec.lastFailed });
+    // (Round 5: the upfront tools the chat's requests carried that left are taken back too, as loaded ones are; and one back
+    // among the upfront tools is said back. Not in a job from GitHub, which keeps its own tools.)
+    const was = github ? [] : rec.upfront.map(entryName);
+    const retracted = new Map([...new Set([...rec.loaded, ...was])].filter((n) => !here.has(n)).map((n) => [n, tsCause(n)]).filter(([, c]) => c));
+    const deferredNow = tsDeferred(pool);
+    return announcement({ deferred: [...deferredNow], loaded: rec.loaded, announced: rec.announced, listed: rec.listed, retracted, told: rec.told, needsAuth: github ? null : mcpWaiting, failed: github ? null : mcpFailed, lastNeedsAuth: rec.lastNeedsAuth, lastFailed: rec.lastFailed, upfront: new Set([...here].filter((n) => n && !deferredNow.has(n))), refused: github ? new Set() : rec.refused });
   };
   // (The connector tools' own search hints, by name, for tool_search's keyword search.)
   const mcpHints = new Map(mcpTools.filter((t) => t.searchHint).map((t) => [t.name, t.searchHint]));
   // (The names in the request's tools only because they were loaded before their source went away: a call is refused.)
   let tsKeptOnly = new Set();
+  // (The upfront tools this request carries, for the chat's record when they differ from it: round 5, upfrontTools.)
+  let tsUpfrontNew = null;
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
@@ -3643,7 +3660,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     let tsSent = null;
     // (A loaded tool whose source went away stays, with the definition it was loaded with: the chat's record. Not in a job from
     // GitHub, which has no connectors.)
-    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo); tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); }
+    // (And an upfront tool that left stays where it was, with the definition it was sent with: the chat's record of the upfront
+    // tools its requests carried, written again on this request's answer when they changed. Round 5.)
+    tsUpfrontNew = null;
+    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(upfrontTools(pool, tsDeferred(pool), was, tsCatalog), tsCatalog); if (!sameTools(up, was)) tsUpfrontNew = up; } }
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
     // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions.)
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools, tool_choice: "auto" }); }
@@ -3667,7 +3687,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     calls0 = calls;
-    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
@@ -3840,8 +3860,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       early.checkThenRun(x.id, how + "\n" + action, () => checkAction(deps, { model, convo, skipId: x.id, context, notes: checkerNotes, action, mode: how, repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode }), key, async (v) => !!v && !v.error && v.decision !== "block" && !jobOver && modeNow() === mode0 && now() - started <= maxMs && !(await stopped()), run);
     };
     const startEarly = async (x) => {
-      // (Not the call taken up again after its job paused: its card's answer comes first, in its turn.)
-      if (!x || !x.id || early.has(x.id) || (back && back.call && x.id === back.call.id) || !x.args || typeof x.args !== "object" || Array.isArray(x.args)) return;
+      // (Not the call taken up again after its job paused: its card's answer comes first, in its turn. Nor a tool in the request's
+      // tools only because the chat's record keeps it: refused in its turn, tsKeptOnly.)
+      if (!x || !x.id || early.has(x.id) || (back && back.call && x.id === back.call.id) || !x.args || typeof x.args !== "object" || Array.isArray(x.args) || tsKeptOnly.has(x.name)) return;
       const mode0 = modeNow();
       let args = { ...x.args };
       // (One a hook of the owner's runs for has its own check in its turn, before its hooks, as before.)
@@ -5712,7 +5733,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             ? { tool: c.name, id: c.id, path: shownPath, change: changeShown(), why: why ? shownPath + " is a protected file: it can make code run on your computer when the branch is pulled, or change how the project is built." : "Plan mode is on: files change only after you approve the plan." }
             : ruleAsk
             ? { tool: c.name, id: c.id, ...(c.name === "web_fetch" ? { url: scrub(String(args.url || "")).slice(0, 500) } : { path: shownPath }), ...(c.name === "write" || c.name === "edit" ? { change: changeShown() } : {}), why: fileDec && fileDec.verdict === "ask" ? fileDec.why : c.hook.reason || "A PreToolUse hook asks first.", byRule: true }
-            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchSwitched ? MODE_SWITCHED : fetchDec.why, ...(!fetchPaused && !fetchSwitched && fetchDec && !fetchDec.byRule && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
+            : { tool: "web_fetch", id: c.id, url: scrub(String(args.url || "")).slice(0, 500), why: fetchPaused ? pausedWhy(checkStF.byRow) : fetchSwitched ? MODE_SWITCHED : fetchDec.why, ...(!fetchPaused && !fetchSwitched && fetchDec && fetchDec.suggest ? { rules: fetchDec.suggest } : {}) };
           // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
           // decide first: noOneHooks, fix round 4, D5.)
           approval = canAsk() ? await askOwner(card, { hooks: !c.rerun }) : c.rerun ? null : await noOneHooks(card);

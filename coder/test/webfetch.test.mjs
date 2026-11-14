@@ -732,3 +732,38 @@ test("WEB12 a failed fetch's text in Claude Code's words is told whole (its word
   const r = await A.webFetchRun({ exec: async () => ({ code: 1, output: "error: " + got.message }) }, { model: "m", args: { url: "https://" + host + "/x", prompt: "p" }, chat: "chat:w6" });
   assert.deepEqual([r.code, r.out], [1, "error: " + got.message]);
 });
+
+test("WEB14 an ask rule's question still carries the domain's allow rule as its suggestion, as Claude Code 2.1.325's WebFetch does (its checkPermissions adds `suggestions` to a rule's ask: W7 of the recheck of 2026-11-14, round 5): PermissionRequest hooks see it in permission_suggestions, the card offers \"Yes, and don't ask again\" for it, as Claude Code's prompt does, and the ask rule still asks the next time", async () => {
+  assert.deepEqual(P.fetchDecision("https://api.example.com/a", { mode: "auto", rules: { ask: ["WebFetch(domain:api.example.com)"] } }), { verdict: "ask", rule: "WebFetch(domain:api.example.com)", why: "Coder wants to fetch content from api.example.com", suggest: ["WebFetch(domain:api.example.com)"], byRule: true, host: "api.example.com" });
+  assert.deepEqual(P.fetchDecision("https://example.com/x", { mode: "acceptEdits", rules: { ask: ["WebFetch"] } }).suggest, ["WebFetch(domain:example.com)"], "a rule on the whole tool: the URL's domain, as Claude Code's");
+  const two = [say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "w1")]), say("", [call("web_fetch", { url: "https://example.com/b", prompt: "p" }, "w2")]), say("done")];
+  const run = async (opts, answer) => {
+    const events = [], hookCalls = [], execs = [];
+    let n = 0;
+    const r = await A.runCoder({
+      send: async (req) => (isReader(req) ? { message: { role: "assistant", content: "read" }, usage: { in: 2, out: 1 } } : two[Math.min(n++, two.length - 1)]),
+      exec: async (x) => {
+        const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+        if (mark && x.hook === true) { hookCalls.push(JSON.parse(x.payload)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
+        if (/coder-tools\.mjs (\S+)$/.test(String(x.command))) { execs.push(x); return { code: 0, output: pageOut("PAGE") }; }
+        return { code: 0, output: "ok\n" };
+      },
+      emit: (e) => events.push(e), here: () => "/work/shop", root: "/work/shop", chatId: "shop-w7-" + Math.random().toString(36).slice(2, 8), where: (p) => p,
+      ask: async () => answer,
+    }, { text: "go", messages: [], ...opts });
+    return { r, events, hookCalls, execs, cards: events.filter((e) => e.type === "permission" && e.tool === "web_fetch") };
+  };
+  const rules = { allow: [], deny: [], ask: ["WebFetch(domain:example.com)"] };
+  const hooks = H.hooksFrom({ hooks: { PermissionRequest: [{ matcher: "WebFetch", hooks: [{ type: "command", command: "perm.sh" }] }] } }, "settings").list;
+  const t = await run({ mode: "auto", rules, hooks }, { choice: "always" });
+  const pr = t.hookCalls.find((x) => x.hook_event_name === "PermissionRequest");
+  assert.deepEqual(pr.permission_suggestions, [{ type: "addRules", rules: [{ toolName: "WebFetch", ruleContent: "domain:example.com" }], behavior: "allow", destination: "localSettings" }]);
+  assert.deepEqual(t.cards[0].rules, ["WebFetch(domain:example.com)"]);
+  // "Don't ask again" adds the allow rule; the ask rule still asks for the next fetch (ask rules come before allow rules).
+  assert.equal(t.cards.length, 2, "asked again");
+  assert.deepEqual(t.r.rulesAdded, ["WebFetch(domain:example.com)"]);
+  assert.equal(t.execs.length, 2);
+  // The card shows it as Claude Code's prompt does ("Yes, and don't ask again for <domain>").
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(ui, /if \(Array\.isArray\(e\.rules\) && e\.rules\.length\) o\.push\(\['always', 'Yes, and don\\'t ask again for ' \+/);
+});

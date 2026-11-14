@@ -654,3 +654,101 @@ test("TS27 the docs page says what tool search is now: always on, which tools wa
   assert.ok(!page.includes("With many connectors, Coder first searches"), "the old line is gone");
   assert.match(page, /<a href="#tool-search">Tool search<\/a>/);
 });
+
+// ── ROUND 5 (2026-11-14, the owner: "Yes pls"): the tools sent upfront stay too, as Claude Code keeps its tool list ──────
+const noteOf = (j) => (j.seen[0].messages.filter((m) => m.appNote && m.toolsAnnounced).at(-1) || {}).content || "";
+const noRules = (deny = []) => ({ allow: [], ask: [], deny });
+
+test("TS30 an upfront tool that leaves mid-chat stays in the request's tools where it was, with the same definition (Claude Code 2.1.325 keeps the tool list from the conversation's first request: Grok's cache kept); Grok is told once why it can't be used (its retracted words: a deny rule's \"Denied by a permission rule\"), a call is refused by the rule, never run; back, it is \"available again\" (its restoredNames); the chat's record keeps Coder's own tools by name", async () => {
+  assert.equal(T.RESTORED, "The following tools are available again in this chat. The earlier instruction to disregard their definitions and not call them no longer applies:");
+  assert.equal(T.RUNS_AGAIN, "The earlier error that said the following tools cannot run no longer applies. You can call them now:");
+  const first = await job([say("done")]);
+  const before = JSON.stringify(first.seen[0].tools);
+  const rec = first.r.messages.find((m) => m.role === "assistant" && m.toolsDeclared).toolsDeclared;
+  assert.deepEqual(rec, first.seen[0].tools.map((t) => t.function.name), "Coder's own by name, in the request's order");
+  assert.ok(JSON.stringify(rec).length < 1000, "a few hundred characters, not the definitions");
+  // bash denied: still there, byte for byte; told why; the call refused by the rule.
+  const denied = await job([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], { messages: first.r.messages, extra: { rules: noRules(["Bash"]) } });
+  assert.equal(JSON.stringify(denied.seen[0].tools), before, "the same tools, byte for byte");
+  // (monitor goes with it, as Claude Code's Monitor does under a Bash deny rule: a deferred tool, said gone.)
+  assert.equal(noteOf(denied), "(Note from Coder's app, not the owner:\n" + T.DEFERRED_GONE + "\nmonitor\n\n" + T.RETRACTED + "\n- Denied by a permission rule: bash\n\n" + T.AMBIENT + ")");
+  assert.equal(denied.told("b1"), "Permission to use Bash with command ls has been denied.");
+  assert.equal(denied.ran.length, 0, "never run");
+  assert.equal(denied.r.messages.filter((m) => m.toolsDeclared).length, 1, "the record not written again");
+  // Told once.
+  const later = await job([say("ok")], { messages: denied.r.messages, extra: { rules: noRules(["Bash"]) } });
+  assert.equal(later.seen[0].messages.filter((m) => m.toolsAnnounced && m.toolsAnnounced.retracted).length, 1);
+  assert.equal(JSON.stringify(later.seen[0].tools), before);
+  // Back: said so, in Claude Code's words, and no longer taken back.
+  const back = await job([say("", [call("bash", { command: "ls" }, "b2")]), say("ok")], { messages: later.r.messages });
+  assert.equal(noteOf(back), "(Note from Coder's app, not the owner:\n" + T.availableAgain(1, "monitor") + "\n\n" + T.RESTORED + "\nbash)", "after the deferred tools available again, as its delta orders them");
+  assert.deepEqual(back.seen[0].messages.filter((m) => m.toolsAnnounced).at(-1).toolsAnnounced.restored, ["bash"]);
+  assert.equal(T.toolSearchRecord(back.r.messages).told.size, 0);
+  assert.equal(back.ran.length, 1, "it runs again");
+  assert.equal(JSON.stringify(back.seen[0].tools), before);
+  // Gone again later: told again.
+  const again = await job([say("ok")], { messages: back.r.messages, extra: { rules: noRules(["Bash"]) } });
+  assert.match(noteOf(again), /- Denied by a permission rule: bash/);
+});
+
+test("TS31 one that leaves for another reason (Claude Code's \"withdrawn\": here ask_user under denyInsteadOfPrompting) stays too, untold; a call is refused as \"still listed\"; back, \"You can call them now\" (its runsAgainNames); a connector tool marked to load upfront stays with the definition it was sent with, its connector's cause told (removed from the configuration), and comes back the same way", async () => {
+  const first = await job([say("done")]);
+  const before = JSON.stringify(first.seen[0].tools);
+  const ask = { questions: [{ question: "Which?", header: "Pick", options: [{ label: "A", description: "a" }, { label: "B", description: "b" }], multiSelect: false }] };
+  const off = await job([say("", [call("ask_user", ask, "a1")]), say("ok")], { messages: first.r.messages, extra: { denyInstead: true } });
+  assert.equal(JSON.stringify(off.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))), JSON.stringify(first.seen[0].tools.filter((t) => !T.isDeferred(t.function.name))), "the upfront tools byte for byte");
+  assert.equal(off.told("a1"), T.stillListed("ask_user"));
+  assert.ok(!noteOf(off).includes(T.RETRACTED), "not taken back: Grok isn't told why");
+  assert.deepEqual([...T.toolSearchRecord(off.r.messages).refused], ["ask_user"]);
+  const on = await job([say("ok")], { messages: off.r.messages });
+  assert.match(noteOf(on), new RegExp(T.RUNS_AGAIN.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\nask_user"));
+  assert.equal(T.toolSearchRecord(on.r.messages).refused.size, 0);
+  assert.equal(JSON.stringify(on.seen[0].tools), before);
+  // A connector tool its server marks to load upfront: kept with its recorded definition once its connector is removed.
+  const mcp = async () => ({ text: "fine", isError: false });
+  const up = connector(1, { alwaysLoad: true });
+  const c1 = await job([say("done")], { deps: { mcp }, extra: { connectors: [up] } });
+  const withIt = JSON.stringify(c1.seen[0].tools);
+  const recorded = c1.r.messages.find((m) => m.toolsDeclared).toolsDeclared;
+  assert.ok(recorded.some((e) => e && typeof e === "object" && e.function.name === "mcp__linear__tool_1"), "a connector's tool by its definition");
+  assert.ok(recorded.includes("bash"));
+  const gone = await job([say("", [call("mcp__linear__tool_1", { id: "1" }, "m1")]), say("ok")], { messages: c1.r.messages, deps: { mcp }, extra: { connectors: [] } });
+  assert.equal(JSON.stringify(gone.seen[0].tools), withIt, "the same tools, byte for byte");
+  assert.match(noteOf(gone), /\n- MCP server removed from the configuration: mcp__linear__tool_1\n/);
+  assert.equal(gone.told("m1"), T.stillListed("mcp__linear__tool_1"));
+  const back = await job([say("ok")], { messages: gone.r.messages, deps: { mcp }, extra: { connectors: [up] } });
+  assert.match(noteOf(back), new RegExp(T.RESTORED.replace(/[.*+?^${}()|[\]\\]/g, "\\$&") + "\\nmcp__linear__tool_1"));
+  assert.equal(JSON.stringify(back.seen[0].tools), withIt);
+});
+
+test("TS32 where a tool that left goes back (Claude Code's Cta: after the nearest one before it in the record that is in the list, else before the first of the record's there, else first), with which definition (Coder's own as the job makes it, a connector's as recorded; none, left out); the record's entries; a summary carries it; a job from GitHub keeps its own tools", async () => {
+  const d = (n, desc = n) => ({ type: "function", function: { name: n, description: desc, parameters: { type: "object", properties: {} } } });
+  const nm = (l) => l.map((t) => t.function.name);
+  const cat = new Map(["a", "b", "c", "d"].map((n) => [n, d(n)]));
+  const rec = ["a", "b", "c", "d"];
+  assert.deepEqual(nm(T.upfrontTools([d("a"), d("d")], new Set(), rec, cat)), ["a", "b", "c", "d"]);
+  assert.deepEqual(nm(T.upfrontTools([d("d")], new Set(), rec, cat)), ["a", "b", "c", "d"], "before the first of the record's");
+  assert.deepEqual(nm(T.upfrontTools([d("x")], new Set(), rec, cat)), ["a", "b", "c", "d", "x"], "none of the record's in the list: first");
+  assert.deepEqual(nm(T.upfrontTools([d("a"), d("n"), d("d")], new Set(), rec, cat)), ["a", "b", "c", "n", "d"], "a new one stays where the chat has it");
+  assert.deepEqual(nm(T.upfrontTools([d("a"), d("b"), d("c"), d("d"), d("e")], new Set(["e"]), rec, cat)), ["a", "b", "c", "d"], "a deferred one is not upfront");
+  assert.deepEqual(nm(T.upfrontTools([d("a")], new Set(), ["a", "zz", "b"], cat)), ["a", "b"], "one with no definition is left out");
+  const theirs = d("mcp__x__t", "From the X connector (MCP). As sent.");
+  assert.deepEqual(T.upfrontTools([d("a")], new Set(), ["a", theirs], cat), [d("a"), theirs], "a connector's as recorded");
+  assert.deepEqual(T.upfrontTools([d("b", "now")], new Set(), ["a", "b"], new Map([["a", d("a", "made now")]])), [d("a", "made now"), d("b", "now")], "Coder's own as the job makes it");
+  assert.deepEqual(T.upfrontRecord([d("a"), theirs, d("b")], cat), ["a", theirs, "b"]);
+  assert.equal(T.sameTools(["a", theirs], ["a", theirs]), true);
+  assert.equal(T.sameTools(["a"], ["a", "b"]), false);
+  // requestTools: the record's place in the list, the loaded tools after, none twice.
+  assert.deepEqual(nm(T.requestTools([d("a"), d("l")], new Set(["l"]), new Set(["l", "k"]), new Map([["k", d("k")]]), rec, cat)), ["a", "b", "c", "d", "l", "k"]);
+  // A summary carries the record (Claude Code's tool list outlives a compaction).
+  const first = await job([say("done")]);
+  const sum = C.summaryMessage("s", "the earlier jobs", [], first.r.messages);
+  assert.deepEqual(sum.toolsDeclared, first.r.messages.find((m) => m.toolsDeclared).toolsDeclared);
+  const after = await job([say("", [call("bash", { command: "ls" }, "b1")]), say("ok")], { messages: [sum], extra: { rules: noRules(["Bash"]) } });
+  assert.ok(names(after.seen[0]).includes("bash"), "kept after the summary");
+  assert.equal(after.told("b1"), "Permission to use Bash with command ls has been denied.");
+  // A job from GitHub keeps its own tools: no record of the chat's put back, none written.
+  const gh = await job([say("done")], { messages: first.r.messages, extra: { github: true } });
+  assert.ok(names(first.seen[0]).includes("request_secret") && !names(gh.seen[0]).includes("request_secret"), "the chat's request_secret is not put back in a job from GitHub");
+  assert.equal(gh.r.messages.filter((m) => m.toolsDeclared).length, 1, "the chat's record only");
+});

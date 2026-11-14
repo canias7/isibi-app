@@ -330,6 +330,7 @@
         <ul>
           <li>Coder is told the waiting tools' names once. A tool it loads stays loaded for the rest of the chat, after a summary too. The chat shows no line for a search.</li>
           <li>If a connector is turned off or removed after Coder loaded one of its tools, Coder is told not to use that tool any more. Connectors waiting for you to sign in, and ones that failed to connect, are named to Coder too, so it can tell you when your request needs one.</li>
+          <li>The tools a chat starts with stay in its requests even when one goes away mid-chat (a rule denies it, or its connector is turned off), as in Claude Code, so Grok's cache is kept: Coder is told why it can't use it, and told again when it comes back.</li>
         </ul>
 
         <h3 id="ts-settings">Settings</h3>

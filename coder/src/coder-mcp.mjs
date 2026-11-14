@@ -7,16 +7,28 @@
 // tools' names and descriptions, and sends each tool call here with its job's pass; the Worker adds the sign-in and calls
 // the MCP server. What comes back is the server's answer, as text.
 //
-// MCP's "Streamable HTTP" transport (spec 2025-06-18): JSON-RPC 2.0 POSTed to one address; the answer is JSON or an
+// MCP's "Streamable HTTP" transport (spec 2025-11-25): JSON-RPC 2.0 POSTed to one address; the answer is JSON or an
 // event stream; the server may give an Mcp-Session-Id to send back. Its sign-in is OAuth 2.1 with PKCE, the server found
 // from the MCP server's protected-resource metadata (RFC 9728), and Coder registered as a client on the fly (RFC 7591).
 import { seal, unseal } from "./coder-github.mjs";
 import { modelPass } from "./coder-model-gate.mjs";
 // (A connector's questions for the owner, MCP elicitation: what Coder declares, and the server's side of a request.)
-import { CLIENT_CAPS } from "../container/coder-elicit.mjs";
+import { CLIENT_CAPS, rootsResult, rootPaths, checkElicitRequest } from "../container/coder-elicit.mjs";
 import { serverTalk, keepAnswer, streamedCall, pollAnswer, elicitKey } from "./coder-elicit.mjs";
 
-export const MCP_VERSION = "2025-06-18";
+/**
+ * THE PROTOCOL VERSION, AS CLAUDE CODE 2.1.325 NEGOTIATES IT ON ITS EARLIER HANDSHAKE (its MCP client's _legacyHandshake;
+ * round 5, the owner: "Yes pls"): `initialize` asks for the newest of the versions it takes (2025-11-25), a server may answer
+ * with any of them, and a version outside them ends the connection in its words ("Server's protocol version is not
+ * supported: …"). The version the server answered goes in every later request's MCP-Protocol-Version header, none on
+ * `initialize` itself. (Claude Code first asks a server whether it speaks the newer revision 2026-07-28, with a
+ * `server/discover` request: a different protocol, which Coder doesn't speak, so Coder starts at the handshake that follows
+ * for a server that doesn't.)
+ */
+export const MCP_VERSION = "2025-11-25";
+export const MCP_VERSIONS = Object.freeze(["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05", "2024-10-07"]);
+/** Its words when a server answers `initialize` with a version it doesn't take. */
+export const versionRefused = (v) => "Server's protocol version is not supported: " + v;
 export const CONNECTORS_MAX = 20;
 // (No cap on a connector's tools, nor on all of them, since 2026-11-14: Claude Code's MCP docs, "Claude Code doesn't impose a
 // fixed per-server tool cap; the practical limit is your context window budget", and tool search names them only. Grok's
@@ -245,11 +257,11 @@ const transient = (e) => Object.assign(e, { transient: true });
  * The JSON-RPC answer with `id` in a response: plain JSON, or the `data:` lines of an event stream. `onMessage`: what else
  * the server sends meanwhile (its own requests, such as a question for the owner, and its notices), as it comes.
  */
-export async function readAnswer(res, id, { onChunk = null, signal = null, onMessage = null } = {}) {
+export async function readAnswer(res, id, { onChunk = null, signal = null, onMessage = null, resume = null, wait = null } = {}) {
   const type = String(res.headers.get("content-type") || "");
   // AN EVENT STREAM READ EVENT BY EVENT (MCP elicitation, container/coder-elicit.mjs): a server's question comes on the
   // stream before its answer, which comes only once the question is answered; the answer ends the reading.
-  if (onMessage && /text\/event-stream/i.test(type) && res.body && typeof res.body.getReader === "function") return readEvents(res, id, { onChunk, signal, onMessage });
+  if (onMessage && /text\/event-stream/i.test(type) && res.body && typeof res.body.getReader === "function") return readEvents(res, id, { onChunk, signal, onMessage, resume, wait });
   // Read as it comes, each piece resetting the idle timer (a progress notification is such a piece).
   let text = "";
   if (onChunk && res.body && typeof res.body.getReader === "function") {
@@ -277,36 +289,95 @@ export async function readAnswer(res, id, { onChunk = null, signal = null, onMes
   return m.result;
 }
 
-/** readAnswer's event stream, event by event: the others to `onMessage` as they come, until the answer with `id`. */
-async function readEvents(res, id, { onChunk, signal, onMessage }) {
-  const reader = res.body.getReader(), dec = new TextDecoder();
+/** One event of an event stream as the SSE format reads it: its id, its retry (ms), its name and its data lines joined. */
+export function sseEvent(block) {
+  let id = "", retry = null, event = "";
+  const data = [];
+  for (const l of String(block).split(/\r?\n/)) {
+    const k = l.indexOf(":");
+    const name = k < 0 ? l : l.slice(0, k), v = k < 0 ? "" : l.slice(k + 1).replace(/^ /, "");
+    if (name === "data") data.push(v);
+    else if (name === "id") { if (!v.includes("\0")) id = v; }
+    else if (name === "retry") { if (/^\d+$/.test(v)) retry = Number(v); }
+    else if (name === "event") event = v;
+  }
+  return { id, retry, event, data: data.join("\n") };
+}
+/**
+ * A STREAM TAKEN UP AGAIN, AS CLAUDE CODE'S TRANSPORT DOES (its _scheduleReconnection): after the server's `retry`, else
+ * 1 s, then 1.5 s (1,000 × 1.5ⁿ, at most 30 s); after STREAM_RETRIES failed tries it gives up. A wait that `signal` ends.
+ */
+export const STREAM_RETRIES = 2;
+/**
+ * Coder's own bound, not Claude Code's: at most this many times a stream is opened again in one session (a request's stream,
+ * or the server's own), as each GET is one of the Worker's subrequests for this call, which are counted; a server that
+ * accepts a GET and closes it at once would otherwise be asked again every second for the whole call.
+ */
+export const STREAM_REOPENS_MAX = 100;
+export const streamDelay = (attempt, retry = null) => (retry !== null ? retry : Math.min(1000 * 1.5 ** attempt, 30_000));
+const napUntil = (ms, signal, wait) => {
+  let t = null;
+  const ended = new Promise((ok) => { if (!signal) return; if (signal.aborted) ok(); else signal.addEventListener("abort", () => ok(), { once: true }); });
+  const nap = wait ? Promise.resolve(wait(ms)) : new Promise((ok) => { t = setTimeout(ok, ms); });
+  return Promise.race([nap, ended]).finally(() => clearTimeout(t));
+};
+
+/**
+ * readAnswer's event stream, event by event: the others to `onMessage` as they come, until the answer with `id`. A stream
+ * that ends with no answer after giving event ids is taken up again where it stopped (`resume(lastEventId)`: a GET with
+ * Last-Event-ID, as Claude Code's transport resumes a request's stream in MCP 2025-11-25; on the stream taken up again an
+ * answer is this request's, as its replayMessageId makes it); a 405 there, or STREAM_RETRIES failed tries, ends it.
+ */
+async function readEvents(res, id, { onChunk, signal, onMessage, resume = null, wait = null }) {
+  let reader = res.body.getReader(), dec = new TextDecoder();
   const stopped = signal ? new Promise((_, no) => { const go = () => { reader.cancel().catch(() => {}); no(new Error("stopped")); }; if (signal.aborted) go(); else signal.addEventListener("abort", go, { once: true }); }) : null;
   if (stopped) stopped.catch(() => {});
-  let buf = "", size = 0, found = null;
+  let buf = "", size = 0, found = null, lastId = "", retry = null, resumed = false, reopened = 0;
   const take = (block) => {
-    const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
-    if (!data) return;
+    const ev = sseEvent(block);
+    if (ev.id) lastId = ev.id;
+    if (ev.retry !== null) retry = ev.retry;
+    if (!ev.data) return;
     let j;
-    try { j = JSON.parse(data); } catch { return; }
+    try { j = JSON.parse(ev.data); } catch { return; }
     for (const x of Array.isArray(j) ? j : [j]) {
       if (!x || typeof x !== "object") continue;
       if (typeof x.method === "string") onMessage(x);
-      else if (x.id === id && !found) found = x;
+      else if ((x.id === id || (resumed && x.id !== undefined)) && !found) found = x;
     }
   };
   for (;;) {
     const { value, done } = await (stopped ? Promise.race([reader.read(), stopped]) : reader.read());
-    if (done) break;
-    if (onChunk) onChunk();
-    const piece = dec.decode(value, { stream: true });
-    size += piece.length;
-    if (size > 20_000_000) throw new Error("the MCP server's answer is too large");
-    buf += piece;
-    let cut;
-    while (!found && (cut = buf.search(/\r?\n\r?\n/)) >= 0) { take(buf.slice(0, cut)); buf = buf.slice(cut).replace(/^\r?\n\r?\n/, ""); }
-    if (found) { reader.cancel().catch(() => {}); break; }
+    if (!done) {
+      if (onChunk) onChunk();
+      const piece = dec.decode(value, { stream: true });
+      size += piece.length;
+      if (size > 20_000_000) throw new Error("the MCP server's answer is too large");
+      buf += piece;
+      let cut;
+      while (!found && (cut = buf.search(/\r?\n\r?\n/)) >= 0) { take(buf.slice(0, cut)); buf = buf.slice(cut).replace(/^\r?\n\r?\n/, ""); }
+      if (found) { reader.cancel().catch(() => {}); break; }
+      continue;
+    }
+    buf += dec.decode();
+    if (buf.trim()) take(buf);
+    buf = "";
+    // (Ended with no answer: taken up again where it stopped, when it gave ids, or when it is a stream taken up already.)
+    if (found || typeof resume !== "function" || !(lastId || resumed)) break;
+    let next = null;
+    for (let k = 0; k < STREAM_RETRIES && !next && reopened < STREAM_REOPENS_MAX; k++) {
+      reopened++;
+      await napUntil(streamDelay(k, retry), signal, wait);
+      if (signal && signal.aborted) throw new Error("stopped");
+      let r = null;
+      try { r = await resume(lastId); } catch { r = null; }
+      if (r && r.status === 405) { try { if (r.body) await r.body.cancel(); } catch { /* read */ } break; }
+      if (r && r.ok && r.body && typeof r.body.getReader === "function") next = r;
+      else if (r && r.body) { try { await r.body.cancel(); } catch { /* read */ } }
+    }
+    if (!next) break;
+    reader = next.body.getReader(); dec = new TextDecoder(); resumed = true;
   }
-  if (!found) { buf += dec.decode(); if (buf.trim()) take(buf); }
   if (!found) throw new Error("the MCP server gave no answer");
   if (found.error) throw new Error("the MCP server said: " + String(found.error.message || "error").slice(0, 300));
   return found.result;
@@ -316,21 +387,31 @@ async function readEvents(res, id, { onChunk, signal, onMessage }) {
  * One MCP session: initialize, then the methods asked for, in order. `token`: the sign-in (a Bearer token) or "".
  * Throws NeedsSignIn on 401.
  */
-async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, taskWait = null, talk: talk0 = null } = {}) {
-  let session = "", id = 0;
+async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, taskWait = null, talk: talk0 = null, wait = null } = {}) {
+  // (`version`: the protocol version the server answered `initialize` with, sent in every later request's header.)
+  let session = "", id = 0, version = "";
   // (The server's own requests and notices on a request's stream, MCP elicitation: src/coder-elicit.mjs. With no `talk`, a
   // question is cancelled: no one can be asked.)
   const talk = talk0 || serverTalk();
   const headersNow = () => {
-    const headers = { "content-type": "application/json", accept: "application/json, text/event-stream", "mcp-protocol-version": MCP_VERSION };
+    const headers = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+    if (version) headers["mcp-protocol-version"] = version;
     if (token) headers.authorization = "Bearer " + token;
     if (session) headers["mcp-session-id"] = session;
     return headers;
   };
+  /** The session's own GET (its stream, or a request's stream taken up again): event stream only, from `lastId` on. */
+  const getHeaders = (lastId = "") => { const h = headersNow(); delete h["content-type"]; h.accept = "text/event-stream"; if (lastId) h["last-event-id"] = lastId; return h; };
   /** An answer of Coder's to a request of the server's: POSTed as the transport says, with the session. */
   const reply = async (m) => {
     try { const r = await fetchFn(url, { method: "POST", headers: headersNow(), body: JSON.stringify(m), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }); try { if (r.body) await r.body.cancel(); } catch { /* read */ } return r.status; } catch { return 0; }
   };
+  // (A question on the server's own stream holds the idle timer of the request in flight, as one on its own stream does:
+  // Claude Code counts a server's open questions, wherever they came from.)
+  let heldAll = 0, current = "";
+  const armers = new Set();
+  const holdAll = (d) => { heldAll = Math.max(0, heldAll + d); for (const a of [...armers]) a(); };
+  const listenCtl = new AbortController();
   const post = async (method, params, notify = false) => {
     const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
     const headers = headersNow();
@@ -343,13 +424,15 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     // (While the server's question waits for the owner the idle timer is still, and starts again when it closes, as Claude
     // Code's: "pendingElicitations" keep a call from being idle.)
     let idle, why = "", held = 0, over = false;
-    const arm = () => { clearTimeout(idle); if (held > 0 || over) return; idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
+    const arm = () => { clearTimeout(idle); if (held > 0 || heldAll > 0 || over) return; idle = setTimeout(() => { why = "idle"; ctl.abort(); }, ms); };
     const total = call ? setTimeout(() => { why = "total"; ctl.abort(); }, totalMs || CALL_TOTAL_MS) : null;
     // (Out of time with the question still open: Claude Code's words for it, and not a passing failure to try again.)
     const said = () => why === "total" ? "the MCP server's tool call went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes" : "the MCP server said nothing for " + Math.round(ms / 1000) + " seconds";
     const lost = () => why === "total" && talk.open() > 0 ? new Error(talk.timedOut(totalMs || CALL_TOTAL_MS)) : Object.assign(transient(new Error(said())), { first: method === "initialize" });
     const ctx = { during: method, reply, hold: () => { held++; clearTimeout(idle); }, release: () => { held = Math.max(0, held - 1); arm(); } };
-    const done = () => { over = true; clearTimeout(idle); clearTimeout(total); };
+    const done = () => { over = true; clearTimeout(idle); clearTimeout(total); armers.delete(arm); if (!notify) current = ""; };
+    if (!notify) current = method;
+    armers.add(arm);
     arm();
     try { res = await fetchFn(url, { method: "POST", headers, body: JSON.stringify(msg), signal: ctl.signal }); }
     catch (e) { done(); throw Object.assign(transient(new Error(why ? said() : "the MCP server could not be reached")), { first: method === "initialize" }); }
@@ -358,41 +441,150 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     if (!res.ok && !(notify && res.status === 202)) { done(); const e = Object.assign(new Error("the MCP server answered " + res.status), { status: res.status, first: method === "initialize" }); throw res.status >= 500 ? transient(e) : e; }
     const s = res.headers.get("mcp-session-id");
     if (s) session = s;
-    if (notify) { done(); return null; }
-    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage: (m) => talk.message(m, ctx) }); }
+    if (notify) { done(); try { if (res.body) await res.body.cancel(); } catch { /* read */ } return res.status; }
+    // (A request's stream that ends before its answer, after giving event ids, is taken up again with a GET: readEvents.)
+    const resume = (lastId) => fetchFn(url, { method: "GET", headers: getHeaders(lastId), signal: ctl.signal });
+    try { arm(); return await readAnswer(res, msg.id, { onChunk: arm, signal: ctl.signal, onMessage: (m) => talk.message(m, ctx), resume, wait }); }
     catch (e) { throw why ? lost() : e; }
     finally { done(); talk.end(ctx); }
   };
-  const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
-  await post("notifications/initialized", null, true);
-  const out = [];
-  // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".)
-  for (const [method, params] of steps) {
-    let r = await post(method, method === "tools/call" ? { ...params, _meta: { progressToken: "gf-" + id } } : params);
-    // MCP TASKS (Claude Code, beta: a long job on the server, polled, "pollIntervalMs clamped to 250–30000, default 2000"):
-    // a tool call answered with a task is followed until it ends, then its result is fetched.
-    if (method === "tools/call" && r && r.task && typeof r.task.taskId === "string") r = await followTask(post, r.task, { wait: taskWait });
-    out.push(r);
-  }
-  out.init = init;
-  return out;
+  // THE SERVER'S OWN STREAM (Claude Code 2.1.325's MCP client: its transport opens it with a GET once the server accepts the
+  // initialized notice with 202; round 5, the owner: "Yes pls"): what the server sends that answers none of Coder's requests
+  // (a question for the owner, roots/list, ping, notices) comes on it, and a question there is asked as one on the call's own
+  // stream is, while a tool call runs. A 405 is a server that offers none; a first GET that fails is let go, as Claude Code
+  // lets it go. When it ends, Claude Code opens it again (with Last-Event-ID once it gave ids), after the server's `retry` or
+  // 1 s, then 1.5 s, and gives up after 2 failed tries; Coder's ends with the session.
+  const listenCtx = { get during() { return current; }, reply, hold: () => holdAll(1), release: () => holdAll(-1) };
+  const listen = async () => {
+    let lastId = "", retry = null, reopened = 0;
+    const open = async () => { try { return await fetchFn(url, { method: "GET", headers: getHeaders(lastId), signal: listenCtl.signal }); } catch { return null; } };
+    const drop = async (r) => { try { if (r && r.body) await r.body.cancel(); } catch { /* read */ } };
+    const read = async (r) => {
+      const reader = r.body.getReader(), dec = new TextDecoder();
+      const stop = () => { reader.cancel().catch(() => {}); };
+      listenCtl.signal.addEventListener("abort", stop, { once: true });
+      let buf = "";
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          buf += dec.decode(value, { stream: true });
+          let cut;
+          while ((cut = buf.search(/\r?\n\r?\n/)) >= 0) {
+            const ev = sseEvent(buf.slice(0, cut));
+            buf = buf.slice(cut).replace(/^\r?\n\r?\n/, "");
+            if (ev.id) lastId = ev.id;
+            if (ev.retry !== null) retry = ev.retry;
+            if (!ev.data) continue;
+            let j;
+            try { j = JSON.parse(ev.data); } catch { continue; }
+            for (const x of Array.isArray(j) ? j : [j]) if (x && typeof x === "object" && typeof x.method === "string") talk.message(x, listenCtx);
+          }
+          // (Claude Code caps one SSE event at 16 MB.)
+          if (buf.length > 16_777_216) break;
+        }
+      } catch { /* closed */ } finally { listenCtl.signal.removeEventListener("abort", stop); }
+    };
+    let r = await open();
+    if (!r || !r.ok || !r.body || typeof r.body.getReader !== "function") { await drop(r); return; }
+    for (;;) {
+      await read(r);
+      let next = null;
+      for (let k = 0; k < STREAM_RETRIES && !next; k++) {
+        if (listenCtl.signal.aborted || ++reopened > STREAM_REOPENS_MAX) return;
+        await napUntil(streamDelay(k, retry), listenCtl.signal, wait);
+        if (listenCtl.signal.aborted) return;
+        r = await open();
+        if (r && r.status === 405) { await drop(r); return; }
+        if (r && r.ok && r.body && typeof r.body.getReader === "function") next = r; else await drop(r);
+      }
+      if (!next || listenCtl.signal.aborted) return;
+      r = next;
+    }
+  };
+  try {
+    const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
+    // (Claude Code's handshake: a version it doesn't take ends the connection, in its words; the one answered is used.)
+    if (!init || typeof init !== "object") throw Object.assign(new Error("Server sent invalid initialize result: " + init), { first: true });
+    if (!MCP_VERSIONS.includes(init.protocolVersion)) throw Object.assign(new Error(versionRefused(init.protocolVersion)), { first: true });
+    version = init.protocolVersion;
+    if (await post("notifications/initialized", null, true) === 202) listen().catch(() => {});
+    const out = [];
+    // (A tool call asks for progress, which keeps its idle timer from running out: Claude Code's "progress notification".)
+    for (const [method, params] of steps) {
+      let r = await post(method, method === "tools/call" ? { ...params, _meta: { progressToken: "gf-" + id } } : params);
+      // MCP TASKS (Claude Code, beta: a long job on the server, polled, "pollIntervalMs clamped to 250–30000, default 2000"):
+      // a tool call answered with a task is followed until it ends, then its result is fetched.
+      if (method === "tools/call" && r && r.task && typeof r.task.taskId === "string") r = await followTask(post, r.task, { wait: taskWait, roots: talk.roots ? talk.roots() : [], server: talk.server || "", tool: talk.tool || (params && params.name) || "" });
+      out.push(r);
+    }
+    out.init = init;
+    return out;
+  } finally { listenCtl.abort(); }
 }
 
 export const TASK_POLL_MIN = 250, TASK_POLL_MAX = 30_000, TASK_POLL_DEFAULT = 2_000;
-/** Follows a server's task (MCP tasks) until it is completed, failed or cancelled, within the tool call's total limit. */
-export async function followTask(post, task, { wait = null, now = () => Date.now() } = {}) {
+/**
+ * A TASK'S REQUESTS FOR INPUT (Claude Code 2.1.325's task driver; round 5, the owner: "Yes pls"): its status input_required
+ * with `inputRequests` (a key of the server's → { method, params }), each key answered once through `tasks/update` with
+ * `{ taskId, inputResponses }`, keys past TASK_INPUT_KEYS_MAX ignored. Claude Code serves `roots/list` everywhere (Coder:
+ * the chat's working folders) and `elicitation/create` only in an interactive terminal: in its cloud sessions a task that asks
+ * a question is cancelled, and so is one that asks for any other input. A task with no list (the tasks of MCP 2025-11-25,
+ * Coder's, whose question comes as a request of its own) is a question no task can show here: cancelled the same way.
+ */
+export const TASK_INPUT_KEYS_MAX = 16;
+/** The kinds of input Claude Code names (its ivr). */
+export const TASK_INPUT_METHODS = Object.freeze(["elicitation/create", "sampling/createMessage", "roots/list"]);
+/** Its words for a task that ended without a result (its Rt: "MCP server … task for tool … was cancelled: …" or "failed: …"). */
+export const taskEnded = (server, tool, cancelled, why) => "MCP server \"" + server + "\" task for tool \"" + tool + "\" " + (cancelled ? "was cancelled" : "failed") + ": " + why;
+/** Its reasons, with Coder's swaps ("the owner", "this chat", "Coder"). */
+export const TASK_QUESTION = "the task asked the owner a question that this chat cannot show yet, so Coder asked the server to cancel it";
+export const taskInputUnserved = (method) => (TASK_INPUT_METHODS.includes(method) ? "the task's request for input (" + method + ") was not one this client could serve, so Coder asked the server to cancel it" : "the task asked for input of a kind this client does not serve, so Coder asked the server to cancel it");
+export const taskAnswerRefused = (id, keys) => "Task " + id + ": the server rejected the submitted answer to " + keys.join(", ") + " and still requires input";
+/**
+ * Follows a server's task (MCP tasks) until it is completed, failed or cancelled, within the tool call's total limit; its
+ * requests for input as Claude Code's cloud answers them (above). `roots`: the chat's working folders; `server` and `tool`:
+ * the connector's name and the tool's, for Claude Code's words.
+ */
+export async function followTask(post, task, { wait = null, now = () => Date.now(), roots = [], server = "", tool = "" } = {}) {
   const sleep = wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
   const id = String(task.taskId).slice(0, 128);
   const start = now();
-  let t = task;
+  const ended = (cancelled, why) => ({ isError: true, content: [{ type: "text", text: taskEnded(server, tool, cancelled, String(why).slice(0, 1000)) }] });
+  const cancel = async () => { await post("tasks/cancel", { taskId: id }).catch(() => {}); };
+  const answered = new Set(), refused = new Set(), served = new Set();
+  let t = task, soon = 0;
   for (;;) {
     const st = String((t && t.status) || "working");
     if (st === "completed") return await post("tasks/result", { taskId: id });
-    if (st === "failed" || st === "cancelled") return { isError: true, content: [{ type: "text", text: "the connector's task " + st + (t.statusMessage ? ": " + String(t.statusMessage).slice(0, 300) : "") }] };
-    if (st === "input_required") return { isError: true, content: [{ type: "text", text: "the connector's task is waiting for an answer from the owner, which Coder cannot give yet; tell the owner" }] };
-    if (now() - start > CALL_TOTAL_MS) { await post("tasks/cancel", { taskId: id }).catch(() => {}); return { isError: true, content: [{ type: "text", text: "the connector's task went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes and was cancelled" }] }; }
-    const every = Number(t && t.pollInterval);
-    await sleep(Number.isFinite(every) && every > 0 ? Math.min(TASK_POLL_MAX, Math.max(TASK_POLL_MIN, every)) : TASK_POLL_DEFAULT);
+    if (st === "failed") return ended(false, (t.error && typeof t.error.message === "string" && t.error.message) || t.statusMessage || "Task failed");
+    if (st === "cancelled") return ended(true, t.statusMessage || "Task was cancelled by the server");
+    if (st === "input_required") {
+      const all = t.inputRequests && typeof t.inputRequests === "object" && !Array.isArray(t.inputRequests) ? Object.entries(t.inputRequests) : [];
+      if (!all.length) { await cancel(); return ended(true, TASK_QUESTION); }
+      const asks = all.filter(([k, q]) => k && k.length <= 512 && q && typeof q === "object" && typeof q.method === "string");
+      const open = asks.filter(([k]) => !answered.has(k)), fresh = open.filter(([k]) => !refused.has(k));
+      if (open.length && !fresh.length) { await cancel(); return ended(false, taskAnswerRefused(id, open.map(([k]) => k))); }
+      const now0 = fresh.filter(([k]) => { if (served.has(k)) return true; if (served.size >= TASK_INPUT_KEYS_MAX) return false; served.add(k); return true; });
+      if (now0.length) {
+        const responses = {};
+        for (const [k, q] of now0) {
+          if (q.method === "roots/list") { responses[k] = rootsResult(roots); continue; }
+          await cancel();
+          // (A question this chat can't show; one that isn't a question Claude Code's client takes: input it can't serve.)
+          const p = q.params && typeof q.params === "object" ? q.params : null;
+          const asked = q.method === "elicitation/create" && p && !checkElicitRequest(p.mode === "url" && p.elicitationId === undefined ? { ...p, elicitationId: "" } : p).error;
+          return asked ? ended(true, TASK_QUESTION) : ended(false, taskInputUnserved(q.method));
+        }
+        try { await post("tasks/update", { taskId: id, inputResponses: responses }); for (const k of Object.keys(responses)) answered.add(k); }
+        catch { for (const k of Object.keys(responses)) refused.add(k); }
+        soon = TASK_POLL_MIN;
+      }
+    }
+    if (now() - start > CALL_TOTAL_MS) { await cancel(); return { isError: true, content: [{ type: "text", text: "the connector's task went on for over " + Math.round(CALL_TOTAL_MS / 60000) + " minutes and was cancelled" }] }; }
+    const every = Number(t && (t.pollIntervalMs ?? t.pollInterval));
+    await sleep(soon || (Number.isFinite(every) && every > 0 ? Math.min(TASK_POLL_MAX, Math.max(TASK_POLL_MIN, every)) : TASK_POLL_DEFAULT));
+    soon = 0;
     const g = await post("tasks/get", { taskId: id });
     t = g && g.task ? g.task : g;
   }
@@ -425,6 +617,9 @@ export async function mcpSession(url, token, steps, opts = {}) {
  */
 export async function sseSession(url, token, steps, { fetchFn = fetch, idleMs = 0, totalMs = 0, talk: talk0 = null } = {}) {
   const auth = token ? { authorization: "Bearer " + token } : {};
+  // (The version the server answered, in the header of every message after `initialize`, as Claude Code's SSE transport.)
+  let version = "";
+  const sent = () => ({ "content-type": "application/json", ...(version ? { "mcp-protocol-version": version } : {}), ...auth });
   // (The server's own requests and notices come on the same stream: MCP elicitation, src/coder-elicit.mjs.)
   const talk = talk0 || serverTalk();
   const ctl = new AbortController();
@@ -461,11 +656,11 @@ export async function sseSession(url, token, steps, { fetchFn = fetch, idleMs = 
     let id = 0;
     /** An answer of Coder's to a request of the server's, POSTed where its messages go. */
     const reply = async (m) => {
-      try { const r = await fetchFn(endpoint.href, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(m), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }); try { if (r.body) await r.body.cancel(); } catch { /* read */ } return r.status; } catch { return 0; }
+      try { const r = await fetchFn(endpoint.href, { method: "POST", headers: sent(), body: JSON.stringify(m), signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS) }); try { if (r.body) await r.body.cancel(); } catch { /* read */ } return r.status; } catch { return 0; }
     };
     const post = async (method, params, notify = false) => {
       const msg = { jsonrpc: "2.0", method, ...(params ? { params } : {}), ...(notify ? {} : { id: ++id }) };
-      const r = await fetchFn(endpoint.href, { method: "POST", headers: { "content-type": "application/json", ...auth }, body: JSON.stringify(msg) });
+      const r = await fetchFn(endpoint.href, { method: "POST", headers: sent(), body: JSON.stringify(msg) });
       if (r.status === 401 || r.status === 403) throw new NeedsSignIn(r.headers.get("www-authenticate"));
       if (!r.ok) throw new Error("the MCP server answered " + r.status);
       if (notify) return null;
@@ -496,7 +691,11 @@ export async function sseSession(url, token, steps, { fetchFn = fetch, idleMs = 
       try { return await Promise.race([waiting, failed]); }
       finally { over = true; clearTimeout(timer); clearTimeout(total); talk.end(ctx); }
     };
-    await post("initialize", { protocolVersion: "2024-11-05", capabilities: CLIENT_CAPS, clientInfo: CLIENT });
+    // (Claude Code asks an SSE server for the same version as any other, and takes back the same ones: httpSession.)
+    const init = await post("initialize", { protocolVersion: MCP_VERSION, capabilities: CLIENT_CAPS, clientInfo: CLIENT });
+    if (!init || typeof init !== "object") throw new Error("Server sent invalid initialize result: " + init);
+    if (!MCP_VERSIONS.includes(init.protocolVersion)) throw new Error(versionRefused(init.protocolVersion));
+    version = init.protocolVersion;
     await post("notifications/initialized", null, true);
     const out = [];
     for (const [method, params] of steps) out.push(await post(method, params));
@@ -845,17 +1044,18 @@ export async function removeConnector(bucket, uid, id) {
 
 /**
  * One tool call for a job: the sign-in added here (refreshed and tried once more on a 401). `ask`: the job's way to ask the
- * owner the server's questions (src/coder-elicit.mjs), or null: then a question is cancelled.
+ * owner the server's questions (src/coder-elicit.mjs), or null: then a question is cancelled. `roots`: the chat's working
+ * folders, the session's roots (a server's roots/list).
  */
-export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), taskWait = null, ask = null } = {}) {
+export async function callTool(env, bucket, uid, connectorId, tool, args, { fetchFn = fetch, now = Date.now(), taskWait = null, ask = null, roots = [], wait = null } = {}) {
   const list = await readConnectors(bucket, uid);
   const c = list.find((x) => x.id === connectorId);
   if (!c) return { text: "error: that connector was removed", isError: true };
   const meta = (c.tools || []).find((t) => t.name === tool) || {};
-  const talk = ask ? serverTalk({ ask, server: c.name, tool }) : null;
+  const talk = serverTalk({ ask, server: c.name, tool, roots });
   const once = async (force) => {
     const token = await tokenOf(env, bucket, uid, c, { fetchFn, now, force });
-    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {}, ...(meta.tasks ? { task: { ttl: CALL_TOTAL_MS } } : {}) }]], { fetchFn, ...(taskWait ? { taskWait } : {}), ...(talk ? { talk } : {}) });
+    const [r] = await mcpSession(c.url, token, [["tools/call", { name: tool, arguments: args && typeof args === "object" && !Array.isArray(args) ? args : {}, ...(meta.tasks ? { task: { ttl: CALL_TOTAL_MS } } : {}) }]], { fetchFn, ...(taskWait ? { taskWait } : {}), ...(wait ? { wait } : {}), talk });
     return resultText(r);
   };
   try {
@@ -1057,6 +1257,8 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   if (!which) return answer({ error: "not one of this job's connector tools" }, 403);
   // A JOB THAT CAN ASK THE OWNER (`ask`, Coder's own chats) gets the call as a stream: the server's questions as they come,
   // then its answer (src/coder-elicit.mjs). Any other gets the answer alone, and a question is cancelled.
-  if (body.ask === true) return streamedCall((send) => callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, ask: { send, wait: (eid, signal) => pollAnswer(bucket, elicitKey(uid, id, eid), signal, pollMs ? { every: pollMs } : {}) } }));
-  return answer(await callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now }));
+  // (The chat's working folders, which the machine sends with each call: the session's roots, Claude Code's roots/list.)
+  const roots = rootPaths(body.roots);
+  if (body.ask === true) return streamedCall((send) => callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots, ask: { send, wait: (eid, signal) => pollAnswer(bucket, elicitKey(uid, id, eid), signal, pollMs ? { every: pollMs } : {}) } }));
+  return answer(await callTool(env, bucket, uid, which.id, which.tool, body.args, { fetchFn, now, roots }));
 }

@@ -2449,7 +2449,10 @@ export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   const d = pick(rules.deny, true);
   if (d) return { verdict: "deny", rule: d.text, why: d.spec === null ? "Permission to use WebFetch has been denied." : "WebFetch denied access to domain:" + host + ".", suggest: null };
   const a = pick(rules.ask, true);
-  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: null, byRule: true };
+  // (An ask rule's question still carries the domain's allow rule as its suggestion, as Claude Code's does (its checkPermissions
+  // adds `suggestions` to the rule's ask: W7, round 5): PermissionRequest hooks see it, and the card offers it, though the ask
+  // rule still asks next time.)
+  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, byRule: true, host };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };
   return { verdict: "ask", why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
