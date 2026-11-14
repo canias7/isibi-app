@@ -127,9 +127,9 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
     if (!via && !key) throw Object.assign(new Error("no AI key in Coder's container"), { status: 0 });
     let withEffort = !!req.effort;
     const { instructions, input } = toResponsesInput(req.messages);
-    // (A web search's own request, coder-websearch.mjs: xAI's search with its filters, its turns limited, max_turns, and
-    // its sources asked for, include. 2026-11-14.)
-    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch || false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), ...(Number.isInteger(req.maxTurns) && req.maxTurns > 0 ? { max_turns: req.maxTurns } : {}), ...(Array.isArray(req.include) && req.include.length ? { include: req.include.filter((x) => typeof x === "string") } : {}), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
+    // (A web search's own request, coder-websearch.mjs: xAI's search with its filters, its turns limited, max_turns, one
+    // tool call a turn, parallel_tool_calls, and its sources asked for, include. 2026-11-14.)
+    const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch || false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), ...(Number.isInteger(req.maxTurns) && req.maxTurns > 0 ? { max_turns: req.maxTurns } : {}), ...(req.parallelToolCalls === false ? { parallel_tool_calls: false } : {}), ...(Array.isArray(req.include) && req.include.length ? { include: req.include.filter((x) => typeof x === "string") } : {}), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
     let attempt = 0, effortAsked = false;
     const again = async (ms, error) => {

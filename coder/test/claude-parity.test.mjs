@@ -92,10 +92,11 @@ test("CD102 web pages are read by a separate reader, like Claude Code's WebFetch
     return main[Math.min(i++, main.length - 1)];
   };
   const exec = async () => { fetches++; return { code: 0, output: T.printedAnswer({ text: PAGE, facts: { kind: "page", bytes: PAGE.length, code: 200, codeText: "OK", contentType: "text/html", cacheBytes: PAGE.length, binary: false } }) }; };
-  const r = await A.runCoder({ send, exec }, { text: "how do I install lib?", model: "grok-4.7" });
+  const r = await A.runCoder({ send, exec }, { text: "how do I install lib?", model: "grok-4.7", effort: "medium" });
   assert.equal(r.status, "done");
   const reader = seen.find((q) => q.webSearch === false);
-  assert.deepEqual([reader.tools, reader.effort, reader.messages[0].content], [[], "low", A.PAGE_READER], "no tools, not even web search; low effort; Coder's line kept as the reader's system line");
+  // (At the chat's own effort since 2026-11-14, as Claude Code 2.1.325's reader on the caller's model: test WEB7.)
+  assert.deepEqual([reader.tools, reader.model, reader.effort, reader.messages[0].content], [[], "grok-4.7", "medium", A.PAGE_READER], "no tools, not even web search; the chat's model and effort; Coder's line kept as the reader's system line");
   // Claude Code's own prompt for its reader (the owner, 2026-11-14: "start fixing and filling in gaps on those tools").
   assert.equal(reader.messages[1].content, "\nWeb page content:\n---\n" + PAGE + "\n---\n\nthe install command\n\nProvide a concise response based only on the content above. In your response:\n - Enforce a strict 125-character maximum for quotes from any source document. Open Source Software is ok as long as we respect the license.\n - Use quotation marks for exact language from articles; any language outside of the quotation should never be word-for-word the same.\n - You are not a lawyer and never comment on the legality of your own prompts and responses.\n - Never produce or reproduce exact song lyrics.\n");
   const coderSaw = JSON.stringify(seen.filter((q) => q.webSearch !== false).map((q) => q.messages));

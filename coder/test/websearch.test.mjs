@@ -14,6 +14,8 @@ const I = await import("../container/coder-inputs.mjs");
 const G = await import("../container/gloopy-agent.mjs");
 const S = await import("../container/server.mjs");
 const P = await import("../container/coder-perms.mjs");
+const WF = await import("../container/coder-webfetch.mjs");
+const ISSUES = await import("../container/coder-issues.mjs");
 
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -79,7 +81,8 @@ test("WS2 its input as Claude Code takes it, before any hook: its schema's refus
   assert.deepEqual(V({ query: "q2", allowed_domains: ["nodejs.org"] }), { args: { query: "q2", allowed_domains: ["nodejs.org"] } });
   assert.deepEqual(V({ query: "q2", allowed_domains: [], blocked_domains: ["x.com"] }), { args: { query: "q2", allowed_domains: [], blocked_domains: ["x.com"] } }, "an empty list is no list");
   assert.deepEqual(V({}), { error: "error: InputValidationError: web_search failed due to the following issue:\nThe required parameter `query` is missing" });
-  assert.deepEqual(V({ query: "a" }), { error: "error: InputValidationError: web_search failed due to the following issue:\nThe parameter `query` is invalid: Too small: expected string to have >=2 characters" });
+  // (Only a value wrong: zod's own issues, as Claude Code gives them; test WEB4.)
+  assert.deepEqual(V({ query: "a" }), { error: "error: InputValidationError: " + JSON.stringify([{ origin: "string", code: "too_small", minimum: 2, inclusive: true, path: ["query"], message: "Too small: expected string to have >=2 characters" }], null, 2) });
   assert.deepEqual(V({ query: 7, allowed_domains: "nodejs.org", engine: "bing" }), { error: "error: InputValidationError: web_search failed due to the following issues:\nAn unexpected parameter `engine` was provided\nThe parameter `query` type is expected as `string` but provided as `number`\nThe parameter `allowed_domains` type is expected as `array` but provided as `string`" });
   assert.deepEqual(V({ query: "q2", blocked_domains: ["a.com", 3] }), { error: "error: InputValidationError: web_search failed due to the following issue:\nThe parameter `blocked_domains[1]` type is expected as `string` but provided as `number`" });
   assert.deepEqual(V({ query: "q2", allowed_domains: ["a.com"], blocked_domains: ["b.com"] }), { error: "error: Cannot specify both allowed_domains and blocked_domains in the same request" });
@@ -92,20 +95,21 @@ test("WS3 each search is its own request through Coder's model client: Claude Co
   assert.deepEqual(q, {
     model: "grok-4.7", effort: "medium",
     messages: [{ role: "system", content: "You run a web search for another model, which is waiting on the result and can search again. Search once, then reply with a brief summary of the results." }, { role: "user", content: "Perform a web search for the query: node latest" }],
-    tools: [], webSearch: { excluded_domains: ["w3schools.com"] }, tool_choice: "required", maxTurns: 2, include: ["web_search_call.action.sources", "no_inline_citations"],
+    tools: [], webSearch: { excluded_domains: ["w3schools.com"] }, tool_choice: "required", maxTurns: 8, parallelToolCalls: false, include: ["web_search_call.action.sources", "no_inline_citations"],
   });
   // What reaches xAI.
   const bodies = [];
   const send = M.coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { bodies.push(JSON.parse(init.body)); return new Response(JSON.stringify(FOUND)); } });
   const r = await send(W.searchRequest({ model: "grok-4.7", effort: "medium", args: { query: "node latest", allowed_domains: ["nodejs.org"] } }));
   assert.deepEqual(bodies[0].tools, [{ type: "web_search", filters: { allowed_domains: ["nodejs.org"] } }]);
-  assert.deepEqual([bodies[0].tool_choice, bodies[0].max_turns, bodies[0].include, bodies[0].reasoning, bodies[0].instructions], ["required", 2, ["web_search_call.action.sources", "no_inline_citations"], { effort: "medium" }, W.SEARCH_SYSTEM]);
+  // (At most 8 searches, Claude Code's max_uses: one tool call a turn, 8 turns; test WEB2.)
+  assert.deepEqual([bodies[0].tool_choice, bodies[0].max_turns, bodies[0].parallel_tool_calls, bodies[0].include, bodies[0].reasoning, bodies[0].instructions], ["required", 8, false, ["web_search_call.action.sources", "no_inline_citations"], { effort: "medium" }, W.SEARCH_SYSTEM]);
   assert.deepEqual(r.output, FOUND.output, "xAI's own items, in order, for the result");
   await send(W.searchRequest({ model: "grok-4.7", args: { query: "node latest" } }));
   assert.deepEqual(bodies[1].tools, [{ type: "web_search" }], "no filters without lists");
   // Every other call: no xAI search (Coder's own calls search through the tool).
   await send({ model: "grok-4.7", tools: [], messages: [{ role: "user", content: "x" }] });
-  assert.equal("tools" in bodies[2] || "max_turns" in bodies[2] || "include" in bodies[2], false);
+  assert.equal("tools" in bodies[2] || "max_turns" in bodies[2] || "include" in bodies[2] || "parallel_tool_calls" in bodies[2], false);
   assert.deepEqual(M.toResponsesTools([], { webSearch: { allowed_domains: [], excluded_domains: ["a.com"] } }), [{ type: "web_search", filters: { excluded_domains: ["a.com"] } }]);
 });
 
@@ -159,7 +163,7 @@ test("WS5 in the loop: Grok's web_search call runs as its own Grok call (the cha
   // An input check's refusal: before any hook, nothing run, the step said with its verb.
   const t2 = await job([say("", [call("web_search", { query: "n" }, "w2")]), say("ok")], { hooks });
   assert.equal(t2.searches.length + t2.hookCalls.length, 0);
-  assert.match(t2.told("w2"), /^error: InputValidationError: web_search failed due to the following issue:\nThe parameter `query` is invalid/);
+  assert.match(t2.told("w2"), /^error: InputValidationError: \[\n  \{\n    "origin": "string",\n    "code": "too_small",/);
   assert.equal(t2.events.find((e) => e.type === "bash" && e.id === "w2").verb, "Searched the web for");
 });
 
@@ -201,7 +205,8 @@ test("WS6 its permission as Claude Code's in Coder's chats: asked in Accept edit
   assert.deepEqual([t.events.filter((e) => e.type === "permission").length, t.searches.length], [0, 1]);
   // A card that no one can answer: not run, said.
   t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "acceptEdits", deps: { ask: undefined } });
-  assert.deepEqual([t.told("w1"), t.searches.length], ["not run: the owner must approve this web search, and no one can answer here", 0]);
+  // (In Claude Code's words, as a page fetch's: "Claude requested permissions to use WebSearch, but you haven't granted it yet.")
+  assert.deepEqual([t.told("w1"), t.searches.length], ["not run: Coder requested permissions to use WebSearch, but you haven't granted it yet.", 0]);
   // The card's PermissionRequest hooks see WebSearch, its input, and Claude Code's suggestion: a WebSearch allow rule for the
   // repository's local settings. A refused call (a deny rule) fires no PostToolUse hook: it never ran.
   const seenBy = { settings: { PermissionRequest: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "perm.sh" }] }], PostToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "post.sh" }] }] } };
@@ -248,9 +253,9 @@ test("WS8 the chat's budget, Claude Code's: 200 searches shared by every agent o
   assert.deepEqual([b.tryConsume(), b.tryConsume(), b.tryConsume()], [true, true, false]);
   const off = W.searchBudget({ max: 1, refills: 0, now: () => 0 });
   assert.deepEqual([off.tryConsume(), off.tryConsume(), off.msUntilNextCall()], [true, false, Infinity]);
-  // Claude Code's notice, with Coder's names.
-  assert.equal(W.usedUpText({ max: 200, refills: 100 }), "Web search was not performed: this chat's web search budget is used up (limit: 200 web_search calls shared by every agent in this chat; the budget refills at about 100 calls per hour, so searching becomes possible again later in the chat). Do not pause or wait for the refill: continue with the information already gathered and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the user to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
-  assert.equal(W.usedUpText({ max: 1, refills: 0 }), "Web search was not performed: this chat's web search budget is used up (limit: 1 web_search call, shared by every agent in this chat; it does not refill). Continue with the information already gathered instead of searching again, and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the user to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
+  // Claude Code's notice, with Coder's names ("the owner" for its "the user", 2026-11-14; a job from GitHub's: test WEB3).
+  assert.equal(W.usedUpText({ max: 200, refills: 100 }), "Web search was not performed: this chat's web search budget is used up (limit: 200 web_search calls shared by every agent in this chat; the budget refills at about 100 calls per hour, so searching becomes possible again later in the chat). Do not pause or wait for the refill: continue with the information already gathered and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the owner to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
+  assert.equal(W.usedUpText({ max: 1, refills: 0 }), "Web search was not performed: this chat's web search budget is used up (limit: 1 web_search call, shared by every agent in this chat; it does not refill). Continue with the information already gathered instead of searching again, and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, ask the owner to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
   // In the loop: the chat's settings (CODER_MAX_WEB_SEARCHES_PER_SESSION, CODER_WEB_SEARCH_REFILLS_PER_HOUR) and its kept count.
   let kept = null;
   const t = await job([say("", [call("web_search", { query: "node latest" }, "w1"), call("web_search", { query: "node lts" }, "w2")]), say("ok")], { opts: { searchLimits: { max: "1", refills: "0" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } }, hooks: { settings: { PostToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "post.sh" }] }] } } });
@@ -318,4 +323,78 @@ test("WS11 Coder's context gives today's date as Claude Code's does (\"Today's d
   // The tool's file is on the machine's copy (CD78).
   const copy = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8").split("\n").find((l) => /^COPY package\.json /.test(l));
   assert.ok(copy.includes(" coder-websearch.mjs "));
+});
+
+// ── THE RECHECK OF 2026-11-14 (the owner: "Fix base on Claude Code docs, please"): Claude Code 2.1.325's docs and program. ──
+test("WEB1 WebSearch's rules as Claude Code 2.1.325 takes them: WebSearch(*) is the whole tool; a * or ? anywhere else is refused in its words (\"WebSearch does not support wildcards\"); a deny or ask rule on the query, WebSearch(query:<exact text>), matches that query", async () => {
+  assert.deepEqual(P.parseRule("WebSearch(*)"), { tool: "WebSearch", spec: null });
+  for (const r of ["WebSearch(x*)", "WebSearch(query:node*)", "WebSearch(what?)", "WebSearch( * )"]) {
+    assert.equal(P.ruleProblem(r), "WebSearch does not support wildcards. Use exact search terms without * or ?. Examples: WebSearch(claude ai), WebSearch(typescript tutorial)", r);
+    assert.equal(P.ruleSaved(r), false, r);
+  }
+  assert.deepEqual(P.parseRule("WebSearch(query: node latest )"), { tool: "WebSearch", spec: "query: node latest", param: { name: "query", value: "node latest" } });
+  assert.equal(P.ruleSaved("WebSearch(query:node latest)"), true);
+  assert.equal(P.parseRule("WebSearch(engine:bing)"), null, "not one of its inputs");
+  const D = (rules, query) => W.searchDecision({ mode: "acceptEdits", rules, input: { query } });
+  assert.deepEqual(D({ deny: ["WebSearch(query:node latest)"] }, "node latest"), { verdict: "deny", rule: "WebSearch(query:node latest)", why: "Permission to use WebSearch with query:node latest has been denied." });
+  assert.deepEqual(D({ deny: ["WebSearch(query:node latest)"] }, "  node latest "), D({ deny: ["WebSearch(query:node latest)"] }, "node latest"), "the query's own spaces aside");
+  assert.equal(D({ deny: ["WebSearch(query:node latest)"] }, "node lts").verdict, "ask", "another query: as before");
+  assert.equal(D({ deny: ["WebSearch(query:node latest)"] }, "Node Latest").verdict, "ask", "the exact text");
+  assert.deepEqual(D({ ask: ["WebSearch(query:node latest)"] }, "node latest"), { verdict: "ask", rule: "WebSearch(query:node latest)", why: "Your rule WebSearch(query:node latest) asks first for WebSearch.", byRule: true });
+  assert.equal(W.searchDecision({ mode: "auto", rules: { ask: ["WebSearch(query:node latest)"] }, input: { query: "node latest" } }).verdict, "ask", "in Auto too");
+  assert.equal(D({ allow: ["WebSearch(query:node latest)"] }, "node latest").verdict, "ask", "an allow rule on a value approves nothing");
+  assert.equal(D({ deny: ["WebSearch(allowed_domains:a.com)"] }, "x").verdict, "ask", "a list is no scalar");
+  // In the loop: denied in Claude Code's words, never searched; the tool stays offered for other queries.
+  const t = await job([say("", [call("web_search", { query: "node latest" }, "w1"), call("web_search", { query: "node lts" }, "w2")]), say("ok")], { rules: { deny: ["WebSearch(query:node latest)"] } });
+  assert.equal(t.told("w1"), "Permission to use WebSearch with query:node latest has been denied.");
+  assert.equal(t.searches.length, 1);
+  assert.ok(t.seen[0].tools.some((x) => x.function.name === "web_search"));
+});
+
+test("WEB2 at most 8 searches a call, Claude Code's max_uses: xAI's max_turns does not limit its searches (\"During a single turn, the model may invoke multiple tools in parallel\"), so the search's request has 8 turns of one tool call each (parallel_tool_calls off)", async () => {
+  assert.deepEqual([W.SEARCH_MAX_USES, W.SEARCH_MAX_TURNS], [8, 8]);
+  const q = W.searchRequest({ model: "grok-4.7", args: { query: "node latest" } });
+  assert.deepEqual([q.maxTurns, q.parallelToolCalls], [8, false]);
+  const bodies = [];
+  const send = M.coderSend({ XAI_API_KEY: "k" }, { fetchFn: async (u, init) => { bodies.push(JSON.parse(init.body)); return new Response(JSON.stringify(FOUND)); } });
+  await send(q);
+  assert.deepEqual([bodies[0].max_turns, bodies[0].parallel_tool_calls], [8, false]);
+  await send({ model: "grok-4.7", tools: [], messages: [{ role: "user", content: "x" }], parallelToolCalls: true });
+  assert.equal("parallel_tool_calls" in bodies[1], false, "only a request that turns it off says so");
+});
+
+test("WEB3 a job started from GitHub counts its own searches, from none, with no refill unless the setting gives one, as Claude Code's non-interactive runs (\"the limit applies per turn, not per session\"), and is told so in Claude Code's words for a turn; the chat's own count is left alone", async () => {
+  assert.equal(W.usedUpText({ max: 1, refills: 0, perTurn: true }), "Web search was not performed: this turn's web search budget is used up (limit: 1 web_search call per turn, shared by every agent in it). Continue with the information already gathered instead of searching again, and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, tell the owner they can send a follow-up message after this reply to continue the search, or ask them to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
+  assert.equal(W.usedUpText({ max: 200, refills: 50, perTurn: true }), "Web search was not performed: this turn's web search budget is used up (limit: 200 web_search calls shared by every agent in this turn; the budget refills at about 50 calls per hour, so searching becomes possible again later in the turn). Do not pause or wait for the refill: continue with the information already gathered and say so in your answer; do not work around the limit by querying search engines with curl or wget from bash, by querying them in a browser or through a computer-use tool, or by searching or fetching through a third-party reader, proxy or archive service. If more searches are genuinely needed, tell the owner they can send a follow-up message after this reply to continue the search, or ask them to raise CODER_MAX_WEB_SEARCHES_PER_SESSION.");
+  assert.deepEqual([W.searchRefillsOf(undefined, 0), W.searchRefillsOf("50", 0), W.searchRefillsOf("x", 0), W.searchRefillsOf(undefined)], [0, 50, 0, 100]);
+  // In the loop: a GitHub job with a chat count already at the limit still searches (its own count), up to its own limit.
+  let kept = { used: 5, carry: 0, at: Date.now(), rate: 100 };
+  const steps = [say("", [call("web_search", { query: "node latest" }, "w1"), call("web_search", { query: "node lts" }, "w2")]), say("ok")];
+  const t = await job(steps, { mode: "auto", opts: { github: true, searchLimits: { max: "1" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } } });
+  assert.equal(t.searches.length, 1);
+  assert.equal(t.told("w2"), 'Web search results for query: "node lts"\n\n' + W.usedUpText({ max: 1, refills: 0, perTurn: true }) + "\n\n\n" + REMINDER);
+  assert.equal(kept.used, 5, "the chat's count untouched");
+  // The chat's own job goes on from its count (at the limit: nothing searched).
+  const c = await job(steps, { mode: "auto", opts: { searchLimits: { max: "5" } }, deps: { searchKeep: { load: () => kept, save: (o) => { kept = o; } } } });
+  assert.equal(c.searches.length, 0);
+  assert.match(c.told("w1"), /this chat's web search budget is used up/);
+});
+
+test("WEB4 an input whose only fault is a value is refused with zod's own issues, as Claude Code gives them (\"InputValidationError: [ … ]\", its w0); beside a missing, stray or wrongly typed field, each is listed in its words (checked against Claude Code 2.1.325's own zod)", () => {
+  const raw = (issues) => "error: InputValidationError: " + JSON.stringify(issues, null, 2);
+  const SHORT = { origin: "string", code: "too_small", minimum: 2, inclusive: true, path: ["query"], message: "Too small: expected string to have >=2 characters" };
+  assert.deepEqual(W.checkInput({ query: "a" }), { error: raw([SHORT]) });
+  assert.deepEqual(W.checkInput({ query: "\u{1F600}" }), { error: raw([SHORT]) }, "one character, as zod counts it");
+  assert.deepEqual(W.checkInput({ query: "\u{1F600}a" }).args, { query: "\u{1F600}a" });
+  assert.deepEqual(W.checkInput({ query: "a", x: 1 }), { error: "error: InputValidationError: web_search failed due to the following issues:\nAn unexpected parameter `x` was provided\nThe parameter `query` is invalid: Too small: expected string to have >=2 characters" });
+  assert.deepEqual(W.checkInput({ query: ["a"] }), { error: "error: InputValidationError: web_search failed due to the following issues:\nThe parameter `query` type is expected as `string` but provided as `array`\nThe parameter `query` is invalid: Too small: expected array to have >=2 items" });
+  assert.deepEqual(WF.checkInput({ url: "https://a.example", prompt: "p", offset: 1e20 }), { error: raw([{ code: "too_big", maximum: 9007199254740991, note: "Integers must be within the safe integer range.", origin: "int", inclusive: true, path: ["offset"], message: "Too big: expected int to be <=9007199254740991" }]) });
+  assert.deepEqual(WF.checkInput({ url: "https://a.example", prompt: "p", offset: -1e20 }), { error: raw([{ code: "too_small", minimum: -9007199254740991, note: "Integers must be within the safe integer range.", origin: "int", inclusive: true, path: ["offset"], message: "Too small: expected int to be >=-9007199254740991" }, { origin: "number", code: "too_small", minimum: 0, inclusive: true, path: ["offset"], message: "Too small: expected number to be >=0" }]) });
+  assert.deepEqual(WF.checkInput({ url: "bad", prompt: "p", offset: "-3" }), { error: raw([{ code: "invalid_format", format: "url", path: ["url"], message: "Invalid URL" }, { origin: "number", code: "too_small", minimum: 0, inclusive: true, path: ["offset"], message: "Too small: expected number to be >=0" }]) });
+  assert.deepEqual(WF.checkInput({ url: "bad", prompt: "p", a: 1, b: 2 }), { error: "error: InputValidationError: web_fetch failed due to the following issues:\nAn unexpected parameter `a` was provided\nAn unexpected parameter `b` was provided\nThe parameter `url` is invalid: Invalid URL" });
+  // Claude Code's formatter itself (coder-issues.mjs): a long message cut at 500 characters, more than 20 listed as a count.
+  const many = Array.from({ length: 22 }, (_, i) => ({ code: "custom", path: ["p" + i], message: i === 0 ? "x".repeat(600) : "bad" }));
+  const text = ISSUES.issuesText("T", [{ expected: "string", code: "invalid_type", path: ["q"], message: "Invalid input: expected string, received undefined" }, ...many]);
+  assert.ok(text.startsWith("T failed due to the following issues:\nThe required parameter `q` is missing\nThe parameter `p0` is invalid: " + "x".repeat(500) + "… [+100 chars]\n"));
+  assert.ok(text.endsWith("The parameter `p19` is invalid: bad\n(2 more issues not listed)"));
 });

@@ -188,7 +188,8 @@ test("CD359 the account's email with a User-Agent is refused, without asking (Cl
     assert.deepEqual(on.ran, []);
     // (Claude Code 2.1.323 tells its model which tool, and that its privacy plugin refused it: test CD548.)
     assert.equal(on.result.output, A.accountEmailRefused("Bash"));
-    assert.equal(A.ACCOUNT_EMAIL_REFUSED, "This call was refused: it holds the account's email address and what looks like a User-Agent setting. If nobody asked to send the address, run it again without it, with a generic client name. Otherwise run it again without that setting, or run the two in separate calls.");
+    // (Claude Code 2.1.325's words since 2026-11-14, "the owner" for its "the person": test EM1.)
+    assert.equal(A.ACCOUNT_EMAIL_REFUSED, "This call was refused: it, or a script it names, holds or reads the account's email address beside what looks like a client's identity, or puts the address in a URL. Use a generic client name. If a site needs a real contact, ask the owner which to use. To send this address, the owner sets it themselves in an environment variable the script reads, or runs the command themselves with `!`.");
     const off = await run({});
     assert.equal(off.ran.length, 1);
   } finally { await rm(base, { recursive: true, force: true }); }
