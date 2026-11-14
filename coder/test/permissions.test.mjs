@@ -214,9 +214,9 @@ test("CD314 Accept edits: a command that is not read-only waits on a card (Claud
   // Claude Code: a Yes's comment comes after the result, exactly as typed, as the owner's own text (fix round 3, 2026-11-14).
   assert.doesNotMatch(seen[1].messages[at].content, /only the cart ones matter|with a note/);
   assert.deepEqual(seen[1].messages[at + 1], { role: "user", content: "only the cart ones matter" });
-  // What Grok is told of the mode: Coder's own note for Accept edits, in the conversation (never the system message).
-  assert.ok(seen[0].messages.some((m) => m.modeNote === "acceptEdits" && /PERMISSION MODE: Accept edits \(the owner's pick\)/.test(m.content)));
-  assert.doesNotMatch(seen[0].messages[0].content, /PERMISSION MODE/);
+  // What Grok is told of the mode: nothing (fix round 4: Coder's own Accept edits note is gone, as Claude Code has none for that
+  // mode, the owner's choice), in the conversation or the system message.
+  assert.ok(!seen[0].messages.some((m) => m.modeNote === "acceptEdits" || /PERMISSION MODE/.test(String(m.content))));
 });
 
 test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same command runs without a card after; 'Yes, and switch to auto mode' switches the chat to Auto", async () => {
@@ -274,8 +274,8 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   const approved = seen[3].messages.find((m) => m.tool_call_id === "x1").content;
   assert.equal(approved, "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add a total() test\n2. Fix the cart");
   // ("## Exited Plan Mode" as its own note after the approval, before the next step, as Claude Code's plan_mode_exit.)
-  assert.match(seen[3].messages.filter((m) => !m.modeNote).at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
-  assert.ok(seen[3].messages.at(-1).modeNote === "acceptEdits", "then the note of the mode the approval chose");
+  assert.match(seen[3].messages.at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
+  assert.ok(!seen[3].messages.some((m) => m.modeNote === "acceptEdits"), "and no note of Accept edits, the mode the approval chose (fix round 4)");
   assert.equal(seen[3].messages[0].content, seen[0].messages[0].content, "the system message is the same in every mode");
   assert.equal(r.mode, "acceptEdits");
   assert.equal(cards[2].toAuto, true);

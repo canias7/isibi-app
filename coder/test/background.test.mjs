@@ -87,6 +87,7 @@ test("CD201 Coder is told its network setting when it is Full too (live test, 20
   try {
     await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "nw-test1", text: "go", messages: [], setup: { script: "", network: { mode: "full" } } }) });
     for (let i = 0; i < 100 && !seen.length; i++) await new Promise((r) => setTimeout(r, 50));
-    assert.match(seen[0].messages[0].content, /\n\nNETWORK: FULL\. This chat's environment allows any site on the internet \(the owner can limit it in Environment, Network access\)\./);
+    // (In the chat's context, told in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), /\n\nNETWORK: FULL\. This chat's environment allows any site on the internet \(the owner can limit it in Environment, Network access\)\./);
   } finally { srv.close(); }
 });

@@ -430,7 +430,9 @@ test("MC14 (2026-11-11, Claude Code's MCP docs read in full) idle limit reset by
   await runCoder({ send: async (q) => { seen.push(q); return replies[Math.min(i++, 1)]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e),
     mcp: async (n) => n === "mcp__x__big" ? { text: "b".repeat(120_000), isError: false, images: [{ type: "image/png", data: "iVBORw0KGgo=" }] } : { text: "S".repeat(6000) + "M".repeat(6000) + "E".repeat(6000), isError: true } },
     { text: "x", connectors: tools, connectorNotes: [{ name: "X", instructions: "Always say please." }] });
-  assert.match(seen[0].messages[0].content, /CONNECTOR INSTRUCTIONS \(from each connector's own server, not the owner[^\n]*\n- X: Always say please\./);
+  // (A piece of the chat's context, told in the conversation since fix round 4, as Claude Code's servers' instructions are.)
+  assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), /CONNECTOR INSTRUCTIONS \(from each connector's own server, not the owner[^\n]*\n- X: Always say please\./);
+  assert.doesNotMatch(seen[0].messages[0].content, /CONNECTOR INSTRUCTIONS/);
   const toolMsgs = seen[1].messages.filter((x) => x.role === "tool");
   assert.ok(toolMsgs[0].content.length > 120_000, "under the tool's own 200,000 limit: not cut, not to a file");
   assert.match(toolMsgs[1].content, /^\(This came[^\n]*\nS{5000}\n…\(8,000 characters left out\)…\nE{5000}$/);

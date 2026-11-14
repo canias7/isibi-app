@@ -555,7 +555,9 @@ test("CD19 the repo's own rules (CODER.md; AGENTS.md only without one, like Clau
   // The AI is given them beside its own instructions.
   const s = scripted([say("Hi.", [])]);
   await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "hello", context: "CTX-LINE" });
-  assert.match(s.seen[0].messages[0].content, /CTX-LINE$/);
+  // (In the conversation, before the owner's message, never in the system message, since fix round 4: context-cache.test.mjs.)
+  assert.ok(!s.seen[0].messages[0].content.includes("CTX-LINE"));
+  assert.deepEqual(s.seen[0].messages.slice(1, 3).map((m) => m.content), ["(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nCTX-LINE)", "hello"]);
 });
 
 test("CD20 memory is kept per repo between chats; no limit on chats at once unless CODER_MAX_RUNNING is set", async () => {
@@ -1623,7 +1625,8 @@ test("CD60 a saved style (memory lines starting Style:) is given to Coder as its
   try {
     await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-style", text: "hi", messages: [], memory: "- tests: npm test\nStyle: keep answers short\nThe owner's favourite colour is teal." }) });
     for (let i = 0; i < 60 && !seen.length; i++) await new Promise((ok) => setTimeout(ok, 50));
-    const sys = seen[0].messages[0].content;
+    // (In the chat's context, told in the conversation since fix round 4.)
+    const sys = seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n");
     assert.match(sys, /THE OWNER'S STYLE \(saved earlier; follow it in every answer unless they ask otherwise now\):\n- keep answers short/);
     assert.ok(sys.indexOf("THE OWNER'S STYLE (saved") < sys.indexOf("YOUR MEMORY FOR THIS REPO"), "given before the memory");
   } finally { await close(); }
@@ -2212,7 +2215,8 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
     const r = await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "shop-base", text: "what changed?", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-base", token: "" }) });
     assert.equal(r.status, 200);
     for (let i = 0; i < 100 && !sent.length; i++) await new Promise((ok) => setTimeout(ok, 50));
-    assert.match(sent[0].messages[0].content, /GIT: the repo's main branch is main \(fetched as origin\/main\); you work on this chat's branch coder\/shop-base/);
+    // (The chat's context and this message's news are notes in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(sent[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /GIT: the repo's main branch is main \(fetched as origin\/main\); you work on this chat's branch coder\/shop-base/);
   } finally { await close(); }
 });
 
@@ -2256,7 +2260,8 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     assert.ok(out && out.code === 0, "one setup step, its output says the packages were done as admin");
     assert.match(out.output, /^\$ apt-get install jq \(as admin, by Coder's app\)\nSetting up jq/);
     assert.ok(existsSync(join(root, "shop-apt1", "after-apt.txt")), "then the rest of the script ran");
-    assert.match(seen[0].messages[0].content, /its plain apt-get install lines by Coder's app as admin, every other line as your own user/);
+    // (The chat's context and this message's news are notes in the conversation since fix round 4: context-cache.test.mjs.)
+    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /its plain apt-get install lines by Coder's app as admin, every other line as your own user/);
     // On a limited network (Trusted, the default) apt goes through the proxy, so the repo's network list applies to it too.
     aptCalls.length = 0;
     await run("shop-apt4", { script: "apt-get install -y jq" });
@@ -2266,7 +2271,7 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     const bad = await run("shop-apt2", { script: "apt-get install -y nosuchpkg\ncd shop && echo never > never.txt" });
     assert.ok(bad.events.some((e) => e.type === "result" && e.code === 100));
     assert.ok(!existsSync(join(root, "shop-apt2", "never.txt")));
-    assert.match(seen[0].messages[0].content, /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg[\s\S]*Like Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
+    assert.match(seen[0].messages.filter((m) => m.appNote).map((m) => m.content).join("\n"), /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg[\s\S]*Like Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);
     // A script with no package lines never calls apt.
     aptCalls.length = 0;
     await run("shop-apt3", { script: "echo plain > plain.txt" });

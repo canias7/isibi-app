@@ -14,6 +14,7 @@
 
 // (A question as Claude Code's classifier is shown one: the owner, 2026-11-14, "Do all the talk to you tools execpt for the notify one".)
 import { askUserForChecker } from "./coder-askuser.mjs";
+import { isContextNote } from "./coder-context.mjs";
 
 /** Claude Code's repeated-block thresholds: "if the classifier blocks an action 3 times in a row or 20 times total, auto mode pauses and Claude Code resumes prompting". */
 export const AUTO_LIMITS = { row: 3, total: 20 };
@@ -196,6 +197,9 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
   const lines = [];
   for (const m of Array.isArray(convo) ? convo : []) {
     if (!m || typeof m !== "object") continue;
+    // (The chat's context told in the conversation since fix round 4 is given apart, as THE PROJECT'S OWN INSTRUCTIONS, as
+    // before: coder-context.mjs.)
+    if (isContextNote(m)) continue;
     if (m.role === "user") {
       const t = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === "string" ? x.text : "")).join(" ") : "";
       if (!t.trim()) continue;

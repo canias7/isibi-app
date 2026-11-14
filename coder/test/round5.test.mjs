@@ -476,5 +476,6 @@ test("CD536 Coder is told never to print only the values of the owner's variable
   const { readFile } = await import("node:fs/promises");
   const server = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(server, /\(available to your commands; never print their values\)/, "the old rule for every variable is gone");
-  assert.match(server, /\+ varsNote\(ownerVars\) \+ netNote \+/);
+  // (Pieces of the chat's context, told in the conversation since fix round 4.)
+  assert.match(server, /piece\("s:ENVIRONMENT VARIABLES", varsNote\(ownerVars\)\),\n\s+piece\("s:NETWORK", netNote\),/);
 });

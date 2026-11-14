@@ -260,7 +260,9 @@ test("CD278 (tool 4, part 2) background commands told of in Claude Code's words 
   assert.deepEqual(ev2.filter((e) => e.type === "note").map((e) => e.text), ["Background command \"Build\" completed (exit code 0)", "Background command \"Watch\" was stopped after reaching its background time limit"]);
   const msgs = seen2[0].messages;
   const at = msgs.findIndex((m) => m.role === "user" && m.content === "and now?");
-  assert.ok(at >= 0 && /^\(Note from Coder's app, not the owner: 2 background commands ended since your last answer\.\n/.test(msgs[at + 1].content), "right after the owner's message");
+  // (Claude Code 2.1.325's header for a notice that comes with a message of the owner's, since fix round 4: it is no input of its own.)
+  const { BG_EVENT_WITH_OWNER } = await import("../container/coder-agent.mjs");
+  assert.ok(at >= 0 && msgs[at + 1].content.startsWith(BG_EVENT_WITH_OWNER + "\n\n(Note from Coder's app, not the owner: 2 background commands ended since your last answer.\n"), "right after the owner's message");
   assert.ok(!/The owner sent no message/.test(msgs[at + 1].content));
   // A turn only to tell it (Coder's Worker starts one, as Claude Code "re-invokes you when it exits"): no message of the owner's.
   const ev3 = [], seen3 = [];
