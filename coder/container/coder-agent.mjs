@@ -35,7 +35,7 @@ import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
-import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK } from "./coder-parallel.mjs";
+import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs, interruptedNote, SKIPPED_BY_CHECK, INTERRUPTED_TOOL_USE } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
@@ -313,6 +313,16 @@ export const REREAD_FILES = 5, REREAD_ONE = 20_000;
  */
 export const DENY_INSTEAD_TEXT = "Permission for this tool use was denied. It requires approval, and this session has no approval surface — nobody can answer a permission prompt here — so it was denied automatically. The action was NOT performed; do not claim it succeeded, and do not retry it: this action, and anything else that requires approval, will be denied the same way for the rest of this session. Tell the user what was blocked and why you needed it, then continue with the parts of the task that do not require approval. What required approval: ";
 export const DENY_INSTEAD_MAX = 20;
+/**
+ * A RUN OF REFUSALS UNDER denyInsteadOfPrompting, AS CLAUDE CODE COUNTS IT (round 6; the owner, 2026-11-14: "do what claude
+ * code does"): with that setting on, Claude Code 2.1.325 counts each call the auto mode checker blocks or its safety check
+ * declines to judge (its classifier's block and its safeguard's refusal; a plain refusal instead of a card is not counted),
+ * and a call it lets through ends the count. The 20th in a row is told refusedStreakTold's words instead (its GFt) and ends
+ * the turn as a check's denial does (its "permission-stop", closing "checker"), the owner told REFUSED_STREAK_SHOWN (its $Ki).
+ * Its words, "Coder" for "Claude". (Gloopy's runs keep their own count of refusals instead of cards.)
+ */
+export const refusedStreakTold = (tool) => DENY_INSTEAD_MAX + " actions were refused and no work went ahead in between, so " + tool + " was not run and this turn is ending.";
+export const REFUSED_STREAK_SHOWN = DENY_INSTEAD_MAX + " actions were refused and no work went ahead in between, so Coder stopped.";
 /** One of coder-tools.mjs's tools, run by Coder's app itself (a step Grok did not ask for). */
 /**
  * PROTECTED FILES (the owner, 2026-11-09: "Okay, yes, yes, do that"; Claude Code's permission-modes docs: "Writes to a
@@ -1911,6 +1921,24 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const stopped = async () => { if (closing) return false; try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // (When the owner pressed Stop, as Coder's machine noted it: a call whose result came before then keeps it.)
   const stopTime = () => { try { const x = typeof deps.stoppedAt === "function" ? Number(deps.stoppedAt()) : 0; return x > 0 ? x : now(); } catch { return now(); } };
+  // (The same, 0 when the machine did not say: round 6.)
+  const stopSaidAt = () => { try { const x = typeof deps.stoppedAt === "function" ? Number(deps.stoppedAt()) : 0; return x > 0 ? x : 0; } catch { return 0; } };
+  // THE OWNER'S STOP WHILE GROK ANSWERS (round 6; the owner, 2026-11-14: "do what claude code does"): Claude Code 2.1.325 aborts
+  // its model's request at once, keeps nothing of the answer it cut, and adds "[Request interrupted by user]" ("by the owner"
+  // here, coder-parallel.mjs; its ki on an aborted stream). Coder's request goes with an abort signal, and its Stop is looked
+  // for every STOP_POLL_MS meanwhile: STOP_SEEN when the Stop came first. In Coder's own runs; Gloopy's as before.
+  const STOP_SEEN = Symbol("stopped while Grok answered"), STOP_POLL_MS = 200;
+  const sendOrStop = (req) => {
+    if (offered || typeof deps.stopped !== "function") return deps.send(req);
+    const ctl = new AbortController();
+    let timer = null, over = false;
+    const seen = new Promise((ok) => {
+      const look = async () => { timer = null; if (over) return; if (await stopped()) { if (!over) { ok(STOP_SEEN); ctl.abort(); } return; } if (!over) timer = setTimeout(look, STOP_POLL_MS); };
+      timer = setTimeout(look, STOP_POLL_MS);
+    });
+    const sent = Promise.resolve().then(() => deps.send({ ...req, signal: ctl.signal })).catch((e) => { if (ctl.signal.aborted) return STOP_SEEN; throw e; });
+    return Promise.race([sent, seen]).finally(() => { over = true; if (timer) clearTimeout(timer); });
+  };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
   // which a card may change (switch to Auto; an approved plan). A job from GitHub, where no one can answer, is always Auto.
@@ -2189,7 +2217,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (h) { if (h.take) h.take(); return h.answer; }
     }
     if (!owed && denyInstead === true) {
-      deniedRow++; deniedLast = true;
+      // (Counted in Gloopy's runs only: Claude Code counts no plain refusal instead of a card, refusedMore. Round 6.)
+      if (offered) { deniedRow++; deniedLast = true; }
       const target = Array.isArray(card.lines) && card.lines.length ? card.lines.join("\n").slice(0, 500) : String(card.path || card.url || card.what || "").slice(0, 500);
       // (What Coder is told is Claude Code's message for the ask, `told`, where it differs from the card's line: round 6.)
       const what = scrub(String(card.told || card.why || (card.tool === "plan" ? "approving Coder's plan" : "using " + ccTool(card.hookTool || card.tool))) + (target ? " (" + target + ")" : "")).slice(0, 1000);
@@ -2270,8 +2299,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     emit({ type: "permanswer", pid, choice, ...(picks ? { picks } : {}) });
     return { choice, ...(picks ? { picks } : {}), ...(choice === "chat" ? { text: String(a.text || ""), qid: String(a.qid || "") } : {}) };
   };
-  // (Refused instead of asked: how many in a row; the last call was one.)
+  // (Refused instead of asked: how many in a row; the last call was one. Gloopy's runs.)
   let deniedRow = 0, deniedLast = false;
+  // (CODER'S OWN RUNS, round 6: Claude Code's count of refusals in a row under denyInsteadOfPrompting, REFUSED_STREAK_SHOWN; the
+  // last call whose turn came, `refusedPrev`, ends it when it was let through: it had its answer, and was neither refused nor
+  // refused by its own checks. `refusedReply`: a refusal it counts, told as it is, or as the 20th, which ends the turn.)
+  let refusedRow = 0, refusedPrev = "";
+  const refusedMore = (c) => { if (offered || denyInstead !== true) return ""; if (++refusedRow < DENY_INSTEAD_MAX) return ""; refusedRow = 0; return refusedStreakTold(c && c.name ? c.name : "this tool"); };
+  const refusedReply = (c, reply, text) => { const streak = refusedMore(c); reply(streak || text); if (streak) throw closeRound("checker", REFUSED_STREAK_SHOWN); };
+  const letThrough = (id) => {
+    if (!id || !answeredNow(id)) return false;
+    const r = resultsSeen.get(id);
+    return !r || ((r.code !== -1 || !!r.background || !!r.notStarted) && r.ran !== false && !(r.code === 1 && /^error: /.test(String(r.output || ""))));
+  };
   // WHAT AN ANSWER MEANS for the step that asked (Claude Code: No without a note stops the turn; No with a note goes on
   // with it; Stop stops; no answer before the job's time limit ends the job; an answer that never came counts as No).
   const saidReply = (a) => (a && (a.denied || a.hookDenied) ? a.comment : REJECTED_SAID + a.comment);
@@ -2752,7 +2792,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (v.usage) usage.push(v.usage);
           if (v.error) { if (await noVerdict(c, v, "monitor", wsKey, reply)) return { end: stopNoVerdict(i) }; return null; }
           noVerdictRow = 0;
-          if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); return null; }
+          if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0)); return null; }
           countAllowed(checkSt);
           dec = { verdict: "allow" };
         }
@@ -2842,7 +2882,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const stop = kind !== "hard" && noVerdictRow >= NO_VERDICT_STOP;
     const told = stop ? noVerdictStopTold(what) : kind === "unavailable" ? checkUnavailable(model || "The classifier", what, typeof v.why === "string" ? v.why : "") : noVerdictTold(model || "The classifier", kind, v.error, what);
     emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
-    reply(told + await deniedHooks(c, stop ? STOPPED_NO_VERDICT : kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" && !stop }));
+    const said = told + await deniedHooks(c, stop ? STOPPED_NO_VERDICT : kind === "unavailable" ? "Classifier unavailable" : NO_VERDICT + ": " + (model || "The classifier") + " gave no verdict" + (v.error ? " (" + v.error + ")" : ""), { retry: kind === "unavailable" && !stop });
+    // (One its check declined to judge counts toward Claude Code's run of refusals: its safeguard's refusal. Round 6.)
+    if (kind === "hard") refusedReply(c, reply, said); else reply(said);
     return stop;
   };
   /**
@@ -2864,7 +2906,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!declined.has(key)) return false;
     const told = noVerdictTold(model || "The classifier", "hard", "it declined to judge this action", what);
     emit({ type: "result", id: c.id, code: -1, ran: false, output: told, notRun: NOT_RUN_ROW });
-    reply(told);
+    refusedReply(c, reply, told);
     return true;
   };
   /** Where a chat's count of blocks is kept between its machine's sleeps (Coder's machine gives it). */
@@ -3113,7 +3155,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!d || (d.unavailable === true && !(Array.isArray(d.changedFiles) && d.changedFiles.length))) { diffFails++; return null; }
     return changedShown(d, deps);
   };
-  let shellQuiet = false;
+  let shellQuiet = false, shellCut = false;
   if (typeof shell === "string" && shell.trim()) {
     const command = shell.trim();
     const sid = "own" + Math.random().toString(36).slice(2, 8);
@@ -3130,6 +3172,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const ownWhere0 = typeof deps.here === "function" ? String(deps.here() || "") : "";
     try { r = await deps.exec({ command: psOwn ? psCommand(command, { bypass: powershell.bypass !== false }) : command, ...(psOwn ? { shown: command, ps: true } : {}), timeoutS: ownS, here: true, follow: true, desc: "! " + command.split("\n")[0].slice(0, 120) }); }
     catch (e) { r = { code: -1, output: "the command could not be run: " + String((e && e.message) || e).slice(0, 200) }; }
+    const ownEnd = now();
     const code = r && Number.isInteger(r.code) ? r.code : -1;
     const bg = !!(r && r.background);
     const files = await snapAfter(snapId, !bg && !(r && r.notStarted));
@@ -3142,11 +3185,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // reply"), or it was moved to the background, or the owner stopped it (Claude Code answers then neither): then only its note.
     shellQuiet = respondToBash === false || bg || (await stopped());
     if (shellQuiet) convo.push({ role: "user", appNote: true, content: SHELL_CAVEAT });
+    // CUT SHORT BY THE OWNER'S STOP (round 6; the owner, 2026-11-14: "do what claude code does"): Claude Code 2.1.325's shell
+    // mode, for a command its Stop interrupted (its interrupted ShellError), records its note, the command and its mark
+    // "[Request interrupted by user]" ("by the owner" here, coder-parallel.mjs), and drops what the command printed; no answer
+    // follows. A command that ended before the Stop keeps its output. (The chat shows what it printed, as before.)
+    const stopSaid = (await stopped()) ? stopSaidAt() : -1;
+    shellCut = !offered && stopSaid >= 0 && !bg && !(r && r.notStarted) && code !== 0 && !(stopSaid > ownEnd);
     // (A long output as Claude Code's Bash tool gives it, the file it was saved to and its first 2KB, not cut in the middle:
     // Bash docs pass 9; saved past BASH_MAX_OUTPUT_LENGTH too, with no end shown for a command the owner typed: Claude Code
     // 2.1.325, round 4.)
     const savedOut = !bg && r && typeof r.file === "string" && r.file && (Number(r.size) > lim.readBack || printed.length > lim.inlineMax) ? bashResultText({ output: printed, isError: false, size: Number(r.size), file: r.file, inlineMax: lim.inlineMax, readBack: lim.readBack, truncatedAt: Number(r.truncatedAt) > 0 ? Number(r.truncatedAt) : 0, ends: false }) : "";
-    for (const m of shellMessages(command, { output: savedOut || printed, code: bg ? 0 : code, background: said })) convo.push(m);
+    if (shellCut) convo.push(shellMessages(command)[0], interruptedNote(false));
+    else for (const m of shellMessages(command, { output: savedOut || printed, code: bg ? 0 : code, background: said })) convo.push(m);
     if (bg && r.pid && r.log && typeof r.jobId === "string") jobs.set(r.jobId, { pid: r.pid, log: r.log, command, desc: "! " + command.split("\n")[0].slice(0, 120), at: now(), moved: true, cwd: "", done: false });
     // (One that never started, as when the admin sandbox can't, is "not run" under it, as Coder's own are, in the owner's words;
     // the AI is told why above. Live test, 2026-11-13: it read "exit -1", with the words meant for the AI.)
@@ -3457,7 +3507,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (`answeredNow`: whether a call of the chat has its answer already: one that ran beside a card that paused the job, say.)
   const answeredNow = (id) => convo.some((m) => m && m.role === "tool" && m.tool_call_id === id);
   /** Closing mode from now (the first reason counts), and what a call's turn throws to go on to the next call. */
-  const closeRound = (why, summary = "") => { if (!closing) closing = { why, at: why === "stop" ? stopTime() : now(), summary }; return new RoundClosing(closing.why); };
+  const closeRound = (why, summary = "") => {
+    if (!closing) {
+      closing = { why, at: why === "stop" ? stopTime() : now(), summary };
+      // (The check's denial that ends the turn, round 6: Claude Code moves the commands still running to the background, as at
+      // its turn's abort, "permission-stop"; each one's turn then takes that answer, closedTurn. Not where none may go there.)
+      if (why === "checker" && !offered && noBg !== true && typeof deps.moveRunning === "function") { try { closing.moved = deps.moveRunning() !== false; } catch { closing.moved = false; } }
+    }
+    return new RoundClosing(closing.why);
+  };
   /** The owner's No without words on call `i`'s card (its own answer given already): Gloopy's job ends as before; Coder's round closes. */
   const noEnd = (i, summary) => {
     if (offered) { for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || summary }); }
@@ -3588,7 +3646,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const closedEnd = () => {
     if (closing.why === "park") return parkEnd(closing.p);
     // (The auto mode checker's denial ended the turn, round 6: the owner's line, Claude Code's, and no mark of an interrupted turn.)
-    if (closing.why === "checker") { emit({ type: "error", text: NO_VERDICT_STOP_SHOWN }); return end("done", { summary: lastSaid || NO_VERDICT_STOP_SHOWN }); }
+    // (Or the 20th refusal in a row under denyInsteadOfPrompting: its own line, closing.summary.)
+    if (closing.why === "checker") { const line = closing.summary || NO_VERDICT_STOP_SHOWN; emit({ type: "error", text: line }); return end("done", { summary: lastSaid || line }); }
     // CLAUDE CODE'S MARK OF THE INTERRUPTED TURN (round 6; the owner, 2026-11-14: "do what claude code does";
     // coder-parallel.mjs): after the round's results, its own message, "[Request interrupted by the owner for tool use]"; for a
     // Stop that came while Grok was still answering, "[Request interrupted by the owner]", as Claude Code's when its model's
@@ -3607,7 +3666,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (THE OWNER'S STOP BETWEEN TWO OF GROK'S ANSWERS, in Coder's own runs: Claude Code's mark of the interrupted turn, round 6,
     // closedEnd: "for tool use" when the Stop came while the last round's calls still ran; else as one that came while its
     // model answered, "[Request interrupted by the owner]".)
-    if (await stopped()) { if (!offered) convo.push(interruptedNote(stopTime() <= roundDoneAt)); emit({ type: "stopped" }); return end("stopped"); }
+    // (Not a second one after the owner's own command that the Stop cut short: it has its mark, shellCut.)
+    if (await stopped()) { if (!offered && !shellCut) convo.push(interruptedNote(stopTime() <= roundDoneAt)); emit({ type: "stopped" }); return end("stopped"); }
     if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
     rounds++;
@@ -3796,7 +3856,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(upfrontTools(pool, tsDeferred(pool), was, tsCatalog), tsCatalog); if (!sameTools(up, was)) tsUpfrontNew = up; } }
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
     // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions.)
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools, tool_choice: "auto" }); }
+    try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -3804,8 +3864,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (hookList.length) { const why = scrub(String((e && e.message) || e)).slice(0, 2000); try { await runHooks("StopFailure", stopFailureKind(e), { error: stopFailureKind(e), error_details: why, last_assistant_message: why }); } catch { /* ignored */ } }
       return end("send", { why: String((e && e.message) || e).slice(0, 200) });
     }
-    if (answer && answer.usage) usage.push(answer.usage);
+    if (answer && answer !== STOP_SEEN && answer.usage) usage.push(answer.usage);
     answeredAt = now();
+    // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
+    // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
+    if (!offered && (answer === STOP_SEEN || ((await stopped()) && stopSaidAt() > 0 && stopSaidAt() < answeredAt))) { convo.push(interruptedNote(false)); emit({ type: "stopped" }); return end("stopped"); }
     }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
@@ -4051,11 +4114,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     };
     const closedTurn = (x) => {
       if (!x || !x.id || answeredNow(x.id)) return false;
-      const how = closedAs(closing.why, early.state(x.id, closing.why === "park" ? Infinity : closing.at));
+      let how = closedAs(closing.why, early.state(x.id, closing.why === "park" ? Infinity : closing.at));
+      // (Aborted by the check's denial that ended the turn, round 6: a command moved to the background takes that answer in its
+      // turn, as Claude Code's Bash moved there gives it; any other call, its tools' answer when aborted, INTERRUPTED_TOOL_USE.)
+      if (how === "interrupted" && x.name === "bash" && closing.moved) how = "turn";
       if (how === "turn") return true;
       if (how === "later") return false;
-      if (how === "stopped-running") { const step = stepOf(x); if (step) { emit(step); emit({ type: "result", id: x.id, code: -1, output: "(stopped by the owner while it ran)" }); } }
-      convo.push({ role: "tool", tool_call_id: x.id, content: how === "stopped-running" ? STOPPED_RUNNING : how === "skipped" ? SKIPPED_BY_CHECK : REJECTED });
+      if (how === "stopped-running" || how === "interrupted") { const step = stepOf(x); if (step) { emit(step); emit({ type: "result", id: x.id, code: -1, output: how === "interrupted" ? "(stopped when the turn ended)" : "(stopped by the owner while it ran)" }); } }
+      convo.push({ role: "tool", tool_call_id: x.id, content: how === "stopped-running" ? STOPPED_RUNNING : how === "skipped" ? SKIPPED_BY_CHECK : how === "interrupted" ? INTERRUPTED_TOOL_USE : REJECTED });
       return false;
     };
     // (A call's own input check made at its group's start, taken again in its turn for that same input: lsp's reads the file.)
@@ -4234,6 +4300,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: " + m }); return end("done", { summary: lastSaid || m }); }
       if (!deniedLast) deniedRow = 0;
       deniedLast = false;
+      if (refusedRow > 0 && letThrough(refusedPrev)) refusedRow = 0;
+      refusedPrev = (calls[i] && calls[i].id) || "";
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       // (Coder's group that starts with this call: its calls that need nothing but to run start now, coder-parallel.mjs.)
       if (!offered && !closing && i >= groupTo) await startGroup(i);
@@ -4638,7 +4706,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               continue;
             } else {
               noVerdictRow = 0;
-              if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              if (v.decision === "block") { countBlock(checkSt); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0)); continue; }
               countAllowed(checkSt);
               if (dec.verdict === "ask") dec = { verdict: "allow", why: "", suggest: null };
               // (A risky removal sent to the checker by CODER_DISABLE_DANGEROUS_RM_TIMEOUT: its approval is the answer, with no
@@ -4745,13 +4813,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // comes first, only for one moved at its timeout; one the owner moved gets no "You will be notified when it
           // completes": Claude Code 2.1.322, Bash docs pass 9.)
           const byUser = !!(r && r.byUser);
+          // (Moved there as the turn ended, Claude Code's backgroundedByTurnAbort: its words for one started there, then the notes
+          // of one moved, with no note of output held back, as it has none for that; what it printed so far first. Round 6.)
+          const byTurn = !!(r && r.byTurnEnd);
           const sofarText = !inBg && !byUser && r.output ? scrub(noCwdMarks(String(r.output))).replace(/^(\s*\n)+/, "").trimEnd() : "";
           const sofar = sofarText ? sofarText + "\n" : "";
-          const parts = [c.monitor ? monitorStarted(job || "?", monitorMs(c.args.timeout)) : inBg ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : byUser ? "Command was manually backgrounded by user with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + "."];
+          const parts = [c.monitor ? monitorStarted(job || "?", monitorMs(c.args.timeout)) : inBg || byTurn ? "Command running in background with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : byUser ? "Command was manually backgrounded by user with ID: " + (job || "?") + ". Output is being written to: " + r.log + "." : "Command did not complete within its " + timeoutS + "s timeout and was moved to the background (ID: " + (job || "?") + "). Output is being written to: " + r.log + "."];
           if (!byUser && !c.monitor) parts.push(BG_NOTICE);
           if (!inBg) parts.push(movedLimit);
           if (!inBg && !byUser) parts.push("It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job.");
-          if (!inBg && !byUser && !(Number(r.size) > 0) && !sofarText) parts.push(BG_NO_OUTPUT);
+          if (!inBg && !byUser && !byTurn && !(Number(r.size) > 0) && !sofarText) parts.push(BG_NO_OUTPUT);
           if (!byUser && !c.monitor) parts.push("To check interim output, use read on that file path.");
           text = sofar + parts.join(" ");
         } else {
@@ -4781,7 +4852,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // CONNECTIONS THAT FAILED WHILE IT RAN, for a reason other than a block (Bash docs pass 9; Claude Code adds its
         // agent proxy's note only to a command that failed, after a blank line: "[agent-proxy] While this command ran, …").
         if (isError && r && typeof r.failNote === "string" && r.failNote) text = text.trimEnd() + "\n\n" + r.failNote;
-        bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && !inBg && !(r && r.byUser) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}) });
+        bashFacts.set(c.id, { ...(bg && job ? { backgroundTaskId: job } : {}), ...(bg && r && r.byUser ? { backgroundedByUser: true } : {}), ...(bg && r && r.byTurnEnd ? { backgroundedByTurnAbort: true } : {}), ...(bg && !inBg && !(r && r.byUser) && !(r && r.byTurnEnd) ? { timedOutAfterMs: timeoutS * 1000 } : {}), ...(interp ? { returnCodeInterpretation: interp } : {}) });
         emit({ type: "result", id: c.id, code, output: text.length > MAX_OUTPUT_CHARS ? capOutput(text) : text, ...(bg ? { background: true, ...(job ? { job } : {}) } : r && r.timedOut ? { timedOut: true } : {}), ...(r && r.notStarted ? { notStarted: true } : {}), ...(!bg && !isError && code !== 0 ? { ok: true } : {}), ...(thumbs.length ? { thumbs } : {}), ...(files ? { files } : {}) });
         // A COMMAND THAT VIEWED ONE FILE counts as reading it (like Claude Code's): that file's folder instructions load.
         // Its path counts from where the command ran (such a command never changes folders).
@@ -4882,7 +4953,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               continue;
             } else {
               noVerdictRow = 0;
-              if (v.decision === "block") { countBlock(checkStS); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+              if (v.decision === "block") { countBlock(checkStS); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0)); continue; }
               countAllowed(checkStS);
             }
           }
@@ -6008,7 +6079,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               continue;
             } else {
             noVerdictRow = 0;
-            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); reply(autoDenied(why0) + await deniedHooks(c, why0)); continue; }
+            if (v.decision === "block") { countBlock(checkStF); emit({ type: "result", id: c.id, code: -1, ran: false, output: blockedShown(v.rule, v.reason) }); const why0 = "[" + v.rule + "]" + (v.reason ? " " + v.reason : ""); refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0)); continue; }
             countAllowed(checkStF);
             fetchChecked = true;
             }

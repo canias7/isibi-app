@@ -20,7 +20,7 @@ const P = await import("../container/coder-parallel.mjs");
 const PK = await import("../container/coder-park.mjs");
 const H = await import("../container/coder-hooks.mjs");
 const T = await import("../container/coder-tools.mjs");
-const { REJECTED } = await import("../container/coder-perms.mjs");
+const { REJECTED, NOT_NOW } = await import("../container/coder-perms.mjs");
 const TOOLS = join(import.meta.dirname, "../container/coder-tools.mjs");
 const ROOT = "/work/shop";
 const CHECKER = /^You are the safety checker of Coder's auto mode/;
@@ -33,9 +33,9 @@ const MARK_MODEL = { role: "user", appNote: true, content: "[Request interrupted
 /**
  * ONE JOB WITH STAND-INS: Grok's replies in turn (`steps`, after `sendMs`); each run takes `ms(tag)` and is logged; the tools
  * script's own check before the hooks ("file_check") answers `check(req)` ({ code, output }); hooks answer `hookOut(input)`;
- * the checker answers `verdict(action)`.
+ * the checker answers `verdict(action)`; a command, `bash(x, run)` when given.
  */
-async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, checker = false, verdict = () => '{"decision":"allow"}', ms = () => 5, sendMs = 0, answer = () => ({ choice: "yes" }), check = () => ({ code: 0, output: "ok" }), hookOut = () => "", messages = [], text = "go", deps: more = {}, opts = {} } = {}) {
+async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, checker = false, verdict = () => '{"decision":"allow"}', ms = () => 5, sendMs = 0, answer = () => ({ choice: "yes" }), check = () => ({ code: 0, output: "ok" }), hookOut = () => "", bash = null, messages = [], text = "go", deps: more = {}, opts = {} } = {}) {
   const log = [], events = [], cards = [], requests = [], hookIns = [], checks = [];
   let n = 0;
   const t0 = Date.now();
@@ -67,6 +67,7 @@ async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, ch
         const tag = req.tool + ":" + (req.args.pattern || req.args.path || req.args.url || "");
         return run(tag, { code: 0, output: "result of " + tag });
       }
+      if (typeof bash === "function") return bash(x, run);
       return run("bash:" + x.command, { code: 0, output: "ran " + x.command + "\n" });
     },
     emit: (e) => events.push(e), sleep: async () => {},
@@ -92,8 +93,9 @@ test("IN1 Claude Code 2.1.325's marks of an interrupted turn and its words for a
   // (Claude Code's own, from its raw program: the same with "user".)
   assert.equal(P.INTERRUPTED_TOOL_USE.replace("the owner", "user"), "[Request interrupted by user for tool use]");
   assert.equal(REJECTED.startsWith("The owner doesn't want"), true, "the same swap as its rejection's");
-  // The checker's closing: a call that had its result or still ran keeps its turn; one not started is skipped.
-  assert.deepEqual(["done", "running", "waiting", "none"].map((s) => P.closedAs("checker", s)), ["turn", "turn", "skipped", "skipped"]);
+  // The checker's closing: a call that had its result keeps its turn; one still running is aborted (its turn, for a command
+  // moved to the background, or Claude Code's abort words); one not started is skipped.
+  assert.deepEqual(["done", "running", "waiting", "none"].map((s) => P.closedAs("checker", s)), ["turn", "interrupted", "skipped", "skipped"]);
   // Not the owner's message: Coder's counts and summaries pass it by.
   assert.equal(A.ownersMessage(P.interruptedNote()), false);
 });
@@ -136,12 +138,15 @@ test("IN3 the owner's Stop while a call runs: its 'stopped while running' reject
   assert.equal(b.when("start", "edit:a.txt"), -1, "nothing ran after it");
 });
 
-test("IN4 a Stop that came while Grok was still answering: its calls their rejection, then '[Request interrupted by the owner]', as Claude Code's mark when its model's answer was cut; between two answers: the same, or '… for tool use' when it came while the last round's calls ran", async () => {
+test("IN4 a Stop that came while Grok was still answering: its answer cut (none of it kept, its calls never run), then '[Request interrupted by the owner]', as Claude Code's mark when its model's answer was cut; between two answers: the same, or '… for tool use' when it came while the last round's calls ran", async () => {
   let stopAt = 0;
   setTimeout(() => { stopAt = Date.now(); }, 20);
   const t = await job([say("", [call("read", { path: "a.txt" }, "r1"), call("edit", { path: "b.txt", old_string: "a", new_string: "b" }, "e1")]), say("never")], { sendMs: 80, deps: { stopped: async () => stopAt > 0, stoppedAt: () => stopAt } });
   assert.equal(t.r.status, "stopped");
-  assert.deepEqual([t.told("r1"), t.told("e1"), last(t)], [REJECTED, REJECTED, MARK_MODEL]);
+  // (Its answer came after the Stop's time: as one Claude Code's Stop would have cut, round 6's follow-up.)
+  assert.deepEqual(last(t), MARK_MODEL);
+  assert.equal(t.r.messages.filter((m) => m.role === "assistant").length, 0, "nothing of its answer kept");
+  assert.deepEqual([t.told("r1"), t.told("e1")], [undefined, undefined], "no call of an answer that is not kept");
   assert.equal(t.log.length, 0, "nothing ran");
   // Between two answers: the Stop seen at the next round's start. Its time after the last round's calls were done: the model's mark.
   let at2 = 0;
@@ -199,7 +204,8 @@ test("IN6 a paused card answered No later: the job that takes the round up again
   // The Worker's Stop on the paused card.
   const rec = first.parked;
   const stopped = PK.stopParked(first.messages, rec);
-  assert.deepEqual(stopped.slice(-3), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }, MARK]);
+  // (Each call without a result: Claude Code's words for every call of a turn its Stop hands back stopped, its KR, NOT_NOW.)
+  assert.deepEqual(stopped.slice(-3), [{ role: "tool", tool_call_id: "b1", content: NOT_NOW }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }, MARK]);
   assert.equal(PK.stopParked(stopped, rec), stopped, "nothing more when the round is closed already");
   // The owner's next message: Claude Code's "approval request … closed" words, no mark (its turn was not interrupted).
   const byMessage = PK.closeParked(first.messages, rec, PK.CARD_CLOSED);
@@ -230,18 +236,20 @@ test("IN7 the mark in a summary, a Rewind and the saved chat: never a cut point 
   assert.doesNotMatch(req.messages[1].content, /OWNER: \[Request interrupted/);
   // Gloopy: its Stop and No as before.
   const src = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.match(src, /if \(await stopped\(\)\) \{ if \(!offered\) convo\.push\(interruptedNote\(stopTime\(\) <= roundDoneAt\)\); emit\(\{ type: "stopped" \}\); return end\("stopped"\); \}/);
+  assert.match(src, /if \(await stopped\(\)\) \{ if \(!offered && !shellCut\) convo\.push\(interruptedNote\(stopTime\(\) <= roundDoneAt\)\); emit\(\{ type: "stopped" \}\); return end\("stopped"\); \}/);
   assert.match(src, /if \(offered\) \{ emit\(\{ type: "stopped" \}\); return end\("stopped"\); \}\n\s+throw closeRound\("stop"\);/);
 });
 
-test("CK1 the auto mode checker's tenth response in a row with no verdict ends the turn as Claude Code's denial ends it ('permission-stop'): that call told so, a call beside it that had started goes on and keeps its result, one not started told '[Tool call skipped: …]'; the owner's line; no mark of an interrupted turn", async () => {
+test("CK1 the auto mode checker's tenth response in a row with no verdict ends the turn as Claude Code's denial ends it ('permission-stop'): that call told so, a call beside it still running aborted ('[Request interrupted by the owner for tool use]'), one not started told '[Tool call skipped: …]'; the owner's line; no mark of an interrupted turn", async () => {
   const steps = [...Array.from({ length: 9 }, (_, i) => say("", [call("bash", { command: "npm install " + i }, "c" + i)])), say("", [call("bash", { command: "cat a.txt" }, "c9"), call("read", { path: "slow.txt" }, "r9"), call("edit", { path: "x.txt", old_string: "a", new_string: "b" }, "e9")]), say("never")];
   const t = await job(steps, { mode: "auto", checker: true, verdict: () => "hmm", ms: (tag) => (tag === "read:slow.txt" ? 200 : 5) });
   assert.equal(t.r.status, "done");
   assert.equal(t.requests.length, 10, "Grok is not asked again");
   assert.equal(t.told("c9"), "Auto mode is unavailable: the server returned no safety verdict for 10 responses in a row, so bash was not run and this turn has ended. Wait for the owner's next message before doing anything further.");
-  assert.equal(t.told("r9"), "result of read:slow.txt", "it had started beside it: it goes on, its result kept");
-  assert.ok(t.when("end", "read:slow.txt") > 0);
+  // (Round 6's follow-up: Claude Code aborts a call still running at that denial; its tools' answer then, "by the owner" here.)
+  assert.equal(t.told("r9"), P.INTERRUPTED_TOOL_USE, "it had started beside it: aborted");
+  assert.ok(t.when("start", "read:slow.txt") >= 0);
+  assert.ok(t.events.some((e) => e.type === "result" && e.id === "r9" && e.output === "(stopped when the turn ended)"));
   assert.equal(t.told("e9"), P.SKIPPED_BY_CHECK);
   assert.equal(t.when("start", "edit:x.txt"), -1);
   assert.deepEqual(t.events.filter((e) => e.type === "error").map((e) => e.text), ["Auto mode is unavailable — the server returned no safety verdict for the last 10 responses, so Coder stopped. Send a message to try again, or switch out of auto mode."]);
@@ -371,4 +379,161 @@ test("FV4 read shows only Claude Code's picture kinds (png, jpg, jpeg, gif, webp
   assert.ok(src.includes("A picture (PNG, JPG, GIF, WebP; a screenshot you took, say): shown to you as a picture."));
   const page = readFileSync(new URL("../public/docs.html", import.meta.url), "utf8");
   assert.ok(page.includes("PNG, JPEG, GIF and WebP, up to 128 MB.") && page.includes("BMP and TIFF files are not opened as pictures (as in Claude Code)"));
+});
+
+// ── ROUND 6'S FOLLOW-UP (the coordinator's items 1 to 5; the owner: "do what claude code does") ─────────────────────────────
+
+test("IN8 the owner's own '!' command cut short by their Stop: Claude Code's note, the command and '[Request interrupted by the owner]', what it printed dropped (the chat still shows it), no answer, and no second mark; one that ended before the Stop keeps its output", async () => {
+  let stopAt = 0, sent = 0;
+  const events = [];
+  const notice = { id: "job1", desc: "Build the site", command: "npm run build", log: "/x/bg-1.log", code: 0, why: "exit" };
+  // (The machine kills it at the Stop: a failed exit.)
+  const cut = await A.runCoder({ send: async () => { sent++; return say("never"); }, exec: async () => { stopAt = Date.now(); await wait(5); return { code: 137, output: "half of the build\n" }; }, stopped: async () => stopAt > 0, stoppedAt: () => stopAt, emit: (e) => events.push(e), here: () => ROOT, root: ROOT }, { shell: "npm run build", notices: [notice] });
+  assert.equal(sent, 0, "no answer");
+  assert.equal(cut.status, "stopped");
+  assert.deepEqual(cut.messages.slice(0, 3).map((m) => m.content), [A.SHELL_CAVEAT, "<bash-input>npm run build</bash-input>", MARK_MODEL.content]);
+  assert.deepEqual(cut.messages[2], MARK_MODEL, "a message of Coder's app, not the owner's");
+  assert.equal(marks(cut.messages).length, 1, "no second one at the next round's start (the background command's news came)");
+  assert.ok(!cut.messages.some((m) => /half of the build/.test(String(m.content))), "what it printed is not kept");
+  assert.ok(events.some((e) => e.type === "result" && /half of the build/.test(e.output)), "the chat shows what it printed, as before");
+  // Ended (failed) before the Stop came: its output kept, with the note; no answer, no mark.
+  const before = await A.runCoder({ send: async () => { sent++; return say("never"); }, exec: async () => ({ code: 1, output: "1 failing\n" }), stopped: async () => true, stoppedAt: () => Date.now() + 60_000, emit: () => {}, here: () => ROOT, root: ROOT }, { shell: "npm test" });
+  assert.equal(sent, 0);
+  assert.deepEqual(before.messages.map((m) => m.content), [A.SHELL_CAVEAT, "<bash-input>npm test</bash-input>", "<bash-stdout>1 failing</bash-stdout><bash-stderr>Exit code 1</bash-stderr>"]);
+  // One that finished well while the Stop came: its output kept (Claude Code's success path).
+  const ok = await A.runCoder({ send: async () => { sent++; return say("never"); }, exec: async () => ({ code: 0, output: "a.txt\n" }), stopped: async () => true, stoppedAt: () => 1, emit: () => {}, here: () => ROOT, root: ROOT }, { shell: "ls" });
+  assert.deepEqual(ok.messages.map((m) => m.content), [A.SHELL_CAVEAT, "<bash-input>ls</bash-input>", "<bash-stdout>a.txt</bash-stdout><bash-stderr></bash-stderr>"]);
+});
+
+test("IN9 a Stop while Grok answers: its request aborted within moments (its answer, words only here, never kept or shown), then '[Request interrupted by the owner]'; coderSend sends nothing once the job's signal is aborted, nor any retry", async () => {
+  let stopAt = 0;
+  setTimeout(() => { stopAt = Date.now(); }, 30);
+  const t0 = Date.now();
+  const t = await job([say("Here is the whole plan, in words.")], { sendMs: 5000, deps: { stopped: async () => stopAt > 0, stoppedAt: () => stopAt } });
+  assert.ok(Date.now() - t0 < 2000, "not after the answer came");
+  assert.equal(t.r.status, "stopped");
+  assert.equal(t.requests[0].signal.aborted, true, "its request cut");
+  assert.deepEqual(last(t), MARK_MODEL);
+  assert.equal(t.r.messages.filter((m) => m.role === "assistant").length, 0, "nothing of its answer kept");
+  assert.ok(!t.events.some((e) => e.type === "text"), "none of its words shown");
+  assert.ok(t.events.some((e) => e.type === "stopped"));
+  // The same answer with no Stop: the turn's answer.
+  const plain = await job([say("Here is the whole plan, in words.")], { sendMs: 300, deps: { stopped: async () => false } });
+  assert.equal(plain.r.status, "done");
+  assert.equal(plain.r.summary, "Here is the whole plan, in words.");
+  // coderSend: nothing sent once aborted; aborted while it waits to retry: no second request.
+  const { coderSend } = await import("../container/coder-model.mjs");
+  const req = { model: "m", messages: [{ role: "user", content: "hi" }] };
+  let fetches = 0;
+  const gone = new AbortController(); gone.abort();
+  await assert.rejects(coderSend({ XAI_API_KEY: "stand-in" }, { fetchFn: async () => { fetches++; return new Response("busy", { status: 503 }); }, wait: async () => {} })({ ...req, signal: gone.signal }), (e) => e.name === "AbortError");
+  assert.equal(fetches, 0);
+  const later = new AbortController();
+  let sig = null;
+  await assert.rejects(coderSend({ XAI_API_KEY: "stand-in" }, { fetchFn: async (u, init) => { fetches++; sig = init.signal; return new Response("busy", { status: 503 }); }, wait: async () => { later.abort(); } })({ ...req, signal: later.signal }), (e) => e.name === "AbortError");
+  assert.equal(fetches, 1, "the first request only");
+  assert.equal(sig.aborted, true, "the job's signal reaches the request, beside its own time limit");
+});
+
+test("RS1 refusals in a row under denyInsteadOfPrompting, as Claude Code 2.1.325 counts them: its checker's blocks and the calls its check declines to judge, a call let through ending the count; the 20th told Claude Code's words, and the turn ends as a check's denial ends it (the calls not started skipped, the owner's line, no mark); none counted with the setting off", async () => {
+  assert.equal(A.refusedStreakTold("bash"), "20 actions were refused and no work went ahead in between, so bash was not run and this turn is ending.");
+  assert.equal(A.REFUSED_STREAK_SHOWN, "20 actions were refused and no work went ahead in between, so Coder stopped.");
+  const many = Array.from({ length: 22 }, (_, k) => call("bash", { command: "npm publish --tag t" + k }, "p" + k));
+  const declines = () => "I can't help with that.";
+  const t = await job([say("", many), say("never")], { mode: "auto", checker: true, verdict: declines, opts: { denyInstead: true } });
+  assert.equal(t.r.status, "done");
+  assert.equal(t.requests.length, 1, "Grok is not asked again");
+  assert.match(t.told("p18"), /declined to judge this action/);
+  assert.equal(t.told("p19"), A.refusedStreakTold("bash"));
+  assert.deepEqual([t.told("p20"), t.told("p21")], [P.SKIPPED_BY_CHECK, P.SKIPPED_BY_CHECK]);
+  assert.deepEqual(t.events.filter((e) => e.type === "error").map((e) => e.text), [A.REFUSED_STREAK_SHOWN]);
+  assert.equal(marks(t.r.messages).length, 0);
+  assert.equal(t.log.length, 0, "nothing ran");
+  // The setting off: no count, the turn goes on.
+  const off = await job([say("", many), say("Nothing was published.")], { mode: "auto", checker: true, verdict: declines });
+  assert.equal(off.requests.length, 2);
+  // A call let through between them: the count starts again.
+  const mixed = [...many.slice(0, 19), call("bash", { command: "ls" }, "l1"), ...many.slice(19)];
+  const reset = await job([say("", mixed), say("Nothing was published.")], { mode: "auto", checker: true, verdict: (action) => (/\bls\b/.test(action) ? '{"decision":"allow"}' : "I can't help with that."), opts: { denyInstead: true } });
+  assert.equal(reset.requests.length, 2, "the turn went on");
+  assert.equal(reset.told("l1"), "ran ls");
+  // The checker's blocks count too (each counted, and blocked), Gloopy's runs keep their own count: the source.
+  const src = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
+  assert.equal(src.split("refusedReply(c, reply, autoDenied(why0) + await deniedHooks(c, why0))").length - 1, 4, "the four places a check blocks a call");
+  assert.match(src, /if \(offered\) \{ deniedRow\+\+; deniedLast = true; \}/);
+});
+
+test("CK2 the check's denial that ends the turn with calls still running beside it (Claude Code's 'permission-stop'): a command goes on in the background (the machine moves it, moveRunning), told as Claude Code tells one moved there as its turn ended, what it printed so far first; a read still running told '[Request interrupted by the owner for tool use]'; one not started skipped; none moved where commands may not go to the background", async () => {
+  const d = Array.from({ length: 20 }, (_, k) => call("bash", { command: "cat f" + k + ".txt" }, "d" + k));
+  const steps = [say("", [...d, call("bash", { command: "echo started; sleep 30" }, "s1"), call("read", { path: "slow.txt" }, "r1"), call("edit", { path: "x.txt", old_string: "a", new_string: "b" }, "e1")]), say("never")];
+  const verdict = (action) => (/sleep 30/.test(action) ? '{"decision":"allow"}' : "I can't help with that.");
+  const once = async (opts) => {
+    let pending = null, moved = 0;
+    const t = await job(steps, {
+      // (The command an allow rule of the owner's covers: it starts at once, with no check, beside the others' checks.)
+      mode: "auto", checker: true, verdict, rules: { allow: ["Bash(echo:*)", "Bash(sleep:*)"], deny: [], ask: [] }, ms: (tag) => (tag === "read:slow.txt" ? 300 : 5), opts,
+      bash: (x, run) => (/sleep 30/.test(x.command) ? new Promise((ok) => { pending = ok; }) : run("bash:" + x.command, { code: 0, output: "ran\n" })),
+      deps: { moveRunning: () => { if (!pending) return 0; moved++; pending({ code: -1, background: true, byTurnEnd: true, pid: 4242, log: "/srv/coder-bg/shop/bg-7.log", jobId: "job7", output: "started\n", size: 8 }); pending = null; return 1; } },
+    });
+    return { t, moved };
+  };
+  const { t, moved } = await once({ denyInstead: true });
+  assert.equal(t.r.status, "done");
+  assert.equal(moved, 1);
+  assert.equal(t.told("d19"), A.refusedStreakTold("bash"));
+  assert.equal(t.told("s1"), "started\nCommand running in background with ID: job7. Output is being written to: /srv/coder-bg/shop/bg-7.log. " + A.BG_NOTICE + " " + A.BG_MOVED_LIMIT + " It is running now: do not start a second copy while it runs. If it is no longer needed, stop it with stop_job. To check interim output, use read on that file path.");
+  assert.ok(t.events.some((e) => e.type === "result" && e.id === "s1" && e.background === true && e.job === "job7"));
+  assert.equal(t.told("r1"), P.INTERRUPTED_TOOL_USE);
+  assert.equal(t.told("e1"), P.SKIPPED_BY_CHECK);
+  assert.equal(t.when("start", "edit:x.txt"), -1);
+  assert.deepEqual(t.events.filter((e) => e.type === "error").map((e) => e.text), [A.REFUSED_STREAK_SHOWN]);
+  assert.equal(marks(t.r.messages).length, 0);
+  // No command may go to the background (CODER_DISABLE_BACKGROUND_TASKS): none moved; it is told as the read is.
+  const off = await once({ denyInstead: true, noBg: true });
+  assert.equal(off.moved, 0);
+  assert.deepEqual([off.t.told("s1"), off.t.told("r1")], [P.INTERRUPTED_TOOL_USE, P.INTERRUPTED_TOOL_USE]);
+});
+
+test("MV1 Coder's machine, for real: a command moved as the turn ends says so (execIn's move \"turn\": byTurnEnd, not the owner's, not its timeout); a job whose check's denial ends its turn moves the command still running beside it, which goes on in the background, and Coder is told so", async () => {
+  const S = await import("../container/server.mjs");
+  const dir = mkdtempSync(join(tmpdir(), "f6-mv-"));
+  let mover = null;
+  const p = S.execIn(dir, "echo started; sleep 30", 60, { bgDir: join(dir, "bg"), onMove: (fn) => { mover = fn; } });
+  await wait(300);
+  assert.equal(typeof mover, "function");
+  assert.equal(mover("turn"), true);
+  const r = await p;
+  try {
+    assert.deepEqual([r.background, r.byTurnEnd, r.byUser, r.timedOut], [true, true, undefined, false]);
+    assert.match(String(r.output), /started/);
+  } finally { try { process.kill(-r.pid, "SIGKILL"); } catch { /* gone */ } }
+  // The whole job on a machine.
+  const http = await import("node:http");
+  const root = mkdtempSync(join(tmpdir(), "f6-root-")), mem = mkdtempSync(join(tmpdir(), "f6-mem-")), git = mkdtempSync(join(tmpdir(), "f6-git-")), bgr = mkdtempSync(join(tmpdir(), "f6-bgr-"));
+  const d = Array.from({ length: 20 }, (_, k) => call("bash", { command: "cat f" + k + ".txt" }, "d" + k));
+  const steps = [say("", [...d, call("bash", { command: "echo started; sleep 30" }, "s1")]), say("never")];
+  let n = 0;
+  const send = async (req) => {
+    const sys = String((req.messages[0] && req.messages[0].content) || "");
+    if (CHECKER.test(sys)) { const action = String(req.messages[1].content).split("THE ACTION TO JUDGE:\n")[1] || ""; return { message: { role: "assistant", content: /sleep 30/.test(action) ? '{"decision":"allow"}' : "I can't help with that." }, usage: { in: 1, out: 1 } }; }
+    return steps[Math.min(n++, steps.length - 1)];
+  };
+  const srv = http.createServer(S.createApp({ root, memRoot: mem, gitRoot: git, bgRoot: bgr, send, checker: true }));
+  await new Promise((ok) => srv.listen(0, "127.0.0.1", ok));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  const post = (path, b) => fetch(base + path, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(b) });
+  try {
+    assert.equal((await post("/turn", { project: "shop-mv", text: "go", messages: [], mode: "auto", prefs: { denyInstead: true }, rules: { allow: ["Bash(echo:*)", "Bash(sleep:*)"], deny: [], ask: [] } })).status, 200);
+    let st; for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=shop-mv&since=0")).json(); if (st.result) break; await wait(50); }
+    assert.ok(st.result, "the job ended");
+    const told = (id) => (st.result.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content;
+    assert.equal(told("d19"), A.refusedStreakTold("bash"));
+    assert.match(told("s1"), /^(started\n)?Command running in background with ID: job1\. Output is being written to: [^ ]+\. You will be notified when it completes\. If it is still running after 30m in the background, it will be stopped and you will be notified\. It is running now: do not start a second copy while it runs\. If it is no longer needed, stop it with stop_job\. To check interim output, use read on that file path\.$/);
+    assert.ok(st.result.background.some((b) => b.id === "job1"), "it goes on in the background");
+    assert.equal(n, 1, "Grok is not asked again");
+  } finally {
+    await post("/bgstop", { project: "shop-mv", id: "job1" }).catch(() => {});
+    await new Promise((ok) => srv.close(ok));
+    S.usePrefs({});
+  }
 });

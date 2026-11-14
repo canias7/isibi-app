@@ -43,7 +43,7 @@ async function loop(steps, opts = {}, { ask = PARK, deps = {} } = {}) {
 const takeUp = (first, answer, opts = {}, more = {}) => loop([say("Done.")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer }, ...opts }, { ask: NO_ASK, ...more });
 const tools = (r) => r.messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m.content]);
 
-test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code 2.1.325's for every call of a paused turn its Stop closes: REJECTED); the owner's next message's (CARD_CLOSED, raw binary); no Node module, and the machine's image copies it", () => {
+test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code 2.1.325's for every call of a paused turn its Stop closes: NOT_NOW, round 6); the owner's next message's (CARD_CLOSED, raw binary); no Node module, and the machine's image copies it", () => {
   assert.equal(P.PARK_MS, 5 * 60 * 1000, "a few minutes, as Claude Code's idle VM");
   const rec = { pid: "p1abcdef", kind: "permission", site: "bash", call: { id: "b1", name: "bash", args: { command: "npm i" } }, rest: ["b2"], mode: "acceptEdits", told: "acceptEdits", rounds: 3, notes: ["n"], shown: [], at: 5 };
   const ok = P.parkRecord(rec);
@@ -66,7 +66,7 @@ test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the ans
   const msgs = [{ role: "user", content: "go" }, { role: "assistant", content: "x", tool_calls: [{ id: "b0" }, { id: "b1" }, { id: "b2" }] }, { role: "tool", tool_call_id: "b0", content: "ran" }];
   assert.equal(P.parkedRound(msgs, rec).at, 1);
   const closed = P.closeParked(msgs, rec);
-  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }], "Claude Code's Stop on a paused card: its \"user-rejected\" words for every call of that turn");
+  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: NOT_NOW }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }], "Claude Code's Stop on a paused card: its words for every call of a turn it hands back stopped (its KR, \"cancelled\"; round 6)");
   assert.equal(REJECTED, "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.");
   assert.notEqual(REJECTED, NOT_NOW);
   // The owner's next message: Claude Code 2.1.325's words for it (its "new_input", raw binary), "owner" for "user".
@@ -279,7 +279,7 @@ test("CP7 what the job's start says while a round is taken up (a SessionStart ho
   assert.equal(odd.seen.length, 0);
   assert.ok(odd.events.some((e) => e.type === "error" && /could not take up your answer/.test(e.text)));
   const bad = await loop([say("never")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer: { choice: "maybe" } } }, { ask: NO_ASK });
-  assert.deepEqual(tools(bad.r), [["b1", REJECTED]], "every call has its answer again, in the words of Claude Code's Stop on a paused turn");
+  assert.deepEqual(tools(bad.r), [["b1", NOT_NOW]], "every call has its answer again, in the words of Claude Code's Stop on a paused turn");
 });
 
 test("CP8 Coder's machine: a card's job pauses after its time with the card open (/state says which card waits; /answer says the job paused); a turn taken up again (resume) goes on from that call, with the messages that waited for the card; a bad resume is refused", async () => {
@@ -427,13 +427,13 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   const rt = qq.w.turns()[0];
   assert.deepEqual([rt.resume.answer.choice, rt.resume.answer.text], ["chat", "Use MySQL."]);
   assert.match(rt.resume.answer.qid, /^q[0-9a-z]{6,20}$/);
-  // Stop closes the card as Claude Code's Stop on a paused card does (its "user-rejected" words for every call of that turn);
+  // Stop closes the card as Claude Code's Stop on a paused card does (NOT_NOW, its words for every call of a turn it hands back stopped);
   // what waited goes out next.
   const st = await parked();
   const stop = await st.w.go("projects/" + st.w.id + "/stop", { method: "POST" });
   assert.deepEqual(stop.data, { ok: true, reload: true });
   // (And Claude Code's mark of the turn its Stop interrupted, after the results: round 6.)
-  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }, { role: "user", appNote: true, content: "[Request interrupted by the owner for tool use]" }]);
+  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: NOT_NOW }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }, { role: "user", appNote: true, content: "[Request interrupted by the owner for tool use]" }]);
   assert.deepEqual(st.w.json("events.json").slice(-3).map((e) => [e.type, e.pid || e.id || "", e.choice || e.output || ""]), [["permanswer", "p1abcdef", "stop"], ["result", "b1", "Not run: stopped."], ["stopped", "", ""]]);
   assert.equal(st.w.turns()[0].text, "and fix what it finds", "sent next, as after any job's end");
   assert.equal(st.w.turns()[0].resume, undefined);

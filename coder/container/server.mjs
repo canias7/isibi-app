@@ -1401,7 +1401,9 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
     let answered = false;
     const answer = (r) => { if (progTimer) { clearInterval(progTimer); progTimer = null; } if (!answered) { answered = true; done(r); } };
     // Into the background: at its timeout, or when the owner asks (`byUser`: the page's "Run in background", Claude Code's
-    // Ctrl+B). The rest of its output goes to a log the AI can read (its output file, when it has one).
+    // Ctrl+B), or as the turn ends (`byUser` "turn": the auto mode check's denial that ended it, as Claude Code's Bash moves at
+    // its turn's abort, its backgroundedByTurnAbort; round 6). The rest of its output goes to a log the AI can read (its output
+    // file, when it has one).
     let moving = false;
     const toBackground = async (byUser) => {
       if (answered || moving) return false;
@@ -1434,7 +1436,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       } catch { /* the log could not be made: the note still says it runs */ }
       // (What it printed so far, as Claude Code shows it: its last 2,000 bytes, from a line start; movedSoFar.)
       const so = movedSoFar(lastBytes, bytes, log);
-      answer({ code: -1, background: true, pid: p.pid, log, timedOut: !byUser, ...(byUser ? { byUser: true } : {}), output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
+      answer({ code: -1, background: true, pid: p.pid, log, timedOut: !byUser, ...(byUser === "turn" ? { byTurnEnd: true } : byUser ? { byUser: true } : {}), output: so, size: bytes, ...(box && uid !== null ? { inBox: true } : {}) });
       return true;
     };
     const t = setTimeout(async () => {
@@ -1447,7 +1449,7 @@ function execNow(dir, command, timeoutS = 120, { uid = RUN_UID, gid = RUN_GID, k
       await toBackground(false);
     }, Math.max(1, timeoutS) * 1000);
     // The owner may move it now (only a command that would move at its timeout: never a tool's, never a sleep).
-    if (!kill && !stopAtTimeout && typeof onMove === "function") { try { onMove(() => { if (answered || moving) return false; clearTimeout(t); toBackground(true); return true; }); } catch { /* none */ } }
+    if (!kill && !stopAtTimeout && typeof onMove === "function") { try { onMove((how) => { if (answered || moving) return false; clearTimeout(t); toBackground(how === "turn" ? "turn" : true); return true; }); } catch { /* none */ } }
     p.on("error", (e) => { clearTimeout(t); answer({ code: -1, output: "could not start the command: " + e.message, timedOut: false }); });
     p.on("close", async (code, signal) => {
       clearTimeout(t);
@@ -4307,8 +4309,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           // The turn's own commands, while they run (the owner's Stop ends them; its background ones go on).
           let leader = 0;
           const onStart = (pid) => { leader = pid; t.fg.add(pid); };
-          // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs.
-          const onMove = (fn) => { t.movable = fn; };
+          // The page's "Run in background" (Claude Code's Ctrl+B) moves this one, while it runs; so does the turn's end by the
+          // auto mode check's denial, every one still running (t.movers, moveRunning: round 6).
+          let mover = null;
+          const onMove = (fn) => { t.movable = fn; mover = fn; (t.movers || (t.movers = new Set())).add(fn); };
           // ITS MARK (endMarked): what it starts carries it, so a stop ends that too, and the sweep keeps it while it runs.
           const mark = tool ? "" : newMark();
           // A COMMAND'S OWN HOSTS (Bash docs pass 6; Claude Code's allowed_domains, approved: "An approved list opens those hosts
@@ -4365,6 +4369,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
           if (leader) t.fg.delete(leader);
           t.movable = null; t.progress = null;
+          if (mover && t.movers) t.movers.delete(mover);
           if (pass && !(r && r.background && r.pid)) px.closeFor(pass);
           // IN THE BACKGROUND (asked to, or still running at its timeout): kept on this machine's list, with its time limit
           // (Claude Code in the cloud: its `timeout` with run_in_background, else 30 minutes; a moved one 30 minutes from
@@ -4418,6 +4423,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         stopped: () => t.stop,
         // (When the owner pressed Stop: a call of the round whose result came before then keeps it, as Claude Code keeps it. Round 5.)
         stoppedAt: () => t.stopAt || 0,
+        // (THE AUTO MODE CHECK'S DENIAL THAT ENDS THE TURN, round 6: every command of this job still running in the foreground goes
+        // on in the background, as Claude Code's Bash does at that abort; each one's answer says so. How many moved.)
+        moveRunning: () => { let n = 0; for (const fn of [...(t.movers || [])]) { try { if (fn("turn")) n++; } catch { /* ended meanwhile */ } } return n; },
         // THE JOB'S BACKGROUND COMMANDS, SEEN AND STOPPED HERE, where they were started (live test, 2026-11-08:
         // inside the admin sandbox their numbers are not the machine's, so a check there missed them). Only
         // this job's own (t.bg), each with everything it started (its process group).

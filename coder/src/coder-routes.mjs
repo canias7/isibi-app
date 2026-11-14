@@ -540,9 +540,9 @@ async function endLostJob(env, bucket, uid, meta, note) {
 }
 /**
  * A PAUSED CARD CLOSED WITHOUT ITS JOB (coder-park.mjs: the owner's Stop while it waited, or a Rewind or an Undo, which go on
- * from the chat as it is): every call of the round still without a result is told the owner rejected it, Claude Code's words
- * for a Stop on such a card, so every call has its answer again; the chat shows the card stopped. Answers the chat as it is
- * then.
+ * from the chat as it is): every call of the round still without a result is told the owner doesn't want it done right now
+ * (NOT_NOW), Claude Code's words for a Stop on such a card, so every call has its answer again, then its mark of the
+ * interrupted turn (stopParked, round 6); the chat shows the card stopped. Answers the chat as it is then.
  */
 async function closeParkedCard(bucket, uid, meta) {
   return (await closeParkedWith(bucket, uid, meta, "stop")).meta;

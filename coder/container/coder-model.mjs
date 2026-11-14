@@ -121,6 +121,8 @@ export const retryLine = ({ attempt, maxRetries, waitMs, error }) =>
  * small, fast model that reads the content gave no answer. Trying again may work.", a search's result with no links) gets
  * one instead, a message with no text, its use counted.
  * `onRetry({ attempt, maxRetries, waitMs, error })`: told before each wait.
+ * `signal`: the job's own (the owner's Stop while Grok answers, round 6): the request is cut when it aborts, and no retry or
+ * new request follows.
  * `via` `{ url, headers }`: through Coder's Worker with the job's pass (no key here).
  */
 export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r) => setTimeout(r, ms)), via = null, rand = Math.random } = {}) {
@@ -135,18 +137,22 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
     const make = () => JSON.stringify({ model: req.model || coderModel(env), instructions, input, ...(() => { const t = toResponsesTools(req.tools, { webSearch: req.webSearch || false }); return t.length ? { tools: t, tool_choice: req.tool_choice || "auto" } : {}; })(), ...(Number.isInteger(req.maxTurns) && req.maxTurns > 0 ? { max_turns: req.maxTurns } : {}), ...(req.parallelToolCalls === false ? { parallel_tool_calls: false } : {}), ...(Array.isArray(req.include) && req.include.length ? { include: req.include.filter((x) => typeof x === "string") } : {}), store: false, ...(withEffort ? { reasoning: { effort: req.effort } } : {}) });
     let body = make();
     let attempt = 0, effortAsked = false;
+    // (Stopped by the job, `req.signal`: the owner's Stop while Grok answers, round 6. No retry after it, and no request.)
+    const stopIfAborted = () => { if (req.signal && req.signal.aborted) throw Object.assign(new Error("the request was stopped"), { name: "AbortError" }); };
     const again = async (ms, error) => {
+      stopIfAborted();
       attempt++;
       if (typeof req.onRetry === "function") { try { req.onRetry({ attempt, maxRetries, waitMs: ms, error }); } catch { /* the call goes on */ } }
       await wait(ms);
     };
     for (;;) {
+      stopIfAborted();
       let r;
       try {
         r = await fetchFn(via ? via.url : CODER_ENDPOINT, {
           method: "POST", body,
           headers: via ? { ...via.headers, "content-type": "application/json" } : { authorization: "Bearer " + key, "content-type": "application/json" },
-          signal: AbortSignal.timeout(CODER_CALL_MS),
+          signal: req.signal ? AbortSignal.any([AbortSignal.timeout(CODER_CALL_MS), req.signal]) : AbortSignal.timeout(CODER_CALL_MS),
         });
       } catch (e) {
         // A connection that failed is tried again; a call that ran past its own time limit is not.
