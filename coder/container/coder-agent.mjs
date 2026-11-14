@@ -6,7 +6,8 @@
 //   bash  run one command in the project's folder and read what it printed
 //   read, edit, write, grep, glob, web_fetch  (coder-tools.mjs)
 //   web_search  Claude Code's WebSearch: each search its own Grok call (coder-websearch.mjs)
-//   todo  a checklist the owner sees;  pull_request  only when asked
+//   task_create, task_get, task_list, task_update  the task list the owner sees (Claude Code's TaskCreate, TaskGet,
+//         TaskList and TaskUpdate, in place of its old todo, 2026-11-14);  pull_request  only when asked
 //
 // It finishes the way a person does: it stops running commands and answers in
 // words. That answer is the summary, and the work then goes to GitHub.
@@ -34,6 +35,8 @@ import { inputCheckFor } from "./coder-inputs.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
+// (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
+import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1161,7 +1164,11 @@ export const CODER_TOOLS = Object.freeze([
   // UP TO 4 QUESTIONS IN ONE CARD (owner pick 4, 2026-11-08), like Claude Code's AskUserQuestion (1 to 4
   // questions, each with a short header chip, 2 to 4 options and multi-select; Other is always there).
   fn("ask_user", "Ask the owner 1 to 4 questions at once, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Put related questions in one call. Each question: its text, a header (at most 12 characters, shown as a chip, e.g. \"Database\"), 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens, and multi_select: true when they may choose several. If you recommend an option, put it first and add \" (Recommended)\" to its label. The owner can always choose Other and type their own answer, or Skip. Your turn ends there; their answers come back as the next message. Do not use it for things you can decide yourself.", { questions: { type: "array", description: "1 to 4 questions", items: { type: "object", properties: { question: { type: "string" }, header: { type: "string", description: "at most 12 characters" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, required: ["question", "options"] } } }, ["questions"]),
-  fn("todo", "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, ["items"]),
+  // CLAUDE CODE'S TASK LIST IN PLACE OF CODER'S TODO (the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+  // notify one"; Claude Code's tools reference, "Task tool availability": "In background sessions and in cloud sessions,
+  // Claude Code provides the same tools on every model", its four Task tools): TaskCreate, TaskGet, TaskList and TaskUpdate,
+  // as task_create, task_get, task_list and task_update (coder-tasks.mjs). Gloopy keeps its own todo (gloopy-agent.mjs).
+  ...TASK_TOOLS,
   // CLAUDE CODE'S BASH, ITS INPUTS AND WHAT ITS DESCRIPTION TELLS THE MODEL (tool 4; the owner, 2026-11-09: "do all of
   // those"; its hooks reference: command, description, timeout in milliseconds, run_in_background; its tools reference
   // and Claude Code 2.1.319's own Bash description, read and tried that day).
@@ -1402,12 +1409,16 @@ export const MACHINE_ADMIN = MACHINE_TOOLS
   .replace(/\n- The master key's jobs are yours:[^\n]*/, "\n- You have admin for anything, as on Claude Code's machine: sudo works for every command (no password). Install, remove or upgrade any package (apt-get and apt need no sudo), change any system file (sudo), start, stop or restart any service (service NAME start, no sudo), use any port (80 and 443 too). What you change in the system stays while this chat's machine lives; a new Coder version starts it fresh. Your own commands run as you, so the project's files stay yours: never run builds or installs in the project with sudo.")
   .replace("Docker and docker compose work without admin rights: the engine starts with your first docker command.", "Docker and docker compose work (no sudo): the engine starts with your first docker command.");
 
+// (Its task list's line is Claude Code's own, from its system prompt's "# Using your tools": "Use TaskCreate to plan and track
+// work. Mark each task completed as soon as it's done; don't batch." The owner, 2026-11-14: "Do all the talk to you tools
+// execpt for the notify one".)
 export const CODER_SYSTEM = `You are Coder, a software developer working for the owner in your own Linux machine.
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). You work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), todo (your checklist on bigger jobs), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
+- Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
 - To change a file: read it, then edit the exact lines. Use write for a new file or a full rewrite.
 - Read a file before you change it. Never guess what a file holds.
@@ -1595,6 +1606,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // environment's CODER_MAX_WEB_SEARCHES_PER_SESSION and CODER_WEB_SEARCH_REFILLS_PER_HOUR (`searchLimits`); a helper uses
   // the one of the run that started it (deps.searchBudget).
   const webBudget = deps.searchBudget && typeof deps.searchBudget.tryConsume === "function" ? deps.searchBudget : searchBudget({ keep: deps.searchKeep || null, max: searchMaxOf(searchLimits && searchLimits.max), refills: searchRefillsOf(searchLimits && searchLimits.refills), now });
+  // THE CHAT'S TASK LIST (Claude Code's TaskCreate, TaskGet, TaskList and TaskUpdate; the owner, 2026-11-14: "Do all the talk
+  // to you tools execpt for the notify one"; coder-tasks.mjs): read once a job, when first needed, from the chat's own file
+  // (deps.tasks), and written back after each change, as Claude Code keeps a session's list between turns; a job with no file
+  // keeps it for itself. Each change shows in the chat's checklist.
+  let taskState = null;
+  const tasksNow = async () => { if (!taskState) { try { taskState = readTasks(deps.tasks && typeof deps.tasks.load === "function" ? await deps.tasks.load() : null); } catch { taskState = emptyTasks(); } } return taskState; };
+  const saveTasks = async () => { try { if (taskState && deps.tasks && typeof deps.tasks.save === "function") await deps.tasks.save(taskState); } catch { /* kept for this job */ } };
+  const showTasks = () => emit({ type: "todo", items: pageItems(taskState, scrub) });
   // (What each model call used: Coder's answers, the checker's, and prompt and agent hooks'.)
   const usage = [];
   // (When each call started running, past its questions and its PreToolUse hooks, and when its result came: duration_ms.)
@@ -2738,6 +2757,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         } else if (avail >= memWarnGib * 1024 ** 3 * WARN_REARM) MEM_TOLD.delete(key);
       }
     }
+    // CLAUDE CODE'S TASK REMINDER (its task_reminder; the owner, 2026-11-14; coder-tasks.mjs): before each answer, when Coder
+    // has task_update and its last 10 steps used neither task_create nor task_update, and no reminder came in them: "The task
+    // tools haven't been used recently. …", with the tasks on the list.
+    if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
     const modeRound = modeNow();
     if (modeRound !== toldMode) { convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound) }); toldMode = modeRound; }
     let answer;
@@ -2893,8 +2916,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
-      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
+      if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files" || c.name === "todo")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
       if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
+      // THE TASK TOOLS' INPUT, CHECKED BEFORE ANY HOOK (coder-tasks.mjs; the owner, 2026-11-14): Claude Code's TaskCreate and
+      // TaskUpdate fix a call's input first, then check it against their schema ("Validation rejections are returned as
+      // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"). A refused
+      // call shows no step in the chat, as Claude Code shows none for these tools; its hooks see the fixed input.
+      if (!c.rerun && isTaskTool(c.name)) {
+        const v = checkTaskInput(c.name, c.args);
+        if (v.error) { reply(v.error); continue; }
+        c.args = v.args;
+      }
       // A TOOL'S OWN INPUT CHECK FIRST, as Claude Code's Grep, Glob, LSP, WebFetch and WebSearch (coder-inputs.mjs; the owner,
       // 2026-11-14: "start fixing and filling in gaps on those tools"; Claude Code: "Validation rejections are returned as
       // tool_use_error results and happen before hooks run, so they fire neither PreToolUse nor PostToolUseFailure"): the input
@@ -4449,9 +4481,50 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         toldMode = a.choice; // (the approval below says plan mode ended)
         reply(planApproved(plan) + "\n\n" + PLAN_EXITED + (a.comment ? "\n\n(The owner approved it with a note: " + a.comment + ")" : ""));
       } else if (c.name === "todo") {
+        // (Gloopy's own checklist: Coder has Claude Code's task list instead, below.)
         const items = (Array.isArray(c.args.items) ? c.args.items : []).slice(0, 30).map((x) => ({ text: scrub(String((x && x.text) || "")).slice(0, 200), status: ["pending", "in_progress", "done"].includes(x && x.status) ? x.status : "pending" })).filter((x) => x.text);
         emit({ type: "todo", items });
         reply("ok: the owner sees the checklist");
+      } else if (isTaskTool(c.name)) {
+        // CLAUDE CODE'S TASK LIST (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+        // coder-tasks.mjs): each tool answers in Claude Code's words, and its PostToolUse hooks get its result object (its
+        // tool_response). An input a PreToolUse hook rewrote is checked again, as the call was.
+        const v = checkTaskInput(c.name, c.args);
+        if (v.error) { reply(v.error); continue; }
+        const a = v.args, st = await tasksNow();
+        if (c.name === "task_create") {
+          const task = createTask(st, a);
+          // TASKCREATED HOOKS (Claude Code's hooks reference: "Runs when a task is being created via the TaskCreate tool"; one
+          // that blocks, by exit code 2 or decision "block", "Rolls back the task creation", and Claude Code "returns your
+          // message to Claude as the tool's error": a failed call, so PostToolUseFailure, not PostToolUse).
+          const o = await runHooks("TaskCreated", "", { task_id: task.id, task_subject: task.subject, task_description: task.description });
+          if (o && o.decision === "block" && o.blocks.length) {
+            deleteTask(st, task.id);
+            await saveTasks();
+            resultsSeen.set(c.id, { type: "result", id: c.id, code: 1 });
+            reply("error: " + o.blocks.join("\n"));
+            continue;
+          }
+          await saveTasks();
+          showTasks();
+          toolFacts.set(c.id, createdFacts(task));
+          reply(createdText(task));
+        } else if (c.name === "task_get") {
+          const t = findTask(st, a.taskId);
+          toolFacts.set(c.id, getFacts(t));
+          reply(getText(t));
+        } else if (c.name === "task_list") {
+          const tasks = listTasks(st);
+          toolFacts.set(c.id, { tasks });
+          reply(listText(tasks));
+        } else {
+          // TASKCOMPLETED HOOKS (Claude Code: "Runs when a task is being marked as completed"; exit code 2: "the task is not
+          // marked as completed and the stderr message is fed back to the model as feedback", as the call's answer).
+          const r = await updateTask(st, a, { beforeComplete: async (t) => { const o = await runHooks("TaskCompleted", "", { task_id: a.taskId, task_subject: t.subject, task_description: t.description }); return o && o.decision === "block" ? o.blocks : []; } });
+          if (r.changed) { await saveTasks(); showTasks(); }
+          toolFacts.set(c.id, r.data);
+          reply(updateText(r.data));
+        }
       } else if (c.name === "pr_comments") {
         // From GitHub (strangers can write there) nothing is posted as the owner.
         if (github) { reply("error: comments cannot be posted on the owner's behalf in a job started from GitHub; put the findings in your answer instead"); continue; }
@@ -4592,7 +4665,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, todo, notify and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);
