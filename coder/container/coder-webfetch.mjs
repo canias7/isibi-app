@@ -59,6 +59,8 @@ export const NOT_RESOLVED = (message, host) => message + ". In this cloud sessio
 export const EGRESS_BLOCKED = (host) => JSON.stringify({ error_type: "EGRESS_BLOCKED", domain: host, message: "Access to " + host + " is blocked by the network egress proxy." });
 /** Coder's own refusal, kept (Claude Code refuses only a host without a dot). */
 export const PRIVATE_ADDRESS = "that address is on a private network";
+/** A tunnel the gate refused for any reason but a block (Claude Code 2.1.325's ProxyConnectRefusedError, word for word). */
+export const PROXY_REFUSED = "proxy refused the connection";
 // (Claude Code's "The small, fast model that reads the content gave no answer. Trying again may work.": Coder's reader is
 // the chat's own model at the chat's effort, so its kind is left out.)
 export const NO_ANSWER = "The model that reads the content gave no answer. Trying again may work.";
@@ -925,7 +927,10 @@ export function requestOnce(url, { signal = null, proxy = "", lookup = undefined
             const reason = String(res.headers["x-deny-reason"] || ""), perr = String(res.headers["x-proxy-error"] || "");
             if (res.statusCode === 403 && (reason === "host_not_allowed" || perr === "blocked-by-allowlist")) return cb(requestError(EGRESS_BLOCKED(u.hostname), "EGRESS_BLOCKED"));
             if (res.statusCode === 403 && reason === "private_dest_ip") return cb(requestError(PRIVATE_ADDRESS, "EPRIVATE"));
-            return cb(requestError("the proxy refused " + u.hostname));
+            // (Any other answer, a 502 for an allowed site the gate could not reach too: Claude Code 2.1.325's words as its
+            // WebFetch passes them on, its proxy agent's "proxy refused the connection" (code ERR_PROXY_TUNNEL); only a 403 with
+            // host_not_allowed or blocked-by-allowlist is a block. Round 4; the owner: "yes pls do both".)
+            return cb(requestError(PROXY_REFUSED, "ERR_PROXY_TUNNEL"));
           }
           cb(null, tls.connect({ socket: sock, servername: isIP(host) ? undefined : u.hostname }));
         });

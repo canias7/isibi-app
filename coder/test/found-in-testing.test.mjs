@@ -618,10 +618,12 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await writeFile(join(dir, "Sheet 1.xlsx"), "x");
   await writeFile(join(dir, "t.parquet"), "x");
   await writeFile(join(dir, "photo.heic"), "x");
-  assert.equal(await read("data.zip"), "error: data.zip is a binary file (ZIP), not text, so read does not open it: list it with `unzip -l 'data.zip'`, or print one file in it with `unzip -p 'data.zip' path/inside`");
-  assert.match(await read("Sheet 1.xlsx"), /^error: Sheet 1\.xlsx is a binary file \(XLSX\), not text, so read does not open it: read it with a script, e\.g\. python3 with openpyxl or pandas/);
-  assert.match(await read("t.parquet"), /\(PARQUET\).*python3 with pandas and pyarrow, or duckdb$/);
-  assert.match(await read("photo.heic"), /\(HEIC\).*make a PNG of it in the scratch folder with a command \(ImageMagick: `mkdir -p \/tmp\/coder-scratch && convert 'photo\.heic' \/tmp\/coder-scratch\/out\.png`/);
+  // (Claude Code 2.1.325's own list and words since round 4, the owner: "yes pls do both"; Coder had its own way to read each kind.)
+  const binary = (ext) => "error: This tool cannot read binary files. The file appears to be a binary " + ext + " file. Use a shell command or script that can read the format.";
+  assert.equal(await read("data.zip"), binary(".zip"));
+  assert.equal(await read("Sheet 1.xlsx"), binary(".xlsx"));
+  assert.equal(await read("t.parquet"), binary(".parquet"));
+  assert.equal(await read("photo.heic"), binary(".heic"));
   // Any other file with a NUL byte in its start: its lines, with Claude Code 2.1.325's note after them, as its Read shows one
   // (round 4; Coder had refused it in its own words).
   const { notTextNote } = await import("../container/coder-tools.mjs");
@@ -637,7 +639,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
   const note = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).content;
   assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
-  assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
+  assert.ok(note.includes("--- data.zip: not included (This tool cannot read binary files. The file appears to be a binary .zip file."));
 });
 
 test("CD217 the review (2026-11-08): a job that reads a lot never wipes the saved chat. While Coder works, a read reaches Grok whole; the chat saved between messages keeps each tool's answer and each app note to 12,000 characters (a summary to 40,000), and the chat's record keeps each step's output to 12,000; the size cap cuts only at the owner's messages, and one job over it is shortened, never dropped", async () => {
@@ -772,7 +774,7 @@ test("CD221 a PDF's own page count is not trusted (Claude Code 2.1.317: \"Fixed 
   const run = machine(dir);
   const read = async (args) => { const out = (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64") })).output; return out.startsWith(PICS_MARK) ? JSON.parse(out.slice(PICS_MARK.length)) : { text: out, pictures: [] }; };
   await writeFile(join(dir, "book.epub"), "PK");
-  assert.match((await read({ path: "book.epub" })).text, /^error: book\.epub is a binary file \(EPUB\), not text, so read does not open it: list it with `unzip -l 'book\.epub'`/);
+  assert.equal((await read({ path: "book.epub" })).text, "error: This tool cannot read binary files. The file appears to be a binary .epub file. Use a shell command or script that can read the format.");
   let tools = true;
   try { execFileSync("python3", ["-c", "import pypdf"]); execFileSync("pdfinfo", ["-v"], { stdio: "ignore" }); } catch { tools = false; }
   if (!tools) return; // pypdf and poppler are on Coder's machine (the machine check, test/read-check.mjs, reads one there)

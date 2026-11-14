@@ -180,3 +180,50 @@ test("BR5 the shell setup lines are Claude Code 2.1.325's, word for word: `\\bui
   assert.equal(run("zsh", "setopt BRACE_CCL MAGIC_EQUAL_SUBST EXTENDED_GLOB\n" + S.EXTGLOB_OFF_ZSH + "echo {ab} x=~/y; [[ -o extendedglob ]] && echo on || echo off"), "{ab} x=~/y\noff\n");
   assert.equal(execFileSync("zsh", ["-c", S.EXTGLOB_OFF_PREFIXED + "echo ok"], { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] }), "ok\n");
 });
+
+test("BR6 read refuses Claude Code 2.1.325's own list of binary kinds (121 extensions, read by its own rule: what follows the path's last dot, in lower case) in its words, pictures read shows and PDFs aside; a file not on the list with NUL bytes is shown with the note, as before; the list also keeps such files from the re-read after a summary", async () => {
+  const T = await import("../container/coder-tools.mjs");
+  // The list, word for word and in its order, from Claude Code's raw program.
+  assert.deepEqual([...T.BINARY_EXTS], [".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif", ".heic", ".heif", ".avif", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg", ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso", ".zst", ".lz4", ".whl", ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib", ".app", ".msi", ".deb", ".rpm", ".dmg", ".apk", ".pdf", ".doc", ".docx", ".docm", ".dotx", ".dotm", ".xls", ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".ppt", ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm", ".odt", ".ods", ".odp", ".numbers", ".epub", ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib", ".sqlite", ".sqlite3", ".db", ".mdb", ".idx", ".parquet", ".feather", ".npy", ".npz", ".pickle", ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max", ".swf", ".fla", ".lockb", ".dat", ".data"]);
+  assert.deepEqual(["a.BIN", "/w/x.tar.gz", "/w/.db", "/w/archive.Z", "/w/noext", "/w/dir.d/file", "/w/a.ipa", "/w/a.avro", "/w/a.txt"].map(T.binaryExt), [true, true, true, true, false, false, false, false, false], "its rule, dotfiles too; Coder's own extras (.ipa, .avro) are no longer on it");
+  assert.equal(T.BINARY_REFUSED(".zip"), "This tool cannot read binary files. The file appears to be a binary .zip file. Use a shell command or script that can read the format.");
+  // For real, as Coder's machine runs read.
+  const dir = mkdtempSync(join(tmpdir(), "fix4-bin-"));
+  const read = (path) => String(spawnSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool: "read", args: { path } })).toString("base64") ], { cwd: dir, encoding: "utf8" }).stdout || "");
+  try {
+    for (const f of ["model.bin", "cache.dat", "app.db", "arr.npy", "obj.pickle", "bun.lockb", "setup.msi", "pkg.deb", "Report.DOCX", "logo.ico"]) {
+      writeFileSync(join(dir, f), "looks like text\n");
+      assert.equal(read(f), "error: " + T.BINARY_REFUSED(f.slice(f.lastIndexOf(".")).toLowerCase()), f);
+    }
+    // Not on the list: read, with Claude Code's note when it holds NUL bytes.
+    writeFileSync(join(dir, "blob.raw"), Buffer.from("a\0b\n"));
+    assert.equal(read("blob.raw"), "     1\ta\u0000b\n" + T.notTextNote("nul"));
+    writeFileSync(join(dir, "data.avro"), "Obj\n");
+    assert.equal(read("data.avro"), "     1\tObj");
+    // A picture read shows is still taken as a picture (Claude Code refuses .bmp, .tif and .tiff: Coder shows them, kept).
+    writeFileSync(join(dir, "x.bmp"), "not really a picture");
+    const bmp = read("x.bmp");
+    assert.ok(bmp.startsWith("error: x.bmp cannot be shown") && !bmp.includes("cannot read binary files"), bmp);
+    assert.equal(T.notTextKind("/w/model.bin"), true, "not read again after a summary");
+    assert.equal(T.notTextKind("/w/notes.txt"), false);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("BR7 web_fetch's words for a tunnel Coder's gate refused for any reason but a block, a 502 for an allowed site it could not reach too, are Claude Code 2.1.325's as its WebFetch passes them on: \"proxy refused the connection\"; a 403 block keeps EGRESS_BLOCKED", { timeout: 30_000 }, async () => {
+  const http = (await import("node:http")).default;
+  const W = await import("../container/coder-webfetch.mjs");
+  assert.equal(W.PROXY_REFUSED, "proxy refused the connection");
+  const gate = http.createServer();
+  gate.on("connect", (req, sock) => { const ok502 = req.url.startsWith("down."); sock.end(ok502 ? "HTTP/1.1 502 Bad Gateway\r\ncontent-length: 0\r\n\r\n" : "HTTP/1.1 403 Forbidden\r\nx-deny-reason: host_not_allowed\r\ncontent-length: 0\r\n\r\n"); });
+  await new Promise((ok) => gate.listen(0, "127.0.0.1", ok));
+  const proxy = "http://127.0.0.1:" + gate.address().port;
+  try {
+    // (Coder's tools script, as the agent runs it, with the chat's network list on; run without blocking this test's gate.)
+    const child = async (url) => {
+      const { execFile } = await import("node:child_process");
+      return new Promise((ok) => execFile(process.execPath, ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url, deadline_ms: 20000 } })).toString("base64")], { env: { ...process.env, CODER_NET_LIMITED: "1", HTTPS_PROXY: proxy }, encoding: "utf8" }, (err, stdout) => ok({ code: err ? err.code : 0, stdout })));
+    };
+    assert.deepEqual(await child("https://down.example/x"), { code: 1, stdout: "error: proxy refused the connection" });
+    assert.deepEqual(await child("https://blocked.example/x"), { code: 1, stdout: 'error: {"error_type":"EGRESS_BLOCKED","domain":"blocked.example","message":"Access to blocked.example is blocked by the network egress proxy."}' });
+  } finally { gate.closeAllConnections(); await new Promise((ok) => gate.close(ok)); }
+});

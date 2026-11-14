@@ -335,7 +335,8 @@ test("WF9 never a private address (Coder's own refusal, kept), nor a host withou
   try {
     await assert.rejects(W.requestOnce("https://blocked.example/x", { proxy }), (e) => e.message === '{"error_type":"EGRESS_BLOCKED","domain":"blocked.example","message":"Access to blocked.example is blocked by the network egress proxy."}');
     await assert.rejects(W.requestOnce("https://private.example/x", { proxy }), (e) => e.message === "that address is on a private network");
-    await assert.rejects(W.requestOnce("https://down.example/x", { proxy }), (e) => e.message === "the proxy refused down.example");
+    // (Any other answer, the gate's 502 for an allowed site it could not reach too: Claude Code 2.1.325's words, round 4.)
+    await assert.rejects(W.requestOnce("https://down.example/x", { proxy }), (e) => e.message === "proxy refused the connection" && e.code === "ERR_PROXY_TUNNEL" && W.PROXY_REFUSED === e.message);
     assert.deepEqual(connects, ["blocked.example:443", "private.example:443", "down.example:443"]);
     // Coder's tools script, as the agent runs it, with the chat's network list on: the same words, as a failed call.
     const b64 = Buffer.from(JSON.stringify({ tool: "web_fetch", args: { url: "http://blocked.example/x", deadline_ms: 20000 } })).toString("base64");

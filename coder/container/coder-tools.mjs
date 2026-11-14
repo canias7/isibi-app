@@ -62,7 +62,7 @@ export const workDirs = () => String(process.env.CODER_WORK_DIRS || "").split(":
  */
 export const SCRATCH = "/tmp/coder-scratch";
 /** A file read does not give as text (a picture, a PDF, a notebook, a binary kind): not read again after a summary. */
-export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(); return !!(PIC_KINDS[e] || e === ".pdf" || e === ".ipynb" || BINARY_HOW.has(e)); }
+export function notTextKind(p) { const e = extname(String(p || "")).toLowerCase(); return !!(PIC_KINDS[e] || e === ".pdf" || e === ".ipynb" || binaryExt(p)); }
 /** A NULL BYTE in a path or pattern (Claude Code's errors page: "Read file_path cannot contain null bytes (\0). Remove
  * the null byte and try again."): no file system or search tool takes one. */
 const noNul = (s, what) => { if (String(s).includes("\0")) fail(what + " cannot contain null bytes (\\0). Remove the null byte and try again."); };
@@ -519,24 +519,22 @@ async function readNotebook(raw, rel) {
 }
 
 /**
- * FILES READ REFUSES BY THEIR KIND (Claude Code's docs: "Read refuses a file whose extension it treats as binary, such as
- * .xlsx, .parquet, .heic, or .zip. … the error suggests … a shell command or script that reads the format"), each with a
- * way to read it. Any other file is read; one that is not text (a NUL byte in its start, UTF-16BE, not UTF-8) with Claude
- * Code 2.1.325's note after its lines (notTextNote).
+ * FILES READ REFUSES BY THEIR KIND: Claude Code 2.1.325's own list, word for word from its raw program, in its order (round 4;
+ * the owner, 2026-11-14: "yes pls do both"; its docs: "Read refuses a file whose extension it treats as binary, such as
+ * .xlsx, .parquet, .heic, or .zip"), with its words for the refusal (BINARY_REFUSED). Coder's own list, each kind with a way
+ * to read it, is gone. Pictures read shows (PIC_KINDS: .bmp, .tif and .tiff too, which Claude Code refuses) and PDFs are
+ * read, as there. Any other file is read; one that is not text (a NUL byte in its start, UTF-16BE, not UTF-8) with Claude
+ * Code's note after its lines (notTextNote).
  */
-const BINARY_KINDS = [
-  [["zip", "jar", "war", "whl", "apk", "ipa", "nupkg", "epub"], "list it with `unzip -l FILE`, or print one file in it with `unzip -p FILE path/inside`"],
-  [["tar", "gz", "tgz", "bz2", "xz", "zst", "7z", "rar"], "list it with `tar -tf FILE` (`7z l FILE` for 7z and rar), or print a compressed text file with `zcat` or `xzcat`"],
-  [["xlsx", "xlsm", "xls", "ods"], "read it with a script, e.g. python3 with openpyxl or pandas (pip install them if they are missing)"],
-  [["docx", "doc", "odt", "pptx", "ppt", "odp"], "read its text with a script, e.g. python3 with python-docx or python-pptx (for a .docx, `unzip -p FILE word/document.xml` also works)"],
-  [["parquet", "avro", "orc", "feather", "arrow"], "read it with a script, e.g. python3 with pandas and pyarrow, or duckdb"],
-  [["heic", "heif", "avif", "psd"], "make a PNG of it in the scratch folder with a command (ImageMagick: `mkdir -p /tmp/coder-scratch && convert FILE /tmp/coder-scratch/out.png`; for HEIC also heif-convert), then read the PNG"],
-  [["sqlite", "sqlite3"], "open it with `sqlite3 FILE .tables`, then query it"],
-  [["mp3", "m4a", "wav", "flac", "ogg", "aac", "mp4", "mov", "avi", "mkv", "webm"], "look at it with `ffprobe FILE`; for a video, take a frame as a picture with ffmpeg and read that"],
-  [["exe", "dll", "so", "dylib", "o", "a", "class", "pyc", "wasm", "iso", "dmg"], "see what it is with `file FILE`, or its text parts with `strings FILE | head -n 50`"],
-  [["ttf", "otf", "woff", "woff2", "eot"], "it is a font: see what it is with `file FILE`"],
-];
-const BINARY_HOW = new Map(BINARY_KINDS.flatMap(([exts, how]) => exts.map((e) => ["." + e, how])));
+export const BINARY_EXTS = new Set([".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif", ".heic", ".heif", ".avif", ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg", ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus", ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso", ".zst", ".lz4", ".whl", ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib", ".app", ".msi", ".deb", ".rpm", ".dmg", ".apk", ".pdf", ".doc", ".docx", ".docm", ".dotx", ".dotm", ".xls", ".xlsx", ".xlsm", ".xlsb", ".xltx", ".xltm", ".ppt", ".pptx", ".pptm", ".ppsx", ".ppsm", ".potx", ".potm", ".odt", ".ods", ".odp", ".numbers", ".epub", ".ttf", ".otf", ".woff", ".woff2", ".eot", ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib", ".sqlite", ".sqlite3", ".db", ".mdb", ".idx", ".parquet", ".feather", ".npy", ".npz", ".pickle", ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max", ".swf", ".fla", ".lockb", ".dat", ".data"]);
+/** A path with one of them, by Claude Code's own rule: what follows its last dot, in lower case. */
+export const binaryExt = (p) => { const s = String(p || ""); return BINARY_EXTS.has(s.slice(s.lastIndexOf(".")).toLowerCase()); };
+/**
+ * Claude Code's words for it, the extension as its path ends ("This tool cannot read binary files. The file appears to be a
+ * binary .zip file. …"); its "Use a skill for this file type if one is available, or a shell command …" without the skill,
+ * as Coder has no skills.
+ */
+export const BINARY_REFUSED = (ext) => "This tool cannot read binary files. The file appears to be a binary " + ext + " file. Use a shell command or script that can read the format.";
 /** A path in single quotes, for a command shown to Coder. */
 const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
 
@@ -548,7 +546,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const ext = extname(abs).toLowerCase();
   if (PIC_KINDS[ext]) return readPicture(abs, rel, PIC_KINDS[ext]);
   if (ext === ".pdf") return readPdf(abs, rel, pages);
-  if (kind.isFile() && BINARY_HOW.has(ext)) fail(rel + " is a binary file (" + ext.slice(1).toUpperCase() + "), not text, so read does not open it: " + BINARY_HOW.get(ext).replace(/FILE/g, shq(rel)));
+  if (kind.isFile() && binaryExt(abs)) fail(BINARY_REFUSED(ext));
   if (ext === ".ipynb") {
     await plainText(abs, rel, NOTEBOOK_MAX_BYTES, "read some of its cells with bash, e.g. jq '.cells[0:10]' " + rel);
     const nbBuf = await readFile(abs);
