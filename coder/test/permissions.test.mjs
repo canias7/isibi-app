@@ -241,7 +241,8 @@ test("CD316 No stops the turn with Claude Code's words (its other calls are not 
   assert.deepEqual(a.ran, []);
   const msgs = a.r.messages;
   assert.equal(msgs.find((m) => m.tool_call_id === "b1").content, REJECTED);
-  assert.equal(msgs.find((m) => m.tool_call_id === "b2").content, "The owner doesn't want to take this action right now. STOP what you are doing and wait for the owner to tell you how to proceed.");
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too, as its executor gives it.)
+  assert.equal(msgs.find((m) => m.tool_call_id === "b2").content, REJECTED);
   assert.ok(a.events.some((e) => e.type === "result" && e.id === "b1" && e.output === "Not run: you said no."));
   assert.ok(a.events.some((e) => e.type === "permanswer" && e.choice === "no"));
   const b = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("OK, only the linter then.")], { answers: [{ choice: "no", comment: "run the linter instead" }] });

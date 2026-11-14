@@ -53,7 +53,8 @@ test("CD498 a step that never ran (a deny rule, the owner's no, a read rule) has
   assert.equal(t.result("r1").code, 1);
   // Every refusal in the loop carries it: no `code: -1` result for a call that never ran is left without it.
   const agent = readFileSync(HERE("container/coder-agent.mjs"), "utf8");
-  assert.equal((agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, output:/g) || []).length, 0, "every refusal marked");
+  // (A step stopped while it ran did run: its line says so, "(stopped by the owner while it ran)", and it is not marked. Round 5.)
+  assert.equal((agent.match(/emit\(\{ type: "result", id: c\.id, code: -1, output:(?! "\(stopped by the owner while it ran\)")/g) || []).length, 0, "every refusal marked");
   assert.ok((agent.match(/code: -1, ran: false, output:/g) || []).length >= 28);
 });
 

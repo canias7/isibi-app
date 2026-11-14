@@ -20,13 +20,28 @@
  * the order they finish (each call's result is passed on as soon as it is done).
  *
  * Coder runs the same groups (coder-agent.mjs): at a group's first call, each call of the group that needs nothing before
- * it runs (no PreToolUse hook of its own, no card, no rule that refuses it; Coder's auto mode checker's verdict, when it
- * needs one, asked right then beside the others', as Claude Code asks for each call at its start) starts at once
- * (`earlyRuns`); every call still takes its turn in the order asked, where its checks are made as before and it takes the
- * result of its early start, so the chat shows the steps, and Grok gets the results, in the order asked (xAI pairs each
- * result with its call by its id, so the order changes nothing for Grok). A call that needs a hook, a card or the owner runs
- * in its turn, while the others of its group run. Where no one can answer while Coder works, a question or a plan ends the
- * turn in its turn, so no call after it starts early.
+ * it runs (no card, no rule that refuses it; Coder's auto mode checker's verdict, when it needs one, asked right then beside
+ * the others', as Claude Code asks for each call at its start) starts at once (`earlyRuns`); every call still takes its turn
+ * in the order asked, where its checks are made as before and it takes the result of its early start, so the chat shows the
+ * steps, and Grok gets the results, in the order asked (xAI pairs each result with its call by its id, so the order changes
+ * nothing for Grok). A call that needs a card or the owner runs in its turn, while the others of its group run. Where no one
+ * can answer while Coder works, a question or a plan ends the turn in its turn, so no call after it starts early.
+ *
+ * ROUND 5 (the owner, 2026-11-14: "Yes pls" to the last differences round 3 found):
+ * - EACH CALL'S OWN PRETOOLUSE HOOKS AT ITS GROUP'S START (Claude Code runs a call's hooks, its permission check and its card
+ *   inside that call's own run, so a group's calls run their hooks at the same time): a call with a hook of the owner's has its
+ *   hooks started beside the others' (`startHooks`), and, when they decided nothing that its turn must act on (a deny, an ask,
+ *   a new input, a stop), its run starts right after them, as one with no hook would; its turn takes their outcome
+ *   (`takeHooks`), so they run once.
+ * - A ROUND THAT ENDS EARLY (`RoundClosing`, `closedAs`): the owner's No on a card (Claude Code's deny with "interrupt": its
+ *   turn's controller aborted, with no reason of its own), their Stop (its "remote-cancel"), or a card left open that pauses
+ *   the job. Claude Code then keeps what each call of the reply that ran beside it returned, when it had returned by then (its
+ *   executor yields a finished call's result as it comes, whatever the calls before it are still doing); a call still running
+ *   gets its synthetic result (createSyntheticErrorMessage: its rejection, REJECTED, after a No; after a Stop its rejection
+ *   with "Correction to the text above: this call was stopped while running …", STOPPED_RUNNING, the "remote-cancel" of a call
+ *   that was running); one that had not started gets the rejection too. A paused job keeps its finished ones' results in the
+ *   chat (its cloud session's results stay in its transcript while its machine sleeps), so the job taken up again gives them to
+ *   Grok with the round's other results and runs none of them again.
  */
 
 /**
@@ -35,8 +50,9 @@
  * EnterPlanMode and ExitPlanMode always; Bash when its command only reads (its isConcurrencySafe is its isReadOnly); an MCP
  * tool when it is marked read-only (readOnlyHint), or its server lets its calls overlap. Never: Edit, Write, NotebookEdit,
  * TodoWrite, TaskCreate, Skill.
- * (PowerShell is safe there when its command only reads too; Coder knows that only after PowerShell's own parse, in the
- * call's turn, so a PowerShell call runs alone here.)
+ * (Never PowerShell, there either: its isConcurrencySafe is its isReadOnly, which checks a command only against a parse of it
+ * that the check is not given, so it answers no for every command (2.1.325: `cn(e)`, `FLt(e.command)` with no parse). A
+ * PowerShell call runs alone, as in Claude Code. Round 5 checked this, 2026-11-14.)
  */
 export const SAFE_TOOLS = new Set(["read", "grep", "glob", "lsp", "web_fetch", "web_search", "tool_search", "task_get", "task_list", "task_update", "stop_job", "monitor", "ask_user", "enter_plan_mode", "exit_plan_mode"]);
 
@@ -77,18 +93,56 @@ const SKIPPED = Symbol("not started");
  */
 export function earlyRuns({ now = Date.now, onUsage = null, onTaken = null } = {}) {
   const runs = new Map();
+  // (A call's PreToolUse hooks started at its group's start: its id → their outcome to come. Round 5.)
+  const hooks = new Map();
   const counted = (x) => {
     if (!x || typeof x !== "object" || !x.usage) return x;
     try { if (typeof onUsage === "function") onUsage(x.usage); } catch { /* counted where it can be */ }
     return { ...x, usage: null };
   };
   const settle = (e, p) => {
-    e.promise = p.then((x) => { const v = counted(x); if (v !== SKIPPED) e.doneAt = now(); return v; });
+    e.promise = p.then((x) => { const v = counted(x); if (v !== SKIPPED) { e.doneAt = now(); e.value = v; } else e.skipped = true; return v; }, (err) => { e.doneAt = now(); e.failed = true; throw err; });
     // (One never taken, its job stopped or its turn's input changed, rejects into nothing.)
     e.promise.catch(() => {});
   };
   return {
-    has: (id) => runs.has(id),
+    has: (id) => runs.has(id) || hooks.has(id),
+    /**
+     * WHERE CALL `id`'S EARLY START STOOD AT TIME `at` (for a round that ends early, `closedAs`): "done" (its result, or its
+     * error, had come), "running" (started, no result yet), "waiting" (its hooks or its verdict still deciding, or the run held
+     * back by them), "none" (not started early). A run that gave nothing (a search the budget refused) is not done.
+     */
+    state(id, at = Infinity) {
+      const e = runs.get(id);
+      if (!e) return hooks.has(id) ? "waiting" : "none";
+      // (One refused at the group's start, by its own check, a rule, its hook or the checker: its turn only refuses it, so it
+      // had its answer then, as Claude Code's call refused in its own run has.)
+      if (e.decided && e.doneAt <= at) return "done";
+      if (e.doneAt && e.doneAt <= at && !e.skipped) return e.failed || (e.value !== null && e.value !== undefined) ? "done" : "waiting";
+      if (e.at && e.at <= at && !e.skipped) return "running";
+      return "waiting";
+    },
+    /**
+     * A CALL REFUSED AT ITS GROUP'S START (its input, a deny rule, its own hook's deny): its turn refuses it, with nothing run;
+     * it counts as answered then (`state`), and it is not started early.
+     */
+    refused(id) { if (!runs.has(id)) runs.set(id, { key: null, at: 0, doneAt: now(), decided: true }); },
+    /**
+     * A CALL'S PRETOOLUSE HOOKS STARTED AT ITS GROUP'S START (`run()`: their outcome, once what follows them, its run's start
+     * or not, is decided), for its turn to take with the same `key` (the hooks' input).
+     */
+    startHooks(id, key, run) {
+      const h = { key, at: now() };
+      h.promise = Promise.resolve().then(run);
+      h.promise.catch(() => {});
+      hooks.set(id, h);
+    },
+    /** The outcome of call `id`'s hooks started early, for this same input, once (a Promise); else null (its turn runs them). */
+    takeHooks(id, key) {
+      const h = hooks.get(id);
+      hooks.delete(id);
+      return h && h.key === key ? h.promise : null;
+    },
     /** `run()` started now for call `id`, to be taken in its turn with the same `key`. */
     start(id, key, run) {
       const e = { key, at: now(), doneAt: 0 };
@@ -102,7 +156,8 @@ export function earlyRuns({ now = Date.now, onUsage = null, onTaken = null } = {
     checkThenRun(id, checkKey, check, key, go, run) {
       const e = { key, checkKey, at: 0, doneAt: 0 };
       e.check = Promise.resolve().then(check).then(counted, (err) => ({ error: String((err && err.message) || err).slice(0, 200), kind: "unavailable" }));
-      settle(e, e.check.then(async (v) => { if (!(await go(v))) return SKIPPED; e.at = now(); return run(); }));
+      // (A verdict that blocks it: its turn refuses it, so it had its answer then, `state`.)
+      settle(e, e.check.then(async (v) => { if (!(await go(v))) { if (v && !v.error && v.decision === "block") { e.decided = true; e.doneAt = now(); } return SKIPPED; } e.at = now(); return run(); }));
       runs.set(id, e);
     },
     /** The verdict asked at the group's start for this same action, once; null when there is none (or it was for another). */
@@ -125,4 +180,26 @@ export function earlyRuns({ now = Date.now, onUsage = null, onTaken = null } = {
       });
     },
   };
+}
+
+/**
+ * A ROUND THAT ENDS EARLY, thrown from a call's turn (`why`: "no", "stop" or "park"): Coder's loop answers that call, if its
+ * turn did not, and goes on to the next one in closing mode (coder-agent.mjs).
+ */
+export class RoundClosing {
+  constructor(why) { this.why = why; }
+}
+
+/**
+ * WHAT A CALL AFTER THE ONE THAT ENDED THE ROUND GETS (`why`, as RoundClosing's; `state`, its early start's as the round ended:
+ * earlyRuns' state), as Claude Code 2.1.325's executor gives it: "turn" when it had its result by then (its turn takes that
+ * result, in its words, as on any turn); for a Stop, "stopped-running" when it was running; "rejected" otherwise (Claude Code's
+ * rejection after a No, and after a Stop for one that was not running); for a pause, "later": its turn comes when the job is
+ * taken up again.
+ */
+export function closedAs(why, state) {
+  if (state === "done") return "turn";
+  if (why === "park") return "later";
+  if (why === "stop" && state === "running") return "stopped-running";
+  return "rejected";
 }

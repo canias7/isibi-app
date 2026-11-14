@@ -133,7 +133,8 @@ test("MC20 (2026-11-13, merged) a No on a connector's card ends the turn as on e
   const two = [say("", [call("mcp__linear__create_issue", { title: "Bug" }, "k1"), call("mcp__linear__list_issues", {}, "k2")]), say("ok")];
   // A plain No: Claude Code's words for it, the rest of the round not run, and Grok is not asked again.
   let t = await go({ steps: two, answer: () => ({ choice: "no" }) });
-  assert.deepEqual([t.told("k1"), t.told("k2")], [REJECTED, NOT_NOW]);
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too.)
+  assert.deepEqual([t.told("k1"), t.told("k2")], [REJECTED, REJECTED]);
   assert.deepEqual([t.r.status, t.seen.length, t.mcpCalls.length], ["done", 1, 0]);
   // The card: a connector's, shown as one, its hooks' name kept beside it.
   assert.deepEqual([t.cards[0].tool, t.cards[0].hookTool, t.cards[0].what], ["connector", "mcp__linear__create_issue", "Use Linear: create_issue"]);
@@ -149,12 +150,14 @@ test("MC20 (2026-11-13, merged) a No on a connector's card ends the turn as on e
   assert.equal(t.mcpCalls.length, 2, "both ran after the Yes");
 });
 
-test("MC21 (2026-11-13, merged; 2026-11-14, Claude Code's groups, coder-parallel.mjs) read-only connector tools start side by side only where nothing checks each call first: with a PreToolUse hook that runs for them, they run one after another; a hook for other tools holds nothing back", async () => {
+test("MC21 (2026-11-13, merged; 2026-11-14, Claude Code's groups, coder-parallel.mjs; round 5) read-only connector tools start side by side; with a PreToolUse hook that runs for them, each runs its hook at the group's start and starts after it, still side by side, as Claude Code runs each call's hooks in its own run; a hook for other tools holds nothing back", async () => {
   const twoReads = [say("", [call("mcp__linear__list_issues", {}, "k1"), call("mcp__linear__list_issues", { q: "b" }, "k2")]), say("ok")];
   let t = await go({ steps: twoReads, slowMcp: 20 });
   assert.deepEqual(t.order, ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side");
   t = await go({ steps: twoReads, slowMcp: 20, hooks: { PreToolUse: [{ matcher: "mcp__linear__.*", hooks: [{ type: "command", command: "x.sh" }] }] } });
-  assert.deepEqual(t.order.filter((x) => !x.startsWith("hook:")), ["start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "one after another");
+  assert.deepEqual(t.order.filter((x) => !x.startsWith("hook:")), ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side, after their hooks");
+  assert.equal(t.order.filter((x) => x === "hook:PreToolUse").length, 2, "each call's hook once");
+  assert.ok(t.order.lastIndexOf("hook:PreToolUse") < t.order.indexOf("start:mcp__linear__list_issues"), "both hooks before either call");
   // (A hook only for Bash: Claude Code runs each call's own hooks in its own run, so these two still go side by side.)
   t = await go({ steps: twoReads, slowMcp: 20, hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "x.sh" }] }] } });
   assert.deepEqual(t.order, ["start:mcp__linear__list_issues", "start:mcp__linear__list_issues", "end:mcp__linear__list_issues", "end:mcp__linear__list_issues"], "side by side");

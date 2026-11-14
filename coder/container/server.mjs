@@ -4414,6 +4414,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         root: home0,
         here: () => t.cwd,
         stopped: () => t.stop,
+        // (When the owner pressed Stop: a call of the round whose result came before then keeps it, as Claude Code keeps it. Round 5.)
+        stoppedAt: () => t.stopAt || 0,
         // THE JOB'S BACKGROUND COMMANDS, SEEN AND STOPPED HERE, where they were started (live test, 2026-11-08:
         // inside the admin sandbox their numbers are not the machine's, so a check there missed them). Only
         // this job's own (t.bg), each with everything it started (its process group).
@@ -4987,7 +4989,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE OWNER'S STOP: the turn's own commands end, its background ones go on (like Claude Code's, which keep running when
       // you interrupt Claude; they end with the background list's Stop, /bgstop); the turn's end ends anything else of the AI's.
-      if (url.pathname === "/stop" && req.method === "POST") { if (t) { t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
+      if (url.pathname === "/stop" && req.method === "POST") { if (t) { if (!t.stop) t.stopAt = Date.now(); t.stop = true; endForeground(t); if (t.release) t.release(); } return send(200, { ok: true, running: !!(t && t.running) }); }
       // THE ENVIRONMENT'S COPY IS SAVED (or could not be): the job waiting for it goes on.
       if (url.pathname === "/go" && req.method === "POST") { const was = !!(t && t.release); if (was) t.release(typeof body.note === "string" ? body.note : ""); return send(200, { ok: true, went: was }); }
       // UNDO A JOB (owner, 2026-11-05, "add 2"): its commit is reverted (a new
