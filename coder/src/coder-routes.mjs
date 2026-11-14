@@ -129,6 +129,7 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, uniqueName, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
+import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents } from "../container/coder-park.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
@@ -531,6 +532,28 @@ async function endLostJob(env, bucket, uid, meta, note) {
   await dropLive(bucket, uid, id).catch(() => {});
   if (typeof bucket.delete === "function") await bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {});
   return { steps, ev, idle };
+}
+/**
+ * A PAUSED CARD CLOSED WITHOUT ITS JOB (coder-park.mjs: the owner's Stop while it waited, or a Rewind or an Undo, which go on
+ * from the chat as it is): the call it waits on is told it was stopped, as on a Stop while its job ran, and the round's calls
+ * after it get Claude Code's words for calls a stop cancelled, so every call has its answer again; the chat shows the card
+ * stopped. Answers the chat as it is then.
+ */
+async function closeParkedCard(bucket, uid, meta) {
+  const p = parkedOf(meta);
+  if (!p) return meta;
+  const id = meta.id;
+  const rec = parkRecord(await getJson(bucket, keyOf(uid, id, "parked.json"), null));
+  const mine = rec && rec.pid === p.pid ? rec : null;
+  const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+  // (Its record lost: the open round goes, as a job cut off mid-step does.)
+  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? closeParked(msgs, mine) : msgs));
+  const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+  await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...stoppedEvents(mine || p)].slice(-MAX_EVENTS));
+  if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, "parked.json")).catch(() => {});
+  const next = { ...meta, parked: null, waiting: null, at: Date.now() };
+  await saveMeta(bucket, uid, next);
+  return next;
 }
 /** The user's chats, newest first, read from each chat's own meta.json. */
 /** The chat's pull request if it is still open on GitHub; null when merged, closed or gone. */
@@ -1165,6 +1188,11 @@ export async function handleCoder(request, env, ctx, deps) {
   const post = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).
   const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
+  // (This chat's own routes, called from here as the page calls them: an answer that takes a paused turn up again starts its
+  // job as a message does, coder-park.mjs.)
+  const self = (path, body) => { const headers = new Headers(request.headers); headers.set("content-type", "application/json"); return handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + path, body === undefined ? { method: "GET", headers } : { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, deps); };
+  // (A job that ended on the machine and is not saved yet is saved now, as the page's next look saves it: the chat as it is then.)
+  const saveNow = async () => { await self("/state?since=1000000000").catch(() => null); return getJson(bucket, metaKey, null); };
   const action = parts[2] || "";
 
   if (!action && request.method === "GET") return json({ ok: true, project: meta, events: await getJson(bucket, keyOf(uid, id, "events.json"), []), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), shellHistory: await shellHistoryOf(bucket, uid, meta.repo) });
@@ -1228,6 +1256,27 @@ export async function handleCoder(request, env, ctx, deps) {
         }
         if (planned && !body.text && !(Array.isArray(body.images) && body.images.length)) return json({ ok: true, project: meta, mode: "plan" });
       }
+      // A CARD'S ANSWER THAT TAKES A PAUSED TURN UP AGAIN (coder-park.mjs; from this chat's answer and envchange routes, or a
+      // message that answers a question card): the card must still be the one the chat's paused job waits on, and the answer
+      // one it takes (an environment card's approval only as Coder's server made it); then the job starts as for a message,
+      // with no message of the owner's, and the messages that waited for the card go with it.
+      let takeUp = null;
+      const parkedTake = async (pid, given) => {
+        const cur = (await getJson(bucket, metaKey, null)) || meta, p = parkedOf(cur);
+        if (cur.status === "running" || !p || p.pid !== pid) return { error: json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409) };
+        const stored = await getJson(bucket, keyOf(uid, id, "parked.json"), null), rec = parkRecord(stored);
+        if (!rec || rec.pid !== pid) return { error: json({ ok: false, error: "That card's turn can't be taken up any more: send your message again." }, 409) };
+        const made = rec.kind === "envchange" && stored.envAnswer ? parkAnswer("envchange", stored.envAnswer) : null;
+        const ans = made || (rec.kind === "envchange" && given && given.choice !== "no" ? null : parkAnswer(rec.kind, given));
+        if (!ans) return { error: json({ ok: false, error: "That is not an answer this card takes." }, 400) };
+        meta = cur;
+        return { rec, ans };
+      };
+      if (body.resume && typeof body.resume === "object") {
+        const got = await parkedTake(String(body.resume.pid || ""), body.resume.answer);
+        if (got.error) return got.error;
+        takeUp = got;
+      }
       const review = typeof body.review === "string" && REVIEWS[body.review] ? REVIEWS[body.review] : null;
       // A TURN ONLY TO TELL CODER ITS BACKGROUND COMMAND ENDED (tool 4, part 2; Claude Code "re-invokes you when it exits"):
       // started by the every-minute run (coder-watch.mjs), with no message of the owner's; the machine starts it only when it
@@ -1248,7 +1297,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const text = notes ? notes + (asked ? "\n\n" + asked : "") : asked;
       const pics = checkImages(body.images);
       if (pics.error) return json({ error: pics.error }, 400);
-      if (!text && !pics.images.length && !wake) return json({ error: "write something first" }, 400);
+      if (!text && !pics.images.length && !wake && !takeUp) return json({ error: "write something first" }, 400);
       if (text.length > MAX_TEXT) return json({ error: "the message is over " + MAX_TEXT + " characters" }, 413);
       if (shell && body.fromQueue !== true) await rememberShell(bucket, uid, meta.repo, shell).catch(() => {});
       // (The chat as it is now: another message may have started while this one was read.)
@@ -1270,6 +1319,30 @@ export async function handleCoder(request, env, ctx, deps) {
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
+      }
+      // A MESSAGE WHILE A PAUSED TURN'S CARD WAITS (coder-park.mjs): to a question card, the owner's reply to it (Claude Code's
+      // "replied_in_chat", "The user responded: …"), which takes the turn up again at that call; to any other card, it waits
+      // for Coder as one sent while Coder works does (Claude Code: "If you send a message while Claude is working, the message
+      // queues until Claude reads it"), and goes to Coder in the turn the card's answer takes up again. A review, a /compact,
+      // pictures, line comments or a job from GitHub wait for the card's answer too, as while Coder works.
+      const waitingOn = !takeUp ? parkedOf(meta) : null;
+      if (waitingOn) {
+        const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+        if (!queueable) return json({ error: pics.images.length || notes ? "Coder is waiting for your answer on its card: send pictures or line comments once it is done" : "Coder is waiting for your answer on its card" }, 409);
+        if (waitingOn.kind === "question" && shell === null && !ref) {
+          const got = await parkedTake(waitingOn.pid, { choice: "chat", text: said, qid: newQid() });
+          if (got.error) return got.error;
+          takeUp = got;
+        } else {
+          const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+          const twin = mid ? queue.find((q) => q && q.mid === mid) : null;
+          if (twin) return json({ ok: true, queued: true, qid: twin.qid, queue, project: meta });
+          if (queue.length >= QUEUE_MAX) return json({ error: QUEUE_MAX + " messages are already waiting for Coder. Wait for it to read them." }, 429);
+          const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
+          const waiting = [...queue, entry];
+          await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+          return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
+        }
       }
       // /compact [what to keep] (like Claude Code's: "Summarizes the conversation to free up context. Accepts
       // optional focus instructions"): the conversation so far becomes one summary for Coder. Made on the chat's machine, as a
@@ -1301,11 +1374,12 @@ export async function handleCoder(request, env, ctx, deps) {
       // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
       let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
       // (Not before the owner's /compact, which summarizes all of it.) Made by one start only (START_SETTLE_MS, Gloopy's).
-      if (!compactJob && Array.isArray(messages) && JSON.stringify(messages).length > COMPACT_HISTORY_AT) {
+      if (!compactJob && !takeUp && Array.isArray(messages) && JSON.stringify(messages).length > COMPACT_HISTORY_AT) {
         await new Promise((ok) => setTimeout(ok, START_SETTLE_MS));
         if (!(await claim.held())) return lostStart();
       }
-      const squeezed = compactJob ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
+      // (Nor before a turn taken up again: its open round must stay whole. coder-park.mjs.)
+      const squeezed = compactJob || takeUp ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
       if (squeezed.to) {
         messages = squeezed.messages;
         await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
@@ -1365,13 +1439,16 @@ export async function handleCoder(request, env, ctx, deps) {
       // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
       const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
       // (Not for the owner's /compact: no message of the owner's to go back to; its summary moves the marks when it ends.)
-      const marks = compactJob ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
+      // (Nor for a turn taken up again: no message of the owner's starts it. coder-park.mjs.)
+      const marks = compactJob || takeUp ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
       // THE REVIEW THREAD AN AUTO-FIX JOB MAY ANSWER IN (owner item 2, like Claude Code's auto-fix: it "may reply
       // to review comment threads"): only one GitHub's news started the job for; kept for its end.
       const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
       const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined };
+      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
+      // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
+      const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !q.shell && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
       // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
       const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
       // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
@@ -1403,7 +1480,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
       let r;
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...bgOn, ...lastAtOn, text: wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1418,6 +1495,8 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       // Coder's machine has the turn now: nothing undoes this start any more.
       claim = null;
+      // (The paused turn is taken up: its record goes. coder-park.mjs.)
+      if (takeUp && typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, "parked.json")).catch(() => {});
       // THE COPY IS SAVED NOW: the setup just ran on this chat's fresh disk and worked, and the
       // machine waits (before Coder starts) while Fly.io saves the disk; then it is told to go.
       // (Not saved, or no answer: the machine goes on by itself after a while.)
@@ -1475,14 +1554,25 @@ export async function handleCoder(request, env, ctx, deps) {
   // THE OWNER'S ANSWER ON A CARD A STEP WAITS ON (Claude Code's permission prompt; a plan's approval), for the running job.
   if (action === "answer" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    if (meta.status !== "running") return json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409);
+    const pid = String(body.pid || ""), choice = String(body.choice || "");
+    // (An environment card's approval is Coder's server's to make: POST envchange makes the change, then answers the card.)
+    if (choice === "approved" || choice === "refused") return json({ ok: false, error: "Approve an environment change on its card." }, 400);
     // CODER'S KEY CARD SAVED (request_secret, Claude Code's request_credential: "the result only says whether a credential is
     // now configured"; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"): its step is told
     // "saved" only while this chat's environment has a key for that host.
-    if (String(body.choice || "") === "saved") {
+    if (choice === "saved") {
       const host = credentialHost(body.host);
       const keys = host ? (await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta))).secrets : [];
       if (!keys.some((s) => s.hosts.some((p) => hostMatches(host, p)))) return json({ ok: false, error: "No key for " + (host || "that site") + " is saved on this chat's environment yet." }, 409);
+    }
+    // A CARD WHOSE JOB PAUSED (coder-park.mjs; Claude Code: "you can still answer when you come back, up to environment
+    // expiry, and the session continues from your answer"): the answer starts the job that takes the turn up again at the
+    // call the card waits on, as a message starts one.
+    const takeUp = () => self("/message", { mid: "answer-" + pid, resume: { pid, answer: { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { picks: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) } } });
+    if (meta.status !== "running") {
+      const p = parkedOf(meta);
+      if (!p || p.pid !== pid) return json({ ok: false, error: "Coder is not waiting for an answer any more." }, 409);
+      return takeUp();
     }
     // (A question card's picks go with it, Claude Code's AskUserQuestion; Coder's machine checks them. The owner, 2026-11-14:
     // "Do all the talk to you tools execpt for the notify one".)
@@ -1490,6 +1580,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // proceeds"; the owner, 2026-11-14. At most 200,000 characters, as the card shows.)
     const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}), ...(typeof body.plan === "string" ? { plan: body.plan.slice(0, 200_000) } : {}) }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
+    // (Its job paused just now, before it was saved: it is saved, then the answer takes the turn up again.)
+    if (!m.ok && m.parked === true && (parkedOf(await saveNow()) || {}).pid === pid) return takeUp();
     if (!m.ok) return json({ ok: false, error: m.why || "That card is no longer waiting for an answer." }, 409);
     return json({ ok: true });
   }
@@ -1668,7 +1760,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // (Coder's key card waits in its own turn, `pid`, as Claude Code's request_credential form: never left waiting after it.)
       // (Not a question card the job waited on and closed itself, one with its pid: Claude Code's AskUserQuestion, answered in
       // the job. The owner, 2026-11-14.)
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type) && !((e.type === "secret" || e.type === "question") && e.pid)).at(-1);
+      // (Nor an environment card, which waits in its own turn too since A5 of the recheck, 2026-11-14; a card its job paused on
+      // leaves the chat waiting on it, below.)
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type) && !(["secret", "question", "envchange"].includes(e.type) && e.pid)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";
@@ -1687,6 +1781,15 @@ export async function handleCoder(request, env, ctx, deps) {
       // A HOOK'S TITLE FOR THE CHAT (Claude Code's sessionTitle, from a SessionStart or UserPromptSubmit hook): the chat's name.
       const hookTitle = typeof s.result.sessionTitle === "string" && s.result.sessionTitle.trim() ? { title: s.result.sessionTitle.trim().replace(/\s+/g, " ").slice(0, 200) } : {};
       const ended = { ...meta, ...modeNow, ...hookTitle, ...(sessionRules ? { sessionRules } : {}), background, saved: meta.turn, ...(cwd ? { cwd } : {}), pr, prs, pushed, commits, ...(keptHere ? { kept: true } : {}), waiting: asked ? asked.type : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), usage: usageSummary(s.result.usage, meta.turn), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), jobReplyTo: null, ...afMeta };
+      // A JOB PAUSED ON A CARD LEFT OPEN (coder-park.mjs; Claude Code: "Questions stay open until you answer them", and in its
+      // cloud "you can still answer when you come back"): the chat is idle, waiting on that card (`parked`, `waiting` for the
+      // notifications), its record kept beside the chat for the answer that takes the turn up again.
+      const parkRec = s.result.status === "parked" ? parkRecord(s.result.parked) : null;
+      if (parkRec) await putJson(bucket, keyOf(uid, id, "parked.json"), parkRec);
+      Object.assign(ended, parkRec ? { status: "idle", parked: parkedMeta(parkRec), waiting: parkRec.kind } : { parked: null, ...(s.result.status === "parked" ? { status: "idle" } : {}) });
+      // (The environment as the chat has it now: an environment card approved while this job ran may have moved it.)
+      const envNow = await getJson(bucket, metaKey, null);
+      if (envNow && envNow.envId !== ended.envId) Object.assign(ended, { envId: envNow.envId, envMoved: envNow.envMoved });
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // (And while one of its asyncRewake hooks runs, which may wake it.)
@@ -1699,7 +1802,8 @@ export async function handleCoder(request, env, ctx, deps) {
       const read = new Set(Array.isArray(s.result.readQueued) ? s.result.readQueued : []);
       let waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !read.has(q.qid));
       await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
-      const first = nextQueued(waiting);
+      // (Not while a card its job paused on waits: they go to Coder in the turn its answer takes up again.)
+      const first = parkRec ? [] : nextQueued(waiting);
       if (first.length) {
         const headers = new Headers(request.headers); headers.set("content-type", "application/json");
         const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true }) }), env, ctx, deps).catch(() => null);
@@ -1754,6 +1858,9 @@ export async function handleCoder(request, env, ctx, deps) {
       const ended = o.ended && typeof o.ended === "object" ? { code: Number.isInteger(o.ended.code) ? o.ended.code : null, why: String(o.ended.why || "") } : null;
       return json({ ok: true, id: want, file: String(o.file || "").slice(0, 300), lines: (Array.isArray(o.lines) ? o.lines : []).slice(-40).map((l) => String(l).slice(0, 300)), ...(ended ? { ended } : {}) });
     }
+    // (A chat whose paused turn waits on a card, with no background command left running, is not asked about: its machine may
+    // have stopped, and what ended is told to Coder in the turn the card's answer takes up again. coder-park.mjs.)
+    if (request.method === "GET" && parkedOf(meta) && !bgListOf(meta.background).length) return json({ ok: true, background: [], untold: 0, hooks: 0, running: false, project: meta });
     let body = {};
     if (request.method === "POST") { try { body = await request.json(); } catch { body = {}; } }
     // THE OWNER MOVES THE RUNNING COMMAND TO THE BACKGROUND (the page's "Run in background", Claude Code's Ctrl+B).
@@ -1799,6 +1906,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // UNDO THE LAST JOB (owner, 2026-11-05): revert its commit, save it, and tell Coder.
   if (action === "undo" && request.method === "POST") {
     if (meta.status === "running") return json({ error: "Coder is still working. Stop it first, or wait." }, 409);
+    // (A card its paused job waits on is closed first, as a Stop closes it: coder-park.mjs.)
+    if (parkedOf(meta)) meta = await closeParkedCard(bucket, uid, meta);
     const commits = Array.isArray(meta.commits) ? meta.commits : [];
     const last = commits[commits.length - 1];
     if (!last) return json({ error: "There is no job to undo." }, 400);
@@ -1828,6 +1937,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // (never a force push); the chat goes back by cutting what came after.
   if (action === "rewind" && request.method === "POST") {
     if (meta.status === "running") return json({ error: "Coder is still working. Stop it first, or wait." }, 409);
+    // (A card its paused job waits on is closed first, as a Stop closes it: coder-park.mjs.)
+    if (parkedOf(meta)) meta = await closeParkedCard(bucket, uid, meta);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
     const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
     const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
@@ -2082,8 +2193,38 @@ export async function handleCoder(request, env, ctx, deps) {
   // again on the environment as it is now, then made; its answer is what the page sends as the owner's next message.
   if (action === "envchange" && request.method === "POST") {
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const r = await approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning });
-    return json(r, r.error ? 409 : 200);
+    const pid = typeof body.pid === "string" ? body.pid : "";
+    if (!pid) {
+      const r = await approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning });
+      return json(r, r.error ? 409 : 200);
+    }
+    // A CARD A STEP OF CODER'S WAITS ON (its pid; A5 of the recheck, 2026-11-14: the call waits for the owner's answer, as
+    // request_secret's does): only while that step waits, in the job running now or one paused on it (coder-park.mjs). The
+    // change is checked again and made, then what was done (or why it was refused) is that call's result, in the same turn.
+    let parked = meta.status !== "running" ? parkedOf(meta) : null;
+    if (meta.status === "running") {
+      let st = null;
+      try { const r0 = await call("/state?project=" + id + "&since=1000000000", { method: "GET" }); st = r0.ok ? await r0.json() : null; } catch { st = null; }
+      if (!st) return json({ error: "Coder's machine could not be reached. Try again in a moment." }, 502);
+      if (st.asking !== pid && !(st.result && st.result.parked && st.result.parked.pid === pid)) return json({ error: "That card is no longer waiting for an answer." }, 409);
+    } else if (!parked || parked.pid !== pid) return json({ error: "That card is no longer waiting for an answer." }, 409);
+    const r = await approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning, waiting: true });
+    const answer = r.error ? { choice: "refused", result: "error: " + r.error } : { choice: "approved", result: r.result };
+    const info = r.error ? { refused: r.error } : { envId: r.envId, name: r.name, environments: r.environments, ...(r.created ? { created: r.created } : {}) };
+    if (meta.status === "running") {
+      const m = await post("/answer", { project: id, pid, choice: answer.choice, result: answer.result }).then((x) => x.json()).catch(() => null);
+      if (m && m.ok) return json({ ok: true, ...info });
+      // (Its job paused just now: saved now, and the answer takes the turn up again.)
+      parked = m && m.parked === true ? parkedOf(await saveNow()) : null;
+      if (!parked || parked.pid !== pid) return json({ error: (m && m.why) || "Coder's machine could not be reached." + (r.error ? "" : " The change was made; tell Coder in a message.") }, 409);
+    }
+    // (A paused job: the answer as Coder's server made it is kept with its record, then taken up.)
+    const stored = await getJson(bucket, keyOf(uid, id, "parked.json"), null);
+    if (!stored || stored.pid !== pid) return json({ error: "That card's turn can't be taken up any more: tell Coder in a message." }, 409);
+    await putJson(bucket, keyOf(uid, id, "parked.json"), { ...stored, envAnswer: answer });
+    const res = await self("/message", { mid: "answer-" + pid, resume: { pid } });
+    const out = await res.json().catch(() => ({}));
+    return json({ ...out, ...info }, res.status);
   }
   // A SECRET (owner, 2026-11-06, like Claude Code's "Add secret"): from Coder's
   // card ({ host, value, header?, prefix? }) or the Add secret form ({ name,
@@ -2196,7 +2337,8 @@ export async function handleCoder(request, env, ctx, deps) {
   // DELETE A CHAT from the list (its branch and pull request stay on GitHub).
   if (!action && request.method === "DELETE") {
     if (meta.status === "running") return json({ error: "Coder is still working in this chat: stop it first" }, 409);
-    for (const k of ["meta.json", "messages.json", "events.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
+    // (And a paused turn's record: coder-park.mjs.)
+    for (const k of ["meta.json", "messages.json", "events.json", "parked.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
     await dropLive(bucket, uid, id).catch(() => {});
     // ITS BRANCH RECORDS GO TOO, only those that are this chat's (round 6 of the live test, 2026-11-12: a deleted chat's record
     // still sent `@coder` on its pull request to it, "Coder could not start: no such project", and would have kept another
@@ -2208,6 +2350,19 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   if (action === "stop" && request.method === "POST") {
+    // A CARD ITS PAUSED JOB WAITS ON (coder-park.mjs): Stop closes it as a Stop on a waiting card does, without a job; what
+    // waited for it goes out next, as after any job's end (Claude Code: "Claude Code keeps what you queued and sends it right
+    // away").
+    if (meta.status !== "running" && parkedOf(meta)) {
+      await closeParkedCard(bucket, uid, meta);
+      const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+      const first = nextQueued(queue);
+      if (first.length) {
+        const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true }).catch(() => null);
+        if (r2 && r2.status === 200) { const sent = new Set(first.map((q) => q.qid)); await putJson(bucket, keyOf(uid, id, "queue.json"), (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid))); }
+      }
+      return json({ ok: true, reload: true });
+    }
     let st = null;
     try { st = await post("/stop", { project: id }).then((r) => r.json()); } catch { st = null; }
     // Nothing is running on the machine (or it is gone): the chat is freed now.

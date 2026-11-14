@@ -41,6 +41,7 @@ import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTa
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
 import { webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
+import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard } from "./coder-park.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1696,7 +1697,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1780,7 +1781,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // A RUN THE OWNER DID NOT START (`background`: a schedule, a wake-up, a webhook's call; the audit, 2026-11-10, Grok Bot's):
   // a card it ends on waits 30 minutes for the owner (CARD_TTL_MS), then it has expired.
   const CARDS = new Set(["approval", "signin", "pay", "handoff"]);
-  const emit = (e) => { if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
+  // A CARD ANSWERED AFTER ITS JOB PAUSED (coder-park.mjs): the call it waited on, taken up again in this job (`taking`: its id,
+  // the card's pid and the owner's answer, used once), and the mode its card was shown in, kept for that call (`modePin`).
+  let taking = null, modePin = "";
+  const emit = (e) => { if (taking && !taking.used && e && e.type === "bash" && e.id === taking.callId) return; if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
   const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
@@ -1791,8 +1795,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // GitHub keeps its own way.
   const offAuto = (m) => (autoOff === true && !github && normMode(m) === "auto" ? "acceptEdits" : normMode(m));
   let modeHere = github ? "auto" : offAuto(mode);
-  const modeNow = () => { if (github) return "auto"; try { if (typeof deps.mode === "function") { const m = deps.mode(); if (MODES.includes(m)) modeHere = offAuto(m); } } catch { /* the last one known */ } return modeHere; };
-  const setMode = (m, by) => { modeHere = offAuto(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
+  const modeNow = () => { if (github) return "auto"; if (modePin) return modePin; try { if (typeof deps.mode === "function") { const m = deps.mode(); if (MODES.includes(m)) modeHere = offAuto(m); } } catch { /* the last one known */ } return modeHere; };
+  const setMode = (m, by) => { modePin = ""; modeHere = offAuto(m); try { if (typeof deps.setMode === "function") deps.setMode(modeHere); } catch { /* told in the record */ } emit({ type: "mode", mode: modeHere, by }); };
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's allow, ask and deny), and those "don't ask again" added in this job.
   // (A chat in Auto when Auto mode is off: the switch to Accept edits is said, and saved with the chat as a card's is.)
   // THE REPOSITORY'S STARTING MODE (its .claude/settings.json permissions.defaultMode; Claude Code's cloud sessions honor
@@ -1908,7 +1912,21 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       emit({ type: "note", text: "A PermissionRequest hook " + (u.type === "removeRules" ? "removed" : u.type === "replaceRules" ? "replaced" : "added") + " " + kind + " rules: " + list0.join(", ").slice(0, 300), hook: "PermissionRequest" });
     }
   };
+  // CARDS STAY OPEN UNTIL ANSWERED (coder-park.mjs; Claude Code: "Questions stay open until you answer them"; "permission
+  // prompts, including plan approval, never auto-resolve on idle"): in a chat of Coder's own, a card waits here PARK_MS (or to
+  // the job's time limit); then this job pauses (Parked: runCoder's catch saves it with the call) and the machine may stop,
+  // and the owner's answer, whenever it comes, takes the turn up again at that call (`taking`). Gloopy's cards wait to the
+  // job's time limit, as before.
+  const canPark = !offered && !github && typeof deps.ask === "function";
+  const parkMs = Number(deps.parkMs) > 0 ? Number(deps.parkMs) : PARK_MS;
+  const waitFor = () => (canPark ? { park: Math.min(now() + parkMs, started + maxMs) } : { until: started + maxMs });
+  /** The owner's answer to the card of the call taken up again, for that call only and once; else null. */
+  const owedTo = (callId) => { if (!taking || taking.used || !callId || callId !== taking.callId) return null; taking.used = true; return taking; };
+  /** The step's job pauses here, its card left open: what the job is saved with (runCoder's catch adds the call). */
+  const parkNow = (pid, kind, site, shownMode, card = null) => { throw new Parked({ pid, kind, site, mode: shownMode, at: now(), ...(card ? { card } : {}) }); };
   const askOwner = async (card, { hooks = true } = {}) => {
+    // (The card of the call taken up again after its job paused: its answer came with this job, so no hook or card again.)
+    const owed = owedTo(card && card.id);
     // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner answered
     // sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs pass 9.)
     let notifyTool = "";
@@ -1918,7 +1936,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The plan's card too, as ExitPlanMode's prompt in Claude Code, its hooks guide's own example: "auto-approves
     // ExitPlanMode … For a tool that requires user interaction, such as ExitPlanMode, the allow also needs updatedInput, or
     // Claude Code ignores it and still shows the prompt". The owner, 2026-11-14.)
-    if (hooks && hookList.length && card && card.tool) {
+    if (!owed && hooks && hookList.length && card && card.tool) {
       // (A monitor's command: its own call, by its own name, as Claude Code's PermissionRequest sees one: Monitor.)
       const call = calls0.find((x) => x.id === card.id) || {};
       // (A connector's card shows as "connector"; its hooks see the tool's own name, mcp__<server>__<tool>: card.hookTool.)
@@ -1941,20 +1959,23 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     // REFUSED INSTEAD OF ASKED (Settings; Claude Code's permissions.denyInsteadOfPrompting): no card; the call is refused at
     // once in Claude Code's words, and Coder goes on; 20 refused in a row end the turn.
-    if (denyInstead === true) {
+    if (!owed && denyInstead === true) {
       deniedRow++; deniedLast = true;
       const target = Array.isArray(card.lines) && card.lines.length ? card.lines.join("\n").slice(0, 500) : String(card.path || card.url || card.what || "").slice(0, 500);
       const what = scrub(String(card.why || (card.tool === "plan" ? "approving Coder's plan" : "using " + ccTool(card.hookTool || card.tool))) + (target ? " (" + target + ")" : "")).slice(0, 1000);
       emit({ type: "note", text: "Refused without asking you (Settings: refuse instead of asking): " + what.slice(0, 300), denied: true });
       return { choice: "no", comment: DENY_INSTEAD_TEXT + what, denied: true };
     }
-    const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
-    emit({ type: "permission", pid, ...card });
+    const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+    const shownMode = modeNow();
+    if (!owed) emit({ type: "permission", pid, ...card });
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
     let a = null;
-    // (A card with its own time limit, Auto's question for a dangerous removal, waits until then: card.blockAt.)
-    try { a = await deps.ask(pid, { until: Number(card.blockAt) > 0 ? Math.min(started + maxMs, Number(card.blockAt)) : started + maxMs }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    // (A card with its own time limit, Auto's question for a dangerous removal, waits until then: card.blockAt. Any other
+    // stays open: this job pauses after a while, waitFor.)
+    try { a = owed ? owed.answer : await deps.ask(pid, Number(card.blockAt) > 0 ? { until: Math.min(started + maxMs, Number(card.blockAt)) } : waitFor()); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    if (a && a.choice === "park") parkNow(pid, "permission", siteOfCard(card), shownMode);
     const choice = a && ["yes", "always", "auto", "acceptEdits", "no", "stop"].includes(a.choice) ? a.choice : "none";
     const comment = a && typeof a.comment === "string" ? scrub(a.comment).trim().slice(0, 2000) : "";
     // THE PLAN AS THE OWNER EDITED IT ON ITS CARD, with a Yes (Claude Code: on its web card, or with Ctrl+G, "Press Ctrl+G to
@@ -1974,21 +1995,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * Answers: answers (with the owner's picks), skip, chat (with their message), yes (a hook's, with its updatedInput), no (a
    * hook's), stop, none.
    */
-  const askQuestions = async (event, hookIn) => {
+  const askQuestions = async (event, hookIn, callId = "") => {
+    // (The card of the call taken up again after its job paused: its answer came with this job.)
+    const owed = owedTo(callId);
     let notifyTool = "";
-    if (hookList.length) {
+    if (!owed && hookList.length) {
       const tool = ccTool("ask_user");
       const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: hookIn }, { tool, input: hookIn, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
       if (o && o.decision === "allow" && o.updatedInput) { if (o.updatedPermissions) applyUpdates(o.updatedPermissions); return { choice: "yes", updatedInput: o.updatedInput }; }
       if (o && o.decision === "deny") { if (o.stop) return { choice: "stop" }; const why = o.reason ? scrub(o.reason) : ""; return { choice: "no", comment: why || HOOK_DENIED, hookDenied: true, hookWhy: why }; }
       notifyTool = tool;
     }
-    const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
-    emit({ type: "question", pid, ...event });
+    const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+    const shownMode = modeNow();
+    if (!owed) emit({ type: "question", pid, ...event });
     const notifyMs = Number.isFinite(Number(deps.promptNotifyMs)) && Number(deps.promptNotifyMs) >= 0 ? Number(deps.promptNotifyMs) : PROMPT_NOTIFY_MS;
     const notify = notifyTool && promptNotify !== false ? setTimeout(() => { runHooks("Notification", "permission_prompt", { message: "Coder needs your permission to use " + notifyTool, notification_type: "permission_prompt" }).catch(() => {}); }, notifyMs) : null;
     let a = null;
-    try { a = await deps.ask(pid, { until: started + maxMs, chat: true }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    try { a = owed ? owed.answer : await deps.ask(pid, { ...waitFor(), chat: true }); } catch { a = null; } finally { if (notify) clearTimeout(notify); }
+    if (a && a.choice === "park") parkNow(pid, "question", "question", shownMode);
     const choice = a && ["answers", "skip", "chat", "stop"].includes(a.choice) ? a.choice : "none";
     const picks = choice === "answers" && Array.isArray(a.picks) ? a.picks : null;
     emit({ type: "permanswer", pid, choice, ...(picks ? { picks } : {}) });
@@ -2160,6 +2185,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // (What hooks see as a call's input: a monitor's own, never the background bash call Coder makes of it; Bash docs pass 9.)
   const callInput = (c) => (c.monitor && c.monitorArgs ? hookToolInput("monitor", c.monitorArgs) : hookToolInput(c.name, c.args));
   const runHooks = async (event, value, extra, call = null) => {
+    // (The call taken up again after its job paused ran its PreToolUse hooks before its card showed: not twice.)
+    if (event === "PreToolUse" && taking && !taking.used && extra && extra.tool_use_id === taking.callId) return null;
     const list = hookList.length ? hooksFor(hookList, event, value, call) : [];
     if (!list.length) return null;
     const input = hookInput(event, hookCtx(), extra);
@@ -2884,7 +2911,72 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
     return end("done", { quiet: true });
   }
+  // A TURN TAKEN UP AGAIN AT THE CALL ITS JOB PAUSED ON (coder-park.mjs; `takeUp`, from Coder's Worker: the paused job's record
+  // and the owner's answer to its card): the round goes on from that call, which now has its answer, with no new answer asked
+  // of Grok; the turn's rounds and the mode Coder was last told of go on too. What this job's start said for Coder (a
+  // SessionStart hook's context, background news) waits until the round's results are in (`held`): the AI's API takes nothing
+  // between a call and its result. The owner's No needs no replay: its result is given here, as the card's place gives it.
+  let again = null, held = null;
+  if (takeUp) {
+    const rec = parkRecord(takeUp), ans = rec ? parkAnswer(rec.kind, takeUp.answer) : null;
+    const round = rec && ans ? parkedRound(convo.slice(0, jobStart), rec) : null;
+    const at = round ? readCalls(round.msg).findIndex((x) => x.id === rec.call.id) : -1;
+    if (at < 0) {
+      // (Not one to take up: the chat moved on, or the answer is not one its card takes. A round still open is closed as a
+      // Stop closes it, so every call has its result.)
+      const later = convo.splice(jobStart);
+      if (rec) convo.splice(0, convo.length, ...closeParked(convo, rec));
+      convo.push(...later);
+      emit({ type: "error", text: "Coder could not take up your answer: this chat moved on since its card was shown." });
+      return end("done", { summary: "the card's answer came after the chat moved on" });
+    }
+    // (And what the machine says changed in the environment since the last message: with no message of the owner's to carry
+    // it, a note of its own.)
+    held = [...rec.held, ...convo.splice(jobStart), ...(typeof takeUp.note === "string" && takeUp.note.trim() ? [{ role: "user", appNote: true, content: takeUp.note.trim().slice(0, 6000) }] : [])];
+    rounds = rec.rounds;
+    if (MODES.includes(rec.told)) toldMode = rec.told;
+    again = { msg: round.msg, at, call: rec.call, mode: MODES.includes(rec.mode) ? rec.mode : "", notes: rec.notes, shown: rec.shown, post: null };
+    const no = rec.kind === "permission" && ans.choice === "no" ? { choice: "no", comment: scrub(ans.comment || "").trim().slice(0, 2000) } : null;
+    if (no) {
+      const c = Object.assign(readCalls(round.msg)[at], rec.call);
+      emit({ type: "permanswer", pid: rec.pid, choice: "no", ...(no.comment ? { comment: no.comment } : {}) });
+      if (STEP_SITES.includes(rec.site)) emit({ type: "result", id: c.id, code: -1, ran: false, output: no.comment ? saidShown(no) : "Not run: you said no.", ...(no.comment ? saidMarks(no) : {}) });
+      // (The plan's card: a declined plan runs no PostToolUse hook, as Claude Code's refused call.)
+      if (rec.site === "plan") resultsSeen.set(c.id, { code: -1, ran: false });
+      if (!no.comment) {
+        convo.push({ role: "tool", tool_call_id: c.id, content: REJECTED });
+        for (const id of rec.rest) convo.push({ role: "tool", tool_call_id: id, content: NOT_NOW });
+        convo.push(...held);
+        return end("done", { summary: rec.site === "plan" ? "the plan was not approved" : "stopped: the owner said no" });
+      }
+      convo.push({ role: "tool", tool_call_id: c.id, content: saidReply(no) });
+      again = { ...again, at: at + 1, call: null, post: hookList.length ? c : null };
+    } else taking = { callId: rec.call.id, pid: rec.pid, answer: ans, card: rec.card || null, used: false };
+  }
+  // (The round being worked on, for a card that pauses the job: atRound, in the loop.)
+  let lastRound = null;
+  /**
+   * THE JOB'S END WHEN A CARD LEFT OPEN PAUSES IT (Parked, from the step that waits): the call the card waits on as its checks
+   * and hooks left it, the round's calls after it, the round's notes so far, the mode the card was shown in and the mode
+   * Coder was last told of, kept (coder-park.mjs). The pictures a read opened earlier in the round are too big to keep: Coder
+   * is told to read them again.
+   */
+  const parkEnd = (p) => {
+    const r = lastRound, c = r ? r.calls[r.at] : null;
+    if (!c) return end("done", { summary: lastSaid || PARKED_SUMMARY });
+    const notes = r.notes.slice();
+    const pics = r.pics.filter((x) => x.path !== "the browser");
+    if (pics.length) { const n = pics.reduce((a, x) => a + x.urls.length, 0); notes.push("The picture" + (n === 1 ? "" : "s") + " your read opened earlier in this round (" + pics.map((x) => x.path).join(", ") + ") " + (n === 1 ? "is" : "are") + " no longer attached, as this job paused for the owner's answer: read " + (n === 1 ? "it" : "them") + " again if you need to see " + (n === 1 ? "it" : "them") + "."); }
+    const rec = { pid: p.pid, kind: p.kind, site: p.site, call: keptCall(c), rest: r.calls.slice(r.at + 1).map((x) => x.id), mode: p.mode, told: toldMode, rounds, notes, shown: r.shown.slice(), ...(p.card ? { card: p.card } : {}), at: p.at, ...(held && held.length ? { held } : {}) };
+    return end("parked", { parked: rec, summary: lastSaid || PARKED_SUMMARY });
+  };
+  try {
   while (true) {
+    // (A round taken up again after its job paused: no new answer from Grok; its calls go on from the one that waited.)
+    const back = again; again = null;
+    let answer = null;
+    take: {
+    if (back) break take;
     if (await stopped()) { emit({ type: "stopped" }); return end("stopped"); }
     if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
@@ -3002,7 +3094,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
     const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode");
     const planShown = modeRound === "plan" && planRound ? { planFile: planRound.file, planExists: planRound.text !== null } : {};
-    let answer;
     try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
@@ -3012,17 +3103,19 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       return end("send", { why: String((e && e.message) || e).slice(0, 200) });
     }
     if (answer && answer.usage) usage.push(answer.usage);
+    }
     // PICTURES STAY FOR THE WHOLE JOB (live test, 2026-11-05: sending them only
     // in the first round made Grok invent a picture when it answered after a few
     // steps). They leave only the SAVED history (see end()).
     // (Grok searches only through its web_search tool since 2026-11-14, each search a step of its own: no search of Grok's own
     // comes with its answer any more.)
-    const msg = answer && answer.message ? answer.message : null;
+    // (A round taken up again: Grok's answer is in the chat already, and was said then.)
+    const msg = back ? back.msg : answer && answer.message ? answer.message : null;
     if (!msg) { emit({ type: "error", text: "The AI gave no answer." }); return end("no-tool"); }
-    const said = typeof msg.content === "string" ? msg.content.trim() : "";
+    const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     calls0 = calls;
-    convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
@@ -3085,9 +3178,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // THE PICTURES THIS ROUND'S READS OPENED (owner item 1): a tool answers in text only (xAI's docs), so
     // they go to Grok right after the round's answers, as a note from Coder's app with them attached.
     const roundPics = [];
-    const roundNotes = [], roundShown = [];
+    // (A round taken up again keeps the notes its calls made before its job paused.)
+    const roundNotes = back ? back.notes.slice() : [], roundShown = back ? back.shown.slice() : [];
+    // (Where this round is, for a card that pauses the job: the record keeps the call and the round's notes.)
+    const atRound = { calls, at: 0, notes: roundNotes, shown: roundShown, pics: roundPics };
+    lastRound = atRound;
     // (A step's PostToolUse hooks run once it is done: at the start of the next step, or after the last.)
-    let postFor = null;
+    let postFor = back && back.post ? back.post : null;
     const runPost = async () => { const pc = postFor; postFor = null; if (pc) await postHooks(pc); };
     stopRun = 0;
     // COMMANDS THAT ONLY READ, SEVERAL IN A ROW IN ONE REPLY, RUN AT THE SAME TIME (Bash docs pass 9; Claude Code runs a
@@ -3122,7 +3219,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
     const quiet = (c) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !hookList.length && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name); };
-    if (calls.filter(quiet).length > 1) for (const c of calls.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
+    const notYet = back ? calls.slice(back.at) : calls;
+    if (notYet.filter(quiet).length > 1) for (const c of notYet.filter(quiet)) { const p = Promise.resolve().then(() => deps.mcp(c.name, c.args || {})).catch((e) => ({ text: "error: " + String((e && e.message) || e).slice(0, 200), isError: true })); mcpEarly.set(c.id, p); }
     // A REQUEST HELD FOR THE OWNER'S OK (above): the turn ends on its card, after the call that sent it.
     const heldEnd = (from) => {
       const w = writeHold;
@@ -3135,7 +3233,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       approvalRequest = { id: w.id, kind: "write", step: w.step, site: w.site, url: w.url };
       return end("done", { summary: lastSaid || "asked the owner's OK to send: " + w.step });
     };
-    for (let i = 0; i < calls.length; i++) {
+    for (let i = back ? back.at : 0; i < calls.length; i++) {
       freshRules();
       await runPost();
       // (A request of Gloopy's held for the owner's OK ends the turn here, on its card.)
@@ -3151,6 +3249,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       deniedLast = false;
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       const c = calls[i];
+      // (The call taken up again after its job paused: as it was when its card showed, in the mode its card was shown in,
+      // until its step is done.)
+      atRound.at = i;
+      if (!(back && back.call && c.id === back.call.id)) { modePin = ""; if (taking) taking.used = true; }
+      else if (!back.taken) { back.taken = true; Object.assign(c, back.call); if (back.mode) modePin = back.mode; }
       // `extra`: what the chat's record keeps beside an answer, never sent to Grok (a command's exit code).
       const reply = (content, extra) => convo.push({ role: "tool", tool_call_id: c.id, content: String(content), ...(extra || {}) });
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
@@ -3756,10 +3859,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // within a few seconds: the Worker's reachRunning); Decline is Claude Code's "Denied by user" (SECRET_DENIED), and
         // Coder goes on, as Claude did. No channel for the owner's answer is an app that "cannot show the form": denied too.
         if (!canAsk()) { emit({ type: "result", id: c.id, code: 1, output: SECRET_DENIED }); reply(SECRET_DENIED); continue; }
-        const pid = "p" + (++asked) + Math.random().toString(36).slice(2, 8);
-        emit({ ...card, pid });
+        // (Its card stays open until answered: after a while this job pauses, and the answer takes the turn up again here.)
+        const owed = owedTo(c.id);
+        const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+        const shownMode = modeNow();
+        if (!owed) emit({ ...card, pid });
         let got = null;
-        try { got = await deps.ask(pid, { until: started + maxMs }); } catch { got = null; }
+        try { got = owed ? owed.answer : await deps.ask(pid, waitFor()); } catch { got = null; }
+        if (got && got.choice === "park") parkNow(pid, "secret", "secret", shownMode);
         const choice = got && ["saved", "no", "stop"].includes(got.choice) ? got.choice : "none";
         emit({ type: "permanswer", pid, choice });
         if (choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
@@ -3797,8 +3904,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
         // coder-envtools.mjs). get_environment answers at once, from Coder's server (the environment as it is now, never a value);
         // update_environment, create_environment and switch_environment are checked there too, then shown to the owner on a
-        // card, and the turn ends (Claude Code: "Calling this tool IS the request for permission"; all of Coder's cards end the
-        // turn, the owner's answer being the next message).
+        // card that this step waits on (Claude Code: "Calling this tool IS the request for permission"; its call waits for the
+        // owner's answer, and what they decide is its result, in the same turn).
         if (github) { reply("error: the environment cannot be looked up or changed in a job started from GitHub; mention it in your answer instead"); continue; }
         if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached" + (c.name === "get_environment" ? "" : "; nothing was proposed")); continue; }
         const ask = async (body) => { try { return (await deps.envApi(body)) || {}; } catch { return { error: "error: Coder's server could not be reached" }; } };
@@ -3812,13 +3919,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           continue;
         }
         // COMPARED WITH THE ENVIRONMENT AS IT IS NOW, by Coder's server (Claude Code: "the call is rejected if they do not match").
-        const r = await ask({ action: "check", tool: c.name, args: c.args });
+        // (A call taken up again after its job paused was checked before its card showed, and Coder's server made the owner's
+        // answer: its card is the one they answered.)
+        const owed = owedTo(c.id);
+        const r = owed ? { card: owed.card } : await ask({ action: "check", tool: c.name, args: c.args });
         if (!r.card || typeof r.card !== "object") { reply(typeof r.error === "string" ? r.error : "error: Coder's server did not answer; nothing was proposed"); continue; }
         // A SETUP SCRIPT'S RULES ON CODER'S MACHINE (kept from propose_env, owner "1" and "3", 2026-11-06): plain `apt-get
         // install -y …` lines are done by Coder's app as root, every other line runs as `dev`; the packages must exist; and
         // only lines Coder ran itself in this chat and saw work (Claude Code: "Lines you add must be commands you ran yourself
         // in this session and saw work").
-        const script = typeof c.args.setup_script === "string" && c.args.script_change !== "removes the setup script" ? c.args.setup_script : "";
+        const script = !owed && typeof c.args.setup_script === "string" && c.args.script_change !== "removes the setup script" ? c.args.setup_script : "";
         if (script.trim()) {
           const parts = splitSetup(script), had = splitSetup(setupScript);
           if (NEEDS_ROOT_RE.test(parts.script)) { reply("error: only plain lines like `apt-get install -y jq` (or `sudo apt-get update && sudo apt-get install -y jq`) can install system packages: Coder's app runs those as admin. Every other line runs as your own user without root, so other sudo or admin commands (and apt inside if/for or mixed with other commands) cannot work. This machine already has git, build tools, Python 3 with pip and venv, Node 22 with npm, curl, jq, ripgrep, zip and unzip. Put packages on their own apt-get install line, install the rest into the project (npm ci, a Python virtualenv), then propose the script again."); continue; }
@@ -3834,10 +3944,27 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const untried = newSetupLines(parts.script, had.script).filter((l) => !tried.some((c) => c.includes(l)));
           if (untried.length) { reply("error: like Claude Code, only add setup lines you ran yourself in this chat and saw work (exit code 0). Not run yet: " + untried.slice(0, 5).map((l) => "`" + l.slice(0, 120) + "`").join(", ") + ". Run them with bash first (the whole new script in one command is fine), then propose the script again."); continue; }
         }
-        reply("proposed to the owner on a card; their answer is the next message");
-        for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you proposed an environment change first" });
-        emit({ ...r.card, type: "envchange" });
-        return end("done", { summary: lastSaid || String(r.card.summary || "proposed an environment change").slice(0, 300) });
+        // THE CARD WAITS IN THIS TURN, AS request_secret'S DOES (A5 of the recheck, 2026-11-14; Claude Code's environment tools:
+        // the call is the approval prompt, and the owner's approve or decline, or the server's refusal, is its result): Approve
+        // has Coder's server check the change again and make it, then tells this step what was done (envResultText); Decline is
+        // Claude Code's denial of the call (SECRET_DENIED, as for its request_credential's form); a refusal of the change when
+        // they approved is an error, and nothing changed. Coder goes on in the same turn. No way to show a card is a denial.
+        if (!canAsk()) { emit({ type: "result", id: c.id, code: 1, output: SECRET_DENIED }); reply(SECRET_DENIED); continue; }
+        const pid = owed ? owed.pid : "p" + (++asked) + Math.random().toString(36).slice(2, 8);
+        const shownMode = modeNow();
+        if (!owed) emit({ ...r.card, type: "envchange", pid });
+        let got = null;
+        try { got = owed ? owed.answer : await deps.ask(pid, waitFor()); } catch { got = null; }
+        if (got && got.choice === "park") parkNow(pid, "envchange", "env", shownMode, r.card);
+        const choice = got && ["approved", "refused", "no", "stop"].includes(got.choice) ? got.choice : "none";
+        const told = choice === "approved" || choice === "refused" ? scrub(String(got.result || "")).slice(0, 4000) : "";
+        emit({ type: "permanswer", pid, choice, ...(choice === "refused" ? { why: told.replace(/^error: /, "").slice(0, 400) } : {}) });
+        if (choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (choice === "none" && now() - started > maxMs) { reply("not changed: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
+        if (choice === "approved" && told) { emit({ type: "result", id: c.id, code: 0, output: told }); reply(told); continue; }
+        const no = choice === "refused" && told ? (told.startsWith("error: ") ? told : "error: " + told) : SECRET_DENIED;
+        emit({ type: "result", id: c.id, code: 1, output: no });
+        reply(no);
       } else if (c.name === "ask_user") {
         // CODER'S QUESTIONS (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools execpt for the
         // notify one"; before, up to 4 in one card, owner pick 4, 2026-11-08): Coder's already read as Claude Code's schema
@@ -3903,7 +4030,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // Coder's own, in a chat the owner can answer while it works; on GitHub, for Gloopy, or with no way to ask, the
         // card ends the turn as before (below).
         if (!gl && canAsk()) {
-          const a = await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown));
+          const a = await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown), c.id);
           if (a.choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (a.choice === "none") {
             if (now() - started > maxMs) { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
@@ -5088,6 +5215,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reply(CONNECTOR_DATA + told);
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }
+    // (The call taken up again is done: the mode is the chat's own again.)
+    modePin = ""; if (taking) taking.used = true;
     await runPost();
     if (hookStop) return stopByHook(hookStop);
     if (hookEnd) return endByHook(hookEnd);
@@ -5145,6 +5274,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       convo.push({ role: "user", appNote: true, content: shots ? "(Note from Gloopy's app, not the owner: the screenshot" + (n === 1 ? "" : "s") + " of the page your browser step" + (n === 1 ? "" : "s") + " showed, attached here in order.)" : "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
       keepPics(convo);
     }
+    // (What this job's start had for Coder, held while the round taken up again finished: now, after its results.)
+    if (held) { convo.push(...held); held = null; }
     // THE MONITOR (the owner, 2026-11-10: "all of it"; dots' safety monitoring): this round's steps go on its record; it
     // looks at the whole run every MONITOR_EVERY actions, and at once after a step was refused. A pause ends the run
     // here, with a warning for the owner to review; Gloopy is told not to carry on with it unless they say so.
@@ -5175,5 +5306,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // WHAT THE OWNER SENT WHILE THESE TOOL CALLS RAN (Claude Code's queue): read now, in this turn, each in Claude Code's words;
     // the chat shows it as the owner's message from here on.
     await takeQueued();
+  }
+  } catch (e) {
+    // A CARD LEFT OPEN PAUSED THIS JOB (coder-park.mjs): it ends here, saved with the call its card waits on, so the owner's
+    // answer can take the turn up again at that call.
+    if (!(e instanceof Parked)) throw e;
+    return parkEnd(e.card);
   }
 }

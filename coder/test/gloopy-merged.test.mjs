@@ -121,7 +121,7 @@ test("GM4 one page, two views (Coder's and Gloopy's): the mode and connectors ch
   // Gloopy's Worker still makes /compact's summary itself (Coder's runs on its machine, as a turn).
   assert.match(ui, /if \(r\.data\.compacted \|\| r\.data\.handled\) \{ S\.project = r\.data\.project;/);
   // A message sent while Coder works waits in its queue; Gloopy's chat sends once Gloopy is done.
-  assert.match(ui, /if \(S\.running\) \{\n\s+if \(GLOOPY\) return;[^\n]*\n\s+if \(pics\.length \|\| comments\.length \|\| att\.length \|\| !text\)/);
+  assert.match(ui, /if \(S\.running(?: \|\| parkedWait)?\) \{\n\s+if \(GLOOPY\) return;[^\n]*\n\s+if \(pics\.length \|\| comments\.length \|\| att\.length \|\| !text\)/);
   // Auto mode's countdown runs once, in Coder's view (each view runs the page's code once).
   assert.match(ui, /\n  if \(!GLOOPY\) setInterval\(\(\) => \{ document\.querySelectorAll\('\[data-block-at\]'\)/);
   // No @-file list in Gloopy's chat.

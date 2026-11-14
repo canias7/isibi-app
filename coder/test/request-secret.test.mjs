@@ -146,7 +146,8 @@ test("RS4 the card waits in the turn, as Claude Code's form does: Save answers \
   const { at, pid, ...rest } = card;
   assert.deepEqual(rest, { type: "secret", host: "api.stripe.com", reason: input.reason, name: "Stripe test key", header: "Authorization", prefix: "Bearer", kind: "bearer" });
   assert.deepEqual(t.asked.map((x) => x.pid), [pid], "the step waits for that card");
-  assert.ok(t.asked[0].o.until > 0, "until the job's time limit");
+  // (Open until answered: after a while the job pauses, and the answer takes the turn up again. cards-park.test.mjs.)
+  assert.ok(t.asked[0].o.park > 0 && t.asked[0].o.until === undefined, "no time limit closes it");
   assert.ok(t.events.some((e) => e.type === "permanswer" && e.pid === pid && e.choice === "saved"));
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "k1").content, "saved");
   assert.equal(t.r.messages.find((m) => m.tool_call_id === "b1").content.includes("available"), true, "the request after it runs in the same turn");
@@ -446,5 +447,5 @@ test("RS13 the card's buttons and the page's redraws: Save keeps the key, then t
   assert.match(css, /\.cd-secret-field\{margin:0 0 10px\}/);
   assert.match(css, /\.cd-secret-row\{display:flex;gap:8px\}/);
   // The machine and the Worker take "saved".
-  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip"\]\.includes\(choice\)/);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"\]\.includes\(choice\)/);
 });

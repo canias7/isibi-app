@@ -1789,17 +1789,18 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
   } finally { await m.close(); }
 });
 
-test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment in place of propose_env) a setup script or a host, shown on a card; the turn ends; bad input refused; never from GitHub", async () => {
-  const turns = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["https://x"] })]), say("", [call("update_environment", setupArgs("npm ci\n", "", "The tests need the packages.")), call("bash", { command: "echo never" })])];
+test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment in place of propose_env) a setup script or a host, shown on a card the call waits on (A5 of the recheck, 2026-11-14: its answer is the call's result); bad input refused; never from GitHub", async () => {
+  const turns = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["https://x"] })]), say("", [call("update_environment", setupArgs("npm ci\n", "", "The tests need the packages.")), call("bash", { command: "echo after" })]), say("You declined it.")];
   let n = 0; const seen = []; const events = [];
   const ranNpm = [{ role: "assistant", content: "", tool_calls: [{ id: "n1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm ci" }) } }] }, { role: "tool", tool_call_id: "n1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), envApi: envApi() }, { messages: ranNpm, text: "set it up" });
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "ran" }), emit: (e) => events.push(e), envApi: envApi(), ask: async () => ({ choice: "no" }) }, { messages: ranNpm, text: "set it up" });
   assert.equal(r.status, "done");
-  const { at, ...card } = events.find((e) => e.type === "envchange");
+  const { at, pid, ...card } = events.find((e) => e.type === "envchange");
+  assert.ok(events.some((e) => e.type === "permanswer" && e.pid === pid && e.choice === "no"), "the call waited on its card");
   assert.deepEqual([card.kind, card.tool, card.name, card.appliesTo, card.change.script], ["update", "update_environment", "Default", APPLIES_TO, { change: "adds a setup script", text: "npm ci\n" }]);
   assert.equal(card.args.reason, "The tests need the packages.", "the reason stays with the call; the card never shows it");
   assert.match(JSON.stringify(seen[1].messages), /is not an exact lowercase host name/);
-  assert.equal(events.some((e) => e.type === "result" && /ran/.test(e.output || "")), false);
+  assert.equal(seen[2].messages.find((m) => m.role === "tool" && m.content === "error: Denied by owner") !== undefined, true, "declined: Claude Code's denial, and the turn goes on");
   const ev2 = []; let k = 0;
   const t2 = [say("", [call("update_environment", { environment_name: "Default", applies_to: APPLIES_TO, reason: "r", add_allowed_hosts: ["api.example.com"] })]), say("ok", [])];
   await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi() }, { text: "x", github: true });
@@ -1913,8 +1914,8 @@ test("CD72 (owner 2026-11-06) answers are formatted: lists, headings, links, sou
 
 test("CD73 (owner '2', live test; Claude Code's rule since 2026-11-13) after an install this job ran and saw work, when this chat's environment has no setup script, Coder is reminded once to offer it on the card; not when the environment has a setup script (Claude Code offers one only when there is none), nor for an install that was refused or failed", async () => {
   let n = 0; const seen = []; const events = [];
-  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("update_environment", setupArgs("npm install", "", "New chats need the packages."))])];
-  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e), envApi: envApi() }, { text: "use is-number", setupScript: "" });
+  const turns = [say("", [call("bash", { command: "cd app && npm install && node check.js" })]), say("Done: it prints true then false.", []), say("", [call("update_environment", setupArgs("npm install", "", "New chats need the packages."))]), say("Proposed; you declined.")];
+  const r = await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "true\nfalse" }), emit: (e) => events.push(e), envApi: envApi(), ask: async () => ({ choice: "no" }) }, { text: "use is-number", setupScript: "" });
   assert.match(JSON.stringify(seen[2].messages), /this job ran `npm install` and it worked, and this chat's environment has no setup script/);
   assert.ok(events.some((e) => e.type === "text" && /prints true then false/.test(e.text)), "its answer is still shown");
   assert.ok(events.some((e) => e.type === "envchange"));
@@ -1961,10 +1962,11 @@ test("CD74 live test (2026-11-06): installed packages and caches are never commi
   const send = coderSend({ XAI_API_KEY: "k" }, { fetchFn: async () => new Response(JSON.stringify({ output: [{ type: "message", content: [{ type: "output_text", text: "I'll look it up." }] }, { type: "message", content: [{ type: "output_text", text: "- Keep it short" }] }] })) });
   const a = await send({ model: "grok-4.7", messages: [], tools: [] });
   assert.equal(a.message.content, "I'll look it up.\n\n- Keep it short");
-  // the words said before a card are the summary (the commit title)
+  // the words said before a card are the summary (the commit title) of a job that pauses on it (coder-park.mjs)
   let n = 0; const t = [say("Added check.js; it prints true then false.", [call("update_environment", setupArgs("npm install"))])];
   const ranInstall = [{ role: "assistant", content: "", tool_calls: [{ id: "i1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "npm install" }) } }] }, { role: "tool", tool_call_id: "i1", content: "exit code 0\nadded 1 package" }];
-  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }), envApi: envApi() }, { messages: ranInstall, text: "x" });
+  const r = await runCoder({ send: async () => t[n++], exec: async () => ({ code: 0, output: "" }), envApi: envApi(), ask: async () => ({ choice: "park" }) }, { messages: ranInstall, text: "x" });
+  assert.equal(r.status, "parked");
   assert.equal(r.summary, "Added check.js; it prints true then false.");
 });
 
@@ -2131,7 +2133,7 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
   let n = 0; const seen = []; const events = [];
   const was = "echo \"setup ok\" > setup-ran.txt";
   const turns = [say("", [call("update_environment", setupArgs(was + "\nsudo systemctl restart postgresql", was, "pg"))]), say("", [call("update_environment", setupArgs(was + "\nsudo apt-get update && sudo apt-get install -y jq", was, "jq for every chat"))])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: envApi(was) }, { text: "add jq to the setup script", setupScript: was });
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), envApi: envApi(was), ask: async () => ({ choice: "park" }) }, { text: "add jq to the setup script", setupScript: was });
   assert.match(JSON.stringify(seen[1].messages), /only plain lines like `apt-get install -y jq`[\s\S]*Coder's app runs those as admin[\s\S]*other sudo or admin commands/);
   const cards = events.filter((e) => e.type === "envchange");
   assert.equal(cards.length, 1); assert.match(cards[0].change.script.text, /sudo apt-get install -y jq/);
@@ -2139,14 +2141,14 @@ test("CD80 live test (2026-11-06): Coder knows which setup lines get admin; a fa
   let k = 0; const s2 = []; const ev2 = [];
   const failing = "echo \"setup ok\" > setup-ran.txt\nnonexistent-tool-xyz --install";
   const t2 = [say("Hi. What do you want to work on?", []), say("", [call("update_environment", setupArgs("echo \"setup ok\" > setup-ran.txt", failing, "nonexistent-tool-xyz is not installed (exit 127): its line is dropped"))])];
-  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi(failing) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
+  const r2 = await runCoder({ send: async (q) => { s2.push(q); return t2[k++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi(failing), ask: async () => ({ choice: "park" }) }, { text: "hi", setupScript: failing, setupFailed: { code: 127, timedOut: false, output: "bash: line 2: nonexistent-tool-xyz: command not found" } });
   assert.equal(s2.length, 2);
   const note = JSON.stringify(s2[1].messages);
   assert.match(note, /the repo's setup script FAILED before this job \(exit code 127\)[\s\S]*nonexistent-tool-xyz: command not found/);
   assert.match(note, /tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script[\s\S]*If you have a fix you ran yourself and saw work, propose[\s\S]*if not, don't propose one/);
   assert.doesNotMatch(note, /Call (propose_env|update_environment) now/);
   assert.ok(ev2.some((e) => e.type === "text" && /What do you want/.test(e.text)), "its first words are still shown");
-  assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "done");
+  assert.ok(ev2.some((e) => e.type === "envchange"), "dropping the broken line adds nothing new: no need to run it first"); assert.equal(r2.status, "parked", "the card waits (coder-park.mjs)");
   // Once only; not when Coder already said it; never in GitHub jobs (no cards there); a timeout is named as one.
   for (const [opts, first, sends] of [[{ setupFailed: { code: 1, output: "x" } }, "Done.", 2], [{ setupFailed: { code: 1, output: "x" } }, "The setup script failed (exit 1) on npm ci; fix it in Environment → Setup script. Done otherwise.", 1], [{ setupFailed: { code: 1, output: "x" }, github: true }, "Done.", 1], [{}, "Done.", 1]]) {
     let j = 0; const s3 = [];
@@ -2242,7 +2244,7 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     let n = 0; const seen2 = []; const ev = [];
     const ran = tried.map((c, i) => [{ role: "assistant", content: "", tool_calls: [{ id: "t" + i, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: c }) } }] }, { role: "tool", tool_call_id: "t" + i, content: "exit code 0\nok" }]).flat();
     const turns = [say("", [call("update_environment", setupArgs(script, current))]), say("I could not.", [])];
-    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e), envApi: envApi(current) }, { messages: ran, text: "x", setupScript: current });
+    await runCoder({ send: async (q) => { seen2.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output }), emit: (e) => ev.push(e), envApi: envApi(current), ask: async () => ({ choice: "park" }) }, { messages: ran, text: "x", setupScript: current });
     return { card: ev.some((e) => e.type === "envchange"), said: JSON.stringify(seen2[1] ? seen2[1].messages : []) };
   };
   let r = await propose("echo ok\nnpm ci", { current: "echo ok" });
@@ -2424,7 +2426,7 @@ test("CD85 (owner: 'make it like claude code') environments: named, Default made
   const ran = [{ role: "assistant", content: "", tool_calls: [{ id: "m1", type: "function", function: { name: "bash", arguments: JSON.stringify({ command: "mkdir -p cache" }) } }] }, { role: "tool", tool_call_id: "m1", content: "exit code 0\n" }];
   let n = 0; const seen = []; const ev = [];
   const turns = [say("", [call("create_environment", { scope: "personal", switch_session: "none", setup_script: "mkdir -p cache", reason: "r" })]), say("", [call("create_environment", { name: "blog", scope: "personal", network: "full", setup_script: "mkdir -p cache", repositories: ["ana/shop"], switch_session: "none", reason: "Only this repo needs the cache folder." })])];
-  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), envApi: envApi() }, { messages: ran, text: "add a cache folder to the setup" });
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e), envApi: envApi(), ask: async () => ({ choice: "park" }) }, { messages: ran, text: "add a cache folder to the setup" });
   assert.match(JSON.stringify(seen[1].messages), /error: name is required/);
   const card = ev.find((e) => e.type === "envchange");
   assert.deepEqual([card.kind, card.tool, card.name, card.scope, card.network, card.script, card.repos, card.moves], ["create", "create_environment", "blog", "personal", "Unrestricted (any public host)", "mkdir -p cache", ["ana/shop"], false]);

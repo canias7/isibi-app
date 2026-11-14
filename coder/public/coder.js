@@ -1090,7 +1090,7 @@
       if (!b || b.status !== 'running' || c.status === 'running') continue;
       if (o.openId === c.id && o.focused) continue;
       const name = c.title || c.repo;
-      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : 'Coder asked you something.' }); }
+      if (c.waiting) { if (o.actions) out.push({ id: c.id, title: 'Coder needs your answer · ' + name, body: c.waiting === 'secret' ? 'Coder needs a key to go on.' : c.waiting === 'envchange' ? 'Coder asks to change the environment.' : c.waiting === 'writeask' ? 'Coder asks to change a protected file.' : c.waiting === 'runask' ? 'Coder asks to run a command.' : c.waiting === 'permission' ? 'Coder needs your approval.' : 'Coder asked you something.' }); }
       else if (o.decides && Number(c.ran) >= 3 * 60000) out.push({ id: c.id, title: 'Coder finished · ' + name, body: 'Open the chat to see what it did.' });
     }
     return out;
@@ -1290,7 +1290,12 @@
   const envQuote = (n) => '"' + String(n || '') + '"';
   /** The owner's answer when they decline (the same words as coder-envtools.mjs's declinedText). */
   const envDeclined = (x) => x.kind === 'update' ? 'I declined the change to the environment ' + envQuote(x.name) + '.' : x.kind === 'create' ? 'I declined the new environment ' + envQuote(x.name) + '.' : 'I declined moving this chat to the environment ' + envQuote(x.name) + '.';
-  function envCardHtml(e, i, live) {
+  /** How a card a step waited on ended (its pid; A5 of the recheck, 2026-11-14): what Coder's server did, or the owner's no. */
+  const envDone = (e, ans) => ans.choice === 'approved' ? '<span class="cd-perm-ok">✓ ' + (e.kind === 'create' ? 'Created' : e.kind === 'switch' ? 'Moved' : 'Approved') + '</span>'
+    : ans.choice === 'refused' ? '<span class="cd-perm-no">✕ Not changed</span>' + (ans.why ? ': ' + esc(ans.why) : '')
+    : ans.choice === 'no' ? '<span class="cd-perm-no">✕ ' + (e.kind === 'create' ? 'Denied' : 'Declined') + '</span>'
+    : '<span class="cd-perm-no">' + (ans.choice === 'stop' ? 'Stopped' : 'No answer') + '</span>';
+  function envCardHtml(e, i, live, ans) {
     const sec = (label, body) => body ? '<div class="cd-ne-sec"><small>' + esc(label) + '</small>' + body + '</div>' : '';
     const plus = (t) => '<div><span class="cd-ne-plus">+</span>' + t + '</div>';
     const minus = (t) => '<div><span class="cd-ne-minus">−</span>' + t + '</div>';
@@ -1323,7 +1328,7 @@
     return '<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">' + title + '</b>' +
       '<div class="cd-ne"><div class="cd-ne-head"><b>' + esc(e.name) + '</b><span>Personal</span></div>' + body + '</div>' +
       (note ? '<p class="cd-secret-p">' + esc(note) + '</p>' : '') +
-      (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">' + no + '</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">' + yes + '</button></div>' : '') + '</div>';
+      (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">' + no + '</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">' + yes + '</button></div>' : ans ? '<div class="cd-perm-done">' + envDone(e, ans) + '</div>' : '') + '</div>';
   }
   /** What a Limited environment allows, in a few words: "package managers + 2 domains". */
   const limitedWords = (n) => {
@@ -1491,9 +1496,12 @@
     if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.sending) return;
     // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
     // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
-    if (S.running) {
+    // (And while a card Coder's paused job left open waits, other than a question card, whose reply the message is: it waits
+    // for Coder in the turn the card's answer takes up again. container/coder-park.mjs.)
+    const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && S.project.parked.kind !== 'question';
+    if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
-      if (pics.length || comments.length || att.length || !text) { S.error = 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
       S.sending = true; S.error = '';
       const id = S.project.id;
       const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
@@ -1535,6 +1543,16 @@
   }
 
   function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); webWake(); }
+  // A CARD LEFT OPEN WHILE CODER'S JOB PAUSED (container/coder-park.mjs; Claude Code: "Questions stay open until you answer
+  // them"): the chat's paused turn waits on it (`project.parked`), so it stays live, and its answer takes the turn up again in a
+  // job of its own, which the page then follows as after a message.
+  const parkedPid = () => (S.project && S.project.parked && typeof S.project.parked.pid === 'string' ? S.project.parked.pid : '');
+  function followTakenUp(r) {
+    const p = r && r.status === 200 && r.data ? r.data.project : null;
+    if (!p || p.status !== 'running' || !S.project || p.id !== S.project.id || S.running) return false;
+    S.project = p; S.running = true; syncEntry(); S.next = 0; stopBgWatch(); startPoll(); draw(true);
+    return true;
+  }
   // A TURN THAT STARTS WAKES A PAUSED LIVE VIEW (live test, 2026-11-10: opened more than 2 minutes before the message, it
   // said "Gloopy is using it" over an old picture, without Gloopy's steps, until Refresh).
   function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }
@@ -2113,7 +2131,8 @@
     // A STEP WAITING ON THE OWNER'S YES (a permission card): "waiting for you", not running.
     const answered = new Set(S.events.filter((x) => x.type === 'permanswer').map((x) => x.pid));
     const waitingIds = new Set(S.events.filter((x) => x.type === 'permission' && x.id && !answered.has(x.pid)).map((x) => x.id));
-    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
+    // (And one waiting on a card its paused job left open: coder-park.mjs.)
+    const stateOf = (e, i) => { const r = results[e.id]; const end = r && r.background && r.job ? S.bgEnded[r.job] : null; return !r ? (S.running && i > lastUser ? (waitingIds.has(e.id) ? 'wait' : 'run') : waitingIds.has(e.id) && S.project && S.project.parked && S.project.parked.call === e.id ? 'wait' : 'gone') : end ? (end.ok ? 'ok' : 'bgend') : r.background ? 'bg' : r.code === 0 || r.ok === true ? 'ok' : 'bad'; };
     // Commands in a row (with nothing said between them) are one group.
     let group = [];
     // CODER'S CHECKLIST DOESN'T SPLIT A RUN OF COMMANDS (Claude Code's task list, the owner, 2026-11-14: "Do all the talk to
@@ -2175,7 +2194,7 @@
         // to the waiting step (/answer), not as a message, and a message sent meanwhile is the reply. Once answered, it shows
         // what was chosen, and how it ended under it.
         const ans = e.pid ? S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid) : null;
-        const live = e.pid ? S.running && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        const live = e.pid ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         const sent = !!(e.pid && S.permSent && S.permSent[e.pid]);
         const qs = askQuestions(e);
         // The choices are kept here, not in the page, so a redraw never loses them.
@@ -2225,10 +2244,13 @@
       }
       else if (e.type === 'envchange') {
         // AN ENVIRONMENT CHANGE CODER PROPOSES (owner, 2026-11-06, like Claude Code): shown exactly, approved here.
-        const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+        // (One a step of Coder's waits on, its pid (A5 of the recheck, 2026-11-14): live while that step waits, in the job
+        // running now or one paused on it; once answered, how it ended. Older cards as before, until the owner's next message.)
+        const ans = e.pid ? S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid) : null;
+        const live = e.pid ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         const host = e.kind === 'allow_host', made = e.kind === 'new_environment';
         const envName = S.envInfo ? S.envInfo.name : 'this chat\'s environment';
-        if (ENV_CARD_KINDS.includes(e.kind)) out.push(envCardHtml(e, i, live));
+        if (ENV_CARD_KINDS.includes(e.kind)) out.push(envCardHtml(e, i, live, ans));
         else if (made) {
           // A NEW ENVIRONMENT, LIKE CLAUDE CODE'S "Create new environment?" (owner, 2026-11-06).
           out.push('<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Create new environment?</b>' +
@@ -2483,7 +2505,8 @@
   }
   function queueHTML() {
     const list = queuedNow();
-    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
+    // (While a card Coder's paused job left open waits, as while Coder works: they go to Coder in the turn its answer takes up.)
+    return list.map((q) => '<div class="cd-user cd-queued"><div class="cd-queued-label">' + (S.running || (S.project && S.project.parked) ? (q.shell ? 'Runs when Coder is done' : 'Waiting for Coder') : 'Not sent yet') + ' <button type="button" class="cd-queued-x" data-unqueue="' + esc(q.qid) + '" aria-label="Take this message back" title="Take it back to the message box">✕</button></div><div class="cd-bubble' + (q.shell ? ' cd-bubble-shell' : '') + '">' + esc(q.text) + '</div></div>').join('');
   }
 
   // THE CHAT'S OWN BAR: its title, repository and branch, the pull request,
@@ -3312,7 +3335,7 @@
   const keySentAs = (basic, header, prefix) => (basic ? 'Authorization: Basic <your username and password>' : (header || 'Authorization') + ': ' + (prefix ? prefix + ' ' : '') + '<your key>');
   function keyCardHTML(e, i) {
     const asks = !!e.pid;
-    const live = asks ? S.running && !S.events.some((x) => x.type === 'permanswer' && x.pid === e.pid) : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
+    const live = asks ? (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !S.events.some((x) => x.type === 'permanswer' && x.pid === e.pid) : !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
     const header = e.header || 'Authorization', prefix = e.prefix == null ? 'Bearer' : e.prefix;
     // (An older card's "Basic" sent the key as the user name: a username and password now.)
     const basic = e.kind === 'basic' || prefix === 'Basic';
@@ -3337,7 +3360,7 @@
   }
   function permHTML(e) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
-    const live = S.running && !ans;
+    const live = (S.running || !!(S.project && S.project.parked && S.project.parked.pid === e.pid)) && !ans;
     const sent = S.permSent && S.permSent[e.pid];
     const plan = e.tool === 'plan';
     let body = '';
@@ -3399,6 +3422,8 @@
     draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment, ...(plan !== null ? { plan } : {}) }) });
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    // (A card Coder's paused job left open: its answer started the job that takes the turn up again.)
+    if (followTakenUp(r)) return;
     draw();
   }
   // A QUESTION CARD CODER WAITS ON (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools
@@ -3413,6 +3438,7 @@
     draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, ...(answers ? { answers } : {}) }) });
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
+    if (followTakenUp(r)) return;
     draw();
   }
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
@@ -3470,7 +3496,8 @@
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
-        (S.running
+        // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
+        (S.running || (!GLOOPY && S.project && S.project.parked)
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +
@@ -3653,11 +3680,33 @@
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
     on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
-    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && ENV_CARD_KINDS.includes(x.kind) ? envDeclined(x) : x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
+    on('[data-envchange-no]', 'click', async (e) => {
+      const x = S.events[Number(e.currentTarget.dataset.envchangeNo)];
+      S.envChangeMsg = '';
+      // (A card a step waits on, its pid: Decline answers that step, Claude Code's denial of the call. A5 of the recheck.)
+      if (x && x.pid && ENV_CARD_KINDS.includes(x.kind) && S.project) {
+        e.currentTarget.disabled = true;
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid: x.pid, choice: 'no' }) });
+        if (r.status !== 200) { S.envChangeMsg = (r.data && r.data.error) || 'Your answer could not be sent. Try again.'; return draw(); }
+        if (!followTakenUp(r)) draw();
+        return;
+      }
+      send(x && ENV_CARD_KINDS.includes(x.kind) ? envDeclined(x) : x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.');
+    });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
       if (!x || !S.project) return;
       e.currentTarget.disabled = true;
+      // (A card a step waits on, its pid: Coder's server checks the call again, makes the change and tells that step what it
+      // did, or why it refused, as the call's result in the same turn. A5 of the recheck, 2026-11-14.)
+      if (x.pid && ENV_CARD_KINDS.includes(x.kind)) {
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/envchange', { method: 'POST', body: JSON.stringify({ tool: x.tool, args: x.args, shown: x, pid: x.pid }) });
+        if (r.status !== 200 || !r.data) { S.envChangeMsg = (r.data && r.data.error) || 'Your answer could not be sent. Try again.'; e.currentTarget.disabled = false; return draw(); }
+        S.envChangeMsg = ''; S.env = null;
+        if (S.envInfo && r.data.envId) S.envInfo = { ...S.envInfo, envId: r.data.envId, name: r.data.name || S.envInfo.name, isDefault: r.data.envId === 'default', environments: r.data.environments || S.envInfo.environments };
+        if (!followTakenUp(r)) draw();
+        return;
+      }
       // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14): Coder's server checks the call again on the environment as it is now and
       // makes the change; its answer is the owner's next message. A refusal goes to Coder as Claude Code's tool result does.
       if (ENV_CARD_KINDS.includes(x.kind)) {
@@ -4065,6 +4114,7 @@
       b.disabled = true;
       const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice: 'no' }) });
       if (a.status !== 200) { b.disabled = false; keySay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
+      followTakenUp(a);
     });
     on('[data-secret-save]', 'click', async (e) => {
       const b = e.currentTarget, card = keyOf(b), host = b.dataset.secretSave, pid = b.dataset.secretPid || '';
@@ -4083,6 +4133,7 @@
       if (a.status !== 200) { keySay(card, 'Saved. Coder could not be told yet: ' + ((a.data && a.data.error) || 'try again.') + ' Press Save to tell it again.'); return keyShow(card); }
       S.keyTold = { ...(S.keyTold || {}), [pid]: true };
       keySay(card, '');
+      followTakenUp(a);
     });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));

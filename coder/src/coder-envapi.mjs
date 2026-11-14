@@ -13,7 +13,7 @@
 import { modelPass } from "./coder-model-gate.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
-import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText } from "../container/coder-envtools.mjs";
+import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText, envResultText } from "../container/coder-envtools.mjs";
 
 export const ENV_PATH = "/api/coder/environment";
 
@@ -82,13 +82,15 @@ export async function pushNetwork(env, deps, uid, id, meta, data) {
  * THE OWNER APPROVED A CARD (the page: POST /projects/:id/envchange { tool, args }): the call's checks again, on the
  * environment as it is now (Claude Code: "the call is refused, changing nothing, if it does not match the target as it is
  * when the user approves"), and what the card showed (`body.shown`) must still be what would be made; then the change.
- * `reachRunning(data)`: the route's push to every running chat of this chat's environment. Answers { ok, said, envId,
- * name, environments } or { error } (nothing changed).
+ * `reachRunning(data)`: the route's push to every running chat of this chat's environment. Answers { ok, said, result,
+ * envId, name, environments } or { error } (nothing changed): `said` the owner's words for an older card (it ended Coder's
+ * turn), `result` what the call that waits on the card is told (A5 of the recheck, 2026-11-14: envResultText).
+ * `waiting`: the card is one a step of Coder's waits on (its pid), in a job running now or paused (the route checked it).
  */
-export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning, at = Date.now() }) {
+export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body, reachRunning, waiting = false, at = Date.now() }) {
   const tool = body && typeof body.tool === "string" ? body.tool : "";
   if (!ENV_CARD_TOOLS.includes(tool) || !body.args || typeof body.args !== "object" || Array.isArray(body.args)) return { error: "That is not an environment change Coder proposed." };
-  if (meta.status === "running") return { error: "Coder is still working on the last message." };
+  if (meta.status === "running" && !waiting) return { error: "Coder is still working on the last message." };
   const v = ENV_INPUT_CHECKS[tool](body.args);
   if (v.error) return { error: v.error.replace(/^error: /, "") };
   const args = v.args;
@@ -105,7 +107,7 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
     let list = st.list;
     if (p.plan.rename) { const me = list.find((e) => e.id === st.envId); if (me) { me.name = p.plan.rename; await saveEnvList(bucket, uid, list); } }
     if (typeof reachRunning === "function") await reachRunning(p.data).catch(() => 0);
-    return { ok: true, said: approvedText({ kind: "update", name: p.name }), envId: st.envId, name: p.plan.rename || p.name, environments: envListOut(list) };
+    return { ok: true, said: approvedText({ kind: "update", name: p.name }), result: envResultText(now.card), envId: st.envId, name: p.plan.rename || p.name, environments: envListOut(list) };
   }
   if (tool === "create_environment") {
     const p = planCreate(st, args);
@@ -125,7 +127,8 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
       await pushNetwork(env, deps, uid, id, next, p.data);
       moved = true;
     }
-    return { ok: true, said: approvedText({ kind: "create", name: entry.name, args, from: (st.list.find((e) => e.id === st.envId) || { name: "Default" }).name }, { moved, stayWhy: p.stayWhy }), envId: moved ? newId : st.envId, name: moved ? entry.name : (list.find((e) => e.id === st.envId) || { name: "Default" }).name, created: { id: newId, name: entry.name }, environments: envListOut(list) };
+    const from = (st.list.find((e) => e.id === st.envId) || { name: "Default" }).name;
+    return { ok: true, said: approvedText({ kind: "create", name: entry.name, args, from }, { moved, stayWhy: p.stayWhy }), result: envResultText(now.card, { moved, stayWhy: p.stayWhy, name: entry.name, from }), envId: moved ? newId : st.envId, name: moved ? entry.name : (list.find((e) => e.id === st.envId) || { name: "Default" }).name, created: { id: newId, name: entry.name }, environments: envListOut(list) };
   }
   const p = planSwitch(st, args);
   if (p.error) return { error: p.error.replace(/^error: /, "") };
@@ -135,6 +138,6 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
   // (A chat of this repo used it: Coder offers it first for the repo's next chat, as when a chat picks it.)
   if (meta.repo) await markUsed(bucket, uid, p.target.id, meta.repo).catch(() => {});
   await pushNetwork(env, deps, uid, id, next, st.data[p.target.id]);
-  return { ok: true, said: approvedText({ kind: "switch", name: p.target.name }), envId: p.target.id, name: p.target.name, environments: envListOut(await listEnvs(bucket, uid)) };
+  return { ok: true, said: approvedText({ kind: "switch", name: p.target.name }), result: envResultText(now.card, { name: p.target.name, from: p.from }), envId: p.target.id, name: p.target.name, environments: envListOut(await listEnvs(bucket, uid)) };
 }
 
