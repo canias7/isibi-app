@@ -48,7 +48,7 @@ import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
-import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice } from "./coder-elicit.mjs";
+import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice, toolDisplayName } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1330,6 +1330,7 @@ export function connectorTools(list) {
       ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint.slice(0, 4096) } : {}),
       ...(typeof t.server === "string" && t.server ? { server: t.server.slice(0, 64) } : {}),
       ...(typeof t.connector === "string" && t.connector.trim() ? { connector: t.connector.trim().slice(0, 64) } : {}),
+      ...(typeof t.tool === "string" && t.tool ? { tool: t.tool.slice(0, 100) } : {}),
       ...(t.failed === true ? { failed: true } : {}),
       parameters: t.parameters && typeof t.parameters === "object" && !Array.isArray(t.parameters) && t.parameters.type === "object" ? t.parameters : { type: "object", properties: {} } }));
 }
@@ -2898,11 +2899,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // THE POWERSHELL TOOL (Bash docs pass 6; coder-ps.mjs): with the environment's CODER_USE_POWERSHELL_TOOL, on a machine that has
   // pwsh, after bash, with bash's inputs ("the same fields as the Bash tool") and Claude Code's description.
   const withPs = (list) => {
-    if (!powershell || github) return list;
+    if (github) return list;
     const b = list.find((t) => t && t.function && t.function.name === "bash");
     if (!b) return list;
     const p = b.function.parameters || {};
     const ps = { type: "function", function: { name: "powershell", description: psDescription({ defaultMs: (timeouts && timeouts.defaultMs) || 120000, maxMs: (timeouts && timeouts.maxMs) || 600000, outMax: lim.readBack, background: noBg !== true, bgDefaultMs: timeouts && timeouts.bgDefaultMs, bgMaxMs: timeouts && timeouts.bgMaxMs }), parameters: { ...p, properties: { ...(p.properties || {}), command: { type: "string", description: "The PowerShell command to execute" } } } } };
+    // (Switched off: not offered, but its definition is known, so a chat whose requests carried it keeps it in them where it
+    // was, as Claude Code keeps the tools its requests carried; a call is refused as "still listed". Round 6, the owner: "do
+    // what claude code does".)
+    if (!powershell) { tsCatalog.set("powershell", withHosts(ps)); return list; }
     const i = list.indexOf(b);
     return [...list.slice(0, i + 1), ps, ...list.slice(i + 1)];
   };
@@ -6284,7 +6289,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           : hookAllows ? ""
           : planNow && !t.readOnly ? "Plan mode is on: Coder changes nothing until you approve its plan."
           : t.perm === "ask" && modeNow() !== "auto" ? "You set this connector tool to Needs approval." : "";
-        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy };
+        // (Its display name, Claude Code's display_name for an MCP tool's permission request: round 6, toolDisplayName.)
+        const connCard = { tool: "connector", hookTool: c.name, id: c.id, what: scrub("Use " + t.label).slice(0, 300), why: askWhy, displayName: scrub(t.tool ? toolDisplayName(t.connector || (mcpParts(c.name) || {}).server, t.tool) : toolDisplayName("", c.name)).slice(0, 120) };
         // (Where no one can answer, its PermissionRequest hooks decide first, and it is refused only when none does: noOneHooks,
         // fix round 4, D5.)
         const noOneAsks = !canAsk() && ((t.always && !askedByRule) || (!!askWhy && (hookDec === "ask" || (planNow && !t.readOnly))));

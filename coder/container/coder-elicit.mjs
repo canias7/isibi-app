@@ -68,6 +68,19 @@ export function permissionDisplay(meta) {
 }
 
 /**
+ * A CONNECTOR TOOL'S DISPLAY NAME ON ITS PERMISSION CARD (round 6; the owner: "do what claude code does"): Claude Code 2.1.325
+ * sends its cloud page each permission request's `display_name` ("Short noun phrase for the tool action, such as `Read file`,
+ * suitable for button labels", its SDK docs), for an MCP tool made from the tool's name (its qte): the part after the last
+ * "__" of mcp__<server>__<tool> (each name with every character but letters, digits, _ and - as "_"), its "_" as spaces,
+ * each word's first letter capital. The question's own (`permissionDisplay`'s displayName) is the server's.
+ */
+export function toolDisplayName(server, tool) {
+  const norm = (s) => String(s || "").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const name = "mcp__" + norm(server) + "__" + norm(tool);
+  return (name.split("__").pop() || name).replace(/_/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+/**
  * The modes a declared capability lets a server ask in (the MCP SDK's getSupportedElicitationModes, which Claude Code uses):
  * a bare `{}` is form mode only, "for backwards compatibility".
  */
@@ -117,8 +130,9 @@ export function fieldKind(s) {
  * "url", a message, an elicitationId and a url), and its mode one the client declared. → `{ mode, params }`, or `{ error }`,
  * the JSON-RPC error the server gets in Claude Code's words ("Invalid elicitation request: …", "Client does not support
  * form-mode elicitation requests", "Client does not support URL-mode elicitation requests"; code -32602).
+ * `modern`: a question in an `input_required` result of MCP 2026-07-28 (round 6), whose URL mode has no elicitationId.
  */
-export function checkElicitRequest(params, cap = ELICIT_CAP) {
+export function checkElicitRequest(params, cap = ELICIT_CAP, { modern = false } = {}) {
   const bad = (why) => ({ error: { code: INVALID_PARAMS, message: "Invalid elicitation request: " + why } });
   if (!isObj(params)) return bad("params must be an object");
   if (!isStr(params.message)) return bad("message must be a string");
@@ -130,7 +144,7 @@ export function checkElicitRequest(params, cap = ELICIT_CAP) {
     for (const [k, v] of Object.entries(rs.properties)) if (!fieldKind(v)) return bad("requestedSchema.properties." + k + " is not a string, number, integer, boolean or choice field");
     mode = "form";
   } else if (params.mode === "url") {
-    if (!isStr(params.elicitationId)) return bad("elicitationId must be a string");
+    if (!modern && !isStr(params.elicitationId)) return bad("elicitationId must be a string");
     let ok = false;
     try { new URL(String(params.url)); ok = isStr(params.url); } catch { ok = false; }
     if (!ok) return bad("url must be a URL");

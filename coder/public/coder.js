@@ -3527,8 +3527,12 @@
     else body = '<p class="cd-perm-desc">' + esc(e.what || '') + '</p>';
     const opts = permOptions(e);
     const note = (S.permNotes && S.permNotes[e.pid]) || '';
+    // (A DISPLAY NAME at the heading's end, round 6, the owner: "do what claude code does": Claude Code sends its cloud page
+    // each permission request's `display_name`, for a connector tool made from the tool's own name; how its page draws it is
+    // in neither its docs nor its program, so a small label here, as on a connector question's card.)
+    const dn = !plan && typeof e.displayName === 'string' ? e.displayName.trim() : '';
     return '<div class="cd-perm' + (plan ? ' cd-plan' : '') + (live ? ' is-live' : '') + '" data-perm="' + esc(e.pid) + '" tabindex="-1">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b></div>' +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (plan ? ICON.plan : ICON.term) + '</span><b>' + (plan ? 'Coder\'s plan' : esc(PERM_TITLE[e.tool] || 'Coder asks')) + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' +
       body +
       (!plan && e.why ? '<p class="cd-perm-why">' + esc(e.why) + '</p>' : '') +
       // (Auto's question for a dangerous removal blocks it by itself after 2 minutes: Claude Code's line, counting down.)
@@ -3601,6 +3605,9 @@
     const own = typeof e.title === 'string' && e.title.trim() ? e.title : '';
     const head = own ? esc(own) : 'MCP server “' + esc(who) + '” ' + (url ? 'wants to open a URL' : 'requests your input');
     const sub = typeof e.description === 'string' && e.description.trim() ? '<p class="cd-el-sub">' + esc(e.description) + '</p>' : '';
+    // (Its display name, the same permissionDisplay's "short tool/server label", at the heading's end as on a permission card.
+    // Round 6.)
+    const dn = typeof e.displayName === 'string' ? e.displayName.trim() : '';
     let body = '<p class="cd-el-msg">' + esc(String(e.message || '')) + '</p>';
     const link = url ? elLink(e.url) : null;
     if (url) {
@@ -3613,7 +3620,7 @@
       ? '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button>' + (link ? '<a class="cd-el-open" href="' + esc(link.href) + '" target="_blank" rel="noopener noreferrer" data-el-open>Open link</a><button type="button" class="cd-secret-save" data-el-accept>I’m done, continue</button>' : '') + '</div>'
       : '<div class="cd-el-btns"><button type="button" class="cd-secret-no" data-el-decline>Decline</button><button type="button" class="cd-secret-save" data-el-accept>Submit</button></div>';
     return '<div class="cd-perm cd-elicit' + (live ? ' is-live' : '') + '"' + (live ? ' data-elicit-pid="' + esc(e.pid) + '"' : '') + ' data-elicit-at="' + i + '">' +
-      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b></div>' + sub +
+      '<div class="cd-perm-head"><span class="cd-perm-ic">' + (url ? ICON.globe.replace('width="26" height="26"', 'width="14" height="14"') : ICON.term) + '</span><b>' + head + '</b>' + (dn ? '<span class="cd-perm-dn" title="' + esc(dn) + '">' + esc(dn) + '</span>' : '') + '</div>' + sub +
       (e.tool ? '<p class="cd-el-from">While using ' + esc(String(e.tool)) + '</p>' : '') + body +
       (live ? '<p class="cd-secret-err cd-el-said" hidden></p>' + btns : ans ? '<div class="cd-perm-done">' + elDone(e, ans) + '</div>' : '') +
     '</div>' + (live ? '<div class="cd-ask-wait">Needs your input</div>' : '');
