@@ -197,7 +197,8 @@ test("WS6 its permission as Claude Code's in Coder's chats: asked in Accept edit
   // An ask rule: every mode, Auto too; its reason, no "don't ask again".
   t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "auto", checker: true, rules: { allow: [], ask: ["WebSearch"], deny: [] } });
   const c2 = t.events.find((e) => e.type === "permission");
-  assert.deepEqual([c2.why, c2.rules, c2.byRule, t.checks.length], ["Your rule WebSearch asks first for WebSearch.", undefined, true, 0]);
+  // (Claude Code 2.1.325's line for a rule since round 6, in Auto: "Ask rule … overrides auto mode for this tool.")
+  assert.deepEqual([c2.why, c2.rules, c2.byRule, t.checks.length], ["Ask rule WebSearch overrides auto mode for this tool.", undefined, true, 0]);
   // An allow rule: no card in Accept edits, no checker in Auto.
   t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "acceptEdits", rules: { allow: ["WebSearch"], ask: [], deny: [] } });
   assert.deepEqual([t.events.filter((e) => e.type === "permission").length, t.searches.length], [0, 1]);
@@ -219,9 +220,17 @@ test("WS6 its permission as Claude Code's in Coder's chats: asked in Accept edit
   // but you haven't granted it yet." W5 of the recheck of 2026-11-14.)
   assert.deepEqual([t.told("w1"), t.searches.length], ["Coder requested permissions to use WebSearch, but you haven't granted it yet.", 0]);
   assert.equal(t.events.find((e) => e.type === "result" && e.id === "w1").output, "Coder requested permissions to use WebSearch, but you haven't granted it yet.");
-  // (A rule's ask, where no one can answer, keeps Coder's own words: they are not Claude Code's.)
+  // (A rule's ask, where no one can answer: Claude Code's ask itself since round 6, as its run with no one to answer returns it;
+  // a rule adds only its line on the card. A hook's: its reason, or Claude Code's words for a hook's ask with none.)
   t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "acceptEdits", rules: { allow: [], ask: ["WebSearch"], deny: [] }, deps: { ask: undefined } });
-  assert.equal(t.told("w1"), "not run: the owner's rule WebSearch asks them first, and no one can answer here");
+  assert.equal(t.told("w1"), "Coder requested permissions to use WebSearch, but you haven't granted it yet.");
+  t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "acceptEdits", hooks: hookSaid("ask"), deps: { ask: undefined } });
+  assert.equal(t.told("w1"), "searches need a look");
+  const noReason = { settings: { PreToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "pre.sh" }] }] }, run: (input) => (input.hook_event_name === "PreToolUse" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: "ask" } }) } : {}) };
+  t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "auto", hooks: noReason });
+  assert.equal(t.events.find((e) => e.type === "permission").why, "Hook PreToolUse:WebSearch requires confirmation for this tool.");
+  t = await job([say("", [call("web_search", { query: "node latest" }, "w1")]), say("ok")], { mode: "acceptEdits", hooks: noReason, deps: { ask: undefined } });
+  assert.equal(t.told("w1"), "Hook PreToolUse:WebSearch asked for confirmation for this tool");
   // The card's PermissionRequest hooks see WebSearch, its input, and Claude Code's suggestion: a WebSearch allow rule for the
   // repository's local settings. A refused call (a deny rule) fires no PostToolUse hook: it never ran.
   const seenBy = { settings: { PermissionRequest: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "perm.sh" }] }], PostToolUse: [{ matcher: "WebSearch", hooks: [{ type: "command", command: "post.sh" }] }] } };
@@ -356,7 +365,7 @@ test("WEB1 WebSearch's rules as Claude Code 2.1.325 takes them: WebSearch(*) is 
   assert.deepEqual(D({ deny: ["WebSearch(query:node latest)"] }, "  node latest "), D({ deny: ["WebSearch(query:node latest)"] }, "node latest"), "the query's own spaces aside");
   assert.equal(D({ deny: ["WebSearch(query:node latest)"] }, "node lts").verdict, "ask", "another query: as before");
   assert.equal(D({ deny: ["WebSearch(query:node latest)"] }, "Node Latest").verdict, "ask", "the exact text");
-  assert.deepEqual(D({ ask: ["WebSearch(query:node latest)"] }, "node latest"), { verdict: "ask", rule: "WebSearch(query:node latest)", why: "Your rule WebSearch(query:node latest) asks first for WebSearch.", byRule: true });
+  assert.deepEqual(D({ ask: ["WebSearch(query:node latest)"] }, "node latest"), { verdict: "ask", rule: "WebSearch(query:node latest)", why: "Permission rule WebSearch(query:node latest) requires confirmation for this tool.", byRule: true });
   assert.equal(W.searchDecision({ mode: "auto", rules: { ask: ["WebSearch(query:node latest)"] }, input: { query: "node latest" } }).verdict, "ask", "in Auto too");
   assert.equal(D({ allow: ["WebSearch(query:node latest)"] }, "node latest").verdict, "ask", "an allow rule on a value approves nothing");
   assert.equal(D({ deny: ["WebSearch(allowed_domains:a.com)"] }, "x").verdict, "ask", "a list is no scalar");

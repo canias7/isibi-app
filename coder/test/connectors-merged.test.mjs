@@ -88,7 +88,7 @@ test("MC18 (2026-11-13, merged with main's rules) a deny rule naming a connector
   // An ask rule on a tool that is on Needs approval: one card (the rule's), then it runs once.
   t = await go({ steps: create, rules: { ask: ["mcp__linear__create_issue"] } });
   assert.equal(t.cards.length, 1, "asked once");
-  assert.match(t.cards[0].why, /Your rule mcp__linear__create_issue asks first/);
+  assert.equal(t.cards[0].why, "Permission rule mcp__linear__create_issue requires confirmation for this tool.");
   assert.deepEqual(t.mcpCalls, [["mcp__linear__create_issue", { title: "Bug" }]]);
 });
 
@@ -113,7 +113,8 @@ test("MC19 (2026-11-13, merged with main's hooks) a connector tool's hooks see i
   // ...but not in Plan mode, for a tool that changes something: Plan mode asks.
   t = await go({ steps: create, mode: "plan", hooks: preHook, hookOut: () => pre("allow", "fine") });
   assert.equal(t.cards.length, 1);
-  assert.match(t.cards[0].why, /^Plan mode is on/);
+  // (Claude Code's words since round 6: its plan mode's ask for an MCP tool that may change something.)
+  assert.equal(t.cards[0].why, "Cannot call mcp__linear__create_issue while in plan mode.");
   // A PermissionRequest hook sees the tool's own name, not the card's "connector"; its no is given to Coder as its message
   // (as for every tool since 2026-11-13), its card closed with that no (shown at once beside its hooks since fix round 4) and
   // nothing runs.

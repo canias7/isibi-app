@@ -147,13 +147,15 @@ test("CP3 the owner's answer, minutes or hours later, takes the turn up again at
   // (Less tool search's note on the chat's deferred tools, after the owner's first message: tool-search.test.mjs.)
   const sent = back.seen[0].messages.filter((m) => m.role !== "system" && !m.toolsAnnounced);
   // (No note of Accept edits, the first job's mode, since fix round 4: Claude Code has none for that mode.)
-  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "assistant:", "tool:b1", "tool:b2", "user:", "user:", "user:"]);
+  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "assistant:", "tool:b1", "tool:b2", "user:", "user:"]);
   assert.ok(!sent.some((m) => m.modeNote === "acceptEdits"));
   assert.deepEqual(sent[4], { role: "user", content: "go ahead" }, "the owner's words exactly as typed, right after the round's results");
   assert.ok(sent.every((m) => !("words" in m)), "never sent as a field of the result");
-  // (Then, as at any round, the mode the owner picked meanwhile, as Claude Code says a mode change, and auto mode's note.)
-  assert.equal(sent[5].content, A.modeChangeNote("acceptEdits", "auto"));
-  assert.equal(sent[6].modeNote, "auto");
+  // (Then, as at any round, auto mode's note for the mode the owner picked meanwhile, as Claude Code gives it: since round 6
+  // nothing of the mode as such, which Claude Code never says.)
+  assert.equal(A.modeChangeNote("acceptEdits", "auto"), "");
+  assert.equal(sent[5].modeNote, "auto");
+  assert.ok(!sent.some((m) => /permission mode is now/.test(String(m.content))));
   // In Accept edits the second command asked; in the chat's Auto it ran at once: the card's mode was for its own call only.
   assert.equal(back.asked.length, 0);
   // "Yes, and don't ask again" saves its rule; "Yes, and switch to auto mode" switches, as on the card while the job ran.

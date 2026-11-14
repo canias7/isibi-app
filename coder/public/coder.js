@@ -1378,9 +1378,9 @@
       // ITS REPOSITORIES (E8 of recheck 2, 2026-11-14; Claude Code's environment "Repositories list in Settings where offered
       // (the Default environment has none)"): the repositories it is for, which the owner adds and takes away.
       if (!e.isDefault && e.envId) rows.push(['repos', 'Repositories', (e.repos || []).length ? e.repos.slice(0, 2).join(', ') + (e.repos.length > 2 ? ' +' + (e.repos.length - 2) + ' more' : '') : 'None']);
+      // (Its description once, in its Description row: round 6, 2026-11-14. It had shown twice, here at the top too; Claude
+      // Code's own page, claude.ai/code, is in neither its docs nor its program.)
       body = head('Environment: ' + (e.name || 'Default')) +
-        // (Its description, as Claude Code's environments have one: Coder writes it when it proposes an environment.)
-        (e.description ? '<p class="cd-em-help cd-em-top">' + esc(e.description) + '</p>' : '') +
         '<p class="cd-em-help cd-em-top">' + (e.isDefault ? 'The Default environment: chats in all your repos can use it. ' : 'Used by every chat that picks it. ') + (e.locked ? 'This chat picked it before its first message.' : 'This chat can still pick another one under the message box, until its first message.') + '</p>' +
         '<div class="cd-em-rows">' + rows.map((r) => '<button type="button" class="cd-em-row" data-envgo="' + r[0] + '"><span><b>' + r[1] + '</b><small>' + esc(r[2]) + '</small></span><span aria-hidden="true">›</span></button>').join('') + '</div>' +
         (!e.isDefault && e.envId ? '<button type="button" class="cd-em-archive" id="envArchive">Archive this environment</button>' : '');

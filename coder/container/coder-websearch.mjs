@@ -22,7 +22,7 @@
  * for its "fast" one), so "extended" is the search as it was (up to 8 searches) and "standard" the lightest request that
  * still searches: one turn, so one search (xAI's "Quick lookups | 1-2").
  */
-import { wholeRule, normMode, parseRule, settingMatches } from "./coder-perms.mjs";
+import { wholeRule, normMode, parseRule, settingMatches, ruleAskWhy } from "./coder-perms.mjs";
 import { issuesText, typeIssue, keysIssue, minLengthIssue } from "./coder-issues.mjs";
 import { valueIssue } from "./coder-zodtext.mjs";
 
@@ -188,8 +188,11 @@ export function searchDecision({ mode = "auto", rules = {}, planChecks = false, 
   // with query:… has been denied."; an ask one asks, as one on the whole tool. 2026-11-14.)
   const pd = paramRule(rules, "deny", input);
   if (pd) return { verdict: "deny", rule: pd, why: "Permission to use " + WEB_SEARCH_NAME + " with " + parseRule(pd).spec + " has been denied." };
+  // (Its card's line in Claude Code's words, its dialog's for a rule: "Permission rule WebSearch requires confirmation for this
+  // tool.", in Auto "Ask rule … overrides auto mode for this tool."; Coder, where no one can answer, its ask: SEARCH_UNGRANTED.
+  // Round 6.)
   const a = wholeRule(rules, "ask", WEB_SEARCH_NAME) || paramRule(rules, "ask", input);
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + WEB_SEARCH_NAME + ".", byRule: true };
+  if (a) return { verdict: "ask", rule: a, why: ruleAskWhy(a, normMode(mode), "tool"), byRule: true };
   const ok = wholeRule(rules, "allow", WEB_SEARCH_NAME);
   if (ok) return { verdict: "allow", rule: ok, byRule: true };
   const m = normMode(mode);
