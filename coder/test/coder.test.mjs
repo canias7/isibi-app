@@ -1535,8 +1535,8 @@ test("CD55 the audit: a big write (500 KB, accents included) goes through a file
     assert.equal(res("w1").code, 0, res("w1").output);
     assert.equal(readFileSync(join(root, "shop-bigw", "big.txt"), "utf8"), big, "written whole");
     assert.equal(existsSync(join(r0.bgRoot, "shop-bigw")), false, "the request file (and its folder) is gone at the end");
-    // (A file with NUL bytes is shown with Claude Code 2.1.325's note, as its Read shows one: round 4.)
-    assert.match(res("r1").output, /\n\[This file has NUL bytes in its first 8 KB: binary data, UTF-16\/UTF-32 without a byte-order mark, or text with embedded NULs\. edit and write will refuse it/);
+    // (A .bin file is refused by its kind, in Claude Code 2.1.325's words: round 4.)
+    assert.match(res("r1").output, /This tool cannot read binary files\. The file appears to be a binary \.bin file\. Use a shell command or script that can read the format\./);
   } finally { await close(); }
 });
 
