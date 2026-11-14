@@ -176,8 +176,10 @@ test("WF4 Claude Code's pre-approved documentation sites (its 96; all of github.
   assert.equal(f("https://github.com/anthropics/claude-code/pulls", {}).verdict, "allow", "pre-approved");
   assert.equal(f("https://a.b.example.com/x", { allow: ["WebFetch(domain:*.example.com)"] }).verdict, "allow");
   assert.equal(f("https://example.com/x", { allow: ["WebFetch(domain:*.example.com)"] }).verdict, "ask");
-  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://a.b.example.com/x" }), true, "a hook's `if` matches as a rule does");
-  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://example.com/x" }), false);
+  // (A hook's `if` is no rule check: Claude Code 2.1.325's WebFetch has no matcher for one, so a domain in it matches no call;
+  // round 6, R6R3.)
+  assert.equal(P.ifRuleMatches("WebFetch(domain:*.example.com)", "WebFetch", { url: "https://a.b.example.com/x" }), false);
+  assert.equal(P.ifRuleMatches("WebFetch", "WebFetch", { url: "https://example.com/x" }), true);
 });
 
 test("WF5 the URL as Claude Code takes it: at most 2,000 characters, no user name or password, a dot in the host; http upgraded to https; a redirect followed only on the same host", () => {
@@ -766,4 +768,33 @@ test("WEB14 an ask rule's question still carries the domain's allow rule as its 
   // The card shows it as Claude Code's prompt does ("Yes, and don't ask again for <domain>").
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(ui, /if \(Array\.isArray\(e\.rules\) && e\.rules\.length\) o\.push\(\['always', 'Yes, and don\\'t ask again for ' \+/);
+});
+
+test("R6R3 (round 6) a hook's `if` on WebFetch or WebSearch, as Claude Code 2.1.325 matches it (the owner: \"do what claude code does\"): what follows the tool's name goes to the tool's own matcher for hooks, and neither tool has one (only Read, Edit, Write, NotebookEdit, Grep, Glob, Bash, Monitor and PowerShell do), so `WebFetch(domain:example.com)`, or anything else in the brackets, runs its hook for no call; `WebFetch`, `WebFetch()` and `WebFetch(*)` for every call; WebSearch's the same; on every tool event", async () => {
+  const m = (rule, tool, input) => P.ifRuleMatches(rule, tool, input, { cwd: "/work/shop", root: "/work/shop", home: "/home/dev" });
+  const page = { url: "https://example.com/a", prompt: "x" };
+  for (const r of ["WebFetch(domain:example.com)", "WebFetch(domain:*.example.com)", "WebFetch(domain:*)", "WebFetch(https://example.com/a)", "WebFetch(example.com)", "WebFetch(url:https://example.com/a)"]) assert.equal(m(r, "WebFetch", page), false, r);
+  for (const r of ["WebFetch", "WebFetch()", "WebFetch(*)", " WebFetch "]) assert.equal(m(r, "WebFetch", page), true, r);
+  const q = { query: "react hooks", mode: "standard" };
+  for (const r of ["WebSearch(react hooks)", "WebSearch(react*)", "WebSearch(*hooks)", "WebSearch(query:react hooks)", "WebSearch(domain:react.dev)"]) assert.equal(m(r, "WebSearch", q), false, r);
+  for (const r of ["WebSearch", "WebSearch()", "WebSearch(*)"]) assert.equal(m(r, "WebSearch", q), true, r);
+  assert.equal(m("WebFetch", "WebSearch", q), false, "another tool's name");
+  // As Coder's loop picks a call's hooks (hooksFor), on each tool event.
+  const all = ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"].flatMap((event) => [
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "domain.sh", if: "WebFetch(domain:example.com)", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "fetch.sh", if: "WebFetch", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "search.sh", if: "WebSearch(*)", timeout: 600 },
+    { event, matcher: "WebFetch|WebSearch", type: "command", command: "react.sh", if: "WebSearch(react hooks)", timeout: 600 },
+  ]);
+  for (const event of ["PreToolUse", "PermissionRequest", "PostToolUse", "PostToolUseFailure", "PermissionDenied"]) {
+    assert.deepEqual(H.hooksFor(all, event, "WebFetch", { tool: "WebFetch", input: page, ctx: {} }).map((h) => h.command), ["fetch.sh"], event);
+    assert.deepEqual(H.hooksFor(all, event, "WebSearch", { tool: "WebSearch", input: q, ctx: {} }).map((h) => h.command), ["search.sh"], event);
+  }
+  // In Coder's loop: the domain's hook does not run for a fetch of that domain; the tool's own does.
+  const t = await loop([say("", [call("web_fetch", { url: "https://example.com/a", prompt: "p" }, "f1")]), say("done")], {
+    tools: { web_fetch: () => pageOut("hello") },
+    hooks: { PreToolUse: [{ matcher: "WebFetch", hooks: [{ type: "command", command: "domain.sh", if: "WebFetch(domain:example.com)" }, { type: "command", command: "fetch.sh", if: "WebFetch" }] }] },
+  });
+  assert.deepEqual(t.hookCalls.map((x) => /\b(\w+)\.sh\b/.exec(String(x.x.command))[1]), ["fetch"]);
+  assert.equal(toolMsg(t, "f1"), "read");
 });

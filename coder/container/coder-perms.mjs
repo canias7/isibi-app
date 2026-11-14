@@ -17,7 +17,7 @@ import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS, fullPathFrom, ifPathMatches } from "./coder-filerules.mjs";
-import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
+import { docSite, pickDomainRule, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
@@ -1395,7 +1395,12 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     const parts = psAllParts(String(args.command || ""));
     return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
-  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainRuleMatches(spec, host); }
+  // (WEBFETCH AND WEBSEARCH, round 6, 2026-11-14; the owner: "do what claude code does": Claude Code 2.1.325 matches a hook's
+  // `if` with what follows the tool's name through the tool's own matcher for hooks (its preparePermissionMatcher), which only
+  // Read, Edit, Write, NotebookEdit, Grep, Glob, Bash, Monitor and PowerShell have; so `WebFetch(domain:example.com)`, or
+  // anything else in the brackets, runs its hook for no call at all, while `WebFetch`, `WebFetch()` and `WebFetch(*)` run it
+  // for every one; WebSearch's the same. Coder had matched the domain, as a permission rule does.)
+  if (tool === "WebFetch" || tool === "WebSearch") return false;
   // GREP'S AND GLOB'S `if` ON THEIR PATTERN (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
   // Code 2.1.323: their matcher for a hook's `if` compares the rule's content with the call's pattern, not its path):
   // `Grep(TODO*)` runs for a search of "TODO.*fix".
@@ -2580,6 +2585,30 @@ export function psDecision(command, { mode = "auto", rules = {}, nativeReadOnly 
   // the reading ones beside them, when every path they are given is inside the working folders.
   if (m === "acceptEdits" && byCommand !== false && psEditsOnly(p, all, { nativeReadOnly, inside })) return { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false };
   return auto ? { verdict: "allow", why: "", suggest: null, readOnly: false, covered: false } : asks(outsideWhy || (all.some((c) => psPathArgs(c).some(psQuoted)) ? PS_QUOTED_WHY : ""), [...new Set(need.flatMap(psExactRule))]);
+}
+/**
+ * WHETHER A POWERSHELL COMMAND'S PATH IS THE CHAT'S OWN PLAN FILE (round 6, 2026-11-14; the owner: "do what claude code
+ * does"): Claude Code 2.1.325 gives each path its PowerShell cmdlets and output redirections name (its Fe) to the same path
+ * check as Bash's (its nPo, then Rre and Pot), where "Plan files for current session are allowed for writing" (and "… for
+ * reading") comes before its protected paths and its working folders. Only a plain path reaches that check: a quote, a
+ * backtick, a variable ($ or %), a wildcard, `::`, `~user`, a network or provider path, or `..` after a folder asks first,
+ * there and in Coder; `~` and `~/…` are the home folder; a short path counts from the folder Coder's commands are in. That
+ * one file, named as itself and not through a link (`real(p)`, where a path leads; Claude Code checks the path and where it
+ * lands). `planFile`: the chat's plan file in full, or "" when it has none.
+ */
+export function psPlanFile(word, { planFile = "", cwd = "/", home = "", real = null } = {}) {
+  const pf = typeof planFile === "string" && planFile.startsWith("/") ? normalPath(planFile) : "";
+  const w = String(word ?? "");
+  if (!pf || !w || /['"\u2018-\u201F`$%*?[\]]/.test(w) || w.includes("::")) return false;
+  let t = w.replace(/\\/g, "/");
+  if (t === "~" || t.startsWith("~/")) { if (typeof home !== "string" || !home.startsWith("/")) return false; t = home + t.slice(1); }
+  else if (t.startsWith("~") || t.startsWith("//") || /^[a-z0-9]+:/i.test(t)) return false;
+  let named = false;
+  for (const s of t.split("/")) { if (!s || s === ".") continue; if (s === "..") { if (named) return false; } else named = true; }
+  const full = normalPath(t.startsWith("/") ? t : (typeof cwd === "string" && cwd.startsWith("/") ? cwd : "/") + "/" + t);
+  if (full !== pf) return false;
+  if (typeof real !== "function") return true;
+  try { return real(full) === full; } catch { return false; }
 }
 /** Claude Code's words for a PowerShell command that changes folder beside another one. */
 export const PS_CD_COMPOUND_WHY = "Compound command changes working directory (Set-Location/Push-Location/Pop-Location/New-PSDrive) \u2014 relative paths cannot be validated against the original cwd and require manual approval";
