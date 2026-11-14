@@ -17,6 +17,34 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Round 5: the leftover differences (your words: "Yes pls")
+
+On my branch with round 4, not deployed yet. Four helpers. All 1,136 tests passed after merging.
+
+- **No and Stop keep finished steps:** when you say No on a card or press Stop, steps that already finished keep
+  their real results. A step still running is told it was stopped while it ran; steps not started are told they
+  were rejected, in Claude Code's words. A card left waiting saves the finished steps first, so answering it later
+  never runs a search or a check twice.
+- **Hooks at the same time:** your PreToolUse hooks for a reply's read-only steps now run side by side. A read,
+  write or edit your deny rules block is refused before your hooks run, as in Claude Code. PowerShell still runs
+  one step at a time: Claude Code does the same (that finding was wrong).
+- **Cards in Claude Code's words:** read, write, edit, grep and glob cards now say "Coder requested permissions to
+  read from …". Question cards hold back previews over 2,000 characters with Claude Code's line. The plan card
+  says "with a changed input" only when a hook really changed it. "Exited Auto Mode" is told only when Auto ends.
+- **Environment window:** each environment's description is a row you can edit.
+- **File rules and hooks:** a hook's `if` on a file counts from the folder Coder is working in and compares the
+  whole path, as Claude Code's. Searching the project under a `Read(**)` deny rule now runs and finds nothing
+  (it used to refuse). Commands that write the chat's own plan file don't ask any more.
+- **Connectors:** a connector's question card can show the connector's own title; Coder answers a connector that
+  asks which folders it works in; a connector's long task that needs your input is cancelled, as in Claude Code's
+  cloud; a broken answer stream is picked up where it stopped; the newest connector version (older ones still
+  work).
+- **Web fetch:** its card for a site offers "Yes, and don't ask again for <site>".
+- **Tool search:** tools Grok got at the start of a chat stay for the whole chat, as in Claude Code.
+- **Cost:** nothing new. Fewer repeat paid calls (no second search or check after a pause). One extra tiny
+  Worker request per connector call.
+- **Not tried live yet:** that's for the deploy.
+
 ## 2026-11-14: Round 4: your choices (your words: "On yes start", "yes pls do both")
 
 On my branch, not deployed yet. Five helpers, then two extras you said yes to. All 1,109 tests passed after merging.

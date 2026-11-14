@@ -378,14 +378,25 @@ code in **each user's own GitHub**.
      of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
      web_search, read-only commands and connector tools, and the others it marks so)
      run together, each with its own checks, hooks and card; any other call runs alone,
-     in order; results go back in call order. Gloopy keeps its run-ahead. Tests:
+     in order; results go back in call order. Gloopy keeps its run-ahead. Round 5: each
+     call's PreToolUse hooks start with its group; a No, Stop or a pause keeps the
+     results that already came back, and the other calls get Claude Code's interrupt
+     texts (REJECTED; STOPPED_RUNNING for one still running when Stop came); calls
+     answered before a pause are not run again when the owner answers; read, write and
+     edit calls a deny rule blocks are refused before hooks, as Claude Code's
+     validateInput refuses them; PowerShell runs alone, as in 2.1.325. Tests:
      `test/parallel.test.mjs`.
    - *Connectors' questions* (`src/coder-elicit.mjs`, `container/coder-elicit.mjs`;
      Claude Code's MCP elicitation, round 3): Coder declares form and url elicitation;
      a connector's question during a call shows a card (fields and Submit, or Open link
      and "I'm done, continue"; Decline), the call waits for it; the answer goes back on
      `/api/coder/mcp` (`{answer}`); nobody to answer means cancel; hooks
-     `Elicitation` and `ElicitationResult`. Tests: `test/elicit.test.mjs`.
+     `Elicitation` and `ElicitationResult`. Round 5: a question's
+     `_meta["anthropic/permissionDisplay"]` titles its card; `roots/list` is answered
+     with the chat's working folders; a connector task that asks for input is cancelled,
+     as in Claude Code's cloud; a broken answer stream is taken up again with
+     Last-Event-ID; MCP 2025-11-25 (servers on versions back to 2024-10-07 still work).
+     Tests: `test/elicit.test.mjs`, `test/connectors.test.mjs`.
    - *task_create, task_get, task_list, task_update* (`coder-tasks.mjs`) in place of
      `todo`: Claude Code's four Task tools, as its cloud sessions have them; one list
      a chat, kept beside its memory; TaskCreated and TaskCompleted hooks. Gloopy
@@ -455,6 +466,20 @@ code in **each user's own GitHub**.
      read refuses Claude Code's 121 binary file types in its words (Coder still shows
      .bmp and .tif pictures); the shell setup lines are Claude Code's. Tests:
      `test/fix4-bash.test.mjs`.
+   - *Round 5, the leftover differences* (the owner: "Yes pls"): read, write, edit, grep
+     and glob cards in Claude Code's words ("Coder requested permissions to read from
+     …"); question-card previews over 2,000 characters held back with its line; "Exited
+     Auto Mode" only when Auto ends; the plans-folder warning only in the machine's log;
+     the plan card's "with a changed input" only when a hook changed it; the
+     Environment window's Description row (`POST /projects/:id/env {description}`). A
+     hook's `if` on a file tool counts from the folder Coder's commands are in and
+     compares the whole path (Claude Code's akt); a search of the project under a
+     `Read(**)` deny rule runs and finds nothing; commands that write the chat's own plan
+     file don't ask. Tools a chat's first request carried stay in its requests
+     (`toolsDeclared`), as Claude Code keeps them; web_fetch's card for a site offers
+     "Yes, and don't ask again for <site>" (PermissionRequest hooks see it). Tests:
+     `test/file-rules.test.mjs` (CD382m-p), `test/askuser.test.mjs`,
+     `test/permissions.test.mjs`, `test/env-tools.test.mjs`, `test/tool-search.test.mjs`.
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
      Coder's open chat runs, and one line on a hover or a click. Made more real the
