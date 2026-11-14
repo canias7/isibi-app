@@ -41,6 +41,7 @@ import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_
 import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
+import { CLOUD_AUTOCOMPACT_PCT } from "./coder-compact.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
 import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
@@ -119,7 +120,13 @@ const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : 
 // stopped; it keeps running, its further output goes to a log file, and the AI
 // is told where, so it can read it with tail later.
 export const BG_DIR = "/srv/coder-bg";
-export const BODY_MAX = 8 * 1024 * 1024;
+/**
+ * THE LARGEST REQUEST THIS MACHINE TAKES (a message's start, with the chat's saved conversation). Since the saved chat keeps
+ * every answer and picture whole (2026-11-14, the owner: "yes copy claude code"), a chat's conversation goes up to Claude
+ * Code's auto-compact threshold (about 441,600 tokens, some 2 MB of text, more in one round past it) and its pictures (at most
+ * 18 MB: PICS_KEEP_BYTES), so this leaves room for both: 48 MB (it was 8).
+ */
+export const BODY_MAX = 48 * 1024 * 1024;
 // THE SETUP SCRIPT (like Claude Code's): about five minutes at most; the environment's saved copy of its result is used for
 // about seven days (takeCopy). On a chat's machine it runs once (the job's setup step).
 export const SETUP_MAX_S = 300;
@@ -920,10 +927,22 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID",
   // (Tool search's switch, under its own name, one of the variables Claude Code applies from any settings file: 2026-11-14;
   // coder-toolsearch.mjs. And its connector descriptions' limit, CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH, under Coder's name.)
-  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH", CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "CODER_MAX_MCP_DESCRIPTION_LENGTH" };
-export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
+  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH", CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "CODER_MAX_MCP_DESCRIPTION_LENGTH",
+  // (Auto-compact's, Claude Code's: the two switches under their own names, its window under Coder's. The owner, 2026-11-14:
+  // "yes copy claude code"; coder-compact.mjs compactSettings. Not its CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, which a cloud session
+  // sets itself over the user's: compactVarsFor.)
+  DISABLE_COMPACT: "DISABLE_COMPACT", DISABLE_AUTO_COMPACT: "DISABLE_AUTO_COMPACT", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "CODER_AUTO_COMPACT_WINDOW" };
+export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS", autoCompactEnabled: "CODER_AUTO_COMPACT_ENABLED", autoCompactWindow: "CODER_AUTO_COMPACT_WINDOW" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
+/** The chat's auto-compact settings, as coder-compact.mjs compactSettings reads them (Coder's names). */
+export const COMPACT_VARS = Object.freeze(["DISABLE_COMPACT", "DISABLE_AUTO_COMPACT", "CODER_AUTO_COMPACT_WINDOW", "CODER_AUTO_COMPACT_ENABLED"]);
+export const compactVarsOf = (vars) => Object.fromEntries(COMPACT_VARS.filter((k) => vars && Object.hasOwn(vars, k)).map((k) => [k, String(vars[k])]));
+/**
+ * WHAT A JOB GETS: the owner's and the repository's, and the percentage this machine sets itself, as Claude Code's cloud
+ * sessions set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE over the user's (coder-compact.mjs CLOUD_AUTOCOMPACT_PCT).
+ */
+export const compactVarsFor = (vars) => ({ ...compactVarsOf(vars), CODER_AUTOCOMPACT_PCT_OVERRIDE: String(CLOUD_AUTOCOMPACT_PCT) });
 /** The owner's variables, with the repository's own command settings (repoSettings' `own`) under them. */
 export function withRepoOwn(vars, own) {
   const v = vars && typeof vars === "object" ? vars : {};
@@ -3074,8 +3093,95 @@ export function liveTarget(x) {
  * fewer steps go; "not this job" (403), or "not running" many times in a row,
  * and it stops. `flush()` stops the timer and sends everything left.
  */
+// ── A CODER CHAT'S PICTURES, KEPT APART ON THE WORKER (2026-11-14, the Worker's memory; src/coder-live.mjs) ──
+// The saved chat names each of its pictures (`coder-pic:<sha>`, the SHA-256 of its data URL) and the Worker keeps them as
+// objects of their own, so its routes never hold a chat's pictures. This machine puts them back at a job's start (picsIn) and
+// sends the job's new ones at its end (picsOut), with the job's own pass, so what Grok is sent stays the same bytes.
+export const PIC_REF = "coder-pic:";
+/** The pictures this machine holds of each chat's saved conversation (name → data URL): a next job here fetches none of them again. */
+export const PICS = new Map();
+/** What a picture's place says when it could not be fetched again, or kept on Coder's server. */
+export const PIC_GONE = " [A picture that was here could not be fetched again from Coder's server, so it is no longer attached.]";
+export const PIC_NOT_KEPT = " [A picture that was here could not be kept with the saved chat, so it is no longer attached.]";
+const picAt = (live) => String(live.url).replace(/\/+$/, "") + "/pic";
+const picHeaders = (live) => ({ "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass });
+const isRef = (u) => typeof u === "string" && u.startsWith(PIC_REF);
+/**
+ * THE SAVED CHAT'S PICTURES PUT BACK (a job's start): each `coder-pic:<sha>` as the data URL it names, from this machine's
+ * copy or the Worker (tried 3 times; checked against its name). One that cannot be had is left out, and its message says so.
+ * `known` gets the names the Worker has, so picsOut sends none of them again.
+ */
+export async function picsIn(messages, { live = null, fetchFn = null, project = "", known = new Set() } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!list.some((m) => m && Array.isArray(m.images) && m.images.some(isRef))) return list;
+  const have = PICS.get(project) || new Map();
+  const get = async (sha) => {
+    if (have.has(sha)) return have.get(sha);
+    if (!live || typeof fetchFn !== "function") return null;
+    for (let i = 0; i < 3; i++) {
+      try {
+        const r = await fetchFn(picAt(live) + "?sha=" + sha, { method: "GET", headers: picHeaders(live), signal: AbortSignal.timeout(30_000) });
+        if (r.ok) { const d = await r.text(); return d.startsWith("data:image/") && createHash("sha256").update(d).digest("hex") === sha ? d : null; }
+        if (r.status === 404 || r.status === 403 || r.status === 400) return null;
+      } catch { /* tried again */ }
+      await new Promise((ok) => setTimeout(ok, 300 * (i + 1)));
+    }
+    return null;
+  };
+  const out = [];
+  for (const m of list) {
+    if (!m || !Array.isArray(m.images) || !m.images.some(isRef)) { out.push(m); continue; }
+    const images = [];
+    let lost = 0;
+    for (const u of m.images) {
+      if (!isRef(u)) { images.push(u); continue; }
+      const sha = u.slice(PIC_REF.length);
+      const d = /^[0-9a-f]{64}$/.test(sha) ? await get(sha) : null;
+      if (d) { images.push(d); have.set(sha, d); known.add(sha); } else lost++;
+    }
+    const { images: _was, ...rest } = m;
+    out.push({ ...rest, ...(images.length ? { images } : {}), ...(lost ? { content: String(m.content || "") + PIC_GONE } : {}) });
+  }
+  PICS.set(project, have);
+  return out;
+}
+/**
+ * THE JOB'S PICTURES SENT TO THE WORKER (a job's end, Coder's chats): each data URL in the conversation it saves becomes the
+ * name the Worker keeps it under, sent first unless the Worker has it (`known`). One the Worker did not take is left out, its
+ * message saying so: the saved chat never carries a picture itself, so the Worker never holds one (its 128 MB). This machine
+ * keeps a copy of those the saved chat now names.
+ */
+export async function picsOut(messages, { live = null, fetchFn = null, project = "", known = new Set() } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!live || typeof fetchFn !== "function" || !list.some((m) => m && Array.isArray(m.images) && m.images.length)) return list;
+  const keep = new Map(), out = [];
+  for (const m of list) {
+    if (!m || !Array.isArray(m.images) || !m.images.length) { out.push(m); continue; }
+    const images = [];
+    let lost = 0;
+    for (const u of m.images) {
+      if (typeof u !== "string" || !u.startsWith("data:image/")) { images.push(u); continue; }
+      const sha = createHash("sha256").update(u).digest("hex");
+      let ok = known.has(sha);
+      if (!ok) {
+        try {
+          const r = await fetchFn(picAt(live), { method: "POST", headers: { ...picHeaders(live), "content-type": "text/plain" }, body: u, signal: AbortSignal.timeout(60_000) });
+          const j = r.ok ? await r.json().catch(() => null) : null;
+          ok = !!(j && j.ref === PIC_REF + sha);
+        } catch { ok = false; }
+        if (ok) known.add(sha);
+      }
+      if (ok) { images.push(PIC_REF + sha); keep.set(sha, u); } else lost++;
+    }
+    const { images: _was, ...rest } = m;
+    out.push({ ...rest, ...(images.length ? { images } : {}), ...(lost ? { content: String(m.content || "") + PIC_NOT_KEPT } : {}) });
+  }
+  PICS.set(project, keep);
+  return out;
+}
+
 export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery = LIVE_CONVO_MS, now = () => Date.now() } = {}) {
-  let sent = 0, convoSent = -1, convoAt = now(), batch = LIVE_BATCH, refused = 0, over = false, queued = false;
+  let sent = 0, convoSent = "", convoAt = now(), batch = LIVE_BATCH, refused = 0, over = false, queued = false, convoOff = false;
   let chain = Promise.resolve();
   // A step too large to send on its own is kept as a short note in its place (the steps stay numbered alike).
   const tooBig = new Set();
@@ -3083,12 +3189,19 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
     for (let tries = 0; tries < (final ? 40 : 1) && !over; tries++) {
       const events = t.events.slice(sent, sent + batch).map((e, i) => (tooBig.has(sent + i) ? { at: e && e.at, type: "note", text: "(a step too large to keep here)" } : e));
       const convo = typeof t.convoNow === "function" ? t.convoNow() : null;
-      const withConvo = Array.isArray(convo) && convo.length !== convoSent && (final || now() - convoAt >= convoEvery);
+      // (`whole`: the job's auto-compact summarized the conversation, so this is all of it, the summary first: the Worker puts it
+      // in place of the saved chat if the machine stops. Sent again whenever its length or its summaries change.)
+      const whole = typeof t.convoWhole === "function" ? Number(t.convoWhole()) || 0 : 0;
+      const convoKey = Array.isArray(convo) ? whole + ":" + convo.length : "";
+      const withConvo = !convoOff && Array.isArray(convo) && convoKey !== convoSent && (final || now() - convoAt >= convoEvery);
       if (!events.length && !withConvo) return;
       let r;
       try {
-        r = await fetchFn(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass }, body: JSON.stringify({ from: sent, events, ...(withConvo ? { messages: convo } : {}) }), signal: AbortSignal.timeout(LIVE_WAIT_MS) });
+        r = await fetchFn(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass }, body: JSON.stringify({ from: sent, events, ...(withConvo ? { messages: convo, ...(whole ? { whole: true } : {}) } : {}) }), signal: AbortSignal.timeout(LIVE_WAIT_MS) });
       } catch { return; }
+      // (Too large with the conversation: it is what is too large, not the steps. Sent without it from then on: the chat's own
+      // save at the job's end has it. 2026-11-14, since the saved chat keeps every answer whole.)
+      if (r.status === 413 && withConvo) { convoOff = true; continue; }
       if (r.status === 413) { if (events.length > 1) batch = Math.max(1, Math.floor(events.length / 2)); else tooBig.add(sent); continue; }
       if (r.status === 403) { over = true; return; }
       if (r.status === 409) { if (++refused >= LIVE_REFUSALS) over = true; return; }
@@ -3096,7 +3209,7 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
       refused = 0;
       const j = await r.json().catch(() => ({}));
       sent = Number.isInteger(j.have) && j.have >= 0 && j.have <= t.events.length ? j.have : sent + events.length;
-      if (withConvo) { convoSent = convo.length; convoAt = now(); }
+      if (withConvo) { convoSent = convoKey; convoAt = now(); }
     }
   };
   const run = (final) => (chain = chain.then(() => once(final)).catch(() => {}));
@@ -4247,7 +4360,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // memory falls below that amount"): the machine's MemAvailable, or less when the chat's commands have a memory cap.
         memFree: () => memAvailable(t.memCg),
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
-        watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
+        // (After Claude Code's auto-compact in the job, the whole conversation: it starts with the summary. 2026-11-14.)
+        watch: (now, o = {}) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; const whole = () => Number(o && typeof o.whole === "function" ? o.whole() : 0) || 0; t.convoWhole = whole; t.convoNow = () => (whole() ? now() : now().slice(before)); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
@@ -4561,12 +4675,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
-      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+      // (The saved chat's pictures put back first, and the job's sent to the Worker at its end: picsIn, picsOut. 2026-11-14.)
+      const picsTo = { live, fetchFn: liveFetch, project, known: new Set() };
+      picsIn(Array.isArray(body.messages) ? body.messages : [], picsTo).then((msgsIn) => runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: msgsIn, text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts }))
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
-        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); const messages = gloopy || !Array.isArray(r && r.messages) ? r && r.messages : await picsOut(r.messages, picsTo).catch(() => r.messages); return { ...r, messages, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
         .then(async (result) => {
           // THE TURN IS OVER: nothing it started keeps running but its background commands (tool 4: like Claude Code's,

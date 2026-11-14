@@ -1222,7 +1222,7 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
   } finally { await close(); }
 });
 
-test("CD44 pictures and @files: pictures are checked, sent to Grok with that message only, kept out of the saved history; @paths become a note", async () => {
+test("CD44 pictures and @files: pictures are checked, sent to Grok with that message, kept in the saved history as sent (since 2026-11-14, the owner: \"yes copy claude code\": Claude Code's transcript keeps its image blocks; keepPics bounds them); @paths become a note", async () => {
   const { checkImages, fileMentions } = await import("../src/coder-routes.mjs");
   const png = Buffer.from("fakepng").toString("base64");
   assert.deepEqual(checkImages([{ type: "image/png", data: png }]), { images: [{ type: "image/png", data: png }] });
@@ -1236,13 +1236,13 @@ test("CD44 pictures and @files: pictures are checked, sent to Grok with that mes
   // To Grok: the picture goes with the message as input_image.
   const { toResponsesInput } = await import("../container/coder-model.mjs");
   assert.deepEqual(toResponsesInput([{ role: "user", content: "make it look like this", images: ["data:image/png;base64," + png] }]).input, [{ role: "user", content: [{ type: "input_text", text: "make it look like this" }, { type: "input_image", image_url: "data:image/png;base64," + png, detail: "auto" }] }]);
-  // The loop sends it once; the saved history keeps a note instead.
+  // The loop sends it; the saved history keeps it as sent (it was a note in its place before 2026-11-14).
   const seen = [];
   const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
   // (Tool search's note on the chat's deferred tools follows the owner's message: tool-search.test.mjs.)
   // (Nor the notes of the modes, as Claude Code's mode attachments after the message: fix round 3, 2026-11-14.)
   assert.deepEqual(seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
-  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
+  assert.deepEqual(r.messages[0], { role: "user", content: "what is this?", images: ["data:image/png;base64," + png] });
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /id="cdAttach"/);
   assert.match(ui, /input\.addEventListener\('paste'/);

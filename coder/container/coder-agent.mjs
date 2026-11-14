@@ -20,10 +20,10 @@
 // The conversation is kept in the OpenAI chat shape (`messages`, with
 // `tool_calls` and `tool` answers), which Grok speaks natively; the next
 // message continues from the same messages.
-import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched } from "./coder-compact.mjs";
+import { summaryRequest, summaryMessage, cutPoint, isSummary, viewedFile, filesTouched, compactSettings, compactLimits, compactLevel, conversationTokens, COMPACT_FAILURES_MAX, REFILL_TURNS, REFILL_TIMES, PRECOMPACT_OUTPUT_MAX, CHARS_PER_TOKEN, COMPACTED_SHOWN, THRASHING, contextLimitShown, compactPrompt, summaryText, dropOldestRounds, tokenGap, COMPACT_PTL_RETRIES, COMPACT_TOO_LONG } from "./coder-compact.mjs";
 // A command that views one file counts as reading it (moved to coder-compact.mjs, which the Worker uses too).
 export { viewedFile };
-import { retryLine } from "./coder-model.mjs";
+import { retryLine, modelWindow } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
@@ -204,20 +204,34 @@ export const PICS_PER_READ = 20, PICS_KEEP = 24; // 20: a PDF read's pages (like
 /** And at most this much of them (base64): a request to Grok through Coder's server is at most 30 MB (MODEL_BODY_MAX). */
 export const PICS_KEEP_BYTES = 18_000_000;
 
-/** Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). */
-export function keepPics(convo) {
+/**
+ * Lets go of all but the newest PICS_KEEP pictures that reads opened (pictures the owner sent stay). `owner` (Coder's chats since
+ * the saved chat keeps its pictures, 2026-11-14): the owner's pictures count too, those of an earlier message going like a
+ * read's once newer ones fill the room; those of the messages from `owner.from` on (this message's) always stay.
+ */
+export function keepPics(convo, owner = null) {
   let kept = 0, bytes = 0;
+  const from = owner && Number.isInteger(owner.from) ? owner.from : Infinity;
   for (let i = convo.length - 1; i >= 0; i--) {
     const m = convo[i];
-    if (!m || m.readPics !== true || !Array.isArray(m.images)) continue;
-    // The newest first, while they fit in both PICS_KEEP and PICS_KEEP_BYTES.
+    if (!m || !Array.isArray(m.images) || !m.images.length) continue;
+    const theirs = m.readPics !== true;
+    if (theirs && !(owner && m.role === "user")) continue;
+    // The newest first, while they fit in both PICS_KEEP and PICS_KEEP_BYTES (this message's own, whatever the room).
     let room = 0;
     for (let j = m.images.length - 1; j >= 0; j--) {
       const len = String(m.images[j]).length;
-      if (kept + room + 1 > PICS_KEEP || bytes + len > PICS_KEEP_BYTES) break;
+      if (!(theirs && i >= from) && (kept + room + 1 > PICS_KEEP || bytes + len > PICS_KEEP_BYTES)) break;
       bytes += len; room++;
     }
     if (room === m.images.length) { kept += room; continue; }
+    if (theirs) {
+      const { images: _gone, ...rest } = m;
+      const base0 = String(m.content || "").replace(/ \[Only the last \d+ of them are still attached\.\]$/, "");
+      kept += room;
+      convo[i] = room ? { ...m, images: m.images.slice(m.images.length - room), content: base0 + " [Only the last " + room + " of them are still attached.]" } : { ...rest, content: base0 + " [No longer attached: read the file again to see it.]" };
+      continue;
+    }
     const keep = room ? m.images.slice(m.images.length - room) : [];
     kept += keep.length;
     const base = String(m.content || "").replace(/ \[Only the last \d+ of them are still attached\.\]$/, "");
@@ -1814,6 +1828,12 @@ export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_S
  */
 export const TOOLS_V = createHash("sha256").update(JSON.stringify([...STOCK_TOOLS.values(), EXIT_PLAN_TOOL_NO_FILE, HOSTS_DESC, NO_BG_TIMEOUT]) + toolsFor.toString() + webFetchTools.toString() + webFetchDescription.toString() + psDescription.toString() + runCoder.toString()).digest("hex").slice(0, 16);
 
+/**
+ * A REQUEST GROK REFUSED AS TOO LONG FOR ITS WINDOW (Claude Code's "Prompt is too long", which its reactive compaction answers;
+ * the cache fix's follow-up, 2026-11-14): a refusal whose words say the prompt or the context is longer than the model takes.
+ */
+export const tooLongError = (e) => { const m = String((e && e.message) || e || ""); return !(e && e.status >= 500) && /prompt is too long|(?:maximum|max) (?:prompt|context) length|context (?:length|window) (?:exceeded|limit)|too many tokens|exceeds? (?:the )?(?:maximum|context|token|model)|input is too long|request too large|prompt length/i.test(m); };
+
 /** Gloopy's lines as it works (2026-11-12): one in the chat at most this often; the others in the status line only. */
 export const SAY_EVERY_MS = 20_000;
 
@@ -1823,7 +1843,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -2978,6 +2998,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let ctxNow = ctxOn ? piecesOf(context) : null;
   if (ctxOn) context = piecesText(ctxNow);
   let compactions = 0, summarizeAgainAt = 0;
+  // (Claude Code's auto-compact in this job, autoCompact below: its failures in a row, its refills in a row and the round of the
+  // last one, how many it made, and whether a request refused as too long was summarized and sent again.)
+  let compactFailures = 0, rapidRefills = 0, lastCompactRound = null, autoCompacted = 0, reactiveTried = false;
   // PICTURES (owner, 2026-11-05): sent to Grok with this message only; the saved
   // history keeps a note in their place (so it stays small).
   const pics = (Array.isArray(images) ? images : []).filter((x) => x && /^image\/(png|jpeg|webp|gif)$/.test(x.type) && typeof x.data === "string").slice(0, 4);
@@ -3289,6 +3312,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     if (mcpWaiting.length && promptBlocked === null) emit({ type: "note", text: "Not signed in yet: " + mcpWaiting.join(", ") + ". Sign in from Connectors to use " + (mcpWaiting.length === 1 ? "it" : "them") + " here." });
   }
+  // (The saved chat keeps the pictures of earlier messages too, in Coder's chats since 2026-11-14: the room for them is
+  // keepPics', this message's own staying.)
+  if (!offered && pics.length) keepPics(convo, { from: jobStart });
   // THE OWNER'S PICTURES, SAVED AS FILES CODER CAN OPEN AGAIN (the owner, 2026-11-08: "Fix those 3"; Claude Code 2.1.275:
   // pasted and attached images "are now saved where Claude can open them as files"): in the project's .coder-pictures
   // folder, never saved to the branch; Coder is told where, in the owner's message. Not in a job from GitHub.
@@ -3384,8 +3410,72 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
     const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
-    if (note) { convo.push(note); keepPics(convo); }
+    if (note) { convo.push(note); keepPics(convo, offered ? null : { from: jobStart }); }
   }
+  /**
+   * THE TOOLS A REQUEST CARRIES NOW, for a round in `modeRound` with `planRound` (the loop's request, below; and a summary's,
+   * which carries the conversation's own tools, as Claude Code's compact request does: summarizeChat). → { sending (lockTools'
+   * { tools, locks }), keptOnly, upfrontNew }: with tool search, the loaded tools whose source went away, and the chat's
+   * record of the upfront tools when it changed.
+   */
+  const roundTools = (modeRound, planRound) => {
+    // EXIT_PLAN_MODE IN EVERY MODE (fix round 3, 2026-11-14; Claude Code's ExitPlanMode is in its tool list whatever the mode,
+    // and refuses a call out of plan mode, NOT_IN_PLAN_MODE): with tool search off too, as with it on (tsPool). Not in a job
+    // from GitHub, under denyInsteadOfPrompting, or when a rule denies it; in the form the plan file asks for.
+    const exitListed = !github && denyInstead !== true && !toolDenied("exit_plan_mode");
+    // (Among Coder's own tools, before the connectors', as Claude Code lists its own before MCP tools.)
+    const withExit = (list, exitTool) => { const at = list.findIndex((t) => t && t.function && (mcpByName.has(t.function.name) || t.function.name === "connector_search")); return at < 0 ? [...list, exitTool] : [...list.slice(0, at), exitTool, ...list.slice(at)]; };
+    // (Tool search, coder-toolsearch.mjs: the request has the chat's tools less the deferred ones not loaded.)
+    let tsSent = null, keptOnly = null, upfrontNew = null;
+    // (A loaded tool whose source went away stays, with the definition it was loaded with: the chat's record. Not in a job from
+    // GitHub, which has no connectors.)
+    // (And an upfront tool that left stays where it was, with the definition it was sent with: the chat's record of the upfront
+    // tools its requests carried, written again on this request's answer when they changed. Round 5.)
+    // EVERY TOOL AS THE CHAT FIRST SENT IT (the cache fix of 2026-11-14; Claude Code's tool schema cache, coder-toolsearch.mjs
+    // lockTools): the tools this request carries, each with the definition its lock in the chat's record
+    // holds, whatever this job's settings now make of it, so a setting changed between two messages, the machine started
+    // again, a No, a Stop, the owner's `!` command or a summary leave the request's tools the same bytes. Those with no lock
+    // are locked on this request's answer. Coder's own chats only: not Gloopy's, nor a job from GitHub, which keeps its own.
+    const locking = !offered && !github, recNow = locking ? toolSearchRecord(convo) : null;
+    const locked = (list) => (locking ? lockTools(list, recNow.locks, { stock: STOCK_TOOLS, version: TOOLS_V }) : { tools: list, locks: null });
+    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); keptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(locked(upfrontTools(pool, tsDeferred(pool), was, tsCatalog)).tools, tsCatalog); if (!sameTools(up, was)) upfrontNew = up; } }
+    const sending = locked(offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools);
+    return { sending, keptOnly, upfrontNew };
+  };
+  /** The system message of every request of the chat: Coder's instructions, and a job from GitHub's own note (its context is in the conversation: ctxOn). */
+  const systemText = () => system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "");
+  // (The tools of this job's last request to Grok: a summary's request carries them, so its prefix is that request's.)
+  let lastSentTools = null;
+  /**
+   * A SUMMARY OF `part` (the whole conversation), AS CLAUDE CODE ASKS FOR ONE (coder-compact.mjs compactPrompt; the
+   * coordinator's follow-up, 2026-11-14): the request is the conversation itself, the system message and the tools of the chat's
+   * requests (the last one's in this job, else as the next would carry them), with Claude Code's compact prompt last, `custom`
+   * its Additional Instructions; so Grok's cache serves all of it but the prompt. Refused as too long: its oldest rounds left
+   * out and sent again, up to 3 times (`headCut`); after that, `tooLong`. Failed otherwise, or a reply with no words: Coder's own
+   * plain-text summary request instead (`asks` its focus), as Claude Code sends its own uncached one. → { text, headCut, tooLong }.
+   */
+  const summarizeChat = async (part, custom, asks) => {
+    let tools0 = lastSentTools;
+    if (!tools0) { const m = modeNow(); tools0 = roundTools(m, m === "plan" || toldMode === "plan" ? await planNow() : null).sending.tools; }
+    const prompt = compactPrompt(custom);
+    let msgs = part, headCut = false, tries = 0;
+    while (true) {
+      let r = null, err = null;
+      try { r = await deps.send({ model, ...(effort ? { effort } : {}), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(msgs), { role: "user", content: prompt }], tools: tools0, tool_choice: "auto" }); } catch (e) { err = e; }
+      if (r && r.usage) usage.push(r.usage);
+      const text = r ? summaryText(r.message && r.message.content) : "";
+      if (text) return { text, headCut };
+      if (err && tooLongError(err)) {
+        const cut = tries < COMPACT_PTL_RETRIES ? dropOldestRounds(msgs, tokenGap(err)) : null;
+        if (!cut) return { text: "", headCut, tooLong: true };
+        msgs = cut; headCut = true; tries++;
+        continue;
+      }
+      break;
+    }
+    const req = summaryRequest(msgs, asks);
+    try { const r = await deps.send({ model, ...req, webSearch: false }); if (r && r.usage) usage.push(r.usage); const text = String((r && r.message && r.message.content) || "").trim(); return { text, headCut: headCut || req.headCut }; } catch { return { text: "", headCut }; }
+  };
   // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
   // files the summarized part worked on (the summary names them: `reread`) are read again, once, like Claude Code
   // ("Right after compaction, Claude Code re-reads up to five of the files"): up to five, the most recently changed first.
@@ -3539,15 +3629,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // The saved history keeps a note in place of each picture.
   const noPics = (m) => (m.images ? { role: m.role, content: m.content + "\n[" + m.images.length + " picture" + (m.images.length > 1 ? "s" : "") + " attached]", ...(m.appNote === true ? { appNote: true } : {}) } : m);
   /** A message as a job's size counts it: no pictures, and not the record of its request's tools (`toolLocks`, never sent). */
-  const unsent = (m) => { const x = noPics(m); if (!x || !x.toolLocks) return x; const { toolLocks: _l, toolLocksV: _v, ...rest } = x; return rest; };
+  const unsent = (m) => { const x = noPics(m); if (!x || (!x.toolLocks && x.tokens === undefined)) return x; const { toolLocks: _l, toolLocksV: _v, tokens: _t, ...rest } = x; return rest; };
   // THE CONVERSATION SO FAR, for the machine to save as it goes (like Claude Code, 2026-11-06).
-  const saved = (m) => forSaving(noPics(m));
-  try { if (typeof deps.watch === "function") deps.watch(() => convo.map(saved)); } catch { /* never costs the run */ }
+  // THE SAVED CHAT IS THE CONVERSATION AS SENT (the owner, 2026-11-14: "yes copy claude code"; Claude Code's transcript keeps
+  // every tool result and image block whole): in Coder's chats each answer, note and picture is saved as Grok was sent it, so
+  // the next message's request starts with this one's, byte for byte; what keeps the chat small enough is Claude Code's
+  // auto-compact (autoCompact, below), and keepPics for the pictures. The copy saved as the job goes is the same with its
+  // pictures left out (the Worker keeps it only in case the machine stops mid-job). Gloopy's saved chat is cut as before.
+  const saved = (m) => (offered ? forSaving(noPics(m)) : m);
+  const savedLive = (m) => (offered ? forSaving(noPics(m)) : noPics(m));
+  // (`whole`: how many times Claude Code's auto-compact summarized the conversation in this job; from the first, the copy is the
+  // whole conversation, the summary first, not this job's part after the saved chat.)
+  try { if (typeof deps.watch === "function") deps.watch(() => convo.map(savedLive), { whole: () => autoCompacted }); } catch { /* never costs the run */ }
   // (The mode the job ended in, and the rules "don't ask again" added: Coder's Worker keeps them with the chat and the repo.)
   // (`jobOver`: the job has given its result, so a call a group started waiting for its verdict does not start after it:
   // coder-parallel.mjs.)
   let jobOver = false;
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  // (After Claude Code's auto-compact, the Worker drops the Rewind marks of what was summarized: every one before this job's
+  // end, as the whole conversation was.)
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -3597,18 +3697,35 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const focus = String(compact.focus || "").replace(/\s+/g, " ").trim().slice(0, 300);
     emit({ type: "user", text: "/compact" + (focus ? " " + focus : ""), compact: true });
     const history = convo.slice();
+    // (DISABLE_COMPACT turns the owner's /compact off too, as Claude Code's: "both automatic compaction and the manual /compact
+    // command". Coder's chats. 2026-11-14.)
+    if (!offered && compactSettings(compactVars).off) { emit({ type: "note", text: "/compact is turned off: this chat's environment sets DISABLE_COMPACT." }); return end("done", { compact: { done: false } }); }
     if (!history.length) { emit({ type: "note", text: "There is nothing to summarize yet." }); return end("done", { compact: { done: false } }); }
-    const preC = hookList.length ? await runHooks("PreCompact", "manual", { trigger: "manual", custom_instructions: focus }) : null;
+    // (custom_instructions: what the owner passed, or null when nothing, as Claude Code's; each hook's output cut at 10,000
+    // characters for the summary, as its own is.)
+    const preC = hookList.length ? await runHooks("PreCompact", "manual", { trigger: "manual", custom_instructions: offered ? focus : focus || null }) : null;
     if (preC && (preC.decision === "block" || preC.stop)) {
       emit({ type: "note", text: scrub("A PreCompact hook kept the conversation from being summarized: " + String(preC.reason || (preC.stop && preC.stop.reason) || "")).slice(0, 600), hook: "PreCompact" });
       return end("done", { compact: { done: false } });
     }
-    const asks = [focus, preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : ""].filter(Boolean).join(" ");
-    let sumText = "";
-    try { const r = await deps.send({ model, ...summaryRequest(history, asks), webSearch: false }); sumText = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { sumText = ""; }
-    if (!sumText) { emit({ type: "error", text: "The summary could not be made. Try again in a minute." }); return end("done", { compact: { done: false } }); }
-    convo.splice(0, convo.length, summaryMessage(scrub(sumText), "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(history), history));
-    emit({ type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." });
+    // (Gloopy's as before.)
+    const asks = [focus, preC && preC.context.length ? (offered ? scrub(preC.context.join("\n")).slice(0, 4000) : preC.context.map((x) => { const t = scrub(String(x)); return t.length > PRECOMPACT_OUTPUT_MAX ? t.slice(0, PRECOMPACT_OUTPUT_MAX) + "\n[\u2026]" : t; }).join("\n")) : ""].filter(Boolean).join(" ");
+    let sumText = "", sumCut = false, sumLong = false;
+    // (Coder's chats: Claude Code's compact request, the conversation itself, the owner's words and the hooks' output its
+    // Additional Instructions: summarizeChat. Gloopy's as before.)
+    if (offered) {
+      const sumReq = summaryRequest(history, asks, { gloopy: true });
+      try { const r = await deps.send({ model, ...sumReq, webSearch: false }); sumText = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { sumText = ""; }
+      sumCut = sumReq.headCut;
+    } else {
+      const custom = [focus, preC && preC.context.length ? preC.context.map((x) => { const t = scrub(String(x)); return t.length > PRECOMPACT_OUTPUT_MAX ? t.slice(0, PRECOMPACT_OUTPUT_MAX) + "\n[\u2026]" : t; }).join("\n") : ""].filter(Boolean).join("\n\n");
+      const made = await summarizeChat(history, custom, asks);
+      sumText = made.text; sumCut = made.headCut; sumLong = !!made.tooLong;
+    }
+    if (!sumText) { emit({ type: "error", text: sumLong ? COMPACT_TOO_LONG : "The summary could not be made. Try again in a minute." }); return end("done", { compact: { done: false } }); }
+    convo.splice(0, convo.length, summaryMessage(scrub(sumText), "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(history), history, { headCut: sumCut, gloopy: !!offered }));
+    // (Claude Code's compact boundary, "Conversation compacted", in Coder's chats; Gloopy's line as before.)
+    emit(offered ? { type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." } : { type: "note", text: COMPACTED_SHOWN, compacted: { trigger: "manual" } });
     if (hookList.length) {
       await runHooks("PostCompact", "manual", { trigger: "manual", compact_summary: scrub(sumText).slice(0, 20000) });
       const ss = await runHooks("SessionStart", "compact", { source: "compact" });
@@ -3706,6 +3823,102 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (closing.why === "stop") { emit({ type: "stopped" }); return end("stopped"); }
     return end("done", { summary: lastSaid || closing.summary });
   };
+  // CLAUDE CODE'S AUTO-COMPACT IN CODER'S CHATS (the owner, 2026-11-14: "yes copy claude code"; coder-compact.mjs). Before every
+  // request to Grok, the first of a message too: the conversation's tokens (the last answer's real use, `tokens`, and an
+  // estimate of what came after, or of all of it with the system message and the tools) against Claude Code's thresholds for
+  // Grok's window (compactLimits: 441,600 of Grok 4.7's 500,000, at the 92% Coder's machine sets as Claude Code's cloud sessions
+  // do: compactVars, CLOUD_AUTOCOMPACT_PCT; 467,000 without it). Over the threshold, the
+  // whole conversation is summarized (Coder's own summary request), told in Claude Code's words (summaryMessage, with its line
+  // to carry on), shown as "Conversation compacted"; then what Claude Code puts back after one: the files worked on read again,
+  // the background commands still running, the plan file, the context (instructions and memory read again), the
+  // SessionStart hooks' context; PreCompact hooks before it ("auto", custom_instructions null: one that blocks keeps it from
+  // happening this time) and PostCompact hooks after. With auto-compact off, a conversation at its limit gets Claude Code's
+  // "Context limit reached" and the job ends. Its breakers: 3 failures in a row stop it for the job; refilled to the
+  // threshold within 3 rounds of the last summary, 3 times in a row, the job ends with its "Autocompact is thrashing" error.
+  // Not Gloopy's (its job keeps its own summary of its older steps, below).
+  const cset = offered ? null : compactSettings(compactVars);
+  if (cset && cset.warning && (!(Array.isArray(messages) && messages.length) || resumed === true)) emit({ type: "note", text: cset.warning });
+  const ctxWindow = modelWindow(model);
+  const overheadTokens = Math.ceil((String(system).length + JSON.stringify(chatTools).length) / CHARS_PER_TOKEN);
+  /**
+   * THIS ROUND'S LIMITS (coder-compact.mjs compactLimits). `deps.compactAt`, a test's or the operator's own: 0, no automatic
+   * summary (nor a limit); a number, the conversation's size in characters (as before 2026-11-14) at which to make one.
+   */
+  const limitsNow = () => {
+    if (!cset) return null;
+    const L = compactLimits({ contextWindow: ctxWindow, window: cset.window, pct: cset.pct, enabled: !cset.autoOff });
+    if (deps.compactAt === 0) return { ...L, enabled: false, warn: Infinity, blocked: Infinity, chars: false };
+    const room = Number(deps.compactAt);
+    return Number.isFinite(room) && room > 0 ? { ...L, threshold: room, warn: Infinity, blocked: Infinity, chars: true } : { ...L, chars: false };
+  };
+  /** What an allow_large read may give (Claude Code: "sized against the room left in the session's context window"), in characters. */
+  const readRoom = () => {
+    const L = limitsNow();
+    if (!L) return Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000);
+    const top = L.enabled ? L.threshold : Number.isFinite(L.blocked) ? L.blocked : L.effective;
+    return L.chars ? Math.max(0, top - sizeFor(L) - 50_000) : Math.max(0, (top - sizeFor(L)) * CHARS_PER_TOKEN - 50_000);
+  };
+  /** The conversation's size as this round's limits measure it: tokens, or characters (`deps.compactAt`). */
+  const sizeFor = (L) => (L.chars ? JSON.stringify(convo.map(unsent)).length : conversationTokens(convo, { overhead: overheadTokens }));
+  /**
+   * ONE AUTO-COMPACTION (`reactive`: Grok refused the request as too long, Claude Code's reactive compaction: made whatever the
+   * estimate says). → "none", "compacted", "skipped" (a PreCompact hook blocked it), "failed", "blocked" (the job ends: auto-
+   * compact off at the limit, or a hook blocked a reactive one), or "thrashing" (the job ends).
+   */
+  const autoCompact = async ({ reactive = false } = {}) => {
+    const L = limitsNow();
+    if (!L) return "none";
+    const before = sizeFor(L);
+    const level = L.chars ? (before > L.threshold ? "compact" : "ok") : compactLevel(before, L);
+    if (!reactive && level !== "compact" && level !== "blocked") return "none";
+    if (cset.off || !L.enabled) {
+      if (reactive || level === "blocked") { emit({ type: "error", text: contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) }); return "blocked"; }
+      return "none";
+    }
+    if (compactFailures >= COMPACT_FAILURES_MAX || autoCompacted >= COMPACT_JOB_MAX) return "none";
+    const refill = lastCompactRound !== null && rounds - lastCompactRound < REFILL_TURNS ? rapidRefills + 1 : 0;
+    if (refill >= REFILL_TIMES) { emit({ type: "error", text: THRASHING }); return "thrashing"; }
+    const preC = hookList.length ? await runHooks("PreCompact", "auto", { trigger: "auto", custom_instructions: null }) : null;
+    if (preC && preC.decision === "block") {
+      emit({ type: "note", text: scrub("A PreCompact hook kept the conversation from being summarized: " + (preC.reason || "")).slice(0, 600), hook: "PreCompact" });
+      return reactive ? "blocked" : "skipped";
+    }
+    // (Each hook's output, its instructions for the summary, cut at 10,000 characters, as Claude Code cuts it.)
+    const asks = preC && preC.context.length ? preC.context.map((x) => { const t = scrub(String(x)); return t.length > PRECOMPACT_OUTPUT_MAX ? t.slice(0, PRECOMPACT_OUTPUT_MAX) + "\n[\u2026]" : t; }).join("\n") : "";
+    const part = convo.slice();
+    // (Claude Code's compact request, the conversation itself: summarizeChat.)
+    const made = await summarizeChat(part, asks, asks);
+    const text = made.text;
+    if (!text) { compactFailures++; if (made.tooLong && reactive) emit({ type: "error", text: COMPACT_TOO_LONG }); return "failed"; }
+    compactFailures = 0; rapidRefills = refill; lastCompactRound = rounds; autoCompacted++; compactions++;
+    // (The files the whole conversation worked on, this job's last: those read again right after it.)
+    const files = new Map(filesTouched(part).map((p, i) => [normPath(p), i + 1]));
+    for (const [p, n] of touched) { files.delete(p); files.set(p, 100000 + n); }
+    convo.splice(0, convo.length, summaryMessage(scrub(text), "the conversation so far", [], part, { auto: true, headCut: made.headCut }));
+    jobStart = 0;
+    if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
+    emit({ type: "note", text: COMPACTED_SHOWN, compacted: { trigger: "auto", preTokens: L.chars ? Math.ceil(before / CHARS_PER_TOKEN) : before } });
+    const again = await rereadFiles(deps, [], files, emit, { touch, most: Math.floor((L.chars ? L.threshold : L.threshold * CHARS_PER_TOKEN) * REREAD_SHARE) });
+    if (again) convo.push({ role: "user", appNote: true, content: again });
+    const still = runningNote([...jobs.entries()].filter(([, j]) => !j.done), now());
+    if (still) convo.push({ role: "user", appNote: true, content: still });
+    { const { planRef: _owed, ...told0 } = convo[0]; convo[0] = told0; const pr = planBox ? await planRefNote() : ""; if (pr) convo.push({ role: "user", appNote: true, content: pr }); }
+    // (The context, all of it again: its note went with the summary. Read again from disk when the machine can, as Claude Code
+    // re-injects CLAUDE.md and its memory "from disk" after compaction.)
+    if (ctxOn) {
+      if (typeof deps.freshContext === "function") {
+        try { const c = await deps.freshContext(); if (Array.isArray(c) || (typeof c === "string" && c.trim())) { ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => p.key === "s:CONNECTOR INSTRUCTIONS")]; context = piecesText(ctxNow); } } catch { /* the one it had stays */ }
+      }
+      convo.push(...contextNotes(convo, ctxNow, { reason: "compaction" }));
+      await markShownStart(deps, context);
+    }
+    if (hookList.length) {
+      await runHooks("PostCompact", "auto", { trigger: "auto", compact_summary: scrub(text).slice(0, 20000) });
+      const ss = await runHooks("SessionStart", "compact", { source: "compact" });
+      if (ss && ss.context.length) convo.push({ role: "user", appNote: true, content: hookNote("SessionStart", ss.context) });
+    }
+    return "compacted";
+  };
   try {
   while (true) {
     // (A round taken up again after its job paused: no new answer from Grok; its calls go on from the one that waited.)
@@ -3721,9 +3934,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (rounds >= maxRounds) { emit({ type: "error", text: who + " reached its limit of " + maxRounds + " steps." }); return end("rounds"); }
     if (now() - started > maxMs) { emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
     rounds++;
+    // CLAUDE CODE'S AUTO-COMPACT, before this request (Coder's chats: autoCompact, above). At its limit with auto-compact off, or
+    // thrashing, the job ends there with Claude Code's line.
+    if (!offered) {
+      const ac = await autoCompact();
+      if (ac === "blocked" || ac === "thrashing") return end("done", { summary: lastSaid || (ac === "blocked" ? contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) : THRASHING) });
+    }
     // A LONG JOB IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact "when the context
-    // window approaches capacity"): its older steps become one summary, its newest rounds stay whole.
-    const room = deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT;
+    // window approaches capacity"): its older steps become one summary, its newest rounds stay whole. (Gloopy's jobs since
+    // 2026-11-14: Coder's chats have Claude Code's own, above.)
+    const room = offered ? (deps.compactAt === 0 ? 0 : Number(deps.compactAt) || COMPACT_AT) : 0;
     // Pictures do not count (they are sent beside the text, and a read keeps at most PICS_KEEP of them).
     // (Nor the chat's record of the tools its requests carried, `toolLocks`, which Grok is never sent: the cache fix.)
     const textNow = convo.map(unsent);
@@ -3738,9 +3958,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (preC && preC.decision === "block") { emit({ type: "note", text: scrub("A PreCompact hook kept the steps from being summarized: " + (preC.reason || "")).slice(0, 600), hook: "PreCompact" }); summarizeAgainAt = sizeNow + Math.floor(room * 0.1); }
       if (cutAt > 0 && !(preC && preC.decision === "block")) {
         let text = "";
-        try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt), preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : ""), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
+        try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt), preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : "", { gloopy: true }), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
         if (text) {
-          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room", [], convo.slice(jobStart + 1, cutAt)));
+          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room", [], convo.slice(jobStart + 1, cutAt), { gloopy: true }));
           compactions++;
           if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
           emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for " + who + ", to make room (like Claude Code's auto-compact). The chat still shows them all." });
@@ -3891,33 +4111,25 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!offered && chatTools.some((t) => t && t.function && t.function.name === "task_update") && taskReminderDue(convo)) convo.push({ role: "user", appNote: true, content: taskReminderNote((await tasksNow()).tasks) });
     // (And its todo_reminder for todo_write, with CLAUDE_CODE_ENABLE_TASKS=0.)
     if (!offered && chatTools.some((t) => t && t.function && t.function.name === "todo_write") && todoReminderDue(convo)) convo.push({ role: "user", appNote: true, content: todoReminderNote(await todosNow()) });
-    // EXIT_PLAN_MODE IN EVERY MODE (fix round 3, 2026-11-14; Claude Code's ExitPlanMode is in its tool list whatever the mode,
-    // and refuses a call out of plan mode, NOT_IN_PLAN_MODE): with tool search off too, as with it on (tsPool). Not in a job
-    // from GitHub, under denyInsteadOfPrompting, or when a rule denies it; in the form the plan file asks for.
-    const exitListed = !github && denyInstead !== true && !toolDenied("exit_plan_mode");
-    // (Among Coder's own tools, before the connectors', as Claude Code lists its own before MCP tools.)
-    const withExit = (list, exitTool) => { const at = list.findIndex((t) => t && t.function && (mcpByName.has(t.function.name) || t.function.name === "connector_search")); return at < 0 ? [...list, exitTool] : [...list.slice(0, at), exitTool, ...list.slice(at)]; };
-    // (Tool search, coder-toolsearch.mjs: the request has the chat's tools less the deferred ones not loaded.)
-    let tsSent = null;
-    // (A loaded tool whose source went away stays, with the definition it was loaded with: the chat's record. Not in a job from
-    // GitHub, which has no connectors.)
-    // (And an upfront tool that left stays where it was, with the definition it was sent with: the chat's record of the upfront
-    // tools its requests carried, written again on this request's answer when they changed. Round 5.)
+    // (The request's tools: roundTools, above.)
     tsUpfrontNew = null; tsLocksNew = null;
-    // EVERY TOOL AS THE CHAT FIRST SENT IT (the cache fix of 2026-11-14; Claude Code's tool schema cache, coder-toolsearch.mjs
-    // lockTools): the tools this request carries, each with the definition its lock in the chat's record
-    // holds, whatever this job's settings now make of it, so a setting changed between two messages, the machine started
-    // again, a No, a Stop, the owner's `!` command or a summary leave the request's tools the same bytes. Those with no lock
-    // are locked on this request's answer. Coder's own chats only: not Gloopy's, nor a job from GitHub, which keeps its own.
-    const locking = !offered && !github, recNow = locking ? toolSearchRecord(convo) : null;
-    const locked = (list) => (locking ? lockTools(list, recNow.locks, { stock: STOCK_TOOLS, version: TOOLS_V }) : { tools: list, locks: null });
-    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); tsKeptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(locked(upfrontTools(pool, tsDeferred(pool), was, tsCatalog)).tools, tsCatalog); if (!sameTools(up, was)) tsUpfrontNew = up; } }
-    const sending = locked(offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools);
+    const rt = roundTools(modeRound, planRound);
+    if (rt.keptOnly) tsKeptOnly = rt.keptOnly;
+    if (rt.upfrontNew) tsUpfrontNew = rt.upfrontNew;
+    const sending = rt.sending;
     tsLocksNew = sending.locks;
+    lastSentTools = sending.tools;
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
-    // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions.)
-    try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : "") + (!ctxOn && context ? "\n\n" + context : "") }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }
+    // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions. systemText.)
+    try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }
     catch (e) {
+      // CLAUDE CODE'S REACTIVE COMPACTION: a request Grok refused as too long is summarized and sent again, once.
+      if (!offered && !reactiveTried && tooLongError(e)) {
+        reactiveTried = true;
+        const ac = await autoCompact({ reactive: true });
+        if (ac === "compacted") { rounds--; continue; }
+        if (ac === "blocked" || ac === "thrashing") return end("done", { summary: lastSaid || (ac === "blocked" ? contextLimitShown({ compactOff: cset.off, autoOff: cset.autoOff }) : THRASHING) });
+      }
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
       // matched on the error's kind (rate_limit, server_error, …).
@@ -3925,6 +4137,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       return end("send", { why: String((e && e.message) || e).slice(0, 200) });
     }
     if (answer && answer !== STOP_SEEN && answer.usage) usage.push(answer.usage);
+    reactiveTried = false;
     answeredAt = now();
     // (The owner's Stop while Grok answered, sendOrStop: its answer is not kept, cut by the Stop or come after the Stop's time,
     // as one Claude Code's Stop would have cut; then its mark of a model's answer cut short. Round 6.)
@@ -3942,7 +4155,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const said = back ? "" : typeof msg.content === "string" ? msg.content.trim() : "";
     const calls = readCalls(msg);
     calls0 = calls;
-    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}) });
+    // (And, in Coder's chats, what that request really used, as Claude Code keeps each answer's usage: what it read and the
+    // answer it wrote, its reasoning left out, as Grok is not sent that again. Auto-compact counts from it: autoCompact.)
+    const used = !offered && !back && answer && answer.usage && Number(answer.usage.in) > 0 ? Number(answer.usage.in) + Math.max(0, (Number(answer.usage.out) || 0) - (Number(answer.usage.reasoning) || 0)) : 0;
+    if (!back) convo.push({ role: "assistant", content: msg.content == null ? "" : msg.content, ...(Array.isArray(msg.tool_calls) && msg.tool_calls.length ? { tool_calls: msg.tool_calls } : {}), ...(tsUpfrontNew ? { toolsDeclared: tsUpfrontNew } : {}), ...(tsLocksNew ? { toolLocks: tsLocksNew, toolLocksV: TOOLS_V } : {}), ...(used > 0 ? { tokens: used } : {}) });
     // AN ANSWER IN WORDS WITH NO COMMAND finishes the turn: it is the summary
     // (or the answer to a question, or a greeting).
     saidAll += "\n" + said;
@@ -6041,7 +6257,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (c.name === "edit") { if (typeof args.old_string !== "string" && typeof args.old_str === "string") args.old_string = args.old_str; if (typeof args.new_string !== "string" && typeof args.new_str === "string") args.new_string = args.new_str; }
         // READ'S ROOM (like Claude Code's allow_large, "sized against the room left in the session's context
         // window"): only Coder says how much an allow_large read may give: what is left before this job is summarized.
-        if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = Math.max(0, (Number(deps.compactAt) || COMPACT_AT) - JSON.stringify(convo.map(noPics)).length - 50_000); }
+        // (In Coder's chats, the room before Claude Code's auto-compact threshold, its tokens at 4 characters each: limitsNow.)
+        if (c.name === "read") { delete args.max_chars; if (args.allow_large === true) args.max_chars = readRoom(); }
         // THE ACCOUNT'S EMAIL AS A CLIENT'S IDENTITY in what a write or an edit puts in a file, or the address in a page's URL
         // (Claude Code 2.1.325's privacy check, coder-privacy.mjs: Write's content, Edit's new_string, WebFetch's url): refused
         // below, after the owner's deny rules, with no card first.
@@ -6727,7 +6944,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // Gloopy's browser steps' screenshots are said as such (2026-11-09); a read's pictures as before.
       const shots = roundPics.every((p) => p.path === "the browser");
       convo.push({ role: "user", appNote: true, content: shots ? "(Note from Gloopy's app, not the owner: the screenshot" + (n === 1 ? "" : "s") + " of the page your browser step" + (n === 1 ? "" : "s") + " showed, attached here in order.)" : "(Note from Coder's app, not the owner: the picture" + (n === 1 ? "" : "s") + " your read opened (" + roundPics.map((p) => p.path).join(", ") + "), attached here in order.)", images: roundPics.flatMap((p) => p.urls), readPics: true });
-      keepPics(convo);
+      keepPics(convo, offered ? null : { from: jobStart });
     }
     // (What this job's start had for Coder, held while the round taken up again finished: now, after its results.)
     if (held) { convo.push(...held); held = null; }

@@ -42,7 +42,8 @@ test("CD137 the Worker takes a job's AI call only with its pass, for its chat's 
   assert.equal(ok.seen[0].url, "https://api.x.ai/v1/responses");
   assert.equal(ok.seen[0].init.headers.authorization, "Bearer " + XAI);
   // (With the chat's prompt cache key added, 2026-11-10: CD379.)
-  assert.deepEqual(JSON.parse(ok.seen[0].init.body), { model: "grok-4.7", input: [], prompt_cache_key: await G.cacheKeyFor(UID + "/" + ID) }, "the call itself, as sent");
+  // (Passed on as its bytes since 2026-11-14, the chat's cache key put first: CD137b.)
+  assert.deepEqual(JSON.parse(new TextDecoder().decode(ok.seen[0].init.body)), { model: "grok-4.7", input: [], prompt_cache_key: await G.cacheKeyFor(UID + "/" + ID) }, "the call itself, as sent");
   assert.equal((await ok.r.text()).includes(XAI), false);
   // Refused, and nothing reaches xAI.
   const refused = [

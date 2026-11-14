@@ -247,7 +247,8 @@ test("CD541 `@coder` on a pull request whose chat was deleted opens a new chat o
   assert.equal(await R.dropBranchRecords(b, "u1", "shop-9", { repo: "ana/shop", branch: "feature-x" }), 2);
   assert.deepEqual([...b.m.keys()], [M.branchKey("ana/shop", "feature-y")]);
   assert.equal(await R.dropBranchRecords(b, "u1", "shop-10", { repo: "ana/shop", branch: "coder/shop-10" }), 0, "a record is dropped only by the chat it names, on that chat's branches");
-  assert.match(read("src/coder-routes.mjs"), /await dropLive\(bucket, uid, id\)\.catch\(\(\) => \{\}\);\n(?:\s+\/\/.*\n)+\s+await dropBranchRecords\(bucket, uid, id, meta\)\.catch\(\(\) => \{\}\);/);
+  // (Its pictures, kept apart since 2026-11-14, go between: test/worker-memory.test.mjs.)
+  assert.match(read("src/coder-routes.mjs"), /await dropLive\(bucket, uid, id\)\.catch\(\(\) => \{\}\);\n(?:\s+\/\/.*\n)+\s+await dropPics\(bucket, uid, id\)\.catch\(\(\) => \{\}\);\n(?:\s+\/\/.*\n)+\s+await dropBranchRecords\(bucket, uid, id, meta\)\.catch\(\(\) => \{\}\);/);
   // Auto-fix's news for a deleted chat's branch drops its record too.
   assert.match(read("src/coder-mentions.mjs"), /if \(look\.status === 404\) await bucket\.delete\(branchKey\(f\.repo, f\.branch\)\)\.catch\(\(\) => \{\}\);\n\s+if \(look\.status !== 200 \|\| !look\.data\.project\) return \{ ok: false, why: "chat gone" \};/);
 });

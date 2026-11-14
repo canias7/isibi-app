@@ -1,6 +1,10 @@
 // FOUND BY THE OWNER'S "TEST IT ALL YOURSELF, ONE BY ONE" RUN (2026-11-08), each fixed and kept fixed here.
 import { test } from "node:test";
 import assert from "node:assert/strict";
+
+// (A summary's request: Claude Code's compact request, the conversation with its prompt last, since 2026-11-14; or Coder's own, with no tools.)
+const { isCompactRequest: isCompactReq } = await import("../container/coder-compact.mjs");
+const isSumReq = (q) => isCompactReq(q) || !q.tools || !q.tools.length;
 import { readFileSync } from "node:fs";
 import { spawnSync } from "node:child_process";
 
@@ -161,7 +165,10 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   const steps = [say("", [call("read", { path: "big.txt", max_chars: 999999 }, "r1"), call("read", { path: "big.txt", allow_large: true }, "r2")]), say("Done.")];
   await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: () => {}, exec: async ({ command }) => { const b = command.split(" ").pop(); if (!b.startsWith("@")) sentArgs.push(JSON.parse(Buffer.from(b, "base64").toString()).args); return { code: 0, output: "ok" }; } }, { text: "read big.txt" });
   assert.equal(sentArgs[0].max_chars, undefined, "Grok cannot size its own read");
-  assert.ok(sentArgs[1].max_chars > 0 && sentArgs[1].max_chars < COMPACT_AT, "Coder sizes an allow_large read to the room left: " + sentArgs[1].max_chars);
+  // (The room before Claude Code's auto-compact threshold since 2026-11-14: 467,000 tokens at 4 characters each, less what the
+  // conversation has.)
+  const KC = await import("../container/coder-compact.mjs");
+  assert.ok(COMPACT_AT > 0 && sentArgs[1].max_chars > 0 && sentArgs[1].max_chars < KC.compactLimits({ contextWindow: 500_000 }).threshold * KC.CHARS_PER_TOKEN, "Coder sizes an allow_large read to the room left: " + sentArgs[1].max_chars);
   // A notebook whose cells come to over 256 KB: an error, with how to read some of its cells.
   await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [{ cell_type: "code", source: "print(1)", outputs: [{ output_type: "stream", name: "stdout", text: "z".repeat(300 * 1024) }] }], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
   assert.match(read({ path: "nb.ipynb" }), /^FAILED [\s\S]*nb\.ipynb's cells come to 30\d KB, more than one read takes: read some of its cells with bash, e.g\. jq '\.cells\[0:10\]' nb\.ipynb/);
@@ -239,7 +246,7 @@ test("CD208 Claude Code's other reading rules (its memory, tools and errors docs
   // A long job summarized: the service is told, so the instructions it had shown load again when needed.
   let compacted = 0, k = 0;
   const big = "z".repeat(900);
-  await runCoder({ compactAt: 4000, compacted: () => { compacted++; }, send: async (q) => { if (!q.tools || !q.tools.length) return say("SUMMARY of the earlier steps"); k++; return k <= 14 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done."); }, emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "go" });
+  await runCoder({ compactAt: 4000, compacted: () => { compacted++; }, send: async (q) => { if (isSumReq(q)) return say("SUMMARY of the earlier steps"); k++; return k <= 14 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done."); }, emit: () => {}, exec: async () => ({ code: 0, output: big }) }, { text: "go" });
   assert.ok(compacted >= 1, "the service heard of the summary " + compacted + " times");
   const { repoInstructions, laterNotes, NOTE_ONE_MAX } = await import("../container/server.mjs");
   assert.equal(NOTE_ONE_MAX, 40000);
@@ -332,9 +339,11 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   assert.deepEqual(steps, ["src/app.js (@-mentioned)", "shot.png (@-mentioned)", "src/ (@-mentioned)", "big.log (@-mentioned)", "mid.txt (@-mentioned)"]);
   assert.equal(events[0].type, "user");
   assert.equal(events[0].text, ask);
-  // The saved history keeps the mark, and a note in place of the picture.
+  // The saved history keeps the mark, and the note as Grok was sent it, its picture too (since 2026-11-14, the owner: "yes copy
+  // claude code": Claude Code's transcript keeps its image blocks; keepPics bounds them).
   assert.equal(out.messages[1].appNote, true);
-  assert.match(out.messages[1].content, /\n\[1 picture attached\]$/);
+  assert.equal(out.messages[1].content, note.content);
+  assert.deepEqual(out.messages[1].images, note.images);
   // A long chat summarized between jobs: the note is not counted as one of the owner's messages, and is called the app's.
   const hist = [{ role: "user", content: "ask 1" }, { role: "assistant", content: "a" }, out.messages[1], { role: "assistant", content: "b" }, { role: "user", content: "ask 2" }, { role: "assistant", content: "c" }, { role: "user", content: "ask 3" }, { role: "assistant", content: "d" }];
   assert.equal(isAppNote(hist[2]), true);
@@ -372,7 +381,7 @@ test("CD210 after a long job is summarized, the files it was working on are read
     // come to under 40% of this room, as they would in a real job's 450,000).
     get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     send: async (q) => {
-      if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY of the earlier steps"); }
+      if (isSumReq(q)) { summarized = true; return say("SUMMARY of the earlier steps"); }
       seen.push(q); k++;
       return k <= plan.length ? say("", [plan[k - 1]]) : say("Done.");
     },
@@ -384,18 +393,19 @@ test("CD210 after a long job is summarized, the files it was working on are read
   await runCoder(deps, { text: "work on the files", rules: { allow: [], ask: [], deny: ["TaskUpdate"] } });
   assert.equal(summarized, true);
   const last = seen.at(-1).messages;
-  const sum = last[2];
-  assert.ok(isSummary(sum), "the summary stands after the owner's message");
-  const again = sum.content.slice(sum.content.indexOf("\n\n(Like Claude Code after a summary"));
-  assert.match(again, /^\n\n\(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first\.\)\n\n/);
-  // d.js (written in the job: the newest), then a.js, big.js, b.js by their times; c, e and f were read by the kept steps.
+  // (Since 2026-11-14 the whole conversation is summarized, as Claude Code's auto-compact does: the summary first, then what it
+  // puts back after one, the files read again among it, in a note of their own.)
+  assert.ok(isSummary(last[1]), "the summary first");
+  const again = (last.find((m) => typeof m.content === "string" && m.content.startsWith("(Like Claude Code after a summary")) || {}).content || "";
+  assert.match(again, /^\(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first\.\)\n\n/);
+  // d.js (written in the job: the newest), then a.js, big.js, b.js by their times, and one more: at most five.
   const order = ["--- d.js ---\n     1\texport const d = 4;", "--- a.js ---\n     1\tconst a = 1;", "Referenced file big.js (over 20,000 characters, so not shown again here: read it again if you need it)", "--- b.js ---\n     1\tconst b = 2;"];
   let at = -1;
   for (const o of order) { const i = again.indexOf(o); assert.ok(i > at, "in order: " + o); at = i; }
-  for (const f of ["c.js", "e.js", "f.js"]) assert.ok(!again.includes(f), f + " is in the kept steps already");
+  assert.ok([...again.matchAll(/^--- (\S+) ---$/gm)].length + (again.includes("Referenced file big.js") ? 1 : 0) <= 5, "at most five");
   assert.ok(!again.includes("x".repeat(70)), "the big one is only named");
   const shown = events.filter((e) => e.type === "bash" && / \(again, after the summary\)$/.test(e.command)).map((e) => e.command);
-  assert.deepEqual(shown, ["d.js (again, after the summary)", "a.js (again, after the summary)", "big.js (again, after the summary)", "b.js (again, after the summary)"]);
+  assert.deepEqual(shown.slice(0, 4), ["d.js (again, after the summary)", "a.js (again, after the summary)", "big.js (again, after the summary)", "b.js (again, after the summary)"]);
   // At most five; pictures and files that are gone are not read again.
   const dir2 = await mkdtemp(join(tmpdir(), "coder-reread-"));
   const touched = new Map();
@@ -644,13 +654,13 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   assert.ok(note.includes("--- data.zip: not included (This tool cannot read binary files. The file appears to be a binary .zip file."));
 });
 
-test("CD217 the review (2026-11-08): a job that reads a lot never wipes the saved chat. While Coder works, a read reaches Grok whole; the chat saved between messages keeps each tool's answer and each app note to 12,000 characters (a summary to 40,000), and the chat's record keeps each step's output to 12,000; the size cap cuts only at the owner's messages, and one job over it is shortened, never dropped", async () => {
+test("CD217 the review (2026-11-08): a job that reads a lot never wipes the saved chat. While Coder works, a read reaches Grok whole; the chat saved between messages keeps each tool's answer whole in Coder's chats (since 2026-11-14, the owner: \"yes copy claude code\"), and in Gloopy's each tool's answer and each app note to 12,000 characters (a summary to 40,000); the chat's record keeps each step's output to 12,000; the size cap cuts only at the owner's messages, and one job over it is shortened, never dropped", async () => {
   const { runCoder, forSaving, SAVE_ONE_MAX, SAVE_SUMMARY_MAX } = await import("../container/coder-agent.mjs");
   const { summaryMessage } = await import("../container/coder-compact.mjs");
-  const { capHistory, HISTORY_MAX } = await import("../src/coder-routes.mjs");
+  const { capHistory, HISTORY_MAX, CODER_HISTORY_MAX, historyMaxFor } = await import("../src/coder-routes.mjs");
   assert.equal(SAVE_ONE_MAX, 12000);
   assert.equal(SAVE_SUMMARY_MAX, 40000);
-  // What is kept short, and what is not.
+  // What is kept short in Gloopy's saved chat (forSaving), and what is not.
   const long = (n) => "x".repeat(n);
   assert.equal(forSaving({ role: "tool", tool_call_id: "a", content: long(60000) }).content.length, 12000 + "\n[… 48,000 more characters are left out of the saved chat, to keep it small: read the file again if you need them]".length);
   assert.match(forSaving({ role: "user", appNote: true, content: long(30000) }).content, /\n\[… 18,000 more characters are left out of the saved chat/);
@@ -665,8 +675,16 @@ test("CD217 the review (2026-11-08): a job that reads a lot never wipes the save
   const earlier = [{ role: "user", content: "ask 1" }, { role: "assistant", content: "answer 1" }];
   const out = await runCoder({ send: async (q) => { asked.push(q); k++; return k <= plan.length ? say("", plan[k - 1]) : say("Done."); }, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: file }) }, { messages: earlier, text: "review m0..m15" });
   assert.ok(asked.at(-1).messages.filter((m) => m.role === "tool").every((m) => m.content === file), "Grok got every read whole");
-  assert.ok(JSON.stringify(out.messages).length < 300000, "the saved part is small: " + JSON.stringify(out.messages).length);
-  const kept = capHistory(out.messages);
+  // (Coder's saved chat keeps them whole, as Grok was sent them, as Claude Code's transcript keeps every tool result; Claude
+  // Code's auto-compact keeps the chat in bounds: autocompact.test.mjs. Its cap is a last resort, 8 MB.)
+  const savedReads = out.messages.filter((m) => m.role === "tool");
+  assert.equal(savedReads.length, 16);
+  assert.ok(savedReads.every((m) => m.content === file), "the saved chat keeps every read whole");
+  // (8 MB of text since its pictures are kept apart: test/worker-memory.test.mjs.)
+  assert.equal(CODER_HISTORY_MAX, 8 * 1024 * 1024);
+  assert.equal(historyMaxFor({ kind: "gloopy" }), HISTORY_MAX);
+  assert.equal(historyMaxFor({}), CODER_HISTORY_MAX);
+  const kept = capHistory(out.messages, historyMaxFor({}));
   assert.equal(kept.length, out.messages.length, "and the cap keeps all of it, the earlier job too");
   assert.deepEqual(kept.slice(0, 3).map((m) => m.content), ["ask 1", "answer 1", "review m0..m15"]);
   assert.ok(events.filter((e) => e.type === "result").every((e) => e.output.length <= 12100), "the chat's record keeps each output short");
@@ -680,7 +698,7 @@ test("CD217 the review (2026-11-08): a job that reads a lot never wipes the save
   assert.match(capped.find((m) => m.role === "tool").content, /\n\[… cut short in the saved chat: read the file again if you need it\]$/);
 });
 
-test("CD218 the review (2026-11-08): a long job that reads a lot keeps its requests to Grok bounded. What its summaries leave comes to at most 70% of the room (the newest rounds whole get what is left, at least the newest one), and a job may summarize itself up to 30 times", async () => {
+test("CD218 the review (2026-11-08): a long job that reads a lot keeps its requests to Grok bounded. What its summaries leave comes to at most 70% of the room (the newest rounds whole get what is left, at least the newest one: Gloopy's jobs), and a job may summarize itself up to 30 times (Coder's, by Claude Code's auto-compact since 2026-11-14)", async () => {
   const { runCoder, COMPACT_AT, COMPACT_JOB_MAX, KEEP_SHARE } = await import("../container/coder-agent.mjs");
   const { cutPoint } = await import("../container/coder-compact.mjs");
   assert.equal(COMPACT_JOB_MAX, 30);
@@ -694,22 +712,27 @@ test("CD218 the review (2026-11-08): a long job that reads a lot keeps its reque
   const big = rounds(5, 100000);
   assert.equal(cutPoint(big, 1, 8, 180000), 1 + 2 * 4, "big rounds: only the newest that fit (here one) kept");
   assert.equal(cutPoint(rounds(1, 900000), 1, 8, 180000), -1, "one huge round: nothing older to summarize");
-  // A 40-round job reading a 100,000-character file each round: every request stays bounded.
+  // A 40-round job reading a 100,000-character file each round: every request stays bounded. (Coder's: Claude Code's auto-compact,
+  // from what Grok says each request used, here at 30% of Grok's window, its CODER_AUTOCOMPACT_PCT_OVERRIDE.)
+  const K = await import("../container/coder-compact.mjs");
+  const L = K.compactLimits({ contextWindow: 500_000, pct: 30 });
   const page = "p".repeat(100000);
   let k = 0, notes = 0, most = 0;
   await runCoder({
     send: async (q) => {
-      if (!q.tools || !q.tools.length) return say("SUMMARY");
-      most = Math.max(most, JSON.stringify(q.messages).length);
+      if (isSumReq(q)) return say("SUMMARY");
+      const size = JSON.stringify(q.messages).length;
+      most = Math.max(most, size);
       k++;
-      return k <= 40 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.");
+      return { ...(k <= 40 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.")), usage: { in: Math.ceil((size + JSON.stringify(q.tools).length) / 4), out: 1 } };
     },
-    emit: (e) => { if (e.type === "note" && /^Compacted/.test(e.text)) notes++; },
+    emit: (e) => { if (e.type === "note" && e.text === K.COMPACTED_SHOWN) notes++; },
     exec: async () => ({ code: 0, output: page }),
-  }, { text: "read them all", maxRounds: 60 });
+  }, { text: "read them all", maxRounds: 60, compactVars: { CODER_AUTOCOMPACT_PCT_OVERRIDE: "30" } });
   assert.equal(k, 41);
   assert.ok(notes > 3 && notes <= COMPACT_JOB_MAX, notes + " summaries");
-  assert.ok(most < COMPACT_AT + 2 * 110000, "the biggest request was " + most + " characters");
+  assert.ok(most < L.threshold * K.CHARS_PER_TOKEN + 2 * 110000, "the biggest request was " + most + " characters");
+  assert.ok(COMPACT_AT > 0);
 });
 
 test("CD219 the review (2026-11-08): a chat with no history (new, or rewound to its very start) follows none of the files read before, so a rewind's changes are never put down to a command; Next.js's catch-all routes ([...slug]) are @-mentionable, a .. part never; a PARTIAL view's \"about X KB of Y KB\" counts bytes on both sides", async () => {
@@ -815,7 +838,7 @@ test("CD222 after a job's summary, Coder's instructions and memory come fresh fr
     get compactAt() { return k === 12 && !summarized ? 20_000 : 10_000_000; },
     freshContext: async () => { fresh++; return "CONTEXT FROM DISK: CODER.md now says use tabs"; },
     send: async (q) => {
-      if (!q.tools || !q.tools.length) { summarized = true; return say("SUMMARY"); }
+      if (isSumReq(q)) { summarized = true; return say("SUMMARY"); }
       systems.push(q.messages[0].content); reqs.push(q.messages); k++;
       return k <= 12 ? say("", [call("bash", { command: "echo " + k }, "c" + k)]) : say("Done.");
     },
@@ -828,7 +851,9 @@ test("CD222 after a job's summary, Coder's instructions and memory come fresh fr
   const ctxNotes = (msgs) => msgs.filter((m) => m.ctx).map((m) => m.content);
   assert.deepEqual(ctxNotes(reqs[0]), ["(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nCONTEXT AT THE START: CODER.md says use spaces)"]);
   assert.ok(reqs.slice(0, 12).every((msgs) => ctxNotes(msgs).length === 1));
-  assert.equal(ctxNotes(reqs.at(-1)).at(-1), "(Note from Coder's app, not the owner:\nThe chat context has changed; these values replace the earlier ones:\nCONTEXT FROM DISK: CODER.md now says use tabs)", "the next step has it fresh");
+  // (Since 2026-11-14 the whole conversation is summarized, as Claude Code's auto-compact does, its context note with it: the
+  // context is told whole again after the summary, fresh from disk, as Claude Code re-injects CLAUDE.md.)
+  assert.deepEqual(ctxNotes(reqs.at(-1)), ["(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nCONTEXT FROM DISK: CODER.md now says use tabs)"], "the next step has it fresh");
   // On Coder's machine it is made again from the repository's files and the memory file (server.mjs).
   const src = (await import("node:fs")).readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(src, /freshContext: async \(\) => contextFor\(await topNotes\(dir, notes\), \(await readMemory\(memFile\)\) \?\? "", later\),/);
@@ -911,28 +936,35 @@ test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no l
   // The review's case: a saved chat of about 300,000 characters, then a job reading a 28,000-character file each round.
   const history = [];
   for (let i = 0; i < 30; i++) history.push({ role: "user", content: "ask " + i + " " + "h".repeat(5000) }, { role: "assistant", content: "answer " + i + " " + "a".repeat(5000) });
+  // (Since 2026-11-14 Claude Code's auto-compact, from what Grok says each request used: here at 30% of Grok's window, its
+  // CODER_AUTOCOMPACT_PCT_OVERRIDE, so the chat before the job counts too.)
+  const K = await import("../container/coder-compact.mjs");
+  const L = K.compactLimits({ contextWindow: 500_000, pct: 30 });
   const file = "f".repeat(28000);
   let k = 0, summaries = 0, most = 0;
   await runCoder({
     send: async (q) => {
-      if (!q.tools || !q.tools.length) { summaries++; return say("SUMMARY"); }
-      most = Math.max(most, JSON.stringify(q.messages).length);
+      if (isSumReq(q)) { summaries++; return say("SUMMARY"); }
+      const size = JSON.stringify(q.messages).length;
+      most = Math.max(most, size);
       k++;
-      return k <= 30 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.");
+      return { ...(k <= 30 ? say("", [call("read", { path: "big" + k + ".txt" }, "r" + k)]) : say("Done.")), usage: { in: Math.ceil((size + JSON.stringify(q.tools).length) / 4), out: 1 } };
     },
     emit: () => {},
     exec: async () => ({ code: 0, output: file }),
-  }, { messages: history, text: "read them", maxRounds: 60 });
+  }, { messages: history, text: "read them", maxRounds: 60, compactVars: { CODER_AUTOCOMPACT_PCT_OVERRIDE: "30" } });
   assert.equal(k, 31);
-  assert.ok(summaries <= 12, summaries + " summaries for 30 rounds (one before nearly every round before)");
-  assert.ok(most < COMPACT_AT + 60000, "the biggest request: " + most + " characters (940,000 before)");
+  assert.ok(summaries >= 1 && summaries <= 12, summaries + " summaries for 30 rounds (one before nearly every round before)");
+  assert.ok(most < L.threshold * K.CHARS_PER_TOKEN, "the biggest request: " + most + " characters (940,000 before)");
+  assert.ok(COMPACT_AT > 0);
   // A picture in the newest rounds does not shrink what a summary keeps: the same cut with or without it.
   const cut = async (withPicture) => {
-    let n = 0, done = false, summarized = "";
+    let n = 0, done = false, summarized = 0;
     await runCoder({
       get compactAt() { return n === 12 && !done ? 30_000 : 10_000_000; },
       send: async (q) => {
-        if (!q.tools || !q.tools.length) { done = true; summarized = q.messages.at(-1).content; return say("SUMMARY"); }
+        // (The steps summarized: since 2026-11-14 the request is the conversation itself, Claude Code's compact request.)
+        if (isSumReq(q)) { done = true; summarized = q.messages.filter((m) => m.role === "assistant" && Array.isArray(m.tool_calls)).length; return say("SUMMARY"); }
         n++;
         return n <= 12 ? say("", [call(n === 11 ? "read" : "bash", n === 11 ? { path: "shot.png" } : { command: "echo " + n }, "c" + n)]) : say("Done.");
       },
@@ -940,7 +972,7 @@ test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no l
       // The same text either way; only the picture's size differs (600 KB, or tiny).
       exec: async ({ command }) => (command.includes("coder-tools.mjs") ? { code: 0, output: PICS_MARK + JSON.stringify({ text: "o".repeat(2500), pictures: [{ type: "image/png", data: "A".repeat(withPicture ? 600000 : 100) }] }) } : { code: 0, output: "o".repeat(2500) }),
     }, { text: "go" });
-    return (summarized.match(/CODER USED/g) || []).length;
+    return summarized;
   };
   const plain = await cut(false), pictured = await cut(true);
   assert.ok(plain > 0);

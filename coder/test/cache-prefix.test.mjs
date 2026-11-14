@@ -5,7 +5,9 @@
 // as xAI gets them (coder-model.mjs's Responses shape): its system message, its tools and its earlier messages must be the
 // last request's, byte for byte, so its start is cached; the only change is a tool_search load, which adds the tool after
 // the others. And every tool keeps the definition the chat first sent it with (coder-toolsearch.mjs lockTools, Claude
-// Code's tool schema cache), whatever the settings make of it later. Stand-ins only: no Grok, no network.
+// Code's tool schema cache), whatever the settings make of it later. And (the owner, 2026-11-14: "yes copy claude code") the
+// saved chat is the conversation as sent, long answers and pictures whole, so the next message starts with the last one; the
+// cache breaks only at a summary (Claude Code's auto-compact). Stand-ins only: no Grok, no network.
 import { test } from "node:test";
 import assert from "node:assert/strict";
 
@@ -32,9 +34,11 @@ const asSent = (req) => { const { instructions, input } = M.toResponsesInput(req
  * JSON). Every request to Grok (not the page reader's or a checker's) is kept, in order, labelled "m<message>#<call>".
  */
 function chat() {
-  const sent = [];
+  const sent = [], sums = [];
   let saved = [], k = 0;
-  const run = async (steps, { text = "go", shell = "", answer = () => ({ choice: "yes" }), stopIn = "", stopAnswer = false, resumed = false, takeUp = null, hooks = null, opts = {}, deps = {} } = {}) => {
+  // (`real`: each answer says what its request used, as xAI counts it, 4 characters a token, so Claude Code's auto-compact counts
+  // from it.)
+  const run = async (steps, { text = "go", shell = "", answer = () => ({ choice: "yes" }), stopIn = "", stopAnswer = false, resumed = false, takeUp = null, hooks = null, opts = {}, deps = {}, real = false } = {}) => {
     k++;
     let n = 0, stopAt = 0;
     const events = [], hookCalls = [];
@@ -42,11 +46,13 @@ function chat() {
       send: async (req) => {
         const sys = String((req.messages[0] && req.messages[0].content) || "");
         if (sys === A.PAGE_READER || /safety checker/.test(sys)) return { message: { role: "assistant", content: '{"decision":"allow"}' }, usage: { in: 1, out: 1 } };
-        if (!req.tools || !req.tools.length) return { message: { role: "assistant", content: "SUMMARY of what came before" }, usage: { in: 1, out: 1 } };
+        // (A summary's request: Claude Code's compact request, the conversation with its prompt last, or Coder's own.)
+        if (C.isCompactRequest(req) || !req.tools || !req.tools.length) { sums.push({ label: "sum" + (sums.length + 1), req: JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })) }); return { message: { role: "assistant", content: "<analysis>what happened</analysis>\n\n<summary>\nSUMMARY of what came before\n</summary>" }, usage: { in: 1, out: 1 } }; }
         sent.push({ label: "m" + k + "#" + (n + 1), req: JSON.parse(JSON.stringify({ messages: req.messages, tools: req.tools })) });
         // (The owner's Stop while Grok answers: the answer never comes back.)
         if (stopAnswer) { setTimeout(() => { stopAt = Date.now(); }, 15); await new Promise((ok) => { const t = setTimeout(ok, 3000); if (req.signal) req.signal.addEventListener("abort", () => { clearTimeout(t); ok(); }); }); }
-        return steps[Math.min(n++, steps.length - 1)];
+        const step = steps[Math.min(n++, steps.length - 1)];
+        return real ? { ...step, usage: { in: Math.ceil(JSON.stringify({ m: req.messages, t: req.tools }).length / 4), out: 40 } } : step;
       },
       exec: async (x) => {
         const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
@@ -67,7 +73,7 @@ function chat() {
     const told = (id) => { const m = r.messages.find((x) => x.role === "tool" && x.tool_call_id === id); return m ? m.content : undefined; };
     return { r, events, hookCalls, told };
   };
-  return { sent, run, labels: () => sent.map((s) => s.label), get messages() { return saved; } };
+  return { sent, sums, run, labels: () => sent.map((s) => s.label), get messages() { return saved; } };
 }
 /**
  * The next request starts with the one before it, byte for byte: the same system message, its tools (and, after a load, the
@@ -316,4 +322,64 @@ test("CP8 bash's description names the shell Coder's commands run in on the chat
   assert.match(server, /t\.shell = shellOf\(rawVars\.CODER_SHELL\);/);
   assert.match(server, /runCoder\(turnDeps, \{[^\n]*\bcmdShell: t\.shell,/);
   assert.match(server, /runCoder\(turnDeps, \{[^\n]*shell: typeof body\.shell === "string"/, "and the owner's own command apart, as before");
+});
+
+/** A machine whose reads give big files: `size` characters each, a .png a picture; nothing changed since (`mtimes`). */
+const bigMachine = (size, PICS_MARK = "") => async (x) => {
+  const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
+  if (!tm) return { code: 0, output: "ran " + x.command + "\n" };
+  const q = tm[1] === "@REQUEST" ? JSON.parse(x.payload) : JSON.parse(Buffer.from(tm[1], "base64").toString("utf8"));
+  const p = String(q.args.path || q.args.file_path || "");
+  if (q.tool === "read" && /\.png$/.test(p)) return { code: 0, output: PICS_MARK + JSON.stringify({ text: "Picture: " + p + " (64×64, PNG, 1 KB), shown to you as a picture after these results.", pictures: [{ type: "image/png", data: "iVBORw0KGgo=" }] }) };
+  if (q.tool === "read") return { code: 0, output: Array.from({ length: Math.ceil(size / 100) }, (_, i) => String(i + 1).padStart(6) + "\t" + "x".repeat(93)).join("\n") };
+  if (q.tool === "mtimes") return { code: 0, output: "[]" };
+  return { code: 0, output: "result of " + q.tool + " " + p };
+};
+
+test("CP9 the saved chat is the conversation as sent (the owner, 2026-11-14: \"yes copy claude code\"; Claude Code's transcript keeps every tool result and image block whole): after a 60,000-character read, the note of an @-mentioned file as long, a read's picture and the owner's own picture, the next message's request starts with the last one, byte for byte (the saved chat used to cut them to 12,000 characters and leave the pictures out, so the next request differed from there)", async () => {
+  const { PICS_MARK } = await import("../container/coder-tools.mjs");
+  const exec = bigMachine(60_000, PICS_MARK);
+  const c = chat();
+  await c.run([say("", [call("read", { file_path: "big.txt" }, "r1")]), say("", [call("read", { file_path: "shot.png" }, "r2")]), say("Read them.")], { text: "look at @notes.txt, then read big.txt and shot.png", deps: { exec } });
+  await c.run([say("A small picture.")], { text: "and this one?", opts: { images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }, deps: { exec } });
+  await c.run([say("ok")], { text: "thanks", deps: { exec } });
+  assert.deepEqual(c.labels(), ["m1#1", "m1#2", "m1#3", "m2#1", "m3#1"]);
+  allStartWith(c.sent);
+  // What the saved chat kept: the read whole, the note whole, both pictures, as Grok was sent them.
+  const long = (await exec({ command: "node coder-tools.mjs " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "big.txt" } })).toString("base64") })).output;
+  assert.ok(long.length >= 60_000 && long.length > 4 * A.SAVE_ONE_MAX);
+  assert.equal(c.messages.find((m) => m.role === "tool" && m.tool_call_id === "r1").content, long, "the read whole");
+  assert.ok(c.messages.some((m) => m.appNote === true && m.content.includes("--- notes.txt ---") && m.content.includes(long)), "the @-mention's note whole");
+  assert.deepEqual(c.messages.filter((m) => Array.isArray(m.images)).map((m) => [m.readPics === true, m.images]), [[true, ["data:image/png;base64,iVBORw0KGgo="]], [false, ["data:image/png;base64,iVBORw0KGgo="]]], "the read's picture and the owner's");
+  // (Gloopy's saved chat is cut as before: forSaving.)
+  assert.notEqual(A.forSaving({ role: "tool", tool_call_id: "r1", content: long }).content, long);
+});
+
+test("CP10 the cache breaks only at a summary: a job that fills the conversation past Claude Code's auto-compact threshold (here CODER_AUTOCOMPACT_PCT_OVERRIDE at 5%, 24,000 tokens) is summarized whole before its next request; every request before it starts with the last one; the one after it keeps the system message and the tools, byte for byte, and starts with the summary; from there each request, the next message's too, starts with the last one", async () => {
+  // (Each read some 5,000 tokens; the system message and the tools some 16,000.)
+  const exec = bigMachine(20_000);
+  const c = chat();
+  const vars = { CODER_AUTOCOMPACT_PCT_OVERRIDE: "5" };
+  await c.run([say("Hello.")], { text: "hi", deps: { exec }, opts: { compactVars: vars }, real: true });
+  const two = await c.run([say("", [call("read", { file_path: "big1.txt" }, "r1")]), say("", [call("read", { file_path: "big2.txt" }, "r2")]), say("Read both.")], { text: "read big1.txt and big2.txt", deps: { exec }, opts: { compactVars: vars }, real: true });
+  await c.run([say("ok")], { text: "and now?", deps: { exec }, opts: { compactVars: vars }, real: true });
+  assert.deepEqual(c.labels(), ["m1#1", "m2#1", "m2#2", "m2#3", "m3#1"]);
+  assert.ok(two.events.some((e) => e.type === "note" && e.text === C.COMPACTED_SHOWN && e.compacted && e.compacted.trigger === "auto"), "summarized once, mid-job");
+  const at = (l) => c.sent.find((x) => x.label === l);
+  startsWith(at("m1#1"), at("m2#1"));
+  startsWith(at("m2#1"), at("m2#2"));
+  // The summary's own request (Claude Code's compact request, the coordinator's follow-up of 2026-11-14) starts with the last
+  // request, byte for byte, so Grok's cache serves it but for what came after and the compact prompt.
+  assert.equal(c.sums.length, 1);
+  const sumReq = c.sums[0];
+  assert.ok(C.isCompactRequest(sumReq.req));
+  startsWith(at("m2#2"), sumReq);
+  assert.equal(c.messages[0].content.split("\n\nSummary:\n")[1].split("\n")[0], "SUMMARY of what came before", "its <summary> kept, its <analysis> left out");
+  // The summary: the system message and the tools the same bytes; the conversation starts again from the summary.
+  const before = asSent(at("m2#2").req), after = asSent(at("m2#3").req);
+  assert.equal(after.instructions, before.instructions);
+  assert.deepEqual(after.tools, before.tools);
+  assert.match(JSON.parse(after.input[0]).content, /^This chat is being continued from a previous conversation that ran out of context\./);
+  startsWith(at("m2#3"), at("m3#1"));
+  assert.ok(C.isSummary(c.messages[0]), "the saved chat starts with it");
 });

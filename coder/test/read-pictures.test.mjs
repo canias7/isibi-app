@@ -157,7 +157,7 @@ test("CD195 read opens a Jupyter notebook as its cells with their outputs (Claud
   assert.match(read(dir, { path: "odd.ipynb" }).text, /^\s+1\tnot json at all/);
 });
 
-test("CD196 the agent shows read's pictures to Grok: the read's answer is its text, then a note from Coder's app with the pictures attached (as Grok takes them); the chat shows the text; the saved history keeps a note instead of a picture; a job keeps at most 8 pictures attached; only read's answer can carry them", async () => {
+test("CD196 the agent shows read's pictures to Grok: the read's answer is its text, then a note from Coder's app with the pictures attached (as Grok takes them); the chat shows the text; the saved history keeps the picture as sent (since 2026-11-14; a note in its place before); a job keeps at most 24 pictures attached, the owner's earlier ones counted in Coder's chats; only read's answer can carry them", async () => {
   const { runCoder, PICS_KEEP, keepPics } = await import("../container/coder-agent.mjs");
   const { toResponsesInput } = await import("../container/coder-model.mjs");
   const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -193,12 +193,13 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   assert.equal(seen[2].messages.filter((m) => Array.isArray(m.images)).length, 1);
   // (Its answer is the output as it came, Claude Code's way, with no "exit code" line before it: still only text.)
   assert.ok(seen[2].messages.some((m) => m.role === "tool" && m.tool_call_id === "b2" && /coder-pictures/.test(m.content) && !Array.isArray(m.images)));
-  // THE CHAT shows the read's text; THE SAVED HISTORY keeps a note in place of the picture.
+  // THE CHAT shows the read's text; THE SAVED HISTORY keeps the note as Grok was sent it, its picture too (the owner, 2026-11-14:
+  // "yes copy claude code": Claude Code's transcript keeps its image blocks; keepPics bounds them, below).
   assert.equal(events.find((e) => e.type === "result" && e.id === "r1").output, "Picture: shot.png (1280×720, PNG, 40 KB), shown to you as a picture after these results.");
   const savedNote = out.messages.find((m) => m.role === "user" && /your read opened/.test(m.content));
-  assert.equal(savedNote.content, "(Note from Coder's app, not the owner: the picture your read opened (shot.png), attached here in order.)\n[1 picture attached]");
-  assert.equal(savedNote.images, undefined);
-  assert.ok(!JSON.stringify(out.messages).includes(pic(1).data), "no picture in the saved history");
+  assert.equal(savedNote.content, "(Note from Coder's app, not the owner: the picture your read opened (shot.png), attached here in order.)");
+  assert.deepEqual(savedNote.images, ["data:image/png;base64," + pic(1).data]);
+  assert.equal(savedNote.readPics, true);
 
   // AT MOST 24 PICTURES STAY ATTACHED in a job (a 20-page PDF read and a few more; the owner, 2026-11-08: every PDF
   // page a picture, like Claude Code), and at most PICS_KEEP_BYTES of them: the oldest are let go, with a note.
@@ -218,6 +219,21 @@ test("CD196 the agent shows read's pictures to Grok: the read's answer is its te
   const big = [read3("a", 2, 5_000_000), read3("b", 2, 5_000_000)];
   keepPics(big);
   assert.deepEqual(big.map((m) => (m.images || []).length), [1, 2], "the newest that fit, by size");
+  // IN CODER'S CHATS, whose saved chat keeps every picture (since 2026-11-14): the owner's pictures count too, an earlier
+  // message's let go like a read's once newer ones need the room; this message's own (from `from` on) always stay.
+  const chat = [{ role: "user", content: "old ask", images: ["o0", "o1", "o2", "o3"] }, { role: "assistant", content: "ok" }];
+  for (let i = 0; i < 8; i++) chat.push(read3("c" + i));
+  chat.push({ role: "user", content: "new ask", images: ["n0", "n1"] });
+  keepPics(chat, { from: chat.length - 1 });
+  assert.deepEqual(chat.map((m) => (m.images || []).length), [0, 0, 1, 3, 3, 3, 3, 3, 3, 3, 2]);
+  assert.equal(chat[0].content, "old ask [No longer attached: read the file again to see it.]");
+  assert.equal("images" in chat[0], false);
+  const mine = [{ role: "user", content: "huge ask", images: Array.from({ length: 4 }, (_, j) => "h" + j + "x".repeat(5_000_000)) }];
+  keepPics(mine, { from: 0 });
+  assert.equal(mine[0].images.length, 4, "this message's own stay, whatever the room");
+  const theirs = [{ role: "user", content: "ask", images: ["a"] }];
+  keepPics(theirs);
+  assert.deepEqual(theirs[0].images, ["a"], "without `owner` (Gloopy's), the owner's pictures are never counted");
 });
 
 test("CD247 a PDF's pages and a notebook's charts show small under their step, as a picture read's does (the owner, 2026-11-08: \"Do this pls\"): the first STEP_THUMBS of them, as JPEG data URLs; Grok still gets every page whole", { skip: !(MAGICK && POPPLER) && "needs ImageMagick and poppler" }, async () => {

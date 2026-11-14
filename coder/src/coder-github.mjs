@@ -24,7 +24,9 @@ export function githubReady(env) {
 // In pieces (2026-11-06): spreading every byte into one call fails past about 100 KB,
 // and a job's saved steps (coder-live.mjs) are sealed with this too.
 const b64 = (bytes) => { const b = new Uint8Array(bytes); let s = ""; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode(...b.subarray(i, i + 0x8000)); return btoa(s); };
-const unb64 = (s) => Uint8Array.from(atob(s), (c) => c.charCodeAt(0));
+// (A byte at a time into the array: Uint8Array.from(string) made a list of every character first, some 16 bytes each, which a
+// lost job's sealed conversation of a few MB took past a Worker's 128 MB. 2026-11-14.)
+const unb64 = (s) => { const t = atob(s), out = new Uint8Array(t.length); for (let i = 0; i < t.length; i++) out[i] = t.charCodeAt(i); return out; };
 const b64url = (bytes) => b64(bytes).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 
 async function keyBytes(env) {

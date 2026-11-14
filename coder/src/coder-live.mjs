@@ -21,7 +21,12 @@ import { seal, unseal } from "./coder-github.mjs";
 import { pushesFor, notifyOwner } from "./coder-push.mjs";
 
 export const LIVE_PATH = "/api/coder/live";
-/** One sending at most (the machine sends fewer steps when it is refused as too large). */
+/**
+ * One sending at most (the machine sends fewer steps when it is refused as too large; and, refused with the conversation, it
+ * goes on without it: the job's own save at its end has it). 4 MB: the conversation sent has no pictures, and Claude Code's
+ * auto-compact keeps it near 2 MB of text; more than 4 MB, sealed here and read back for a lost job, would take a Worker past
+ * its 128 MB (test/worker-memory.test.mjs).
+ */
 export const LIVE_BODY_MAX = 4 * 1024 * 1024;
 /** The chat keeps 4000 steps (coder-routes.mjs, MAX_EVENTS): no more are kept here. */
 export const LIVE_MAX_EVENTS = 4000;
@@ -56,14 +61,10 @@ async function readBox(env, bucket, key) {
 const putBox = async (env, bucket, key, value) => bucket.put(key, JSON.stringify({ box: await seal(env, value) }), { httpMetadata: { contentType: "application/json" } });
 
 /**
- * `POST /api/coder/live` from Coder's machine: `{ from, events, messages? }`,
- * with the headers x-coder-chat ("uid/id"), x-coder-turn and x-coder-live (the
- * pass). Steps from `from` on are kept, up to the end of their part; the
- * answer's `have` says where the next sending starts. 403: not this job's
- * pass; 409: that job is not running (the machine stops sending after a few).
+ * THE JOB'S OWN PASS, CHECKED (handleLive and handleLivePic): the chat ("uid/id"), the turn and the pass in the headers, and
+ * that job still running. → { bucket, uid, id, turn, meta }, or the answer that refuses it.
  */
-export async function handleLive(request, env, { fetchFn = fetch, waitUntil = null, now = Date.now() } = {}) {
-  if (request.method !== "POST") return text("method", 405);
+async function liveJob(request, env) {
   const bucket = env && env.CODER_BUCKET;
   if (!bucket) return text("storage is not available", 503);
   const h = request.headers;
@@ -76,6 +77,89 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
   let meta = null;
   try { const o = await bucket.get("coder/" + uid + "/" + id + "/meta.json"); meta = o ? JSON.parse(await o.text()) : null; } catch { meta = null; }
   if (!meta || meta.status !== "running" || String(meta.turn) !== turn) return text("that job is not running", 409);
+  return { bucket, uid, id, turn, meta };
+}
+
+// ── THE PICTURES OF A CODER CHAT'S SAVED CONVERSATION, KEPT APART (2026-11-14, the Worker's memory) ──
+// Since the saved chat keeps its pictures (the owner: "yes copy claude code"), a chat could carry some 18 MB of them, and every
+// one of the Worker's routes that reads the saved chat (a message's start, a job's end, Undo, Rewind, a lost job) holds several
+// copies of it at once: measured with 24 pictures, 200 to 275 MB, past a Worker's 128 MB. So each picture is kept as an object
+// of its own, named by its SHA-256 (`coder-pic:<sha>` in the saved chat, where the picture was), sent here by the chat's
+// machine at the job's end and fetched by it at the next job's start, with the job's own pass; the Worker never parses one.
+// What Grok is sent is unchanged: the machine puts each picture back, the same bytes.
+export const LIVE_PIC_PATH = LIVE_PATH + "/pic";
+export const PIC_REF = "coder-pic:";
+/** One picture at most (a data URL's characters; the owner's are under 2 MB, a read's fitted ones under a few). */
+export const PIC_MAX = 12 * 1024 * 1024;
+export const picKey = (uid, id, sha) => "coder/" + uid + "/" + id + "/pics/" + sha;
+const PIC_HEAD = /^data:image\/(?:png|jpeg|webp|gif);base64,$/;
+const B64 = new Uint8Array(256);
+for (const c of "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=") B64[c.charCodeAt(0)] = 1;
+/** Is this a picture as Grok takes one (a data URL of a PNG, JPEG, WebP or GIF), read as bytes so it is never a string here? */
+function picBytesOk(b) {
+  const comma = b.indexOf(44);
+  if (comma < 0 || comma > 40 || !PIC_HEAD.test(new TextDecoder().decode(b.subarray(0, comma + 1)))) return false;
+  for (let i = comma + 1; i < b.length; i++) if (!B64[b[i]]) return false;
+  return b.length > comma + 1;
+}
+const hex = (buf) => [...new Uint8Array(buf)].map((x) => x.toString(16).padStart(2, "0")).join("");
+/** The picture's name: the SHA-256 of its data URL. */
+export async function picSha(data) { return hex(await crypto.subtle.digest("SHA-256", typeof data === "string" ? enc.encode(data) : data)); }
+/** The pictures a saved conversation names (`coder-pic:<sha>`). */
+export function picRefsIn(messages) {
+  const out = new Set();
+  for (const m of Array.isArray(messages) ? messages : []) for (const u of m && Array.isArray(m.images) ? m.images : []) if (typeof u === "string" && u.startsWith(PIC_REF)) out.add(u.slice(PIC_REF.length));
+  return out;
+}
+/**
+ * `POST /api/coder/live/pic` (a picture's data URL, as the body) keeps one and answers `{ ok, ref }`; `GET ?sha=` gives it back.
+ * Only with the job's own pass while it runs (liveJob).
+ */
+export async function handleLivePic(request, env) {
+  if (request.method !== "POST" && request.method !== "GET") return text("method", 405);
+  const job = await liveJob(request, env);
+  if (job instanceof Response) return job;
+  if (request.method === "GET") {
+    const sha = new URL(request.url).searchParams.get("sha") || "";
+    if (!/^[0-9a-f]{64}$/.test(sha)) return text("not a picture's name");
+    const o = await job.bucket.get(picKey(job.uid, job.id, sha));
+    if (!o) return text("no such picture", 404);
+    return new Response(o.body || (await o.text()), { headers: { "content-type": "text/plain; charset=utf-8", "cache-control": "no-store" } });
+  }
+  if (Number(request.headers.get("content-length")) > PIC_MAX) return text("too large", 413);
+  const b = new Uint8Array(await request.arrayBuffer());
+  if (b.length > PIC_MAX) return text("too large", 413);
+  if (!picBytesOk(b)) return text("not a picture");
+  const sha = await picSha(b);
+  await job.bucket.put(picKey(job.uid, job.id, sha), b, { httpMetadata: { contentType: "text/plain" } });
+  return Response.json({ ok: true, ref: PIC_REF + sha });
+}
+/** A chat's pictures no longer in its saved conversation go (at a job's end: what it saved names all it needs). */
+export async function prunePics(bucket, uid, id, messages) {
+  if (typeof bucket.delete !== "function") return 0;
+  const keep = picRefsIn(messages);
+  let gone = 0;
+  for (const key of await keysUnder(bucket, "coder/" + uid + "/" + id + "/pics/")) if (!keep.has(key.split("/").pop())) { await bucket.delete(key); gone++; }
+  return gone;
+}
+/** All of a chat's pictures go (the chat is removed). */
+export async function dropPics(bucket, uid, id) {
+  if (typeof bucket.delete !== "function") return;
+  for (const key of await keysUnder(bucket, "coder/" + uid + "/" + id + "/pics/")) await bucket.delete(key);
+}
+
+/**
+ * `POST /api/coder/live` from Coder's machine: `{ from, events, messages? }`,
+ * with the headers x-coder-chat ("uid/id"), x-coder-turn and x-coder-live (the
+ * pass). Steps from `from` on are kept, up to the end of their part; the
+ * answer's `have` says where the next sending starts. 403: not this job's
+ * pass; 409: that job is not running (the machine stops sending after a few).
+ */
+export async function handleLive(request, env, { fetchFn = fetch, waitUntil = null, now = Date.now() } = {}) {
+  if (request.method !== "POST") return text("method", 405);
+  const job = await liveJob(request, env);
+  if (job instanceof Response) return job;
+  const { bucket, uid, id, turn, meta } = job, h = request.headers;
   if (Number(h.get("content-length")) > LIVE_BODY_MAX) return text("too large", 413);
   const raw = await request.text();
   if (raw.length > LIVE_BODY_MAX) return text("too large", 413);
@@ -103,7 +187,9 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
       if (typeof waitUntil === "function") waitUntil(work); else await work;
     }
   }
-  if (Array.isArray(body.messages)) await putBox(env, bucket, convoKey(uid, id, turn), body.messages.filter((x) => x && typeof x === "object"));
+  // (`whole`: the job's auto-compact summarized the conversation, so this is all of it, the summary first, not the job's part
+  // after the saved chat: kept so, 2026-11-14.)
+  if (Array.isArray(body.messages)) { const list = body.messages.filter((x) => x && typeof x === "object"); await putBox(env, bucket, convoKey(uid, id, turn), body.whole === true ? { whole: true, messages: list } : list); }
   return Response.json({ ok: true, have: from + take.length });
 }
 
@@ -118,7 +204,10 @@ async function keysUnder(bucket, prefix) {
   return keys;
 }
 
-/** What a job saved as it went: its steps, in order up to the first gap, and its latest conversation (null when none came). */
+/**
+ * What a job saved as it went: its steps, in order up to the first gap, and its latest conversation (null when none came):
+ * the job's part after the saved chat, or, `whole`, all of it (Claude Code's auto-compact summarized it in the job).
+ */
 export async function readLive(env, bucket, uid, id, turn) {
   const keys = (await keysUnder(bucket, livePrefix(uid, id, turn))).filter((k) => /\/part-\d{3}\.json$/.test(k)).sort();
   let events = [];
@@ -127,8 +216,9 @@ export async function readLive(env, bucket, uid, id, turn) {
     if (!p || !Array.isArray(p.events) || !Number.isInteger(p.start) || p.start > events.length) break;
     events = events.slice(0, p.start).concat(p.events);
   }
-  const messages = await readBox(env, bucket, convoKey(uid, id, turn));
-  return { events: events.slice(0, LIVE_MAX_EVENTS), messages: Array.isArray(messages) ? messages : null };
+  const c = await readBox(env, bucket, convoKey(uid, id, turn));
+  const whole = !!c && !Array.isArray(c) && c.whole === true && Array.isArray(c.messages);
+  return { events: events.slice(0, LIVE_MAX_EVENTS), messages: Array.isArray(c) ? c : whole ? c.messages : null, ...(whole ? { whole: true } : {}) };
 }
 
 /** Forget every turn's saved steps for a chat (its job is saved, or the chat is removed). */
