@@ -129,7 +129,7 @@ import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./c
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText } from "./coder-environments.mjs";
 import { approveEnvChange } from "./coder-envapi.mjs";
-import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents } from "../container/coder-park.mjs";
+import { parkRecord, parkedMeta, parkedOf, parkAnswer, closeParked, stoppedEvents, closedEvents, CARD_CLOSED, CLOSED_BY_MESSAGE } from "../container/coder-park.mjs";
 import { FROM_COPY, FROM_COPY_GB, CACHE_PENDING_MS, STREAM_HEADER, flyOn, flyAwake } from "./coder-fly.mjs";
 import { makeRouteTicket, readRouteTicket, ROUTE_TICKET_MS } from "./coder-auth.mjs";
 import { readSchedules, writeSchedules, schedulesForTurn, addSchedule, addFromTurn, runsLeft, queueEvent, setPaused, pauseAll, editSchedule, logRun, endRun, testText, LATE_MS } from "./gloopy-schedules.mjs";
@@ -537,25 +537,35 @@ async function endLostJob(env, bucket, uid, meta, note) {
 }
 /**
  * A PAUSED CARD CLOSED WITHOUT ITS JOB (coder-park.mjs: the owner's Stop while it waited, or a Rewind or an Undo, which go on
- * from the chat as it is): the call it waits on is told it was stopped, as on a Stop while its job ran, and the round's calls
- * after it get Claude Code's words for calls a stop cancelled, so every call has its answer again; the chat shows the card
- * stopped. Answers the chat as it is then.
+ * from the chat as it is): every call of the round still without a result is told the owner rejected it, Claude Code's words
+ * for a Stop on such a card, so every call has its answer again; the chat shows the card stopped. Answers the chat as it is
+ * then.
  */
 async function closeParkedCard(bucket, uid, meta) {
+  return (await closeParkedWith(bucket, uid, meta, "stop")).meta;
+}
+/**
+ * The same, `how` "new_input": closed by the owner's next message (CARD_CLOSED for every call of the round still without a
+ * result; the chat shows the card closed, and the message goes on). `{ meta, shown }`: the chat as it is then, and what it
+ * was given to show.
+ */
+async function closeParkedWith(bucket, uid, meta, how) {
   const p = parkedOf(meta);
-  if (!p) return meta;
+  if (!p) return { meta, shown: [] };
   const id = meta.id;
   const rec = parkRecord(await getJson(bucket, keyOf(uid, id, "parked.json"), null));
   const mine = rec && rec.pid === p.pid ? rec : null;
   const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+  const byMessage = how === "new_input";
   // (Its record lost: the open round goes, as a job cut off mid-step does.)
-  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? closeParked(msgs, mine) : msgs));
+  await putJson(bucket, keyOf(uid, id, "messages.json"), wholeSteps(mine ? (byMessage ? closeParked(msgs, mine, CARD_CLOSED) : closeParked(msgs, mine)) : msgs));
   const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-  await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...stoppedEvents(mine || p)].slice(-MAX_EVENTS));
+  const shown = byMessage ? closedEvents(mine || p) : stoppedEvents(mine || p);
+  await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...shown].slice(-MAX_EVENTS));
   if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, "parked.json")).catch(() => {});
   const next = { ...meta, parked: null, waiting: null, at: Date.now() };
   await saveMeta(bucket, uid, next);
-  return next;
+  return { meta: next, shown };
 }
 /** The user's chats, newest first, read from each chat's own meta.json. */
 /** The chat's pull request if it is still open on GitHub; null when merged, closed or gone. */
@@ -1243,6 +1253,9 @@ export async function handleCoder(request, env, ctx, deps) {
     // (release), never over a newer one; and the start goes on when the page goes (Cloudflare lets it finish, up to 30
     // seconds after). An error half-way puts the chat back too.
     let claim = null;
+    // (A paused card this message closed: what the chat was given to show for it, sent back with the answer so the page draws
+    // it closed at once, whether the message then started or not.)
+    let closedShown = [];
     const startRun = (async () => {
       let body = {}; try { body = await request.json(); } catch { body = {}; }
       // THE SAME MESSAGE AGAIN (a browser sends it again when its connection drops; `mid`, the page's id for it): answered as
@@ -1328,12 +1341,37 @@ export async function handleCoder(request, env, ctx, deps) {
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
       }
       // A MESSAGE WHILE A PAUSED TURN'S CARD WAITS (coder-park.mjs): to a question card, the owner's reply to it (Claude Code's
-      // "replied_in_chat", "The user responded: …"), which takes the turn up again at that call; to any other card, it waits
-      // for Coder as one sent while Coder works does (Claude Code: "If you send a message while Claude is working, the message
-      // queues until Claude reads it"), and goes to Coder in the turn the card's answer takes up again. A review, a /compact,
-      // pictures, line comments or a job from GitHub wait for the card's answer too, as while Coder works.
+      // "replied_in_chat", "The user responded: …"), which takes the turn up again at that call; to a permission card or the
+      // plan's, it closes the card and is answered now (below); to the key card or an environment card, it waits for Coder
+      // as one sent while Coder works does (Claude Code: "If you send a message while Claude is working, the message queues
+      // until Claude reads it"), and goes to Coder in the turn the card's answer takes up again. A review, a /compact,
+      // pictures, line comments or a job from GitHub wait for those cards' answers too, as while Coder works.
       const waitingOn = !takeUp ? parkedOf(meta) : null;
-      if (waitingOn) {
+      // THE OWNER'S NEXT MESSAGE CLOSES A PAUSED PERMISSION OR PLAN CARD (fix round 3, 2026-11-14; Claude Code 2.1.325's cloud
+      // host: a message that is not the parked card's answer is "new_input": the card is withdrawn, every call of that turn
+      // still without a result is told "[Tool call not completed: … the message that follows arrived and was closed …]", and
+      // the message is answered at once). Any message of the owner's, a review, a /compact or pictures too; not a job from
+      // GitHub nor a background command's news. What waited in line for the card goes first, in the order typed, this
+      // message with it when it can wait in line (the next of what waits goes out, as after any job's end).
+      if (waitingOn && CLOSED_BY_MESSAGE.includes(waitingOn.kind) && !wake && body.fromGithub !== true && body.autofix !== true) {
+        const closing = await closeParkedWith(bucket, uid, (await getJson(bucket, metaKey, null)) || meta, "new_input");
+        meta = closing.meta;
+        closedShown = closing.shown;
+        const queue = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+        const inLine = !review && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
+        if (Array.isArray(queue) && queue.length && inLine) {
+          const entry = { qid: newQid(), text: said, at: Date.now(), ...(shell !== null ? { shell: true } : {}), ...(mid ? { mid } : {}) };
+          const first = nextQueued([...queue, entry]);
+          await putJson(bucket, keyOf(uid, id, "queue.json"), [...queue, entry]);
+          const r2 = await self("/message", { text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...(mid && first.includes(entry) ? { mid } : {}) }).catch(() => null);
+          const got = r2 ? await r2.json().catch(() => ({})) : { error: "Coder's machine could not be started. Try again in a minute." };
+          const sent = new Set(r2 && r2.status === 200 ? first.map((q) => q.qid) : [entry.qid]);
+          const left = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid));
+          await putJson(bucket, keyOf(uid, id, "queue.json"), left);
+          // (Started: the page loads the chat, as after a job's end; not started: this message is given back, the others wait.)
+          return r2 && r2.status === 200 ? json({ ...got, queue: left, reload: true }) : json({ ...got, closed: closedShown }, r2 ? r2.status : 502);
+        }
+      } else if (waitingOn) {
         const queueable = !review && !wake && body.fromGithub !== true && body.autofix !== true && !notes && !pics.images.length && !!said && !/^\/compact\b/i.test(said);
         if (!queueable) return json({ error: pics.images.length || notes ? "Coder is waiting for your answer on its card: send pictures or line comments once it is done" : "Coder is waiting for your answer on its card" }, 409);
         if (waitingOn.kind === "question" && shell === null && !ref) {
@@ -1524,7 +1562,11 @@ export async function handleCoder(request, env, ctx, deps) {
       return json({ ok: true, project: next });
     })().catch(async (e) => { if (claim) await claim.release().catch(() => {}); throw e; });
     if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(startRun.catch(() => {}));
-    return startRun;
+    return startRun.then(async (res) => {
+      if (!closedShown.length) return res;
+      const data = await res.clone().json().catch(() => null);
+      return data && typeof data === "object" && !Array.isArray(data) && !data.closed ? json({ ...data, closed: closedShown }, res.status) : res;
+    });
   }
 
   // THE CHAT'S PERMISSION MODE, picked in the page's mode menu (Claude Code's cloud sessions: picked "both when you create the

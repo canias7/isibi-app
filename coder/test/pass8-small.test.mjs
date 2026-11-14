@@ -194,11 +194,17 @@ test("CD435 a note goes with Yes and No only (Claude Code: \"don't ask again\" a
       emit: () => {}, ask: async () => answer,
       here: () => "/work/shop", root: "/work/shop", home: "/home/dev", chatId: "shop-note",
     }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: [], deny: [] } });
-    for (const req of seen) for (const m of req.messages) if (m.role === "tool" && m.tool_call_id === "b1") return m.content;
-    return "";
+    // (The call's result, and what Grok gets right after the round's results.)
+    for (const req of seen) { const i = req.messages.findIndex((m) => m.role === "tool" && m.tool_call_id === "b1"); if (i >= 0) return [req.messages[i].content, String((req.messages[i + 1] || {}).content || "")]; }
+    return ["", ""];
   };
-  assert.match(await told({ choice: "yes", comment: "use the lockfile" }), /\(The owner approved this with a note: use the lockfile\)/);
-  assert.doesNotMatch(await told({ choice: "always", comment: "use the lockfile" }), /with a note/);
+  // (Since fix round 3, 2026-11-14, as Claude Code gives them: exactly as typed, the owner's own text right after the round's
+  // results, never wrapped in a sentence nor in the result: test/cards-park.test.mjs CP13.)
+  const yes = await told({ choice: "yes", comment: "use the lockfile" });
+  assert.equal(yes[1], "use the lockfile");
+  assert.doesNotMatch(yes[0], /lockfile|with a note/);
+  const always = await told({ choice: "always", comment: "use the lockfile" });
+  assert.ok(!always.join("\n").includes("use the lockfile"));
 });
 
 test("CD436 a chat with several repositories reads no repository's .claude settings: rules, env, command settings or hooks (Claude Code's cloud session then works from a folder outside all of them)", () => {

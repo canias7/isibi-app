@@ -34,10 +34,11 @@ test("CD118 Coder's conversation is shared as it goes (pictures left out, as in 
     exec: async () => ({ code: 0, output: "a.txt" }),
   }, { text: "look", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] });
   assert.equal(r.status, "done");
-  // (And tool search's note on the chat's deferred tools, after the owner's message: tool-search.test.mjs.)
-  assert.deepEqual(seen, [2, 4], "the owner's message and the note, then the step and its answer");
+  // (And tool search's note on the chat's deferred tools, after the owner's message: tool-search.test.mjs; and auto mode's
+  // note, Claude Code's auto_mode, in the conversation since fix round 3.)
+  assert.deepEqual(seen, [3, 5], "the owner's message and the notes, then the step and its answer");
   const last = now();
-  assert.equal(last.length, 5);
+  assert.equal(last.length, 6);
   assert.equal(last[0].content, "look\n[1 picture attached]");
   assert.equal("images" in last[0], false);
   assert.deepEqual(last, r.messages, "the same as the history saved at the end");

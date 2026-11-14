@@ -43,7 +43,7 @@ async function loop(steps, opts = {}, { ask = PARK, deps = {} } = {}) {
 const takeUp = (first, answer, opts = {}, more = {}) => loop([say("Done.")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer }, ...opts }, { ask: NO_ASK, ...more });
 const tools = (r) => r.messages.filter((m) => m.role === "tool").map((m) => [m.tool_call_id, m.content]);
 
-test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code's for calls a stop cancelled); no Node module, and the machine's image copies it", () => {
+test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the answers each takes, where it was asked; Stop's words for the call and the round's later calls (Claude Code 2.1.325's for every call of a paused turn its Stop closes: REJECTED); the owner's next message's (CARD_CLOSED, raw binary); no Node module, and the machine's image copies it", () => {
   assert.equal(P.PARK_MS, 5 * 60 * 1000, "a few minutes, as Claude Code's idle VM");
   const rec = { pid: "p1abcdef", kind: "permission", site: "bash", call: { id: "b1", name: "bash", args: { command: "npm i" } }, rest: ["b2"], mode: "acceptEdits", told: "acceptEdits", rounds: 3, notes: ["n"], shown: [], at: 5 };
   const ok = P.parkRecord(rec);
@@ -66,8 +66,16 @@ test("CP1 the paused job's record (coder-park.mjs): a card of each kind, the ans
   const msgs = [{ role: "user", content: "go" }, { role: "assistant", content: "x", tool_calls: [{ id: "b0" }, { id: "b1" }, { id: "b2" }] }, { role: "tool", tool_call_id: "b0", content: "ran" }];
   assert.equal(P.parkedRound(msgs, rec).at, 1);
   const closed = P.closeParked(msgs, rec);
-  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: "stopped by the owner" }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }]);
-  assert.match(NOT_NOW, /^The owner doesn't want to take this action right now\. STOP what you are doing/);
+  assert.deepEqual(closed.slice(3), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }], "Claude Code's Stop on a paused card: its \"user-rejected\" words for every call of that turn");
+  assert.equal(REJECTED, "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.");
+  assert.notEqual(REJECTED, NOT_NOW);
+  // The owner's next message: Claude Code 2.1.325's words for it (its "new_input", raw binary), "owner" for "user".
+  assert.equal(P.CARD_CLOSED, "[Tool call not completed: an approval request was still unanswered when the message that follows arrived and was closed, so the action awaiting approval did not run. Nobody refused it, so this is not the owner's decision; ask again if it is still needed.]");
+  assert.deepEqual(P.closeParked(msgs, rec, P.CARD_CLOSED).slice(3).map((m) => [m.tool_call_id, m.content]), [["b1", P.CARD_CLOSED], ["b2", P.CARD_CLOSED]]);
+  assert.deepEqual([...P.CLOSED_BY_MESSAGE], ["permission"], "a permission card and the plan's; a question card's reply is its answer; the key and environment cards keep the message in line");
+  assert.deepEqual(P.closedEvents(rec, 9), [{ at: 9, type: "permanswer", pid: "p1abcdef", choice: "closed" }, { at: 9, type: "result", id: "b1", code: -1, ran: false, output: "Not run: you sent a new message before answering." }]);
+  assert.deepEqual(P.closedEvents({ pid: "p1abcdef", kind: "permission", site: "plan", call: "x1" }, 9).map((e) => e.type), ["permanswer"], "the plan's card has no step of its own");
+  assert.deepEqual(P.closedEvents({ pid: "bad" }), []);
   assert.equal(P.parkedRound(closed, rec), null, "closed: no round waits any more");
   assert.equal(P.closeParked(closed, rec), closed, "nothing to close twice");
   const at = 9;
@@ -128,16 +136,23 @@ test("CP3 the owner's answer, minutes or hours later, takes the turn up again at
   assert.equal(back.seen.length, 1, "Grok is asked only after the round");
   assert.deepEqual(back.ran, ["npm run lint", "npm run build"]);
   assert.deepEqual(back.hookCalls.map((x) => x.hook_event_name + ":" + x.tool_input.command), ["PostToolUse:npm run lint", "PreToolUse:npm run build", "PostToolUse:npm run build"], "the card's call: its PreToolUse and PermissionRequest hooks ran before its card, and not again");
-  assert.equal(tools(back.r).find(([id]) => id === "b1")[1], "ran: npm run lint\n\n(The owner approved this with a note: go ahead)");
+  // The owner's words with their Yes (fix round 3, 2026-11-14; Claude Code's acceptFeedback): not wrapped in a sentence, not in
+  // the result, but kept with it and given as their own text after the round's results.
+  const b1 = back.r.messages.find((m) => m.role === "tool" && m.tool_call_id === "b1");
+  assert.deepEqual([b1.content, b1.words], ["ran: npm run lint", "go ahead"]);
   // The chat: the answer, the call's result under its step (not a second step), the next step; the card never again.
   const ev = back.events.map((e) => e.type + ":" + (e.id || e.pid || ""));
   assert.deepEqual(ev.filter((x) => /^(permission|permanswer|bash|result)/.test(x)), ["permanswer:" + first.r.parked.pid, "result:b1", "bash:b2", "result:b2"]);
   // Grok gets the round whole, then answers.
   // (Less tool search's note on the chat's deferred tools, after the owner's first message: tool-search.test.mjs.)
   const sent = back.seen[0].messages.filter((m) => m.role !== "system" && !m.toolsAnnounced);
-  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "assistant:", "tool:b1", "tool:b2", "user:"]);
-  // (Then, as at any round, the mode the owner picked meanwhile, as Claude Code says a mode change.)
-  assert.equal(sent[4].content, A.modeChangeNote("acceptEdits", "auto"));
+  assert.deepEqual(sent.map((m) => m.role + ":" + (m.tool_call_id || "")), ["user:", "user:", "assistant:", "tool:b1", "tool:b2", "user:", "user:", "user:"]);
+  assert.equal(sent[1].modeNote, "acceptEdits", "the first job's note of its mode, in the conversation (never the system message)");
+  assert.deepEqual(sent[5], { role: "user", content: "go ahead" }, "the owner's words exactly as typed, right after the round's results");
+  assert.ok(sent.every((m) => !("words" in m)), "never sent as a field of the result");
+  // (Then, as at any round, the mode the owner picked meanwhile, as Claude Code says a mode change, and auto mode's note.)
+  assert.equal(sent[6].content, A.modeChangeNote("acceptEdits", "auto"));
+  assert.equal(sent[7].modeNote, "auto");
   // In Accept edits the second command asked; in the chat's Auto it ran at once: the card's mode was for its own call only.
   assert.equal(back.asked.length, 0);
   // "Yes, and don't ask again" saves its rule; "Yes, and switch to auto mode" switches, as on the card while the job ran.
@@ -256,7 +271,7 @@ test("CP7 what the job's start says while a round is taken up (a SessionStart ho
   assert.equal(odd.seen.length, 0);
   assert.ok(odd.events.some((e) => e.type === "error" && /could not take up your answer/.test(e.text)));
   const bad = await loop([say("never")], { text: "", messages: first.r.messages, takeUp: { ...first.r.parked, answer: { choice: "maybe" } } }, { ask: NO_ASK });
-  assert.deepEqual(tools(bad.r), [["b1", "stopped by the owner"]], "every call has its answer again");
+  assert.deepEqual(tools(bad.r), [["b1", REJECTED]], "every call has its answer again, in the words of Claude Code's Stop on a paused turn");
 });
 
 test("CP8 Coder's machine: a card's job pauses after its time with the card open (/state says which card waits; /answer says the job paused); a turn taken up again (resume) goes on from that call, with the messages that waited for the card; a bad resume is refused", async () => {
@@ -360,7 +375,7 @@ async function parked(kind = "permission", site = "bash", card = null) {
   return { w, s };
 }
 
-test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idle, parked and waiting; its record beside it; what was queued waits for the card); its answer starts the job that takes the turn up again (resume, the queue, no new Rewind mark); a message meanwhile is a question card's reply, or waits for the card; Stop, Rewind and Undo close the card as a Stop does; its background is not asked about", async () => {
+test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idle, parked and waiting; its record beside it; what was queued waits for the card); its answer starts the job that takes the turn up again (resume, the queue, no new Rewind mark); a message meanwhile is a question card's reply, or waits for the key or an environment card (a permission card's: CP12); Stop, Rewind and Undo close the card as Claude Code's Stop does; its background is not asked about", async () => {
   const { w, s } = await parked();
   assert.equal(s.data.running, false);
   const m = w.meta();
@@ -371,11 +386,14 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   // The chat list says so (the desktop app's notification).
   const list = (await w.go("projects")).data.projects.find((x) => x.id === w.id);
   assert.equal(list.waiting, "permission");
-  // A message meanwhile waits for the card, as one sent while Coder works; pictures, line comments, /compact can't.
-  const q = await w.go("projects/" + w.id + "/message", { method: "POST", body: JSON.stringify({ text: "also run the tests" }) });
+  // A message meanwhile, to the key card (or an environment card): it waits for the card, as one sent while Coder works;
+  // pictures, line comments, /compact can't. (To a permission card or the plan's, it closes the card: CP12.)
+  const kc = await parked("secret", "secret");
+  const q = await kc.w.go("projects/" + kc.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "also run the tests" }) });
   assert.deepEqual([q.status, q.data.queued, q.data.queue.map((x) => x.text)], [200, true, ["and fix what it finds", "also run the tests"]]);
-  assert.equal(w.turns().length, 0);
-  for (const body of [{ text: "/compact" }, { text: "x", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }]) assert.equal((await w.go("projects/" + w.id + "/message", { method: "POST", body: JSON.stringify(body) })).status, 409);
+  assert.equal(kc.w.turns().length, 0);
+  assert.equal(kc.w.meta().parked.pid, "p1abcdef", "the card still waits");
+  for (const body of [{ text: "/compact" }, { text: "x", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }]) assert.equal((await kc.w.go("projects/" + kc.w.id + "/message", { method: "POST", body: JSON.stringify(body) })).status, 409);
   // Its background is not asked about (its machine may have stopped).
   const bg = await w.go("projects/" + w.id + "/background");
   assert.deepEqual([bg.data.ok, bg.data.untold, bg.data.background], [true, 0, []]);
@@ -391,7 +409,7 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   const turn = w.turns()[0];
   assert.deepEqual([turn.text, turn.shown, turn.resume.pid, turn.resume.call.id, turn.resume.answer], ["", "", "p1abcdef", "b1", { choice: "yes", comment: "go" }]);
   assert.deepEqual(turn.messages, OPEN);
-  assert.deepEqual(turn.queued.map((x) => x.text), ["and fix what it finds", "also run the tests"]);
+  assert.deepEqual(turn.queued.map((x) => x.text), ["and fix what it finds"]);
   assert.deepEqual([w.meta().parked, w.meta().waiting, w.meta().marks], [null, null, marks], "no Rewind mark: no message of the owner's starts it");
   assert.equal(w.bucket.m.has(w.key("parked.json")), false);
   // A question card: a message is its reply ("replied_in_chat").
@@ -401,11 +419,12 @@ test("CP9 the Worker: a paused job is saved as waiting on its card (the chat idl
   const rt = qq.w.turns()[0];
   assert.deepEqual([rt.resume.answer.choice, rt.resume.answer.text], ["chat", "Use MySQL."]);
   assert.match(rt.resume.answer.qid, /^q[0-9a-z]{6,20}$/);
-  // Stop closes the card as a Stop on a waiting card does; what waited goes out next.
+  // Stop closes the card as Claude Code's Stop on a paused card does (its "user-rejected" words for every call of that turn);
+  // what waited goes out next.
   const st = await parked();
   const stop = await st.w.go("projects/" + st.w.id + "/stop", { method: "POST" });
   assert.deepEqual(stop.data, { ok: true, reload: true });
-  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: "stopped by the owner" }, { role: "tool", tool_call_id: "b2", content: NOT_NOW }]);
+  assert.deepEqual(st.w.json("messages.json").slice(2), [{ role: "tool", tool_call_id: "b1", content: REJECTED }, { role: "tool", tool_call_id: "b2", content: REJECTED }]);
   assert.deepEqual(st.w.json("events.json").slice(-3).map((e) => [e.type, e.pid || e.id || "", e.choice || e.output || ""]), [["permanswer", "p1abcdef", "stop"], ["result", "b1", "Not run: stopped."], ["stopped", "", ""]]);
   assert.equal(st.w.turns()[0].text, "and fix what it finds", "sent next, as after any job's end");
   assert.equal(st.w.turns()[0].resume, undefined);
@@ -474,7 +493,7 @@ test("CP10 the Worker's environment card answers (A5): approved while its step w
   assert.deepEqual(d.turns()[0].resume.answer, { choice: "no" });
 });
 
-test("CP11 the page: a card a paused job waits on stays live (permission, question, key and environment cards) and its answer follows the job that takes the turn up again; an environment card waits for its answer and shows how it ended; a message while a card other than a question waits goes to the queue", () => {
+test("CP11 the page: a card a paused job waits on stays live (permission, question, key and environment cards) and its answer follows the job that takes the turn up again; an environment card waits for its answer and shows how it ended; a message while the key card or an environment card waits goes to the queue; one while a permission or plan card waits goes out now and the card shows closed (fix round 3)", () => {
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
   // The key card (keyCardHTML): live while its paused job waits on it, and only that card.
@@ -505,8 +524,106 @@ test("CP11 the page: a card a paused job waits on stays live (permission, questi
   assert.match(ui, /if \(x\.pid && ENV_CARD_KINDS\.includes\(x\.kind\)\) \{\n\s+const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/envchange', \{ method: 'POST', body: JSON\.stringify\(\{ tool: x\.tool, args: x\.args, shown: x, pid: x\.pid \}\) \}\);/);
   assert.match(ui, /const r = await call\('\/projects\/' \+ encodeURIComponent\(S\.project\.id\) \+ '\/answer', \{ method: 'POST', body: JSON\.stringify\(\{ pid: x\.pid, choice: 'no' \}\) \}\);/);
   assert.match(ui, /const live = e\.pid \? \(S\.running \|\| !!\(S\.project && S\.project\.parked && S\.project\.parked\.pid === e\.pid\)\) && !ans : !S\.running && !S\.events\.slice\(i \+ 1\)\.some\(\(x\) => x\.type === 'user'\);\n\s+const host = e\.kind === 'allow_host'/);
-  // A message while a card other than a question waits: to the queue (the Worker keeps it for the card's turn).
-  assert.match(ui, /const parkedWait = !S\.running && !GLOOPY && S\.project && S\.project\.parked && S\.project\.parked\.kind !== 'question';\n\s+if \(S\.running \|\| parkedWait\) \{/);
+  // A message while the key card or an environment card waits: to the queue (the Worker keeps it for the card's turn). While a
+  // question card waits it is the reply; while a permission card or the plan's waits, it goes out now and closes the card.
+  assert.match(ui, /const parkedWait = !S\.running && !GLOOPY && S\.project && S\.project\.parked && !\['question', 'permission'\]\.includes\(S\.project\.parked\.kind\);\n\s+if \(S\.running \|\| parkedWait\) \{/);
+  // The card the message closed is drawn closed at once, before the message (or after a start that failed); a start that
+  // took the messages waiting in line with it loads the chat, as after a job's end.
+  assert.match(ui, /const closed = r\.data && Array\.isArray\(r\.data\.closed\) \? r\.data\.closed : \[\];\n\s+if \(closed\.length && S\.project\) S\.project = \{ \.\.\.S\.project, parked: null, waiting: null \};\n\s+if \(r\.status !== 200\) \{\n\s+S\.events = S\.events\.slice\(0, base\)\.concat\(closed\);/);
+  assert.match(ui, /if \(r\.data\.reload && r\.data\.project\) \{ S\.events = S\.events\.slice\(0, base\); S\.project = r\.data\.project; syncEntry\(\); return reloadChat\(r\.data\.project\.id\); \}\n\s+if \(closed\.length\) S\.events\.splice\(base, 0, \.\.\.closed\);/);
+  // How a closed card reads: no longer answerable, and why.
+  const pd = ui.indexOf("  function permDone(e, ans) {"), pe = ui.indexOf("\n  }\n", pd);
+  const permDone = new Function("esc", "ruleShown", ui.slice(pd, pe + 4) + "\nreturn permDone;")(esc, (r) => r);
+  assert.equal(permDone({ tool: "bash" }, { choice: "closed" }), '<span class="cd-perm-no">Closed</span> · you sent a new message before answering');
+  assert.equal(permDone({ tool: "plan" }, { choice: "closed" }), '<span class="cd-perm-no">Closed</span> · you sent a new message before answering');
+  assert.equal(permDone({ tool: "bash" }, { choice: "stop" }), '<span class="cd-perm-no">Stopped</span>');
   // The step its card waits on shows as waiting, not as cut off.
   assert.match(ui, /waitingIds\.has\(e\.id\) && S\.project && S\.project\.parked && S\.project\.parked\.call === e\.id \? 'wait' : 'gone'/);
+});
+
+test("CP12 fix round 3 (T1): the owner's next message to a paused permission or plan card closes it, as Claude Code 2.1.325's cloud does (its \"new_input\": the card withdrawn, every call of that round told \"[Tool call not completed: … the message that follows arrived and was closed …]\"), and is answered at once; what waited in line goes first, in the order typed; a start that fails leaves the card closed and says so; not a job from GitHub", async () => {
+  const CLOSED_LINE = "Not run: you sent a new message before answering.";
+  const closedRound = [...OPEN, { role: "tool", tool_call_id: "b1", content: P.CARD_CLOSED }, { role: "tool", tool_call_id: "b2", content: P.CARD_CLOSED }];
+  // Nothing waiting in line: the card closes, and the message starts its job now.
+  const a = await parked();
+  await a.w.bucket.put(a.w.key("queue.json"), "[]");
+  const marks = a.w.meta().marks;
+  const r = await a.w.go("projects/" + a.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "skip the lint, just build", mid: "m1closed01" }) });
+  assert.deepEqual([r.status, r.data.ok, r.data.project.status, r.data.queued], [200, true, "running", undefined]);
+  assert.deepEqual(r.data.closed.map((e) => [e.type, e.pid || e.id, e.choice || e.output]), [["permanswer", "p1abcdef", "closed"], ["result", "b1", CLOSED_LINE]], "the page draws the card closed at once");
+  assert.deepEqual([a.w.meta().parked, a.w.meta().waiting], [null, null]);
+  assert.equal(a.w.bucket.m.has(a.w.key("parked.json")), false);
+  assert.deepEqual(a.w.json("messages.json"), closedRound, "every call of the round has its answer: Claude Code's words for it");
+  assert.deepEqual(a.w.json("events.json").slice(-2).map((e) => [e.type, e.choice || e.output]), [["permanswer", "closed"], ["result", CLOSED_LINE]]);
+  const t = a.w.turns()[0];
+  assert.deepEqual([t.text, t.resume, t.queued], ["skip the lint, just build", undefined, undefined], "a job of its own, with the owner's message: no turn taken up");
+  assert.deepEqual(t.messages, closedRound);
+  assert.equal(a.w.meta().marks.length, marks.length + 1, "the owner's message: a new Rewind mark");
+  // The same message again (a browser sends it twice): answered as its first copy was.
+  const again = await a.w.go("projects/" + a.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "skip the lint, just build", mid: "m1closed01" }) });
+  assert.deepEqual([again.status, a.w.turns().length], [200, 1]);
+  // What waited in line for the card goes first, in the order typed, this message with it; the page loads the chat.
+  const b = await parked();
+  const rb = await b.w.go("projects/" + b.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "also run the tests" }) });
+  assert.deepEqual([rb.status, rb.data.reload, rb.data.queue], [200, true, []]);
+  assert.equal(b.w.turns()[0].text, "and fix what it finds\n\nalso run the tests");
+  assert.deepEqual(b.w.turns()[0].messages, closedRound);
+  assert.deepEqual(b.w.json("queue.json"), []);
+  // The plan's card: closed the same way; it has no step of its own to mark.
+  const pl = await parked("permission", "plan");
+  await pl.w.bucket.put(pl.w.key("queue.json"), "[]");
+  const rp = await pl.w.go("projects/" + pl.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "Actually, plan the checkout too." }) });
+  assert.deepEqual([rp.status, rp.data.closed.map((e) => e.type)], [200, ["permanswer"]]);
+  assert.equal(pl.w.turns()[0].messages.at(-2).content, P.CARD_CLOSED);
+  // Pictures too (not in line: they go now, and what waited goes after this job, as at any job's end).
+  const pc = await parked();
+  const rc = await pc.w.go("projects/" + pc.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "like this", images: [{ type: "image/png", data: "iVBORw0KGgo=" }] }) });
+  assert.deepEqual([rc.status, pc.w.turns()[0].images.length, pc.w.json("queue.json").map((x) => x.text)], [200, 1, ["and fix what it finds"]]);
+  // A start that fails after the card closed: the card stays closed (the page is told), the message is given back.
+  const f = await parked();
+  await f.w.bucket.put(f.w.key("queue.json"), "[]");
+  const { forgetConnection } = await import("../src/coder-github.mjs");
+  await forgetConnection(f.w.bucket, f.w.uid);
+  const rf = await f.w.go("projects/" + f.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "go on" }) });
+  assert.deepEqual([rf.status, rf.data.connect, rf.data.closed.map((e) => e.type)], [409, true, ["permanswer", "result"]]);
+  assert.deepEqual([f.w.meta().parked, f.w.meta().status, f.w.turns().length], [null, "idle", 0]);
+  // Not a job from GitHub (strangers write there): the card still waits for the owner, as before.
+  const g = await parked();
+  const rg = await g.w.go("projects/" + g.w.id + "/message", { method: "POST", body: JSON.stringify({ text: "@coder do it", fromGithub: true }) });
+  assert.equal(rg.status, 409);
+  assert.equal(g.w.meta().parked.pid, "p1abcdef");
+  // While its job still runs, Claude Code keeps the card and the message waits in line (its live prompt is closed by no
+  // message): Coder's queue, as before (the running job reads it when its tool calls finish).
+  const live = await worker({ status: "running" });
+  live.mc.running = true;
+  const rl = await live.go("projects/" + live.id + "/message", { method: "POST", body: JSON.stringify({ text: "and then deploy" }) });
+  assert.deepEqual([rl.status, rl.data.queued], [200, true]);
+  assert.deepEqual(live.toMachine.filter((x) => x.p === "/queue").map((x) => x.body.text), ["and then deploy"]);
+});
+
+test("CP13 fix round 3 (T3): the owner's words with a Yes go to Grok exactly as typed, as their own text after the round's results (Claude Code 2.1.325: a Yes's \"acceptFeedback\" is a text of its own after the call's result, and its API takes a message's results first, its texts after them); kept with the call's result in the chat, never wrapped in a sentence; Gloopy's keep their own", async () => {
+  const round = [{ role: "user", content: "go" }, { role: "assistant", content: "", tool_calls: [{ id: "b1" }, { id: "b2" }] }, { role: "tool", tool_call_id: "b1", content: "ran 1", words: "only the cart ones" }, { role: "tool", tool_call_id: "b2", content: "ran 2", words: "" }, { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: x)" }];
+  assert.deepEqual(P.wordsAfterResults(round), [round[0], round[1], { role: "tool", tool_call_id: "b1", content: "ran 1" }, { role: "tool", tool_call_id: "b2", content: "ran 2" }, { role: "user", content: "only the cart ones" }, round[4]]);
+  const plain = [{ role: "user", content: "go" }];
+  assert.equal(P.wordsAfterResults(plain), plain, "nothing to move: the same list");
+  // A round at the end of the chat: the words still come after its last result.
+  assert.deepEqual(P.wordsAfterResults(round.slice(0, 3)).at(-1), { role: "user", content: "only the cart ones" });
+  // In the loop: a Yes with words on a command's card (the job still running).
+  const t = await loop([say("", [call("bash", { command: "npm run lint", description: "Lint" }, "b1"), call("bash", { command: "npm run build", description: "Build" }, "b2")]), say("Done.")], {}, { ask: async () => ({ choice: "yes", comment: "only the cart ones" }) });
+  const b1 = t.r.messages.find((m) => m.role === "tool" && m.tool_call_id === "b1");
+  assert.deepEqual([b1.content, b1.words], ["ran: npm run lint", "only the cart ones"]);
+  assert.doesNotMatch(JSON.stringify(t.r.messages), /approved this with a note/);
+  const sent = t.seen[1].messages;
+  const last = sent.findIndex((m) => m.role === "tool" && m.tool_call_id === "b2");
+  assert.deepEqual(sent[last + 1], { role: "user", content: "only the cart ones" });
+  assert.ok(sent.every((m) => !("words" in m)));
+  // Its PostToolUse hooks get the call's own result, without the owner's words (Claude Code's tool_response).
+  const hooks = H.hooksFrom({ hooks: { PostToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "post.sh" }] }] } }, "settings").list;
+  const h = await loop([say("", [call("bash", { command: "npm run lint", description: "Lint" }, "b1")]), say("Done.")], { hooks }, { ask: async () => ({ choice: "yes", comment: "only the cart ones" }) });
+  assert.equal(h.hookCalls.find((x) => x.hook_event_name === "PostToolUse").tool_response.output, "ran: npm run lint");
+  // "Don't ask again" and "switch to auto mode" take no words, as before.
+  const al = await loop([say("", [call("bash", { command: "npm run lint", description: "Lint" }, "b1")]), say("Done.")], {}, { ask: async () => ({ choice: "always", comment: "ignored" }) });
+  assert.equal(al.r.messages.find((m) => m.role === "tool").words, undefined);
+  // Gloopy's own sentence stays as it was (Gloopy is unchanged).
+  assert.match(readFileSync(HERE("container/coder-agent.mjs"), "utf8"), /if \(offered\) return "\\n\\n\(The owner approved this with a note: " \+ a\.comment \+ "\)";/);
 });
