@@ -17,8 +17,10 @@ import { checkInput as checkLspInput } from "./coder-lsp.mjs";
 import { checkInput as checkWebFetchInput } from "./coder-webfetch.mjs";
 import { checkInput as checkWebSearchInput } from "./coder-websearch.mjs";
 import { checkAskUserInput } from "./coder-askuser.mjs";
+// (Claude Code's environment tools, 2026-11-14: their form is checked before any hook, the rest by Coder's server; coder-envtools.mjs.)
+import { ENV_INPUT_CHECKS } from "./coder-envtools.mjs";
 
-export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLspInput, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput };
+export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLspInput, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, ...ENV_INPUT_CHECKS };
 
-/** A tool's input check, when it has one (only these tools do). */
+/** A tool's input check, when it has one (these six tools, and the four environment tools). */
 export const inputCheckFor = (name) => (Object.prototype.hasOwnProperty.call(INPUT_CHECKS, name) && typeof INPUT_CHECKS[name] === "function" ? INPUT_CHECKS[name] : null);

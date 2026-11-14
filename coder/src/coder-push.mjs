@@ -174,7 +174,7 @@ export function pushesFor(events, meta, now = Date.now()) {
     // ITS MONITOR PAUSED A RUN (2026-11-10): the owner reviews it and says how to carry on.
     else if (e.type === "paused") out.push({ kind: "actions", title: who + " paused a task" + tail, body: String(e.why || "Something in it looked wrong.") });
     else if (e.type === "secret") out.push({ kind: "actions", title: who + " needs a key" + tail, body: "For " + String(e.host || "a site") + (e.reason ? ": " + e.reason : "") });
-    else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.reason || (e.host ? "Allow " + e.host : "A new setup") });
+    else if (e.type === "envchange") out.push({ kind: "actions", title: who + " asks to change the environment" + tail, body: e.summary || e.reason || (e.host ? "Allow " + e.host : "A new setup") }); // (summary: Claude Code's environment tools' cards, 2026-11-14)
     else if (e.type === "writeask") out.push({ kind: "actions", title: who + " asks to change a protected file" + tail, body: "Allow it to change " + String(e.path || "a file") + "?" });
     // A COMMAND'S CARD (tool 4): one that writes a protected file, or one over 10,000 characters.
     else if (e.type === "runask") out.push({ kind: "actions", title: who + " asks to run a command" + tail, body: Array.isArray(e.paths) && e.paths.length ? "It would change " + e.paths.slice(0, 3).map(String).join(", ") + "." : "It is over 10,000 characters." });

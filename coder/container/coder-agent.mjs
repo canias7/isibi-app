@@ -40,6 +40,7 @@ import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMax
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems } from "./coder-tasks.mjs";
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite } from "./coder-askuser.mjs";
 import { webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
+import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
@@ -1137,14 +1138,14 @@ const FILE_PATH = { type: "string", description: "the file's full path (best, as
 /**
  * CLAUDE CODE'S request_credential, AS CODER'S request_secret (the owner, 2026-11-14: "Do all the talk to you tools execpt for
  * the notify one"; its definition in a Claude Code cloud session, read 2026-11-14): its description and its inputs'
- * descriptions word for word, with Coder for Claude, the owner for the user, a chat for a session, propose_env for its
- * environment tools (get_environment, the allowed hosts) and the line Coder's proxy blocks with for its own ("request blocked:
- * no rule allows host"). Left out: "including other people's sessions when the environment is shared", as Coder's
+ * descriptions word for word, with Coder for Claude, the owner for the user, a chat for a session (its environment tools,
+ * get_environment and the allowed hosts, have Claude Code's own names in Coder since 2026-11-14: coder-envtools.mjs), and the
+ * line Coder's proxy blocks with for its own ("request blocked: no rule allows host"). Left out: "including other people's sessions when the environment is shared", as Coder's
  * environments are the owner's alone; "GitHub (use the repository tools)" names how Coder reaches GitHub instead. (CODER_SYSTEM's
  * API KEYS line, below, now says the same after a decline: "tell them the credential can be added in the environment's
  * settings".)
  */
-export const SECRET_WORDS ="Ask the owner for an API credential for a host. Ask as soon as you know the work needs a key for a host, before any call to the host fails: when the owner or setup docs say a token or API key is needed, or when the work must make real calls to an API that no connector covers and you hold no key for, even if the network policy also blocks its host. Also ask when an HTTPS request fails with 401/403 for lack of credentials. Ask before you report no access or put made-up responses in the API's place. This is the preferred way to give a chat access to an API that needs a token or API key, rather than asking the owner to put one in an environment variable. Never ask the owner to paste secrets into the chat; where you would tell them not to, call this instead. Calling this shows the owner a secure form. A credential they save is stored on this chat's environment, and the network proxy injects it into requests to that host from every chat in that environment: this chat usually within a few seconds, and later chats. Saving it also allows HTTPS requests to that host from those chats, so do not add the host to the environment's allowed hosts for it (propose_env's allow_host). If propose_env is among your tools, first make the move its description calls for, unless the owner asked for the credential here. If the credential will be saved on the owner's Default all the same, because the chat has no repository or could not be moved, say so in your message, then call this tool, and do not propose a move for a credential again in this chat. If the owner declined the move, call this tool only if they then ask for the credential. You never receive the value — the result only says whether a credential is now configured, and if not, why. If the call itself is denied, because the owner declined or because the app they are using cannot show the form, no result comes back: do not call this again for that host, and tell them the credential can be added in the environment's settings, then retry the failing request once it has been. After `saved`, retry the failing request right away. Until the proxy picks the credential up, the request can still fail with 401/403 or with `Blocked by this repo's network list`: if it is refused again with one of those, wait about a minute and retry once more rather than change network settings. Do not wait for the proxy after a timeout or any other error. This cannot help with secrets that must exist inside the sandbox (database passwords, container registry pulls, SSH keys), GitHub (git and gh reach it through Coder's GitHub proxy), or public package registries the proxy does not handle. A local key check is no reason to skip this tool. If a CLI or SDK will not start without a key and sends it in a header, give it a dummy value in the format it expects for that command, never a real one: the proxy replaces it.";
+export const SECRET_WORDS ="Ask the owner for an API credential for a host. Ask as soon as you know the work needs a key for a host, before any call to the host fails: when the owner or setup docs say a token or API key is needed, or when the work must make real calls to an API that no connector covers and you hold no key for, even if the network policy also blocks its host. Also ask when an HTTPS request fails with 401/403 for lack of credentials. Ask before you report no access or put made-up responses in the API's place. This is the preferred way to give a chat access to an API that needs a token or API key, rather than asking the owner to put one in an environment variable. Never ask the owner to paste secrets into the chat; where you would tell them not to, call this instead. Calling this shows the owner a secure form. A credential they save is stored on this chat's environment, and the network proxy injects it into requests to that host from every chat in that environment: this chat usually within a few seconds, and later chats. Saving it also allows HTTPS requests to that host from those chats, so do not add the host to the environment's allowed hosts for it. If get_environment is among your tools, first make the move its description calls for, unless the owner asked for the credential here. If the credential will be saved on the owner's Default all the same, because the chat has no repository or could not be moved, say so in your message, then call this tool, and do not propose a move for a credential again in this chat. If the owner declined the move, call this tool only if they then ask for the credential. You never receive the value — the result only says whether a credential is now configured, and if not, why. If the call itself is denied, because the owner declined or because the app they are using cannot show the form, no result comes back: do not call this again for that host, and tell them the credential can be added in the environment's settings, then retry the failing request once it has been. After `saved`, retry the failing request right away. Until the proxy picks the credential up, the request can still fail with 401/403 or with `Blocked by this repo's network list`: if it is refused again with one of those, wait about a minute and retry once more rather than change network settings. Do not wait for the proxy after a timeout or any other error. This cannot help with secrets that must exist inside the sandbox (database passwords, container registry pulls, SSH keys), GitHub (git and gh reach it through Coder's GitHub proxy), or public package registries the proxy does not handle. A local key check is no reason to skip this tool. If a CLI or SDK will not start without a key and sends it in a header, give it a dummy value in the format it expects for that command, never a real one: the proxy replaces it.";
 export const SECRET_INPUTS = Object.freeze({
   host: { type: "string", description: "The exact hostname the credential is for, e.g. \"api.example.com\". Lowercase DNS name only — no scheme, path, port, IP address or wildcard. Shown to the owner in the form." },
   reason: { type: "string", description: "One or two sentences: which request failed or which step needs the credential, and what it unblocks. The form may not show this, so say in your message, before you call, which network secret you need, for which host, and why. The secret's value is entered only in the form, never in chat. Plain text only: no URLs, links or markup (name the host instead)." },
@@ -1221,7 +1222,10 @@ export const CODER_TOOLS = Object.freeze([
   fn("stop_job", "Stop a background command by its id (like Claude Code's TaskStop), when it is no longer needed.", { job: { type: "string" } }, ["job"]),
   // (Claude Code's request_credential: SECRET_WORDS and SECRET_INPUTS, above. The owner, 2026-11-14.)
   fn("request_secret", SECRET_WORDS, SECRET_INPUTS, ["host", "reason"]),
-  fn("propose_env", "Propose a change to this chat's environment (like Claude Code's: named, picked when the chat started, and used by every chat that picks it), or a new environment; the owner approves or declines it on a card, and your turn ends there (their answer is the next message). kind setup_script: the WHOLE new setup script (it runs once per machine before you start; it cannot read the owner's variables or keys). System packages: plain lines like `apt-get install -y jq` (Coder's app installs those as admin); every other line runs as your own user without root, so no other sudo or admin commands; install the rest into the project (npm ci, a Python virtualenv). Like Claude Code: only add lines you ran yourself in this chat and saw work (exit code 0); for an apt package, check it exists first with apt-cache policy <name>. Use it to keep an install you needed (e.g. add `npm ci`), or to fix a setup script that failed. kind allow_host: one exact host to add to the environment's network list, when a request was blocked by it. kind new_environment (like Claude Code): a NEW environment with a name (usually the repo's), a network level and a setup script, for what only this repo needs when this chat uses the Default environment (which chats in all the owner's repos use); this chat keeps its environment, and new chats of this repo start with the new one; the same rules for its script. Never change these any other way.", { kind: { type: "string", enum: ["setup_script", "allow_host", "new_environment"] }, script: { type: "string", description: "setup_script / new_environment: the whole script" }, host: { type: "string", description: "allow_host: e.g. api.example.com" }, name: { type: "string", description: "new_environment: its name, e.g. the repo's name" }, network: { type: "string", enum: ["none", "limited", "full"], description: "new_environment: network level: none, limited (package registries, GitHub and cloud tools) or full (default limited)" }, reason: { type: "string", description: "one sentence: why" } }, ["kind", "reason"]),
+  // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; its cloud
+  // tools get_environment, update_environment, create_environment and switch_environment, read in a Claude Code cloud session
+  // that day): they took the place of propose_env (coder-envtools.mjs).
+  ...ENV_TOOLS,
   fn("review", "Review the changes on this chat's branch (against the base branch, plus anything not saved yet): returns the diff and the checklist to follow. kind code: bugs, edge cases, missing tests. kind security: injection, secrets, auth, XSS, SSRF... Use it when the owner asks for a review or a security review; then answer with findings only and change nothing.", { kind: { type: "string", enum: ["code", "security"] } }, ["kind"]),
   // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
@@ -1412,7 +1416,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, planFile = 
 // A JOB STARTED FROM GITHUB (@coder, auto-fix) IS NOT OFFERED WHAT IT MAY NOT DO THERE (live test, 2026-11-08:
 // asked on GitHub to undo, Coder first asked which job, then found undo refused). Like Claude Code's GitHub
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", "propose_env", "pr_comments", "undo_last_job", "auto_fix"]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1521,7 +1525,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - THE OWNER'S STYLE, when it is given to you below, overrides the default above: follow it in every answer, as if they just asked for it.
 - While working, a short line before a group of steps says what you are doing; no running commentary on every command.
 - API KEYS: when the work needs real calls to an API that needs a key (Stripe, OpenAI, ...) and no NETWORK SECRET is saved for its host, call request_secret for that exact host RIGHT AWAY (e.g. api.stripe.com, prefix Bearer). Do not tell the owner to export a variable, add it to the Environment panel, or set it up some other way: the card IS how they give you a key (only after they decline it, tell them it can be added in the environment's settings, as request_secret's description says). Never ask the owner to paste a key into the chat; if they do, tell them to roll it. With a secret saved, call the host with no key in the command (the proxy adds it); only commands that honour HTTPS_PROXY get it (curl, Python, git; Node 22 fetch with NODE_USE_ENV_PROXY). After the owner saves a key on the card and you have used it, tell them in one line, like Claude Code, that it is saved on this chat's environment (every chat using it gets it) and only sent to that host, and that they can remove it in Environment → Network secrets.
-- THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with propose_env, which the owner approves on a card. If it is the Default environment (chats in all the owner's repos use it), what only this repo needs (its own setup script) goes in a NEW environment instead (kind new_environment, named after the repo), like Claude Code; changes every chat would want (a common package site) may go on Default. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) when a request was "Blocked by this repo's network list" (the environment's list) (curl shows it as "CONNECT tunnel failed, response 403"), propose allow_host for that exact host. Apart from (b), never tell the owner to edit settings themselves instead.
+- THIS CHAT'S ENVIRONMENT (like Claude Code's: named, picked before the chat's first message, used by every chat that picks it; network list, keys, setup script, variables) is changed only with update_environment, create_environment or switch_environment, like Claude Code's, which the owner approves on a card; get_environment looks it up, and its description says when to propose a change and where it belongs. (a) when you had to install something the project needs every time (npm ci, pip install -r requirements.txt...), finish the task, then propose the whole setup script with that line added; only lines you ran yourself in this chat and saw work, like Claude Code; (b) when THE SETUP SCRIPT FAILED, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script); if you have a fix you ran yourself and saw work, propose it at the end of your work; carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless they ask; (c) when a request was "Blocked by this repo's network list" (the environment's list) (curl shows it as "CONNECT tunnel failed, response 403"), propose adding that exact host (update_environment, add_allowed_hosts). Apart from (b), never tell the owner to edit settings themselves instead.
 - When a choice is open, make the sensible one yourself and say which. Only when you truly cannot go on without the owner, use ask_user: 1 to 4 questions in one card, each with 2 to 4 options.
 - To finish, stop calling tools and answer in words. That answer ends your turn. If something cannot be done, say so plainly, with why.
 - If you are told the owner is coming back after a break, start your answer with a one-line recap of where this chat stands (under 400 characters), then answer.`;
@@ -3027,7 +3031,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       setupNudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
       const why = setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code;
-      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nLike Claude Code: before you finish, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose the whole fixed script with propose_env (kind setup_script); if not, don't propose one. Never stand in for what it failed to set up with made-up results.)" });
+      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: the repo's setup script FAILED before this job (" + why + "). Its last output:\n" + String(setupFailed.output || "(none)").slice(-1500) + "\nLike Claude Code: before you finish, tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose the whole fixed script with update_environment (setup_script, script_change \"replaces the existing setup script\"); if not, don't propose one. Never stand in for what it failed to set up with made-up results.)" });
       continue;
     }
     const mine = convo.filter((m) => m && ((m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.some((tc) => tc && jobCalls.has(tc.id))) || (m.role === "tool" && jobCalls.has(m.tool_call_id))));
@@ -3035,7 +3039,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!calls.length && nudges && missing.length && !nudged && !github && !undoRequest) {
       nudged = true;
       if (said) { emit({ type: "text", text: scrub(said) }); lastSaid = scrub(said).slice(0, 4000); }
-      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + " and it worked, and this chat's environment has no setup script. If every new chat will need it, propose a setup script with it, using propose_env (kind setup_script; or kind new_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
+      convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: this job ran " + missing.map((x) => "`" + x + "`").join(", ") + " and it worked, and this chat's environment has no setup script. If every new chat will need it, propose a setup script with it, where get_environment's description puts it (update_environment, or create_environment if this chat uses the Default environment and only this repo needs it). If not, just say you are done.)" });
       continue;
     }
     // A CONNECTOR CALL STILL RUNNING IN THE BACKGROUND: its answer is waited for and given to Coder before the turn ends.
@@ -3176,9 +3180,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         try { v = inputCheck(c.args, { github: !!github, who, webFetchOff: webFetch.off }); } catch (e) { v = { error: "error: " + String((e && e.message) || e).slice(0, 300) }; }
         if (v && typeof v.error === "string") {
           const what = RUN_TOOLS[c.name];
-          // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call.)
+          // (A refusal marked quiet shows no step: ask_user's, as Claude Code shows no line for that tool's call. A tool with no
+          // step of its own, as the environment tools, shows its name once, with nothing after it.)
           if (!v.quiet) {
-            emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: scrub(String(what ? what.label(c.args) : c.name)).slice(0, 300) });
+            emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: what ? scrub(String(what.label(c.args))).slice(0, 300) : "" });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
           }
           reply(v.error);
@@ -3788,20 +3793,33 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         convo.push({ role: "assistant", content: "Undoing the last job." });
         emit({ type: "text", text: "Undoing the last job." });
         return end("done", { summary: "undo the last job" });
-      } else if (c.name === "propose_env") {
-        // AN ENVIRONMENT CHANGE, APPROVED BY THE OWNER ON A CARD (owner, 2026-11-06, like Claude Code).
-        if (github) { reply("error: environment changes cannot be proposed in a job started from GitHub; mention it in your answer instead"); continue; }
-        const kind = String(c.args.kind || "");
-        const reason = scrub(String(c.args.reason || "")).trim().slice(0, 300);
-        let change = null;
-        if (kind === "setup_script" || kind === "new_environment") {
-          const script = String(c.args.script || "").replace(/\r/g, "").trim();
-          const envName = String(c.args.name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40);
-          if (kind === "new_environment" && !envName) { reply("error: give the new environment a name (usually the repo's name), up to 40 characters"); continue; }
-          if (kind === "new_environment" && !script) { reply("error: give the new environment's whole setup script"); continue; }
-          if (!script || script.length > 20000) { reply("error: give the whole new setup script (under 20000 characters)"); continue; }
-          // SYSTEM PACKAGES (owner, "1"): plain `apt-get install -y …` lines are done by
-          // Coder's app as root; every other line runs as `dev`, so no other admin command.
+      } else if (ENV_TOOL_NAMES.includes(c.name)) {
+        // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+        // coder-envtools.mjs). get_environment answers at once, from Coder's server (the environment as it is now, never a value);
+        // update_environment, create_environment and switch_environment are checked there too, then shown to the owner on a
+        // card, and the turn ends (Claude Code: "Calling this tool IS the request for permission"; all of Coder's cards end the
+        // turn, the owner's answer being the next message).
+        if (github) { reply("error: the environment cannot be looked up or changed in a job started from GitHub; mention it in your answer instead"); continue; }
+        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached" + (c.name === "get_environment" ? "" : "; nothing was proposed")); continue; }
+        const ask = async (body) => { try { return (await deps.envApi(body)) || {}; } catch { return { error: "error: Coder's server could not be reached" }; } };
+        if (c.name === "get_environment") {
+          const id = typeof c.args.environment_id === "string" && c.args.environment_id.trim() ? c.args.environment_id.trim() : "";
+          emit({ type: "bash", id: c.id, tool: "environment", verb: "Looked up", command: id ? "environment " + scrub(id).slice(0, 60) : "this chat's environment" });
+          const r = await ask({ action: "get", ...(id ? { environment_id: id } : {}) });
+          const text = typeof r.text === "string" ? r.text : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
+          emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: scrub(text).slice(0, 4000) });
+          reply(text);
+          continue;
+        }
+        // COMPARED WITH THE ENVIRONMENT AS IT IS NOW, by Coder's server (Claude Code: "the call is rejected if they do not match").
+        const r = await ask({ action: "check", tool: c.name, args: c.args });
+        if (!r.card || typeof r.card !== "object") { reply(typeof r.error === "string" ? r.error : "error: Coder's server did not answer; nothing was proposed"); continue; }
+        // A SETUP SCRIPT'S RULES ON CODER'S MACHINE (kept from propose_env, owner "1" and "3", 2026-11-06): plain `apt-get
+        // install -y …` lines are done by Coder's app as root, every other line runs as `dev`; the packages must exist; and
+        // only lines Coder ran itself in this chat and saw work (Claude Code: "Lines you add must be commands you ran yourself
+        // in this session and saw work").
+        const script = typeof c.args.setup_script === "string" && c.args.script_change !== "removes the setup script" ? c.args.setup_script : "";
+        if (script.trim()) {
           const parts = splitSetup(script), had = splitSetup(setupScript);
           if (NEEDS_ROOT_RE.test(parts.script)) { reply("error: only plain lines like `apt-get install -y jq` (or `sudo apt-get update && sudo apt-get install -y jq`) can install system packages: Coder's app runs those as admin. Every other line runs as your own user without root, so other sudo or admin commands (and apt inside if/for or mixed with other commands) cannot work. This machine already has git, build tools, Python 3 with pip and venv, Node 22 with npm, curl, jq, ripgrep, zip and unzip. Put packages on their own apt-get install line, install the rest into the project (npm ci, a Python virtualenv), then propose the script again."); continue; }
           // THE PACKAGES MUST EXIST (checked here, since you cannot install them yourself).
@@ -3812,21 +3830,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             const missingPkgs = String((pk && pk.output) || "").split("\n").filter((l) => l.startsWith("missing:")).map((l) => l.slice(8));
             if (missingPkgs.length) { reply("error: no such system package: " + missingPkgs.join(", ") + ". Find the right name with apt-cache search <word>, then propose the script again."); continue; }
           }
-          // ONLY LINES YOU RAN AND SAW WORK (owner, "3", Claude Code's rule for its own setup scripts).
           const tried = triedCommands(convo);
           const untried = newSetupLines(parts.script, had.script).filter((l) => !tried.some((c) => c.includes(l)));
           if (untried.length) { reply("error: like Claude Code, only add setup lines you ran yourself in this chat and saw work (exit code 0). Not run yet: " + untried.slice(0, 5).map((l) => "`" + l.slice(0, 120) + "`").join(", ") + ". Run them with bash first (the whole new script in one command is fine), then propose the script again."); continue; }
-          // (Limited, Claude Code's name for it now, is saved as "trusted": package managers allowed, no domains of its own.)
-          change = kind === "new_environment" ? { kind, name: envName, network: { none: "none", full: "full" }[c.args.network] || "trusted", script } : { kind, script };
-        } else if (kind === "allow_host") {
-          const host = okHost(c.args.host);
-          if (!host) { reply("error: give one exact public host name like api.example.com (no https://, path, IP address or wildcard)"); continue; }
-          change = { kind, host };
-        } else { reply("error: kind is setup_script, allow_host or new_environment"); continue; }
-        reply("proposed to the owner; their answer is the next message");
+        }
+        reply("proposed to the owner on a card; their answer is the next message");
         for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: you proposed an environment change first" });
-        emit({ type: "envchange", ...change, reason });
-        return end("done", { summary: lastSaid || (kind === "allow_host" ? "asked to allow " + change.host : kind === "new_environment" ? "proposed a new environment, " + change.name : "proposed a new setup script") });
+        emit({ ...r.card, type: "envchange" });
+        return end("done", { summary: lastSaid || String(r.card.summary || "proposed an environment change").slice(0, 300) });
       } else if (c.name === "ask_user") {
         // CODER'S QUESTIONS (Claude Code's AskUserQuestion; the owner, 2026-11-14: "Do all the talk to you tools execpt for the
         // notify one"; before, up to 4 in one card, owner pick 4, 2026-11-08): Coder's already read as Claude Code's schema
@@ -5075,7 +5086,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, propose_env, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }
     await runPost();
     if (hookStop) return stopByHook(hookStop);

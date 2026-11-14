@@ -577,6 +577,7 @@
 .cd-ne-sec small { display: block; font-size: 12.5px; color: #6b6a66; margin-bottom: 4px; }
 .cd-ne-sec > div { font-size: 13.5px; color: #1f1e1d; }
 .cd-ne-plus { color: #1a7f37; font-weight: 700; margin-right: 8px; }
+.cd-ne-minus { color: #cf222e; font-weight: 700; margin-right: 8px; } /* a host, variable or key that stops (Claude Code's environment tools' cards, 2026-11-14) */
 .cd-ne-n { display: inline-block; width: 1.8em; color: #a9a7a1; user-select: none; }
 
 /* REWIND (2026-11-06, like Claude Code): a small button on your messages, and its three choices. */

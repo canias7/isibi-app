@@ -1281,6 +1281,50 @@
   const NET = { none: ['None', 'Coder\'s commands can\'t reach the internet (sites with a saved secret still work).'], limited: ['Limited', 'Package registries, GitHub and cloud tools while Allow package managers is checked, plus the domains you list.'], full: ['Full', 'Coder\'s commands can reach any public site.'] };
   const netLevel = (mode) => (mode === 'none' || mode === 'full' ? mode : 'limited');
   const netSaved = (f) => (f.mode !== 'limited' ? f.mode : f.defaults && !f.hosts.length ? 'trusted' : 'custom');
+  // CLAUDE CODE'S ENVIRONMENT TOOLS' CARDS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
+  // update_environment, create_environment and switch_environment (container/coder-envtools.mjs) show exactly what changes,
+  // as Claude Code's approval prompt does (an edit: the exact change and who it affects; a new environment: its exact name,
+  // scope, hosts, variable values and setup script; a move: the target's name and network, and the hosts of both
+  // environments' network secrets), never Coder's reason ("The approval prompt does not show your `reason`").
+  const ENV_CARD_KINDS = ['update', 'create', 'switch'];
+  const envQuote = (n) => '"' + String(n || '') + '"';
+  /** The owner's answer when they decline (the same words as coder-envtools.mjs's declinedText). */
+  const envDeclined = (x) => x.kind === 'update' ? 'I declined the change to the environment ' + envQuote(x.name) + '.' : x.kind === 'create' ? 'I declined the new environment ' + envQuote(x.name) + '.' : 'I declined moving this chat to the environment ' + envQuote(x.name) + '.';
+  function envCardHtml(e, i, live) {
+    const sec = (label, body) => body ? '<div class="cd-ne-sec"><small>' + esc(label) + '</small>' + body + '</div>' : '';
+    const plus = (t) => '<div><span class="cd-ne-plus">+</span>' + t + '</div>';
+    const minus = (t) => '<div><span class="cd-ne-minus">−</span>' + t + '</div>';
+    const line = (t) => '<div>' + t + '</div>';
+    const box = (text) => '<pre class="cd-envchange-pre">' + String(text || '').split('\n').map((l, k) => '<span class="cd-ne-n">' + (k + 1) + '</span>' + esc(l)).join('\n') + '</pre>';
+    const vars = (o) => Object.keys(o || {}).map((k) => plus('<code>' + esc(k) + '=' + esc(o[k]) + '</code>')).join('');
+    let title, body = '', note = '', yes = 'Approve', no = 'Decline';
+    if (e.kind === 'update') {
+      const c = e.change || {};
+      title = 'Change the environment ' + esc(envQuote(e.name)) + '?';
+      body += sec('Applies to', line(esc(e.appliesTo || '')));
+      if (c.rename) body += sec('Name', plus(esc(c.rename)));
+      if (c.network) body += sec('Network access', (c.level ? line(esc(c.network.from) + ' → ' + esc(c.network.to)) : '') + (c.add || []).map((h) => plus(esc(h))).join('') + (c.remove || []).map((h) => minus(esc(h))).join('') + (!c.level && c.packageManagers !== null && c.packageManagers !== undefined ? (c.packageManagers ? plus('package managers') : minus('package managers')) : ''));
+      body += sec('Environment variables', vars(c.set) + (c.unset || []).map((k) => minus('<code>' + esc(k) + '</code>')).join(''));
+      if (c.script) body += sec(c.script.change === 'removes the setup script' ? 'Setup script (removed)' : c.script.change === 'adds a setup script' ? 'Setup script (added)' : 'Setup script (replaced)', c.script.change === 'removes the setup script' ? box((e.args && e.args.setup_script) || '') : box(c.script.text));
+    } else if (e.kind === 'create') {
+      title = 'Create new environment?'; yes = 'Create environment'; no = 'Deny';
+      body += sec('Network access', line(esc(e.network || '')));
+      body += sec('Environment variables', vars(e.vars));
+      body += sec('Repositories', (e.repos || []).map((r) => plus('For <code>' + esc(r) + '</code>')).join(''));
+      if (String(e.script || '').trim()) body += sec('Setup script', box(e.script));
+      if (e.leave) body += sec('Network secrets', minus(esc(e.leave)));
+      const repos = e.repos || [];
+      note = e.moves ? 'This chat moves to it once you approve: its network at once, its variables from the next message; its setup script does not run on this chat\'s machine.' : 'This chat stays on ' + envQuote(e.from) + (e.stayWhy ? ' (' + e.stayWhy + ')' : '') + '.' + (repos.length ? ' New chats of ' + (repos.length === 1 ? repos[0] : 'these repositories') + ' start with the new one.' : '');
+    } else {
+      title = 'Move this chat to ' + esc(envQuote(e.name)) + '?'; yes = 'Move chat';
+      body += sec('What changes', line(esc(e.statement || '')));
+      body += sec('Network secrets', (e.arriving || []).map((h) => plus(esc(h))).join('') + (e.leaving || []).map((h) => minus(esc(h) + ' (from ' + esc(envQuote(e.from)) + ')')).join(''));
+    }
+    return '<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">' + title + '</b>' +
+      '<div class="cd-ne"><div class="cd-ne-head"><b>' + esc(e.name) + '</b><span>Personal</span></div>' + body + '</div>' +
+      (note ? '<p class="cd-secret-p">' + esc(note) + '</p>' : '') +
+      (live ? (S.envChangeMsg ? '<p class="cd-secret-err">' + esc(S.envChangeMsg) + '</p>' : '') + '<div class="cd-secret-btns"><button type="button" class="cd-secret-no" data-envchange-no="' + i + '">' + no + '</button><button type="button" class="cd-secret-save" data-envchange-ok="' + i + '">' + yes + '</button></div>' : '') + '</div>';
+  }
   /** What a Limited environment allows, in a few words: "package managers + 2 domains". */
   const limitedWords = (n) => {
     const hosts = n.mode === 'custom' ? n.hosts || [] : [];
@@ -2184,7 +2228,8 @@
         const live = !S.running && !S.events.slice(i + 1).some((x) => x.type === 'user');
         const host = e.kind === 'allow_host', made = e.kind === 'new_environment';
         const envName = S.envInfo ? S.envInfo.name : 'this chat\'s environment';
-        if (made) {
+        if (ENV_CARD_KINDS.includes(e.kind)) out.push(envCardHtml(e, i, live));
+        else if (made) {
           // A NEW ENVIRONMENT, LIKE CLAUDE CODE'S "Create new environment?" (owner, 2026-11-06).
           out.push('<div class="cd-secret cd-envchange cd-newenv"><div class="cd-secret-icon">' + ICON.cloud.replace('width="15" height="15"', 'width="26" height="26"') + '</div><b class="cd-secret-t">Create new environment?</b>' +
             (e.reason ? '<p class="cd-secret-why">' + esc(e.reason) + '</p>' : '') +
@@ -3602,11 +3647,21 @@
     on('.cd-ask.is-live', 'keydown', (e) => { if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) { e.preventDefault(); askSend(); } });
     on('[data-ask-go]', 'click', () => askSend());
     on('[data-ask-skip]', 'click', () => { const w = askWaiting(); if (w) { askAnswer(w.pid, 'skip'); return; } const many = S.ask && S.ask.qs && S.ask.qs.length > 1; S.ask = null; send(many ? 'I skipped your questions. Decide for yourself and go on.' : 'I skipped your question. Decide for yourself and go on.'); });
-    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
+    on('[data-envchange-no]', 'click', (e) => { const x = S.events[Number(e.currentTarget.dataset.envchangeNo)]; S.envChangeMsg = ''; send(x && ENV_CARD_KINDS.includes(x.kind) ? envDeclined(x) : x && x.kind === 'allow_host' ? 'I declined allowing ' + x.host + '.' : x && x.kind === 'new_environment' ? 'I declined the new environment.' : 'I declined the new setup script.'); });
     on('[data-envchange-ok]', 'click', async (e) => {
       const x = S.events[Number(e.currentTarget.dataset.envchangeOk)];
       if (!x || !S.project) return;
       e.currentTarget.disabled = true;
+      // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14): Coder's server checks the call again on the environment as it is now and
+      // makes the change; its answer is the owner's next message. A refusal goes to Coder as Claude Code's tool result does.
+      if (ENV_CARD_KINDS.includes(x.kind)) {
+        const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/envchange', { method: 'POST', body: JSON.stringify({ tool: x.tool, args: x.args, shown: x }) });
+        if (r.status === 409 && r.data && r.data.error) { S.envChangeMsg = ''; return send('I approved it, but Coder\'s server refused it: ' + r.data.error); }
+        if (r.status !== 200 || !r.data || !r.data.said) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be saved.'; e.currentTarget.disabled = false; return draw(); }
+        S.envChangeMsg = ''; S.env = null;
+        if (S.envInfo) S.envInfo = { ...S.envInfo, envId: r.data.envId || S.envInfo.envId, name: r.data.name || S.envInfo.name, isDefault: (r.data.envId || S.envInfo.envId) === 'default', environments: r.data.environments || S.envInfo.environments };
+        return send(r.data.said);
+      }
       if (x.kind === 'new_environment') {
         const r = await call('/environments', { method: 'POST', body: JSON.stringify({ name: x.name, script: x.script, network: { mode: x.network || 'trusted' }, repos: [S.project.repo] }) });
         if (r.status !== 200 || !r.data || !r.data.environment) { S.envChangeMsg = (r.data && r.data.error) || 'It could not be made.'; return draw(); }

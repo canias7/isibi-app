@@ -22,7 +22,7 @@ test("CD202 a job started from GitHub is not offered the tools that never work t
   // job?), and the answer then got "undo is not available in a job started from GitHub".
   const { runCoder, CODER_TOOLS, GITHUB_TOOLS, NOT_FROM_GITHUB, GITHUB_NOTE } = await import("../container/coder-agent.mjs");
   const names = (tools) => tools.map((t) => t.function.name);
-  assert.deepEqual([...NOT_FROM_GITHUB].sort(), ["auto_fix", "pr_comments", "propose_env", "request_secret", "undo_last_job"]);
+  assert.deepEqual([...NOT_FROM_GITHUB].sort(), ["auto_fix", "create_environment", "get_environment", "pr_comments", "request_secret", "switch_environment", "undo_last_job", "update_environment"]); // (Claude Code's environment tools in place of propose_env, 2026-11-14)
   assert.deepEqual(names(GITHUB_TOOLS), names(CODER_TOOLS).filter((n) => !NOT_FROM_GITHUB.includes(n)));
   for (const keep of ["ask_user", "reply_review", "pull_request", "review", "bash", "notify"]) assert.ok(names(GITHUB_TOOLS).includes(keep), keep + " stays (an auto-fix job may ask, and answers in a review thread)");
   for (const [github, tools, note] of [[true, GITHUB_TOOLS, true], [false, CODER_TOOLS, false]]) {
@@ -35,7 +35,7 @@ test("CD202 a job started from GitHub is not offered the tools that never work t
   // Called anyway (a model may still try): refused, as before.
   const events = [];
   let n = 0;
-  const steps = [say("", [call("undo_last_job", { confirmed: true }, "u1"), call("request_secret", { host: "api.stripe.com", reason: "x" }, "k1"), call("propose_env", { kind: "allow_host", host: "a.com", reason: "x" }, "p1"), call("pr_comments", { comments: [{ path: "a.js", line: 1, body: "x" }] }, "c1"), call("auto_fix", { pr: "3" }, "f1")]), say("Done.")];
+  const steps = [say("", [call("undo_last_job", { confirmed: true }, "u1"), call("request_secret", { host: "api.stripe.com", reason: "x" }, "k1"), call("update_environment", { environment_name: "Default", applies_to: "my personal environment: all of my future chats that use it, not only this one", reason: "x", add_allowed_hosts: ["a.com"] }, "p1"), call("pr_comments", { comments: [{ path: "a.js", line: 1, body: "x" }] }, "c1"), call("auto_fix", { pr: "3" }, "f1")]), say("Done.")];
   const out = await runCoder({ send: async () => steps[Math.min(n++, 1)], emit: (e) => events.push(e), exec: async () => ({ code: 0, output: "" }) }, { text: "x", github: true });
   assert.ok(!out.undoRequest && !out.reviewPost && !out.autofixRequest, "nothing asked for");
   const tool = out.messages.filter((m) => m.role === "tool").map((m) => m.content);

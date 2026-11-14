@@ -24,11 +24,10 @@ const CC_INPUTS = {
   prefix: "Optional. The word the API expects before the key in the header: one of Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey, in any letter case. With the Authorization header it defaults to Bearer; with any other header_name it defaults to none, so pass prefix whenever the documentation shows a word before the key, Bearer included. The form cannot save a key with any other word before it: for an API that expects one, the user adds the key in the environment's settings. Not used with suggested_type \"basic\". Never put a key's value in this or any other field.",
   suggested_type: "Optional hint for the form's default: \"bearer\" for a token or API key sent in a header (Authorization: Bearer unless header_name and prefix say otherwise), \"basic\" for username and password.",
 };
-/** Claude Code's words with Coder's: the owner for the user, a chat for a session, Coder's tools and its proxy's own line. */
+/** Claude Code's words with Coder's: the owner for the user, a chat for a session, Coder's proxy's own line (its environment
+ * tools have Claude Code's names since 2026-11-14: get_environment and the allowed hosts are said as Claude Code says them). */
 const asCoder = (s) => s
   .replace("from every session in that environment, including other people's sessions when the environment is shared: this session usually within a few seconds, and later sessions", "from every chat in that environment: this chat usually within a few seconds, and later chats")
-  .replace("allowed hosts for it.", "allowed hosts for it (propose_env's allow_host).")
-  .replace("If get_environment is among your tools", "If propose_env is among your tools")
   .replace("`request blocked: no rule allows host`", "`Blocked by this repo's network list`")
   .replace("GitHub (use the repository tools)", "GitHub (git and gh reach it through Coder's GitHub proxy)")
   .replace(/\bthe user\b/g, "the owner").replace(/\bthe user's\b/g, "the owner's").replace(/\bThe user\b/g, "The owner")

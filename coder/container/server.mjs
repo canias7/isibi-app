@@ -29,6 +29,7 @@ import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore } from "./coder-plan-file.mjs";
+import { envCaller } from "./coder-envtools.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
@@ -2618,13 +2619,13 @@ export function aptCommand(packages, proxy = "", ca = "") {
 }
 
 /** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the last job that changed files, and whether it was the last job. */
-/** WHICH ENVIRONMENT THIS CHAT USES (owner, 2026-11-06: environments like Claude Code's). */
+/** WHICH ENVIRONMENT THIS CHAT USES (owner, 2026-11-06: environments like Claude Code's; since 2026-11-14 its tools are Claude Code's four, coder-envtools.mjs). */
 export function envNameNote(body) {
   const e = body && body.environment;
   if (!e || typeof e !== "object" || typeof e.name !== "string") return "";
   const name = e.name.replace(/[\u0000-\u001f]/g, "").slice(0, 40);
   return "\n\nTHIS CHAT'S ENVIRONMENT: \"" + name + "\"" + (e.isDefault === true
-    ? " (the Default one, which chats in all the owner's repos use: what only this repo needs goes in a new environment, propose_env kind new_environment)."
+    ? " (the Default one, which chats in all the owner's repos use: what only this repo needs stays off it; get_environment says where it goes)."
     : " (picked when this chat started; every chat that picks it shares its settings).");
 }
 export function undoNote(j) {
@@ -3646,8 +3647,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           netNote = (net.mode === "full"
             ? "\n\nNETWORK: FULL, but for the environment's blocked sites: " + (net.denied || []).join(", ") + ". Any other site on the internet works; a request to a blocked one fails with \"Blocked: … is on this environment's blocked sites\" (curl: \"CONNECT tunnel failed, response 403\"), whatever else allows it. Don't retry those; only the owner can change that list."
             : net.mode === "none"
-            ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose allow_host)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, ask the owner with propose_env (kind allow_host). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs the internet, say so in your answer (do not propose a network change)."
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the work needs that site, propose adding it with update_environment (add_allowed_hosts). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) {
         const why = String((e && e.message) || e).slice(0, 120);
@@ -3721,7 +3722,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // ROOT IS DONE PREPARING: the background commands of before go on.
     if (t.resume) { t.resume(); t.resume = null; }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
-    let setupFailed = null, setupRan = false, setupCopied = null;
+    let setupFailed = null, setupRan = false, setupCopied = null, setupMoved = false;
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
     // browser test, 2026-11-06: the owner fixed the setup script between two
     // messages, yet Coder kept saying the broken line was still there). The
@@ -3744,6 +3745,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         [doneSha, doneAt] = [sha, String(copied.at)];
         setupCopied = copied;
         t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat started from the environment's saved copy (made " + new Date(copied.at).toISOString().slice(0, 16).replace("T", " ") + " UTC), so the setup script did not run again." });
+      }
+      // A CHAT MOVED TO THIS ENVIRONMENT (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one";
+      // Claude Code's switch_environment: "Its setup script does NOT run now or at a restart: it runs only if the machine is
+      // replaced"): on the machine it moved on (one that served this chat before), the setup counts as done without running;
+      // a fresh machine runs it.
+      if (body.envMoved === true && lastEnv && doneSha !== sha) {
+        await writeFile(mark, sha + " " + Date.now()).catch(() => {});
+        [doneSha, doneAt] = [sha, String(Date.now())];
+        setupMoved = true;
+        t.events.push({ at: Date.now(), type: "note", text: "Setup: this chat moved to this environment on a machine that was already running, so its setup script did not run here (it runs on a fresh machine)." });
       }
       // (Not without the admin sandbox, where it would run on a machine made for one: fix 7. The chat says why already, and
       // Coder is not asked to fix a script that never ran; it runs at the next message whose sandbox starts.)
@@ -3787,7 +3798,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
     }
     let envNote = "";
-    if (lastEnv && typeof lastEnv === "object") {
+    // (A move to another environment is said as one: the owner approved it on Coder's card, and its setup did not run here.)
+    if (body.envMoved === true && lastEnv && typeof lastEnv === "object") {
+      const name = body.environment && typeof body.environment.name === "string" ? body.environment.name.replace(/[\u0000-\u001f"]/g, "").slice(0, 40) : "";
+      envNote = "(Note from Coder's app, not the owner: since the last message, this chat moved to the environment \"" + name + "\" (the owner approved it on your card). Its network, variables and network secrets apply now; its setup script " + (script ? (setupMoved ? "did not run on this machine (it runs only on a fresh machine)." : setupRan ? (setupFailed ? "ran before this message and FAILED (see THE SETUP SCRIPT FAILED)." : "ran before this message and worked (exit code 0).") : "already ran on this machine.") + " The setup script there is:\n" + script.slice(0, 2000) + "\n" : "is none.") + " Go by this, not by what the chat said before.)\n\n";
+    } else if (lastEnv && typeof lastEnv === "object") {
       const scriptChanged = String(lastEnv.script || "") !== script;
       const netChanged = JSON.stringify(lastEnv.net || null) !== JSON.stringify(netNow);
       if (scriptChanged || netChanged) {
@@ -3827,7 +3842,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with propose_env (kind setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupMoved ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupCopied ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; its output is in the chat):\n") + script.slice(0, 2000) : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
     // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,
@@ -4007,6 +4022,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       const turnDeps = {
         send: via ? coderSend(env, { via }) : sendFn,
         ...(mcpCall ? { mcp: mcpCall } : {}),
+        // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
+        // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
+        ...(via ? { envApi: envCaller(via) } : {}),
         // (The admin sandbox could not start on a machine made for one: no command runs. Fix 7.)
         boxDown: t.boxDown || "",
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
