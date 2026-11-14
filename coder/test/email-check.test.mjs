@@ -292,11 +292,11 @@ test("EM8 the environment tools and request_secret are Claude Code's claude-code
     call("get_environment", { environment_id: "env_1" }, "g1"),
     call("update_environment", { environment_name: "Default", applies_to: E.APPLIES_TO, reason: "plain", set_environment_variables: { CONTACT: "owner.person@example.com" } }, "u2"),
   ]), say("Done.")], { deps: { envApi } });
-  assert.equal(t.told("u1"), P.accountEmailRefused("mcp__claude-code-remote__update_environment"));
-  assert.match(t.told("u1"), /^Permission to use mcp__claude-code-remote__update_environment denied by plugin cc-plugin-privacy: This call was refused: /);
-  assert.equal(t.told("c1"), P.accountEmailRefused("mcp__claude-code-remote__create_environment"));
-  assert.equal(t.told("s1"), P.accountEmailRefused("mcp__claude-code-remote__request_credential"));
-  assert.equal(t.events.find((e) => e.type === "result" && e.id === "s1").output, P.accountEmailRefused("mcp__claude-code-remote__request_credential"));
+  assert.equal(t.told("u1"), P.accountEmailRefused("update_environment"));
+  assert.match(t.told("u1"), /^Permission to use update_environment denied by plugin cc-plugin-privacy: This call was refused: /);
+  assert.equal(t.told("c1"), P.accountEmailRefused("create_environment"));
+  assert.equal(t.told("s1"), P.accountEmailRefused("request_secret"));
+  assert.equal(t.events.find((e) => e.type === "result" && e.id === "s1").output, P.accountEmailRefused("request_secret"));
   assert.ok(!t.events.some((e) => e.type === "secret" || e.type === "envchange" || e.type === "permission"), "no form or card");
   // Coder's server never heard of the refused ones; the others went on to it.
   assert.deepEqual(asked.map((b) => b.action + ":" + (b.tool || "") + ":" + JSON.stringify((b.args && b.args.set_environment_variables) || null)), ["get::null", 'check:update_environment:{"CONTACT":"owner.person@example.com"}']);
@@ -305,7 +305,7 @@ test("EM8 the environment tools and request_secret are Claude Code's claude-code
   assert.equal(d.told("u3"), "Permission to use update_environment has been denied.");
   // No mark (no signed-in address): nothing is checked.
   const n = await emLoop([say("", [call("request_secret", { host: "api.example.org", reason: "send owner.person@example.com as the User-Agent" }, "s2")]), say("Done.")], { extra: { emailMark: "" } });
-  assert.notEqual(n.told("s2"), P.accountEmailRefused("mcp__claude-code-remote__request_credential"));
+  assert.notEqual(n.told("s2"), P.accountEmailRefused("request_secret"));
   // Where it is checked: after the deny rules and the connectors' own check, before the ask rules' card.
   const src = read("container/coder-agent.mjs");
   const at = (x) => src.indexOf(x);

@@ -3527,7 +3527,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (emailMark && mcpByName.has(c.name) && refusedNow(c.name, c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(c.name).label).slice(0, 200) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         // (So is an environment tool's or request_secret's call, by Claude Code's name for it: its claude-code-remote MCP tools,
         // mcp__claude-code-remote__…, which its privacy check reads as any MCP call; coder-privacy.mjs REMOTE_TOOLS. 2026-11-14.)
-        if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(REMOTE_TOOLS[c.name]); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+        // (Checked by Claude Code's name, but Coder is told its own tool's name, as in all it is shown: it never sees mcp__… names.)
+        if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc);
         if (askRule) {
           if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
