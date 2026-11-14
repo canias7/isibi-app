@@ -790,3 +790,29 @@ test("EN14 the setup script runs once on a chat's machine, as Claude Code's (\"a
   // The page's Setup script page says the same.
   assert.match(readFileSync(HERE("public/coder.js"), "utf8"), /Runs when a new chat starts, before Coder starts\. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat\./);
 });
+
+test("EN15 an approved change reaches running chats only when the network changed: a new description or name, or variables, reach none (the machine's \"The environment changed: network …\" note would be wrong; live test, 2026-11-14)", async () => {
+  const b = memBucket();
+  const e2 = { ...env, CODER_BUCKET: b };
+  await saveEnvList(b, "u1", [{ id: "default", name: "Default", at: 0, repos: ["ana/shop"] }]);
+  await writeEnvData(e2, b, "u1", "default", { script: "", vars: {}, secrets: [STRIPE], network: { mode: "trusted", hosts: [], defaults: true } });
+  const meta = { id: "chat-1", repo: "ana/shop", envId: "default", turn: 4, status: "done" };
+  await b.put("coder/u1/chat-1/meta.json", JSON.stringify(meta));
+  const deps = { container: () => ({ fetch: async () => new Response("{}") }) };
+  const reached = [];
+  const shownFor = async (tool, args) => { const v = E.ENV_INPUT_CHECKS[tool](args); return E.envCard(await envState(e2, b, "u1", meta, [args.environment_id]), tool, v.args).card; };
+  const go = async (args) => approveEnvChange({ env: e2, bucket: b, uid: "u1", id: "chat-1", meta, deps, body: { tool: "update_environment", args, shown: await shownFor("update_environment", args) }, reachRunning: async (d) => { reached.push(d); return 1; } });
+  // A new description: made, and no running chat is reached.
+  let r = await go(upd({ new_description: "Checkout tests: Stripe test mode." }));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(reached.length, 0);
+  // Variables only: made, and no running chat is reached (they come with a chat's next message).
+  r = await go(upd({ set_environment_variables: { NODE_ENV: "test" } }));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(reached.length, 0);
+  // The network: running chats are reached, with the new network.
+  r = await go(upd({ add_allowed_hosts: ["api.foo.com"] }));
+  assert.equal(r.ok, true, JSON.stringify(r));
+  assert.equal(reached.length, 1);
+  assert.deepEqual(reached[0].network, { mode: "custom", hosts: ["api.foo.com"], defaults: true });
+});

@@ -111,7 +111,10 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
       const me = list.find((e) => e.id === st.envId);
       if (me) { if (p.plan.rename) me.name = p.plan.rename; if (p.plan.description !== null) { if (p.plan.description) me.description = p.plan.description; else delete me.description; } await saveEnvList(bucket, uid, list); }
     }
-    if (typeof reachRunning === "function") await reachRunning(p.data).catch(() => 0);
+    // (Running chats are reached only when the network changed, the one part a running machine takes at once: a new name,
+    // description, variables or setup script reach no running machine (variables come with a chat's next message, the
+    // script with a fresh machine), and its "The environment changed: network …" note would be wrong. Live test, 2026-11-14.)
+    if (typeof reachRunning === "function" && p.plan.network) await reachRunning(p.data).catch(() => 0);
     return { ok: true, said: approvedText({ kind: "update", name: p.name }), result: envResultText(now.card), envId: st.envId, name: p.plan.rename || p.name, environments: envListOut(list) };
   }
   if (tool === "create_environment") {
