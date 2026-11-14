@@ -430,7 +430,9 @@ export function denyGlobs(deny, rgCwd) {
     const m = /^Read\(([\s\S]*)\)$/.exec(String(t || "").trim());
     if (!m) continue;
     const spec = m[1].trim();
-    if (!spec || spec === "*" || spec === "**" || spec.startsWith("!") || spec.includes("[")) continue;
+    // (`Read(**)` is a path rule, as Claude Code's: its glob is `!**/**`, which keeps every file out of the search, as Claude
+    // Code's own glob for it does. Round 4, 2026-11-14.)
+    if (!spec || spec === "*" || spec.startsWith("!") || spec.includes("[")) continue;
     const a = anchorOf(spec, "deny", { root: deny.root || "/", home: deny.home || "" });
     if (!a) continue;
     if (a.pattern.startsWith("/")) {
@@ -449,8 +451,9 @@ function denyCheck(deny) {
   const real = (p) => { try { return realpathSync(p); } catch { return ""; } };
   return (p) => {
     // (Path rules only: a rule on the whole Read tool is Read's own, as Claude Code's search reads them. 2026-11-14.)
-    // (A relative rule applies in the chat's other working folders too, `deny.roots`: Claude Code 2.1.325.)
-    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", home: deny.home || "", roots: Array.isArray(deny.roots) ? deny.roots : [], sources: deny.sources || null, real, pathOnly: true }));
+    // (A relative rule applies in the chat's other working folders too, `deny.roots`: Claude Code 2.1.325; and from the folder
+    // Coder's commands are in first, `deny.cwd`: round 4.)
+    if (!seen.has(p)) seen.set(p, !!fileRuleHit(deny.rules, "Read", p, "deny", { root: deny.root || "/", ...(typeof deny.cwd === "string" && deny.cwd ? { cwd: deny.cwd } : {}), home: deny.home || "", roots: Array.isArray(deny.roots) ? deny.roots : [], sources: deny.sources || null, real, pathOnly: true }));
     return seen.get(p);
   };
 }

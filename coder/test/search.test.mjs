@@ -310,7 +310,7 @@ test("SR8 in Coder's loop: the search gets the owner's Read deny rules and the s
   assert.deepEqual(g1.req.args, { pattern: "TODO first", path: "." });
   // (And what the loop's permission check saw of the path, its spellings, which the search checks again before it runs:
   // Claude Code's stash and its gPo, round 3.)
-  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, home: "" }, spellings: { path: d, list: S.pathSpellings(d).spellings } });
+  assert.deepEqual(g1.req.ctx, { timeoutMs: 15_000, hidden: true, noIgnore: true, deny: { rules: ["Read(docs/**)"], sources: null, root: d, cwd: d, home: "" }, spellings: { path: d, list: S.pathSpellings(d).spellings } });
   assert.equal(g1.x.timeoutS, 45);
   assert.equal(t.answer("g1"), "Found 1 file\na.js\n\nNote: Grep's parameter for where to search is named `path`. `file_path` was read as `path`.");
   assert.equal(t.answer("f1"), "No files found", "the Read deny rule leaves docs/secret.md out");

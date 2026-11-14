@@ -1873,7 +1873,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // attempt to apply Read(path) deny rules to all built-in tools that read files like Grep and Glob"; none in a job from
   // GitHub), and the environment's search settings (CODER_GLOB_TIMEOUT_SECONDS, CODER_GLOB_HIDDEN, CODER_GLOB_NO_IGNORE).
   // (And the chat's other working folders, where a relative Read deny rule applies too: Claude Code 2.1.325. Round 3.)
-  const searchCtx = () => ({ ...(deps.searchSettings && typeof deps.searchSettings === "object" ? deps.searchSettings : {}), ...(github ? {} : { deny: { rules: ownRules.deny.filter((x) => /^Read\(/.test(String(x))), sources: ownRules.sources || null, root: deps.root || "/", home: deps.home || "", ...(workdirs.length > 1 ? { roots: workdirs.slice(1) } : {}) } }) });
+  const searchCtx = () => ({ ...(deps.searchSettings && typeof deps.searchSettings === "object" ? deps.searchSettings : {}), ...(github ? {} : { deny: { rules: ownRules.deny.filter((x) => /^Read\(/.test(String(x))), sources: ownRules.sources || null, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", ...(workdirs.length > 1 ? { roots: workdirs.slice(1) } : {}) } }) });
   // (Its run's own limit: the search's, with the 10 seconds Claude Code gives a search it stops, and room to start.)
   const searchExecS = () => Math.ceil(((deps.searchSettings && Number(deps.searchSettings.timeoutMs)) || SEARCH_TIMEOUT_MS) / 1000) + 30;
   const rulesAdded = [];
@@ -1918,6 +1918,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const autoPsRules = (rs) => ({ ...rs, allow: (rs.allow || []).filter((r) => !droppedInAuto(r, { classifyAllShell: !!(autoMode && autoMode.classifyAllShell === true) })) });
   // WHERE COMMANDS MAY CHANGE FILES WITHOUT ASKING in Accept edits: the project and the chat's other repositories.
   const workdirs = [deps.root, ...(Array.isArray(deps.otherRoots) ? deps.otherRoots : [])].filter((x) => typeof x === "string" && x);
+  // (The folder Coder's commands are in, where a relative file rule's path counts from first, as Claude Code's current folder:
+  // round 4, 2026-11-14; coder-filerules.mjs relativeBases.)
+  const ruleCwd = () => (typeof deps.here === "function" && String(deps.here() || "")) || deps.root || "/";
   // (The read block's folders: the working folders apart from those only the repository's settings add, deps.repoDirs.)
   const readBlockDirs = () => { const repoOnly = Array.isArray(deps.repoDirs) ? deps.repoDirs : []; return workdirs.filter((d) => !repoOnly.includes(d)); };
   // POWERSHELL'S OWN READING OF A COMMAND (coder-psparse.mjs), for its checks: pwsh parses it on the machine as the AI
@@ -2244,7 +2247,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const full = typeof deps.where === "function" ? deps.where(given) : given;
     if (c.name === "read" && !(typeof a.path === "string" && a.path)) return "error: read needs a path";
     a.path = full;
-    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: a, roots: workdirs.slice(1) });
+    const d = github ? null : fileToolDecision(c.name, full, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: a, roots: workdirs.slice(1) });
     if (d && (d.verdict === "deny" || d.verdict === "ask")) return "error: " + (d.why || "the owner's rules do not let this hook read there");
     if (c.name === "read") { delete a.allow_large; delete a.max_chars; }
     // (A search with the owner's Read deny rules, its result object left off: coder-search.mjs.)
@@ -3073,7 +3076,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // THE FILES THE OWNER @-MENTIONED, read into their message (mentionNote). Not in a job from GitHub, where strangers write.
   const mentioned = !github && typeof text === "string" && text.trim() ? mentionedPaths(typeof shown === "string" && shown.trim() ? shown : text) : [];
   if (mentioned.length) {
-    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
+    const note = await mentionNote(deps, mentioned, { emit, touch, denied: (p) => !!fileRuleHit(ownRules.deny, "Read", typeof deps.where === "function" ? deps.where(p) : p, "deny", { sources: ownRules.sources, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (y) => realPath(y), roots: workdirs.slice(1) }) });
     if (note) { convo.push(note); keepPics(convo); }
   }
   // RIGHT AFTER A SUMMARY MADE BETWEEN MESSAGES (/compact, a long chat summarized before a job, Rewind's summaries), the
@@ -3736,7 +3739,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (typeof args.path !== "string" && typeof args.file_path === "string") args.path = args.file_path;
         if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; }
         const tgt = targetFor(x.name, args);
-        const d = github ? null : fileToolDecision(x.name, tgt, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (q) => realPath(q), input: args, roots: workdirs.slice(1) });
+        const d = github ? null : fileToolDecision(x.name, tgt, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: args, roots: workdirs.slice(1) });
         if (d && (d.verdict === "deny" || d.verdict === "ask")) return;
         // (The same request its turn makes, so its turn takes this run: what the check saw of a search's path too.)
         const saw = (x.name === "grep" || x.name === "glob") && tgt ? checkedAt(tgt) : null;
@@ -4107,7 +4110,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // ASKED FIRST IN EVERY MODE: a command over 10,000 characters, one that writes a protected file (by its name or through
         // a link), or one that writes through a link out of the project.
         // (A PowerShell command's protected writes: psProtectedAsk, fix 4 of "Yes all 7".)
-        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
+        let ask = c.ps ? (command.length > MAX_COMMAND_CHARS ? commandAsk(command, deps, where0) : psProtectedAsk(await psParse(command), deps, psAbs)) : commandAsk(command, deps, where0, { real: (p) => realPath(p), allowed: (full) => !github && !!fileRuleHit(rulesB.allow, "Edit", full, "allow", { root: deps.root || "/", cwd: where0 || deps.root || "/", home: deps.home || "", real: (p) => realPath(p) }) });
         // THE READ BLOCK (Bash docs pass 4: the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES, Claude Code's
         // permissions.blockReadsOutsideWorkingDirectories): a command that reads outside the project, or can't be traced, is
         // asked about in every mode (Claude Code: they "prompt even in auto mode"; no rule approves one).
@@ -5407,7 +5410,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const emailNo = !!emailMark && !!emailTool && await emailRefused(emailTool, args, emailMark);
         // A PROTECTED FILE (PROTECTED_DIRS, PROTECTED_FILES): written only once the owner allows it.
         const guarded = (c.name === "write" || c.name === "edit") && typeof args.path === "string" ? projectPath(deps, args.path) : "";
-        const why = guarded ? protectedFile(guarded) : "";
+        // (But not the chat's own plan file, wherever plansDirectory puts it, `.claude/plans` too: Claude Code's "Plan files for
+        // current session are allowed for writing", which it checks after the owner's deny and ask rules and before its
+        // protected paths; permission-modes: ".claude, with a few exceptions, such as: … The current session's own plan files
+        // in ~/.claude/plans/, or in the plansDirectory you set". Only this chat's file. D3, round 4, 2026-11-14.)
+        const ownPlanFile = !!guarded && !!planPath() && targetFor(c.name, args) === planPath();
+        const why = guarded && !ownPlanFile ? protectedFile(guarded) : "";
         // What a write or an edit would do, for its card: a write's lines; an edit's old lines taken out and new ones put in.
         // A Windows line ending is not part of the line shown (live test, 2026-11-09: a hidden "\r" on each line).
         // A LONG LINE SHOWS IT WAS CUT (the owner, 2026-11-09: "Ok yea fix that"; Claude Code: "Fixed the file edit permission
@@ -5488,7 +5496,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
         const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
         // (Relative deny and ask rules apply in the chat's other working folders too: Claude Code 2.1.325. Round 3.)
-        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", home: deps.home || "", real: (x) => realPath(x), input: args, roots: workdirs.slice(1) }) : null;
+        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: args, roots: workdirs.slice(1) }) : null;
         // (What this check saw of a search's path, its links, which the search makes sure are still so before it runs: Claude
         // Code's stash at its permission check, re-checked by its search. coder-search.mjs's checkedAt and searchRoot. Round 3.)
         const searchSaw = (c.name === "grep" || c.name === "glob") && fileTarget ? checkedAt(fileTarget) : null;
