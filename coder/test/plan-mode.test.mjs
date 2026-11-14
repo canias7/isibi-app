@@ -250,7 +250,7 @@ test("PM8 hooks see Claude Code's ExitPlanMode input (the plan file's text and p
   assert.equal(pre.tool_name, "ExitPlanMode");
   const post = t.hookCalls.find((h) => h.hook_event_name === "PostToolUse");
   assert.deepEqual(post.tool_input, { plan: PLAN, planFilePath: f });
-  assert.deepEqual(post.tool_response, { output: t.told("x1"), plan: PLAN, isAgent: false, filePath: f });
+  assert.deepEqual(post.tool_response, { plan: PLAN, isAgent: false, filePath: f });
   assert.equal(t.cards[0].plan, PLAN, "the card shows the file, not Coder's own words");
   // Declined with what to change: plan mode stays, and no PostToolUse hook runs (Claude Code: a permission denial).
   t = await loop([say("", [call("exit_plan_mode", {}, "x1")]), say("Revising.")], { plan: await (async () => { const b = await newStore(); await writeFile(await fileOf(b), PLAN); return b; })(), hooks, answers: [{ choice: "no", comment: "only the cart, not the coupon" }] });

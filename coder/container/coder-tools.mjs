@@ -507,7 +507,7 @@ const BINARY_HOW = new Map(BINARY_KINDS.flatMap(([exts, how]) => exts.map((e) =>
 /** A path in single quotes, for a command shown to Coder. */
 const shq = (p) => "'" + String(p).replace(/'/g, "'\\''") + "'";
 
-export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars }) {
+export async function toolRead({ path, offset, limit, pages = "", allow_large = false, max_chars, facts = false }) {
   const { abs, rel } = await inside(path, { mustExist: true, output: true });
   // A PIPE OR A DEVICE is refused, as Claude Code's Read does ("is a pipe or a device"): reading one could wait forever.
   const kind = await stat(abs);
@@ -528,13 +528,17 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const text = fileText(buf);
   const oldText = !utf16Of(buf) && !isUtf8(buf) ? "\n" + NOT_UTF8_NOTE : "";
   await remember(abs, buf, { whole: false });
-  if (!text.length) { await clearStart(abs); return rel + " exists, but it is empty."; }
+  // ITS RESULT OBJECT, FOR THE POSTTOOLUSE HOOKS, when Coder's loop asks (`facts`): Claude Code's Read output for a text file,
+  // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
+  // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
+  const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
+  if (!text.length) { await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
   const total = lines.length;
   const asked = (offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0;
   const from = Math.max(1, Math.floor(Number(offset) || 1));
-  if (from > total) return rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.";
+  if (from > total) return told(rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.", "", 0, from, total);
   const large = allow_large === true;
   const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
   const size = Buffer.byteLength(text);
@@ -564,13 +568,14 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // A part that was asked for and does not fit is refused, as in Claude Code; a whole-file read gets its first part.
   if (asked && last < end) fail("lines " + from + "-" + end + " of " + rel + " come to more than about " + Math.round(cap / 1000) + ",000 characters: ask for fewer lines (limit), search with grep" + (large ? "" : ", or set allow_large when you truly need them all at once"));
   const body = rows.join("\n");
+  const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total);
   if (asked && (from > 1 || last < total)) await markPart(abs);
-  if (last >= total) { if (!asked) await clearStart(abs); return body + oldText; }
+  if (last >= total) { if (!asked) await clearStart(abs); return gave(body + oldText); }
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
   if (!asked) await markPartial(abs); // write will not replace it until the rest is read
-  return body + (asked
+  return gave(body + (asked
     ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText;
+    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText);
 }
 /**
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT
@@ -642,7 +647,23 @@ export const FACTS_MARK = "\u0000coder-facts\u0000";
 export const printedAnswer = (res) => (res && typeof res === "object" && typeof res.text === "string" ? (res.facts && typeof res.facts === "object" ? FACTS_MARK + JSON.stringify(res.facts) + "\n" + res.text : res.text) : String(res));
 /** A text's lines as read counts them: the last line break ends a line, it is not one more. */
 const textLines = (t) => { if (t === "") return []; const a = t.split("\n"); if (a[a.length - 1] === "") a.pop(); return a; };
-async function writeChange(oldText, newText) {
+/**
+ * A UNIFIED DIFF'S HUNKS AS CLAUDE CODE'S structuredPatch HOLDS THEM: { oldStart, oldLines, newStart, newLines, lines }, each
+ * line with its " ", "-" or "+" (the result objects of Write and Edit, for the PostToolUse hooks; 2026-11-14).
+ */
+export function hunksOf(rows) {
+  const out = [];
+  let h = null;
+  for (const l of rows) {
+    const m = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l);
+    if (m) { h = { oldStart: Number(m[1]), oldLines: m[2] === undefined ? 1 : Number(m[2]), newStart: Number(m[3]), newLines: m[4] === undefined ? 1 : Number(m[4]), lines: [] }; out.push(h); continue; }
+    if (h && /^[ +\-\\]/.test(l)) h.lines.push(l);
+  }
+  return out;
+}
+/** The most of a file's text a write's or an edit's result object carries (past it, Claude Code's "too large to include": null). */
+export const FACTS_TEXT_MAX = 1_000_000;
+async function writeChange(oldText, newText, got = null) {
   // A WINDOWS FILE'S LINES WITHOUT THEIR HIDDEN "\r" (live test, 2026-11-09: copying the change under the step gave a blank
   // line after each line; the owner: "Yes fix"): the texts are compared with their line endings set aside, as Claude
   // Code's change is (its own record of the same edit: "-first", "+FIRST"), so a line whose ending alone changed is not
@@ -668,6 +689,7 @@ async function writeChange(oldText, newText) {
     if (r.code !== 0 && r.code !== 1) return { kind: "update", big: true };
     const rows = r.out.toString("utf8").split("\n").slice(2);
     if (rows.length && rows[rows.length - 1] === "") rows.pop();
+    if (got && rows.reduce((a, l) => a + l.length + 1, 0) <= FACTS_TEXT_MAX) got.hunks = hunksOf(rows);
     let add = 0, del = 0;
     for (const l of rows) { if (l[0] === "+") add++; else if (l[0] === "-") del++; }
     return keep(rows, add, del, "update");
@@ -724,7 +746,7 @@ function writeInputs(args) {
     else if (got[ours] === a[other]) said.push("`" + other + "` repeated `" + ours + "` and was ignored.");
     else fail("write failed due to the following issue: An unexpected parameter `" + other + "` was provided");
   }
-  for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
+  for (const k of Object.keys(a)) if (!["path", "content", "show_change", "check", "facts"].includes(k) && !(k in WRITE_OTHER_NAMES)) said.push("`" + k.slice(0, 40) + "` was ignored.");
   return { ...got, note: said.length ? "\n\nNote: write's parameters are named `path` and `content`. " + said.slice(0, 10).join(" ") : "" };
 }
 export async function toolWrite(args) {
@@ -780,8 +802,16 @@ export async function toolWrite(args) {
   // after the round (`diagnostics`), this file's problems to the chat (`problems`); none of it in this answer.
   const lsp = check ? await lspAfterWrite(abs, content.replace(/^\ufeff/, ""), check) : null;
   const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
-  const change = show_change === true ? await writeChange(oldText, content.replace(/^\ufeff/, "")).catch(() => null) : null;
-  return change || lsp ? WRITE_MARK + JSON.stringify({ text, change, ...lspFields(lsp) }) : text;
+  // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Write output, { type, filePath, content,
+  // structuredPatch, originalFile }; the text it had, and the diff, left out past FACTS_TEXT_MAX, as Claude Code's "too large
+  // to include". 2026-11-14.)
+  const facts = args && args.facts === true;
+  const got = {};
+  const change = show_change === true || facts ? await writeChange(oldText, content.replace(/^\ufeff/, ""), got).catch(() => null) : null;
+  const answer = (show_change === true && change) || lsp ? WRITE_MARK + JSON.stringify({ text, change: show_change === true ? change : null, ...lspFields(lsp) }) : text;
+  if (!facts) return answer;
+  const before = typeof oldText === "string" && oldText.length <= FACTS_TEXT_MAX ? oldText : null;
+  return { text: answer, facts: { type: st ? "update" : "create", filePath: abs, content, structuredPatch: st && before !== null && Array.isArray(got.hunks) ? got.hunks : [], originalFile: st ? before : null } };
 }
 /** A write's or an edit's language server report (coder-lsp.mjs), or null: never costs the write. */
 async function lspAfterWrite(abs, text, check) {
@@ -875,7 +905,7 @@ export async function toolEdit(args) {
     await mkdir(dirname(abs), { recursive: true });
     await writeFile(abs, made);
     await remember(abs, made);
-    return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made });
+    return editAnswer({ rel, abs, said: "The file " + rel + " has been updated successfully." + WRITE_FRESH, before: null, after: new_string, show_change, check, bytes: made, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
   }
   if (st.isDirectory()) fail(folderError(abs));
   if (st.size > EDIT_MAX_BYTES) fail(rel + " is " + Math.round(st.size / 1048576) + " MB, too big for this tool; use bash (head, tail, sed -n) for parts of it");
@@ -939,7 +969,7 @@ export async function toolEdit(args) {
   // had other changes.
   const known = !!seen && !changed && !seen.partial && !seen.part && !seen.start;
   const said = "The file " + rel + (all ? " has been updated. All occurrences were successfully replaced." : " has been updated successfully.") + (changed ? EDIT_OTHER_CHANGES : known ? WRITE_FRESH : "");
-  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes });
+  return editAnswer({ rel, abs, said, before: text, after: outText.replace(/^\ufeff/, ""), show_change, check, bytes, facts: a.facts === true ? { oldString: old_string, newString: new_string, replaceAll: all } : null });
 }
 /**
  * A READ-ONLY FILE IS CHANGED ALL THE SAME, AND STAYS READ-ONLY (the owner, 2026-11-09: "Ok yea fix that"; Claude Code's
@@ -958,14 +988,20 @@ async function writeOver(abs, bytes, rel) {
   }
 }
 /** Edit's answer, as write's: its memory note, the language server's report (`check`), and the change (`show_change`). */
-async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes }) {
+async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes, facts = null }) {
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
   // (The file's language server told, as after a write: lspAfterWrite.)
   const lsp = check ? await lspAfterWrite(abs, after, check) : null;
   const text = said + (memSaid ? "\n" + memSaid : "");
-  const change = show_change === true ? await writeChange(before, after).catch(() => null) : null;
-  return change || lsp ? WRITE_MARK + JSON.stringify({ text, change, ...lspFields(lsp) }) : text;
+  const got = {};
+  const change = show_change === true || facts ? await writeChange(before, after, got).catch(() => null) : null;
+  const answer = (show_change === true && change) || lsp ? WRITE_MARK + JSON.stringify({ text, change: show_change === true ? change : null, ...lspFields(lsp) }) : text;
+  // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Edit output, { filePath, oldString,
+  // newString, originalFile, structuredPatch, userModified, replaceAll }. 2026-11-14.)
+  if (!facts) return answer;
+  const was = typeof before === "string" && before.length <= FACTS_TEXT_MAX ? before : null;
+  return { text: answer, facts: { filePath: abs, oldString: facts.oldString, newString: facts.newString, originalFile: was, structuredPatch: was !== null && Array.isArray(got.hunks) ? got.hunks : [], userModified: false, replaceAll: facts.replaceAll === true } };
 }
 
 /**

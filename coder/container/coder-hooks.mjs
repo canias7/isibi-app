@@ -11,6 +11,7 @@
 import { pwshRun, PS_TERM } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
+import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
 // (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
@@ -552,7 +553,9 @@ export function hookResult(event, run, hook = {}) {
  *   reason      the decision's reason, in Claude Code's words for a block by exit 2 ("<Event>:<Tool> hook error: [cmd]: …")
  *   endTurn     a prompt hook's ok: false where Claude Code ends the turn ("the turn ends and the reason appears in the chat as a
  *               warning line"): its reason
- *   updatedInput, updatedOutput   PreToolUse's new input; PostToolUse's new output (a string, or Bash's { stdout })
+ *   updatedInput, updatedOutput   PreToolUse's new input; PostToolUse's new output, as text (the last hook's value, checked
+ *               as Claude Code checks it: `rewrite`, below), with `updatedPics` when it is a picture; `updatedInputs`, every
+ *               PreToolUse hook's new input in turn (Claude Code checks each one)
  *   context     additionalContext strings, and plain stdout on UserPromptSubmit and SessionStart (and PreCompact's, as instructions)
  *   messages    systemMessage strings, for the owner
  *   notices     "<Event> hook error" lines for the owner (non-blocking errors)
@@ -563,17 +566,26 @@ export function hookResult(event, run, hook = {}) {
  *               classifierContext: at most 2,000 characters for the call, shared by its hooks; a note whose own rewrite of
  *               the output was refused, or replaced by another hook's, is dropped), or ""
  */
-/** What is wrong with a command's new output for Claude Code's Bash output shape ("" when nothing). */
-export function bashShapeProblem(u) {
-  if (!u || typeof u !== "object" || Array.isArray(u)) return "Expected an object with stdout, stderr and interrupted, received " + (Array.isArray(u) ? "array" : u === null ? "null" : typeof u) + ".";
-  const miss = [["stdout", "string"], ["stderr", "string"], ["interrupted", "boolean"]].filter(([k, t]) => typeof u[k] !== t).map(([k, t]) => k + " (" + t + ")");
-  return miss.length ? "Expected " + miss.join(", ") + "." : "";
+/**
+ * A TOOL'S TEXT FOR ITS RESULT OBJECT, where it needs nothing of Coder's machine (Claude Code's mapToolResultToToolResultBlockParam
+ * for Bash, PowerShell, LSP, WebFetch and TaskStop); undefined for the others, whose text Coder's loop gives (`rewrite`).
+ */
+export function plainOutputText(tool, v) {
+  if (tool === "Bash" || tool === "PowerShell") return bashOutputText(v);
+  if (tool === "LSP" || tool === "WebFetch") return v.result;
+  if (tool === "TaskStop") return JSON.stringify({ ...v, message: v.message, command: v.command });
+  return undefined;
 }
-export function hooksOutcome(event, runs, { tool = "" } = {}) {
+/**
+ * A POSTTOOLUSE HOOK'S updatedToolOutput, WITHOUT CODER'S LOOP (coder-zod.mjs checkRewrite): checked against the tool's output
+ * shape, then shown through plainOutputText; a tool with no shape (a connector's) takes it as it is.
+ */
+export const plainRewrite = (tool, value, opts = {}) => checkRewrite(tool, value, { ...opts, textOf: plainOutputText });
+export function hooksOutcome(event, runs, { tool = "", rewrite = null } = {}) {
   const label = event + (tool && TOOL_EVENTS.has(event) ? ":" + tool : "");
-  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
+  const out = { stop: null, decision: "", reason: "", endTurn: "", updatedInput: null, updatedInputs: [], updatedOutput: undefined, context: [], messages: [], notices: [], blocks: [], watchPaths: null, sessionTitle: "", retry: false, classifierContext: "" };
   const notes = [];
-  let rewrites = 0, lastRewrite = 0;
+  let rewrites = 0, lastValue;
   // (StopFailure and SessionEnd: "Claude Code ignores the hook's output and exit code"; "discards their JSON output fields".)
   if (event === "StopFailure" || event === "SessionEnd") return out;
   const rank = { deny: 4, ask: 2, allow: 1, "": 0 };
@@ -639,7 +651,9 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       // (Exit 2: its stderr alone, as Claude Code, which reads no JSON from a hook that exits 2.)
       if (d === "deny") blockBy(result.kind === "block" ? result.reason : why);
       if (rank[d] !== undefined && rank[d] > rank[out.decision]) { out.decision = d; out.reason = d === "deny" ? out.blocks[out.blocks.length - 1] : cap(why); }
-      if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny") out.updatedInput = spec.updatedInput;
+      // (Each hook's new input, checked in turn by Coder's loop as Claude Code checks one, coder-hookcheck.mjs; the last one is
+      // the input. None with "deny"; none with "defer" either: Claude Code's "For "defer", ignored".)
+      if (spec.updatedInput && typeof spec.updatedInput === "object" && !Array.isArray(spec.updatedInput) && d !== "deny" && spec.permissionDecision !== "defer") { out.updatedInput = spec.updatedInput; out.updatedInputs.push(spec.updatedInput); }
       continue;
     }
     if (event === "PermissionRequest") {
@@ -656,18 +670,12 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       }
       continue;
     }
+    // A HOOK'S REWRITE OF THE OUTPUT (Claude Code 2.1.325, the owner, 2026-11-14: "Fix base on Claude Code docs, please"): each
+    // hook's in turn, the last one's kept, then checked once all have run (below). A connector's (MCP) also takes
+    // updatedMCPToolOutput, after it ("Replaces the output for MCP tools only").
     let rewrite = 0;
-    if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) {
-      const u = spec.updatedToolOutput;
-      rewrite = -1;
-      // (For a command, Claude Code checks it against Bash's output shape, stdout and stderr strings and interrupted a boolean,
-      // and uses the original output when it does not match, in its words; a match is shown as its result is, stdout then
-      // stderr. Bash docs pass 9.)
-      const bad = tool === "Bash" || tool === "PowerShell" ? bashShapeProblem(u) : "";
-      if (bad) out.notices.push("PostToolUse hook returned updatedToolOutput that does not match " + tool + "'s output shape; using original output. " + bad);
-      else if (typeof u === "string") { out.updatedOutput = u; rewrite = lastRewrite = ++rewrites; }
-      else if (u && typeof u === "object" && typeof u.stdout === "string") { out.updatedOutput = [u.stdout.replace(/^(\s*\n)+/, "").trimEnd(), typeof u.stderr === "string" ? u.stderr.trim() : "", u.interrupted === true ? "<error>Command was aborted before completion</error>" : ""].filter(Boolean).join("\n"); rewrite = lastRewrite = ++rewrites; }
-    }
+    if (event === "PostToolUse" && spec.updatedToolOutput !== undefined) { lastValue = spec.updatedToolOutput; rewrite = ++rewrites; }
+    if (event === "PostToolUse" && spec.updatedMCPToolOutput !== undefined && String(tool).startsWith("mcp__")) { lastValue = spec.updatedMCPToolOutput; rewrite = ++rewrites; }
     // A NOTE FOR THE AUTO MODE CHECKER (Claude Code: "Return classifierContext to send a short note about the tool call's
     // result to the auto mode classifier rather than to Claude").
     if (event === "PostToolUse" && typeof spec.classifierContext === "string" && spec.classifierContext.trim()) notes.push({ text: spec.classifierContext.trim(), rewrite });
@@ -681,7 +689,20 @@ export function hooksOutcome(event, runs, { tool = "" } = {}) {
       out.reason = out.reason || why;
     }
   }
-  if (notes.length) out.classifierContext = notes.filter((n) => n.rewrite === 0 || n.rewrite === lastRewrite).map((n) => n.text).join("\n").slice(0, 2000);
+  // THE LAST REWRITE, CHECKED (Claude Code: "The value must match the tool's output shape … a value that doesn't match the
+  // tool's output schema is ignored and the original output is used"; a match shown through the tool's own text; an MCP
+  // tool's "passed through without schema validation"): `rewrite(value, { withNote })` from Coder's loop, which knows each
+  // tool's text (coder-hookcheck.mjs), else plainRewrite. Refused: Claude Code's notice for the owner, and the original
+  // output stays. A note for the auto mode checker goes with its own hook's rewrite: kept only when that rewrite is the one
+  // used ("Claude Code drops the note if that rewrite is rejected or another hook's rewrite replaces it").
+  let refused = false;
+  if (rewrites) {
+    const withNote = notes.some((n) => n.rewrite === rewrites);
+    const r = typeof rewrite === "function" ? rewrite(lastValue, { withNote }) : plainRewrite(tool, lastValue, { withNote });
+    if (r && typeof r.notice === "string") { out.notices.push(r.notice); refused = true; }
+    else if (r) { out.updatedOutput = String(r.text ?? ""); if (Array.isArray(r.pics) && r.pics.length) out.updatedPics = r.pics; }
+  }
+  if (notes.length) out.classifierContext = notes.filter((n) => n.rewrite === 0 || (!refused && n.rewrite === rewrites)).map((n) => n.text).join("\n").slice(0, 2000);
   return out;
 }
 

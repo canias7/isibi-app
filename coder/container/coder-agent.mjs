@@ -33,7 +33,7 @@ import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
-import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS } from "./coder-search.mjs";
+import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, noteAnswer } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
@@ -44,6 +44,8 @@ import { ENV_TOOLS, ENV_TOOL_NAMES } from "./coder-envtools.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
 import { capHit } from "./coder-scrub.mjs";
+// (A hook's rewrites of a call's input and output, checked as Claude Code checks them: coder-hookcheck.mjs. 2026-11-14.)
+import { outputRewrite, checkHookInput, sameInput } from "./coder-hookcheck.mjs";
 import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
@@ -1908,6 +1910,29 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       emit({ type: "note", text: "A PermissionRequest hook " + (u.type === "removeRules" ? "removed" : u.type === "replaceRules" ? "replaced" : "added") + " " + kind + " rules: " + list0.join(", ").slice(0, 300), hook: "PermissionRequest" });
     }
   };
+  /**
+   * A PRETOOLUSE OR PERMISSIONREQUEST HOOK'S NEW INPUT FOR ONE OF CODER'S TOOLS, CHECKED BEFORE THE CALL RUNS (Claude Code
+   * 2.1.325; the owner, 2026-11-14: "Fix base on Claude Code docs, please"; coder-hookcheck.mjs): against the schema Grok was
+   * given for the tool, then by the tool's own check, the one its calls get before any hook (coder-inputs.mjs; a task tool's,
+   * coder-tasks.mjs; a command's own: empty, too long, a refused form, a long foreground sleep). → { ok, args } or
+   * { ok: false, message }. A connector's tool takes any input, as Claude Code's MCP tools do.
+   */
+  const hookInputCheck = (name, input, event) => {
+    const tool = ccTool(name, name === "monitor");
+    // (The schema the agent was given: Coder's tools, or the ones an agent with its own (Gloopy) was offered.)
+    const def = mcpByName.has(name) ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
+    const own0 = inputCheckFor(name);
+    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off })
+      : isTaskTool(name) ? (a) => checkTaskInput(name, a)
+      : name === "bash" || name === "powershell" || name === "monitor" ? (a) => {
+        if (name === "monitor" && a.ws !== undefined) return { args: a };
+        const cmd = typeof a.command === "string" ? a.command : "";
+        const bg = name === "monitor" || (noBg !== true && (a.run_in_background === true || a.run_in_background === "true"));
+        const bad = commandProblem(cmd, { powershell: name === "powershell" }) || (bg ? "" : sleepBlockFor(cmd, name === "powershell"));
+        return bad ? { error: bad } : { args: a };
+      } : null;
+    return checkHookInput({ name, tool, input, event, params: def ? def.function.parameters : null, check });
+  };
   const askOwner = async (card, { hooks = true } = {}) => {
     // (The card's NOTIFICATION hooks, "permission_prompt": 6 seconds after the card shows, and not when the owner answered
     // sooner, as Claude Code's; off with CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS. Bash docs pass 9.)
@@ -1929,9 +1954,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const sugg = Array.isArray(card.rules) && card.rules.length ? card.rules.map((r) => ruleEntry(r)).filter(Boolean).map((e) => ({ type: "addRules", rules: [e], behavior: "allow", destination: "localSettings" })) : [];
       const o = await runHooks("PermissionRequest", tool, { tool_name: tool, tool_input: input0, ...(sugg.length ? { permission_suggestions: sugg } : {}) }, { tool, input: input0, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: call.monitor === true && !!callArgs.ws });
       if (o && o.decision === "allow" && !(card.tool === "plan" && !o.updatedInput)) {
-        emit({ type: "note", text: "A PermissionRequest hook allowed this" + (o.updatedInput ? ", with a changed input." : "."), hook: "PermissionRequest" });
+        // (ITS NEW INPUT, CHECKED BEFORE THE CALL RUNS, as Claude Code checks one: the same as the input shown to the hook, or an
+        // empty one, changes nothing; one its schema or the tool refuses is a no, in Claude Code's words: hookInputCheck. The
+        // plan's card has its own, below. 2026-11-14.)
+        let upd = o.updatedInput;
+        if (upd && card.tool !== "plan") {
+          const name0 = call.monitor ? "monitor" : call.ps ? "powershell" : card.hookTool || card.tool;
+          if (sameInput(upd, input0)) upd = null;
+          else {
+            const r = hookInputCheck(name0, upd, "PermissionRequest");
+            if (!r.ok) { const why = scrub(r.message); return { choice: "no", comment: why, hookDenied: true, hookWhy: why }; }
+            upd = hookToolInput(name0, r.args);
+          }
+        }
+        emit({ type: "note", text: "A PermissionRequest hook allowed this" + (upd ? ", with a changed input." : "."), hook: "PermissionRequest" });
         if (o.updatedPermissions) applyUpdates(o.updatedPermissions);
-        return { choice: "yes", comment: "", ...(o.updatedInput ? { updatedInput: o.updatedInput } : {}) };
+        return { choice: "yes", comment: "", ...(upd ? { updatedInput: upd } : {}) };
       }
       // (A HOOK'S NO: Coder is given what Claude Code 2.1.323 gives its model, the hook's own message, or HOOK_DENIED when it
       // gave none, and not the words for the owner's own No; the step says the hook said no. Live test, 2026-11-13: the step
@@ -2178,7 +2216,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const slots = { free: MODEL_HOOKS_AT_ONCE, wait: [] };
     const slot = async (h) => { if (h.type !== "prompt" && h.type !== "agent") return () => {}; if (slots.free > 0) slots.free--; else await new Promise((ok) => slots.wait.push(ok)); return () => { const next = slots.wait.shift(); if (next) next(); else slots.free++; }; };
     const runs = await Promise.all(now0.map(async (h) => { const done = await slot(h); let ran; try { ran = await runHook(h, inputFor(h)); } finally { done(); } const r = hookResult(event, persistHookText(event, ran, saveText), h); return { hook: h, result: h.noGrant ? withoutGrant(event, r) : r }; }));
-    const o = hooksOutcome(event, runs, { tool: value });
+    // (A PostToolUse hook's new output, checked against the tool's output shape and shown through its own text: the call's
+    // `rewrite`, coder-hookcheck.mjs.)
+    const o = hooksOutcome(event, runs, { tool: value, rewrite: call && typeof call.rewrite === "function" ? call.rewrite : null });
     for (const n of o.notices) emit({ type: "note", text: hookNoteText(scrub(n)), hook: event });
     for (const m of o.messages) emit({ type: "note", text: scrub(m).slice(0, 2000), hook: event });
     if (o.watchPaths) { watchDyn = o.watchPaths.slice(0, 200); keepWatch(); }
@@ -2267,15 +2307,33 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Claude Code's bashEditDiff: the files a command changed, when Coder took them: CODER_BASH_EDIT_DIFF.)
     // (A git command that moves the work tree takes none: Claude Code says so with `skipped: true`. Bash docs pass 9.)
     const diff = c.name === "bash" && !c.monitor ? (editDiff === true && !res.background && !c.ps && movesWorkTree(String((c.args && c.args.command) || "")) ? { skipped: true } : editDiffFor(res.files)) : null;
-    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), ...(c.name === "bash" ? { stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}) } : toolFacts.get(c.id) || {}), ...(diff ? { bashEditDiff: diff } : {}) } }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+    // WHAT ITS POSTTOOLUSE HOOKS GET AS ITS RESULT (Claude Code: "PostToolUse passes the tool's structured Output object, such
+    // as {filePath: "...", type: "create"} for Write"; the owner, 2026-11-14: "Fix base on Claude Code docs, please"): a
+    // command's, Bash's or PowerShell's output (Coder's output and exit code beside it, as before); a monitor's, Monitor's
+    // { taskId, timeoutMs }; another tool's, its result object; one with none (a connector's, as an MCP tool's answer, and
+    // Coder's own tools'), its answer as text.
+    const facts = toolFacts.get(c.id);
+    const response = c.name === "bash" && c.monitor ? { taskId: String((bashFacts.get(c.id) || {}).backgroundTaskId || ""), timeoutMs: Number(c.args && c.args.timeout) || 0 }
+      : c.name === "bash" ? { output: content, ...(Number.isInteger(res.code) ? { code: res.code } : {}), stdout: content, stderr: "", interrupted: false, isImage: false, ...(bashFacts.get(c.id) || {}), ...(diff ? { bashEditDiff: diff } : {}) }
+      : facts && typeof facts === "object" ? facts : typeof c.keepHead === "string" && content.startsWith(c.keepHead) ? content.slice(c.keepHead.length) : content;
+    // (A hook's new output, checked against the tool's output shape and shown through the tool's own text: coder-hookcheck.mjs.)
+    const rewrite = failed ? null : outputRewrite(tool, { shownPath: (p) => projectPath(deps, p), monitorText: monitorStarted }, typeof response === "object" ? response : null);
+    const o = await runHooks(ev, tool, failed ? { tool_name: tool, tool_input: input, tool_use_id: c.id, error: content, is_interrupt: false, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}) } : { tool_name: tool, tool_input: input, tool_use_id: c.id, ...(ranAt.has(c.id) ? { duration_ms: Math.max(0, (doneAt.get(c.id) || now()) - ranAt.get(c.id)) } : {}), tool_response: response }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ...(rewrite ? { rewrite } : {}) });
     if (o && o.classifierContext) checkerNotes.set(c.id, scrub(o.classifierContext));
-    let text = content;
-    if (o && o.updatedOutput !== undefined) text = String(o.updatedOutput);
+    let text = content, pics = null;
+    // (A fix its input check made is still said after it, and what the call's answer carried for Coder beside the tool's own
+    // text (the repository's notes for a file, the owner's note with a Yes): Claude Code keeps its "Note: …" and such parts with
+    // a rewrite. A picture in it is shown to Grok, as read's are.)
+    if (o && o.updatedOutput !== undefined) {
+      text = (typeof c.keepHead === "string" ? c.keepHead : "") + String(o.updatedOutput) + (c.inputNote ? "\n\n" + c.inputNote : "") + (typeof c.keepTail === "string" ? c.keepTail : "");
+      if (Array.isArray(o.updatedPics) && o.updatedPics.length) pics = { path: "the new " + tool + " result a PostToolUse hook gave", urls: o.updatedPics.map((x) => "data:" + x.type + ";base64," + x.data) };
+    }
     const more = [...(o ? o.blocks : []), ...(c.hook && c.hook.context && c.hook.context.length ? [hookNote("PreToolUse:" + tool, c.hook.context)] : []), ...(o && o.context.length ? [hookNote(ev + ":" + tool, o.context)] : [])];
     if (more.length) text += "\n\n" + more.map((x) => scrub(String(x))).join("\n\n");
     if (text !== content) convo[at] = { ...convo[at], content: text };
     if (o && o.stop) hookStop = o;
     if (o && o.endTurn) hookEnd = hookEnd || o.endTurn;
+    return o && o.updatedOutput !== undefined ? { pics } : null;
   };
   /**
    * A WEBSOCKET WATCH (Claude Code's Monitor `ws` source): its input checked; refused under a rule denying every Bash command
@@ -3088,7 +3146,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const roundNotes = [], roundShown = [];
     // (A step's PostToolUse hooks run once it is done: at the start of the next step, or after the last.)
     let postFor = null;
-    const runPost = async () => { const pc = postFor; postFor = null; if (pc) await postHooks(pc); };
+    // (A PostToolUse hook's new output takes the place of the call's pictures too, its own picture shown instead.)
+    const runPost = async () => { const pc = postFor; postFor = null; if (!pc) return; const got = await postHooks(pc); if (!got) return; for (let k = roundPics.length - 1; k >= 0; k--) if (roundPics[k].id === pc.id) roundPics.splice(k, 1); if (got.pics) roundPics.push(got.pics); };
     stopRun = 0;
     // COMMANDS THAT ONLY READ, SEVERAL IN A ROW IN ONE REPLY, RUN AT THE SAME TIME (Bash docs pass 9; Claude Code runs a
     // Bash call alongside others when it only reads, its isConcurrencySafe): with no hooks, each such command that is
@@ -3229,7 +3288,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (pre.endTurn) { for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(pre.endTurn); }
           continue;
         }
-        if (pre && pre.updatedInput) { const ni = toolInputFromHook(c.name, pre.updatedInput); if (ni) c.args = ni; }
+        // A HOOK'S NEW INPUT, CHECKED BEFORE THE CALL RUNS (Claude Code 2.1.325, its changelog: "updatedInput from PreToolUse and
+        // PermissionRequest hooks is now validated like Claude's own input: unknown keys are dropped, and input the tool rejects
+        // denies the call"; the owner, 2026-11-14): each hook's in turn; one refused stops the call as a hook's deny does, in
+        // Claude Code's words ("PreToolUse hook for Grep returned updatedInput that failed schema validation: …"). The question
+        // card's and the plan's have their own checks, below.
+        if (pre && Array.isArray(pre.updatedInputs) && pre.updatedInputs.length && c.name !== "ask_user" && c.name !== "exit_plan_mode") {
+          let refusedBy = "", args1 = null;
+          for (const u of pre.updatedInputs) { const r = hookInputCheck(c.name, u, "PreToolUse"); if (r.ok) args1 = r.args; else refusedBy = scrub(r.message); }
+          if (refusedBy) {
+            emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
+            emit({ type: "result", id: c.id, code: -1, ran: false, output: refusedBy.slice(0, 2000), hookBlocked: true });
+            reply(refusedBy + (Array.isArray(pre.context) && pre.context.length ? "\n\n" + scrub(hookNote("PreToolUse:" + tool, pre.context)) : ""));
+            continue;
+          }
+          if (args1) c.args = args1;
+        } else if (pre && pre.updatedInput) { const ni = toolInputFromHook(c.name, pre.updatedInput); if (ni) c.args = ni; }
         if (pre) c.hook = { decision: pre.decision, reason: scrub(pre.reason || ""), context: pre.context, ...(pre.updatedInput ? { updated: true } : {}) };
         postFor = c;
       }
@@ -3268,6 +3342,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { reply(saidReply(a)); continue; }
           if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          // (A PermissionRequest hook's new input, checked in askOwner: the call goes with it.)
+          if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
           askedByRule = true;
         }
       }
@@ -3280,6 +3356,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (o === "said") { reply(saidReply(a)); continue; }
         if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+        if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
       }
       if (c.name === "bash") {
         const command = typeof c.args.command === "string" ? c.args.command : "";
@@ -3571,7 +3648,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           if (!isError && r && typeof r.picture === "string" && r.picture) {
             const got = readAnswer((await appTool(deps, "read", { path: r.picture })).output);
             if (got.pics.length) {
-              roundPics.push({ path: "the picture your command printed", urls: got.pics.map((x) => "data:" + x.type + ";base64," + x.data) });
+              roundPics.push({ path: "the picture your command printed", urls: got.pics.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
               thumbs = got.thumbs || [];
               text = "The command printed a picture (" + String(r.pictureType || "image") + "): it is attached right after these results.";
             }
@@ -3634,7 +3711,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (!svc && r && r.code === 0 && /\[stopped /.test(out)) { out = stoppedJson(); stoppedNow = true; }
         // (The page shows the message; Coder reads Claude Code's JSON.)
         let shown = out;
-        try { const o = JSON.parse(out); if (o && typeof o.message === "string") shown = o.message; } catch { /* not JSON */ }
+        // (And its result object, Claude Code's TaskStop output, for its PostToolUse hooks. 2026-11-14.)
+        try { const o = JSON.parse(out); if (o && typeof o.message === "string") { shown = o.message; toolFacts.set(c.id, o); } } catch { /* not JSON */ }
         // (A job Coder stopped gets no end notice, as Coder already knows: the page learns it here, so the step that started it
         // says "stopped", not "running"; live test after deploy 123.)
         emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: shown, ...(stoppedNow ? { stoppedJob: name } : {}) });
@@ -4647,12 +4725,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // directory"): with the environment's CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES on, a read, grep, glob or lsp
         // outside the project (its links followed) is refused; Coder's own folders stay readable ("Files Claude Code itself
         // needs stay readable").
-        // (The file or folder a file tool works on, in full: a glob's own full path up to its first wildcard.)
+        // (The file or folder a file tool works on, in full. A glob's full pattern names its own folder, as Claude Code's Glob
+        // reads one (its getPath, 2.1.325; the owner, 2026-11-14): the folder before the last "/" ahead of its first wildcard,
+        // or, with none, the file's own folder; a pattern starting with "~" is no full one: it is searched as it is, from the
+        // search's folder. A path of "~" or "~/…" is from the home folder, as Claude Code reads a path.)
         const targetOf = () => {
-          const pat = c.name === "glob" && typeof args.pattern === "string" && /^[/~]/.test(args.pattern) ? args.pattern.slice(0, Math.max(1, args.pattern.search(/[*?[{]/) < 0 ? args.pattern.length : args.pattern.search(/[*?[{]/))) : "";
+          const pat = c.name === "glob" && typeof args.pattern === "string" && args.pattern.startsWith("/") ? splitPattern(args.pattern).baseDir : "";
           const named = c.name === "lsp" ? args.filePath : args.path;
           const p = pat || (typeof named === "string" && named ? named : ".");
-          return typeof deps.where === "function" ? deps.where(p.startsWith("~") && deps.home ? deps.home + p.slice(1) : p) : p;
+          return typeof deps.where === "function" ? deps.where((p === "~" || p.startsWith("~/")) && deps.home ? deps.home + p.slice(1) : p) : p;
         };
         // (The chat's plan file stays readable: Claude Code's "Plan files for current session are allowed for reading". 2026-11-14.)
         if (readBlock && READ_TOOLS.has(c.name) && !(planPath() && targetOf() === planPath())) {
@@ -4780,7 +4861,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (Claude Code tells only an agent that has Bash or PowerShell what the servers report; one without, Gloopy's helpers,
         // only sends the file's new text to its server: `check: "sync"`. 2026-11-14.)
         const lspCheck = !offered || offered.has("bash") || offered.has("powershell") ? true : "sync";
-        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck } : args;
+        // (And read's, write's and edit's result objects for the PostToolUse hooks, Claude Code's Read, Write and Edit outputs:
+        // `facts`, behind FACTS_MARK. 2026-11-14.)
+        const reqArgs = c.name === "write" ? { ...given, show_change: true, check: lspCheck, facts: true } : c.name === "edit" ? { ...args, show_change: true, check: lspCheck, facts: true } : c.name === "read" ? { ...args, facts: true } : args;
         // (Grep and Glob get the owner's Read deny rules and the search settings with it: searchCtx.)
         const search = c.name === "grep" || c.name === "glob";
         const req = { tool: c.name, args: reqArgs, ...(search ? { ctx: searchCtx() } : {}) };
@@ -4823,15 +4906,18 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // own limits and the saved file above, Claude Code's); other tools' output is, to MAX_OUTPUT_CHARS.
         // (An lsp answer goes whole up to Claude Code's 100,000 characters; past that it is saved and its start shown: coder-lsp.mjs.)
         let out = capOutput(raw, c.name === "read" ? READ_LARGE_CHARS + 2000 : c.name === "lsp" ? LSP_RESULT_MAX + 2000 : search ? (c.name === "grep" ? GREP_INLINE_MAX : GLOB_INLINE_MAX) + 2000 : undefined);
-        if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data) });
+        if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
         emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof args.path === "string" ? { ...args, path: deps.where(args.path) } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }
-        // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs.)
-        reply((out || "(nothing)") + (c.inputNote ? "\n\n" + c.inputNote : "") + (more ? "\n\n" + more : "") + yesNote(approval));
+        // (A fix its input check made is told after the answer, as Claude Code's "Note: …": coder-inputs.mjs; only when the call
+        // worked, as Claude Code adds its note only to a result that is not an error.)
+        // (What follows the tool's own text is kept apart, for a PostToolUse hook's rewrite of it: c.keepTail.)
+        c.keepTail = (more ? "\n\n" + more : "") + yesNote(approval);
+        reply((out || "(nothing)") + (code === 0 && c.inputNote ? "\n\n" + c.inputNote : "") + c.keepTail);
       } else if (c.name === "exit_plan_mode") {
         // THE PLAN, FOR THE OWNER'S APPROVAL (Claude Code's ExitPlanMode): "Yes, and use auto mode" or "Yes, and accept
         // edits" ends Plan mode and Coder starts in this same turn; "No, keep planning" (with what to change) keeps it on.
@@ -5073,7 +5159,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // A BIG ANSWER IS SAID IN THE CHAT (Claude Code warns when one is over 10,000 tokens).
         if (out.length > CONNECTOR_WARN_CHARS) emit({ type: "note", text: "Large answer from " + t.label + ": about " + Math.round(out.length / 4).toLocaleString("en-US") + " tokens." });
         // PICTURES THE TOOL GAVE are shown to Grok, as read's are.
-        if (Array.isArray(r.images) && r.images.length) roundPics.push({ path: "the " + t.label + " connector's answer", urls: r.images.map((x) => "data:" + x.type + ";base64," + x.data) });
+        if (Array.isArray(r.images) && r.images.length) roundPics.push({ path: "the " + t.label + " connector's answer", urls: r.images.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
         let told = out;
         const inlineMax = Math.max(CONNECTOR_INLINE_MAX, t.maxChars || 0);
         // A LONG ERROR keeps its start and its end (Claude Code: "the first and last 5,000").
@@ -5085,6 +5171,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           told = saved ? out.slice(0, CONNECTOR_PREVIEW) + "\n…(the whole answer, " + out.length.toLocaleString("en-US") + " characters, is saved in " + file + ": read or grep it for the rest)"
             : out.slice(0, inlineMax) + "\n…(cut: the answer was " + out.length.toLocaleString("en-US") + " characters)";
         }
+        // (Coder's line before a connector's answer stays before a PostToolUse hook's new one; the hooks get the answer without it,
+        // as Claude Code's get an MCP tool's: c.keepHead.)
+        c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, request_secret, get_environment, update_environment, create_environment, switch_environment, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
     }

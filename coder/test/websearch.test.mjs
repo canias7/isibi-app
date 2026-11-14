@@ -154,7 +154,7 @@ test("WS5 in the loop: Grok's web_search call runs as its own Grok call (the cha
   assert.deepEqual([pre.tool_name, pre.tool_input], ["WebSearch", { query: "node latest", blocked_domains: ["w3schools.com"] }], "after the input check: `mode` dropped");
   const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
   assert.equal(post.tool_name, "WebSearch");
-  assert.deepEqual({ ...post.tool_response, durationSeconds: 0 }, { output: FOUND_TEXT, code: 0, query: "node latest", results: [{ tool_use_id: "ws_1", content: [{ title: "https://nodejs.org/en/blog", url: "https://nodejs.org/en/blog" }] }, "Node 24 is the latest."], durationSeconds: 0, searchCount: 1 });
+  assert.deepEqual({ ...post.tool_response, durationSeconds: 0 }, { query: "node latest", results: [{ tool_use_id: "ws_1", content: [{ title: "https://nodejs.org/en/blog", url: "https://nodejs.org/en/blog" }] }, "Node 24 is the latest."], durationSeconds: 0, searchCount: 1 });
   assert.equal(typeof post.tool_response.durationSeconds, "number");
   // An input check's refusal: before any hook, nothing run, the step said with its verb.
   const t2 = await job([say("", [call("web_search", { query: "n" }, "w2")]), say("ok")], { hooks });

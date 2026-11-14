@@ -155,7 +155,8 @@ test("RS4 the card waits in the turn, as Claude Code's form does: Save answers \
   const pre = t.hookCalls.find((x) => x.hook_event_name === "PreToolUse");
   assert.deepEqual([pre.tool_name, pre.tool_input], ["request_secret", input]);
   const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse" && x.tool_name === "request_secret");
-  assert.deepEqual([post.tool_input, post.tool_response], [input, { output: "saved", code: 0 }]);
+  // (Claude Code's request_credential is a tool of its MCP server: its answer, as an MCP tool's, is what the hooks get. 2026-11-14.)
+  assert.deepEqual([post.tool_input, post.tool_response], [input, "saved"]);
   assert.equal(t.hookCalls.some((x) => x.hook_event_name === "PostToolUseFailure"), false);
   // The card is no permission prompt: no PermissionRequest hook, no "refuse instead of asking" (Claude Code's form is the call itself).
   const d = await loop([say("", [call("request_secret", input, "k2")]), say("Done.")], { hooks: { PermissionRequest: [{ matcher: "", hooks: [{ type: "command", command: "perm.sh" }] }] }, denyInstead: true });

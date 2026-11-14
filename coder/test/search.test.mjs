@@ -317,7 +317,7 @@ test("SR8 in Coder's loop: the search gets the owner's Read deny rules and the s
   assert.deepEqual(pre.map((x) => x.tool_name), ["Grep", "Glob", "Grep"], "the refused call fired no hook");
   assert.deepEqual(pre[0].tool_input, { pattern: "TODO first", path: "." });
   const post = t.hookCalls.filter((x) => x.hook_event_name === "PostToolUse");
-  assert.deepEqual(post[0].tool_response, { output: "Found 1 file\na.js\n\nNote: Grep's parameter for where to search is named `path`. `file_path` was read as `path`.", code: 0, mode: "files_with_matches", filenames: ["a.js"], numFiles: 1, totalFiles: 1 });
+  assert.deepEqual(post[0].tool_response, { mode: "files_with_matches", filenames: ["a.js"], numFiles: 1, totalFiles: 1 });
   assert.deepEqual([post[1].tool_response.numFiles, post[1].tool_response.truncated, typeof post[1].tool_response.durationMs], [0, false, "number"]);
   // A long result: past 20,000 characters, saved, its path and its first 2 KB given.
   const g3 = t.answer("g3");
@@ -408,4 +408,59 @@ test("SR11 an agent hook's own grep and glob (read, grep and glob only, under th
   const g = requests.find((x) => x.req.tool === "grep");
   assert.deepEqual(g.req.ctx.deny.rules, ["Read(docs/**)"]);
   assert.equal(g.x.timeoutS, 50);
+});
+
+test("SR12 (Claude Code 2.1.325; the owner, 2026-11-14: \"Fix base on Claude Code docs, please\") zod's own list when only a value is wrong; a glob's full pattern names its folder for the rules (the folder before the last / ahead of its first wildcard, or the file's own), one starting with ~ is searched as it is; results cut short by any SIGTERM or SIGKILL marked incomplete; a fix's note only on a call that worked; a rule on the whole Read tool is Read's own, Read(**) a path; no warning for a Grep path rule", { skip: !hasRg }, async () => {
+  // Only a value wrong: zod's list, as Claude Code returns it.
+  assert.equal(S.checkGrepInput({ pattern: "x", output_mode: "lines" }).error, "error: InputValidationError: " + JSON.stringify([{ code: "invalid_value", values: ["content", "files_with_matches", "count"], path: ["output_mode"], message: 'Invalid option: expected one of "content"|"files_with_matches"|"count"' }], null, 2));
+  const d = project();
+  // A full pattern's folder: before the last "/" ahead of its first wildcard (here the project's own, which no rule covers:
+  // the search runs, its results under src left out); with none, the file's own folder.
+  let t = await loop(d, [say("", [call("glob", { pattern: d + "/src*/b.js" }, "f1"), call("glob", { pattern: d + "/src/b.js" }, "f2")]), say("done")], { rules: { deny: ["Read(src/**)"] } });
+  assert.equal(t.answer("f1"), "No files found");
+  assert.equal(t.answer("f2"), "Permission to read " + d + "/src has been denied.");
+  // A pattern starting with "~": no full pattern (Claude Code: not absolute), searched as it is from the search's folder.
+  const events = [];
+  let n = 0;
+  const steps = [say("", [call("glob", { pattern: "~/notes/*.md" }, "f3")]), say("done")];
+  const r = await A.runCoder({
+    send: async () => steps[Math.min(n++, 1)],
+    exec: async (x) => { const tm = /coder-tools\.mjs (\S+)$/.exec(String(x.command)); if (!tm) return { code: 0, output: "" }; const out = spawnSync("node", ["--no-warnings", TOOLS, tm[1]], { cwd: d, encoding: "utf8" }); return { code: out.status, output: out.stdout }; },
+    emit: (e) => events.push(e), here: () => d, root: d, home: "/home/someone", where: (p) => (p.startsWith("/") ? p : d + "/" + p), ask: async () => ({ choice: "yes" }),
+  }, { text: "go", mode: "auto", messages: [], rules: { deny: ["Read(~/**)"] } });
+  assert.equal(r.messages.find((m) => m.tool_call_id === "f3").content, "No files found", "not refused as the home folder's");
+  // Results cut short by a kill from outside the search (the system, out of memory): marked, as at the time limit.
+  const dir = mkdtempSync(join(tmpdir(), "sr-kill-"));
+  writeFileSync(join(dir, "rg"), "#!/bin/sh\nprintf '%s\\0' \"" + join(d, "a.js") + "\"; kill -KILL $$\n");
+  chmodSync(join(dir, "rg"), 0o755);
+  const keep = process.env.PATH;
+  process.env.PATH = dir + ":" + keep;
+  try {
+    const g = await grep(d, { pattern: "x" }, { timeoutMs: 60_000 });
+    assert.deepEqual([g.text, g.facts.timedOut], [S.SEARCH_STOPPED + "\n\nFound 1 file\na.js", true]);
+    const f = await glob(d, { pattern: "*.js" }, { timeoutMs: 60_000 });
+    assert.deepEqual([f.text, f.facts.timedOut, f.facts.countIsComplete], [S.SEARCH_STOPPED + "\n\na.js", true, false]);
+  } finally { process.env.PATH = keep; }
+  // A fix's note only after an answer that is not an error (Claude Code adds its "Note: …" to a result that worked).
+  t = await loop(d, [say("", [call("grep", { pattern: "x", file_path: "nope" }, "g1"), call("grep", { pattern: "TODO first", file_path: "." }, "g2")]), say("done")]);
+  assert.doesNotMatch(t.answer("g1"), /Note: Grep's parameter/);
+  assert.match(t.answer("g2"), /\n\nNote: Grep's parameter for where to search is named `path`\. `file_path` was read as `path`\.$/);
+  // A rule on the whole Read tool (Read, Read(*), a wildcard naming Read) is Read's alone: Grep, Glob and LSP go by Read rules
+  // on a path (Claude Code's path matcher skips a rule with no path); Read(**) is a path; a whole Read deny still blocks write.
+  const dec = (tool, p, rules) => P.fileToolDecision(tool, p, { rules, root: d });
+  for (const deny of [["Read"], ["Read(*)"], ["Rea*"]]) {
+    for (const tool of ["grep", "glob", "lsp"]) assert.equal(dec(tool, tool === "lsp" ? d + "/a.js" : d, { deny }).verdict, "", tool + " " + deny[0]);
+    assert.deepEqual(dec("read", d + "/a.js", { deny }).verdict, "deny", "read " + deny[0]);
+  }
+  assert.equal(dec("read", d + "/a.js", { deny: ["Read"] }).why, "Permission to use Read has been denied.");
+  assert.equal(dec("write", d + "/a.js", { deny: ["Read"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be written.");
+  for (const tool of ["grep", "glob"]) assert.equal(dec(tool, d, { ask: ["Read"] }).verdict, "", tool + " ask");
+  assert.equal(dec("grep", d, { deny: ["Read(**)"] }).why, "Permission to read " + d + " has been denied.");
+  // (And a search's results: a whole Read deny rule beside a path one leaves out only what the path one covers.)
+  assert.equal((await grep(d, { pattern: "TODO" }, { deny: { rules: ["Read", "Read(*.ts)"], root: d } })).text.split("\n").includes("a.js"), true);
+  // No warning for a Grep rule with a path (Claude Code warns of Write's, NotebookEdit's, MultiEdit's and Glob's only).
+  assert.equal(P.ruleWarning("deny", "Grep(src/**)"), null);
+  assert.equal(P.ruleWarning("allow", "Grep(src/**)"), null);
+  assert.match(P.ruleWarning("deny", "Glob(src/**)").warning, /^Glob\(src\/\*\*\) is not matched by file permission checks/);
+  assert.equal(P.ruleSaved("Grep(src/**)"), true, "still kept");
 });
