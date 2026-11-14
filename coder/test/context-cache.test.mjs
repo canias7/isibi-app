@@ -267,6 +267,9 @@ test("CTX6 a background command's news that comes with a message of the owner's 
   const alone = await run({ text: "" });
   assert.ok(alone.startsWith(A.BG_EVENT_HEADER + "\n\n(Note from Coder's app, not the owner: "));
   assert.match(alone, /\nThe owner sent no message: this turn is only to tell you\./);
+  // Gloopy as before (the owner: Gloopy stays unchanged): no header with a message of the owner's.
+  const { GLOOPY_TOOLS, GLOOPY_SYSTEM } = await import("../container/gloopy-agent.mjs");
+  assert.ok((await run({ text: "and now?", tools: GLOOPY_TOOLS, system: GLOOPY_SYSTEM, who: "Gloopy", nudges: false })).startsWith("(Note from Coder's app, not the owner: a background command ended since your last answer.\n"));
 });
 
 test("CTX7 no note of Coder's own for Accept edits (the owner's choice: Claude Code has none for that mode); Claude Code's own notes of the modes stay (auto mode's, plan mode's)", async () => {

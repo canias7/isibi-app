@@ -3066,13 +3066,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     for (const n of told) emit({ type: "note", text: n.said, ...(n.id ? { job: n.id, end: n.end } : {}) });
     for (const n of stuck) emit({ type: "note", text: n.said, ...(n.id ? { job: n.id } : {}) });
     // (With no message of the owner's, Claude Code's own header first: Bash docs pass 9, its background-task notice says it
-    // is no input and no approval, and Coder's said only that the owner sent no message. With one, Claude Code 2.1.325's
-    // other header, BG_EVENT_WITH_OWNER: that message is real input, the notification is not. Fix round 4.)
+    // is no input and no approval, and Coder's said only that the owner sent no message. With one, in Coder's own chats,
+    // Claude Code 2.1.325's other header, BG_EVENT_WITH_OWNER: that message is real input, the notification is not. Fix round
+    // 4; Gloopy's as before.)
     const alone = !((typeof text === "string" && text.trim()) || (typeof shell === "string" && shell.trim()));
     const parts = [];
     if (told.length) parts.push((told.length === 1 ? "a background command" : told.length + " background commands") + " ended since your last answer.\n" + told.map((n) => n.note).join("\n\n"));
     if (stuck.length) parts.push((stuck.length === 1 ? "a background command" : stuck.length + " background commands") + " still running may be stuck waiting for typed input.\n" + stuck.map((n) => n.note).join("\n\n"));
-    convo.push({ role: "user", appNote: true, content: (alone ? BG_EVENT_HEADER : BG_EVENT_WITH_OWNER) + "\n\n" + "(Note from Coder's app, not the owner: " + parts.join("\n\n") + (alone ? "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two." : "") + ")" });
+    convo.push({ role: "user", appNote: true, content: (alone ? BG_EVENT_HEADER + "\n\n" : !offered ? BG_EVENT_WITH_OWNER + "\n\n" : "") + "(Note from Coder's app, not the owner: " + parts.join("\n\n") + (alone ? "\nThe owner sent no message: this turn is only to tell you. Handle it: say what it means for the work (look at its output when that matters), and go on with what was asked earlier if it needs you; otherwise answer in a line or two." : "") + ")" });
   }
   // WHAT THE LANGUAGE SERVERS REPORTED AFTER CODER'S LAST STEP, with this message, as Claude Code delivers a late report with
   // the next prompt (lspNews; not for /compact, which answers nothing).
