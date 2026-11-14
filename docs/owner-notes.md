@@ -17,6 +17,24 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The six fixes are live on gofarther.dev, tested with Grok on Low (your word: "Ok")
+
+Merged to main and deployed; the deploy's own test run passed. Tested live in one chat on the test repo, with Grok on Low:
+
+1. **A card left unanswered** (a command needing approval): after 5 minutes the job paused and the card stayed open. Clicking Yes picked the turn up again in 19 seconds; the command ran and Coder answered. Passed.
+2. **Environment card, Approve:** the card waited inside the turn; the description was saved and Coder said so in the same turn. Passed.
+3. **Environment card, Decline after a pause:** this card also paused after 5 minutes. Declining it then gave Coder "Denied by owner", and the message I had sent while it waited was answered right after. Passed.
+4. **list_environments and get_environment** gave the names and the description. Passed.
+5. **Question card with previews:** each option showed a small layout drawing, and there was a Notes box; my pick and my note came back to Coder. Passed.
+6. **Plan mode:** Coder switched itself into Plan with no card (4 seconds), looked around, wrote its plan and showed the plan card. I said No with a note, and Coder answered "No changes: the plan was only a test and was not applied." Passed.
+7. **Web search (one paid search):** Coder asked first, made one search (10 links) and answered "26.13.1". xAI took the new search settings with no error. Coder's records don't keep xAI's own count of searches, so the 8-search limit itself can't be seen from here.
+8. **lsp:** a file with a type error gave "Found 1 new diagnostic issue in 1 file". Passed.
+9. The test description was cleared again, so the test environment is as it was.
+
+**Found and fixed (on my branch, not deployed yet):** approving a change to only the description showed "The environment changed: network Limited, from now on in this job.", though the network hadn't changed. Now only a network change is sent to running chats. New test EN15.
+
+My test script also clicked a button that the page had just redrawn, once. That was a problem in my script, not in Coder, and it's fixed.
+
 ## 2026-11-14: lsp (code checking) like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 6 of 6. lsp is the tool that asks a language server (a program that understands the code) for errors, definitions and the like.
