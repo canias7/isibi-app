@@ -59,6 +59,10 @@
       <a class="dc-sub" href="#conn-coder">In Coder's chats</a>
       <a class="dc-sub" href="#conn-gloopy">In Gloopy's chat</a>
       <a class="dc-sub" href="#conn-more">Prompts, resources and big answers</a>
+      <a href="#tool-search">Tool search</a>
+      <a class="dc-sub" href="#ts-which">Which tools wait</a>
+      <a class="dc-sub" href="#ts-how">How it works</a>
+      <a class="dc-sub" href="#ts-settings">Settings</a>
     </nav>
     <main class="dc-main">
       <h1>Coder docs</h1>
@@ -307,7 +311,32 @@
           <li>Type <code>/linear:triage</code> (a connector's name, then one of its prompts) to send that prompt as your message, or <code>@notion:notion://page/&hellip;</code> to attach one of its resources.</li>
           <li>An answer over <b>50,000 characters</b> is saved to a file, and Coder reads the part it needs. What a connector sends back is treated as information, never as instructions.</li>
           <li>A call still running after <b>2 minutes</b> goes on in the background, and Coder is told its answer when it comes.</li>
-          <li>With many connectors, Coder first searches for the tools it needs, so their long descriptions don't crowd its memory.</li>
+          <li>Coder loads a connector's tools only when it needs them: see <a href="#tool-search">Tool search</a>.</li>
+        </ul>
+      </section>
+
+      <section id="tool-search">
+        <h2>Tool search</h2>
+        <p class="dc-lead">Like Claude Code, Coder doesn't get every tool's full instructions at the start of a chat. Some tools wait: Coder sees only their names, and loads the ones it needs with its <code>tool_search</code> tool. Every request stays smaller, however many connectors you add.</p>
+
+        <h3 id="ts-which">Which tools wait</h3>
+        <ul>
+          <li>Coder's own <code>lsp</code>, <code>web_fetch</code>, <code>web_search</code>, <code>monitor</code> and <code>stop_job</code>, the task tools (<code>task_create</code>, <code>task_get</code>, <code>task_list</code> and <code>task_update</code>, or <code>todo_write</code>) and the plan mode tools (<code>enter_plan_mode</code> and <code>exit_plan_mode</code>).</li>
+          <li>Every connector tool, with no limit on how many. A connector can mark a tool to load at the start.</li>
+          <li>The rest, such as <code>bash</code>, <code>read</code>, <code>edit</code>, <code>write</code>, <code>grep</code>, <code>glob</code>, <code>ask_user</code> and the environment tools, load at the start.</li>
+        </ul>
+
+        <h3 id="ts-how">How it works</h3>
+        <ul>
+          <li>Coder is told the waiting tools' names once. A tool it loads stays loaded for the rest of the chat, after a summary too. The chat shows no line for a search.</li>
+          <li>If a connector is turned off or removed after Coder loaded one of its tools, Coder is told not to use that tool any more. Connectors waiting for you to sign in, and ones that failed to connect, are named to Coder too, so it can tell you when your request needs one.</li>
+        </ul>
+
+        <h3 id="ts-settings">Settings</h3>
+        <ul>
+          <li><code>ENABLE_TOOL_SEARCH</code>, in the chat's environment or the repository's <code>.claude/settings.json</code>: unset or <code>true</code> keeps it on; <code>false</code> gives Coder every tool at the start; <code>auto</code> turns it on once the waiting tools would take up 10% of what Grok can read at once (<code>auto:5</code> for 5%).</li>
+          <li>A deny rule on <code>ToolSearch</code>, or <code>ToolSearch(*)</code>, turns it off too. With it off, a request carries at most 350 tools, Grok's limit.</li>
+          <li><code>CODER_MAX_MCP_DESCRIPTION_LENGTH</code> (Claude Code's <code>CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH</code> in a repository's settings) sets how much of a connector tool's description Coder gets. Without it: 4,096 characters at the start, 16,384 once loaded.</li>
         </ul>
       </section>
     </main>

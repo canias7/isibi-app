@@ -262,6 +262,8 @@ export const OUTPUT_SHAPES = Object.freeze({
   TaskGet: o({ task: nullable(o({ id: S, subject: S, description: S, status: TASK_STATUS, blocks: z.array(S), blockedBy: z.array(S) })) }),
   TaskList: o({ tasks: z.array(o({ id: S, subject: S, status: TASK_STATUS, owner: opt(S), blockedBy: z.array(S) })) }),
   TaskUpdate: o({ success: B, taskId: S, updatedFields: z.array(S), error: opt(S), statusChange: opt(o({ from: S, to: S })) }),
+  // (Coder's tool_search, its ToolSearch, as 2.1.325's yWr: a rewrite that matches decides which tools load. 2026-11-14.)
+  ToolSearch: o({ matches: z.array(S), query: S, total_deferred_tools: N, pending_mcp_servers: opt(z.array(S)), failed_mcp_servers: opt(z.array(o({ name: S, errorCode: opt(S), error: opt(S) }))) }),
 });
 
 // ── A POSTTOOLUSE HOOK'S updatedToolOutput ───────────────────────────────────

@@ -858,6 +858,30 @@ function webSearchParamSpec(spec) {
   const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
   return name && value && WEBSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
 }
+/**
+ * TOOLSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code 2.1.325's rule check for any built-in tool, its wc and POe: the
+ * name before the first colon, the value after it, both trimmed and neither empty; ToolSearch has no primary content field, so
+ * its query may be named; "*" any text), and such a rule's content read as one, or null. 2026-11-14.
+ */
+export const TOOLSEARCH_RULE_PARAMS = Object.freeze(["query", "max_results"]);
+function toolSearchParamSpec(spec) {
+  const t = String(spec), k = t.indexOf(":");
+  if (k <= 0) return null;
+  const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
+  return name && value && TOOLSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
+}
+/**
+ * A DENY OR ASK RULE ON ONE OF A TOOLSEARCH CALL'S INPUTS (Claude Code's "Match by input parameter": "A parameter rule matches
+ * when Claude calls the tool with that parameter set to that exact value", "A parameter the model omits is never matched",
+ * "The value is compared against the literal input Claude sends, before any normalization"), or "". `input`: the call's input
+ * as Grok sent it (max_results not filled in).
+ */
+export function toolSearchParamRule(rules, kind, input) {
+  if (!input || typeof input !== "object") return "";
+  return (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== "ToolSearch" || !x.param || !Object.hasOwn(input, x.param.name)) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "";
+}
+/** Claude Code's refusal under such a rule (its bGt): "Permission to use ToolSearch with query:… has been denied.". */
+export const toolSearchParamDenied = (rule) => "Permission to use ToolSearch with " + ((parseRule(rule) || {}).spec || "") + " has been denied.";
 /** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
 const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
 /**
@@ -902,6 +926,10 @@ export function parseRule(text) {
   // name and value.
   // (And LSP's, `LSP(operation:hover)`, `LSP(line:1)`: the same, since 2026-11-14.)
   if ((m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
+  // TOOLSEARCH, CODER'S TOOL_SEARCH (2026-11-14): `ToolSearch(*)` is the whole tool, as Claude Code reads any `Tool(*)` ("Bash(*)
+  // is equivalent to Bash. As a deny rule, both forms remove the tool from Claude's context": tool search off); a rule on one of
+  // its inputs, `ToolSearch(query:select:lsp)`, is used by deny and ask lists (toolSearchParamRule); any other, none.
+  if (m[1] === "ToolSearch") { if (spec === null || spec === "*") return { tool: "ToolSearch", spec: null }; const pr = toolSearchParamSpec(spec); return pr ? { tool: "ToolSearch", spec, param: pr } : null; }
   // A WEBSEARCH RULE ON ITS QUERY (Claude Code 2.1.325: deny and ask rules match `WebSearch(query:<exact text>)` as for any
   // built-in tool's input; 2026-11-14): `param` its name and value, used by deny and ask lists (coder-websearch.mjs).
   if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }

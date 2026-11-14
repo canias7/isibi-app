@@ -15,9 +15,9 @@ import { modelPass } from "./coder-model-gate.mjs";
 
 export const MCP_VERSION = "2025-06-18";
 export const CONNECTORS_MAX = 20;
-export const TOOLS_PER_CONNECTOR = 40;
-/** The most tools of all connectors told to Grok in one job (a long tool list costs every call and confuses the model). */
-export const TOOLS_MAX = 80;
+// (No cap on a connector's tools, nor on all of them, since 2026-11-14: Claude Code's MCP docs, "Claude Code doesn't impose a
+// fixed per-server tool cap; the practical limit is your context window budget", and tool search names them only. Grok's
+// own limit, 350 tools a request, is kept on Coder's machine: coder-toolsearch.mjs XAI_TOOLS_MAX.)
 /**
  * LONG ANSWERS, LIKE CLAUDE CODE'S: its MCP output limit is 25,000 tokens (MAX_MCP_OUTPUT_TOKENS) and text over 50,000
  * characters is saved to a file Claude reads. The Worker passes up to RESULT_MAX characters; Coder's machine saves what is
@@ -35,9 +35,13 @@ export const CALL_TIMEOUT_MS = 5 * 60_000;
 export const CALL_TOTAL_MS = 30 * 60_000;
 /** Claude Code: "the first connection" on a 5xx, a refused connection or a timeout is "retried up to three times". */
 export const CONNECT_TRIES = 3;
-/** Claude Code's description limits: 4,096 characters at the start, 16,384 when found by tool search. */
-export const DESCRIPTION_MAX = 16_384;
-export const INSTRUCTIONS_MAX = 4_096;
+/**
+ * Claude Code's description limits are 4,096 characters at the start, 16,384 when found by tool search, and its
+ * CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH replaces both (and the instructions' 4,096) with any number: Coder's machine cuts
+ * them for each chat (coder-agent.mjs), so a tool's description and a server's instructions are kept here up to this.
+ */
+export const DESCRIPTION_MAX = 100_000;
+export const INSTRUCTIONS_MAX = 100_000;
 /** `_meta["anthropic/maxResultSizeChars"]`: a tool's own threshold for saving its answer to a file, "ceiling 500,000". */
 export const RESULT_FILE_CEILING = 500_000;
 /** Pictures a tool returns, shown to Grok (Claude Code: "Claude sees the image inline"): at most this many, this big. */
@@ -187,29 +191,38 @@ export function toolName(connectorName, tool) {
 }
 
 /**
- * The tools of a person's connectors as Grok's function tools, and which connector and tool each name is: at most
- * TOOLS_MAX in all. `off` is the ids of connectors switched off.
+ * The tools of a person's connectors as Grok's function tools, and which connector and tool each name is: every one of
+ * them (no cap since 2026-11-14), each with its connector (`server`) and its own search hint (`searchHint`). `off` is the
+ * ids of connectors switched off in this chat, `toolsOff` its tools switched off there ("<id>:<tool>"), `allOff` every
+ * connector off. `gone`: why each tool of a connector on the list is not offered, by the name it would have (Coder's
+ * machine tells Grok to disregard a loaded one, in Claude Code's causes): "denied" (the owner's Block), "disabled" (the
+ * connector off, or all of them), "switched_off" (off in this chat), "unclassified" (the tool off in this chat),
+ * "needs_auth" (waiting for its sign-in). A connector whose last check failed gives its tools marked `failed`: Coder's
+ * chats leave them out (Claude Code's failed servers offer no tools), Gloopy keeps them as before.
  */
-export function toolsFor(list, off = [], toolsOff = []) {
-  const tools = [], map = {};
+export function toolsFor(list, off = [], toolsOff = [], { allOff = false } = {}) {
+  const tools = [], map = {}, gone = {}, later = [];
   const used = new Set();
+  const nameFor = (c, t) => { let name = toolName(c.name, t.name); for (let k = 2; used.has(name); k++) name = toolName(c.name + k, t.name); used.add(name); return name; };
   for (const c of list) {
+    if (!Array.isArray(c.tools)) continue;
     // (Switched off, here or for this chat: Claude's "disabled" status and its per-conversation Connectors toggle.)
-    if (c.disabled || off.includes(c.id) || c.status === "auth" || !Array.isArray(c.tools)) continue;
-    for (const t of c.tools.filter((x) => permOf(c, x) !== "block" && !toolsOff.includes(c.id + ":" + x.name)).slice(0, TOOLS_PER_CONNECTOR)) {
-      if (tools.length >= TOOLS_MAX) break;
-      let name = toolName(c.name, t.name);
-      for (let k = 2; used.has(name); k++) name = toolName(c.name + k, t.name);
-      used.add(name);
+    const why = allOff || c.disabled ? "disabled" : off.includes(c.id) ? "switched_off" : c.status === "auth" ? "needs_auth" : "";
+    for (const t of c.tools) {
+      const tw = why || (permOf(c, t) === "block" ? "denied" : toolsOff.includes(c.id + ":" + t.name) ? "unclassified" : "");
+      if (tw) { later.push([c, t, tw]); continue; }
+      const name = nameFor(c, t);
       map[name] = { id: c.id, tool: t.name };
       const params = t.inputSchema && typeof t.inputSchema === "object" && t.inputSchema.type === "object" ? t.inputSchema : { type: "object", properties: {} };
       // Real money (Robinhood: CATALOG askWrites): every tool that is not read-only asks the owner each time, even in Auto.
       const always = t.always || (!t.readOnly && CATALOG.some((k) => k.askWrites && k.url === c.url));
-      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}),
+      tools.push({ name, label: c.name + ": " + (t.title || t.name), readOnly: !!t.readOnly, perm: permOf(c, t), server: c.id, ...(c.status === "error" ? { failed: true } : {}), ...(always ? { always: true } : {}), ...(t.alwaysLoad ? { alwaysLoad: true } : {}), ...(t.maxChars ? { maxChars: t.maxChars } : {}), ...(typeof t.searchHint === "string" && t.searchHint ? { searchHint: t.searchHint } : {}),
         description: ("From the " + c.name + " connector (MCP). " + String(t.description || t.title || t.name)).slice(0, DESCRIPTION_MAX), parameters: params });
     }
   }
-  return { tools, map };
+  // (Named after the ones offered, so theirs are as they always were.)
+  for (const [c, t, w] of later) gone[nameFor(c, t)] = w;
+  return { tools, map, gone };
 }
 
 // ── THE MCP CONVERSATION ──────────────────────────────────────────────────────────────────────────────────────────
@@ -432,12 +445,16 @@ export function cleanSchema(raw) {
   return out;
 }
 
-/** All the server's tools (up to 5 pages), as kept on the list; `.instructions`: the server's own (up to 4,096). */
+/**
+ * All the server's tools, as kept on the list (no cap on how many since 2026-11-14, as Claude Code; LIST_PAGES_MAX pages and a
+ * page asked for twice end a list that never ends); `.instructions`: the server's own (up to INSTRUCTIONS_MAX).
+ */
+export const LIST_PAGES_MAX = 100;
 export async function listTools(url, token, opts = {}) {
-  const tools = [];
+  const tools = [], cursors = new Set(), seenNames = new Set();
   let cursor, instructions = "", firstInit = null;
   const wait = opts.wait || ((ms) => new Promise((r) => setTimeout(r, ms)));
-  for (let page = 0; page < 5; page++) {
+  for (let page = 0; page < LIST_PAGES_MAX; page++) {
     // (Claude Code: discovery requests such as tools/list "retry up to three times".)
     let got;
     for (let attempt = 1; ; attempt++) {
@@ -448,7 +465,9 @@ export async function listTools(url, token, opts = {}) {
     if (page === 0) firstInit = got.init || null;
     if (page === 0 && got.init && typeof got.init.instructions === "string") instructions = got.init.instructions.slice(0, INSTRUCTIONS_MAX);
     for (const t of (r && Array.isArray(r.tools) ? r.tools : [])) {
-      if (!t || typeof t.name !== "string") continue;
+      // (A name listed again, by a server whose pages repeat, is the same tool.)
+      if (!t || typeof t.name !== "string" || seenNames.has(t.name.slice(0, 100))) continue;
+      seenNames.add(t.name.slice(0, 100));
       const schema = cleanSchema(t.inputSchema);
       if (!schema) continue;
       const meta = t._meta && typeof t._meta === "object" ? t._meta : {};
@@ -459,12 +478,15 @@ export async function listTools(url, token, opts = {}) {
         ...(task === "optional" || task === "required" ? { tasks: task } : {}),
         ...(meta["anthropic/requiresUserInteraction"] === true ? { always: true } : {}),
         ...(meta["anthropic/alwaysLoad"] === true ? { alwaysLoad: true } : {}),
+        // (Its own search hint, scored by tool search as Claude Code scores it: its MCP tools' searchHint. 2026-11-14.)
+        ...(typeof meta["anthropic/searchHint"] === "string" && meta["anthropic/searchHint"] ? { searchHint: meta["anthropic/searchHint"].slice(0, 4096) } : {}),
         ...(Number.isFinite(maxChars) && maxChars > 0 ? { maxChars: Math.min(Math.floor(maxChars), RESULT_FILE_CEILING) } : {}) });
     }
     cursor = r && r.nextCursor;
-    if (!cursor) break;
+    if (!cursor || cursors.has(String(cursor))) break;
+    cursors.add(String(cursor));
   }
-  const list = tools.slice(0, 200);
+  const list = tools;
   list.instructions = instructions;
   // THE SERVER'S PROMPTS AND RESOURCES (Claude Code: prompts as slash commands, resources with @), when it has them.
   list.prompts = [];
@@ -713,14 +735,17 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
   let changed = false;
   for (const c of list) {
     if (only && c.id !== only) continue;
-    if (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS)) continue;
-    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; changed = true; }
+    // (One whose last check failed is tried again after each job starts, fresh or not, as Claude Code connects a failed server
+    // again in its next session: its tools are back for the next job once it answers. 2026-11-14.)
+    const failed = c.status === "error" && !c.disabled;
+    if (!failed && (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS))) continue;
+    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -776,21 +801,28 @@ export function connectorNotes(list, off = []) {
 /**
  * A JOB'S CONNECTORS: their tools' names and descriptions, and their servers' instructions; each call goes through the
  * Worker with the job's pass, and only these names (kept for the turn). Never in a job started from GitHub (strangers write
- * there). Gives { connectors, connectorNotes } for the machine, or {} when there are none.
+ * there). Gives { connectors, connectorNotes } for the machine, with the connectors waiting for their sign-in
+ * (`connectorsWaiting`), those failed (`connectorsFailed`) and why each tool not offered is not (`connectorsGone`, toolsFor's
+ * `gone`), or {} when there are none.
  */
 export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
   if (fromGithub) return {};
   try {
-    if ((await readConnectorSettings(bucket, uid)).allOff) return {};
+    const allOff = (await readConnectorSettings(bucket, uid)).allOff === true;
     const mine = await readConnectors(bucket, uid), off = Array.isArray(meta && meta.connectorsOff) ? meta.connectorsOff : [];
     const toolsOff = Array.isArray(meta && meta.toolsOff) ? meta.toolsOff : [];
+    const on = (c) => !allOff && !c.disabled && !off.includes(c.id);
     // Connectors on for this chat but waiting for their sign-in ("Sign in when needed"): Coder is told, so it can say so.
-    const waiting = mine.filter((c) => c.status === "auth" && !c.disabled && !off.includes(c.id)).map((c) => c.name).slice(0, 10);
-    const ct = toolsFor(mine, off, toolsOff);
-    if (!ct.tools.length) return waiting.length ? { connectorsWaiting: waiting } : {};
+    const waiting = mine.filter((c) => c.status === "auth" && on(c)).map((c) => c.name).slice(0, CONNECTORS_MAX);
+    // Connectors on for this chat whose last check failed: no tools, and Coder is told with their errors (Claude Code's failed
+    // MCP servers; 2026-11-14).
+    const failed = mine.filter((c) => c.status === "error" && on(c)).slice(0, 20).map((c) => ({ name: c.name, ...(c.error ? { error: String(c.error).slice(0, 300) } : {}) }));
+    const ct = toolsFor(mine, off, toolsOff, { allOff });
+    const told = { ...(waiting.length ? { connectorsWaiting: waiting } : {}), ...(failed.length ? { connectorsFailed: failed } : {}), ...(Object.keys(ct.gone).length ? { connectorsGone: ct.gone } : {}) };
+    if (!ct.tools.length) return told;
     await keepJobTools(bucket, uid, id, turn, ct.map);
     const notes = connectorNotes(mine, off);
-    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}), ...(waiting.length ? { connectorsWaiting: waiting } : {}) };
+    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}), ...told };
   } catch { return {}; }
 }
 
