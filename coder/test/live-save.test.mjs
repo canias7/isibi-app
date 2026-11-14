@@ -22,7 +22,7 @@ const toWorker = (env, seen = []) => async (url, init) => {
 };
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-test("CD118 Coder's conversation is shared as it goes (pictures left out, as in the saved history)", async () => {
+test("CD118 Coder's conversation is shared as it goes (pictures left out; the history saved at the end keeps them as sent, since 2026-11-14)", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
   let now = null; const seen = [];
   const call = (name, args) => ({ id: name + "1", type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -41,7 +41,11 @@ test("CD118 Coder's conversation is shared as it goes (pictures left out, as in 
   assert.equal(last.length, 6);
   assert.equal(last[0].content, "look\n[1 picture attached]");
   assert.equal("images" in last[0], false);
-  assert.deepEqual(last, r.messages, "the same as the history saved at the end");
+  // (The owner, 2026-11-14: "yes copy claude code": the history saved at the end is the conversation as Grok was sent it, its
+  // pictures too, as Claude Code's transcript keeps its image blocks; the copy shared as it goes leaves them out, to stay small:
+  // the Worker keeps it only in case the machine stops mid-job.)
+  assert.deepEqual(r.messages[0], { role: "user", content: "look", images: ["data:image/png;base64,iVBORw0KGgo="] });
+  assert.deepEqual(last.slice(1), r.messages.slice(1), "the same as the history saved at the end, but for the picture");
 });
 
 test("CD119 the machine sends a job's new steps every few seconds and its conversation every 15 seconds; fewer when too large; it stops when it is not this job's; the last ones go before the job's end is handed out", async () => {
@@ -103,7 +107,8 @@ test("CD119 the machine sends a job's new steps every few seconds and its conver
   // (Since 2026-11-11 the server is made first, so the link from the owner's computer can come as an upgrade: GL113.)
   assert.match(server, /const app = createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\), liveFetch: \(url, init\) => fetch\(url, init\), home: DEV_HOME, \.\.\.dataDirs\(process\.env\.CODER_DATA\), checker: true \}\);\n[\s\S]{0,200}const srv = http\.createServer\(app\);\n\s+srv\.on\("upgrade", app\.upgrade\);\n\s+srv\.listen\(8080/);
   assert.match(server, /turns\.set\(project, t\);[\s\S]{0,300}const live = liveFetch \? liveTarget\(body\.live\) : null;\n\s+const sender = live \? liveSender\(t, live, liveFetch\) : null;\n\s+const fail = \(status, why\) => \{ if \(sender\) sender\.stop\(\);/, "from the start of the job, the setup included; stopped if the job does not start");
-  assert.match(server, /watch: \(now\) => \{ const before = Array\.isArray\(body\.messages\) \? body\.messages\.length : 0; t\.convoNow = \(\) => now\(\)\.slice\(before\); \},/, "only this job's part of the conversation");
+  // (Or all of it once the job's own auto-compact summarized it, since 2026-11-14: CD121b.)
+  assert.match(server, /watch: \(now, o = \{\}\) => \{ const before = Array\.isArray\(body\.messages\) \? body\.messages\.length : 0; const whole = [^\n]*t\.convoNow = \(\) => \(whole\(\) \? now\(\) : now\(\)\.slice\(before\)\); \},/, "only this job's part of the conversation");
   // (A Gloopy turn's notes are backed up first, at most 30 seconds: Gloopy's, 2026-11-09.)
   assert.match(server, /\.then\(async \(r\) => \{ const memory = await readMemory\(memFile\); if \(gloopy\) await Promise\.race\(\[backupGloopy\(\)\.catch\(\(\) => \{\}\), new Promise\(\(ok\) => setTimeout\(ok, 30_000\)\)\]\); await lastSend\(\); return \{ \.\.\.r, memory, cwd: t\.cwd \}; \}, async \(e\) => \{ await lastSend\(\); return /);
   // The end is handed out (t.result) only after the turn's commands are ended (its background ones kept): tool 4, part 2.
@@ -228,6 +233,42 @@ test("CD121 a machine lost in the middle of a job: its steps so far stay in the 
   assert.equal([...bucket.m.keys()].some((k) => k.endsWith("/hide.json")), false);
   // A late sending from the lost job is refused.
   assert.equal((await toWorker(env)(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": "1", "x-coder-live": live.pass }, body: JSON.stringify({ from: 3, events: [{ type: "text" }] }) })).status, 409);
+});
+
+test("CD121b a machine lost after the job's own auto-compact (Claude Code's, since 2026-11-14) summarized the whole conversation: the machine sends all of it, the summary first, marked `whole`; the Worker keeps it so and puts it in place of the saved chat, not after it, and drops the Rewind marks of what it summarized", async () => {
+  const { liveSender, liveTarget } = await import("../container/server.mjs");
+  const L = await import("../src/coder-live.mjs");
+  const K = await import("../container/coder-compact.mjs");
+  const { bucket, env, machine, go } = await chatWithMachine();
+  await bucket.put("coder/" + UID + "/" + ID + "/messages.json", JSON.stringify([{ role: "user", content: "Hello" }, { role: "assistant", content: "Hi." }]));
+  assert.equal((await go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "Read every log" }) })).status, 200);
+  const mk = "coder/" + UID + "/" + ID + "/meta.json";
+  assert.deepEqual(JSON.parse(bucket.m.get(mk)).marks.map((m) => m.msg), [2], "this message's Rewind mark");
+  const live = liveTarget(machine.turn.live);
+  const tc = (id) => ({ role: "assistant", content: "", tool_calls: [{ id, type: "function", function: { name: "bash", arguments: "{}" } }] });
+  const sum = K.summaryMessage("The owner asked to read every log; three are read.", "the conversation so far", [], null, { auto: true });
+  const t = { events: [{ at: 1, type: "user", text: "Read every log" }, { at: 2, type: "note", text: "Conversation compacted" }], convoWhole: () => 1 };
+  t.convoNow = () => [sum, { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: …)" }, tc("c3"), { role: "tool", tool_call_id: "c3", content: "log 4" }, tc("c4")];
+  const seen = [];
+  await liveSender(t, live, toWorker(env, seen), { every: 100000 }).flush();
+  assert.equal(seen.at(-1).whole, true, "sent marked whole");
+  const kept = await L.readLive(env, bucket, UID, ID, 1);
+  assert.equal(kept.whole, true);
+  assert.ok(K.isSummary(kept.messages[0]));
+  // The machine is lost.
+  const { START_GRACE_MS } = await import("../src/coder-routes.mjs");
+  await bucket.put(mk, JSON.stringify({ ...JSON.parse(bucket.m.get(mk)), at: Date.now() - START_GRACE_MS - 60_000 }));
+  machine.gone = true;
+  await go("projects/" + ID + "/state?since=2");
+  const msgs = JSON.parse(bucket.m.get("coder/" + UID + "/" + ID + "/messages.json"));
+  assert.ok(K.isSummary(msgs[0]), "the summary first, in place of the saved chat");
+  assert.ok(!msgs.some((m) => m.content === "Hello"), "what it summarized is not there twice");
+  assert.deepEqual(msgs.slice(1, 4).map((m) => m.role), ["user", "assistant", "tool"], "then the job's part after it, to its last whole step");
+  assert.match(msgs[4].content, /^\(Note from Coder's app, not the owner: Coder's machine stopped during the last job/);
+  assert.equal(msgs.length, 6);
+  const meta = JSON.parse(bucket.m.get(mk));
+  assert.equal(meta.status, "idle");
+  assert.deepEqual(meta.marks, [], "the Rewind marks of what was summarized go");
 });
 
 test("CD122 a job saved as usual leaves nothing behind; Stop with the machine gone keeps the steps; a lost job with nothing sent yet still tells Coder what was asked; a removed chat takes its steps with it", async () => {

@@ -361,16 +361,22 @@ test("CD532 the owner's /compact runs on the chat's machine with its hooks, as C
   assert.equal(t.r.status, "done");
   assert.equal(t.r.messages.length, 1);
   assert.ok(K.isSummary(t.r.messages[0]));
-  assert.match(t.r.messages[0].content, /the conversation before the owner's \/compact, focused on: keep the API notes\. The chat on the owner's page still shows all of it\.\)\nTHE SUMMARY\n\n\(Note from Coder's app, not the owner: SessionStart hook additional context: Reminder: run pnpm test\.\)$/);
+  // (In Claude Code's words since 2026-11-14, the owner: "yes copy claude code"; with no line to carry on, as after its /compact.)
+  assert.equal(t.r.messages[0].content, K.COMPACT_LEAD + "\n\nSummary:\nTHE SUMMARY\n\n(Note from Coder's app, not the owner: SessionStart hook additional context: Reminder: run pnpm test.)");
+  assert.equal(t.r.messages[0].summaryOf, "the conversation before the owner's /compact, focused on: keep the API notes");
   assert.deepEqual(t.r.messages[0].reread, ["src/totals.js"], "the files it worked on, read again by the next job");
   assert.deepEqual(t.r.compact, { done: true, from: 0, to: 4 });
   assert.deepEqual(t.events.map((e) => e.type), ["user", "note"]);
   assert.equal(t.events[0].text, "/compact keep the API notes");
-  assert.equal(t.events[1].text, "Compacted: the conversation so far is now a summary for Coder (kept in focus: keep the API notes). The chat still shows it all.");
+  // (Claude Code's compact boundary, "Conversation compacted", since 2026-11-14.)
+  assert.deepEqual([t.events[1].text, t.events[1].compacted], ["Conversation compacted", { trigger: "manual" }]);
   // An "auto" matcher does not run for the owner's /compact; a "startup" SessionStart neither.
   t = await run({ hooks: { PreCompact: hk("auto"), SessionStart: hk("startup") }, focus: "" });
   assert.deepEqual(t.hookCalls, []);
   assert.equal(t.events[0].text, "/compact");
+  // With no words after /compact, PreCompact's custom_instructions is null, as Claude Code's.
+  t = await run({ hooks: { PreCompact: hk("manual") }, focus: "" });
+  assert.deepEqual([t.hookCalls[0].trigger, t.hookCalls[0].custom_instructions], ["manual", null]);
   // A PreCompact hook that blocks keeps the conversation whole: no summary made, the chat says why.
   t = await run({ hooks: { PreCompact: hk("manual") }, hookRun: () => ({ stdout: '{"decision":"block","reason":"not during a release"}' }) });
   assert.equal(t.seen.length, 0);

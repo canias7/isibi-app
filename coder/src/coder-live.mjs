@@ -21,8 +21,12 @@ import { seal, unseal } from "./coder-github.mjs";
 import { pushesFor, notifyOwner } from "./coder-push.mjs";
 
 export const LIVE_PATH = "/api/coder/live";
-/** One sending at most (the machine sends fewer steps when it is refused as too large). */
-export const LIVE_BODY_MAX = 4 * 1024 * 1024;
+/**
+ * One sending at most (the machine sends fewer steps when it is refused as too large). 16 MB since the saved chat keeps every
+ * answer whole (2026-11-14, the owner: "yes copy claude code"): a job's part of the conversation, its pictures left out, goes up
+ * to Claude Code's auto-compact threshold, some 2 MB, more in a round past it (it was 4 MB).
+ */
+export const LIVE_BODY_MAX = 16 * 1024 * 1024;
 /** The chat keeps 4000 steps (coder-routes.mjs, MAX_EVENTS): no more are kept here. */
 export const LIVE_MAX_EVENTS = 4000;
 /** Steps per stored part. */
@@ -103,7 +107,9 @@ export async function handleLive(request, env, { fetchFn = fetch, waitUntil = nu
       if (typeof waitUntil === "function") waitUntil(work); else await work;
     }
   }
-  if (Array.isArray(body.messages)) await putBox(env, bucket, convoKey(uid, id, turn), body.messages.filter((x) => x && typeof x === "object"));
+  // (`whole`: the job's auto-compact summarized the conversation, so this is all of it, the summary first, not the job's part
+  // after the saved chat: kept so, 2026-11-14.)
+  if (Array.isArray(body.messages)) { const list = body.messages.filter((x) => x && typeof x === "object"); await putBox(env, bucket, convoKey(uid, id, turn), body.whole === true ? { whole: true, messages: list } : list); }
   return Response.json({ ok: true, have: from + take.length });
 }
 
@@ -118,7 +124,10 @@ async function keysUnder(bucket, prefix) {
   return keys;
 }
 
-/** What a job saved as it went: its steps, in order up to the first gap, and its latest conversation (null when none came). */
+/**
+ * What a job saved as it went: its steps, in order up to the first gap, and its latest conversation (null when none came):
+ * the job's part after the saved chat, or, `whole`, all of it (Claude Code's auto-compact summarized it in the job).
+ */
 export async function readLive(env, bucket, uid, id, turn) {
   const keys = (await keysUnder(bucket, livePrefix(uid, id, turn))).filter((k) => /\/part-\d{3}\.json$/.test(k)).sort();
   let events = [];
@@ -127,8 +136,9 @@ export async function readLive(env, bucket, uid, id, turn) {
     if (!p || !Array.isArray(p.events) || !Number.isInteger(p.start) || p.start > events.length) break;
     events = events.slice(0, p.start).concat(p.events);
   }
-  const messages = await readBox(env, bucket, convoKey(uid, id, turn));
-  return { events: events.slice(0, LIVE_MAX_EVENTS), messages: Array.isArray(messages) ? messages : null };
+  const c = await readBox(env, bucket, convoKey(uid, id, turn));
+  const whole = !!c && !Array.isArray(c) && c.whole === true && Array.isArray(c.messages);
+  return { events: events.slice(0, LIVE_MAX_EVENTS), messages: Array.isArray(c) ? c : whole ? c.messages : null, ...(whole ? { whole: true } : {}) };
 }
 
 /** Forget every turn's saved steps for a chat (its job is saved, or the chat is removed). */

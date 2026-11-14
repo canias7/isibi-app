@@ -716,7 +716,7 @@ test("PM22 enter_plan_mode and the modes around it, as Claude Code's: from Auto 
 });
 
 // ── THE PLAN AFTER A SUMMARY (Claude Code's plan_file_reference) ────────────────────────────────────────────────────────
-test("PM23 after a summary the chat's plan file is put back in front of Coder, in Claude Code's words: once, by the job that next reads a summary made between messages; in a summary made in the job; not from GitHub; nothing when there is no plan", async () => {
+test("PM23 after a summary the chat's plan file is put back in front of Coder, in Claude Code's words: once, by the job that next reads a summary made between messages; right after a summary made in the job; not from GitHub; nothing when there is no plan", async () => {
   const K = await import("../container/coder-compact.mjs");
   assert.equal(P.planFileReference("/p/x.md", "1. A\n"), "A plan file exists from plan mode at: /p/x.md\n\nPlan contents:\n\n1. A\n\n\nIf this plan is relevant to the current work and not already complete, continue working on it.");
   assert.equal(P.planFileReference("", "1. A"), "A plan exists from plan mode.\n\nPlan contents:\n\n1. A\n\nIf this plan is relevant to the current work and not already complete, continue working on it.");
@@ -743,7 +743,8 @@ test("PM23 after a summary the chat's plan file is put back in front of Coder, i
   t = await loop([say("Done.")], { mode: "auto", plan: box, extra: { messages: [sum, { role: "assistant", content: "Half done." }] } });
   assert.ok(!t.seen[0].messages.some((m) => /A plan file exists from plan mode/.test(String(m.content))));
   assert.equal(t.r.messages[0].planRef, undefined);
-  // A summary made in the job: the plan right after it, in the same message.
+  // A summary made in the job (Claude Code's auto-compact since 2026-11-14): the plan right after it, in a note of its own, as
+  // Claude Code's plan_file_reference follows its compact summary.
   box = await newStore();
   const g = await fileOf(box);
   await writeFile(g, PLAN);
@@ -757,10 +758,13 @@ test("PM23 after a summary the chat's plan file is put back in front of Coder, i
     },
     exec: async () => ({ code: 0, output: "z".repeat(900) }),
   }, { text: "Do the big job", mode: "auto" });
-  const s = r.messages.find((m) => K.isSummary(m));
-  assert.ok(s, "summarized");
-  assert.ok(s.content.endsWith("\nSUMMARY\n\n(Note from Coder's app, not the owner:\n" + P.planFileReference(g, PLAN) + ")"), s.content);
+  const at = r.messages.findIndex((m) => K.isSummary(m));
+  assert.ok(at >= 0, "summarized");
+  const s = r.messages[at];
+  assert.ok(s.content.endsWith("\nSUMMARY\n" + K.COMPACT_CONTINUE), s.content);
   assert.equal(s.planRef, undefined);
+  const after = r.messages.slice(at + 1).filter((m) => m.role === "user" && m.appNote === true && m.content === "(Note from Coder's app, not the owner:\n" + P.planFileReference(g, PLAN) + ")");
+  assert.equal(after.length, 1, "once, after the summary");
 });
 
 // ── THE REPOSITORY'S plansDirectory (Claude Code 2.1.325's, with its fallback) ───────────────────────────────────────────

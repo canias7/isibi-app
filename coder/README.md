@@ -2191,7 +2191,8 @@ Claude Code's auto-compact, `/compact` and Rewind's summaries:
 writes each summary from a plain-text copy of that part of the conversation
 (tool answers cut short; no secrets kept); it stands in for those messages in
 what Coder reads (`messages.json`), while the chat (`events.json`) keeps every
-message, with a note where the summary stands. Before a job, a saved
+message, with a note where the summary stands. In Gloopy's chats (Coder's
+since 2026-11-14 below), before a job, a saved
 conversation past 300 KB has its older jobs summarized (the owner's newest
 three messages stay whole); if no summary can be made, the oldest part is cut
 as before. Within a job, past 450 KB, the job summarizes its own older steps
@@ -2208,6 +2209,53 @@ the app to 12,000 characters, and a summary to 40,000 (`forSaving`), and the
 chat's record keeps each step's output to 12,000; the saved chat's size cap
 (`capHistory`, 400 KB) cuts only at the owner's messages, and one job over it
 has its answers shortened, never the job dropped (it used to leave nothing).
+
+**Coder's chats copy Claude Code's auto-compact and its transcript** (the owner,
+2026-11-14: "yes copy claude code"; Claude Code 2.1.325's docs and program;
+`runCoder`'s `autoCompact`, `container/coder-compact.mjs`; tests
+`test/autocompact.test.mjs`, `test/cache-prefix.test.mjs` CP9 and CP10, `test/live-save.test.mjs`
+CD121b). The saved chat is the conversation as Grok was sent it: every tool
+answer, note and picture whole (`forSaving`'s cuts above are Gloopy's), so the
+next message's request starts with the last one, byte for byte, and Grok's cache
+holds. Pictures stay within `keepPics`' room (the newest 24, 18 MB), the owner's
+earlier ones counted too; this message's always stay. Before every request to
+Grok, a message's first too, the conversation's tokens (the last answer's real
+use, kept on it as `tokens`, and 4 characters a token and 2,000 a picture for
+what came after it) are checked against Claude Code's thresholds for the model's
+window in the models list (Grok 4.7: 500,000): the effective window is the window
+less the answer's reserve (at most 20,000), and auto-compact runs 13,000 below
+it, or, as in Claude Code's cloud sessions, which set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`
+themselves (92 in one, over any the user sets), at 92% of it if that is earlier:
+at 441,600 for Grok (`CLOUD_AUTOCOMPACT_PCT`, set by the machine,
+`compactVarsFor`). Then the whole conversation is summarized and stands in Claude
+Code's words ("This chat is being continued from a previous conversation that
+ran out of context…", and its line to carry on); the chat shows "Conversation
+compacted"; and, as after Claude Code's, the files worked on are read again (up
+to five), with the background commands still running, the plan file, the context
+fresh from disk and the SessionStart hooks' context. PreCompact hooks run first
+as "auto" (`custom_instructions` null; one that blocks skips it this time; each
+hook's output cut at 10,000 characters), PostCompact after. A request Grok
+refuses as too long is summarized and sent again once. Its breakers: three failed
+summaries in a row and none more in the job; a context refilled to the threshold
+within 3 rounds, 3 times in a row, ends the job with "Autocompact is thrashing".
+Claude Code's settings by Coder's names, in the chat's environment or the
+repository's settings (`compactVarsOf`): `DISABLE_COMPACT` (the owner's
+`/compact` too), `DISABLE_AUTO_COMPACT` or `autoCompactEnabled: false`
+(`CODER_AUTO_COMPACT_ENABLED`; a conversation at its limit, 3,000 below the
+effective window, then gets "Context limit reached" and the job ends),
+and `CODER_AUTO_COMPACT_WINDOW` (100k to 1M, with Claude Code's warnings; the
+percentage is the machine's, as a cloud session's is). The cache breaks only at a summary.
+The limits on the way were raised to fit: the machine takes 48 MB (`BODY_MAX`);
+the Worker keeps a Coder chat up to 40 MB (`CODER_HISTORY_MAX`) and summarizes
+one before a job only past 32 MB, a last resort (`CODER_COMPACT_SAFETY`); the
+copy saved as the job goes leaves the pictures out, takes up to 16 MB
+(`LIVE_BODY_MAX`), is dropped (never the steps) when larger, and after a summary
+in the job is the whole conversation (`whole`), which the Worker puts in place of
+the saved chat if the machine stops; a summary's copy of the conversation is up
+to 1,400,000 characters (`TRANSCRIPT_MAX`). Grok's request limit (30 MB,
+`MODEL_BODY_MAX`) is unchanged. Gloopy's chats, summaries and saved chat are as
+before.
+
 `/compact [what to keep]` makes the whole conversation one summary, as a job on
 the chat's machine that Coder does not answer, so its PreCompact, PostCompact and
 SessionStart hooks run (round 5). Rewind offers Claude Code's choices: Restore code and chat, chat only,

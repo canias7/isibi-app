@@ -17,6 +17,56 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The saved chat keeps everything as sent, and long chats are summarized the way Claude Code does it (your words: "yes copy claude code")
+
+On my branch, not deployed yet.
+
+- **The cache:** after each message, Coder's saved chat used to shorten any tool answer over 12,000 characters and swap
+  each picture for a note. So the next message's request no longer matched the last one from that point, and Grok read
+  the rest of the chat again at full price. Now Coder saves the chat exactly as it sent it to Grok, as Claude Code's
+  transcript keeps every tool result and picture. The next message starts with the last one, byte for byte. Pictures
+  keep their limit: the newest 24, up to 18 MB. Your earlier pictures now count toward it too; the ones in your newest
+  message always stay.
+- **A big job never loses the chat:** Claude Code's auto-compact, copied with its numbers. Before every request to Grok,
+  Coder counts the chat's tokens from what Grok said the last request used, plus an estimate of anything after it. At
+  441,600 of Grok's 500,000 tokens, Coder summarizes the whole conversation. (Claude Code's rule: the window less 20,000
+  kept for the answer is 480,000, and its cloud sessions summarize at 92% of that, a share they set for themselves. On a
+  computer, Claude Code would wait until 467,000.) Grok is told in Claude Code's words, and the chat shows "Conversation
+  compacted". Then, as in Claude Code, the files Coder was working on are read again (up to five). The plan file, your
+  instructions and memory (fresh from disk) and the hooks come back too. If Grok ever refuses a request as too long,
+  Coder summarizes and tries once more. After 3 failed summaries in a row, Coder stops trying for that job. If the chat
+  fills up again within 3 steps, 3 times in a row, the job ends with Claude Code's "Autocompact is thrashing" message.
+  The cache now breaks only at a summary.
+- **Settings you can use** (Claude Code's, with Coder's names), in the chat's environment or the repository's settings:
+  - `DISABLE_COMPACT`: turns off /compact too.
+  - `DISABLE_AUTO_COMPACT`, or `autoCompactEnabled: false`: a full chat then stops with "Context limit reached".
+  - `CODER_AUTO_COMPACT_WINDOW`: a window from 100k to 1M tokens. 200k makes Coder summarize at 165,600.
+  - Not the percentage: as in Claude Code's cloud sessions, Coder sets it itself (92), whatever you set.
+- **Limits I raised so nothing in between drops a big chat:**
+  - Coder's machine now takes 48 MB at once (was 8 MB).
+  - The Worker keeps a Coder chat up to 40 MB (was 400 KB). It only summarizes before a job past 32 MB (was 300 KB), as
+    a last resort.
+  - The copy saved while a job runs can be up to 16 MB (was 4 MB) and leaves pictures out. If it is still too large,
+    only that copy is skipped; the steps still go.
+  - If the machine stops after a summary in the job, the Worker now saves the summarized chat. Before, it would have
+    added that piece to the old chat.
+  - Grok's own request limit (30 MB) is unchanged.
+- **Gloopy:** unchanged.
+- **Cost:** each message now sends long answers and pictures whole, so it has more tokens. Those tokens are at the
+  cached price ($0.50 instead of $2.00 a million). A long chat can now grow to 441,600 tokens before a summary. Before,
+  it was summarized at 450,000 characters, about 130,000 tokens with Coder's instructions and tools. At the top, one
+  request is now about $0.22 when cached and $0.88 when not (about $0.07 and $0.26 before). Setting
+  `CODER_AUTO_COMPACT_WINDOW=200k` keeps chats smaller if you prefer.
+  - A summary now reads up to 1.4 million characters of the chat (it was 150,000), at full price: at most about $0.90.
+    It is usually far less, because each tool answer goes in cut to 1,500 characters. And it only happens near the
+    441,600 mark.
+  - Claude Code's own summary request reuses the cached chat. Coder's sends a plain-text copy, so it isn't cached. I can
+    copy that too if you want.
+- **Tests:** `test/autocompact.test.mjs` (new, 8). `test/cache-prefix.test.mjs`: CP9 (a long read, an @-file, a read's
+  picture and yours, then the next message byte for byte) and CP10 (a summary mid-job, the only break).
+  `test/live-save.test.mjs`: CD121b (the machine lost after a summary in the job). The files around them were updated
+  and pass.
+
 ## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
 
 On my branch, not deployed yet.

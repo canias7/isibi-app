@@ -196,7 +196,7 @@ test("CTX3 the saved chat keeps the context's notes whole (another note of the a
   assert.equal(ctxNotes(g[0]).length, 0);
 });
 
-test("CTX4 summaries: after a job's own summary the instruction files and the memory are read again, and what changed is told after it (Claude Code's \"after the conversation was compacted\"); after the Worker's summary between jobs, or the owner's /compact, the context is told whole again at the next message; the owner's /compact itself adds no note", async () => {
+test("CTX4 summaries: after a job's own summary (Claude Code's auto-compact, the whole conversation) the instruction files and the memory are read again and the context told whole after it (Claude Code: \"Re-injected from disk\"); after the Worker's summary between jobs, or the owner's /compact, the context is told whole again at the next message; the owner's /compact itself adds no note", async () => {
   const P = C.piece;
   const pieces = (mem) => [P("i:YOUR MEMORY FOR THIS REPO", "YOUR MEMORY: " + mem), P("s:WHERE YOUR NEXT COMMAND STARTS", "\n\nYour next command starts in /w.")];
   // In a job: summarized at its 12th step; the memory Coder wrote meanwhile comes back from disk.
@@ -215,9 +215,10 @@ test("CTX4 summaries: after a job's own summary the instruction files and the me
   }, { text: "go", context: pieces("a") });
   assert.ok(summarized);
   assert.ok(reqs.every((q) => q.messages[0].content === reqs[0].messages[0].content), "the system message never changes");
+  // (Since 2026-11-14 the whole conversation is summarized, as Claude Code's auto-compact does, the context's note with it: the
+  // context is told whole again after it, read from disk, as Claude Code re-injects CLAUDE.md and its memory.)
   assert.deepEqual(ctxNotes(reqs.at(-1)).map((x) => x.content), [
-    "(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nYOUR MEMORY: a\n\nYour next command starts in /w.)",
-    "(Note from Coder's app, not the owner:\nInstruction files were re-read after the conversation was compacted; these differ from their earlier copies — each replaces its earlier copy:\n\nYOUR MEMORY: b)",
+    "(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\nYOUR MEMORY: b\n\nYour next command starts in /w.)",
   ]);
   // Between jobs, the Worker's summary: the older jobs, the whole context with them, become one message; the next job tells it
   // whole again, before the owner's message.

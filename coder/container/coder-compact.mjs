@@ -7,10 +7,139 @@
 // plain-text copy of that part; the chat on the page still shows everything.
 import { toolsLoadedIn, toolSearchOnIn, toolDefsIn, toolsDeclaredIn, toolLocksIn } from "./coder-toolsearch.mjs";
 
-/** How a summary message starts (so it is found, and never summarized as the owner's words). */
+/** How a summary message started before 2026-11-14 (so one in a saved chat is still found, and never summarized as the owner's words). */
 export const SUMMARY_TAG = "(Coder's app: a summary of an earlier part of this conversation";
-/** The text sent to make a summary, at most (the newest kept when longer). */
-export const TRANSCRIPT_MAX = 150_000;
+/**
+ * The text sent to make a summary, at most (the newest kept when longer). Since Claude Code's auto-compact (2026-11-14) a chat
+ * is summarized when it nears Grok's window, so the copy of it fits that window, with the summary's own room: about 1,400,000
+ * characters at 3 a token.
+ */
+export const TRANSCRIPT_MAX = 1_400_000;
+/** Gloopy's summaries, as before 2026-11-14 (its chats keep their own summaries): the copy at most 150,000, the focus 500. */
+export const GLOOPY_TRANSCRIPT_MAX = 150_000, GLOOPY_FOCUS_MAX = 500;
+
+// ── CLAUDE CODE'S AUTO-COMPACT (the owner, 2026-11-14: "yes copy claude code"), from its docs (model-config "Context window and
+// auto-compaction", env-vars, settings-reference, hooks, context-window, how-claude-code-works, troubleshooting) and its program,
+// 2.1.325: the window less the model's output (at most 20,000 tokens) is the effective window; auto-compact runs 13,000 tokens
+// below it (CLAUDE_AUTOCOMPACT_PCT_OVERRIDE may make that earlier, never later); a warning 20,000 below the threshold; with
+// auto-compact off, nothing more is sent 3,000 tokens below the effective window of the model's whole window ("Context limit
+// reached"). It is checked before every model call, the first of a turn too, from the last answer's real token use and an
+// estimate of what came after; it summarizes the whole conversation, and the model is told so in its words. Its breakers:
+// three failed auto-compactions in a row, and a context that refilled to the limit within 3 turns of the last compact, 3 times
+// in a row ("Autocompact is thrashing"). Coder's chats only (Gloopy's are summarized as before).
+/**
+ * THE PERCENTAGE CLAUDE CODE'S CLOUD SESSIONS SET THEMSELVES (its claude-code-on-the-web docs, "Manage context": "Cloud sessions
+ * set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE themselves, so compaction triggers partway through the auto-compact window rather than
+ * when the window fills. That value overrides one you add in your environment variables"; 92 in a cloud session of
+ * 2026-11-14). Coder's chats are cloud sessions: Coder's machine sets it (server.mjs), over any the owner or the repository
+ * sets; the window (CODER_AUTO_COMPACT_WINDOW) is what they change, as in Claude Code's cloud.
+ */
+export const CLOUD_AUTOCOMPACT_PCT = 92;
+/** Claude Code reserves the model's output, at most this (its g_o); the effective window is the window less it. */
+export const OUTPUT_RESERVE_MAX = 20_000;
+/** The output limit Claude Code assumes for a model it can't resolve (its env-vars docs: "the default is 32000"): Grok's here. */
+export const MAX_OUTPUT_DEFAULT = 32_000;
+/** Auto-compact runs this far below the effective window (its WX: "e-13000"). */
+export const AUTOCOMPACT_BUFFER = 13_000;
+/** Its warning (Alt's "k-20000") and, with auto-compact off, where it sends nothing more (Alt's "s-3000"). */
+export const WARNING_BUFFER = 20_000, BLOCKING_BUFFER = 3_000;
+/** The auto-compact window's range (CLAUDE_CODE_AUTO_COMPACT_WINDOW: "from 100000 to 1000000 tokens"). */
+export const COMPACT_WINDOW_MIN = 100_000, COMPACT_WINDOW_MAX = 1_000_000;
+/** Its rapid-refill breaker (its y_o and "__o=3"): refilled to the limit within 3 turns of the previous compact, 3 times in a row. */
+export const REFILL_TURNS = 3, REFILL_TIMES = 3;
+/** Its failure breaker (its "QCr=3"): after 3 auto-compactions in a row that failed, none more is tried. */
+export const COMPACT_FAILURES_MAX = 3;
+/** Its estimate of a picture (its "VHr=2000" tokens), and Coder's of text: 4 characters a token, as resumeCost counts them. */
+export const PICTURE_TOKENS = 2_000, CHARS_PER_TOKEN = 4;
+/** A PreCompact hook's output given to the summary, at most (its hooks docs: "Claude Code cuts longer output at the cap"). */
+export const PRECOMPACT_OUTPUT_MAX = 10_000;
+
+/** What the model is told in place of the conversation (its bBe, "session" being the chat), then the summary. */
+export const COMPACT_LEAD = "This chat is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.";
+/** After an automatic one (its suppressFollowUpQuestions line, "the owner" for "the user"). */
+export const COMPACT_CONTINUE = "Continue the conversation from where it left off without asking the owner any further questions. Resume directly \u2014 do not acknowledge the summary, do not recap what was happening, do not preface with \"I'll continue\" or similar. Pick up the last task as if the break never happened.";
+/** When the copy sent to make it had to leave the oldest part out (its headTruncated note). */
+export const COMPACT_HEAD_CUT = "Note: part of the earlier conversation was too large to include and is NOT covered by this summary. If the task turns out to depend on something from that part, say so plainly rather than guessing at it.";
+/** What the chat shows (its compact boundary). */
+export const COMPACTED_SHOWN = "Conversation compacted";
+/** Its rapid-refill breaker's error, "a new chat" for its /clear (Coder has none). */
+export const THRASHING = "Autocompact is thrashing: the context refilled to the limit within 3 turns of the previous compact, 3 times in a row. A file being read or a tool output is likely too large for the context window. Try reading in smaller chunks, or start a new chat to start fresh.";
+/** With auto-compact off, at its limit (its "Context limit reached · …", a new chat for its /clear). */
+export const contextLimitShown = ({ compactOff = false, autoOff = false } = {}) => "Context limit reached \u00b7 " + (compactOff ? "start a new chat to continue" : "/compact or a new chat to continue") + (autoOff && !compactOff ? " \u00b7 auto-compact is off" : "");
+
+const truthy = (v) => ["1", "true", "yes", "on"].includes(String(v ?? "").trim().toLowerCase());
+const falsy = (v) => ["0", "false", "no", "off"].includes(String(v ?? "").trim().toLowerCase());
+/**
+ * CODER_AUTO_COMPACT_WINDOW AS CLAUDE CODE READS ITS CLAUDE_CODE_AUTO_COMPACT_WINDOW (model-config's "Values and warnings"): a
+ * token count, with `k` or `M` for thousands or millions; out of range, the nearest end; not a size, ignored. → { tokens, kind,
+ * warning } (`tokens` null when ignored or unset), the warning in its words with Coder's names.
+ */
+export function compactWindowOf(value) {
+  if (value === undefined || value === null || String(value).trim() === "") return { tokens: null, kind: "unset", warning: "" };
+  const raw = String(value), shown = "CODER_AUTO_COMPACT_WINDOW=\"" + raw.slice(0, 32).replace(/[^\w.,+ $%{}=;-]+/g, "?") + (raw.length > 32 ? "\u2026" : "") + "\"";
+  const fix = "Set it to a size from 100k to 1M, such as 200k or 200000, or unset it.";
+  const m = /^\s*(\d+(?:\.\d+)?)\s*([kKmM]?)\s*$/.exec(raw);
+  if (!m) return { tokens: null, kind: "unusable", warning: shown + " isn't a usable size, so Coder ignores it. " + fix };
+  const n = Math.round(Number(m[1]) * (/k/i.test(m[2]) ? 1e3 : /m/i.test(m[2]) ? 1e6 : 1));
+  if (n < COMPACT_WINDOW_MIN) return { tokens: COMPACT_WINDOW_MIN, kind: "below_minimum", warning: shown + " reads as " + n.toLocaleString("en-US") + " token" + (n === 1 ? "" : "s") + ", so Coder treats it as the 100k minimum. " + fix };
+  if (n > COMPACT_WINDOW_MAX) return { tokens: COMPACT_WINDOW_MAX, kind: "above_maximum", warning: shown + " is too large, so Coder treats it as the 1M maximum. " + fix };
+  return { tokens: n, kind: "in_range", warning: "" };
+}
+/**
+ * THE CHAT'S COMPACTION SETTINGS, CLAUDE CODE'S (`vars`: the chat's environment with the repository's settings under it, by
+ * Coder's names): DISABLE_COMPACT, all compaction off (the owner's /compact too); DISABLE_AUTO_COMPACT, or autoCompactEnabled
+ * false (CODER_AUTO_COMPACT_ENABLED), the automatic one off; CODER_AUTOCOMPACT_PCT_OVERRIDE (its CLAUDE_AUTOCOMPACT_PCT_OVERRIDE:
+ * the percentage, above 0 and at most 100, of the effective window where it compacts, never later than without it; Coder's
+ * machine sets it, CLOUD_AUTOCOMPACT_PCT, as Claude Code's cloud sessions do);
+ * CODER_AUTO_COMPACT_WINDOW (its CLAUDE_CODE_AUTO_COMPACT_WINDOW, or the repository's autoCompactWindow: compactWindowOf).
+ */
+export function compactSettings(vars = {}) {
+  const v = vars && typeof vars === "object" ? vars : {};
+  const off = truthy(v.DISABLE_COMPACT);
+  const autoOff = off || truthy(v.DISABLE_AUTO_COMPACT) || falsy(v.CODER_AUTO_COMPACT_ENABLED);
+  const p = v.CODER_AUTOCOMPACT_PCT_OVERRIDE === undefined || v.CODER_AUTOCOMPACT_PCT_OVERRIDE === null ? NaN : parseFloat(String(v.CODER_AUTOCOMPACT_PCT_OVERRIDE));
+  const w = compactWindowOf(v.CODER_AUTO_COMPACT_WINDOW);
+  return { off, autoOff, pct: Number.isFinite(p) && p > 0 && p <= 100 ? p : null, window: w.tokens, warning: w.warning };
+}
+/**
+ * THE LIMITS FOR A CONVERSATION (its tle, WX and Alt): `contextWindow` the model's (Grok 4.7's 500,000), `window` the auto-compact
+ * window set (capped at the model's), `maxOutput` the model's output limit, `pct` its override, `enabled` auto-compact on. →
+ * { effective, threshold, warn, blocked }: the effective window, where it compacts, where it warns, and where, auto-compact off,
+ * nothing more is sent.
+ */
+export function compactLimits({ contextWindow, window = null, maxOutput = MAX_OUTPUT_DEFAULT, pct = null, enabled = true } = {}) {
+  const reserve = Math.min(maxOutput, OUTPUT_RESERVE_MAX);
+  const effective = Math.min(contextWindow, Number.isFinite(window) && window > 0 ? window : contextWindow) - reserve;
+  const plain = effective - AUTOCOMPACT_BUFFER;
+  const threshold = Number.isFinite(pct) && pct > 0 && pct <= 100 ? Math.min(Math.floor(effective * (pct / 100)), plain) : plain;
+  return { effective, threshold, warn: (enabled ? threshold : effective) - WARNING_BUFFER, blocked: contextWindow - reserve - BLOCKING_BUFFER, enabled: !!enabled };
+}
+/** Where a conversation of `tokens` stands (its Alt): "blocked", "compact" (auto-compact on), "warn" or "ok". */
+export function compactLevel(tokens, limits) {
+  if (tokens >= limits.blocked) return "blocked";
+  if (limits.enabled && tokens >= limits.threshold) return "compact";
+  if (tokens >= limits.warn) return "warn";
+  return "ok";
+}
+/** One message's tokens as Coder estimates them: its words (and its calls' inputs) at 4 characters a token, and 2,000 a picture. */
+export function messageTokens(m) {
+  if (!m || typeof m !== "object") return 0;
+  let chars = typeof m.content === "string" ? m.content.length : m.content ? JSON.stringify(m.content).length : 0;
+  for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : []) chars += String((c && c.function && c.function.name) || "").length + String((c && c.function && c.function.arguments) || "").length;
+  return Math.ceil(chars / CHARS_PER_TOKEN) + (Array.isArray(m.images) ? m.images.length * PICTURE_TOKENS : 0);
+}
+/**
+ * THE CONVERSATION'S TOKENS AS CLAUDE CODE COUNTS THEM (its tokenCountWithEstimation): the real use of the last request whose
+ * answer is in it (`tokens` on that answer: what the request read and the answer it wrote) and an estimate of every message
+ * after it; with none, an estimate of all of it and of what goes before it (`overhead`: the system message and the tools).
+ */
+export function conversationTokens(messages, { overhead = 0 } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  let at = -1;
+  for (let i = list.length - 1; i >= 0; i--) if (list[i] && list[i].role === "assistant" && Number.isFinite(list[i].tokens) && list[i].tokens > 0) { at = i; break; }
+  const est = (l) => l.reduce((n, m) => n + messageTokens(m), 0);
+  return at >= 0 ? list[at].tokens + est(list.slice(at + 1)) : Math.ceil(Math.max(0, overhead)) + est(list);
+}
 
 export const SUMMARY_SYSTEM = "You write a summary of part of a coding conversation between the owner and Coder (an AI coding agent working in the owner's repository), so that Coder can carry on with your summary in place of those messages. Keep: what the owner asked for (their own words when short), their decisions and preferences, what was done (files created or changed, with their paths; commands that mattered and what they showed), errors met and how they were solved, where the work stands, and what is still open. Keep exact names: file paths, functions, branches, commands, error messages. Leave out greetings, and file contents the files themselves now hold. Never include passwords, tokens or keys. Plain text, at most about 600 words.";
 
@@ -22,7 +151,7 @@ export function transcriptText(messages, max = TRANSCRIPT_MAX) {
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== "object") continue;
     const text = typeof m.content === "string" ? m.content : Array.isArray(m.content) ? m.content.map((x) => (x && typeof x.text === "string" ? x.text : "")).join("\n") : "";
-    if (m.role === "user") lines.push((text.startsWith(SUMMARY_TAG) ? "EARLIER SUMMARY: " : isAppNote(m) ? "NOTE FROM CODER'S APP: " : "OWNER: ") + cut(text, 6000));
+    if (m.role === "user") lines.push((isSummary(m) ? "EARLIER SUMMARY: " : isAppNote(m) ? "NOTE FROM CODER'S APP: " : "OWNER: ") + cut(text, 6000));
     else if (m.role === "assistant") {
       if (text.trim()) lines.push("CODER: " + cut(text, 4000));
       for (const c of Array.isArray(m.tool_calls) ? m.tool_calls : []) {
@@ -32,16 +161,24 @@ export function transcriptText(messages, max = TRANSCRIPT_MAX) {
     } else if (m.role === "tool") lines.push("RESULT: " + cut(text, 1500));
   }
   const all = lines.join("\n\n");
-  return all.length > max ? "[… the oldest part is left out …]\n" + all.slice(-max) : all;
+  return all.length > max ? TRANSCRIPT_CUT + "\n" + all.slice(-max) : all;
 }
 
-/** The model call that writes a summary (no tools). `focus`: what the owner wants it to keep. */
-export function summaryRequest(messages, focus = "") {
-  const f = String(focus || "").replace(/\s+/g, " ").trim().slice(0, 500);
-  return { messages: [
+/** What transcriptText puts first when it had to leave the oldest part out. */
+export const TRANSCRIPT_CUT = "[… the oldest part is left out …]";
+/**
+ * The model call that writes a summary (no tools). `focus`: what the owner wants it to keep. `headCut`: the copy had to leave
+ * the oldest part out (not part of the request: the summary then says so, COMPACT_HEAD_CUT). `gloopy`: Gloopy's, as before.
+ */
+export function summaryRequest(messages, focus = "", { gloopy = false } = {}) {
+  const f = String(focus || "").replace(/\s+/g, " ").trim().slice(0, gloopy ? GLOOPY_FOCUS_MAX : 20_000);
+  const t = transcriptText(messages, gloopy ? GLOOPY_TRANSCRIPT_MAX : TRANSCRIPT_MAX);
+  const req = { messages: [
     { role: "system", content: SUMMARY_SYSTEM },
-    { role: "user", content: "THE PART OF THE CONVERSATION TO SUMMARIZE:\n\n" + transcriptText(messages) + "\n\nWrite the summary now." + (f ? " The owner asks it to focus on: " + f : "") },
+    { role: "user", content: "THE PART OF THE CONVERSATION TO SUMMARIZE:\n\n" + t + "\n\nWrite the summary now." + (f ? " The owner asks it to focus on: " + f : "") },
   ], tools: [] };
+  Object.defineProperty(req, "headCut", { value: t.startsWith(TRANSCRIPT_CUT), enumerable: false });
+  return req;
 }
 
 /**
@@ -55,14 +192,20 @@ export function summaryRequest(messages, focus = "") {
  * tools its requests carried (`toolsDeclared`, round 5), which keep one that leaves in them too; and each tool's definition as
  * the chat first sent it (`toolLocks`, and the version of Coder's tool code that sent them, `toolLocksV`: the cache fix of
  * 2026-11-14), so the request's tools stay the same bytes after it.
+ * IN CLAUDE CODE'S WORDS (2026-11-14, the owner: "yes copy claude code"; its bue): COMPACT_LEAD, then "Summary:" and the summary,
+ * then COMPACT_HEAD_CUT when the copy sent to make it left the oldest part out (`headCut`), and, after an automatic one
+ * (`auto`), COMPACT_CONTINUE. `compactSummary` marks it (its isCompactSummary), `summaryOf` says which part it stands for.
+ * `gloopy`: Gloopy's summary, in its words as before (SUMMARY_TAG).
  */
-export function summaryMessage(text, what, files = [], part = null) {
+export function summaryMessage(text, what, files = [], part = null, { auto = false, headCut = false, gloopy = false } = {}) {
   const reread = Array.isArray(files) ? files.filter((p) => typeof p === "string" && p).slice(-REREAD_LIST_MAX) : [];
   const defs = Array.isArray(part) ? toolDefsIn(part) : [];
   const declared = Array.isArray(part) ? toolsDeclaredIn(part) : null;
   const locks = Array.isArray(part) ? toolLocksIn(part) : null;
   const tools = Array.isArray(part) ? { toolsLoaded: toolsLoadedIn(part), ...(defs.length ? { toolDefs: defs } : {}), ...(declared && declared.length ? { toolsDeclared: declared } : {}), ...(locks || {}), ...(toolSearchOnIn(part) ? { toolSearchOn: true } : {}) } : {};
-  return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
+  if (gloopy) return { role: "user", content: SUMMARY_TAG + ": " + what + ". The chat on the owner's page still shows all of it.)\n" + String(text || "").trim(), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
+  const content = COMPACT_LEAD + "\n\nSummary:\n" + String(text || "").trim() + (headCut ? "\n\n" + COMPACT_HEAD_CUT : "") + (auto ? "\n" + COMPACT_CONTINUE : "");
+  return { role: "user", content, compactSummary: true, summaryOf: String(what || ""), ...(reread.length ? { reread } : {}), planRef: true, ...tools };
 }
 
 /**
@@ -109,8 +252,8 @@ export function filesTouched(messages, max = REREAD_LIST_MAX) {
   return [...seen.keys()].slice(-max);
 }
 
-/** Is this one of those summary messages? */
-export const isSummary = (m) => !!m && m.role === "user" && typeof m.content === "string" && m.content.startsWith(SUMMARY_TAG);
+/** Is this one of those summary messages (marked, or one from before 2026-11-14, by how it starts)? */
+export const isSummary = (m) => !!m && m.role === "user" && (m.compactSummary === true || (typeof m.content === "string" && m.content.startsWith(SUMMARY_TAG)));
 /**
  * A NOTE Coder's app added for Coder (the files the owner @-mentioned, the pictures a read opened, a reminder before it
  * finishes), marked `appNote`: not a message of the owner's, so a summary never starts at one or calls it the owner's.

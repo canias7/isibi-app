@@ -15,16 +15,27 @@ test("CD165 the summary's pieces: a plain-text copy (tools cut short), Coder's m
   assert.match(t, /^OWNER: Fix the total\n\nCODER USED bash: \{"command":"step 1"\}\n\nRESULT: x+\n\[…\]\nx+\n\nCODER: Fixed it in src\/cart\.js\.$/);
   assert.ok(t.length < 2000, "a tool's answer is cut short");
   const big = Array.from({ length: 400 }, (_, i) => ({ role: "user", content: "message " + i + " " + "y".repeat(1000) }));
-  assert.ok(K.transcriptText(big).length <= K.TRANSCRIPT_MAX + 60 && K.transcriptText(big).startsWith("[… the oldest part is left out …]"), "the newest part when it is too long");
+  assert.ok(K.transcriptText(big, 150_000).length <= 150_000 + 60 && K.transcriptText(big, 150_000).startsWith("[… the oldest part is left out …]"), "the newest part when it is too long");
+  // (Since Claude Code's auto-compact, 2026-11-14, a summary's copy goes up to what fits Grok's window, and the summary says so
+  // when even that left the oldest part out.)
+  assert.equal(K.TRANSCRIPT_MAX, 1_400_000);
+  assert.equal(K.summaryRequest(big).headCut, false);
+  assert.equal(K.summaryRequest(Array.from({ length: 1500 }, (_, i) => ({ role: "user", content: "m" + i + " " + "y".repeat(1000) }))).headCut, true);
   const req = K.summaryRequest(msgs, " keep the test output ");
   assert.deepEqual(req.tools, []);
   assert.equal(req.messages[0].content, K.SUMMARY_SYSTEM);
   assert.match(req.messages[1].content, /^THE PART OF THE CONVERSATION TO SUMMARIZE:\n\nOWNER: Fix the total[\s\S]*Write the summary now\. The owner asks it to focus on: keep the test output$/);
   assert.match(K.SUMMARY_SYSTEM, /Never include passwords, tokens or keys/);
+  // In Claude Code's words (2026-11-14, the owner: "yes copy claude code"): its lead, then "Summary:", then the summary; its note
+  // when the oldest part was left out; its line to carry on after an automatic one.
   const s = K.summaryMessage("The total now subtracts the discount first.", "the earlier jobs");
   assert.equal(s.role, "user");
-  assert.equal(s.content, "(Coder's app: a summary of an earlier part of this conversation: the earlier jobs. The chat on the owner's page still shows all of it.)\nThe total now subtracts the discount first.");
+  assert.equal(s.content, "This chat is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion of the conversation.\n\nSummary:\nThe total now subtracts the discount first.");
+  assert.equal(s.compactSummary, true);
+  assert.equal(s.summaryOf, "the earlier jobs");
+  assert.equal(K.summaryMessage("x", "y", [], null, { headCut: true, auto: true }).content, K.COMPACT_LEAD + "\n\nSummary:\nx\n\n" + K.COMPACT_HEAD_CUT + "\n" + K.COMPACT_CONTINUE);
   assert.equal(K.isSummary(s), true);
+  assert.equal(K.isSummary({ role: "user", content: K.SUMMARY_TAG + ": the earlier jobs.)\nold words" }), true, "one saved before then is still found");
   assert.equal(K.isSummary({ role: "user", content: "hi" }), false);
   // A JOB: cut before an assistant message, the newest 8 rounds kept; nothing to cut: -1.
   const job = [{ role: "user", content: "old" }, { role: "user", content: "go" }, ...Array.from({ length: 12 }, (_, i) => round(i)).flat()];
@@ -45,7 +56,7 @@ test("CD165 the summary's pieces: a plain-text copy (tools cut short), Coder's m
   assert.deepEqual(marksAfter(marks, { from: 0, to: 4, evAt: 5 }), [{ turn: 2, ev: 6, msg: 1 }, { turn: 3, ev: 10, msg: 5 }]);
 });
 
-test("CD166 a long job summarizes its own older steps (like Claude Code's auto-compact), never the chat's saved history before it: Coder's model writes it with no tools, the newest rounds stay whole, the chat is told; at most three times a job", async () => {
+test("CD166 a long job is summarized as it goes (Claude Code's auto-compact, since 2026-11-14 the whole conversation, as its own: test/autocompact.test.mjs): Coder's model writes it with no tools, before the next request; the chat is told; no tool answer is ever left without its call", async () => {
   const { runCoder } = await import("../container/coder-agent.mjs");
   const history = [{ role: "user", content: "an older job" }, { role: "assistant", content: "done before" }];
   let n = 0; const asked = [];
@@ -61,10 +72,9 @@ test("CD166 a long job summarizes its own older steps (like Claude Code's auto-c
   assert.equal(r.status, "done");
   assert.ok(asked.length >= 1 && asked.length <= 3, "summarized, at most three times: " + asked.length);
   assert.deepEqual(asked[0].tools, []);
-  assert.doesNotMatch(asked[0].messages[1].content, /an older job|done before/, "only this job's own steps");
-  assert.deepEqual(r.messages.slice(0, 3), [...history, { role: "user", content: "Do the big job" }], "the saved history and the owner's message stay as they were");
-  assert.ok(K.isSummary(r.messages[3]), "then the summary");
-  assert.match(r.messages[3].content, /the earlier steps of this job, summarized to make room\. The chat on the owner's page still shows all of it\.\)\nSUMMARY \d$/);
+  assert.match(asked[0].messages[1].content, /OWNER: an older job[\s\S]*OWNER: Do the big job/, "the whole conversation, as Claude Code's");
+  assert.ok(K.isSummary(r.messages[0]), "the summary first");
+  assert.match(r.messages[0].content, /^This chat is being continued from a previous conversation that ran out of context\. The summary below covers the earlier portion of the conversation\.\n\nSummary:\nSUMMARY \d\nContinue the conversation from where it left off/);
   // No tool answer left without its call.
   const calls = new Set(r.messages.flatMap((m) => (m.tool_calls || []).map((c) => c.id)));
   for (const m of r.messages.filter((x) => x.role === "tool")) assert.ok(calls.has(m.tool_call_id), m.tool_call_id);
@@ -100,7 +110,7 @@ async function chat() {
   const k = (f) => "coder/" + UID + "/" + ID + "/" + f;
   const read = (f) => JSON.parse(bucket.m.get(k(f)));
   const set = async (meta, messages, events) => { await bucket.put(k("meta.json"), JSON.stringify({ id: ID, repo: "ana/shop", base: "main", branch: "coder/" + ID, turn: 3, saved: 3, status: "idle", at: Date.now(), ...meta })); await bucket.put(k("messages.json"), JSON.stringify(messages)); await bucket.put(k("events.json"), JSON.stringify(events)); };
-  return { go, machine, sums, read, set, setAnswer: (a) => { answer = a; } };
+  return { go, machine, sums, read, set, deps, setAnswer: (a) => { answer = a; } };
 }
 const three = () => {
   const msgs = [], evs = [], marks = [];
@@ -114,11 +124,21 @@ const three = () => {
 
 test("CD167 on the Worker: a long chat's older jobs are summarized before the next job (not cut); /compact (with a focus) starts a job on the chat's machine that makes the whole conversation a summary there, with its hooks (round 5), and moves Rewind's marks when it ends; Rewind's Summarize up to here / from here; the chat keeps every message, with a note where the summary stands; nothing changes when the summary could not be made", async () => {
   const c = await chat();
-  // BEFORE A JOB: past 300 KB, the older jobs (all but the newest three of the owner's messages) become one summary.
+  // BEFORE A JOB: a Coder chat goes to its machine whole, which summarizes it by Claude Code's auto-compact before its first
+  // request (since 2026-11-14: test/autocompact.test.mjs); the Worker summarizes one only past what the machine takes
+  // (CODER_COMPACT_SAFETY, a last resort; Gloopy's chats at 300 KB as before).
   const big = [];
   for (let t = 1; t <= 8; t++) big.push({ role: "user", content: "ask " + t }, { role: "assistant", content: "answer " + t + " " + "w".repeat(50_000) });
   await c.set({ turn: 8, marks: Array.from({ length: 8 }, (_, i) => ({ turn: i + 1, ev: i * 2, msg: i * 2 })) }, big, big.map((m) => ({ type: m.role === "user" ? "user" : "done", text: m.content.slice(0, 20) })));
   assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "ask 9" }) })).status, 200);
+  assert.equal(c.sums.length, 0, "not on the Worker");
+  assert.deepEqual(c.machine.calls.find((x) => x.path === "/turn").body.messages, big, "the whole chat to its machine");
+  // Past the last-resort size (set small here), the older jobs (all but the newest three of the owner's messages) become one summary.
+  await c.set({ turn: 8, marks: Array.from({ length: 8 }, (_, i) => ({ turn: i + 1, ev: i * 2, msg: i * 2 })) }, big, big.map((m) => ({ type: m.role === "user" ? "user" : "done", text: m.content.slice(0, 20) })));
+  c.machine.calls.length = 0;
+  c.deps.compactSafety = 300 * 1024;
+  assert.equal((await c.go("projects/" + ID + "/message", { method: "POST", body: JSON.stringify({ text: "ask 9" }) })).status, 200);
+  delete c.deps.compactSafety;
   assert.equal(c.sums.length, 1);
   assert.deepEqual(c.sums[0].m.map((m) => m.content.slice(0, 6)), ["ask 1", "answer", "ask 2", "answer", "ask 3", "answer", "ask 4", "answer", "ask 5", "answer"], "the older jobs");
   const sent = c.machine.calls.find((x) => x.path === "/turn").body.messages;
@@ -168,7 +188,7 @@ test("CD167 on the Worker: a long chat's older jobs are summarized before the ne
   await c.set({ marks }, msgs, evs);
   w = await (await c.go("projects/" + ID + "/rewind", { method: "POST", body: JSON.stringify({ turn: 2, summarize: "from" }) })).json();
   assert.deepEqual(c.read("messages.json").map((m) => K.isSummary(m) ? "SUMMARY" : m.content), ["ask 1", "answer 1", "SUMMARY"]);
-  assert.match(c.read("messages.json")[2].content, /one of the owner's messages and everything after it \(Rewind: Summarize from here\)/);
+  assert.match(c.read("messages.json")[2].summaryOf, /one of the owner's messages and everything after it \(Rewind: Summarize from here\)/, "which part it stands for (its words to Coder are Claude Code's since 2026-11-14)");
   assert.deepEqual(w.events.map((e) => e.type), ["user", "done", "note", "user", "done", "user", "done"]);
   assert.deepEqual(w.project.marks, [{ turn: 1, ev: 0, msg: 0 }]);
   // Nothing before message 1 to summarize up to.
@@ -218,7 +238,7 @@ test("CD214 every summary made between messages names the files its part worked 
   assert.equal(REREAD_LIST_MAX, 50);
   assert.equal(filesTouched(Array.from({ length: 60 }, (_, i) => ({ role: "assistant", content: "", tool_calls: [tc("read", { path: "f" + i }, "r" + i)] }))).length, 50);
   // (Every summary owes the chat's plan file to the job that next reads it, Claude Code's plan_file_reference: `planRef`.)
-  assert.deepEqual(summaryMessage("S", "x"), { role: "user", content: summaryMessage("S", "x").content, planRef: true }, "no files: no reread");
+  assert.deepEqual(summaryMessage("S", "x"), { role: "user", content: summaryMessage("S", "x").content, compactSummary: true, summaryOf: "x", planRef: true }, "no files: no reread");
   assert.deepEqual(summaryMessage("S", "x", ["a.js"]).reread, ["a.js"]);
   // A long chat summarized before a job.
   const big = [];

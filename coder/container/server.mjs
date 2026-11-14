@@ -41,6 +41,7 @@ import { GLOOPY_SYSTEM, GLOOPY_TOOLS, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_
 import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
+import { CLOUD_AUTOCOMPACT_PCT } from "./coder-compact.mjs";
 import { cleanEnv, PROJECT_ID, PROJECT_ROOT, splitSetup, APT_NAME_RE, DEV_HOME, SETUP_SCRIPT_MAX, scrub, PROC_WRAPPERS, ccDuration, movedSoFar, utf8Partial, secretVar } from "./coder-checks.mjs";
 import { bashEndBytes } from "./coder-checks.mjs";
 import { startProxy, okHost, firewall, blockedNote } from "./coder-proxy.mjs";
@@ -119,7 +120,13 @@ const RUN_GID = process.env.CODER_RUN_GID ? Number(process.env.CODER_RUN_GID) : 
 // stopped; it keeps running, its further output goes to a log file, and the AI
 // is told where, so it can read it with tail later.
 export const BG_DIR = "/srv/coder-bg";
-export const BODY_MAX = 8 * 1024 * 1024;
+/**
+ * THE LARGEST REQUEST THIS MACHINE TAKES (a message's start, with the chat's saved conversation). Since the saved chat keeps
+ * every answer and picture whole (2026-11-14, the owner: "yes copy claude code"), a chat's conversation goes up to Claude
+ * Code's auto-compact threshold (about 441,600 tokens, some 2 MB of text, more in one round past it) and its pictures (at most
+ * 18 MB: PICS_KEEP_BYTES), so this leaves room for both: 48 MB (it was 8).
+ */
+export const BODY_MAX = 48 * 1024 * 1024;
 // THE SETUP SCRIPT (like Claude Code's): about five minutes at most; the environment's saved copy of its result is used for
 // about seven days (takeCopy). On a chat's machine it runs once (the job's setup step).
 export const SETUP_MAX_S = 300;
@@ -920,10 +927,22 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID",
   // (Tool search's switch, under its own name, one of the variables Claude Code applies from any settings file: 2026-11-14;
   // coder-toolsearch.mjs. And its connector descriptions' limit, CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH, under Coder's name.)
-  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH", CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "CODER_MAX_MCP_DESCRIPTION_LENGTH" };
-export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
+  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH", CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "CODER_MAX_MCP_DESCRIPTION_LENGTH",
+  // (Auto-compact's, Claude Code's: the two switches under their own names, its window under Coder's. The owner, 2026-11-14:
+  // "yes copy claude code"; coder-compact.mjs compactSettings. Not its CLAUDE_AUTOCOMPACT_PCT_OVERRIDE, which a cloud session
+  // sets itself over the user's: compactVarsFor.)
+  DISABLE_COMPACT: "DISABLE_COMPACT", DISABLE_AUTO_COMPACT: "DISABLE_AUTO_COMPACT", CLAUDE_CODE_AUTO_COMPACT_WINDOW: "CODER_AUTO_COMPACT_WINDOW" };
+export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS", autoCompactEnabled: "CODER_AUTO_COMPACT_ENABLED", autoCompactWindow: "CODER_AUTO_COMPACT_WINDOW" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
+/** The chat's auto-compact settings, as coder-compact.mjs compactSettings reads them (Coder's names). */
+export const COMPACT_VARS = Object.freeze(["DISABLE_COMPACT", "DISABLE_AUTO_COMPACT", "CODER_AUTO_COMPACT_WINDOW", "CODER_AUTO_COMPACT_ENABLED"]);
+export const compactVarsOf = (vars) => Object.fromEntries(COMPACT_VARS.filter((k) => vars && Object.hasOwn(vars, k)).map((k) => [k, String(vars[k])]));
+/**
+ * WHAT A JOB GETS: the owner's and the repository's, and the percentage this machine sets itself, as Claude Code's cloud
+ * sessions set CLAUDE_AUTOCOMPACT_PCT_OVERRIDE over the user's (coder-compact.mjs CLOUD_AUTOCOMPACT_PCT).
+ */
+export const compactVarsFor = (vars) => ({ ...compactVarsOf(vars), CODER_AUTOCOMPACT_PCT_OVERRIDE: String(CLOUD_AUTOCOMPACT_PCT) });
 /** The owner's variables, with the repository's own command settings (repoSettings' `own`) under them. */
 export function withRepoOwn(vars, own) {
   const v = vars && typeof vars === "object" ? vars : {};
@@ -3075,7 +3094,7 @@ export function liveTarget(x) {
  * and it stops. `flush()` stops the timer and sends everything left.
  */
 export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery = LIVE_CONVO_MS, now = () => Date.now() } = {}) {
-  let sent = 0, convoSent = -1, convoAt = now(), batch = LIVE_BATCH, refused = 0, over = false, queued = false;
+  let sent = 0, convoSent = "", convoAt = now(), batch = LIVE_BATCH, refused = 0, over = false, queued = false, convoOff = false;
   let chain = Promise.resolve();
   // A step too large to send on its own is kept as a short note in its place (the steps stay numbered alike).
   const tooBig = new Set();
@@ -3083,12 +3102,19 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
     for (let tries = 0; tries < (final ? 40 : 1) && !over; tries++) {
       const events = t.events.slice(sent, sent + batch).map((e, i) => (tooBig.has(sent + i) ? { at: e && e.at, type: "note", text: "(a step too large to keep here)" } : e));
       const convo = typeof t.convoNow === "function" ? t.convoNow() : null;
-      const withConvo = Array.isArray(convo) && convo.length !== convoSent && (final || now() - convoAt >= convoEvery);
+      // (`whole`: the job's auto-compact summarized the conversation, so this is all of it, the summary first: the Worker puts it
+      // in place of the saved chat if the machine stops. Sent again whenever its length or its summaries change.)
+      const whole = typeof t.convoWhole === "function" ? Number(t.convoWhole()) || 0 : 0;
+      const convoKey = Array.isArray(convo) ? whole + ":" + convo.length : "";
+      const withConvo = !convoOff && Array.isArray(convo) && convoKey !== convoSent && (final || now() - convoAt >= convoEvery);
       if (!events.length && !withConvo) return;
       let r;
       try {
-        r = await fetchFn(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass }, body: JSON.stringify({ from: sent, events, ...(withConvo ? { messages: convo } : {}) }), signal: AbortSignal.timeout(LIVE_WAIT_MS) });
+        r = await fetchFn(live.url, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": live.chat, "x-coder-turn": String(live.turn), "x-coder-live": live.pass }, body: JSON.stringify({ from: sent, events, ...(withConvo ? { messages: convo, ...(whole ? { whole: true } : {}) } : {}) }), signal: AbortSignal.timeout(LIVE_WAIT_MS) });
       } catch { return; }
+      // (Too large with the conversation: it is what is too large, not the steps. Sent without it from then on: the chat's own
+      // save at the job's end has it. 2026-11-14, since the saved chat keeps every answer whole.)
+      if (r.status === 413 && withConvo) { convoOff = true; continue; }
       if (r.status === 413) { if (events.length > 1) batch = Math.max(1, Math.floor(events.length / 2)); else tooBig.add(sent); continue; }
       if (r.status === 403) { over = true; return; }
       if (r.status === 409) { if (++refused >= LIVE_REFUSALS) over = true; return; }
@@ -3096,7 +3122,7 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
       refused = 0;
       const j = await r.json().catch(() => ({}));
       sent = Number.isInteger(j.have) && j.have >= 0 && j.have <= t.events.length ? j.have : sent + events.length;
-      if (withConvo) { convoSent = convo.length; convoAt = now(); }
+      if (withConvo) { convoSent = convoKey; convoAt = now(); }
     }
   };
   const run = (final) => (chain = chain.then(() => once(final)).catch(() => {}));
@@ -4247,7 +4273,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // memory falls below that amount"): the machine's MemAvailable, or less when the chat's commands have a memory cap.
         memFree: () => memAvailable(t.memCg),
         // Only this job's part of the conversation: the Worker already has the rest (the chat's saved history).
-        watch: (now) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; t.convoNow = () => now().slice(before); },
+        // (After Claude Code's auto-compact in the job, the whole conversation: it starts with the summary. 2026-11-14.)
+        watch: (now, o = {}) => { const before = Array.isArray(body.messages) ? body.messages.length : 0; const whole = () => Number(o && typeof o.whole === "function" ? o.whole() : 0) || 0; t.convoWhole = whole; t.convoNow = () => (whole() ? now() : now().slice(before)); },
         // `here`: one of Grok's own commands or file tools, which starts where the last command left the folder (a file
         // tool: CODER_CWD, which its short paths count from). `follow`: a command of Grok's not asked to run in the
         // background, whose folder carries over. `inBg`: one asked to run in the background.
@@ -4561,7 +4588,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
-      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, cmdShell: t.shell, compactVars: compactVarsFor(rawVars), noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
         // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
