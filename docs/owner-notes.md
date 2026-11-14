@@ -17,6 +17,27 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Web tools and the email check, like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. Fix 2 of 6.
+
+- **The email check is Claude Code's newest one (2.1.325).** Coder is refused, in Claude Code's words, when it would put your account's email next to something that names a program to a website (like a User-Agent). It now also checks:
+  - scripts a command runs (up to 8 of them),
+  - new patterns: identity=, --identity, mailto=, a From: header, and SEC EDGAR's,
+  - lines that read git's email setting,
+  - what write and edit put in a file,
+  - a web page's address,
+  - connector calls.
+- **Plan mode with Plan's checker on:** fetching a web page now goes to the checker instead of asking you, like Claude Code. A rule that says "ask" still asks.
+- **Web rules:** a WebFetch(*) rule now means the whole tool, like Claude Code. A WebSearch(query:…) rule matches a search's exact words.
+- **Searches:** one web_search call can now make up to 8 searches (it was 2 rounds), like Claude Code's limit of 8. In a GitHub job, searches have their own count that doesn't refill, which is Claude Code's way when nobody is watching. When nobody can approve a search, Coder gets Claude Code's message.
+- **Shared Claude chat links (claude.ai/share)** are answered without opening them, as Claude Code does.
+- **The page reader thinks at the chat's own effort** (it was always Low).
+- **Wrong inputs:** when a web_fetch or web_search value is wrong, Coder gets the same error list Claude Code gives. The helper checked 38 inputs against Claude Code's own code, and all matched.
+- **Costs to know:** a chat on High effort now pays more for each page read; one search call can make up to 8 searches; and Plan mode with the checker makes a checker call for each page fetch.
+- **Not confirmed yet:** whether xAI really stops at 8 searches when it's told to search one at a time. That needs one paid live search, so I'll check it in the live test after you say deploy.
+- **Tests:** 15 new (7 email, 4 search, 4 fetch) and others updated. The helper's full run passed 941 of 942; the one failure only happens in a helper's copy of the repo. On the merged branch all 86 related tests pass.
+
 ## 2026-11-14: Environments work like Claude Code's (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. This is fix 1 of 6 from the recheck against Claude Code's newest docs (the other five helpers are still working).
