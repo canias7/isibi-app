@@ -5127,7 +5127,7 @@ test("GL105 (2026-11-10) the owner: \"all of it\": your choice for each site (Al
   hub.at = page("news.example"); hub.el = { name: "My bank", tag: "a", href: "https://bank.example/" };
   o = await job([say("", [call("browser", { action: "click", ref: "e3" }, "k1")]), say("No.")], [{ kind: "none", decision: "allow", why: "x" }], S([{ host: "bank.example", mode: "deny" }]));
   assert.match(o.said("k1"), NEVER, "a link to it isn't followed");
-  o = await job([say("", [call("web_fetch", { url: "https://bank.example/rates" }, "w1")]), say("No.")], [], S([{ host: "bank.example", mode: "deny" }]));
+  o = await job([say("", [call("web_fetch", { url: "https://bank.example/rates", prompt: "the rates" }, "w1")]), say("No.")], [], S([{ host: "bank.example", mode: "deny" }]));
   assert.match(o.said("w1"), /^not done: the owner's settings say never to use bank\.example \(Sites: Never\)\. Don't get its content another way/);
   hub.el = null;
   // Ask first: before opening it (its card says why), and before a step there that would change something; moving around

@@ -17,6 +17,7 @@ import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
+import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -867,7 +868,8 @@ export function parseRule(text) {
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
   const spec = m[2] === undefined ? null : m[2].trim();
-  if (m[1] === "WebFetch" && spec !== null && !/^domain:[A-Za-z0-9.*-]+$/.test(spec)) return null;
+  // (WebFetch's: `domain:` and its host pattern, Claude Code's rule check; the owner, 2026-11-14.)
+  if (m[1] === "WebFetch" && spec !== null && !/^domain:\S+$/.test(spec)) return null;
   if (spec === "" ) return null;
   // (A rule on the command itself, Bash(command:…) or PowerShell(command:…), is never one: see ruleProblem.)
   if ((m[1] === "Bash" || m[1] === "PowerShell") && spec !== null && settingSpec(spec) && settingSpec(spec).name === "command") return null;
@@ -1027,6 +1029,9 @@ export function ruleProblem(text) {
   if (tool === "Bash" && content === ":*") return say("Prefix cannot be empty before :*", "Specify a command prefix before :*", ["Bash(npm *)", "Bash(git *)"]);
   // (Claude Code, for its file tools: 'The ":*" syntax is only for Bash prefix rules'.)
   if (FILE_RULE_TOOLS.has(tool) && content !== null && content.includes(":*")) return say('The ":*" syntax is only for Bash prefix rules', 'Use glob patterns like "*" or "**" for file matching', [tool + "(*.ts) - matches .ts files", tool + "(src/**) - matches all files in src", tool + "(**/*.test.ts) - matches test files"]);
+  // (WebFetch's own, Claude Code's rule check: "WebFetch permissions use domain format, not URLs", 'WebFetch permissions must
+  // use "domain:" prefix'; the owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
+  if (tool === "WebFetch" && content !== null) { const w = webFetchRuleProblem(content); if (w) return say(w.error, w.suggestion, w.examples); }
   return "";
 }
 /**
@@ -1310,7 +1315,7 @@ export function ifRuleMatches(rule, tool, input = {}, { cwd = "/", root = "/", h
     const parts = psAllParts(String(args.command || ""));
     return !parts.length || parts.some((part) => psRuleMatches(spec, part));
   }
-  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainMatches(spec, host); }
+  if (tool === "WebFetch") { let host = ""; try { host = new URL(String(args.url || "")).hostname.toLowerCase(); } catch { host = ""; } return /^domain:/.test(spec) && !!host && domainRuleMatches(spec, host); }
   // GREP'S AND GLOB'S `if` ON THEIR PATTERN (the owner, 2026-11-14: "start fixing and filling in gaps on those tools"; Claude
   // Code 2.1.323: their matcher for a hook's `if` compares the rule's content with the call's pattern, not its path):
   // `Grep(TODO*)` runs for a search of "TODO.*fix".
@@ -2325,45 +2330,25 @@ export function readBlockWhy(command, { cwd = "/", workdirs = [], home = "", rea
 // ── WEB FETCH ────────────────────────────────────────────────────────────────
 // Claude Code's tools reference: "In Manual and acceptEdits permission modes, WebFetch prompts before fetching, except for
 // domains your permission rules already allow or deny and a built-in set of preapproved documentation domains"; "The auto
-// and bypassPermissions permission modes skip the prompt, except for a domain an explicit ask rule matches". Its set
-// (2.1.319), a host or a host and the start of a path:
-const DOC_SITES = ["platform.claude.com", "code.claude.com", "claude.dev", "www.claude.dev", "claude.com/docs", "modelcontextprotocol.io", "github.com/anthropics", "github.com/anthropic-experimental", "raw.githubusercontent.com/anthropics", "raw.githubusercontent.com/anthropic-experimental", "agentskills.io", "docs.python.org", "en.cppreference.com", "docs.oracle.com", "learn.microsoft.com", "developer.mozilla.org", "go.dev/doc", "go.dev/ref", "www.php.net", "docs.swift.org", "kotlinlang.org", "ruby-doc.org", "doc.rust-lang.org", "www.typescriptlang.org", "react.dev", "angular.io", "vuejs.org", "nextjs.org", "expressjs.com", "nodejs.org", "bun.sh", "jquery.com", "getbootstrap.com", "tailwindcss.com", "d3js.org", "threejs.org", "redux.js.org", "webpack.js.org", "jestjs.io", "reactrouter.com", "docs.djangoproject.com", "flask.palletsprojects.com", "fastapi.tiangolo.com", "pandas.pydata.org", "numpy.org", "www.tensorflow.org", "pytorch.org", "scikit-learn.org", "matplotlib.org", "requests.readthedocs.io", "jupyter.org", "laravel.com", "symfony.com", "wordpress.org/documentation", "docs.spring.io", "hibernate.org", "tomcat.apache.org", "gradle.org", "maven.apache.org", "asp.net", "dotnet.microsoft.com", "blazor.net", "reactnative.dev", "docs.flutter.dev", "developer.apple.com", "developer.android.com", "keras.io", "spark.apache.org", "huggingface.co/docs", "www.kaggle.com/docs", "www.mongodb.com", "redis.io", "www.postgresql.org", "dev.mysql.com", "www.sqlite.org", "graphql.org", "prisma.io", "docs.getdbt.com", "docs.aws.amazon.com", "cloud.google.com", "kubernetes.io", "www.docker.com", "www.terraform.io", "www.ansible.com", "vercel.com/docs", "docs.stripe.com", "docs.netlify.com", "devcenter.heroku.com", "dev.wix.com/docs", "cypress.io", "selenium.dev", "docs.unity.com", "docs.unrealengine.com", "git-scm.com", "nginx.org", "httpd.apache.org"];
-const DOC_HOSTS = new Set(DOC_SITES.filter((x) => !x.includes("/")));
-const DOC_PATHS = DOC_SITES.filter((x) => x.includes("/")).map((x) => ({ host: x.slice(0, x.indexOf("/")), path: x.slice(x.indexOf("/")) }));
-/** Whether a page is one of the pre-approved documentation sites (its GitHub ones: a repository's page, or its main branch). */
-export function docSite(url) {
-  let u;
-  try { u = new URL(String(url)); } catch { return false; }
-  const host = u.hostname.toLowerCase(), path = u.pathname;
-  if (DOC_HOSTS.has(host)) return true;
-  if (/%(25)*(2f|5c|2e)/i.test(path)) return false;
-  for (const d of DOC_PATHS) {
-    if (d.host !== host || !(path === d.path || path.startsWith(d.path + "/"))) continue;
-    if (host === "raw.githubusercontent.com") return /^\/[^/]+\/[^/]+\/refs\/heads\/main\/./.test(path);
-    if (host === "github.com") return /^\/[^/]+\/[^/]+(\/?|\/(tree|blob)\/main(\/.*)?)$/.test(path) || path === d.path;
-    return true;
-  }
-  return false;
-}
-/** Whether a WebFetch rule's `domain:` matches a host (`*` is any text). */
-function domainMatches(spec, host) {
-  if (spec === null) return true;
-  const want = spec.slice("domain:".length).toLowerCase();
-  if (want === "*") return true;
-  return new RegExp("^" + want.split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join(".*") + "$").test(host);
-}
-/** WHAT HAPPENS TO A WEB FETCH, like bashDecision. */
+// and bypassPermissions permission modes skip the prompt, except for a domain an explicit ask rule matches". Its set and its
+// domain matching are WebFetch's own (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+// coder-webfetch-sites.mjs, with no Node module, as this file has none): github.com/anthropics pre-approved whole, as
+// Claude Code 2.1.323 has it; a rule's `*` within a part of the name (any depth only as a leading `*.`), its trailing dot
+// dropped, in any case; an exact rule before a wildcard one.
+export { docSite };
+/** WHAT HAPPENS TO A WEB FETCH, like bashDecision; in Claude Code's words ("WebFetch denied access to domain:<host>."). */
 export function fetchDecision(url, { mode = "auto", rules = {} } = {}) {
   let host = "";
   try { host = new URL(String(url)).hostname.toLowerCase(); } catch { host = ""; }
-  const pick = (list, globs = false) => rulesFor(list, "WebFetch", globs).find((x) => domainMatches(x.spec, host));
+  // (A rule on the whole tool, or one whose domain covers the host: an exact one first.)
+  const pick = (list, globs = false) => { const all = rulesFor(list, "WebFetch", globs); return all.find((x) => x.spec === null) || (host ? pickDomainRule(all, host) : undefined); };
   const d = pick(rules.deny, true);
-  if (d) return { verdict: "deny", rule: d.text, why: "Permission to use WebFetch on " + host + " has been denied.", suggest: null };
+  if (d) return { verdict: "deny", rule: d.text, why: d.spec === null ? "Permission to use WebFetch has been denied." : "WebFetch denied access to domain:" + host + ".", suggest: null };
   const a = pick(rules.ask, true);
-  if (a) return { verdict: "ask", rule: a.text, why: "Your rule " + a.text + " asks first for this site.", suggest: null, byRule: true };
+  if (a) return { verdict: "ask", rule: a.text, why: "Coder wants to fetch content from " + (host || "this URL"), suggest: null, byRule: true };
   if (normMode(mode) === "auto") return { verdict: "allow", why: "", suggest: null };
   if (pick(rules.allow) || docSite(url)) return { verdict: "allow", why: "", suggest: null };
-  return { verdict: "ask", why: "Coder wants to fetch a page from " + (host || "this site") + ".", suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
+  return { verdict: "ask", why: "Coder wants to fetch content from " + (host || "this URL"), suggest: host && !host.includes("*") ? [ruleText("WebFetch", "domain:" + host)] : null, host };
 }
 
 /**

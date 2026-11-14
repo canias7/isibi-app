@@ -911,12 +911,15 @@ test("CD34 the file tools: read, write, edit, grep and glob work inside the proj
 });
 
 test("CD35 web fetch: public addresses only; pages become text; there is no free search", async () => {
-  const { privateAddress, htmlToText, toolWebFetch, TOOLS } = await import("../container/coder-tools.mjs");
+  const { privateAddress, toolWebFetch, TOOLS } = await import("../container/coder-tools.mjs");
+  const { htmlToMarkdown } = await import("../container/coder-webfetch.mjs");
   for (const a of ["127.0.0.1", "10.1.2.3", "172.16.0.1", "192.168.1.1", "169.254.169.254", "::1", "fd00::1", "::ffff:127.0.0.1"]) assert.equal(privateAddress(a), true, a);
   for (const a of ["1.1.1.1", "140.82.112.3", "2606:4700::1111"]) assert.equal(privateAddress(a), false, a);
   await assert.rejects(toolWebFetch({ url: "http://127.0.0.1:8080/state" }, async () => { throw new Error("must not fetch"); }), /private network/);
-  await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /only http and https/);
-  assert.equal(htmlToText("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n there");
+  // (Claude Code's own refusal for an address with no host: "Invalid URL"; pages become Markdown as its Turndown makes it.
+  // The owner, 2026-11-14: "start fixing and filling in gaps on those tools".)
+  await assert.rejects(toolWebFetch({ url: "file:///etc/passwd" }, async () => { throw new Error("no"); }), /^Error: Invalid URL$/);
+  assert.equal(htmlToMarkdown("<p>Hi&amp;bye</p><script>x()</script><b>there</b>"), "Hi&bye\n\n**there**");
   assert.equal("web_search" in TOOLS, false, "no free search (owner): web search is Grok's (since 2026-11-14 through Coder's web_search tool, run in the loop: coder-websearch.mjs)");
 });
 

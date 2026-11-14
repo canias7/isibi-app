@@ -15,7 +15,6 @@ import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
 import { grepTool, globTool } from "./coder-search.mjs";
-import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
 import https from "node:https";
@@ -38,7 +37,6 @@ export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
 export const NOTEBOOK_CELLS_MAX = 256 * 1024;
-export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
 /**
  * WHERE GROK'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"; tried in Claude Code: its Read takes a
@@ -969,17 +967,6 @@ const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), ba
 export async function toolGrep(args, ctx = {}) { return grepTool(args, searchEnv(ctx)); }
 export async function toolGlob(args, ctx = {}) { return globTool(args, searchEnv(ctx)); }
 
-/** Public web addresses only: never this machine or a private network. */
-export async function publicUrl(u) {
-  let url;
-  try { url = new URL(String(u)); } catch { fail("that is not a web address"); }
-  if (url.protocol !== "https:" && url.protocol !== "http:") fail("only http and https addresses");
-  if (url.username || url.password) fail("no passwords in addresses");
-  const host = url.hostname.replace(/^\[|\]$/g, "");
-  const addrs = isIP(host) ? [host] : (await lookup(host, { all: true }).catch(() => fail("could not find " + host))).map((a) => a.address);
-  for (const a of addrs) if (privateAddress(a)) fail("that address is on a private network");
-  return url;
-}
 // THE AUDIT (2026-11-05): every private, local and special range, in all its
 // written forms (IPv4-mapped IPv6 like ::ffff:7f00:1, NAT64, 6to4, site-local…).
 const BLOCK4 = new BlockList(), BLOCK6 = new BlockList();
@@ -1005,8 +992,7 @@ export function safeLookup(hostname, opts, cb) {
     cb(null, ok[0].address, ok[0].family);
   });
 }
-/** fetch-like GET through http/https with safeLookup: `{ status, url, headers: { get }, text() }`. */
-/** WITH THE REPO'S NETWORK LIST ON, web_fetch goes through Coder's proxy (the only way out), which checks the list. */
+/** WITH THE REPO'S NETWORK LIST ON, a request goes through Coder's proxy (the only way out), which checks the list (http hooks; web_fetch has its own, coder-webfetch.mjs). */
 function viaProxy(url) {
   const p = process.env.CODER_NET_LIMITED === "1" && (process.env.HTTPS_PROXY || "");
   if (!p) return null;
@@ -1022,50 +1008,16 @@ function viaProxy(url) {
     c.end();
   } };
 }
-export function pinnedFetch(u, { headers = {} } = {}) {
-  const url = new URL(String(u));
-  const mod = url.protocol === "https:" ? https : http;
-  const px = viaProxy(url);
-  return new Promise((done, no) => {
-    const req = (px && px.path ? http.request({ ...px, method: "GET", headers: { ...headers, ...px.headers }, timeout: 20000 }, onRes) : mod.request(url, { method: "GET", headers, timeout: 20000, ...(px ? px : { lookup: safeLookup }) }, onRes));
-    function onRes(res) {
-      const chunks = []; let size = 0;
-      res.on("data", (c) => { size += c.length; if (size <= 2_000_000) chunks.push(c); else res.destroy(); });
-      res.on("end", () => done({ status: res.statusCode, url: url.href, headers: { get: (k) => { const v = res.headers[String(k).toLowerCase()]; return Array.isArray(v) ? v[0] : v ?? null; } }, text: async () => Buffer.concat(chunks).toString("utf8") }));
-      res.on("error", no);
-    }
-    req.on("timeout", () => req.destroy(new Error("the page took too long")));
-    req.on("error", (e) => no(e.code === "EPRIVATE" ? new ToolError("that address is on a private network") : e));
-    req.end();
-  });
-}
-
-export function htmlToText(html) {
-  return String(html)
-    .replace(/<(script|style|noscript|svg)[\s\S]*?<\/\1>/gi, " ")
-    .replace(/<br\s*\/?>|<\/(p|div|li|h[1-6]|tr|pre)>/gi, "\n")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/&nbsp;/g, " ").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;/g, "'")
-    .replace(/[ \t]+/g, " ").replace(/\n\s*\n\s*/g, "\n\n").trim();
-}
-
-async function get(url, fetchFn) {
-  let u = await publicUrl(url);
-  for (let hop = 0; hop < 5; hop++) {
-    const r = await fetchFn(u, { redirect: "manual", headers: { "user-agent": "Coder (gofarther.dev)", accept: "text/html,text/plain,application/json;q=0.9,*/*;q=0.5" }, signal: AbortSignal.timeout(20000) });
-    if (r.status >= 300 && r.status < 400 && r.headers.get("location")) { u = await publicUrl(new URL(r.headers.get("location"), u)); continue; }
-    return r;
-  }
-  fail("too many redirects");
-}
-
-export async function toolWebFetch({ url }, fetchFn = pinnedFetch) {
-  const r = await get(url, fetchFn);
-  const type = r.headers.get("content-type") || "";
-  const raw = (await r.text()).slice(0, 2_000_000);
-  const text = /html/i.test(type) ? htmlToText(raw) : raw;
-  // Up to 100,000 characters, like Claude Code's WebFetch: a separate reader reads it, not Coder (2026-11-06).
-  return "HTTP " + r.status + " " + String(r.url || url) + "\n\n" + text.slice(0, WEB_MAX) + (text.length > WEB_MAX ? "\n[cut]" : "");
+/**
+ * CLAUDE CODE'S WEBFETCH'S FETCH (the owner, 2026-11-14: "start fixing and filling in gaps on those tools";
+ * coder-webfetch.mjs, loaded only for a fetch): the page (as Markdown when it is HTML), a redirect to another host, or a
+ * status other than 2xx, as `{ text, facts }` for Coder's loop (FACTS_MARK); through the chat's network list when it is on,
+ * never to a private address (Coder's own refusal, kept); a binary page also saved to the scratch folder. `request`: a test's
+ * stand-in for the network.
+ */
+export async function toolWebFetch(args, request = null) {
+  const { fetchPage } = await import("./coder-webfetch.mjs");
+  return fetchPage(args || {}, { isPrivate: privateAddress, lookup: safeLookup, proxy: process.env.CODER_NET_LIMITED === "1" ? String(process.env.HTTPS_PROXY || "") : "", scratch: SCRATCH, ...(typeof request === "function" ? { request } : {}) });
 }
 
 /**

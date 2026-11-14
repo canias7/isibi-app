@@ -238,7 +238,8 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
 export function actionShown(name, args) {
   const a = args && typeof args === "object" ? args : {};
   if (name === "bash" || name === "powershell") return name + ": " + clip(a.command, 6000) + (a.run_in_background ? "\n(run in the background)" : "") + (a.description ? "\n(Coder's description: " + clip(a.description, 200) + ")" : "") + (Array.isArray(a.allowed_domains) && a.allowed_domains.length ? "\n(allowed_domains: the hosts this command asks to reach beyond the chat's network list, for this command alone: " + clip(a.allowed_domains.slice(0, 100).join(", "), 3000) + ")" : "");
-  if (name === "web_fetch") return "web_fetch: " + clip(a.url, 2000) + "\n(what Coder asks the page reader: " + clip(a.prompt, 500) + ")";
+  // (A page fetch as Claude Code shows its classifier one, "<url>: <prompt>", or the url alone: the owner, 2026-11-14.)
+  if (name === "web_fetch") return "web_fetch: " + clip(a.url, 2000) + (a.prompt ? ": " + clip(a.prompt, 500) : "");
   // (A web search: its query, as Claude Code's auto mode classifier is given one, WebSearch's toAutoClassifierInput: the
   // owner, 2026-11-14, "start fixing and filling in gaps on those tools".)
   if (name === "web_search") return "web_search: " + clip(a.query, 2000);
