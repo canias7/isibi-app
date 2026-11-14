@@ -901,6 +901,16 @@ a "high" an account saved before then counts as not chosen (`savedEffort`, and
 used (`coderSend`: cached and reasoning tokens, the effort sent and the one xAI
 says it used), and the chat's record keeps the last message's sum as `usage`
 (`usageSummary`, the auto mode checker's calls apart). Tests CD378 and CD379.
+Each request of a chat starts with the one before it, byte for byte: the system
+message, the tools, then the earlier messages. Every tool keeps the definition
+the chat first sent it with (`toolLocks` in the chat's record, carried by a
+summary; Claude Code's tool schema cache), whatever a setting makes of it later
+(Settings' background limit, the command time limits and output limits, the
+network gate, web_fetch's cache time, a connector's description); a connector
+tool whose inputs changed, or a new version of Coder's tool code, sends the
+tool as it is now (`lockTools`). With Grok, any change in the tools (a
+tool_search load too) costs the whole prompt once. Tests:
+`test/cache-prefix.test.mjs`.
 
 **Settings** (owner, 2026-11-10: "the setting put it in setings"). Settings, in
 the account menu, keeps three choices on the account (`prefsOf`, `prefsChange` in
@@ -1024,8 +1034,11 @@ by name or by its full path in /bin, /usr/bin or /usr/local/bin; anything else i
 bash (`shellOf`). zsh is in Coder's image; in zsh, the startup file's snapshot is
 zsh's (`SNAPSHOT_TAKE_ZSH`, from `~/.zshrc`), its extended patterns are off, and
 the command runs through `eval`, as Claude Code runs it. Hooks always run in bash (or,
-with a hook's `shell: "powershell"`, in PowerShell: pass 6 below).
-Tests: CD385e.
+with a hook's `shell: "powershell"`, in PowerShell: pass 6 below). The bash tool's
+description names that shell, "(zsh)" and `~/.zshrc` in zsh, as Claude Code's Bash
+description names the user's shell (`cmdShell`, the machine's shell; it had been
+given the owner's `!` command by mistake: the cache fix's follow-up, 2026-11-14).
+Tests: CD385e, CP8 in `test/cache-prefix.test.mjs`.
 
 **Auto mode rules, refusing instead of asking, and working folders** (owner,
 2026-11-10: "yea do all of them"). Settings keeps the owner's auto mode rules as

@@ -17,6 +17,35 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
+
+On my branch, not deployed yet.
+
+- **What the live test showed:** after Coder loaded web_fetch and you said No on its card, the next message (a command,
+  then Stop) had only 1,152 of 20,420 tokens cached. The same happened to the turn that answered your `!cat …` command
+  after Settings' hooks were set back to none. 1,152 is what a brand-new chat's first call gets: Grok had nothing of the
+  chat then.
+- **What I found with a pretend Grok:** in those messages Coder sends each request as the one before it plus the new
+  messages, byte for byte (the system message, the tools, the earlier messages). The No, the Stop, the machine starting
+  again, the `!` command and the hooks change change nothing in it. So the live breaks came from Grok's side (its cache
+  lost the chat while the card or Settings waited), or from a setting that changed a tool between the two messages.
+- **The fix:** some settings did change the tools between two messages: the background limit in Settings, the command time
+  limits, the output limits, background commands off, the network gate, web_fetch's cache time, a connector's description
+  or its length limit. Each one made Grok read the whole chat again at full price. Now every tool keeps the definition the
+  chat first sent it with, as Claude Code keeps its tools for a session. It is kept in the chat's record, so it also holds
+  after a summary or a machine restart. A connector tool whose inputs changed is sent as it is now, and so are Coder's own
+  tools after a deploy that changes them.
+- **Still breaks the cache, unchanged (your call):** loading a tool with tool_search (Grok has no deferred tools, so the
+  whole prompt is read again once); a tool result over 12,000 characters or a picture, which the saved chat shortens after
+  the message; a deny rule on WebSearch or `CODER_ENABLE_TASKS` changing the system message; PowerShell turned on mid-chat.
+- **Fixed after, as asked:** the bash tool's description is meant to say zsh when Coder's
+  commands run in zsh (they do on Coder's machines unless `CODER_SHELL` says bash), as Claude Code's names your shell. It
+  was given your `!` command instead of the machine's shell, so it never did. Now it says zsh. A chat's first message sends
+  the right one and keeps it; chats from before keep what they sent until a new version of Coder's tool code, which this
+  fix is, so each of them reads its prompt again once after the deploy.
+- **Tests:** `test/cache-prefix.test.mjs` (new, 8), and the files around it all pass.
+- **Cost:** nothing; it saves Grok reading a chat again after a setting change.
+
 ## 2026-11-14: Rounds 4, 5 and 6 are live on gofarther.dev, tested with Grok on Low (your words: "yes pls")
 
 Merged into main and deployed (deploy 189). Then one test chat of canias7/testingforclaude with Grok on Low, ten checks,
