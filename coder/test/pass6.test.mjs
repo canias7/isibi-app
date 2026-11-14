@@ -548,10 +548,10 @@ test("CD396 a command's own hosts in Auto mode (Claude Code's allowed_domains): 
     // A blocked site stays blocked, listed or not.
     assert.ok((await ask("CONNECT evil.example:443 HTTP/1.1\r\nHost: evil.example:443\r\n" + auth(pass) + "\r\n")).endsWith(DENIED("evil.example")));
     // Without a pass, or after the command ended: the network list's refusal.
-    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n"), /Blocked by this repo's network list: registry\.npmjs\.org/);
+    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n\r\n"), /request blocked: no rule or allowlist entry allows host registry\.npmjs\.org/);
     px.closeFor(pass);
     assert.equal(px.openLists(), 0);
-    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n" + auth(pass) + "\r\n"), /Blocked by this repo's network list: registry\.npmjs\.org/);
+    assert.match(await ask("CONNECT registry.npmjs.org:443 HTTP/1.1\r\nHost: registry.npmjs.org:443\r\n" + auth(pass) + "\r\n"), /request blocked: no rule or allowlist entry allows host registry\.npmjs\.org/);
   } finally { await px.close(); }
 
   // CODER'S LOOP.

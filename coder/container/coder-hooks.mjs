@@ -12,6 +12,7 @@ import { pwshRun, PS_TERM } from "./coder-ps.mjs";
 import { ifRuleMatches } from "./coder-perms.mjs";
 import { bashResultText } from "./coder-checks.mjs";
 import { checkRewrite, bashOutputText } from "./coder-zod.mjs";
+import { REMOTE_TOOL_NAMES, REMOTE_SERVER, REMOTE_SOURCE, remoteAliases } from "./coder-envtools.mjs";
 
 /** The events Coder has (Claude Code's names), and the ones about a tool call. */
 // (TaskCreated and TaskCompleted: Claude Code's, fired by its TaskCreate and TaskUpdate, which Coder has since 2026-11-14, the
@@ -110,6 +111,10 @@ export const AGENT_HOOK_TURNS = 50;
 // (The task list's four since 2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one".)
 export const CC_TOOL = { bash: "Bash", powershell: "PowerShell", monitor: "Monitor", read: "Read", write: "Write", edit: "Edit", grep: "Grep", glob: "Glob", lsp: "LSP", web_fetch: "WebFetch", web_search: "WebSearch", stop_job: "TaskStop", ask_user: "AskUserQuestion", exit_plan_mode: "ExitPlanMode", enter_plan_mode: "EnterPlanMode", todo: "TodoWrite", todo_write: "TodoWrite", task_create: "TaskCreate", task_get: "TaskGet", task_list: "TaskList", task_update: "TaskUpdate", tool_search: "ToolSearch" };
 export const ccTool = (name, monitor = false) => (monitor ? "Monitor" : CC_TOOL[name] || String(name || ""));
+// (And the environment tools and request_secret by Claude Code's names for them, its claude-code-remote MCP server's tools,
+// mcp__claude-code-remote__get_environment … mcp__claude-code-remote__request_credential: a hook's tool_name, its matcher and
+// its `if` see those, and a PostToolUse hook's updatedMCPToolOutput applies to them. E1 of recheck 2, 2026-11-14.)
+Object.assign(CC_TOOL, REMOTE_TOOL_NAMES);
 
 const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === "string" && x.trim()).map((x) => x.trim()).slice(0, 100) : null);
 
@@ -219,7 +224,8 @@ export function hooksFor(all, event, value = "", call = null) {
     // A BASH MATCHER ON A MONITOR'S COMMAND (Bash docs pass 8; Claude Code 2.1.314: "A PreToolUse or PermissionRequest hook
     // with a Bash matcher also runs on shell commands Claude starts with the Monitor tool, but its allow and updatedInput
     // have no effect on them"; it "gets a Bash call"; it "doesn't run for a WebSocket watch", nor "if its if names Monitor").
-    const own = NO_MATCHER.has(event) || matcherMatches(h.matcher, value, NARROW.has(event));
+    // (An environment tool or request_secret also by the claude-code-remote server's other two names: D2 of recheck 3.)
+    const own = NO_MATCHER.has(event) || matcherMatches(h.matcher, value, NARROW.has(event)) || (TOOL_EVENTS.has(event) && remoteAliases(value).some((v) => matcherMatches(h.matcher, v)));
     const viaBash = !own && value === "Monitor" && (event === "PreToolUse" || event === "PermissionRequest") && matcherMatches(h.matcher, "Bash");
     if (!own && !viaBash) continue;
     if (viaBash && call && call.ws) continue;
@@ -231,7 +237,7 @@ export function hooksFor(all, event, value = "", call = null) {
       // (A matcher that includes Monitor with an `if` naming Bash: the Monitor call's input, its command matched the Bash
       // way, "but allow and updatedInput have no effect".)
       const tool = call.tool === "Monitor" && named === "Bash" ? "Bash" : call.tool;
-      if (!ifRuleMatches(h.if, tool, call.input, call.ctx || {})) continue;
+      if (![tool, ...remoteAliases(tool)].some((t) => ifRuleMatches(h.if, t, call.input, call.ctx || {}))) continue;
       if (call.tool === "Monitor" && named === "Bash") noGrant = true;
     }
     const key = handlerKey(h);
@@ -807,6 +813,24 @@ export function splitHookOut(out, mark) {
   return { stdout: k >= 0 ? s.slice(0, k) : s, stderr: err.replace(/\n?\[finished, exit code -?\d+\]\n*$/, "") };
 }
 
+/**
+ * THE MCP SERVER IN A TOOL EVENT'S INPUT (D2 of recheck 3, 2026-11-14; hooks.md: "For an MCP tool, the input also carries
+ * mcp_server, an object with the server's name and a source that says where the server's definition came from", on PreToolUse,
+ * PermissionRequest, PostToolUse, PostToolUseFailure and PermissionDenied; the Agent SDK's McpServerProvenance: "Both omit it
+ * for tools that don't come from an MCP server"). The environment tools' and request_secret's: { name: "claude-code-remote",
+ * source: "dynamic" } (coder-envtools.mjs REMOTE_SOURCE). A connector's: its name as the owner gave it, and "claudeai", the
+ * source 2.1.325 gives the connectors it has from claude.ai (their config: type "claudeai-proxy", scope "claudeai"; its O2r()
+ * reports the scope). `server`: the connector's name, or a function from the tool's name to it (asked only for a connector).
+ */
+export function withMcpServer(event, extra, server = "") {
+  if (!TOOL_EVENTS.has(event) || !extra || typeof extra !== "object" || extra.mcp_server !== undefined) return extra;
+  const t = String(extra.tool_name || "");
+  if (!t.startsWith("mcp__")) return extra;
+  if (Object.values(REMOTE_TOOL_NAMES).includes(t)) return { ...extra, mcp_server: { name: REMOTE_SERVER, source: REMOTE_SOURCE } };
+  let name = "";
+  try { name = typeof server === "function" ? server(t) : server; } catch { name = ""; }
+  return typeof name === "string" && name ? { ...extra, mcp_server: { name, source: "claudeai" } } : extra;
+}
 /** The input every hook gets (Claude Code's common fields), with the event's own. */
 export function hookInput(event, { session = "", cwd = "", mode = "auto", effort = "", promptId = "", scratch = "/tmp/coder-scratch" } = {}, extra = {}) {
   // (`scratchpad_dir`: the chat's scratch folder, as Claude Code's common fields give it: Bash docs pass 9.)

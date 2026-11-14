@@ -72,7 +72,7 @@ test("CD95 audit (2026-11-06): a host that is not a plain DNS name, or a port ou
     assert.deepEqual(readdirSync(px.siteDir), [], "no site's files were made");
     // Still serving, and a real name the list does not allow is refused as before.
     px.setNetwork({ mode: "none" });
-    assert.match(await connect(px, "evil.example:443"), /^HTTP\/1\.1 403 [\s\S]*Blocked by this repo's network list: evil\.example/);
+    assert.match(await connect(px, "evil.example:443"), /^HTTP\/1\.1 403 [\s\S]*request blocked: no rule or allowlist entry allows host evil\.example/);
   } finally { await px.close(); }
 });
 
@@ -124,12 +124,12 @@ test("CD96 audit (2026-11-06): each site's certificate files are named by a hash
     assert.ok(cert.checkIssued(new X509Certificate(readFileSync(px.caFile))), "signed by the proxy's authority");
     assert.ok(cert.checkPrivateKey(createPrivateKey(readFileSync(join(px.siteDir, h + ".key")))), "the key that goes with it");
     // PATH PREFIXES as before: outside /v1/ no key, and on None the site is not reachable there.
-    assert.match(await curl("https://api.example.com/v2/other"), /Blocked by this repo's network list: api\.example\.com \(outside the secret's paths\)/);
+    assert.match(await curl("https://api.example.com/v2/other"), /request blocked: no rule or allowlist entry allows host api\.example\.com \(outside the secret's paths\)/);
     // ...AND ONLY FOR A PLAIN PATH (the audit, 2026-11-06): websites read each of these
     // as "/admin", outside "/v1/", so none gets the key, and on None none reaches the site.
     const sent = seen.length;
     for (const t of ["/v1/../admin", "/v1/%2e%2e/admin", "/v1/.%2E/admin", "/v1/..;/admin", "/v1/..%2fadmin", "/v1/..%5Cadmin", "/v1/..\\admin", "/v1/%252e%252e/admin", "/v1/x/../../admin", "/v1/..#x"]) {
-      assert.match(await raw(t), /Blocked by this repo's network list: api\.example\.com \(outside the secret's paths\)/, t);
+      assert.match(await raw(t), /request blocked: no rule or allowlist entry allows host api\.example\.com \(outside the secret's paths\)/, t);
     }
     assert.equal(seen.length, sent, "none of them reached the site");
     for (const t of ["/v1/ok", "/v1/.well-known/x?a=../b", "/v1/a...b/file.txt", "/v1/projects/group%2Fproject"]) assert.equal(await raw(t), "auth=Bearer k_wild_SECRET host=api.example.com path=" + t, t);

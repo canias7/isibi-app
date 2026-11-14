@@ -1367,9 +1367,12 @@
         ['network', 'Network access', NET[netLevel(n.mode)][0] + (netLevel(n.mode) === 'limited' ? ' · ' + limitedWords(n) : '') + ((n.denied || []).length ? ' · ' + n.denied.length + ' blocked' : '')],
         ['secrets', 'Network secrets', (e.secrets || []).length ? e.secrets.length + ' secret' + (e.secrets.length > 1 ? 's' : '') : 'None'],
         ['script', 'Setup script', e.script && e.script.trim() ? e.script.trim().split('\n')[0].slice(0, 60) : 'Not set'],
-        ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') + ((e.varsDropped || []).length ? ' · ' + e.varsDropped.length + ' not given to commands' : '') : 'None for this repo'],
+        ['vars', 'Environment variables', (e.vars || []).length ? e.vars.length + ' variable' + (e.vars.length > 1 ? 's' : '') + ((e.varsDropped || []).length ? ' · ' + e.varsDropped.length + ' not given to commands' : '') : 'None'],
       ];
       if (!e.isDefault && e.envId) rows.unshift(['name', 'Name', e.name || '']);
+      // ITS REPOSITORIES (E8 of recheck 2, 2026-11-14; Claude Code's environment "Repositories list in Settings where offered
+      // (the Default environment has none)"): the repositories it is for, which the owner adds and takes away.
+      if (!e.isDefault && e.envId) rows.push(['repos', 'Repositories', (e.repos || []).length ? e.repos.slice(0, 2).join(', ') + (e.repos.length > 2 ? ' +' + (e.repos.length - 2) + ' more' : '') : 'None']);
       body = head('Environment: ' + (e.name || 'Default')) +
         // (Its description, as Claude Code's environments have one: Coder writes it when it proposes an environment.)
         (e.description ? '<p class="cd-em-help cd-em-top">' + esc(e.description) + '</p>' : '') +
@@ -1379,6 +1382,12 @@
     } else if (page === 'name') {
       body = head('Name', 'main') + '<input id="envNameIn" class="cd-em-in" maxlength="64" autocomplete="off" spellcheck="false" value="' + esc(f.text) + '">' +
         '<p class="cd-em-help">Every chat that uses this environment shows the new name.</p>' + foot('Save changes');
+    } else if (page === 'repos') {
+      const have = (r) => f.repos.some((x) => x.toLowerCase() === r.toLowerCase());
+      body = head('Repositories', 'main') + '<p class="cd-em-help cd-em-top">New chats of these repositories start with this environment. A repository is also added here when one of its chats uses this environment.</p>' +
+        '<div class="cd-em-list">' + (f.repos.length ? f.repos.map((r) => '<div class="cd-em-li"><code>' + esc(r) + '</code><button type="button" data-envrepodel="' + esc(r) + '" aria-label="Remove ' + esc(r) + '">×</button></div>').join('') : '<p class="cd-muted">No repositories yet.</p>') + '</div>' +
+        '<div class="cd-em-addrow"><input id="envRepoIn" list="envRepoList" value="' + esc(f.typed || '') + '" placeholder="owner/name" autocomplete="off" spellcheck="false"><datalist id="envRepoList">' + (S.envRepoChoices || []).filter((r) => !have(r)).map((r) => '<option value="' + esc(r) + '">').join('') + '</datalist><button type="button" class="cd-em-cancel" id="envRepoAdd">Add</button></div>' +
+        foot('Save changes');
     } else if (page === 'network') {
       body = head('Network access', 'main') + '<div class="cd-em-opts">' + Object.keys(NET).map((k) => '<button type="button" class="cd-em-opt' + (f.mode === k ? ' on' : '') + '" data-netmode="' + k + '"><b>' + NET[k][0] + '</b><small>' + NET[k][1] + '</small>' + (f.mode === k ? '<span aria-hidden="true">✓</span>' : '') + '</button>').join('') + '</div>' +
         (f.mode === 'limited' ? '<label class="cd-envnet"><input type="checkbox" id="envDefaults"' + (f.defaults ? ' checked' : '') + '> <span><b>Allow package managers</b><br>The default list, Claude Code\'s: npm, PyPI, RubyGems, crates.io, Go, Maven, NuGet and other registries, GitHub, GitLab and Bitbucket, Docker and other container registries, and Google Cloud, Azure and AWS.</span></label><label class="cd-em-l">Allowed domains</label><div class="cd-em-list">' + (f.hosts.length ? f.hosts.map((h) => '<div class="cd-em-li"><code>' + esc(h) + '</code><button type="button" data-nethostdel="' + esc(h) + '" aria-label="Remove ' + esc(h) + '">×</button></div>').join('') : '<p class="cd-muted">No domains yet. Coder asks before adding one.</p>') + '</div>' +
@@ -1417,6 +1426,10 @@
       body = head('Setup script', 'main') + '<div class="cd-em-code"><div class="cd-em-codebar"><span class="cd-em-tag">Bash</span><label class="cd-em-file">⬆ Choose file<input type="file" id="envFile" hidden></label><button type="button" id="envCopy" aria-label="Copy">⧉</button></div>' +
         '<textarea id="envScriptIn" spellcheck="false" placeholder="#!/bin/bash&#10;npm install">' + esc(f.text) + '</textarea><div class="cd-em-codefoot">Files up to 64 KB</div></div>' +
         '<p class="cd-em-help">Runs when a new chat starts, before Coder starts. A change reaches a chat that has already started only when its machine is made fresh: to apply it right away, run the commands in the chat or start a new chat. It can\'t read your variables or secrets.</p>' +
+        // (Where it starts, Claude Code's: "The script normally starts in the directory that holds the repository checkouts, not
+        // inside one"; a script saved before 2026-11-14 still starts inside the chat's repository until it is changed. E7.)
+        '<p class="cd-em-help">It starts in the folder that holds the chat\'s repositories, not inside one: reach each one by its name, like <code>if [ -d myapp ]; then (cd myapp &amp;&amp; npm install); fi</code>.</p>' +
+        (e.scriptInRepo ? '<p class="cd-em-help cd-em-warnnote">This script was saved before 14 November, when setup scripts started inside the chat\'s repository, so it still starts there. Once you change it, it starts in the folder above, like Claude Code\'s.</p>' : '') +
         '<p class="cd-em-help">System packages: put each install on its own line, like <code>apt-get install -y jq</code>. Coder installs those as admin; every other line runs as Coder\'s own user, so other sudo commands don\'t work. Git, build tools, Python, Node, curl and jq are already there.</p>' + foot('Save changes');
     } else if (page === 'vars') {
       body = head('Environment variables', 'main') + '<textarea id="envVarsIn" class="cd-em-vars" spellcheck="false" placeholder="NODE_ENV=production&#10;GIT_AUTHOR_NAME=Your Name&#10;&#10;# Multiline values - wrap in quotes&#10;CONFIG=&quot;key1=val1&#10;key2=val2&quot;">' + esc(f.text) + '</textarea>' +
@@ -1433,8 +1446,16 @@
     const n0 = e.network || { mode: 'trusted' };
     S.envForm = page === 'network' ? { mode: netLevel(n0.mode), hosts: n0.mode === 'trusted' ? [] : [...(n0.hosts || [])], defaults: n0.mode === 'trusted' || n0.defaults !== false, denied: [...(n0.denied || [])] }
       : page === 'add' ? { name: '', type: 'bearer', hosts: '', paths: '', headers: SECRET_TYPES.bearer[2].map((h) => ({ ...h })), config: {} }
-      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : null;
+      : page === 'script' ? { text: e.script || '' } : page === 'vars' ? { text: e.varsText || '' } : page === 'name' ? { text: e.name || '' } : page === 'repos' ? { repos: [...(e.repos || [])], typed: '' } : null;
     draw();
+    if (page === 'repos' && !S.envRepoChoices) loadRepoChoices();
+  }
+  /** The owner's GitHub repositories, offered as they type one on the Repositories page (E8). */
+  async function loadRepoChoices() {
+    S.envRepoChoices = [];
+    const r = await call('/github/repos');
+    S.envRepoChoices = ((r.data && r.data.repos) || []).map((x) => x.repo).filter(Boolean);
+    if (S.showEnv && S.envPage === 'repos') draw();
   }
   async function envYes() {
     const page = S.envPage, f = S.envForm;
@@ -1442,6 +1463,13 @@
     if (page === 'script') return envPost({ script: f.text });
     if (page === 'vars') return envPost({ varsText: f.text });
     if (page === 'name') return envPost({ name: f.text });
+    if (page === 'repos') {
+      S.envBusy = true; S.envMsg = ''; draw();
+      const r = await call('/environments/' + encodeURIComponent(S.env.envId), { method: 'POST', body: JSON.stringify({ repos: f.repos }) });
+      S.envBusy = false;
+      if (r.status === 200 && r.data && r.data.environment) { S.env.repos = r.data.environment.repos || []; S.envPage = 'main'; S.envForm = null; } else S.envMsg = (r.data && r.data.error) || 'It could not be saved.';
+      return draw();
+    }
     if (page === 'add') {
       S.envBusy = true; S.envMsg = ''; draw();
       const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/secret', { method: 'POST', body: JSON.stringify({ name: f.name, kind: SECRET_TYPES[f.type][1], hosts: f.hosts.split(/[\s,]+/).filter(Boolean), paths: f.paths.split(/[\s,]+/).filter(Boolean), headers: SECRET_TYPES[f.type][1] === 'headers' ? f.headers : [], config: f.config }) });
@@ -4207,7 +4235,7 @@
     });
     on('#envArchive', 'click', async () => {
       const e = S.env; if (!e || !e.envId || e.isDefault) return;
-      if (!(await askSure('Archive “' + e.name + '”?', 'It leaves the list for new chats. Chats that already use it keep working.', 'Archive'))) return;
+      if (!(await askSure('Archive “' + e.name + '”?', 'It leaves the list for new chats. Chats that already use it keep working. Network secrets on the environment stay attached in its running chats. Delete any you no longer want before you archive.', 'Archive'))) return;
       const r = await call('/environments/' + encodeURIComponent(e.envId), { method: 'POST', body: JSON.stringify({ archive: true }) });
       if (r.status !== 200) { S.envMsg = (r.data && r.data.error) || 'It could not be archived.'; return draw(); }
       S.showEnv = false; await loadEnvInfo(); draw();
@@ -4225,6 +4253,16 @@
     on('[data-nethostdel]', 'click', (e) => { S.envForm.hosts = S.envForm.hosts.filter((h) => h !== e.currentTarget.dataset.nethostdel); draw(); });
     on('#envDenyAdd', 'click', () => { const i = root.querySelector('#envDenyIn'); const v = (i.value || '').trim().toLowerCase(); if (!S.envForm.denied) S.envForm.denied = []; if (v && !S.envForm.denied.includes(v)) S.envForm.denied.push(v); draw(); });
     on('#envDenyIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envDenyAdd').click(); } });
+    on('#envRepoIn', 'input', (e) => { if (S.envForm) S.envForm.typed = e.currentTarget.value; });
+    on('#envRepoIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); root.querySelector('#envRepoAdd').click(); } });
+    on('#envRepoAdd', 'click', () => {
+      const v = (root.querySelector('#envRepoIn').value || '').trim();
+      if (!v) return;
+      if (!/^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(v)) { S.envMsg = 'Type a repository like owner/name.'; return draw(); }
+      if (!S.envForm.repos.some((x) => x.toLowerCase() === v.toLowerCase())) S.envForm.repos.push(v);
+      S.envForm.typed = ''; S.envMsg = ''; draw();
+    });
+    on('[data-envrepodel]', 'click', (e) => { S.envForm.repos = S.envForm.repos.filter((r) => r !== e.currentTarget.dataset.envrepodel); draw(); });
     on('[data-netdenydel]', 'click', (e) => { S.envForm.denied = (S.envForm.denied || []).filter((h) => h !== e.currentTarget.dataset.netdenydel); draw(); });
     on('[data-secid]', 'click', async (e) => {
       const { secid, secname } = e.currentTarget.dataset;

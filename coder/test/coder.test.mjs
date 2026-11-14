@@ -1283,13 +1283,13 @@ test("CD47 the repo's environment: setup script runs once per machine (not again
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
-  const saved = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } }) })).json();
-  assert.deepEqual([saved.script, saved.vars], ["echo set up > ready.txt", ["API_KEY"]]);
+  const saved = await (await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "cd shop && echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } }) })).json();
+  assert.deepEqual([saved.script, saved.vars], ["cd shop && echo set up > ready.txt", ["API_KEY"]]);
   assert.doesNotMatch(bucket.m.get("coder/user-env/environments/default.json"), /sk-secret-123/, "sealed (on the chat's environment: Default)");
   assert.deepEqual((await (await go("projects/" + id + "/env")).json()).vars, ["API_KEY"], "names only");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ vars: { "bad-name": "x" } }) })).status, 400);
   await go("projects/" + id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
-  assert.deepEqual(sent[0].setup, { script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" }, network: { mode: "trusted", hosts: [], defaults: true } });
+  assert.deepEqual(sent[0].setup, { script: "cd shop && echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" }, network: { mode: "trusted", hosts: [], defaults: true } });
   // THE MACHINE: the script runs once, the variable reaches commands.
   const { remote } = await fakeRemote();
   const r0 = await roots();
@@ -1306,13 +1306,13 @@ test("CD47 the repo's environment: setup script runs once per machine (not again
       await post("/claim", { project: "shop-envv" });
       return s;
     };
-    const s1 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123", PATH: "/evil" } });
+    const s1 = await run({ script: "cd shop && echo set up > ready.txt", vars: { API_KEY: "sk-secret-123", PATH: "/evil" } });
     assert.equal(s1.events.filter((e) => e.verb === "Ran setup").length, 1, "setup ran");
     const out = s1.events.find((e) => e.type === "result" && /key=/.test(e.output || "")).output;
     // A variable named PATH never replaces Coder's: the tools' folders, then the system's (2026-11-07).
     assert.match(out, /set up\nkey=sk-secret-123\npath=[^\n]*\/opt\/node22\/bin:[^\n]*:\/usr\/local\/sbin:\/usr\/local\/bin:\/usr\/sbin:\/usr\/bin:\/sbin:\/bin:\/usr\/games:\/usr\/local\/games$/);
     assert.doesNotMatch(out, /evil/);
-    const s2 = await run({ script: "echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
+    const s2 = await run({ script: "cd shop && echo set up > ready.txt", vars: { API_KEY: "sk-secret-123" } });
     assert.equal(s2.events.filter((e) => e.verb === "Ran setup").length, 0, "not again for the same script");
     const s3 = await run({ script: "echo changed > ready.txt", vars: {} });
     assert.equal(s3.events.filter((e) => e.verb === "Ran setup").length, 0, "not again when it changed (2026-11-14: Claude Code's \"a change to the script reaches an existing session only when its VM was reclaimed and is rebuilt\")");
@@ -1331,7 +1331,7 @@ test("CD149 the whole setup script runs, up to the 64 KB Environment takes (live
   const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, {}, deps);
   await connectGithub(go, env, deps);
   const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
-  const big = "# " + "x".repeat(40000) + "\necho the-last-line > last.txt";
+  const big = "# " + "x".repeat(40000) + "\ncd shop && echo the-last-line > last.txt";
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX) }) })).status, 200, "64 KB is taken");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: "#".repeat(SETUP_SCRIPT_MAX + 1) }) })).status, 413, "more is refused");
   assert.equal((await go("projects/" + id + "/env", { method: "POST", body: JSON.stringify({ script: big }) })).status, 200);
@@ -1442,7 +1442,7 @@ test("CD50 what the setup script makes (node_modules…) is never saved to the b
     // the write tool runs as a command; here we just let bash write the file instead
     const s2 = scripted([say("", [call("bash", { command: "echo x > app.js" })]), say("Done.", [])]);
     s.send = s2.send;
-    await post("/turn", { project: "shop-setp", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-setp", token: "", setup: { script: "mkdir -p node_modules/pkg && echo 1 > node_modules/pkg/i.js && echo ok > setup-ran.txt" } });
+    await post("/turn", { project: "shop-setp", text: "go", messages: [], repo: "ana/shop", base: "main", branch: "coder/shop-setp", token: "", setup: { script: "cd shop && mkdir -p node_modules/pkg && echo 1 > node_modules/pkg/i.js && echo ok > setup-ran.txt" } });
     for (let i = 0; i < 100; i++) { const st = await (await fetch(base + "/state?project=shop-setp&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     await post("/claim", { project: "shop-setp" });
     const p = await (await post("/push", { project: "shop-setp", repo: "ana/shop", branch: "coder/shop-setp", token: "", message: "Added app.js" })).json();
@@ -1812,7 +1812,7 @@ test("CD67 (owner '1', like Claude Code) the setup script cannot read the owner'
     // Coder is told it failed on this machine.
     const next = await f.run({ setup: { script: "echo starting; npm-nope ci" } });
     assert.ok(!next.events.some((e) => e.tool === "setup"), "not run again");
-    assert.match(JSON.stringify(f.seen[0].messages), /THE REPO'S SETUP SCRIPT \(the owner's, already run on this machine: [^;]*; it FAILED there, so what it failed to set up is not here, and it does not run again on this machine \(new chats run it\); its output is in the chat\)/);
+    assert.match(JSON.stringify(f.seen[0].messages), /THE ENVIRONMENT'S SETUP SCRIPT \(the owner's, already run on this machine: [^;]*; it FAILED there, so what it failed to set up is not here, and it does not run again on this machine \(new chats run it\); its output is in the chat\)/);
     assert.doesNotMatch(JSON.stringify(f.seen[0].messages), /THE SETUP SCRIPT FAILED this time/);
   } finally { await f.close(); }
 });
@@ -1834,7 +1834,7 @@ test("CD68 (owner '2' '3' '5'; since 2026-11-14 Claude Code's update_environment
   await runCoder({ send: async () => t2[k++], exec: async () => ({ code: 0, output: "" }), emit: (e) => ev2.push(e), envApi: envApi() }, { text: "x", github: true });
   assert.equal(ev2.some((e) => e.type === "envchange"), false, "not from GitHub");
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
-  assert.match(CODER_SYSTEM, /changed only with update_environment, create_environment or switch_environment[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*Blocked by this repo's network list/);
+  assert.match(CODER_SYSTEM, /changed only with update_environment, create_environment or switch_environment[\s\S]*npm ci[\s\S]*THE SETUP SCRIPT FAILED[\s\S]*request blocked: no rule or allowlist entry allows host/);
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /e\.type === 'envchange'/);
   assert.match(ui, /network: \{ add: \[x\.host\] \}/, "an older chat's card still works");
@@ -1874,8 +1874,8 @@ test("CD69 (owner '4') the network list: saved per repo, sent to the machine; th
     px.setNetwork({ limited: true, hosts: ["api.x.com"] });
     const net = await import("node:net");
     const raw = (text) => new Promise((ok) => { const s = net.connect(px.port, "127.0.0.1", () => s.write(text)); let b = ""; s.on("data", (x) => { b += x; }); s.on("close", () => ok(b)); s.on("error", () => ok(b)); setTimeout(() => { s.destroy(); ok(b); }, 3000); });
-    assert.match(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403[\s\S]*Blocked by this repo's network list: evil\.example/);
-    assert.match(await raw("GET http://evil.example/ HTTP/1.1\r\nHost: evil.example\r\n\r\n"), /403[\s\S]*Blocked/);
+    assert.match(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403[\s\S]*request blocked: no rule or allowlist entry allows host evil\.example/);
+    assert.match(await raw("GET http://evil.example/ HTTP/1.1\r\nHost: evil.example\r\n\r\n"), /403[\s\S]*request blocked: no rule or allowlist entry allows host evil\.example/);
     assert.doesNotMatch(await raw("CONNECT api.x.com:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403/, "a listed site is not blocked");
     px.setNetwork({ limited: false, hosts: [] });
     assert.doesNotMatch(await raw("CONNECT evil.example:443 HTTP/1.1\r\nHost: x\r\n\r\n"), /403/, "open again");
@@ -2055,7 +2055,7 @@ test("CD75 (owner 2026-11-06: environment like Claude Code's) network none/limit
     const envx = { PATH: process.env.PATH, ...px.env() };
     const curl = (u) => new Promise((ok) => execFile("curl", ["-sS", "--max-time", "15", u], { env: envx }, (err, so, se) => ok(String(so) || String(se))));
     assert.equal(await curl("https://x.b.com/v1/balance"), "Bearer tok_AAAA1111|key_BBBB2222");
-    assert.match(await curl("https://x.b.com/v2/other"), /Blocked by this repo's network list: x\.b\.com \(outside the secret's paths\)/, "outside the path, and the site is only allowed through the secret");
+    assert.match(await curl("https://x.b.com/v2/other"), /request blocked: no rule or allowlist entry allows host x\.b\.com \(outside the secret's paths\)/, "outside the path, and the site is only allowed through the secret");
     px.setNetwork({ mode: "full", hosts: [] });
     assert.equal(await curl("https://x.b.com/v2/other"), "-|-", "Full: reachable, but no key outside the path");
   } finally { await px.close(); up.close(); }
@@ -2246,7 +2246,7 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     return s;
   };
   try {
-    const s = await run("shop-apt1", { script: "sudo apt-get update && sudo apt-get install -y jq\necho user-part-ran > after-apt.txt", network: { mode: "full" } });
+    const s = await run("shop-apt1", { script: "sudo apt-get update && sudo apt-get install -y jq\ncd shop && echo user-part-ran > after-apt.txt", network: { mode: "full" } });
     assert.equal(aptCalls.length, 1);
     assert.equal(aptCalls[0].command, "apt-get update -qq && apt-get install -y -q --no-install-recommends jq", "Full network: straight out");
     assert.equal(aptCalls[0].dir, "/", "run from /, not the folder Coder's commands can write to");
@@ -2261,7 +2261,7 @@ test("CD81 (owner: 'do the 3 of them', like Claude Code) the setup script's apt 
     assert.match(aptCalls[0].command, /^apt-get update -qq -o Acquire::http::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::Proxy=http:\/\/127\.0\.0\.1:\d+ -o Acquire::https::CaInfo=\S+ && apt-get install -y -q --no-install-recommends -o .* jq$/);
     // A package that fails to install: the rest does not run, and Coder is told like Claude Code.
     aptResult = { code: 100, output: "E: Unable to locate package nosuchpkg" };
-    const bad = await run("shop-apt2", { script: "apt-get install -y nosuchpkg\necho never > never.txt" });
+    const bad = await run("shop-apt2", { script: "apt-get install -y nosuchpkg\ncd shop && echo never > never.txt" });
     assert.ok(bad.events.some((e) => e.type === "result" && e.code === 100));
     assert.ok(!existsSync(join(root, "shop-apt2", "never.txt")));
     assert.match(seen[0].messages[0].content, /THE SETUP SCRIPT FAILED this time \(exit code 100\)[\s\S]*Unable to locate package nosuchpkg[\s\S]*Like Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script/);

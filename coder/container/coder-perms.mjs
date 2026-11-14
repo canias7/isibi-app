@@ -18,6 +18,7 @@ import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
 import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
+import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -966,9 +967,19 @@ export function namedForMonitor(dec, rules) {
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
+/**
+ * THE NAMES A RULE MAY GIVE ONE OF CODER'S TOOLS (E1 of recheck 2, 2026-11-14): Claude Code's, and for the environment tools
+ * and request_secret, which in Claude Code are its claude-code-remote MCP server's (coder-envtools.mjs REMOTE_TOOL_NAMES), both
+ * that name and Coder's own: `mcp__claude-code-remote__update_environment`, the whole server `mcp__claude-code-remote`
+ * (Claude Code: "mcp__puppeteer matches any tool provided by the puppeteer server"), `mcp__claude-code-remote__*` or `mcp__*`,
+ * and Coder's own `update_*` as before; and by the server's two other names, `mcp__Claude_Code_Remote…` and
+ * `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a…`, each exactly (D2 of recheck 3; coder-envtools.mjs remoteAliases).
+ */
+const CODER_NAME_OF = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(Object.entries(REMOTE_TOOL_NAMES).map(([k, v]) => [v, k]))));
+const ruleNamesOf = (tool) => { const t = String(tool ?? ""); const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
 /** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`; a connector's `mcp__<server>__<tool>`, or `mcp__<server>` for all of
  * that connector's; an allow rule's wildcard only after a literal mcp__<server>__, as Claude Code's), or "". */
-export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, tool) : x.tool === tool || (x.mcp === true && String(tool).startsWith(x.tool + "__"))); }) || "";
+export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && ruleNamesOf(tool).some((n) => (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, n) : x.tool === n || (x.mcp === true && n.startsWith(x.tool + "__")))); }) || "";
 /**
  * A WEBSOCKET WATCH'S QUESTION (Claude Code's Monitor `ws` source): a rule denying every Bash command refuses it, as one
  * denying Monitor does; one asking for every Bash command asks the owner, and only the owner (or a PermissionRequest hook)

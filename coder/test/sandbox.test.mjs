@@ -239,7 +239,8 @@ test("CD148 the service runs the AI's commands and the setup script in the job's
   assert.match(s, /if \(t\.room && !BOX\) BOX = await openBox\(\);\n\s+t\.box = t\.room \? BOX : null;/, "only in the room (one kept from the last message, while a background command of its runs in it, is used again)");
   assert.match(s, /const binds = \[\{ src: root, mode: "rw", mine: true \}, \.\.\.\(home \? \[\{ src: home, mode: "rw", mine: true \}\] : \[\]\), \{ src: memRoot, mode: "rw", mine: true \}, \{ src: gitRoot, mode: "ro" \}, \{ src: bgRoot, mode: "ro" \}, \{ src: proxyDir, mode: "ro" \}\];/, "what it is shown");
   assert.match(s, /const \{ packages, script: userPart \} = t\.box \? \{ packages: \[\], script \} : splitSetup\(script\);/, "the whole setup script in it");
-  assert.match(s, /const u = await execIn\(dir, userPart, left, \{ bgDir, kill: true, home, room: t\.room, box: t\.box, /);
+  // (From the folder that holds the repository checkouts, or inside the repository for a script saved before 2026-11-14: E7.)
+  assert.match(s, /const u = await execIn\(scriptInRepo \? dir : root, userPart, left, \{ bgDir, kill: true, home, room: t\.room, box: t\.box, /);
   assert.match(s, /const r = await execIn\(dir, command, timeoutS, \{ bgDir, kill: !!tool, home, room: t\.room, box: t\.box, /);
   assert.match(s, /\(t\.box \? MACHINE_ADMIN : MACHINE_TOOLS\)/);
   assert.match(s, /createApp\(\{ kept: bootKept\(\), gitVia: true, modelVia: true, room: true, sandbox: true, data: process\.env\.CODER_DATA \|\| null, image: process\.env\.CODER_IMAGE_REF \|\| imageId\(\),/);

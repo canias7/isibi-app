@@ -469,8 +469,8 @@ test("CD536 Coder is told never to print only the values of the owner's variable
   const C = await import("../container/coder-checks.mjs");
   const R = await import("../src/coder-routes.mjs");
   assert.equal(R.secretVar, C.secretVar, "the chat's hiding and Coder's instructions use one check");
-  assert.equal(S.varsNote({ R41_PLAIN: "false", NODE_ENV: "production", R41_TOKEN: "r41abc123xyz", DATABASE_URL: "postgres://app:pw@db/app" }), "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): R41_PLAIN, NODE_ENV, R41_TOKEN, DATABASE_URL. Never print the values of those that look secret: R41_TOKEN, DATABASE_URL (the chat hides them)");
-  assert.equal(S.varsNote({ PORT: "8080", CODER_SHELL_DIR: "/opt/tools" }), "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): PORT, CODER_SHELL_DIR", "none secret: no rule at all");
+  assert.equal(S.varsNote({ R41_PLAIN: "false", NODE_ENV: "production", R41_TOKEN: "r41abc123xyz", DATABASE_URL: "postgres://app:pw@db/app" }), "\n\nENVIRONMENT VARIABLES the owner set in this chat's environment (available to your commands): R41_PLAIN, NODE_ENV, R41_TOKEN, DATABASE_URL. Never print the values of those that look secret: R41_TOKEN, DATABASE_URL (the chat hides them)");
+  assert.equal(S.varsNote({ PORT: "8080", CODER_SHELL_DIR: "/opt/tools" }), "\n\nENVIRONMENT VARIABLES the owner set in this chat's environment (available to your commands): PORT, CODER_SHELL_DIR", "none secret: no rule at all");
   assert.equal(S.varsNote({}), "");
   assert.equal(S.varsNote(null), "");
   const { readFile } = await import("node:fs/promises");

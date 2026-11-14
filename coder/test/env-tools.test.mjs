@@ -8,7 +8,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync } from "node:fs";
-import { mkdtemp, writeFile, readFile, rm } from "node:fs/promises";
+import { mkdtemp, writeFile, readFile, rm, mkdir, symlink, readlink, readdir } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -17,10 +17,13 @@ import { execFileSync } from "node:child_process";
 import * as E from "../container/coder-envtools.mjs";
 import { runCoder, CODER_TOOLS, GITHUB_TOOLS, CODER_SYSTEM } from "../container/coder-agent.mjs";
 import { INPUT_CHECKS } from "../container/coder-inputs.mjs";
-import { handleEnvApi, approveEnvChange, envState, ENV_PATH } from "../src/coder-envapi.mjs";
-import { writeEnvData, readEnvData, saveEnvList, listEnvs } from "../src/coder-environments.mjs";
+import { handleEnvApi, approveEnvChange, envState, ENV_PATH, pushNetwork } from "../src/coder-envapi.mjs";
+import { writeEnvData, readEnvData, saveEnvList, listEnvs, reposFrom, envRepos, envDataKey } from "../src/coder-environments.mjs";
 import { modelPass } from "../src/coder-model-gate.mjs";
-import { hooksFrom } from "../container/coder-hooks.mjs";
+import { hooksFrom, hooksFor, ccTool, withMcpServer } from "../container/coder-hooks.mjs";
+import { wholeRule } from "../container/coder-perms.mjs";
+import { seal } from "../src/coder-github.mjs";
+import { handleCoder } from "../src/coder-routes.mjs";
 
 const HERE = (p) => fileURLToPath(new URL("../" + p, import.meta.url));
 const call = (name, args, id = name + Math.random().toString(36).slice(2, 7)) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -571,19 +574,19 @@ test("EN10 a chat moved to another environment (Claude Code: \"Its setup script 
     return s;
   };
   try {
-    await run("shop-mv1", { setup: { script: "echo one > one.txt", network: { mode: "full" } }, environment: { name: "Default", isDefault: true } });
+    await run("shop-mv1", { setup: { script: "cd shop && echo one > one.txt", network: { mode: "full" } }, environment: { name: "Default", isDefault: true } });
     assert.ok(existsSync(join(root, "shop-mv1", "one.txt")), "its first environment's setup ran");
-    const s = await run("shop-mv1", { setup: { script: "echo two > two.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false }, envMoved: true });
+    const s = await run("shop-mv1", { setup: { script: "cd shop && echo two > two.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false }, envMoved: true });
     assert.ok(!existsSync(join(root, "shop-mv1", "two.txt")), "the new environment's setup did not run on this machine");
     assert.ok(s.events.some((e) => e.type === "note" && /this chat moved to this environment on a machine that was already running, so its setup script did not run here \(it runs on a fresh machine\)/.test(e.text)));
     const told = JSON.stringify(seen[0].messages);
-    assert.match(told, /since the last message, this chat moved to the environment \\"shop\\" \(the owner approved it on your card\)\. Its network, variables and network secrets apply now; its setup script did not run on this machine \(it runs only on a fresh machine\)\. The setup script there is:\\necho two > two\.txt/);
+    assert.match(told, /since the last message, this chat moved to the environment \\"shop\\" \(the owner approved it on your card\)\. Its network, variables and network secrets apply now; its setup script did not run on this machine \(it runs only on a fresh machine\)\. The setup script there is:\\ncd shop && echo two > two\.txt/);
     assert.match(told, /THE ENVIRONMENT'S SETUP SCRIPT \(the owner's; it has NOT run on this machine/);
     // The next message on this machine: still not run (it counts as done here).
-    await run("shop-mv1", { setup: { script: "echo two > two.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false } });
+    await run("shop-mv1", { setup: { script: "cd shop && echo two > two.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false } });
     assert.ok(!existsSync(join(root, "shop-mv1", "two.txt")));
     // A machine that never served the chat (a fresh one): the setup runs, moved or not.
-    await run("shop-mv2", { setup: { script: "echo fresh > fresh.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false }, envMoved: true });
+    await run("shop-mv2", { setup: { script: "cd shop && echo fresh > fresh.txt", network: { mode: "full" } }, environment: { name: "shop", isDefault: false }, envMoved: true });
     assert.ok(existsSync(join(root, "shop-mv2", "fresh.txt")));
   } finally { await close(); }
 });
@@ -652,9 +655,9 @@ test("EN12 what else names the tool: the machine's notes and the notifications s
   const { blockedNote } = await import("../container/coder-proxy.mjs");
   assert.match(blockedNote([{ host: "x.example.com", why: "not on the network list" }]), /\(not on the network list\)\. If the task needs one, get_environment's description says when and where to propose a change\.$/);
   const proxy = readFileSync(HERE("container/coder-proxy.mjs"), "utf8");
-  assert.match(proxy, /const BLOCKED = \(host\) => "Blocked by this repo's network list: " \+ host \+ "\.";/);
+  assert.match(proxy, /export const BLOCKED = \(host\) => "request blocked: no rule or allowlist entry allows host " \+ host;/);
   for (const f of ["container/coder-proxy.mjs", "container/coder-tools.mjs"]) assert.doesNotMatch(readFileSync(HERE(f), "utf8"), /ask the owner (to allow it )?with update_environment|unless network access is None/, f);
-  assert.equal((readFileSync(HERE("container/coder-tools.mjs"), "utf8").match(/"blocked by this repo's network list: " \+ (url\.hostname|host) :/g) || []).length, 2);
+  assert.equal((readFileSync(HERE("container/coder-tools.mjs"), "utf8").match(/"request blocked: no rule or allowlist entry allows host " \+ (url\.hostname|host) :/g) || []).length, 2);
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
   assert.match(server, /and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it \(it says where a change belongs\)\./);
   assert.match(server, /propose it with update_environment \(setup_script\) at the end of your work/);
@@ -664,7 +667,7 @@ test("EN12 what else names the tool: the machine's notes and the notifications s
   // The system prompt: keys asked for as request_secret's description says (the move first), not "RIGHT AWAY"; a blocked
   // host is a need as get_environment's description defines it.
   assert.match(CODER_SYSTEM, /ask with request_secret for that exact host \(e\.g\. api\.stripe\.com, prefix Bearer\) as soon as you know the work needs it, as its description says: first make the move get_environment's description calls for\./);
-  assert.match(CODER_SYSTEM, /\(c\) a request the task needs that was "Blocked by this repo's network list" \(the environment's list; curl shows it as "CONNECT tunnel failed, response 403"\) is a need as get_environment's description defines it: call get_environment, then propose the change where its description puts it\./);
+  assert.match(CODER_SYSTEM, /\(c\) a request the task needs that was "request blocked: no rule or allowlist entry allows host" \(the environment's list; curl shows it as "CONNECT tunnel failed, response 403"\) is a need as get_environment's description defines it: call get_environment, then propose the change where its description puts it\./);
   assert.doesNotMatch(CODER_SYSTEM, /RIGHT AWAY|add_allowed_hosts/);
   // A site on the environment's blocked sites list keeps Coder's own note: it can never be allowed.
   assert.match(blockedNote([{ host: "t.example", why: "on the blocked sites list" }]), /don't retry it or propose allowing it; only the owner can take it off that list\.$/);
@@ -686,7 +689,7 @@ test("EN13 the environment tools' input is checked after the PreToolUse hooks, a
   const run = async (args, hookRun) => {
     const asked = [], hookCalls = [], events = [], seen = [];
     let n = 0;
-    const hooks = hooksFrom({ hooks: { PreToolUse: [{ matcher: "create_environment|list_environments", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUseFailure: [{ matcher: "create_environment", hooks: [{ type: "command", command: "fail.sh" }] }], PostToolUse: [{ matcher: "create_environment", hooks: [{ type: "command", command: "post.sh" }] }] } }, "settings").list;
+    const hooks = hooksFrom({ hooks: { PreToolUse: [{ matcher: "mcp__claude-code-remote__create_environment|mcp__claude-code-remote__list_environments", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUseFailure: [{ matcher: "mcp__claude-code-remote__create_environment", hooks: [{ type: "command", command: "fail.sh" }] }], PostToolUse: [{ matcher: "mcp__claude-code-remote__create_environment", hooks: [{ type: "command", command: "post.sh" }] }] } }, "settings").list;
     const r = await runCoder({
       send: async (q) => { seen.push(q); return [say("", [call("create_environment", args, "c1")]), say("ok")][Math.min(n++, 1)]; },
       exec: async (x) => {
@@ -703,7 +706,7 @@ test("EN13 the environment tools' input is checked after the PreToolUse hooks, a
   const bad = { name: "x", scope: "personal", reason: "r" };
   let t = await run(bad, () => ({}));
   assert.deepEqual(t.hookCalls.map((h) => h.hook_event_name), ["PreToolUse", "PostToolUseFailure"]);
-  assert.deepEqual([t.hookCalls[0].tool_name, t.hookCalls[0].tool_input], ["create_environment", bad]);
+  assert.deepEqual([t.hookCalls[0].tool_name, t.hookCalls[0].tool_input], ["mcp__claude-code-remote__create_environment", bad]);
   assert.match(t.hookCalls[1].error, /^error: switch_session is required/);
   assert.match(t.told, /^error: switch_session is required/);
   assert.deepEqual(t.asked, []);
@@ -735,7 +738,7 @@ test("EN14 the setup script runs once on a chat's machine, as Claude Code's (\"a
   };
   const ran = (s) => s.events.filter((e) => e.tool === "setup").length;
   const told = () => JSON.stringify(seen[0].messages);
-  const A0 = { script: "echo a >> runs.txt", network: { mode: "full" } }, B0 = { script: "echo b >> runs.txt", network: { mode: "full" } };
+  const A0 = { script: "cd shop && echo a >> runs.txt", network: { mode: "full" } }, B0 = { script: "cd shop && echo b >> runs.txt", network: { mode: "full" } };
   try {
     // A NEW CHAT: its setup runs before Coder starts.
     let s = await run("shop-s1", A0);
@@ -744,7 +747,7 @@ test("EN14 the setup script runs once on a chat's machine, as Claude Code's (\"a
     s = await run("shop-s1", B0);
     assert.equal(ran(s), 0);
     assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: the setup script changed after this chat's machine had its setup, so it did not run here: like Claude Code, a change reaches a chat only on a fresh machine (new chats run it)."]);
-    assert.match(told(), /THE ENVIRONMENT'S SETUP SCRIPT \(the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine \(new chats run it\), so what it installs is not here unless you install it\):\\necho b >> runs\.txt/);
+    assert.match(told(), /THE ENVIRONMENT'S SETUP SCRIPT \(the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine \(new chats run it\), so what it installs is not here unless you install it\):\\ncd shop && echo b >> runs\.txt/);
     assert.match(told(), /It did not run on this machine: like Claude Code, a change to the setup script reaches a chat only on a fresh machine/);
     s = await run("shop-s1", B0);
     assert.deepEqual([ran(s), s.events.filter((e) => e.type === "note").length], [0, 0], "the next message: nothing more said");
@@ -756,7 +759,7 @@ test("EN14 the setup script runs once on a chat's machine, as Claude Code's (\"a
     await writeFile(mark, [parts[0], Date.now() - 8 * 86400e3, ...parts.slice(2)].join(" "));
     s = await run("shop-s1", { ...A0, network: { mode: "trusted" } });
     assert.equal(ran(s), 0);
-    assert.match(told(), /THE REPO'S SETUP SCRIPT \(the owner's, already run on this machine/, "script A is the one that ran here");
+    assert.match(told(), /THE ENVIRONMENT'S SETUP SCRIPT \(the owner's, already run on this machine/, "script A is the one that ran here");
     assert.equal(await readFile(join(root, "shop-s1", "runs.txt"), "utf8"), "a\n");
     // A FRESH MACHINE OF THIS CHAT (its own disk new, so none of its marks): the script as it is now runs.
     await rm(join(gitRoot, "shop-s1.setup-done")); await rm(join(gitRoot, "shop-s1.setup-last"));
@@ -815,4 +818,298 @@ test("EN15 an approved change reaches running chats only when the network change
   assert.equal(r.ok, true, JSON.stringify(r));
   assert.equal(reached.length, 1);
   assert.deepEqual(reached[0].network, { mode: "custom", hosts: ["api.foo.com"], defaults: true });
+});
+
+// ── RECHECK 2'S ITEMS E1 TO E8 (2026-11-14, the owner: "yes pls all of that") ───────────────────────────────────────────
+/** Coder's loop with the owner's rules, hooks and connectors, Coder's server answering from `st`; `ran` the hooks' commands. */
+async function envLoop(steps, { rules = null, hooks = null, connectors = [], hookRun = () => ({}), ask = async () => ({ choice: "yes" }), st = state() } = {}) {
+  const events = [], seen = [], hookCalls = [], asked = [], mcpCalls = [], ran = [];
+  let n = 0;
+  const r = await runCoder({
+    send: async (q) => { seen.push(q); return steps[Math.min(n++, steps.length - 1)]; },
+    exec: async (x) => {
+      const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command));
+      if (mark && x.hook === true) { const input = JSON.parse(x.payload); hookCalls.push(input); ran.push(((/\b([\w-]+)\.sh\b/.exec(String(x.command)) || [])[1]) || "?"); const a = (await hookRun(input)) || {}; return { code: 0, output: String(a.stdout || "") + "\n" + mark[0] + "\n" }; }
+      return { code: 0, output: "" };
+    },
+    emit: (e) => events.push(e), envApi: async (b) => { asked.push(b); return E.envAnswer(st, b); },
+    ask, mcp: async (name, args) => { mcpCalls.push([name, args]); return { text: "connector says hi", isError: false }; },
+    here: () => "/work/shop", root: "/work/shop", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
+  }, { text: "x", ...(hooks ? { hooks: hooksFrom({ hooks }, "settings").list } : {}), ...(rules ? { rules } : {}), connectors });
+  const told = (id) => String((r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content || "");
+  return { r, events, seen, hookCalls, asked, mcpCalls, ran, told };
+}
+/** Coder's Worker routes, with a made-up GitHub holding ana/shop (as coder.test.mjs's), for one signed-in owner and a chat of ana/shop. */
+async function routeKit(uid = "user-envr") {
+  const b = memBucket();
+  const e2 = { CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLIENT_ID: "Iv1.abc", GITHUB_APP_CLIENT_SECRET: "shh", GITHUB_APP_SLUG: "gofarther-coder", CODER_TOKEN_KEY: Buffer.alloc(32, 7).toString("base64"), CODER_PUBLIC_URL: "https://coder.gofarther.dev", APP_ORIGIN: "https://gofarther.dev", CODER_BUCKET: b };
+  const J = (o, status = 200) => new Response(JSON.stringify(o), { status });
+  const fetchFn = async (url) => {
+    const u = String(url);
+    if (u === "https://github.com/login/oauth/access_token") return J({ access_token: "ghu_user", refresh_token: "ghr_r", expires_in: 28800, refresh_token_expires_in: 15897600 });
+    if (u === "https://api.github.com/user") return J({ login: "ana" });
+    if (u.startsWith("https://api.github.com/user/installations?")) return J({ installations: [{ id: 9 }] });
+    if (u.startsWith("https://api.github.com/user/installations/9/repositories")) return J({ repositories: [{ full_name: "ana/shop", default_branch: "main", private: true }] });
+    if (u === "https://api.github.com/repos/ana/shop") return J({ default_branch: "main", permissions: { push: true } });
+    return J({ message: "Not Found" }, 404);
+  };
+  const sent = [];
+  const deps = { fetchFn, authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => ({ fetch: async (rq) => { if (new URL(rq.url).pathname === "/turn") sent.push(JSON.parse(await rq.text())); return J({ ok: true }); } }) };
+  const go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), e2, {}, deps);
+  const start = await go("github/start");
+  const cookie = (start.headers.get("set-cookie") || "").split(";")[0];
+  const stateParam = new URL((await start.json()).url).searchParams.get("state");
+  await handleCoder(new Request("https://c/api/coder/github/callback?code=good&state=" + encodeURIComponent(stateParam), { headers: { cookie } }), e2, {}, deps);
+  const id = (await (await go("projects", { method: "POST", body: JSON.stringify({ repo: "ana/shop" }) })).json()).project.id;
+  return { b, e2, go, id, uid, sent };
+}
+
+test("EN16 E1: the environment tools and request_secret by Claude Code's names, its claude-code-remote MCP server's (and by that server's two other names, each exactly): hooks see them and mcp_server, as for a connector's tools; rules with them, the whole server or a wildcard hold, as rules with Coder's own names do; Coder and the owner still read Coder's names", async () => {
+  assert.deepEqual({ ...E.REMOTE_TOOL_NAMES }, { get_environment: "mcp__claude-code-remote__get_environment", update_environment: "mcp__claude-code-remote__update_environment", create_environment: "mcp__claude-code-remote__create_environment", switch_environment: "mcp__claude-code-remote__switch_environment", list_environments: "mcp__claude-code-remote__list_environments", request_secret: "mcp__claude-code-remote__request_credential" });
+  // (Claude Code: "The control plane registers the server under one of three names … Claude Code matches the name in a rule
+  // exactly, including case": its own name, its display name "Claude Code Remote" as Claude Code writes it in tool names, its id.)
+  assert.deepEqual(E.REMOTE_SERVER_NAMES, ["claude-code-remote", "Claude_Code_Remote", "bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a"]);
+  assert.deepEqual(E.remoteAliases("mcp__claude-code-remote__request_credential"), ["mcp__Claude_Code_Remote__request_credential", "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__request_credential"]);
+  assert.deepEqual([E.remoteAliases("mcp__claude-code-remote__add_repo"), E.remoteAliases("Bash"), E.remoteAliases("constructor")], [[], [], []], "only these six");
+  for (const [t, n] of Object.entries(E.REMOTE_TOOL_NAMES)) assert.equal(ccTool(t), n, t);
+  // RULES (Claude Code's permissions docs: "mcp__puppeteer matches any tool provided by the puppeteer server").
+  const M = "mcp__claude-code-remote__update_environment";
+  const holds = (kind, rule, tool = M) => !!wholeRule({ [kind]: [rule] }, kind, tool);
+  for (const rule of ["mcp__claude-code-remote", "mcp__claude-code-remote__*", M, "mcp__*", "*", "update_*", "*_environment", "mcp__Claude_Code_Remote", "mcp__Claude_Code_Remote__update_environment", "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__*", "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a"]) {
+    assert.equal(holds("deny", rule), true, rule);
+    assert.equal(holds("ask", rule, "update_environment"), true, rule + " (asked by Coder's name)");
+  }
+  for (const rule of ["mcp__claude-code-remote__get_environment", "mcp__claude_code_remote", "mcp__CLAUDE-CODE-REMOTE", "mcp__claude-code-remote__Update_environment", "mcp__Claude_Code_Remote__get_environment", "mcp__claude-code", "Bash"]) assert.equal(holds("deny", rule), false, rule);
+  assert.equal(holds("deny", "mcp__claude-code-remote__request_credential", "request_secret"), true);
+  assert.equal(holds("allow", "mcp__Claude_Code_Remote__*"), true, "an allow wildcard after a literal mcp__<server>__");
+  assert.equal(holds("allow", "mcp__*"), false, "an unanchored allow wildcard approves nothing");
+  assert.equal(holds("deny", "mcp__claude-code-remote", "bash"), false);
+  // IN THE LOOP: a deny rule on the whole server (by its display name) takes all six away; a call anyway is refused in Coder's name for it.
+  let t = await envLoop([say("", [call("get_environment", {}, "g1")]), say("Done.")], { rules: { deny: ["mcp__Claude_Code_Remote"] } });
+  const offered = t.seen[0].tools.map((x) => x.function.name);
+  for (const n of [...E.ENV_TOOL_NAMES, "request_secret"]) assert.ok(!offered.includes(n), n + " is not offered");
+  assert.ok(offered.includes("bash"));
+  assert.equal(t.told("g1"), "Permission to use get_environment has been denied.");
+  assert.deepEqual(t.asked, [], "Coder's server never asked");
+  // An ask rule by one tool's name: a card in Coder's name for it; once approved the call goes on.
+  t = await envLoop([say("", [call("get_environment", {}, "g1")]), say("Done.")], { rules: { ask: ["mcp__claude-code-remote__get_environment"] } });
+  const card = t.events.find((e) => e.type === "permission");
+  assert.deepEqual([card.what, card.why], ["Use get_environment", "Your rule mcp__claude-code-remote__get_environment asks first for get_environment."]);
+  assert.match(t.told("g1"), /"environment_id": "default"/);
+  // HOOKS: tool_name is Claude Code's; a matcher or an `if` with any of the server's three names fires, Coder's own name or the
+  // bare server does not ("a matcher like mcp__memory … is compared as an exact string and matches no tool"); mcp_server goes
+  // with it; updatedMCPToolOutput replaces its result ("Replaces the output for MCP tools only").
+  const hooks = {
+    PreToolUse: [{ matcher: "mcp__claude-code-remote__.*", hooks: [{ type: "command", command: "a.sh" }] }, { matcher: "mcp__Claude_Code_Remote__get_environment", hooks: [{ type: "command", command: "b.sh" }] }, { matcher: "", hooks: [{ type: "command", command: "c.sh", if: "mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a__get_environment" }] }, { matcher: "get_environment", hooks: [{ type: "command", command: "d.sh" }] }, { matcher: "mcp__claude-code-remote", hooks: [{ type: "command", command: "e.sh" }] }, { matcher: "mcp__linear__.*", hooks: [{ type: "command", command: "f.sh" }] }],
+    PostToolUse: [{ matcher: "mcp__claude-code-remote__get_environment", hooks: [{ type: "command", command: "post.sh" }] }],
+  };
+  const LINEAR = [{ name: "mcp__linear__list_issues", label: "Linear: List issues", server: "Linear", readOnly: true, perm: "allow", parameters: { type: "object", properties: {} } }];
+  t = await envLoop([say("", [call("get_environment", {}, "g1"), call("mcp__linear__list_issues", {}, "l1")]), say("Done.")], { hooks, connectors: LINEAR, hookRun: (h) => (h.hook_event_name === "PostToolUse" && h.tool_name === "mcp__claude-code-remote__get_environment" ? { stdout: JSON.stringify({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedMCPToolOutput: "THE HOOK'S OWN ANSWER" } }) } : {}) });
+  assert.deepEqual(t.ran.sort(), ["a", "b", "c", "f", "post"].sort());
+  const pre = t.hookCalls.find((h) => h.hook_event_name === "PreToolUse" && h.tool_name === "mcp__claude-code-remote__get_environment");
+  assert.deepEqual(pre.mcp_server, { name: "claude-code-remote", source: "dynamic" });
+  assert.deepEqual(t.hookCalls.find((h) => h.hook_event_name === "PostToolUse").mcp_server, { name: "claude-code-remote", source: "dynamic" });
+  // (A connector's: its name as the owner gave it, and "claudeai", as Claude Code's claude.ai connectors report.)
+  assert.deepEqual(t.hookCalls.find((h) => h.tool_name === "mcp__linear__list_issues").mcp_server, { name: "Linear", source: "claudeai" });
+  assert.equal(t.told("g1"), "THE HOOK'S OWN ANSWER");
+  assert.match(t.told("l1"), /connector says hi$/);
+  // (Never for a tool of Coder's own, nor outside the five tool events.)
+  assert.deepEqual(withMcpServer("PreToolUse", { tool_name: "Bash", tool_input: {} }), { tool_name: "Bash", tool_input: {} });
+  assert.deepEqual(withMcpServer("PostToolUseFailure", { tool_name: "mcp__claude-code-remote__request_credential" }).mcp_server, { name: "claude-code-remote", source: "dynamic" });
+  assert.equal(withMcpServer("Stop", { tool_name: M }).mcp_server, undefined);
+  assert.equal(withMcpServer("PreToolUse", { tool_name: "mcp__x__y" }, () => "").mcp_server, undefined, "a connector whose server is not known: none");
+  // Each connector tool carries its connector's name from Coder's server.
+  const { toolsFor } = await import("../src/coder-mcp.mjs");
+  assert.equal(toolsFor([{ id: "c1", name: "Linear", url: "https://mcp.linear.app/mcp", tools: [{ name: "list_issues", readOnly: true }] }]).tools[0].server, "Linear");
+  // Matchers for Coder's other tools are as they were.
+  assert.deepEqual(hooksFor(hooksFrom({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "x.sh" }] }] } }).list, "PreToolUse", "Bash", { tool: "Bash", input: { command: "ls" } }).length, 1);
+});
+
+test("EN17 E2: after a move the result says what really happened on this machine (Claude Code: \"the result says exactly what changed on this machine and what did not\"; \"If something changes or fails once the environment has been created, the environment exists and the result says whether this session moved\"), and keeps \"connections that are already open keep their earlier reach\"", async () => {
+  const net = { mode: "custom", hosts: ["api.x.com"], defaults: true };
+  const via = (impl) => pushNetwork(env, { container: () => ({ fetch: impl }) }, "u1", "chat-1", { turn: 3 }, { network: net, secrets: [] });
+  assert.deepEqual(await pushNetwork(env, {}, "u1", "chat-1", { turn: 3 }, { network: net, secrets: [] }), { taken: false, why: "Coder's machine could not be reached" });
+  assert.deepEqual(await via(async () => { throw new Error("down"); }), { taken: false, why: "Coder's machine could not be reached" });
+  assert.deepEqual(await via(async () => Response.json({ ok: false, why: "the gate could not start" }, { status: 500 })), { taken: false, why: "Coder's machine could not change its network: the gate could not start" });
+  assert.deepEqual(await via(async () => new Response("no", { status: 502 })), { taken: false, why: "Coder's machine did not answer (502)" });
+  assert.deepEqual(await via(async () => Response.json({ ok: true, applied: true })), { taken: true });
+  assert.deepEqual(await via(async () => Response.json({ ok: true, applied: false })), { taken: true }, "nothing runs there now: it takes it when it next runs something");
+  const sw = { kind: "switch", name: "shop", from: "Default" };
+  assert.equal(E.envResultText(sw, { push: { taken: true } }), "Approved: this chat moved to the environment \"shop\". What changed on this machine: requests through this chat's proxy follow its allowed hosts now, and network secrets saved on \"Default\" stop being used. What did not: connections that are already open keep their earlier reach, its variables are set from this chat's next message, and its setup script does not run on this machine.");
+  assert.equal(E.envResultText(sw, { push: { taken: false, why: "Coder's machine could not be reached" } }), "Approved: this chat moved to the environment \"shop\". But this machine did not take its network now (Coder's machine could not be reached). What changed: network secrets saved on \"Default\" stop being used. What did not: until this chat's next message, requests through this chat's proxy follow \"Default\"'s allowed hosts and this environment's network secrets are not added; connections that are already open keep their earlier reach; its variables are set from this chat's next message, and its setup script does not run on this machine.");
+  // Through Coder's server: a move whose machine cannot be reached, then a new environment whose machine takes its network.
+  const b = memBucket(); const e2 = { ...env, CODER_BUCKET: b };
+  await saveEnvList(b, "u1", [{ id: "default", name: "Default", at: 0, repos: [] }, { id: "shop-ab12", name: "shop", at: 1, repos: ["ana/shop"] }]);
+  await writeEnvData(e2, b, "u1", "default", { script: "", vars: {}, secrets: [], network: { mode: "trusted", hosts: [], defaults: true } });
+  await writeEnvData(e2, b, "u1", "shop-ab12", { script: "", vars: {}, secrets: [], network: net });
+  const meta1 = { id: "chat-1", repo: "ana/shop", envId: "default", turn: 4, status: "done" };
+  await b.put("coder/u1/chat-1/meta.json", JSON.stringify(meta1));
+  const approve = async (tool, args, deps, m) => { const st = await envState(e2, b, "u1", m, [args.environment_id]); const v = E.ENV_INPUT_CHECKS[tool](args); return approveEnvChange({ env: e2, bucket: b, uid: "u1", id: "chat-1", meta: m, deps, body: { tool, args: v.args, shown: E.envCard(st, tool, v.args).card }, reachRunning: async () => 0 }); };
+  const statement = E.envInfo(await envState(e2, b, "u1", meta1, ["shop-ab12"]), "shop-ab12").switch_statement;
+  let r = await approve("switch_environment", { environment_id: "shop-ab12", mode: "network_only", switch_statement: statement }, {}, meta1);
+  assert.equal(r.ok, true, r.error);
+  assert.match(r.result, /^Approved: this chat moved to the environment "shop"\. But this machine did not take its network now \(Coder's machine could not be reached\)\. /);
+  const m2 = JSON.parse(b.m.get("coder/u1/chat-1/meta.json"));
+  assert.equal(m2.envId, "shop-ab12", "the chat is on it all the same: its next message takes its network");
+  r = await approve("create_environment", { name: "shop-api", scope: "personal", reason: "The shop's API.", switch_session: "network_only", allow_package_managers: true, allowed_hosts: ["api.foo.com"] }, { container: () => ({ fetch: async () => Response.json({ ok: true, applied: true }) }) }, m2);
+  assert.equal(r.ok, true, r.error);
+  assert.match(r.result, /^Approved: the environment "shop-api" was created, and this chat moved onto it\. What changed on this machine: requests through this chat's proxy follow its allowed hosts now, and network secrets saved on "shop" stop being used\. What did not: connections that are already open keep their earlier reach, /);
+  // The descriptions keep Claude Code's two sentences.
+  const create = E.ENV_TOOLS.find((x) => x.function.name === "create_environment").function.parameters.properties;
+  assert.match(create.switch_session.description, /What does not: connections that are already open keep their earlier reach, the environment's variables are not set until this chat's next message, and the setup script does not run on this machine\./);
+  assert.match(create.leave_statement.description, /If something changes or fails once the environment has been created, the environment exists and the result says whether this chat moved\. Leave it out when get_environment returns none\.$/);
+});
+
+test("EN18 E3 and E4: update_environment refuses the variable names create_environment refuses, in the same words; get_environment's error for an unknown id says ids come from list_environments", () => {
+  for (const [name, why] of [["PATH", "it steers the runtime"], ["HTTPS_PROXY", "it sets a proxy"], ["NODE_EXTRA_CA_CERTS", "it sets TLS trust"], ["API_KEY", "it looks like a credential"], ["CODER_SHELL", "it steers Coder's runtime"], ["JAVA_HOME", "it steers a toolchain"]]) {
+    const words = "error: the variable " + name + " is refused: " + E.refusedVarKind(name) + " (names that steer Coder's runtime, credentials, proxies, TLS trust or toolchains are refused; keys go through request_secret)";
+    assert.equal(E.refusedVarKind(name), why, name);
+    assert.equal(E.checkUpdateInput(upd({ set_environment_variables: { NODE_ENV: "test", [name]: "x" } })).error, words, name);
+    assert.equal(E.checkCreateInput({ name: "n", scope: "personal", reason: "r", switch_session: "none", set_environment_variables: { [name]: "x" } }).error, words, name);
+  }
+  assert.ok(E.checkUpdateInput(upd({ set_environment_variables: { NODE_ENV: "test", LOG_LEVEL: "debug" } })).args);
+  assert.ok(E.checkUpdateInput(upd({ unset_environment_variables: ["PATH"] })).args, "taking one away adds no name");
+  assert.equal(E.envInfo(state(), "nope-9999").error, "error: no environment with environment_id \"nope-9999\" (ids come from list_environments; omit environment_id for this chat's environment)");
+  assert.match(E.envInfo(state(), "old-0003").error, /ids come from list_environments/, "an archived one that is not this chat's");
+});
+
+test("EN19 E5 and E6: no text calls the environment a repo's any more, the block is Claude Code's agent proxy's own words, and archiving says what Claude Code's docs say (\"Network secrets on the environment stay attached in its running sessions. Delete any you no longer want before you archive.\")", async () => {
+  const { BLOCKED } = await import("../container/coder-proxy.mjs");
+  assert.equal(BLOCKED("evil.example"), "request blocked: no rule or allowlist entry allows host evil.example");
+  const { SECRET_WORDS } = await import("../container/coder-agent.mjs");
+  assert.match(SECRET_WORDS, /the request can still fail with 401\/403 or with `request blocked: no rule allows host`: if it is refused again/, "Claude Code's request_credential, word for word");
+  const server = readFileSync(HERE("container/server.mjs"), "utf8");
+  assert.match(server, /A request to any other site fails with \\"request blocked: no rule or allowlist entry allows host\\" \(curl: \\"CONNECT tunnel failed, response 403\\"\)/);
+  const { varsNote } = await import("../container/server.mjs");
+  assert.match(varsNote({ PORT: "1" }), /^\n\nENVIRONMENT VARIABLES the owner set in this chat's environment \(available to your commands\): PORT/);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /return json\(\{ error: "at most 20 secrets per environment" \}, 400\);/);
+  const code = (f) => readFileSync(HERE(f), "utf8").replace(/\/\*[\s\S]*?\*\//g, "").split("\n").filter((l) => !/^\s*\/\//.test(l)).join("\n");
+  for (const f of ["container/coder-proxy.mjs", "container/coder-tools.mjs", "container/coder-agent.mjs", "container/server.mjs", "src/coder-routes.mjs", "public/coder.js"]) assert.doesNotMatch(code(f), /repo's network list|None for this repo|secrets per repo|set for this repo \(|THE REPO'S SETUP SCRIPT/, f);
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /askSure\('Archive “' \+ e\.name \+ '”\?', 'It leaves the list for new chats\. Chats that already use it keep working\. Network secrets on the environment stay attached in its running chats\. Delete any you no longer want before you archive\.', 'Archive'\)/);
+  assert.match(ui, /\['vars', 'Environment variables', [^\n]*: 'None'\],/);
+});
+
+test("EN20 E7: the setup script starts in the folder that holds the repository checkouts, as Claude Code's, each repository there by its name, so its own example works (\"if [ -d myapp ]; then (cd myapp && npm install); fi\"); a script saved before then still starts inside the repository, as it was written to, until it is changed", async () => {
+  const { repoLinks, createApp } = await import("../container/server.mjs");
+  // THE LINKS: each repository by its name; a second of the same name as owner-name; a real folder of that name kept.
+  const lroot = await mkdtemp(join(tmpdir(), "coder-links-"));
+  for (const d of ["c1", "c1-x1", "c1-x2", "taken"]) await mkdir(join(lroot, d));
+  await symlink("gone", join(lroot, "lib"));
+  assert.deepEqual(await repoLinks(lroot, [{ repo: "acme/myapp", dir: join(lroot, "c1") }, { repo: "acme/lib", dir: join(lroot, "c1-x1") }, { repo: "other/myapp", dir: join(lroot, "c1-x2") }, { repo: "acme/taken", dir: join(lroot, "c1") }, { repo: "acme/far", dir: "/elsewhere/c9" }]), { myapp: join(lroot, "c1"), lib: join(lroot, "c1-x1"), "other-myapp": join(lroot, "c1-x2") });
+  assert.deepEqual([await readlink(join(lroot, "myapp")), await readlink(join(lroot, "lib")), await readlink(join(lroot, "other-myapp"))], ["c1", "c1-x1", "c1-x2"], "relative, so the admin sandbox (which shows that folder at the same place) follows them too; a stale link is made again");
+  assert.deepEqual(await readdir(join(lroot, "taken")), [], "a real folder of that name stays as it is");
+  // ON A MACHINE: Claude Code's own example, from the folder above the checkout (npm stood in by a function, so no network).
+  const ghRoot = await mkdtemp(join(tmpdir(), "coder-gh-")), seed = await mkdtemp(join(tmpdir(), "coder-seed-"));
+  git(seed, "init", "-q", "-b", "main");
+  await writeFile(join(seed, "package.json"), "{\"name\":\"myapp\",\"version\":\"1.0.0\"}\n");
+  git(seed, "-c", "user.name=a", "-c", "user.email=a@b", "add", "-A");
+  git(seed, "-c", "user.name=a", "-c", "user.email=a@b", "commit", "-q", "-m", "first");
+  execFileSync("mkdir", ["-p", join(ghRoot, "ana")]);
+  execFileSync("git", ["clone", "-q", "--bare", seed, join(ghRoot, "ana/myapp.git")]);
+  const root = await mkdtemp(join(tmpdir(), "coder-root-"));
+  const seen = [];
+  const { base, close } = await serve(createApp({ root, send: async (q) => { seen.push(q); return { message: { role: "assistant", content: "Done." } }; }, remote: ghRoot + "/", gitRoot: await mkdtemp(join(tmpdir(), "coder-git-")), memRoot: await mkdtemp(join(tmpdir(), "coder-mem-")), bgRoot: await mkdtemp(join(tmpdir(), "coder-bgr-")), proxyDir: await mkdtemp(join(tmpdir(), "coder-pxe-")) }));
+  const run = async (project, setup) => {
+    seen.length = 0;
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "go", messages: [], repo: "ana/myapp", base: "main", branch: "coder/" + project, token: "", setup }) });
+    let s; for (let i = 0; i < 200; i++) { s = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (s.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
+    await fetch(base + "/claim", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project }) });
+    return s;
+  };
+  try {
+    const s = await run("myapp-s1", { script: "npm() { echo \"npm $* in $(basename \"$(pwd -P)\")\" > npm-ran.txt; }\nif [ -d myapp ]; then (cd myapp && npm install); fi", network: { mode: "full" } });
+    assert.equal(s.events.find((e) => e.tool === "setup" && e.type === "bash") ? s.events.find((e) => e.type === "result" && e.id && e.id.startsWith("setup-")).code : -9, 0);
+    assert.equal(await readFile(join(root, "myapp-s1", "npm-ran.txt"), "utf8"), "npm install in myapp-s1\n", "it ran in the checkout, reached by its name");
+    assert.equal(await readlink(join(root, "myapp")), "myapp-s1");
+    assert.match(JSON.stringify(seen[0].messages), new RegExp("\\(It starts in " + root.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&") + ", the folder that holds the repository checkouts, where this chat's repositories are myapp\\.\\)"));
+    // A SCRIPT SAVED BEFORE THEN (the Worker's scriptIn "repo"): inside the repository, as it was written to.
+    await run("myapp-s2", { script: "echo legacy > legacy.txt", scriptIn: "repo", network: { mode: "full" } });
+    assert.equal(await readFile(join(root, "myapp-s2", "legacy.txt"), "utf8"), "legacy\n");
+    assert.equal(existsSync(join(root, "legacy.txt")), false);
+    assert.match(JSON.stringify(seen[0].messages), /It starts inside this chat's repository folder: it was saved before 2026-11-14 and keeps starting there until it is changed\. A script you send starts in /);
+  } finally { await close(); }
+  // CODER'S SERVER: a record from before then with a script says "repo"; a save that keeps the script keeps it; one that
+  // changes the script, a new environment, or an approved new script does not.
+  const k = await routeKit();
+  await k.b.put(envDataKey(k.uid, "default"), JSON.stringify({ at: 1, box: await seal(k.e2, { script: "npm ci", vars: {}, secrets: [], network: { mode: "trusted", hosts: [], defaults: true } }) }));
+  assert.equal((await readEnvData(k.e2, k.b, k.uid, "default")).scriptIn, "repo");
+  let out = await (await k.go("projects/" + k.id + "/env")).json();
+  assert.equal(out.scriptInRepo, true);
+  out = await (await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ varsText: "A=1" }) })).json();
+  assert.equal(out.scriptInRepo, true, "kept: the script is as it was");
+  out = await (await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ script: "npm ci" }) })).json();
+  assert.equal(out.scriptInRepo, true, "saved again, unchanged");
+  await k.go("projects/" + k.id + "/message", { method: "POST", body: JSON.stringify({ text: "go" }) });
+  assert.equal(k.sent[0].setup.scriptIn, "repo", "the machine is told");
+  out = await (await k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify({ script: "if [ -d shop ]; then (cd shop && npm ci); fi" }) })).json();
+  assert.equal(out.scriptInRepo, undefined, "a changed script starts in the folder above");
+  assert.equal((await readEnvData(k.e2, k.b, k.uid, "default")).scriptIn, undefined);
+  // update_environment: kept while the script is not changed; a new script starts in the folder above.
+  const st = state({ data: { ...state().data, default: { script: "npm ci", scriptIn: "repo", vars: {}, secrets: [], network: { mode: "trusted", hosts: [], defaults: true } } } });
+  assert.equal(E.planUpdate(st, E.checkUpdateInput(upd({ add_allowed_hosts: ["api.foo.com"] })).args).data.scriptIn, "repo");
+  assert.equal(E.planUpdate(st, E.checkUpdateInput(upd({ setup_script: "if [ -d shop ]; then (cd shop && npm ci); fi", script_change: "replaces the existing setup script" })).args).data.scriptIn, undefined);
+  // get_environment says so for such a script, and only for it.
+  assert.equal(E.envInfo(st).setup_script_starts_in, E.LEGACY_START);
+  assert.match(E.LEGACY_START, /^this chat's repository folder: this script was saved before 2026-11-14, when Coder started setup scripts there, and it still starts there until it is changed; a setup_script you send starts in the directory that holds the repository checkouts/);
+  assert.equal(E.envInfo(state()).setup_script_starts_in, undefined);
+  // THE TEXTS: Claude Code's words for where it starts, and its example; the page says the same.
+  const t = Object.fromEntries(E.ENV_TOOLS.map((x) => [x.function.name, x.function]));
+  for (const d of [t.update_environment.parameters.properties.setup_script.description, t.create_environment.parameters.properties.setup_script.description]) {
+    assert.match(d, /The script normally starts in the directory that holds the repository checkouts, not inside one, wherever your own working directory is\. Reach a repository by its relative subdirectory, normally its name, never by an absolute path, which differs between environments\. A failing script does not stop a chat, but what it failed to set up is missing there, so skip a repository's steps when it is not there \(e\.g\. "if \[ -d myapp \]; then \(cd myapp && npm install\); fi"\)\./);
+    assert.match(d, /Before you send the script, run all of it from that directory \(in a one-repository chat, the parent of your working directory\) and see each step do its work/);
+    assert.doesNotMatch(d, /starts in this chat's repository folder|if \[ -f package\.json \]/);
+  }
+  // (And CODER_SYSTEM's line on proposing a script, in the words of Claude Code's own page on it, environment.dependencies.)
+  assert.match(CODER_SYSTEM, /propose the whole setup script with that line added \(the script starts one directory above a repository, so a repository's command goes after a `cd` into its directory\); only lines you ran yourself/);
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  assert.match(ui, /It starts in the folder that holds the chat\\'s repositories, not inside one: reach each one by its name, like <code>if \[ -d myapp \]; then \(cd myapp &amp;&amp; npm install\); fi<\/code>\./);
+  assert.match(ui, /\(e\.scriptInRepo \? '<p class="cd-em-help cd-em-warnnote">This script was saved before 14 November, when setup scripts started inside the chat\\'s repository, so it still starts there\. Once you change it, it starts in the folder above, like Claude Code\\'s\.<\/p>' : ''\)/);
+});
+
+test("EN21 E8: the Environment window shows which repositories an environment is for, and the owner adds and takes them away there (Claude Code's environment \"Repositories list in Settings where offered (the Default environment has none)\")", async () => {
+  assert.deepEqual(reposFrom([" ana/shop ", "ana/blog", "ANA/shop"]), { repos: ["ana/shop", "ana/blog"] });
+  assert.match(reposFrom(["ana/shop", "https://github.com/ana/x"]).error, /^not a repository like owner\/name: https:\/\/github\.com\/ana\/x/);
+  assert.match(reposFrom(Array.from({ length: 51 }, (_, i) => "ana/r" + i)).error, /^at most 50 repositories/);
+  assert.match(reposFrom("ana/shop").error, /a list/);
+  assert.deepEqual(envRepos({ repos: ["ana/shop", 7, "not a repo"] }), ["ana/shop"]);
+  // THE ROUTE: the whole list as the owner leaves it; one added is offered first for its next chat.
+  const k = await routeKit("user-envrepos");
+  const made = await (await k.go("environments", { method: "POST", body: JSON.stringify({ name: "shop env", repos: ["ana/shop"] }) })).json();
+  const id = made.environment.id;
+  const usedBefore = (await listEnvs(k.b, k.uid)).find((x) => x.id === id).used;
+  await new Promise((ok) => setTimeout(ok, 5));
+  let r = await (await k.go("environments/" + id, { method: "POST", body: JSON.stringify({ repos: ["ana/shop", "ana/blog"] }) })).json();
+  assert.deepEqual(r.environment.repos, ["ana/shop", "ana/blog"]);
+  const after = (await listEnvs(k.b, k.uid)).find((x) => x.id === id);
+  assert.deepEqual(after.repos, ["ana/shop", "ana/blog"]);
+  assert.ok(after.used > usedBefore, "a repository added: its next chat starts in it");
+  r = await (await k.go("environments/" + id, { method: "POST", body: JSON.stringify({ repos: ["ana/blog"] }) })).json();
+  assert.deepEqual(r.environment.repos, ["ana/blog"], "taken away");
+  assert.equal((await k.go("environments/" + id, { method: "POST", body: JSON.stringify({ repos: ["not a repo"] }) })).status, 400);
+  const d = await k.go("environments/default", { method: "POST", body: JSON.stringify({ repos: ["ana/shop"] }) });
+  assert.deepEqual([d.status, (await d.json()).error], [400, "the Default environment has no repositories list"]);
+  // The chat's Environment window gets its environment's list; the Default's is none.
+  assert.deepEqual((await (await k.go("projects/" + k.id + "/env")).json()).repos, [], "a new chat of ana/shop is on Default");
+  await k.go("projects/" + k.id + "/environment", { method: "POST", body: JSON.stringify({ envId: id }) });
+  assert.deepEqual((await (await k.go("projects/" + k.id + "/env")).json()).repos, ["ana/blog"]);
+  // THE PAGE: a Repositories row (not for Default) and its page, with × to take one away, owner/name to add one, and Save.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  const NET = "), b = ui.indexOf("\n  }\n", ui.indexOf("  function envHTML("));
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = {};
+  const { envHTML } = new Function("esc", "ICON", "S", ui.slice(a, b + 4) + "\nreturn { envHTML };")(esc, { cloud: "" }, S);
+  Object.assign(S, { envPage: "main", env: { envId: id, name: "shop env", isDefault: false, repos: ["ana/shop", "ana/blog", "ana/docs"], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
+  let h = envHTML();
+  assert.match(h, /data-envgo="repos"><span><b>Repositories<\/b><small>ana\/shop, ana\/blog \+1 more<\/small>/);
+  S.env = { ...S.env, isDefault: true, envId: "default" };
+  assert.doesNotMatch(envHTML(), /data-envgo="repos"/, "the Default environment has none");
+  Object.assign(S, { envPage: "repos", env: { ...S.env, isDefault: false, envId: id }, envForm: { repos: ["ana/shop"], typed: "" }, envRepoChoices: ["ana/shop", "ana/web"] });
+  h = envHTML();
+  assert.match(h, /<code>ana\/shop<\/code><button type="button" data-envrepodel="ana\/shop" aria-label="Remove ana\/shop">×<\/button>/);
+  assert.match(h, /<input id="envRepoIn" list="envRepoList" value="" placeholder="owner\/name"/);
+  assert.match(h, /<datalist id="envRepoList"><option value="ana\/web"><\/datalist>/, "the owner's other repositories, offered as they type");
+  assert.match(h, /New chats of these repositories start with this environment\. A repository is also added here when one of its chats uses this environment\./);
+  assert.match(h, /id="envYes"[^>]*>Save changes</);
+  assert.match(ui, /if \(page === 'repos'\) \{\n\s*S\.envBusy = true; S\.envMsg = ''; draw\(\);\n\s*const r = await call\('\/environments\/' \+ encodeURIComponent\(S\.env\.envId\), \{ method: 'POST', body: JSON\.stringify\(\{ repos: f\.repos \}\) \}\);/);
 });
