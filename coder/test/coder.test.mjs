@@ -976,17 +976,17 @@ test("CD37 Grok's own web search through xAI's Responses request: the chat turne
   assert.deepEqual([ws.verb, ws.command], ["Searched the web for", "\"latest stable Node.js version\""]);
 });
 
-test("CD38 ask_user: Coder asks one multiple-choice question and the turn ends there; the page shows the options as buttons", async () => {
-  const s = scripted([say("Two ways to do this.", [call("ask_user", { question: "Plain CSS or Tailwind?", options: ["Plain CSS", "Tailwind"] }), call("bash", { command: "echo never" })])]);
+test("CD38 ask_user: Coder asks one multiple-choice question and, with no way to ask while it works, the turn ends there; the page shows the options as buttons (2026-11-14: Claude Code's AskUserQuestion input)", async () => {
+  const s = scripted([say("Two ways to do this.", [call("ask_user", { questions: [{ question: "Plain CSS or Tailwind?", header: "Styling", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }] }), call("bash", { command: "echo never" })])]);
   const events = []; const ran = [];
   const r = await runCoder({ send: s.send, emit: (e) => events.push(e), exec: async (x) => { ran.push(x); return { code: 0, output: "" }; } }, { text: "style the page" });
   assert.equal(r.status, "done");
   assert.equal(ran.length, 0, "nothing after the question runs");
-  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "plain strings still work: a label with no description");
+  assert.deepEqual(events.find((e) => e.type === "question"), { at: events.find((e) => e.type === "question").at, type: "question", text: "Plain CSS or Tailwind?", header: "Styling", options: [{ label: "Plain CSS", description: "" }, { label: "Tailwind", description: "" }] }, "an empty description: a label alone");
   // every call got its answer, so the next turn continues cleanly
   const toolAnswers = r.messages.filter((m) => m.role === "tool").map((m) => m.content);
   assert.deepEqual(toolAnswers, ["asked the owner; their answer comes as the next message", "not run: you asked the owner a question first"]);
-  const bad = scripted([say("", [call("ask_user", { question: "Which?", options: ["only one"] })]), say("Fine.", [])]);
+  const bad = scripted([say("", [call("ask_user", { questions: [{ question: "Which?", header: "One", options: [{ label: "only one", description: "" }] }] })]), say("Fine.", [])]);
   assert.equal((await runCoder({ send: bad.send, exec: async () => ({ code: 0, output: "" }) }, { text: "x" })).status, "done");
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /on\('\[data-ask-go\]', 'click', \(\) => askSend\(\)\);/);
@@ -2288,22 +2288,25 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   const { lastJobOf, undoNote } = await import("../container/server.mjs");
   const { lastJobFor } = await import("../src/coder-routes.mjs");
   const { CODER_SYSTEM, CODER_TOOLS } = await import("../container/coder-agent.mjs");
-  // 2. Choices with a label and a one-line description; several may be chosen when allowed.
+  // 2. Choices with a label and a one-line description; several may be chosen when allowed (2026-11-14: Claude Code's own
+  // words for them, test/askuser.test.mjs).
   const ask = JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "ask_user"));
-  assert.match(ask, /each with a short label \(1 to 5 words\) and a one-line description[\s\S]*put it first and add \\" \(Recommended\)\\" to its label[\s\S]*choose Other and type their own answer, or Skip/);
-  assert.match(ask, /"multi_select":\{"type":"boolean"\}/);
+  assert.match(ask, /Should be concise \(1-5 words\)[\s\S]*Explanation of what this option means/);
+  assert.match(ask, /make that the first option in the list and add \\"\(Recommended\)\\" at the end of the label/);
+  assert.match(ask, /"multiSelect":\{"type":"boolean","default":false,/);
   let events = [];
-  const s1 = scripted([say("", [call("ask_user", { question: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi_select: true })])]);
+  const s1 = scripted([say("", [call("ask_user", { questions: [{ question: "Which name?", header: "Name", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multiSelect: true }] })])]);
   await runCoder({ send: s1.send, emit: (e) => events.push(e), exec: async () => ({ code: 0, output: "" }) }, { text: "make a file" });
   const q = events.find((e) => e.type === "question");
-  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
+  assert.deepEqual({ ...q, at: 0 }, { at: 0, type: "question", text: "Which name?", header: "Name", options: [{ label: "one.txt (Recommended)", description: "Matches the other files." }, { label: "two.txt", description: "A fresh name." }], multi: true });
   // The card: a header with the question, rows with a radio (or checkbox), title and explanation, the first already chosen, Other with a box, Skip and Submit, "Needs your input".
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /S\.ask = \{ chat: chatId, at: i, qs, answers: qs\.map\(\(q\) => \(\{ picked: q\.multi \|\| !q\.options\.length \? \[\] : \[q\.options\[0\]\.label\], other: '' \}\)\) \}/, "the recommended (first) choice is already chosen, and kept across redraws");
   assert.match(ui, /<input type="' \+ kind \+ '" name="' \+ name \+ '" value="' \+ esc\(o\.label\) \+ '"/);
   assert.match(ui, /<b>' \+ esc\(o\.label\) \+ '<\/b>' \+ \(o\.description \? '<small>' \+ esc\(o\.description\) \+ '<\/small>' : ''\)/);
   assert.match(ui, /<b>Other<\/b>' \+ \(live \? '<input type="text" class="cd-ask-in" placeholder="Type your own answer"/);
-  assert.match(ui, /data-ask-skip="' \+ i \+ '">Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '">Submit' \+ \(many \? ' answers' : ''\) \+ ' <kbd>Ctrl ↵<\/kbd><\/button>/);
+  // (Its buttons wait, greyed, once its answer is on its way to a card Coder waits on: 2026-11-14.)
+  assert.match(ui, /data-ask-skip="' \+ i \+ '"' \+ \(sent \? ' disabled' : ''\) \+ '>Skip<\/button><button type="button" class="cd-ask-go" data-ask-go="' \+ i \+ '"' \+ \(sent \? ' disabled' : ''\) \+ '>Submit' \+ \(many \? ' answers' : ''\) \+ ' <kbd>Ctrl ↵<\/kbd><\/button>/);
   assert.match(ui, /<div class="cd-ask-wait">Needs your input<\/div>/);
   assert.match(ui, /if \(e\.key === 'Enter' && \(e\.ctrlKey \|\| e\.metaKey\)\) \{ e\.preventDefault\(\); askSend\(\); \}/);
   assert.match(ui, /'I skipped your question\. Decide for yourself and go on\.'/);
@@ -2323,7 +2326,7 @@ test("CD84 (owner '2', '3', '4', like Claude Code) the question card has explana
   assert.match(JSON.stringify(CODER_TOOLS.find((t) => t.function.name === "undo_last_job")), /ask first with ask_user; when they choose that job, call it with confirmed: true[\s\S]*"confirmed":\{"type":"boolean"/);
   const undo = async (lastJob, args, turns2) => { let n = 0; const seen = []; const ev = []; const r = await runCoder({ send: async (q2) => { seen.push(q2); return turns2[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => ev.push(e) }, { text: "Undo that last job.", lastJob }); return { r, seen, ev }; };
   // The last job was a review (changed nothing): refused until the owner chooses, as Claude Code asks.
-  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { question: "What should I undo?", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] })])]);
+  let u = await undo({ title: "Add one.txt", changed: false }, {}, [say("", [call("undo_last_job", {})]), say("", [call("ask_user", { questions: [{ question: "What should I undo?", header: "Undo", options: [{ label: "The one.txt job", description: "Removes one.txt with a revert commit." }, { label: "Something else", description: "An environment change or a saved key, in Environment." }] }] })])]);
   assert.equal(u.r.undoRequest, undefined);
   assert.match(JSON.stringify(u.seen[1].messages), /your last job changed no files, so it is not clear what the owner wants undone\. The last job that changed files was \\"Add one\.txt\\"\. Like Claude Code, ask first with ask_user/);
   assert.ok(u.ev.some((e) => e.type === "question"));

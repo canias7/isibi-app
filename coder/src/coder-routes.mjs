@@ -1481,7 +1481,9 @@ export async function handleCoder(request, env, ctx, deps) {
       const keys = host ? (await readEnvData(env, bucket, uid, await envIdOf(bucket, uid, meta))).secrets : [];
       if (!keys.some((s) => s.hosts.some((p) => hostMatches(host, p)))) return json({ ok: false, error: "No key for " + (host || "that site") + " is saved on this chat's environment yet." }, 409);
     }
-    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" }).then((r) => r.json()).catch(() => null);
+    // (A question card's picks go with it, Claude Code's AskUserQuestion; Coder's machine checks them. The owner, 2026-11-14:
+    // "Do all the talk to you tools execpt for the notify one".)
+    const m = await post("/answer", { project: id, pid: String(body.pid || ""), choice: String(body.choice || ""), comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(Array.isArray(body.answers) ? { answers: body.answers.slice(0, 4) } : {}) }).then((r) => r.json()).catch(() => null);
     if (!m) return json({ ok: false, error: "Coder's machine could not be reached. Try again in a moment." }, 502);
     if (!m.ok) return json({ ok: false, error: m.why || "That card is no longer waiting for an answer." }, 409);
     return json({ ok: true });
@@ -1659,7 +1661,9 @@ export async function handleCoder(request, env, ctx, deps) {
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
       // WHAT THE JOB LEFT FOR THE OWNER (owner item 8): a question, a key or an approval it waits for; how long it ran.
       // (Coder's key card waits in its own turn, `pid`, as Claude Code's request_credential form: never left waiting after it.)
-      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type) && !(e.type === "secret" && e.pid)).at(-1);
+      // (Not a question card the job waited on and closed itself, one with its pid: Claude Code's AskUserQuestion, answered in
+      // the job. The owner, 2026-11-14.)
+      const asked = fresh.filter((e) => e && ["question", "secret", "envchange", "writeask", "runask"].includes(e.type) && !((e.type === "secret" || e.type === "question") && e.pid)).at(-1);
       // WHERE THE CHAT'S COMMANDS ARE (the owner, 2026-11-08: "lets do it the claude code way"): a cd carries over to the
       // next message's commands too ("This includes commands Claude runs in response to your later messages").
       const cwd = typeof s.result.cwd === "string" && s.result.cwd.startsWith("/") ? s.result.cwd.slice(0, 1000) : "";

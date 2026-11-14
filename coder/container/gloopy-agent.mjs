@@ -245,6 +245,13 @@ const GLOOPY_SECRET_WORDS = "Ask the owner for an API key (or token) for ONE sit
  */
 export const TODO_TOOL = Object.freeze({ type: "function", function: { name: "todo", description: "Your checklist for a job with several steps: the whole list each time, each item with a status (pending, in_progress, done). The owner sees it. Skip it for small jobs.", parameters: { type: "object", properties: { items: { type: "array", items: { type: "object", properties: { text: { type: "string" }, status: { type: "string", enum: ["pending", "in_progress", "done"] } }, required: ["text", "status"] } } }, required: ["items"] } } });
 /**
+ * GLOOPY'S QUESTIONS FOR THE OWNER (2026-11-14): Coder's ask_user as it was before Coder took Claude Code's AskUserQuestion
+ * (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"), unchanged for Gloopy: its card ends the
+ * turn, and the owner's answers are the next message.
+ */
+const gloopyFn = (name, description, properties, required) => ({ type: "function", function: { name, description, parameters: { type: "object", properties, required } } });
+const GLOOPY_ASK_TOOL = gloopyFn("ask_user", "Ask the owner 1 to 4 questions at once, like Claude Code's, when you truly cannot choose for them (which of two designs, whether to delete something, what they meant). Put related questions in one call. Each question: its text, a header (at most 12 characters, shown as a chip, e.g. \"Database\"), 2 to 4 options, each with a short label (1 to 5 words) and a one-line description of what it means or what happens, and multi_select: true when they may choose several. If you recommend an option, put it first and add \" (Recommended)\" to its label. The owner can always choose Other and type their own answer, or Skip. Your turn ends there; their answers come back as the next message. Do not use it for things you can decide yourself.", { questions: { type: "array", description: "1 to 4 questions", items: { type: "object", properties: { question: { type: "string" }, header: { type: "string", description: "at most 12 characters" }, options: { type: "array", items: { type: "object", properties: { label: { type: "string", description: "1 to 5 words" }, description: { type: "string", description: "one line: what it means or what happens" } }, required: ["label"] } }, multi_select: { type: "boolean" } }, required: ["question", "options"] } } }, ["questions"]);
+/**
  * ITS INPUTS, IN GLOOPY'S WORDS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"): the same as
  * Coder's, the names and rules of Claude Code's request_credential (host, reason, display_name, header_name, prefix,
  * suggested_type), told without Coder's environments, which Gloopy has none of.
@@ -257,7 +264,7 @@ const GLOOPY_SECRET_INPUTS = Object.freeze({
   prefix: { type: "string", description: "Optional. The word before the key in the header: Bearer, Token, Key, ApiKey, Api-Key, Bot, SSWS, Splunk or GenieKey (Bearer by default with Authorization, none with any other header)." },
   suggested_type: { type: "string", enum: ["bearer", "basic"], description: "Optional: \"bearer\" for a key or token sent in a header (the default), \"basic\" for a username and password." },
 });
-const FROM_CODER = CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS, parameters: { ...t.function.parameters, properties: GLOOPY_SECRET_INPUTS } } } : t));
+const FROM_CODER = CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS, parameters: { ...t.function.parameters, properties: GLOOPY_SECRET_INPUTS } } } : t.function.name === "ask_user" ? GLOOPY_ASK_TOOL : t));
 const TODO_AT = FROM_CODER.findIndex((t) => t.function.name === "ask_user") + 1;
 export const GLOOPY_TOOLS = Object.freeze([...FROM_CODER.slice(0, TODO_AT), TODO_TOOL, ...FROM_CODER.slice(TODO_AT), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
 /** The tools that need a browser on the machine. */

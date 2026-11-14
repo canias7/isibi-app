@@ -447,5 +447,5 @@ test("RS13 the card's buttons and the page's redraws: Save keeps the key, then t
   assert.match(css, /\.cd-secret-field\{margin:0 0 10px\}/);
   assert.match(css, /\.cd-secret-row\{display:flex;gap:8px\}/);
   // The machine and the Worker take "saved".
-  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved"\]\.includes\(choice\)/);
+  assert.match(readFileSync(HERE("container/server.mjs"), "utf8"), /\["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip"\]\.includes\(choice\)/);
 });

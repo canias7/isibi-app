@@ -298,12 +298,16 @@ export function hookToolInput(name, args) {
   }
   return a;
 }
-/** A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`, `multiSelect` back to `multi_select`). */
+/**
+ * A hook's `updatedInput` as Coder's tool takes it (`file_path` back to `path`). Coder's ask_user takes Claude Code's
+ * `multiSelect` as it is (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"); Gloopy's own
+ * reads `multi_select`, given beside it.
+ */
 export function toolInputFromHook(name, input) {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const a = { ...input };
   if ((name === "read" || name === "write" || name === "edit") && typeof a.file_path === "string") { a.path = a.file_path; delete a.file_path; }
-  if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => { if (!q || typeof q !== "object" || Array.isArray(q) || q.multiSelect === undefined) return q; const o = { ...q }; if (typeof o.multiSelect === "boolean") o.multi_select = o.multiSelect; delete o.multiSelect; return o; });
+  if (name === "ask_user" && Array.isArray(a.questions)) a.questions = a.questions.map((q) => (!q || typeof q !== "object" || Array.isArray(q) || typeof q.multiSelect !== "boolean" ? q : { ...q, multi_select: q.multiSelect }));
   return a;
 }
 
@@ -375,22 +379,25 @@ export function hookAnswers(input) {
   return { answers, annotations };
 }
 /**
- * What Coder is told when a hook answered its questions, in Claude Code's words (its AskUserQuestion result): "Your
- * questions have been answered: …" when each answer is one of the choices; "The user answered: …" when one is not (or
- * has notes); "The user did not answer the questions." when none was given. `questions`: { key (the text the answers use),
- * text, labels, multi }. `shown` is the answers alone, for the note on the page.
+ * What Coder is told of the owner's answers to its questions, in Claude Code's words (its AskUserQuestion result; "the
+ * user" is "the owner", as in Coder's other texts; the owner, 2026-11-14: "Do all the talk to you tools execpt for the
+ * notify one"): "The owner responded: …" for a message they typed instead of answering (`response`); "Your questions have
+ * been answered: …" when each answer is one of the choices; "The owner answered: …" when one is not (or has notes); "The
+ * owner did not answer the questions." when none was given. `questions`: { key (the text the answers use), text, labels,
+ * multi }. `shown` is the answers alone, for the note on the page.
  */
-export function answeredText(questions, answers, annotations) {
+export function answeredText(questions, answers, annotations, { response = "" } = {}) {
   const shown = questions.map((q) => {
     const w = ownKey(answers, q.key), g = ownKey(annotations, q.key);
     const given = !!w && w !== NOTES_ONLY;
     if (!given && !(g && g.notes)) return null;
     const d = [given ? '"' + q.text + '"="' + w + '"' : '"' + q.text + '"=(no option selected)'];
-    if (g && g.preview) d.push("selected preview: " + g.preview);
+    if (g && g.preview) d.push("selected preview:\n" + g.preview);
     if (g && g.notes) d.push("notes: " + g.notes);
     return d.join(" ");
   }).filter((x) => x !== null).join(", ");
-  if (!shown) return { text: "The user did not answer the questions.", shown: "" };
+  if (typeof response === "string" && response.trim()) return { text: "The owner responded: " + response, shown };
+  if (!shown) return { text: "The owner did not answer the questions.", shown: "" };
   const fits = questions.every((q) => {
     const g = ownKey(annotations, q.key);
     if (g && g.notes) return false;
@@ -402,7 +409,7 @@ export function answeredText(questions, answers, annotations) {
     const b = splitLabels(y);
     return b !== null && b.length >= 1 && joinLabels(b) === y && b.every((x) => k.has(x));
   });
-  return { text: fits ? "Your questions have been answered: " + shown + ". You can now continue with these answers in mind." : "The user answered: " + shown + ". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say.", shown };
+  return { text: fits ? "Your questions have been answered: " + shown + ". You can now continue with these answers in mind." : "The owner answered: " + shown + ". Read the answers carefully \u2014 they may request clarification, changes, or that you not proceed \u2014 and follow what they actually say.", shown };
 }
 
 /**

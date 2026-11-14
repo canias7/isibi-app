@@ -46,7 +46,8 @@ test("CD381 the monitor tool: Claude Code's inputs (command, description, timeou
   assert.doesNotMatch(read("container/coder-agent.mjs"), /wait_s \(0-60\) waits first/);
   assert.match(read("container/coder-agent.mjs"), /then read its output file \(and curl to check a server\), stop_job when done\. To be told when something happens/);
   // The auto mode checker sees a monitor as it sees bash (it runs a command).
-  assert.match(read("container/coder-checker.mjs"), /const LOOKUPS = new Set\(\["read", "grep", "glob", "lsp", "todo", "review", "ask_user"\]\);/);
+  // (ask_user is no lookup since 2026-11-14: Claude Code's classifier is shown each question and the owner's answers.)
+  assert.match(read("container/coder-checker.mjs"), /const LOOKUPS = new Set\(\["read", "grep", "glob", "lsp", "todo", "review"\]\);/);
   // With background commands off (CODER_DISABLE_BACKGROUND_TASKS), a monitor still runs (Claude Code: "the Monitor tool still run[s]").
   assert.match(read("container/server.mjs"), /stopAtTimeout: !!sleepFirst \|\| \(t\.noBg && !monitor\) \}\)/);
 });
