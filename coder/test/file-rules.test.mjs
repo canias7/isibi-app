@@ -163,7 +163,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   assert.equal(fd("grep", ROOT, { deny: ["Read(secrets/**)"] }).verdict, "", "a search of a folder above it runs (its results are trimmed)");
   assert.equal(fd("write", ROOT + "/a.js", { deny: ["Write"] }).why, "Permission to use Write has been denied.");
   assert.equal(fd("read", ROOT + "/a.js", { deny: ["Read"] }).why, "Permission to use Read has been denied.");
-  assert.deepEqual(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }), { verdict: "ask", rule: "Read(*.md)", why: "Your rule Read(*.md) asks first for reading /work/shop/a.md." });
+  assert.deepEqual(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }), { verdict: "ask", rule: "Read(*.md)", why: "Coder requested permissions to read from /work/shop/a.md, but you haven't granted it yet." });
   assert.equal(fd("edit", ROOT + "/a.md", { ask: ["Read(*.md)"] }).verdict, "", "edits go by Edit ask rules");
   // In Coder's loop.
   const { runCoder } = await import("../container/coder-agent.mjs");
@@ -200,7 +200,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   assert.deepEqual(reqs.find((q) => q.tool === "grep").ctx.deny, { rules: ["Read(.env)"], sources: null, root: ROOT, cwd: ROOT, home: "" });
   assert.equal(out("g1"), "Found 2 files\nsecrets/k.txt\nsrc/a.js");
   assert.equal(cards.length, 1);
-  assert.deepEqual([cards[0].tool, cards[0].path, cards[0].why, cards[0].rules], ["read", "docs/a.md", "Your rule Read(docs/**) asks first for reading /work/shop/docs/a.md.", undefined]);
+  assert.deepEqual([cards[0].tool, cards[0].path, cards[0].why, cards[0].rules], ["read", "docs/a.md", "Coder requested permissions to read from /work/shop/docs/a.md, but you haven't granted it yet.", undefined]);
   assert.match(out("r2"), /# docs/, "Yes: it was read");
   // An @-mentioned file a Read deny rule covers is left out, with no word of it ("A refused file leaves nothing in the
   // conversation"); a folder's listing leaves out the names it covers.
@@ -246,9 +246,9 @@ test("CD382f a Read(**) or Edit(**) rule is a path rule, in a path rule's words 
     assert.deepEqual(fd(tool, ROOT + "/src/a.js", { deny: ["Edit(**)"] }), { verdict: "deny", rule: "Edit(**)", why: DIR }, tool);
     assert.equal(fd(tool, ROOT + "/src/a.js", { deny: ["Edit(*)"] }).why, "Permission to use " + (tool === "edit" ? "Edit" : "Write") + " has been denied.", tool);
   }
-  // Their asks were already a path rule's words (Coder's card): Read(**) and Edit(**) the same as any path.
-  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(**)"] }).why, "Your rule Read(**) asks first for reading /work/shop/a.md.");
-  assert.equal(fd("edit", ROOT + "/a.md", { ask: ["Edit(**)"] }).why, "Your rule Edit(**) asks first for editing /work/shop/a.md.");
+  // Their asks in a path rule's words (Claude Code's since round 5): Read(**) and Edit(**) the same as any path.
+  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(**)"] }).why, "Coder requested permissions to read from /work/shop/a.md, but you haven't granted it yet.");
+  assert.equal(fd("edit", ROOT + "/a.md", { ask: ["Edit(**)"] }).why, "Coder requested permissions to write to /work/shop/a.md, but you haven't granted it yet.");
   // LSP: a rule on the whole tool, or on one of its inputs, in Claude Code's words ("Claude requested permissions to use LSP,
   // but you haven't granted it yet."); a Read ask rule on its file first, as Claude Code's own read check of the file asks
   // before them, in that check's words, as Grep's and Glob's ("Claude requested permissions to read from <path>, but you
@@ -497,7 +497,56 @@ test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory und
   assert.deepEqual(denied.wrote, []);
   const asked = await run("acceptEdits", (f) => [call("write", { path: f, content: "x" }, "w4")], { ask: ["Edit(.claude/plans/**)"] }, [{ choice: "yes" }]);
   assert.equal(asked.cards.length, 1);
-  assert.match(asked.cards[0].why, /^Your rule Edit\(\.claude\/plans\/\*\*\) asks first for writing /);
+  assert.match(asked.cards[0].why, /^Coder requested permissions to write to \/.*\/\.claude\/plans\/[^/]+\.md, but you haven't granted it yet\.$/);
+});
+
+test("CD382m (round 5) read's, write's and edit's ask cards in Claude Code 2.1.325's words, as grep's, glob's and lsp's: a path rule's \"Coder requested permissions to read from <path>, but you haven't granted it yet.\" (Read rules) or \"… to write to <path> …\" (Edit rules, both tools), first; a rule on the whole tool alone \"Coder requested permissions to use Read (Write, Edit) …\", but \"… write to <path> …\" for write and edit in Auto; the path as Claude Code writes it; told to Coder where no one can answer", async () => {
+  const fd = (tool, path, rules, extra = {}) => P.fileToolDecision(tool, path, { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, home: HOME, ...extra });
+  const READ = (p) => "Coder requested permissions to read from " + p + ", but you haven't granted it yet.";
+  const WRITE = (p) => "Coder requested permissions to write to " + p + ", but you haven't granted it yet.";
+  const USE = (t) => "Coder requested permissions to use " + t + ", but you haven't granted it yet.";
+  const f = ROOT + "/src/a.md";
+  // A path rule: its file check's words, in every mode; it is the card's rule, a rule on the whole tool beside it or not.
+  assert.deepEqual(fd("read", f, { ask: ["Read(src/**)"] }), { verdict: "ask", rule: "Read(src/**)", why: READ(f) });
+  for (const tool of ["write", "edit"]) for (const mode of ["acceptEdits", "auto", "plan"]) assert.deepEqual(fd(tool, f, { ask: ["Edit(*.md)"] }, { mode }), { verdict: "ask", rule: "Edit(*.md)", why: WRITE(f) }, tool + " " + mode);
+  assert.deepEqual(fd("read", f, { ask: ["Read", "Read(src/**)"] }), { verdict: "ask", rule: "Read(src/**)", why: READ(f) }, "the file check asks first");
+  assert.deepEqual(fd("write", f, { ask: ["Write", "Edit(src/**)"] }, { mode: "acceptEdits" }), { verdict: "ask", rule: "Edit(src/**)", why: WRITE(f) });
+  // A rule on the whole tool alone (its name, X(*), a wildcard naming it, Edit's for write too, as Coder matches them).
+  for (const r of ["Read", "Read(*)", "Re*"]) assert.deepEqual(fd("read", f, { ask: [r] }, { mode: "auto" }), { verdict: "ask", rule: r, why: USE("Read") }, r);
+  assert.equal(fd("write", f, { ask: ["Write"] }, { mode: "acceptEdits" }).why, USE("Write"));
+  assert.equal(fd("edit", f, { ask: ["Edit(*)"] }, { mode: "plan" }).why, USE("Edit"));
+  assert.equal(fd("write", f, { ask: ["Edit"] }).why, USE("Write"));
+  assert.equal(fd("edit", f, { ask: ["*"] }, { mode: "auto" }).why, WRITE(f), "Auto: write's and edit's own check asks");
+  assert.equal(fd("write", f, { ask: ["Write"] }, { mode: "auto" }).why, WRITE(f));
+  // A path with control characters, as Claude Code writes one (its Hc): "&#10;"; grep's, glob's and lsp's too.
+  const odd = ROOT + "/a\nb.md";
+  assert.equal(fd("read", odd, { ask: ["Read(**)"] }).why, READ(ROOT + "/a&#10;b.md"));
+  assert.equal(fd("grep", odd, { ask: ["Read(**)"] }).why, READ(ROOT + "/a&#10;b.md"));
+  assert.equal(P.ccPath("/x\u0007y z\u0085"), "/x&#7;y&#8232;z&#133;");
+  // Deny rules keep their own words; no rule, no card.
+  assert.equal(fd("read", f, { deny: ["Read(src/**)"] }).why, "File is in a directory that is denied by your permission settings.");
+  assert.deepEqual(fd("write", f, { ask: ["Read(src/**)"] }), { verdict: "", rule: "", why: "" });
+  // In Coder's loop: the card's words; where no one can answer, Coder is told them (as for a page fetch), the step too.
+  const { runCoder } = await import("../container/coder-agent.mjs");
+  const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const run = async (mode, ask) => {
+    const events = [], cards = [];
+    let n = 0;
+    const steps = [say("", [call("edit", { path: "src/a.md", old_string: "a", new_string: "b" }, "e1"), call("read", { path: "src/a.md" }, "r1")]), say("Done.")];
+    const r = await runCoder({
+      send: async () => steps[Math.min(n++, steps.length - 1)], exec: async () => ({ code: 0, output: "ok" }), emit: (e) => events.push(e),
+      here: () => ROOT, root: ROOT, where: (p) => (p.startsWith("/") ? p : ROOT + "/" + p),
+      ...(ask ? { ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return { choice: "yes" }; } } : {}),
+    }, { text: "go", mode, rules: { allow: [], ask: ["Edit(src/**)", "Read"], deny: [] } });
+    return { cards, events, told: (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content };
+  };
+  let t = await run("acceptEdits", true);
+  assert.deepEqual(t.cards.map((c) => [c.tool, c.path, c.why, c.byRule]), [["edit", "src/a.md", WRITE(f), true], ["read", "src/a.md", USE("Read"), true]]);
+  t = await run("acceptEdits", false);
+  assert.equal(t.told("e1"), WRITE(f));
+  assert.equal(t.told("r1"), USE("Read"));
+  assert.equal(t.events.find((e) => e.type === "result" && e.id === "e1").output, WRITE(f));
 });
 
 // ── ROUND 5 (2026-11-14, the owner: "Yes pls" to the last differences round 4's rules helper found) ──

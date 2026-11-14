@@ -180,8 +180,12 @@ const varsProblem = (vars, max) => {
 };
 const reasonProblem = (r) => (typeof r !== "string" || !r.trim() ? "error: reason is required: one short plain sentence" : /[\r\n]/.test(r.trim()) ? "error: reason is one sentence on one line" : "");
 const nameProblem = (n, what) => (typeof n !== "string" || !NAME_RE.test(n.trim()) ? "error: " + what + " is plain single-line text of 1 to " + NAME_MAX + " characters" : "");
-/** An environment's description as Claude Code's update_environment takes it: "plain single-line text", up to 1024 characters. */
-const descriptionProblem = (d) => (typeof d !== "string" || d.length > DESCRIPTION_MAX || /[\u0000-\u001f\u007f]/.test(d.trim()) ? "error: new_description is plain single-line text of at most " + DESCRIPTION_MAX + " characters (an empty string clears it)" : "");
+/**
+ * An environment's description as Claude Code's update_environment takes it: "plain single-line text", up to 1024 characters
+ * (kept trimmed; "" clears it). The owner's own edit in the Environment window gets the same check (round 5, 2026-11-14).
+ */
+export const descriptionOk = (d) => typeof d === "string" && d.length <= DESCRIPTION_MAX && !/[\u0000-\u001f\u007f]/.test(d.trim());
+const descriptionProblem = (d) => (!descriptionOk(d) ? "error: new_description is plain single-line text of at most " + DESCRIPTION_MAX + " characters (an empty string clears it)" : "");
 /** The description a new environment gets: its reason, as one plain line (Claude Code: "Also summarized in the new environment's description"). */
 export const descriptionOf = (reason) => String(reason || "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim().slice(0, DESCRIPTION_MAX);
 /**

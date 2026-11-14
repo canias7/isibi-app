@@ -352,7 +352,7 @@ test("SR9 the owner's rules on Grep's and Glob's inputs as Claude Code reads the
   assert.deepEqual(fd("glob", ROOT, { ask: ["Glob"] }, { pattern: "*" }), { verdict: "ask", rule: "Glob", why: "Coder requested permissions to use Glob, but you haven't granted it yet." });
   assert.deepEqual(fd("grep", ROOT + "/docs", { ask: ["Read(docs/**)", "Grep"] }, { pattern: "x" }), { verdict: "ask", rule: "Read(docs/**)", why: "Coder requested permissions to read from /work/shop/docs, but you haven't granted it yet." });
   assert.equal(fd("grep", ROOT + "/docs", { deny: ["Read(docs/**)"] }, { pattern: "x" }).why, "Permission to read /work/shop/docs has been denied.");
-  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }).why, "Your rule Read(*.md) asks first for reading /work/shop/a.md.", "read's own wording is not this change's");
+  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(*.md)"] }).why, "Coder requested permissions to read from /work/shop/a.md, but you haven't granted it yet.", "read's own in the same words since round 5");
   // A hook's if: the rule's content against the call's pattern (Claude Code's wildcard).
   const m = (rule, pattern, tool = "Grep") => P.ifRuleMatches(rule, tool, { pattern, path: "src" }, { cwd: ROOT, root: ROOT });
   assert.equal(m("Grep(TODO*)", "TODO.*fix"), true);

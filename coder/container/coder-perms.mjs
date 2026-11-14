@@ -1904,7 +1904,7 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "", home = "", real = null, isDir = false, input = null, roots = [], mode = "" } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
   // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
@@ -1958,7 +1958,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // permissions to use Grep, but you haven't granted it yet."; "Claude" is Coder here.)
   if (search) {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
     const sa = whole("ask") || globWhole("ask") || paramHit("ask");
     return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
@@ -1969,15 +1969,25 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // to read from <path>, but you haven't granted it yet." Round 3, 2026-11-14.)
   if (tool === "lsp") {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + ccPath(p) + ", but you haven't granted it yet." };
     const la = whole("ask") || globWhole("ask") || paramHit("ask");
     return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
-  const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
-  const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
+  // (READ, WRITE AND EDIT IN CLAUDE CODE'S WORDS TOO, as Grep's, Glob's and LSP's: round 5, 2026-11-14, the owner: "Yes pls".
+  // Claude Code 2.1.325 runs the tool's own file check first: a Read ask rule on the path asks in Read's words, its Yx,
+  // "Claude requested permissions to read from <path>, but you haven't granted it yet."; an Edit ask rule on it in Write's and
+  // Edit's, its YT, "Claude requested permissions to write to <path>, …" (both tools). A rule on the whole tool alone asks in
+  // the words its permission check gives when the file check lets the call through, its bYn, "Claude requested permissions to
+  // use Read, …" (Write, Edit); but in Auto, Write's and Edit's own check asks too, in its words, "… to write to <path> …".
+  // "Claude" is Coder here.)
+  const pa = fileRuleHit(rules.ask, edits ? "Edit" : "Read", p, "ask", { ...ctx, pathOnly: true });
+  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to " + (edits ? "write to " : "read from ") + ccPath(p) + ", but you haven't granted it yet." };
+  const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask") || hit(rules.ask, edits ? "Edit" : "Read", "ask");
+  if (wa) return { verdict: "ask", rule: wa, why: edits && mode === "auto" ? "Coder requested permissions to write to " + ccPath(p) + ", but you haven't granted it yet." : "Coder requested permissions to use " + name + ", but you haven't granted it yet." };
   return { verdict: "", rule: "", why: "" };
 }
+/** A path as Claude Code writes it in these words (its Hc): each control character as a character reference, "&#10;". */
+export const ccPath = (p) => String(p).replace(/[\u0000-\u001f\u007f-\u009f\u2028\u2029]/g, (c) => "&#" + c.charCodeAt(0) + ";");
 /**
  * THE FILES A COMMAND NAMES, for the owner's Read and Edit rules: `{ tool: "Read" | "Edit", path, name, how, glob }` for each
  * path a reading command names (READ_PATHS: cat, head, tail, sed …), each input redirection (Read), each file an output

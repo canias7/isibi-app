@@ -3409,7 +3409,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   const backups = new Map();
   // Files left out of the copy of each chat's work folder (too big), for its next turn's note (said once for each set).
   const workLeft = new Map(), workTold = new Map();
-  // A repository's plansDirectory not used, told once a chat for each value (Claude Code only logs its warning): project → it.
+  // A repository's plansDirectory not used, logged once a chat for each value (Claude Code only logs its warning): project → it.
   const plansDirTold = new Map();
   const workNoteFor = (project) => {
     const left = workLeft.get(project);
@@ -3641,11 +3641,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     for (const h of repoSet.held) t.events.push({ at: Date.now(), type: "note", text: heldNote(h) });
     // THE REPOSITORY'S plansDirectory (Claude Code's setting, "Choose where plan mode writes plan files", resolved from the
     // project's folder): the chat's plan file in that folder of the project when Claude Code 2.1.325 would use it; else the
-    // chat's own plans folder, with its warning (coder-plan-file.mjs). 2026-11-14.
+    // chat's own plans folder, its warning in the machine's log, as Claude Code only logs it (to its debug log, level "error"),
+    // never in the chat (round 5, 2026-11-14; coder-plan-file.mjs).
     if (planBox && repoSet.plansDir) {
       const custom = await plansDirectoryFor(repoSet.plansDir, dir);
       if (custom) planBox = planStore({ dir: planBox.dir, stateFile: join(memRoot, project + ".plan.json"), uid: RUN_UID, gid: RUN_GID ?? RUN_UID, custom: { dir: custom, root: dir } });
-      else if (plansDirTold.get(project) !== repoSet.plansDir) { plansDirTold.set(project, repoSet.plansDir); t.events.push({ at: Date.now(), type: "note", text: plansDirWarning(repoSet.plansDir).slice(0, 1200), warn: true }); }
+      else if (plansDirTold.get(project) !== repoSet.plansDir) { plansDirTold.set(project, repoSet.plansDir); console.log("coder: chat " + project + ": " + plansDirWarning(repoSet.plansDir).slice(0, 1200)); }
     }
     // THE SUBPROCESS ENVIRONMENT SCRUB (Bash docs pass 6; coder-scrub.mjs, Claude Code's CLAUDE_CODE_SUBPROCESS_ENV_SCRUB): with the
     // environment's CODER_SUBPROCESS_ENV_SCRUB on, or in a job started from GitHub unless it is off (Claude Code's scrub is on

@@ -1260,3 +1260,53 @@ test("EN23 CL3 of recheck 3: get_environment's and list_environments' answers sh
   assert.match(css, /@media \(max-width: 640px\) \{\n  \.cd-envt-pairs, \.cd-envt-pairs > tbody, \.cd-envt-pairs > tbody > tr, \.cd-envt-pairs > tbody > tr > th, \.cd-envt-pairs > tbody > tr > td \{ display: block; width: auto; \}/);
   assert.match(css, /\.cd-envt-sub td::before \{ content: attr\(data-k\) ": ";/);
 });
+
+test("EN24 (round 5) the Environment window lets the owner change the environment's description, as Claude Code's environments can be re-described (update_environment's new_description): a Description row (the Default's too) and its page; saved with that tool's own check (one plain line of at most 1024 characters, kept trimmed; empty clears it); what get_environment then gives Coder", async () => {
+  // The check, shared with update_environment's new_description.
+  assert.deepEqual(["", "Shop with Stripe", " padded ", "x".repeat(1024), "x".repeat(1025), "two\nlines", "tab\there", 7].map(E.descriptionOk), [true, true, true, true, false, false, false, false]);
+  assert.deepEqual(E.checkUpdateInput({ environment_name: "Default", applies_to: E.APPLIES_TO, reason: "Describe it.", new_description: "two\nlines" }), { error: "error: new_description is plain single-line text of at most 1024 characters (an empty string clears it)" }, "the tool's own words, as before");
+  // THE ROUTE: the chat's environment, the Default here.
+  const k = await routeKit("user-envdesc");
+  const post = (body) => k.go("projects/" + k.id + "/env", { method: "POST", body: JSON.stringify(body) });
+  let r = await post({ description: "  Shop: Stripe test keys, Node 22.  " });
+  assert.equal(r.status, 200);
+  let out = await r.json();
+  assert.deepEqual([out.envId, out.isDefault, out.description], ["default", true, "Shop: Stripe test keys, Node 22."]);
+  assert.equal((await listEnvs(k.b, k.uid)).find((x) => x.id === "default").description, "Shop: Stripe test keys, Node 22.");
+  for (const bad of ["two\nlines", "x".repeat(1025), 7]) {
+    r = await post({ description: bad });
+    assert.deepEqual([r.status, (await r.json()).error], [400, "a description is one line of plain text, up to 1024 characters"], String(bad).slice(0, 20));
+  }
+  assert.equal((await (await k.go("projects/" + k.id + "/env")).json()).description, "Shop: Stripe test keys, Node 22.", "a refused one changes nothing");
+  out = await (await post({ description: "" })).json();
+  assert.equal(out.description, "");
+  assert.equal("description" in (await listEnvs(k.b, k.uid)).find((x) => x.id === "default"), false, "cleared");
+  // Another environment's, beside its name.
+  const made = await (await k.go("environments", { method: "POST", body: JSON.stringify({ name: "shop env" }) })).json();
+  await k.go("projects/" + k.id + "/environment", { method: "POST", body: JSON.stringify({ envId: made.environment.id }) });
+  out = await (await post({ name: "shop env 2", description: "For the shop." })).json();
+  assert.deepEqual([out.name, out.description], ["shop env 2", "For the shop."]);
+  // What Coder sees of it (get_environment: "for this session's own environment, its description").
+  const own = (await listEnvs(k.b, k.uid)).find((x) => x.id === made.environment.id);
+  assert.equal(own.description, "For the shop.");
+  // THE PAGE: a Description row after Name (first for Default), its page with one line of up to 1024 characters, and Save.
+  const ui = readFileSync(HERE("public/coder.js"), "utf8");
+  const a = ui.indexOf("  const NET = "), b = ui.indexOf("\n  }\n", ui.indexOf("  function envHTML("));
+  const esc = (s) => String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+  const S = {};
+  const { envHTML } = new Function("esc", "ICON", "S", ui.slice(a, b + 4) + "\nreturn { envHTML };")(esc, { cloud: "" }, S);
+  Object.assign(S, { envPage: "main", env: { envId: "e1", name: "shop env", description: "For <the> shop.", isDefault: false, repos: [], network: { mode: "trusted", hosts: [] }, secrets: [], vars: [], script: "" } });
+  let h = envHTML();
+  assert.match(h, /data-envgo="name"><span><b>Name<\/b><small>shop env<\/small><\/span><span aria-hidden="true">›<\/span><\/button><button type="button" class="cd-em-row" data-envgo="description"><span><b>Description<\/b><small>For &lt;the&gt; shop\.<\/small>/);
+  S.env = { ...S.env, envId: "default", isDefault: true, description: "" };
+  assert.match(envHTML(), /<div class="cd-em-rows"><button type="button" class="cd-em-row" data-envgo="description"><span><b>Description<\/b><small>None<\/small>/, "the Default's, first");
+  Object.assign(S, { envPage: "description", envForm: { text: "For the shop." } });
+  h = envHTML();
+  assert.match(h, /<b>Description<\/b>/);
+  assert.match(h, /<input id="envDescIn" class="cd-em-in" maxlength="1024" autocomplete="off" value="For the shop\.">/);
+  assert.match(h, /One line, up to 1,024 characters\. Coder sees it when it looks at this environment\. Leave it empty to clear it\./);
+  assert.match(h, /id="envYes"[^>]*>Save changes</);
+  assert.match(ui, /if \(page === 'description'\) return envPost\(\{ description: f\.text \}\);/);
+  assert.match(ui, /: page === 'description' \? \{ text: e\.description \|\| '' \}/);
+  assert.match(ui, /on\('#envDescIn', 'input', \(e\) => \{ if \(S\.envForm\) S\.envForm\.text = e\.currentTarget\.value; \}\);/);
+});

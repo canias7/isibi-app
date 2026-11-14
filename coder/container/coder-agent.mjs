@@ -41,7 +41,7 @@ import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKee
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
 // (Claude Code's task list: its TaskCreate, TaskGet, TaskList and TaskUpdate, in place of Coder's todo; the owner, 2026-11-14.)
 import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTask, findTask, deleteTask, updateTask, listTasks, createdText, createdFacts, getText, getFacts, updateText, listText, taskReminderDue, taskReminderNote, pageItems, TODO_WRITE_TOOL, TODO_WRITE_RESULT, checkTodoInput, readTodos, todoItems, todoReminderDue, todoReminderNote } from "./coder-tasks.mjs";
-import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, hasPreviews } from "./coder-askuser.mjs";
+import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, previewKind, PREVIEW_WITHHELD, hasPreviews } from "./coder-askuser.mjs";
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
@@ -1464,11 +1464,12 @@ export const hookModeName = (mode, fileEdits) => (mode === "acceptEdits" && file
  * The note when the owner changes the mode while Coder works (Claude Code's "## Exited Plan Mode" and "## Exited Auto Mode").
  * `planExited`: plan mode's end with where the chat's plan file is (Claude Code: "The plan file is located at … if you need to
  * reference it"); `planFile`: the chat has one, so exit_plan_mode reads the plan from it (the owner, 2026-11-14).
+ * `autoExit: false`: auto mode's end is not in it, as in Coder's own chats, where it is told as Claude Code tells it (round 5).
  */
-export function modeChangeNote(from, to, { planExited = PLAN_EXITED, planFile = false } = {}) {
+export function modeChangeNote(from, to, { planExited = PLAN_EXITED, planFile = false, autoExit = true } = {}) {
   const parts = [];
   if (from === "plan") parts.push(planExited);
-  if (from === "auto") parts.push(AUTO_EXITED);
+  if (from === "auto" && autoExit) parts.push(AUTO_EXITED);
   parts.push("The owner's permission mode is now " + MODE_NAMES[normMode(to)] + (to === "plan" ? ": plan mode is active; make no changes, and call exit_plan_mode " + (planFile ? "when your plan is final." : "with your plan when it is final.") : "."));
   return "(Note from Coder's app, not the owner:\n" + parts.join("\n\n") + ")";
 }
@@ -2089,7 +2090,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           upd = hookToolInput(name0, r.args);
         }
       }
-      return { answer: { choice: "yes", comment: "", ...(upd ? { updatedInput: upd } : {}) }, take: () => { emit({ type: "note", text: "A PermissionRequest hook allowed this" + (upd ? ", with a changed input." : "."), hook: "PermissionRequest" }); if (o.updatedPermissions) applyUpdates(o.updatedPermissions); } };
+      // (The plan's card: the input its allow must carry changes it only with a plan other than the one shown, as Claude Code
+      // drops an unchanged plan from a hook's updatedInput (its fen) and takes only a new one as an edit. Round 5, 2026-11-14.)
+      const changed = !!upd && (card.tool !== "plan" || (typeof upd.plan === "string" && upd.plan !== input0.plan));
+      return { answer: { choice: "yes", comment: "", ...(upd ? { updatedInput: upd } : {}) }, take: () => { emit({ type: "note", text: "A PermissionRequest hook allowed this" + (changed ? ", with a changed input." : "."), hook: "PermissionRequest" }); if (o.updatedPermissions) applyUpdates(o.updatedPermissions); } };
     }
     // (A HOOK'S NO: Coder is given what Claude Code gives its model, the hook's own message, or its words for a no with none,
     // and not the words for the owner's own No; the step says the hook said no. Live test, 2026-11-13: the step read "Not run:
@@ -3608,7 +3612,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
     const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
     if (modeRound !== toldMode) {
-      convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound, { planExited: planExitedNote(planRound ? planRound.file : "", !!(planRound && planRound.text !== null)), planFile: !!planRound }) });
+      // ("## Exited Auto Mode" AS CLAUDE CODE GIVES IT, in Coder's own chats (round 5, 2026-11-14; its auto_mode_exit): not in
+      // this note but on its own, below (autoExitOwed), after plan mode's reminder, and only when auto mode really ends: a
+      // switch from Auto to Plan with auto mode's checks on in Plan keeps it on (its prepareContextForPlanMode), as between
+      // two messages.)
+      convo.push({ role: "user", appNote: true, content: modeChangeNote(toldMode, modeRound, { planExited: planExitedNote(planRound ? planRound.file : "", !!(planRound && planRound.text !== null)), planFile: !!planRound, autoExit: !!offered || !!github }) });
       if (toldMode === "plan") setPlanFlags({ on: false });
       toldMode = modeRound;
     }
@@ -4838,14 +4846,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // Each choice: a label and a one-line description (owner, "2", like Claude Code). Coder's keep every option in its
         // place, as Claude Code's dialog does (the owner's picks come back by their place), an option with an empty label
         // too, whole, as Claude Code's schema sets no length on them (2026-11-14), each with its preview when the question
-        // shows previews (single-select: Claude Code's dialog shows them beside the options, with a notes field); Gloopy's
-        // as before.
+        // shows previews (single-select: Claude Code's dialog shows them beside the options, with a notes field), one past its
+        // 2,000 characters withheld, its line in its place (round 5); Gloopy's as before.
         const one = (q) => {
           if (!q || typeof q !== "object") return null;
           const cap = (t, n) => (gl ? t.slice(0, n) : t);
           const text = cap(scrub(String(q.question || "")).trim(), 500);
           const shows = !gl && hasPreviews(q);
-          const all = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: cap(scrub(String(o.label || "")).trim(), 120), description: cap(scrub(String(o.description || "")).trim(), 300), ...(shows && previewOf(o) !== null ? { preview: scrub(previewOf(o)) } : {}) } : { label: cap(scrub(String(o == null ? "" : o)).trim(), 120), description: "" }));
+          const all = (Array.isArray(q.options) ? q.options : []).map((o) => (o && typeof o === "object" ? { label: cap(scrub(String(o.label || "")).trim(), 120), description: cap(scrub(String(o.description || "")).trim(), 300), ...(shows && previewOf(o) !== null ? { preview: scrub(previewOf(o)) } : shows && previewKind(o) === "withheld" ? { preview: PREVIEW_WITHHELD, previewWithheld: true } : {}) } : { label: cap(scrub(String(o == null ? "" : o)).trim(), 120), description: "" }));
           const options = gl ? all.filter((o) => o.label).slice(0, 4) : all;
           const header = cap(scrub(String(q.header || "")).replace(/\s+/g, " ").trim(), 20);
           return (text || !gl) && options.length >= 2 ? { text, ...(header ? { header } : {}), options, ...(q.multiSelect === true || q.multi_select === true ? { multi: true } : {}), ...(shows ? { previews: true } : {}) } : null;
@@ -5687,7 +5695,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // permission settings and cannot be edited."), before any file is touched; an ask rule asks on a card, each time.
         const fileTarget = FILE_RULE_TOOLS_HERE.has(c.name) ? targetOf() : "";
         // (Relative deny and ask rules apply in the chat's other working folders too: Claude Code 2.1.325. Round 3.)
-        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: args, roots: workdirs.slice(1) }) : null;
+        // (And the mode, for the words of a rule on the whole of write or edit: Claude Code's differ in Auto. Round 5.)
+        const fileDec = fileTarget && !github ? fileToolDecision(c.name, fileTarget, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (x) => realPath(x), input: args, mode: modeNow(), roots: workdirs.slice(1) }) : null;
         // (What this check saw of a search's path, its links, which the search makes sure are still so before it runs: Claude
         // Code's stash at its permission check, re-checked by its search. coder-search.mjs's checkedAt and searchRoot. Round 3.)
         const searchSaw = (c.name === "grep" || c.name === "glob") && fileTarget ? checkedAt(fileTarget) : null;
@@ -5749,7 +5758,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (Claude Code's words for a page fetch no one can approve, with nothing in front of them; its PermissionRequest hooks
           // decide first: noOneHooks, fix round 4, D5.)
           approval = canAsk() ? await askOwner(card, { hooks: !c.rerun }) : c.rerun ? null : await noOneHooks(card);
-          if (!approval) { const m = fetchSwitched ? "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here" : !fileAsk && !ruleAsk && fetchAsk ? "Coder requested permissions to use WebFetch, but you haven't granted it yet." : "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? (fileDec && fileDec.verdict === "ask" ? "the owner's rule " + fileDec.rule : "a PreToolUse hook") + " asks them first, and no one can answer here" : "the owner must approve fetching " + ((fetchDec && fetchDec.host) || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+          // (A file rule's card no one can answer: Coder is told the card's words, Claude Code's, as for a page fetch. Round 5.)
+          if (!approval) { const m = fetchSwitched ? "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here" : !fileAsk && !ruleAsk && fetchAsk ? "Coder requested permissions to use WebFetch, but you haven't granted it yet." : !fileAsk && fileDec && fileDec.verdict === "ask" ? fileDec.why : "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? "a PreToolUse hook asks them first, and no one can answer here" : "the owner must approve fetching " + ((fetchDec && fetchDec.host) || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
           const o = answerOutcome(approval);
           if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
