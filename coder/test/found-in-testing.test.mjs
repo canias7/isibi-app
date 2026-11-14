@@ -440,7 +440,7 @@ test("CD212 the file tools refuse a null byte in a path or a pattern as Claude C
   await writeFile(join(dir, "fake.pdf"), "not a pdf at all");
   const run = machine(dir);
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
-  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "the pattern"], ["glob", { pattern: "*\0.txt" }, "the pattern"]]) {
+  for (const [name, args, what] of [["read", { path: "a.txt\0.png" }, "the path"], ["write", { path: "b\0.txt", content: "x" }, "write path"], ["edit", { path: "a.txt\0", old_string: "hi", new_string: "yo" }, "edit path"], ["grep", { pattern: "h\0i" }, "Grep pattern"], ["glob", { pattern: "*\0.txt" }, "Glob pattern"]]) {
     assert.equal(await tool(name, args), "error: " + what + " cannot contain null bytes (\\0). Remove the null byte and try again.", name);
   }
   assert.match(await tool("read", { path: "fake.pdf" }), POPPLER ? /^error: fake\.pdf is not a valid PDF; it could not be opened.*\. If it should be one, try its text with bash \(pdftotext\)$/s : /^error: this machine has no PDF reader \(poppler\); use bash$/);

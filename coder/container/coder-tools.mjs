@@ -14,6 +14,7 @@ import { resolve, dirname, relative, isAbsolute, sep, extname, join } from "node
 import { tmpdir } from "node:os";
 import { spawn } from "node:child_process";
 import { psParseRequest, PS_PARSE_TIMEOUT_MS, PS_PARSE_TRIES } from "./coder-psparse.mjs";
+import { grepTool, globTool } from "./coder-search.mjs";
 import { lookup } from "node:dns/promises";
 import { lookup as lookupCb } from "node:dns";
 import http from "node:http";
@@ -37,7 +38,6 @@ export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = 100 * 1024 * 1024;
 export const NOTEBOOK_CELLS_MAX = 256 * 1024;
-export const OUT_MAX = 30000;
 export const WEB_MAX = 100_000;
 const ROOT = process.cwd();
 /**
@@ -964,48 +964,14 @@ async function editAnswer({ rel, abs, said, before, after, show_change, check, b
   return change || (problems && problems.length) ? WRITE_MARK + JSON.stringify({ text, change, ...(problems && problems.length ? { problems: problems.slice(0, 20), problemsAll: problems.length } : {}) }) : text;
 }
 
-function run(cmd, args, cwd = ROOT) {
-  return new Promise((done) => {
-    let out = "";
-    const p = spawn(cmd, args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
-    p.stdout.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
-    p.stderr.on("data", (b) => { if (out.length < OUT_MAX * 2) out += b; });
-    p.on("error", (e) => done({ code: -1, out: e.message }));
-    p.on("close", (code) => done({ code, out }));
-  });
-}
-
 /**
- * WHERE GREP AND GLOB SEARCH, as ripgrep is told it (from BASE, where they run): a full path as given (ripgrep then lists
- * full paths), else the folder from BASE ("." for BASE itself), so what they list counts from there, as Claude Code's do.
+ * GREP AND GLOB, CLAUDE CODE'S (coder-search.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"):
+ * their search runs there, with this file's own path check (`inside`: the project, never .git) and where Grok's commands are
+ * (BASE). `ctx`, from Coder's loop: the owner's Read deny rules and the environment's search settings.
  */
-const searchIn = (given, abs) => (isAbsolute(String(given)) ? abs : relative(BASE, abs) || ".");
-export async function toolGrep({ pattern, path = ".", glob, ignore_case = false }) {
-  if (typeof pattern !== "string" || !pattern) fail("give a pattern");
-  noNul(pattern, "the pattern");
-  if (glob != null) noNul(glob, "the glob");
-  const { abs } = await inside(path, { output: true });
-  const args = ["-n", "--no-heading", "--color", "never", "--max-columns", "300", "--glob", "!.git"];
-  if (ignore_case) args.push("-i");
-  if (typeof glob === "string" && glob) args.push("--glob", glob);
-  args.push("--", pattern, searchIn(path, abs));
-  const r = await run("rg", args, BASE);
-  if (r.code === 1) return "no matches";
-  if (r.code !== 0) fail(r.out.trim().slice(0, 500) || "the search failed");
-  const lines = r.out.trimEnd().split("\n");
-  return lines.slice(0, 200).join("\n") + (lines.length > 200 ? "\n[" + (lines.length - 200) + " more matches: narrow the search]" : "");
-}
-
-export async function toolGlob({ pattern, path = "." }) {
-  if (typeof pattern !== "string" || !pattern) fail("give a pattern, e.g. src/**/*.js");
-  noNul(pattern, "the pattern");
-  const { abs } = await inside(path);
-  const r = await run("rg", ["--files", "--hidden", "--glob", "!.git", "--glob", pattern, searchIn(path, abs)], BASE);
-  if (r.code === 1 || !r.out.trim()) return "no files match " + pattern;
-  if (r.code !== 0) fail(r.out.trim().slice(0, 500));
-  const files = r.out.trim().split("\n").filter((f) => !/(^|\/)\.git(\/|$)/.test(f)).sort();
-  return files.slice(0, 300).join("\n") + (files.length > 300 ? "\n[" + (files.length - 300) + " more]" : "");
-}
+const searchEnv = (ctx) => ({ ...(ctx && typeof ctx === "object" ? ctx : {}), base: BASE, inside });
+export async function toolGrep(args, ctx = {}) { return grepTool(args, searchEnv(ctx)); }
+export async function toolGlob(args, ctx = {}) { return globTool(args, searchEnv(ctx)); }
 
 /** Public web addresses only: never this machine or a private network. */
 export async function publicUrl(u) {
@@ -1744,8 +1710,10 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     if (!fn) return say("error: unknown tool", 2);
     let text;
     // (A tool with a result object for the hooks returns { text, facts }: printedAnswer.)
-    try { text = printedAnswer(await fn(req.args || {})); }
-    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, 600), 1); }
+    // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
+    // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
+    try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
+    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, e && e.long === true ? 4000 : 600), 1); }
     say(text, 0);
   })();
 }

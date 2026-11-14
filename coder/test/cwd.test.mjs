@@ -77,8 +77,9 @@ test("CD230 a cd carries over to the next commands, the Claude Code way: only wh
     // read, grep and glob count from there; a file is named by its full path there, as Claude Code's tools do.
     assert.match(j.out("r1"), /^\s*1\tinner/);
     if (hasRg) {
-      assert.equal(j.out("g1"), "./README.md:1:inner", "grep searches the folder the commands are in, and lists from it");
-      assert.equal(j.out("f1"), "./deep/x.txt", "glob too (its \"./\" as before)");
+      // (Claude Code's Grep and Glob, 2026-11-14: named from where the commands are, with no "./".)
+      assert.equal(j.out("g1"), "Found 1 file\nREADME.md", "grep searches the folder the commands are in, and lists from it");
+      assert.equal(j.out("f1"), "deep/x.txt", "glob too");
     }
     assert.match(j.out("r2"), /^\s*1\ttop/, "a full path reads the same file wherever the commands are");
     // b3: outside the project: the next command is back in the project's folder, and the result says so.
@@ -173,22 +174,25 @@ test("CD233 grep and glob search another repository of the chat by a short path 
   await writeFile(join(other, "README.md"), "other readme\n"); await writeFile(join(other, "notes.txt"), "other notes\n");
   const tool = (tool, args, env = {}) => {
     const b64 = Buffer.from(JSON.stringify({ tool, args })).toString("base64");
-    try { return execFileSync("node", ["--no-warnings", join(import.meta.dirname, "../container/coder-tools.mjs"), b64], { cwd: main, env: { ...process.env, CODER_EXTRA_ROOTS: other, ...env } }).toString().trim(); }
+    // (Grep's and Glob's result object, printed first for the hooks, left off: coder-search.mjs.)
+    try { return execFileSync("node", ["--no-warnings", join(import.meta.dirname, "../container/coder-tools.mjs"), b64], { cwd: main, env: { ...process.env, CODER_EXTRA_ROOTS: other, ...env } }).toString().replace(/^\u0000coder-facts\u0000[^\n]*\n/, "").trim(); }
     catch (e) { return "FAILED " + String(e.stdout || "") + String(e.stderr || ""); }
   };
   if (hasRg) {
     // From the project's folder: another repository by a short path.
-    assert.equal(tool("grep", { pattern: "readme", path: "../shop-x1" }), "../shop-x1/README.md:1:other readme");
-    assert.equal(tool("glob", { pattern: "*.txt", path: "../shop-x1" }), "../shop-x1/notes.txt");
+    // (Claude Code's Grep and Glob, 2026-11-14: a file outside the folder the commands are in is named by its full path.)
+    assert.equal(tool("grep", { pattern: "readme", path: "../shop-x1" }), "Found 1 file\n" + join(other, "README.md"));
+    assert.equal(tool("grep", { pattern: "readme", path: "../shop-x1", output_mode: "content" }), join(other, "README.md") + ":1:other readme");
+    assert.equal(tool("glob", { pattern: "*.txt", path: "../shop-x1" }), join(other, "notes.txt"));
     // As before in the project's own folder.
-    assert.equal(tool("grep", { pattern: "readme" }), "./README.md:1:main readme");
+    assert.equal(tool("grep", { pattern: "readme", output_mode: "content" }), "README.md:1:main readme");
   }
   assert.equal(tool("read", { path: "src/b.js" }), "FAILED error: no such file: src/b.js. Note: your current working directory is " + main + ".");
   // With the commands in src: a short path counts from there, files are named by their full path.
   assert.match(tool("read", { path: "a.js" }, { CODER_CWD: join(main, "src") }), /^1\tmain code/);
   assert.equal(tool("read", { path: "b.js" }, { CODER_CWD: join(main, "src") }), "FAILED error: no such file: " + join(main, "src", "b.js") + ". Note: your current working directory is " + join(main, "src") + ".");
   assert.match(tool("write", { path: "c.js", content: "x\n" }, { CODER_CWD: join(main, "src") }), new RegExp("^File created successfully at: " + join(main, "src", "c\\.js") + " \\(file state is current"));
-  if (hasRg) assert.equal(tool("grep", { pattern: "main" }, { CODER_CWD: join(main, "src") }), "./a.js:1:main code");
+  if (hasRg) assert.equal(tool("grep", { pattern: "main", output_mode: "content" }, { CODER_CWD: join(main, "src") }), "a.js:1:main code");
   // Still never outside the project, wherever the commands are.
   assert.equal(tool("read", { path: "../../etc/hostname" }, { CODER_CWD: join(main, "src") }), "FAILED error: that path is outside the project");
 });

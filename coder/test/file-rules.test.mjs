@@ -159,7 +159,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   const { runCoder } = await import("../container/coder-agent.mjs");
   const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
   const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
-  const tools = [], events = [], cards = [];
+  const tools = [], events = [], cards = [], reqs = [];
   let n = 0;
   const steps = [
     say("", [call("read", { path: ".env" }, "r1"), call("edit", { path: ".env", old_string: "a", new_string: "b" }, "e1"), call("write", { path: "secrets/k.txt", content: "x" }, "w1")]),
@@ -169,9 +169,9 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   const exec = async (x) => {
     const b = String(x.command).split(" ").pop();
     let t = "?";
-    try { t = JSON.parse(Buffer.from(b, "base64").toString("utf8")).tool; } catch { /* a command */ }
+    try { const q = JSON.parse(Buffer.from(b, "base64").toString("utf8")); t = q.tool; reqs.push(q); } catch { /* a command */ }
     tools.push(t);
-    if (t === "grep") return { code: 0, output: "./secrets/k.txt:1:TOKEN=1\n./src/a.js:3:const TOKEN = env.TOKEN;\n./.env:1:TOKEN=2" };
+    if (t === "grep") return { code: 0, output: "Found 2 files\nsecrets/k.txt\nsrc/a.js" };
     if (t === "read") return { code: 0, output: "     1\t# docs\n" };
     return { code: 0, output: "ok" };
   };
@@ -185,12 +185,13 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   assert.equal(out("e1"), "File is covered by a Read deny rule in your permission settings and cannot be edited.");
   assert.equal(out("w1"), "File is in a directory that is denied by your permission settings.");
   assert.ok(!tools.includes("edit") && !tools.includes("write"), "nothing was touched: " + tools.join(","));
-  assert.equal(out("g1"), "./secrets/k.txt:1:TOKEN=1\n./src/a.js:3:const TOKEN = env.TOKEN;", "the .env line is left out");
+  // (A search's results leave out what a Read deny rule covers inside the search itself, as Claude Code's do, since
+  // 2026-11-14: its run gets the owner's Read deny rules, coder-search.mjs; search.test.mjs SR7 runs it.)
+  assert.deepEqual(reqs.find((q) => q.tool === "grep").ctx.deny, { rules: ["Read(.env)"], sources: null, root: ROOT, home: "" });
+  assert.equal(out("g1"), "Found 2 files\nsecrets/k.txt\nsrc/a.js");
   assert.equal(cards.length, 1);
   assert.deepEqual([cards[0].tool, cards[0].path, cards[0].why, cards[0].rules], ["read", "docs/a.md", "Your rule Read(docs/**) asks first for reading /work/shop/docs/a.md.", undefined]);
   assert.match(out("r2"), /# docs/, "Yes: it was read");
-  assert.equal(A_without("./.env:1:x\n./b.js:2:y", (p) => p === "./.env"), "./b.js:2:y");
-  assert.equal(A_without("./.env:1:x", (p) => p === "./.env"), "no matches", "all left out: no matches");
   // An @-mentioned file a Read deny rule covers is left out, with no word of it ("A refused file leaves nothing in the
   // conversation"); a folder's listing leaves out the names it covers.
   const A = await import("../container/coder-agent.mjs");
@@ -200,7 +201,6 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
   assert.doesNotMatch(JSON.stringify(note), /\.env/);
   assert.match(JSON.stringify(note), /app\.json/);
 });
-const { withoutDenied: A_without } = await import("../container/coder-agent.mjs");
 
 test("CD382e the page: a card for a read or a search a rule asks about shows its path; a folder's Read rule is offered as 'reading /tmp/data/'; the rules list says how file rules are written", () => {
   const src = read("public/coder.js");
