@@ -27,7 +27,7 @@ import { retryLine } from "./coder-model.mjs";
 import { commandProblem, capOutput, readTimeout, scrub, splitSetup, MAX_OUTPUT_CHARS, MAX_COMMAND_CHARS, MAX_TIMEOUT_S, DEFAULT_TIMEOUT_S, bashResultText, BASH_INLINE_MAX, BASH_READ_BACK, ccDuration } from "./coder-checks.mjs";
 import { SLEEP_BLOCK_S, exitMeaning, sleepBlocked, leadsWithSleep, writeTargets, dangerousRm, realPath, leadsTo, pathExists, RM_UNCHECKED } from "./coder-bashcheck.mjs";
 import { textReasons } from "./coder-shell.mjs";
-import { accountEmailRefused, emailRefused, refusedNow } from "./coder-privacy.mjs";
+import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS } from "./coder-tools.mjs";
@@ -42,6 +42,8 @@ import { TASK_TOOLS, isTaskTool, checkTaskInput, readTasks, emptyTasks, createTa
 import { ASK_USER_DESCRIPTION, ASK_USER_PROPERTIES, shownInput, answerKeys, cardAnswers, allUnanswered, checkHookRewrite, previewOf, hasPreviews } from "./coder-askuser.mjs";
 import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_PARAMS, WEBFETCH_DEADLINE_MS, WEBFETCH_CACHE_TTL_MS, WEBFETCH_READ_CHARS, WEBFETCH_RESULT_MAX, NO_ANSWER, pageCache, docSite, readerMessage, redirectText, httpErrorText, pastEndText, leadText, readOnNote, binaryNote, fromOffset, firstChars, statusText, persistedText } from "./coder-webfetch.mjs";
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS } from "./coder-envtools.mjs";
+// (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
+import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, announcement, runToolSearch, notLoadedHint } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard } from "./coder-park.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule } from "./coder-hooks.mjs";
 /** A word for the shell, in single quotes. */
@@ -1299,6 +1301,7 @@ export function connectorCaller(via, fetchFn = fetch) {
  * it needs; with ENABLE_TOOL_SEARCH=auto, tools load upfront while their definitions stay under 10% of the context). Here:
  * when the connectors' tools are more than CONNECTOR_UPFRONT_MAX, or their definitions more than CONNECTOR_UPFRONT_CHARS,
  * Grok gets their names and one connector_search tool; what it finds is added to its tools for the rest of the job.
+ * (Gloopy's since 2026-11-14: Coder's own chats have Claude Code's tool search itself, tool_search, coder-toolsearch.mjs.)
  */
 // (Claude Code, its MCP docs read in full 2026-11-11: no fixed tool count, "auto" loads tools upfront while their definitions
 // stay under 10% of the context. Grok's context is 256,000 tokens, about a million characters: 10% is CONNECTOR_UPFRONT_CHARS.)
@@ -1905,10 +1908,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * A PRETOOLUSE OR PERMISSIONREQUEST HOOK'S NEW INPUT FOR ONE OF CODER'S TOOLS, CHECKED BEFORE THE CALL RUNS (Claude Code
    * 2.1.325; the owner, 2026-11-14: "Fix base on Claude Code docs, please"; coder-hookcheck.mjs): against the schema Grok was
    * given for the tool, then by the tool's own check, the one its calls get before any hook (coder-inputs.mjs; a task tool's,
-   * coder-tasks.mjs; a command's own: empty, too long, a refused form, a long foreground sleep). → { ok, args } or
-   * { ok: false, message }. A connector's tool takes any input, as Claude Code's MCP tools do.
+   * coder-tasks.mjs; a command's own: empty, too long, a refused form, a long foreground sleep), awaited, lsp's with its file
+   * checks (lspFile), as Claude Code awaits the tool's validateInput on a rewrite. → a Promise of { ok, args } or { ok: false,
+   * message }. A connector's tool takes any input, as Claude Code's MCP tools do.
    */
-  const hookInputCheck = (name, input, event) => {
+  const hookInputCheck = async (name, input, event) => {
     const tool = ccTool(name, name === "monitor");
     // (The schema the agent was given: Coder's tools, or the ones an agent with its own (Gloopy) was offered. None for
     // Claude Code's claude-code-remote tools, its environment tools and request_credential (Coder's request_secret): they
@@ -1917,7 +1921,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const remote = ENV_TOOL_NAMES.includes(name) || name === "request_secret";
     const def = mcpByName.has(name) || remote ? null : (offered ? tools : chatTools).find((f) => f && f.function && f.function.name === name);
     const own0 = inputCheckFor(name);
-    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off })
+    const check = own0 ? (a) => own0(a, { github: !!github, who, webFetchOff: webFetch.off, lspFile })
       : isTaskTool(name) ? (a) => checkTaskInput(name, a)
       : name === "bash" || name === "powershell" || name === "monitor" ? (a) => {
         if (name === "monitor" && a.ws !== undefined) return { args: a };
@@ -1971,7 +1975,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const name0 = call.monitor ? "monitor" : call.ps ? "powershell" : card.hookTool || card.tool;
           if (sameInput(upd, input0)) upd = null;
           else {
-            const r = hookInputCheck(name0, upd, "PermissionRequest");
+            const r = await hookInputCheck(name0, upd, "PermissionRequest");
             if (!r.ok) { const why = scrub(r.message); return { choice: "no", comment: why, hookDenied: true, hookWhy: why }; }
             upd = hookToolInput(name0, r.args);
           }
@@ -2610,7 +2614,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     return out;
   };
   const asFn = (t, found = false) => ({ type: "function", function: { name: t.name, description: String(t.description).slice(0, found ? CONNECTOR_DESC_FOUND : CONNECTOR_DESC_UPFRONT), parameters: t.parameters } });
-  const mcpDeferred = mcpTools.length > 0 && deferConnectors(mcpTools);
+  // (Gloopy's connector_search only: Coder's own chats have Claude Code's tool search instead, tsOn below. 2026-11-14.)
+  const mcpDeferred = !!offered && mcpTools.length > 0 && deferConnectors(mcpTools);
   // (A tool its server marks `_meta["anthropic/alwaysLoad"]` is loaded at the start even with tool search.)
   const mcpUpfront = mcpDeferred ? mcpTools.filter((t) => t.alwaysLoad) : mcpTools;
   const mcpLoaded = new Set(mcpUpfront.map((t) => t.name));
@@ -2623,6 +2628,29 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   chatTools.splice(0, chatTools.length, ...webFetchTools(chatTools, webFetch));
   // (In the task tools' place, before bash; a rule on them doesn't touch it, one on TodoWrite does.)
   if (todosOn) { const rest = chatTools.filter((t) => !(t && t.function && isTaskTool(t.function.name))); const at = rest.findIndex((t) => t && t.function && t.function.name === "bash"); if (!toolDenied("todo_write")) rest.splice(at < 0 ? rest.length : at, 0, TODO_WRITE_TOOL); chatTools.splice(0, chatTools.length, ...rest); }
+  // CLAUDE CODE'S TOOL SEARCH IN CODER'S CHATS (coder-toolsearch.mjs; the owner, 2026-11-14: "yes start on that"): the tools
+  // Claude Code defers (its built-in ones with shouldDefer, and the connectors not marked to load upfront) are named once in
+  // a note, and only those Coder loads with tool_search are sent, from then on for the rest of the chat; ENABLE_TOOL_SEARCH
+  // (the chat's environment, or the repository's .claude/settings.json) turns it off, or to auto. Under it, exit_plan_mode is
+  // one of the chat's tools in every mode, as Claude Code's ExitPlanMode (it refuses out of plan mode). Not Gloopy's.
+  const tsUpfront = new Set(mcpTools.filter((t) => t.alwaysLoad).map((t) => t.name));
+  const tsExit = !offered && !github && denyInstead !== true && !toolDenied("exit_plan_mode");
+  const tsOn = !offered && decideToolSearch({ value: deps.toolSearch, record: toolSearchRecord(convo), deferred: [...chatTools, ...(tsExit ? [EXIT_PLAN_TOOL] : [])].filter((t) => t && t.function && isDeferred(t.function.name, tsUpfront)), denied: toolDenied(TOOL_SEARCH) }).on;
+  if (tsOn) {
+    // (tool_search after Coder's own tools; the connectors it defers in the form a search loads, up to 16,384 characters.)
+    const at = chatTools.findIndex((t) => t && t.function && mcpByName.has(t.function.name));
+    const own = at < 0 ? chatTools.slice() : chatTools.slice(0, at), theirs = at < 0 ? [] : chatTools.slice(at);
+    chatTools.splice(0, chatTools.length, ...own, TOOL_SEARCH_TOOL, ...theirs.map((f) => (mcpByName.has(f.function.name) && !tsUpfront.has(f.function.name) ? asFn(mcpByName.get(f.function.name), true) : f)));
+  }
+  /** The chat's tools with exit_plan_mode (in the form the plan file asks for), and the names deferred among them. */
+  const tsPool = (withFile) => (tsExit ? [...chatTools, withFile ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools);
+  const tsDeferred = (pool) => new Set(pool.map((t) => (t && t.function ? t.function.name : "")).filter((n) => n && isDeferred(n, tsUpfront)));
+  /** A deferred tool Coder called before loading it, refused by its input's check: Claude Code's note after the error. */
+  const tsHint = (name, err) => {
+    if (!tsOn || typeof err !== "string" || !err.startsWith("error: InputValidationError")) return "";
+    const pool = tsPool(!!planBox), def = pool.find((t) => t && t.function && t.function.name === name);
+    return def && tsDeferred(pool).has(name) && !toolSearchRecord(convo).loaded.has(name) ? notLoadedHint(def) : "";
+  };
   // GLOOPY'S CONNECTORS (owner, 2026-11-13: "make gloopy use the connectors"): an agent with its own tools (`tools`) is
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
@@ -3011,7 +3039,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     let sumText = "";
     try { const r = await deps.send({ model, ...summaryRequest(history, asks), webSearch: false }); sumText = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { sumText = ""; }
     if (!sumText) { emit({ type: "error", text: "The summary could not be made. Try again in a minute." }); return end("done", { compact: { done: false } }); }
-    convo.splice(0, convo.length, summaryMessage(scrub(sumText), "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(history)));
+    convo.splice(0, convo.length, summaryMessage(scrub(sumText), "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(history), history));
     emit({ type: "note", text: "Compacted: the conversation so far is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." });
     if (hookList.length) {
       await runHooks("PostCompact", "manual", { trigger: "manual", compact_summary: scrub(sumText).slice(0, 20000) });
@@ -3117,7 +3145,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         let text = "";
         try { const r = await deps.send({ model, ...summaryRequest(convo.slice(jobStart + 1, cutAt), preC && preC.context.length ? scrub(preC.context.join("\n")).slice(0, 4000) : ""), webSearch: false }); text = String((r && r.message && r.message.content) || "").trim(); if (r && r.usage) usage.push(r.usage); } catch { text = ""; }
         if (text) {
-          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room"));
+          convo.splice(jobStart + 1, cutAt - jobStart - 1, summaryMessage(scrub(text), "the earlier steps of this job, summarized to make room", [], convo.slice(jobStart + 1, cutAt)));
           compactions++;
           if (typeof deps.compacted === "function") { try { deps.compacted(); } catch { /* the service's own business */ } }
           emit({ type: "note", text: "Compacted: the earlier steps of this job are now a summary for " + who + ", to make room (like Claude Code's auto-compact). The chat still shows them all." });
@@ -3188,6 +3216,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         } else if (avail >= memWarnGib * 1024 ** 3 * WARN_REARM) MEM_TOLD.delete(key);
       }
     }
+    // TOOL SEARCH'S NOTE (coder-toolsearch.mjs, Claude Code's deferred_tools_delta, which comes before its plan mode, auto mode
+    // and task reminders): the chat's deferred tools not yet named, or named and gone, said before this step.
+    if (tsOn) { const pool = tsPool(!!planBox), rec = toolSearchRecord(convo), note = announcement({ deferred: [...tsDeferred(pool)], loaded: rec.loaded, announced: rec.announced }); if (note) convo.push(note); }
     // CLAUDE CODE'S TASK REMINDER (its task_reminder; the owner, 2026-11-14; coder-tasks.mjs): before each answer, when Coder
     // has task_update and its last 10 steps used neither task_create nor task_update, and no reminder came in them: "The task
     // tools haven't been used recently. …", with the tasks on the list.
@@ -3220,7 +3251,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (exit_plan_mode as Claude Code's: reading the plan file, or, with none, taking the plan as `plan`.)
     const exitOffered = modeRound === "plan" && !toolDenied("exit_plan_mode") && denyInstead !== true;
     const planShown = modeRound === "plan" && planRound ? { planFile: planRound.file, planExists: planRound.text !== null } : {};
-    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
+    // (Tool search, coder-toolsearch.mjs: the request has the chat's tools less the deferred ones not loaded.)
+    let tsSent = null;
+    if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox); tsSent = requestTools(pool, tsDeferred(pool), toolSearchRecord(convo).loaded); }
+    try { answer = await deps.send({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: system + (github ? "\n\n" + GITHUB_NOTE : offered ? "" : "\n\n" + modeSystem(modeRound, { fileEdits, ...planShown, exitOffered })) + (context ? "\n\n" + context : "") }, ...convo], tools: offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitOffered ? [...chatTools, planRound ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE] : chatTools, tool_choice: "auto" }); }
     catch (e) {
       emit({ type: "error", text: "The AI could not be reached: " + scrub(String((e && e.message) || e)).slice(0, 220) });
       // STOPFAILURE HOOKS (Claude Code: "Runs when the turn ends due to an API error"; "Output and exit code are ignored"),
@@ -3396,12 +3430,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (!offered && (todosOn ? isTaskTool(c.name) : c.name === "todo_write")) { reply("error: No such tool available: " + c.name); continue; }
       if (!c.rerun && isTaskTool(c.name)) {
         const v = checkTaskInput(c.name, c.args);
-        if (v.error) { reply(v.error); continue; }
+        // (A deferred tool called before tool_search loaded it: Claude Code's note after its error, tsHint.)
+        if (v.error) { reply(v.error + tsHint(c.name, v.error)); continue; }
         c.args = v.args;
       }
       if (!c.rerun && c.name === "todo_write") {
         const v = checkTodoInput(c.args);
-        if (v.error) { reply(v.error); continue; }
+        if (v.error) { reply(v.error + tsHint(c.name, v.error)); continue; }
         c.args = v.args;
       }
       // A TOOL'S OWN INPUT CHECK FIRST, as Claude Code's Grep, Glob, LSP, WebFetch and WebSearch (coder-inputs.mjs; the owner,
@@ -3427,7 +3462,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             emit({ type: "bash", id: c.id, tool: c.name, verb: what ? what.verb : c.name, command: what ? scrub(String(what.label(c.args))).slice(0, 300) : "" });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: scrub(v.error).slice(0, 2000) });
           }
-          reply(v.error);
+          reply(v.error + tsHint(c.name, v.error));
           continue;
         }
         if (v && v.args && typeof v.args === "object" && !Array.isArray(v.args)) c.args = v.args;
@@ -3443,12 +3478,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const pf = await planNow();
         if (pf) { c.args = planInput(c.args, pf); c.planFile = pf.file; c.planText = pf.text; }
         const v = checkPlanInput(c.args, { mode: modeNow(), noFile: !pf });
-        if (v.error) { reply(v.error); continue; }
+        if (v.error) { reply(v.error + tsHint(c.name, v.error)); continue; }
       }
       // ENTER_PLAN_MODE'S INPUT (Claude Code's EnterPlanMode takes none): refused before any hook, in its words. 2026-11-14.
       if (c.name === "enter_plan_mode" && !c.rerun) {
         const v = checkEnterPlanInput(c.args);
-        if (v.error) { reply(v.error); continue; }
+        if (v.error) { reply(v.error + tsHint(c.name, v.error)); continue; }
         c.args = v.args;
       }
       // PRETOOLUSE HOOKS (Claude Code: "Runs after Claude creates tool parameters and before processing the tool call"): before
@@ -3483,7 +3518,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // card's and the plan's have their own checks, below.
         if (pre && Array.isArray(pre.updatedInputs) && pre.updatedInputs.length && c.name !== "ask_user" && c.name !== "exit_plan_mode") {
           let refusedBy = "", args1 = null;
-          for (const u of pre.updatedInputs) { const r = hookInputCheck(c.name, u, "PreToolUse"); if (r.ok) args1 = r.args; else refusedBy = scrub(r.message); }
+          for (const u of pre.updatedInputs) { const r = await hookInputCheck(c.name, u, "PreToolUse"); if (r.ok) args1 = r.args; else refusedBy = scrub(r.message); }
           if (refusedBy) {
             emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
             emit({ type: "result", id: c.id, code: -1, ran: false, output: refusedBy.slice(0, 2000), hookBlocked: true });
@@ -3524,6 +3559,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (A connector call that holds the account's email as a client's identity: refused, as Claude Code's privacy check refuses
         // such an MCP call, after the deny rules and before any card; coder-privacy.mjs.)
         if (emailMark && mcpByName.has(c.name) && refusedNow(c.name, c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(c.name).label).slice(0, 200) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
+        // (So is an environment tool's or request_secret's call, by Claude Code's name for it: its claude-code-remote MCP tools,
+        // mcp__claude-code-remote__…, which its privacy check reads as any MCP call; coder-privacy.mjs REMOTE_TOOLS. 2026-11-14.)
+        // (Checked by Claude Code's name, but Coder is told its own tool's name, as in all it is shown: it never sees mcp__… names.)
+        if (emailMark && !offered && REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name], c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: c.name, verb: c.name, command: "" }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
         const askRule = c.name === "ask_user" || c.name === "exit_plan_mode" ? "" : wholeRule(ownRules, "ask", cc);
         if (askRule) {
           if (!canAsk()) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
@@ -5370,6 +5409,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
+      } else if (c.name === TOOL_SEARCH && tsOn) {
+        // CLAUDE CODE'S ToolSearch (coder-toolsearch.mjs): the definitions of the tools found, as the API gives Claude the
+        // tools it loads (a <functions> block), or "No matching deferred tools found"; the deferred ones found are kept with
+        // the result (`toolsLoaded`) and sent with every request from the next one on; its PostToolUse hooks get its result
+        // object. The chat shows no line for it, as Claude Code shows none.
+        const pool = tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox);
+        const r = runToolSearch(c.args, { pool, deferred: tsDeferred(pool) });
+        toolFacts.set(c.id, r.facts);
+        c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";
+        reply(r.text + c.keepTail, { toolsLoaded: r.loaded });
       } else if (c.name === "connector_search" && mcpDeferred) {
         const found = findConnectorTools(mcpTools, c.args.query);
         for (const t of found) if (!mcpLoaded.has(t.name)) { mcpLoaded.add(t.name); chatTools.push(asFn(t, true)); }

@@ -17,6 +17,8 @@ const H = await import("../container/coder-hooks.mjs");
 const A = await import("../container/coder-agent.mjs");
 const T = await import("../container/coder-tools.mjs");
 const I = await import("../container/coder-inputs.mjs");
+const PL = await import("../container/coder-plan.mjs");
+const K = await import("../container/coder-tasks.mjs");
 const TOOLS = join(import.meta.dirname, "../container/coder-tools.mjs");
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -24,7 +26,7 @@ const zj = (issues) => JSON.stringify(issues, null, 2);
 const TAIL = "The tool input from the model was valid; the hook's rewrite of it was not.";
 const post = (json) => ({ hook: { type: "command", command: "x" }, result: { kind: "ok", json: { hookSpecificOutput: { hookEventName: "PostToolUse", ...json } } } });
 
-async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = async () => ({ choice: "yes" }), mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {} } = {}) {
+async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = async () => ({ choice: "yes" }), mode = "auto", execRun = null, rules = null, mcp = null, connectors = null, deps: more = {}, opts = {} } = {}) {
   const events = [], hookCalls = [], requests = [], ran = [];
   let n = 0;
   const r = await A.runCoder({
@@ -52,7 +54,7 @@ async function loop(steps, hooks, { tools = {}, hookRun = () => ({}), ask = asyn
     emit: (e) => events.push(e),
     here: () => "/work/shop", root: "/work/shop", chatId: "shop-hr", where: (p) => (p.startsWith("/") ? p : "/work/shop/" + p),
     ask, ...(mcp ? { mcp } : {}), ...more,
-  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...(rules ? { rules } : {}), ...(connectors ? { connectors } : {}) });
+  }, { text: "go", mode, messages: [], hooks: H.hooksFrom({ hooks }, "settings").list, ...(rules ? { rules } : {}), ...(connectors ? { connectors } : {}), ...opts });
   const answer = (id) => (r.messages.find((m) => m.tool_call_id === id) || {}).content;
   return { r, events, hookCalls, requests, ran, answer };
 }
@@ -204,19 +206,19 @@ test("HR4 in Coder's loop: a hook's new output becomes the tool's answer through
   assert.equal(m.answer("c1"), A.CONNECTOR_DATA + "[filtered]");
 });
 
-test("HR5 a hook's new input checked as Claude Code checks it (its GJe): the schema, in its words (zod's own list when only a value is wrong); the keys the tool does not know dropped; the tool's own check (\"refused\"); a check that throws; Claude Code's names in the words (file_path); numbers and booleans written as text taken; a connector's tool takes any input", () => {
+test("HR5 a hook's new input checked as Claude Code checks it (its GJe): the schema, in its words (zod's own list when only a value is wrong); the keys the tool does not know dropped; the tool's own check (\"refused\"); a check that throws; Claude Code's names in the words (file_path); numbers and booleans written as text taken; a connector's tool takes any input", async () => {
   const grepDef = A.CODER_TOOLS.find((t) => t.function.name === "grep").function.parameters;
   const chk = (input, event = "PreToolUse") => C.checkHookInput({ name: "grep", tool: "Grep", input, event, params: grepDef, check: I.inputCheckFor("grep") });
-  assert.deepEqual(chk({ pattern: "TODO", path: "src", stray: 1, file_path: "x" }), { ok: true, args: { pattern: "TODO", path: "src" } }, "unknown keys dropped (file_path is not Grep's: no fix here)");
-  assert.deepEqual(chk({ pattern: "TODO", head_limit: "5", multiline: "true" }).args, { pattern: "TODO", head_limit: 5, multiline: true });
-  assert.equal(chk({ pattern: "TODO", output_mode: "lines" }).message, "PreToolUse hook for Grep returned updatedInput that failed schema validation: " + zj([{ code: "invalid_value", values: ["content", "files_with_matches", "count"], path: ["output_mode"], message: 'Invalid option: expected one of "content"|"files_with_matches"|"count"' }]) + "\n" + TAIL);
-  assert.equal(chk({ path: "src" }, "PermissionRequest").message, "PermissionRequest hook for Grep returned updatedInput that failed schema validation: Grep failed due to the following issue:\nThe required parameter `pattern` is missing\n" + TAIL);
-  assert.equal(chk({ pattern: "a\u0000b" }).message, "PreToolUse hook for Grep returned updatedInput that the tool refused: Grep pattern cannot contain null bytes (\\0). Remove the null byte and try again.\n" + TAIL);
-  assert.equal(C.checkHookInput({ name: "grep", tool: "Grep", input: { pattern: "x" }, params: grepDef, check: () => { throw new Error("boom"); } }).message, "PreToolUse hook for Grep returned updatedInput that the tool could not check: boom\nThe tool input from the model was valid.");
+  assert.deepEqual(await chk({ pattern: "TODO", path: "src", stray: 1, file_path: "x" }), { ok: true, args: { pattern: "TODO", path: "src" } }, "unknown keys dropped (file_path is not Grep's: no fix here)");
+  assert.deepEqual((await chk({ pattern: "TODO", head_limit: "5", multiline: "true" })).args, { pattern: "TODO", head_limit: 5, multiline: true });
+  assert.equal((await chk({ pattern: "TODO", output_mode: "lines" })).message, "PreToolUse hook for Grep returned updatedInput that failed schema validation: " + zj([{ code: "invalid_value", values: ["content", "files_with_matches", "count"], path: ["output_mode"], message: 'Invalid option: expected one of "content"|"files_with_matches"|"count"' }]) + "\n" + TAIL);
+  assert.equal((await chk({ path: "src" }, "PermissionRequest")).message, "PermissionRequest hook for Grep returned updatedInput that failed schema validation: Grep failed due to the following issue:\nThe required parameter `pattern` is missing\n" + TAIL);
+  assert.equal((await chk({ pattern: "a\u0000b" })).message, "PreToolUse hook for Grep returned updatedInput that the tool refused: Grep pattern cannot contain null bytes (\\0). Remove the null byte and try again.\n" + TAIL);
+  assert.equal((await C.checkHookInput({ name: "grep", tool: "Grep", input: { pattern: "x" }, params: grepDef, check: () => { throw new Error("boom"); } })).message, "PreToolUse hook for Grep returned updatedInput that the tool could not check: boom\nThe tool input from the model was valid.");
   const readDef = A.CODER_TOOLS.find((t) => t.function.name === "read").function.parameters;
-  assert.equal(C.checkHookInput({ name: "read", tool: "Read", input: { file_path: 5, path: "a.js" }, params: readDef }).message, "PreToolUse hook for Read returned updatedInput that failed schema validation: Read failed due to the following issue:\nThe parameter `file_path` type is expected as `string` but provided as `number`\n" + TAIL);
-  assert.deepEqual(C.checkHookInput({ name: "read", tool: "Read", input: { file_path: "b.js", path: "a.js", offset: "3" }, params: readDef }), { ok: true, args: { path: "b.js", offset: 3 } });
-  assert.deepEqual(C.checkHookInput({ name: "mcp__notes__find", tool: "mcp__notes__find", input: { anything: [1] }, params: null }), { ok: true, args: { anything: [1] } });
+  assert.equal((await C.checkHookInput({ name: "read", tool: "Read", input: { file_path: 5, path: "a.js" }, params: readDef })).message, "PreToolUse hook for Read returned updatedInput that failed schema validation: Read failed due to the following issue:\nThe parameter `file_path` type is expected as `string` but provided as `number`\n" + TAIL);
+  assert.deepEqual(await C.checkHookInput({ name: "read", tool: "Read", input: { file_path: "b.js", path: "a.js", offset: "3" }, params: readDef }), { ok: true, args: { path: "b.js", offset: 3 } });
+  assert.deepEqual(await C.checkHookInput({ name: "mcp__notes__find", tool: "mcp__notes__find", input: { anything: [1] }, params: null }), { ok: true, args: { anything: [1] } });
   assert.equal(C.sameInput({}, { a: 1 }), true);
   assert.equal(C.sameInput({ b: [1, { c: 2 }], a: 1 }, { a: 1, b: [1, { c: 2 }] }), true);
   assert.equal(C.sameInput({ a: 2 }, { a: 1 }), false);
@@ -255,6 +257,87 @@ test("HR6 in Coder's loop: a PreToolUse hook's new input refused before the call
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "A PermissionRequest hook allowed this."), "the same input: no change");
 });
 
+test("HR9 a hook's new input for lsp gets lsp's own file checks before the call runs, as Claude Code awaits LSP's validateInput on a rewrite: a file that does not exist or is not a file refuses the call in Claude Code's words (\"… returned updatedInput that the tool refused: File does not exist: …\"); a PermissionRequest hook's is its no; a rewrite to a file that is one runs", async () => {
+  const pre = (u) => hookOut({ hookSpecificOutput: { hookEventName: "PreToolUse", updatedInput: u } });
+  // (The tools script's file check, where the chat's files are: coder-tools.mjs lsp_file, as coder-agent.mjs's lspFile runs it.)
+  const lspFile = (a) => (a.filePath === "missing.py" ? { code: 1, output: "error: File does not exist: missing.py" } : a.filePath === "src" ? { code: 1, output: "error: Path is not a file: src" } : { code: 0, output: "" });
+  const at = { operation: "hover", line: 1, character: 1 };
+  let t = await loop([say("", [call("lsp", { ...at, filePath: "a.py" }, "l1"), call("lsp", { ...at, filePath: "b.py" }, "l2"), call("lsp", { ...at, filePath: "c.py" }, "l3")]), say("done")], { PreToolUse: [{ matcher: "LSP", hooks: [{ type: "command", command: "pre.sh" }] }] }, {
+    tools: { lsp_file: lspFile, lsp: (a) => "hover of " + a.filePath },
+    hookRun: (input) => pre({ ...input.tool_input, filePath: { l1: "missing.py", l2: "src", l3: "d.py" }[input.tool_use_id] }),
+  });
+  assert.equal(t.answer("l1"), "PreToolUse hook for LSP returned updatedInput that the tool refused: File does not exist: missing.py\n" + TAIL);
+  assert.equal(t.answer("l2"), "PreToolUse hook for LSP returned updatedInput that the tool refused: Path is not a file: src\n" + TAIL);
+  assert.equal(t.events.find((e) => e.type === "result" && e.id === "l1").hookBlocked, true);
+  // Each call's own file was checked before its hooks, the rewrite's after them; only the good rewrite was looked up.
+  assert.deepEqual(t.requests.filter((q) => q.tool === "lsp_file").map((q) => q.args.filePath), ["a.py", "missing.py", "b.py", "src", "c.py", "d.py"]);
+  assert.deepEqual(t.requests.filter((q) => q.tool === "lsp").map((q) => q.args.filePath), ["d.py"]);
+  // A PermissionRequest hook's new input: the same check, its refusal the hook's no.
+  const allow = (u) => hookOut({ hookSpecificOutput: { hookEventName: "PermissionRequest", decision: { behavior: "allow", updatedInput: u } } });
+  t = await loop([say("", [call("lsp", { ...at, filePath: "a.py" }, "l4")]), say("done")], { PermissionRequest: [{ matcher: "LSP", hooks: [{ type: "command", command: "perm.sh" }] }] }, {
+    rules: { ask: ["LSP"] }, tools: { lsp_file: lspFile, lsp: (a) => "hover of " + a.filePath },
+    hookRun: (input) => (input.hook_event_name === "PermissionRequest" ? allow({ ...input.tool_input, filePath: "missing.py" }) : {}),
+  });
+  assert.equal(t.answer("l4"), "PermissionRequest hook for LSP returned updatedInput that the tool refused: File does not exist: missing.py\n" + TAIL);
+  assert.deepEqual(t.requests.filter((q) => q.tool === "lsp"), [], "not looked up");
+});
+
+test("HR10 EnterPlanMode's and TodoWrite's output shapes, as Claude Code 2.1.325 has them (checked against its own zod): a PostToolUse hook's rewrite of enter_plan_mode's or todo_write's result is checked, a match shown through the tool's own text, one of the wrong shape refused with Claude Code's notice and the answer kept", async () => {
+  const rw = (tool, v) => C.outputRewrite(tool, {})(v);
+  const notice = (tool, issues) => ({ notice: "PostToolUse hook returned updatedToolOutput that does not match " + tool + "'s output shape; using original output. " + zj(issues) });
+  const tail = PL.ENTERED_PLAN_TEXT.slice(PL.ENTERED_PLAN.length);
+  assert.ok(tail.startsWith("\n\nIn plan mode, you should:\n1. "), "its result's words after the message");
+  assert.deepEqual(rw("EnterPlanMode", { message: "Plan mode, set by the hook." }), { text: "Plan mode, set by the hook." + tail });
+  assert.deepEqual(rw("EnterPlanMode", { message: 5 }), notice("EnterPlanMode", [{ expected: "string", code: "invalid_type", path: ["message"], message: "Invalid input: expected string, received number" }]));
+  const todo = { content: "Ship it", status: "in_progress", activeForm: "Shipping it" };
+  assert.deepEqual(rw("TodoWrite", { oldTodos: [], newTodos: [todo] }), { text: K.TODO_WRITE_RESULT });
+  // (Each todo's texts at least one character, in the schema's own words; its status one of three.)
+  assert.deepEqual(rw("TodoWrite", { oldTodos: [], newTodos: [{ content: "", status: "done", activeForm: "" }] }), notice("TodoWrite", [
+    { origin: "string", code: "too_small", minimum: 1, inclusive: true, path: ["newTodos", 0, "content"], message: "Content cannot be empty" },
+    { code: "invalid_value", values: ["pending", "in_progress", "completed"], path: ["newTodos", 0, "status"], message: 'Invalid option: expected one of "pending"|"in_progress"|"completed"' },
+    { origin: "string", code: "too_small", minimum: 1, inclusive: true, path: ["newTodos", 0, "activeForm"], message: "Active form cannot be empty" },
+  ]));
+  assert.deepEqual(rw("TodoWrite", "done"), notice("TodoWrite", [{ expected: "object", code: "invalid_type", path: [], message: "Invalid input: expected object, received string" }]));
+  // In Coder's loop: the hook's message becomes enter_plan_mode's answer; a wrong one leaves the answer and the chat says why.
+  const post = (v) => hookOut({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: v } });
+  const hooks = { PostToolUse: [{ matcher: "EnterPlanMode|TodoWrite", hooks: [{ type: "command", command: "post.sh" }] }] };
+  let t = await loop([say("", [call("enter_plan_mode", {}, "p1")]), say("done")], hooks, { mode: "acceptEdits", hookRun: (input) => (input.hook_event_name === "PostToolUse" ? post({ message: "Plan mode, set by the hook." }) : {}) });
+  assert.deepEqual(t.hookCalls.find((h) => h.hook_event_name === "PostToolUse").tool_response, { message: PL.ENTERED_PLAN });
+  assert.equal(t.answer("p1"), "Plan mode, set by the hook." + tail);
+  t = await loop([say("", [call("enter_plan_mode", {}, "p2")]), say("done")], hooks, { mode: "acceptEdits", hookRun: (input) => (input.hook_event_name === "PostToolUse" ? post({ message: ["x"] }) : {}) });
+  assert.equal(t.answer("p2"), PL.ENTERED_PLAN_TEXT);
+  assert.ok(t.events.some((e) => e.type === "note" && /does not match EnterPlanMode's output shape; using original output\./.test(e.text)), "the chat says why");
+  // todo_write (CLAUDE_CODE_ENABLE_TASKS=0): a rewrite of its shape answers in its own words; one of another shape is refused.
+  t = await loop([say("", [call("todo_write", { todos: [todo] }, "w1"), call("todo_write", { todos: [todo] }, "w2")]), say("done")], hooks, {
+    opts: { tasksOff: true }, hookRun: (input) => (input.hook_event_name !== "PostToolUse" ? {} : input.tool_use_id === "w1" ? post({ oldTodos: [], newTodos: [] }) : post({ oldTodos: [], newTodos: [{ content: "x", status: "later", activeForm: "X" }] })),
+  });
+  assert.equal(t.answer("w1"), K.TODO_WRITE_RESULT);
+  assert.equal(t.answer("w2"), K.TODO_WRITE_RESULT, "the original answer kept");
+  assert.ok(t.events.some((e) => e.type === "note" && /does not match TodoWrite's output shape; using original output\. \[/.test(e.text)));
+  assert.ok(Z.OUTPUT_SHAPES.EnterPlanMode && Z.OUTPUT_SHAPES.TodoWrite);
+});
+
+test("HR11 one copy of Claude Code's words for a schema's issues (its w0, coder-zodtext.mjs): the hooks' and searches' (coder-zod.mjs), web_fetch's and web_search's (coder-issues.mjs) and lsp's give its text, a long message cut as it cuts one", async () => {
+  const ZT = await import("../container/coder-zodtext.mjs");
+  const IS = await import("../container/coder-issues.mjs");
+  const L = await import("../container/coder-lsp.mjs");
+  assert.equal(IS.issuesText, ZT.issuesText);
+  assert.equal(IS.pathText, ZT.pathText);
+  assert.deepEqual([IS.OTHER_MAX, IS.MESSAGE_MAX], [ZT.ISSUES_LISTED_MAX, ZT.ISSUE_MESSAGE_MAX]);
+  assert.equal(Z.zodMessage, ZT.zodMessage);
+  assert.equal(Z.pathText, ZT.pathText);
+  const many = Array.from({ length: 22 }, (_, i) => ({ code: "custom", path: ["p" + i], message: i === 0 ? "x".repeat(600) : "bad" }));
+  const lists = [[{ expected: "string", code: "invalid_type", path: ["q"], message: "Invalid input: expected string, received undefined" }, ...many], [{ code: "invalid_value", values: ["a"], path: ["m"], message: 'Invalid input: expected "a"' }], [{ code: "unrecognized_keys", keys: ["x", "y"], path: [], message: 'Unrecognized keys: "x", "y"' }]];
+  for (const issues of lists) {
+    const want = ZT.issuesText("LSP", issues);
+    assert.equal(Z.failedText("LSP", issues), want);
+    assert.equal(IS.issuesText("LSP", issues), want);
+    assert.equal(L.zodText(issues), want);
+  }
+  // (lsp's cut a long message at 500 characters with nothing after it: now Claude Code's "… [+N chars]" too.)
+  assert.ok(L.zodText(lists[0]).includes("The parameter `p0` is invalid: " + "x".repeat(500) + "… [+100 chars]\n"));
+});
+
 test("HR7 read, write and edit build Claude Code's result objects when Coder's loop asks (`facts`): Read's text object (the lines without numbers), Write's (create or update, the diff's hunks, the text it had), Edit's (old and new strings, replace_all); none when not asked", () => {
   const d = mkdtempSync(join(tmpdir(), "hr7-"));
   try {
@@ -282,5 +365,8 @@ test("HR7 read, write and edit build Claude Code's result objects when Coder's l
 test("HR8 the machine's copy holds the new modules, and the Worker's part loads none of Node's", () => {
   const copy = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8").split("\n").find((l) => /^COPY package\.json /.test(l));
   for (const f of ["coder-zod.mjs", "coder-hookcheck.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
-  assert.doesNotMatch(readFileSync(new URL("../container/coder-zod.mjs", import.meta.url), "utf8"), /from "node:|^import /m);
+  // (Its one import, the formatter's single copy, loads nothing either.)
+  const imports = (f) => [...readFileSync(new URL("../container/" + f, import.meta.url), "utf8").matchAll(/^\s*(?:import|export)\b[^;]*?from\s+["']([^"']+)["']/gm)].map((m) => m[1]);
+  assert.deepEqual(imports("coder-zod.mjs"), ["./coder-zodtext.mjs"]);
+  assert.deepEqual(imports("coder-zodtext.mjs"), []);
 });

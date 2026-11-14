@@ -875,8 +875,9 @@ export function parseRule(text) {
   // "mcp__puppeteer__puppeteer_navigate matches the puppeteer_navigate tool"): on the whole tool only, as Claude Code's.
   if (/^mcp__[A-Za-z0-9_-]+$/.test(String(text || "").trim())) return { tool: String(text).trim(), spec: null, mcp: true };
   // (TaskCreate, TaskGet, TaskList and TaskUpdate: Coder's task list since 2026-11-14, the owner: "Do all the talk to you
-  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  // tools execpt for the notify one"; whole-tool rules, as TodoWrite's. EnterPlanMode, Coder's enter_plan_mode, too. And
+  // ToolSearch, Coder's tool_search: denied, tool search is off, as Claude Code's MCP docs say; coder-toolsearch.mjs.)
+  const m = /^(Bash|WebFetch|Read|Edit|Write|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
@@ -1841,7 +1842,10 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   const pathOnly = tool === "grep" || tool === "glob" || tool === "lsp";
   // (A tool-name wildcard naming this tool, or the rules' tool for it, Read or Edit: a rule on the whole tool.)
   const globWhole = (kind) => (Array.isArray(rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.glob && [name, ...(pathOnly ? [] : [edits ? "Edit" : "Read"])].some((n) => toolGlobMatches(x.tool, n)); }) || "";
-  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null; };
+  // (A rule on the whole tool names no path: Read, Read(*), a wildcard naming the tool. Claude Code's parser makes only an empty
+  // or "*" content the whole tool, so Read(**) and Edit(**) are path rules, in a path rule's words though they match every path
+  // here. 2026-11-14.)
+  const isWhole = (r) => { const x = parseRule(r); return !!x && x.spec === null && !/\(\s*\*\*\s*\)$/.test(String(r).trim()); };
   const p = typeof path === "string" && path ? path : root;
   // (A search's folder: the rule matches the folder, or what is in it.)
   const search = tool === "grep" || tool === "glob";
@@ -1865,8 +1869,10 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     if (r) return { verdict: "deny", rule: r, why: "File is covered by a Read deny rule in your permission settings and cannot be " + (tool === "write" ? "written." : "edited.") };
   } else {
     const r = hit(rules.deny, "Read", "deny");
-    // (Grep's, Glob's and LSP's go by path rules only, so a match is a path's, Read(**) too: "Permission to read …".)
-    if (r) return { verdict: "deny", rule: r, why: isWhole(r) && !pathOnly ? "Permission to use " + name + " has been denied." : "Permission to read " + p + " has been denied." };
+    // (Grep's, Glob's and LSP's go by path rules only, so a match is a path's, Read(**) too: "Permission to read …", their read
+    // check's words. Read's own path rule, Read(**) too, in its words, Claude Code 2.1.325's Read validateInput: "File is in a
+    // directory that is denied by your permission settings."; one matching only where a link leads, its read check's.)
+    if (r) return { verdict: "deny", rule: r, why: isWhole(r) && !pathOnly ? "Permission to use " + name + " has been denied." : tool === "read" && fileRuleHit(rules.deny, "Read", p, "deny", { ...ctx, real: null }) ? "File is in a directory that is denied by your permission settings." : "Permission to read " + p + " has been denied." };
   }
   // ASK (the owner's rule asks each time: no "don't ask again" for it).
   // (Grep and Glob in Claude Code's words: a Read ask rule on the path, its read check's "Claude requested permissions to read
@@ -1878,13 +1884,18 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
     const sa = whole("ask") || globWhole("ask") || paramHit("ask");
     return sa ? { verdict: "ask", rule: sa, why: "Coder requested permissions to use " + name + ", but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }
+  // (LSP in Claude Code's order, as Grep's and Glob's: its own read check of the file first, so a Read ask rule on the file asks
+  // in that rule's words; then a rule on the whole tool or on one of its inputs, in Claude Code's words, "Claude requested
+  // permissions to use LSP, but you haven't granted it yet."; "Claude" is Coder here. 2026-11-14.)
+  if (tool === "lsp") {
+    const ra = hit(rules.ask, "Read", "ask");
+    if (ra) return { verdict: "ask", rule: ra, why: "Your rule " + ra + " asks first for reading " + p + "." };
+    const la = whole("ask") || globWhole("ask") || paramHit("ask");
+    return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
+  }
   const wa = (name !== "Read" && name !== "Edit" ? whole("ask") : "") || globWhole("ask");
-  // (An LSP rule on one of the call's inputs asks before a Read rule on its file, in Claude Code's words, as Grep's and Glob's.)
-  const pa = !wa && tool === "lsp" ? paramHit("ask") : "";
-  if (pa) return { verdict: "ask", rule: pa, why: "Coder requested permissions to use LSP, but you haven't granted it yet." };
   const a = wa || hit(rules.ask, edits ? "Edit" : "Read", "ask");
-  // (An lsp lookup reads its file: "reading", as for read. 2026-11-14.)
-  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" || tool === "lsp" ? "reading " : "searching ") + p + "." };
+  if (a) return { verdict: "ask", rule: a, why: "Your rule " + a + " asks first for " + (edits ? (tool === "write" ? "writing " : "editing ") : tool === "read" ? "reading " : "searching ") + p + "." };
   return { verdict: "", rule: "", why: "" };
 }
 /**

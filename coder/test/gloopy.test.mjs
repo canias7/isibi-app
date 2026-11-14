@@ -34,7 +34,11 @@ test("GL1 (2026-11-09) Gloopy's turn is sent with Gloopy's own instructions and 
   const c = scripted([say("Done.")]);
   await runCoder({ send: c.send, exec: async () => ({ code: 0, output: "" }) }, { text: "hello" });
   assert.ok(c.seen[0].messages[0].content.startsWith(CODER_SYSTEM));
-  assert.deepEqual(c.seen[0].tools.map((t) => t.function.name), CODER_TOOLS.map((t) => t.function.name));
+  // (With Claude Code's tool search since 2026-11-14: the tools it defers named in a note, tool_search after Coder's own;
+  // tool-search.test.mjs. Gloopy keeps its own ways: no tool_search, no such note.)
+  const { DEFERRED_TOOLS } = await import("../container/coder-toolsearch.mjs");
+  assert.deepEqual(c.seen[0].tools.map((t) => t.function.name), [...CODER_TOOLS.map((t) => t.function.name).filter((n) => !DEFERRED_TOOLS.includes(n)), "tool_search"]);
+  assert.ok(!g.seen[0].tools.some((t) => t.function.name === "tool_search") && !g.seen[0].messages.some((m) => m.toolsAnnounced));
 });
 
 test("GL2 (2026-11-09) a tool Gloopy was not offered is refused, even one of Coder's: it does nothing", async () => {

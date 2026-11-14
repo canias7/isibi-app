@@ -17,6 +17,52 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Tool search, like Claude Code (the last gaps, part 2)
+
+On my branch, not deployed yet.
+
+- **Coder now holds back the tools it uses less often, as Claude Code does:** lsp, web_fetch, web_search, monitor, stop_job, the task-list tools, the plan-mode tools, and your connectors' tools. A note tells Coder their names. When it needs one, it loads it with a new tool, `tool_search`. Once loaded, a tool stays for the rest of the chat, including after a summary.
+- **Always there, as in Claude Code:** bash, read, edit, write, grep, glob, ask_user, the environment tools, the key card, and Coder's own GitHub tools.
+- **Smaller requests:** a chat's first request to Grok is about 17,600 characters shorter (about a quarter of the tool text). A GitHub job's is about 13,300 shorter.
+- **Cost to know:** Grok keeps a cheaper saved copy of each chat (its cache). Each time Coder loads a tool, that copy is rebuilt once, from that point on. That's about 15 cents in a long chat of 100,000 tokens, and much less early in a chat. If that's ever a problem, Claude Code's own setting `ENABLE_TOOL_SEARCH=false` turns tool search off.
+- **Existing chats** keep all their tools until they're summarized (Claude Code's rule). Connectors' tools are now always held back; before, that only happened when there were very many.
+- **Not tried live with Grok yet:** whether Grok loads tools well. That's for the live test after you say deploy.
+- **Tests:** 18 new, and the tests that listed the tools updated. The helper's full run passed 1,004 of 1,005; the one failure only happens in a helper's copy of the repo.
+- **Both parts together:** after merging both helpers' work, the full test suite passed 1,011 of 1,011.
+
+## 2026-11-14: The last small gaps from Claude Code's docs, part 1 (your words: "yes start on that")
+
+On my branch, not deployed yet. You asked whether we got everything from Claude Code's docs for these tools. I listed what was still missing, and two helpers started on it. This is the first helper's part.
+
+- **The email check now also covers the environment tools and the key card,** as Claude Code's newest check does. The refusal names the tool Coder called.
+- **Hooks:** a hook that changes the file an lsp call looks at now gets lsp's "File does not exist" check. A hook's change to the result of the plan-mode tool or the older checklist tool is now checked like the rest. Both are copied from Claude Code's own program.
+- **Rules like `Grep(docs/**)`:** my list said Claude Code matches these, but the helper checked and it doesn't. Claude Code's docs say: "A Grep(docs/**) deny rule doesn't stop Grep from searching docs." So nothing changed, and a new test pins it.
+- **Wordings:** a read blocked by any Read path rule now says Claude Code's "File is in a directory that is denied by your permission settings." A plain lsp "ask" rule now says Claude Code's "Coder requested permissions to use LSP, but you haven't granted it yet."
+- **Tidy-up:** four copies of the same error-message code are now one.
+- **Tests:** 6 new, a few updated. The helper's full run passed 992 of 993; the one failure only happens in a helper's copy of the repo.
+- **Differences that are still there, for you to decide:**
+  - a `Read(**)` deny rule still takes the read tool away from Coder completely, where Claude Code keeps the tool and refuses each read;
+  - Claude Code refuses a blocked read or write before your hooks run, Coder after;
+  - the "ask" cards for read, write and edit use Coder's own wording, not Claude Code's "Coder requested permissions to read from <file>".
+
+## 2026-11-14: The six fixes are live on gofarther.dev, tested with Grok on Low (your word: "Ok")
+
+Merged to main and deployed; the deploy's own test run passed. Tested live in one chat on the test repo, with Grok on Low:
+
+1. **A card left unanswered** (a command needing approval): after 5 minutes the job paused and the card stayed open. Clicking Yes picked the turn up again in 19 seconds; the command ran and Coder answered. Passed.
+2. **Environment card, Approve:** the card waited inside the turn; the description was saved and Coder said so in the same turn. Passed.
+3. **Environment card, Decline after a pause:** this card also paused after 5 minutes. Declining it then gave Coder "Denied by owner", and the message I had sent while it waited was answered right after. Passed.
+4. **list_environments and get_environment** gave the names and the description. Passed.
+5. **Question card with previews:** each option showed a small layout drawing, and there was a Notes box; my pick and my note came back to Coder. Passed.
+6. **Plan mode:** Coder switched itself into Plan with no card (4 seconds), looked around, wrote its plan and showed the plan card. I said No with a note, and Coder answered "No changes: the plan was only a test and was not applied." Passed.
+7. **Web search (one paid search):** Coder asked first, made one search (10 links) and answered "26.13.1". xAI took the new search settings with no error. Coder's records don't keep xAI's own count of searches, so the 8-search limit itself can't be seen from here.
+8. **lsp:** a file with a type error gave "Found 1 new diagnostic issue in 1 file". Passed.
+9. The test description was cleared again, so the test environment is as it was.
+
+**Found and fixed (on my branch, not deployed yet):** approving a change to only the description showed "The environment changed: network Limited, from now on in this job.", though the network hadn't changed. Now only a network change is sent to running chats. New test EN15.
+
+My test script also clicked a button that the page had just redrawn, once. That was a problem in my script, not in Coder, and it's fixed.
+
 ## 2026-11-14: lsp (code checking) like Claude Code's newest version (your words: "Fix base on Claude Code docs, please.")
 
 On my branch, not deployed yet. Fix 6 of 6. lsp is the tool that asks a language server (a program that understands the code) for errors, definitions and the like.

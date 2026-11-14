@@ -4,7 +4,8 @@
  * changelog: it "also refuses your email as a client's identity in … web fetches"; read from its program, 2026-11-14). It
  * checks Bash, Monitor and PowerShell calls, and the scripts such a call names (up to 8, read from disk); Write's content,
  * Edit's new_string (not when its old_string already had it) and NotebookEdit's new_source; WebFetch's url (the address
- * anywhere in it); and every MCP call (Coder's connector tools). A call is refused, without asking, in every mode, after
+ * anywhere in it); and every MCP call (Coder's connector tools, and its environment tools and request_secret, which are Claude
+ * Code's claude-code-remote MCP tools: REMOTE_TOOLS). A call is refused, without asking, in every mode, after
  * the owner's deny rules (Claude Code's plugin runs the permission check first and keeps its deny), in Claude Code's words
  * with Coder's ("the owner" for "the person"); Coder is told "Permission to use <Tool> denied by plugin cc-plugin-privacy: …",
  * as Claude Code tells its model.
@@ -100,6 +101,13 @@ export const SHELL_TOOLS = Object.freeze(["Bash", "Monitor", "PowerShell"]);
 /** The tools of which one field is read: the one that goes out. */
 export const FIELD_TOOLS = new Map([["Write", "content"], ["Edit", "new_string"], ["NotebookEdit", "new_source"], ["WebFetch", "url"]]);
 export const MCP_TOOL = /^mcp__/;
+/**
+ * CLAUDE CODE'S NAMES FOR CODER'S ENVIRONMENT TOOLS AND request_secret: in its cloud sessions these are its claude-code-remote
+ * MCP server's tools (mcp__claude-code-remote__get_environment, …, …request_credential), so its check reads each call's whole
+ * input as any MCP call's, with no exception for that server (2.1.325: the check's hook takes every tool matching /^mcp__/,
+ * and a deny from it stands for a remote session's MCP call too). 2026-11-14.
+ */
+export const REMOTE_TOOLS = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(["get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "request_secret"].map((t) => [t, "mcp__claude-code-remote__" + (t === "request_secret" ? "request_credential" : t)]))));
 /** Whether the check reads a tool's calls (by Claude Code's name for it; a connector's is its own, mcp__<server>__<tool>). */
 export const checkedTool = (tool) => SHELL_TOOLS.includes(tool) || FIELD_TOOLS.has(tool) || MCP_TOOL.test(String(tool || ""));
 /** One field's text (Claude Code's fieldText), with `cut` taken out of a string first. */

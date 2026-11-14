@@ -145,7 +145,8 @@ test("CD382c the files Coder's commands name go by the owner's Read and Edit rul
 
 test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep and glob (and the folder a search starts in) in Claude Code's words before anything runs; a Read deny refuses write and edit too; an Edit deny refuses them; an ask rule asks on a card; a search's results leave out what a deny rule covers; an @-mentioned file a rule covers is left out", async () => {
   const fd = (tool, path, rules) => P.fileToolDecision(tool, path, { rules, root: ROOT, home: HOME });
-  assert.deepEqual(fd("read", ROOT + "/.env", { deny: ["Read(.env)"] }), { verdict: "deny", rule: "Read(.env)", why: "Permission to read /work/shop/.env has been denied." });
+  // (Read's own words for a Read path rule, Claude Code 2.1.325's Read validateInput, since 2026-11-14.)
+  assert.deepEqual(fd("read", ROOT + "/.env", { deny: ["Read(.env)"] }), { verdict: "deny", rule: "Read(.env)", why: "File is in a directory that is denied by your permission settings." });
   assert.equal(fd("edit", ROOT + "/.env", { deny: ["Read(.env)"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be edited.");
   assert.equal(fd("write", ROOT + "/.env", { deny: ["Read(.env)"] }).why, "File is covered by a Read deny rule in your permission settings and cannot be written.");
   assert.equal(fd("edit", ROOT + "/locked/a.js", { deny: ["Edit(locked/**)"] }).why, "File is in a directory that is denied by your permission settings.");
@@ -181,7 +182,7 @@ test("CD382d Coder's file tools go by them too: a Read deny refuses read, grep a
     ask: async (pid) => { cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return { choice: "yes" }; },
   }, { text: "go", mode: "acceptEdits", rules: { allow: [], ask: ["Read(docs/**)"], deny: ["Read(.env)", "Edit(secrets/**)"] } });
   const out = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
-  assert.equal(out("r1"), "Permission to read /work/shop/.env has been denied.");
+  assert.equal(out("r1"), "File is in a directory that is denied by your permission settings.");
   assert.equal(out("e1"), "File is covered by a Read deny rule in your permission settings and cannot be edited.");
   assert.equal(out("w1"), "File is in a directory that is denied by your permission settings.");
   assert.ok(!tools.includes("edit") && !tools.includes("write"), "nothing was touched: " + tools.join(","));
@@ -213,4 +214,37 @@ test("CD382e the page: a card for a read or a search a rule asks about shows its
   assert.match(src, /For files, <code>Read\(\.\/\.env\)<\/code> or <code>Edit\(src\/\*\*\)<\/code>, written as in a \.gitignore: <code>\/\/<\/code> starts at the machine\\'s root, <code>~\/<\/code> at Coder\\'s home, any other path at the project\./);
   // The machine's image has the new module.
   assert.match(read("container/Dockerfile"), / coder-perms\.mjs coder-filerules\.mjs coder-hooks\.mjs /);
+});
+
+test("CD382f a Read(**) or Edit(**) rule is a path rule, in a path rule's words (Claude Code's parser makes only an empty or \"*\" content the whole tool): read's and write's and edit's refusals are their own (\"File is in a directory that is denied by your permission settings.\"), a match only where a link leads is the read check's; an LSP rule on the whole tool or an input asks in Claude Code's words, after a Read ask rule on the file", () => {
+  const fd = (tool, path, rules, extra = {}) => P.fileToolDecision(tool, path, { rules, root: ROOT, home: HOME, ...extra });
+  const DIR = "File is in a directory that is denied by your permission settings.";
+  // Read's: a path rule (Read(**) too) in the Read tool's own words (Claude Code 2.1.325's validateInput); the whole tool's.
+  for (const r of ["Read(**)", "Read(src/**)", "Read(//**)"]) assert.deepEqual(fd("read", ROOT + "/src/a.js", { deny: [r] }), { verdict: "deny", rule: r, why: DIR }, r);
+  for (const r of ["Read", "Read(*)"]) assert.equal(fd("read", ROOT + "/src/a.js", { deny: [r] }).why, "Permission to use Read has been denied.", r);
+  // A link to a denied file: the path asked for is not covered, where it leads is (Claude Code's read check, after its
+  // validateInput passed the path as asked).
+  const real = (p) => (p === ROOT + "/key" ? HOME + "/.ssh/id_rsa" : p);
+  assert.equal(fd("read", ROOT + "/key", { deny: ["Read(~/.ssh/**)"] }, { real }).why, "Permission to read /work/shop/key has been denied.");
+  // Grep's, Glob's and LSP's: their read check's words, as before.
+  assert.equal(fd("grep", ROOT + "/src", { deny: ["Read(**)"] }).why, "Permission to read /work/shop/src has been denied.");
+  assert.equal(fd("lsp", ROOT + "/src/a.js", { deny: ["Read(**)"] }).why, "Permission to read /work/shop/src/a.js has been denied.");
+  // Edit's and Write's: an Edit path rule, Edit(**) too, in their own words; the whole tool's as before.
+  for (const tool of ["edit", "write"]) {
+    assert.deepEqual(fd(tool, ROOT + "/src/a.js", { deny: ["Edit(**)"] }), { verdict: "deny", rule: "Edit(**)", why: DIR }, tool);
+    assert.equal(fd(tool, ROOT + "/src/a.js", { deny: ["Edit(*)"] }).why, "Permission to use " + (tool === "edit" ? "Edit" : "Write") + " has been denied.", tool);
+  }
+  // Their asks were already a path rule's words (Coder's card): Read(**) and Edit(**) the same as any path.
+  assert.equal(fd("read", ROOT + "/a.md", { ask: ["Read(**)"] }).why, "Your rule Read(**) asks first for reading /work/shop/a.md.");
+  assert.equal(fd("edit", ROOT + "/a.md", { ask: ["Edit(**)"] }).why, "Your rule Edit(**) asks first for editing /work/shop/a.md.");
+  // LSP: a rule on the whole tool, or on one of its inputs, in Claude Code's words ("Claude requested permissions to use LSP,
+  // but you haven't granted it yet."); a Read ask rule on its file first, in that rule's words, as Claude Code's own read
+  // check of the file asks before them.
+  const lsp = (rules) => P.fileToolDecision("lsp", ROOT + "/src/a.py", { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, input: { operation: "hover", filePath: "src/a.py", line: 1, character: 1 } });
+  const USE = "Coder requested permissions to use LSP, but you haven't granted it yet.";
+  for (const r of ["LSP", "LSP(*)", "LS*"]) assert.deepEqual(lsp({ ask: [r] }), { verdict: "ask", rule: r, why: USE }, r);
+  assert.deepEqual(lsp({ ask: ["LSP(operation:hover)"] }), { verdict: "ask", rule: "LSP(operation:hover)", why: USE });
+  for (const r of ["LSP", "LSP(operation:hover)"]) assert.deepEqual(lsp({ ask: [r, "Read(src/**)"] }), { verdict: "ask", rule: "Read(src/**)", why: "Your rule Read(src/**) asks first for reading /work/shop/src/a.py." }, r);
+  assert.equal(lsp({ ask: ["LSP"], deny: ["Read(src/**)"] }).verdict, "deny", "a deny first");
+  assert.deepEqual(lsp({ ask: ["Grep"] }), { verdict: "", rule: "", why: "" }, "another tool's rule");
 });

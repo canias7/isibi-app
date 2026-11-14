@@ -93,7 +93,13 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
   // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
   // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
-  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"]);
+  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review"];
+  const { CODER_TOOLS } = await import("../container/coder-agent.mjs");
+  assert.deepEqual(CODER_TOOLS.map((t) => t.function.name), all);
+  // (Since 2026-11-14, Claude Code's tool search: the tools it defers are named in a note and sent once loaded, and tool_search
+  // comes after Coder's own; coder-toolsearch.mjs, tool-search.test.mjs.)
+  const { DEFERRED_TOOLS } = await import("../container/coder-toolsearch.mjs");
+  assert.deepEqual(s.seen[0].tools.map((t) => t.function.name), [...all.filter((n) => !DEFERRED_TOOLS.includes(n)), "tool_search"]);
   // the command's real result reached the AI on the next round
   assert.match(JSON.stringify(s.seen[2].messages), /hello from coder/);
 });
@@ -1228,7 +1234,8 @@ test("CD44 pictures and @files: pictures are checked, sent to Grok with that mes
   // The loop sends it once; the saved history keeps a note instead.
   const seen = [];
   const r = await runCoder({ send: async (req) => { seen.push(req); return { message: { role: "assistant", content: "I see a blue button." } }; }, exec: async () => ({ code: 0, output: "" }) }, { text: "what is this?", images: [{ type: "image/png", data: png }, { type: "text/plain", data: "x" }] });
-  assert.deepEqual(seen[0].messages.at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
+  // (Tool search's note on the chat's deferred tools follows the owner's message: tool-search.test.mjs.)
+  assert.deepEqual(seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).images, ["data:image/png;base64," + png], "only real pictures go");
   assert.deepEqual(r.messages[0], { role: "user", content: "what is this?\n[1 picture attached]" });
   const ui = readFileSync(HERE("public/coder.js"), "utf8");
   assert.match(ui, /id="cdAttach"/);
@@ -1240,7 +1247,7 @@ test("CD45 the chat shows what the owner typed; Coder also gets the notes added 
   const events = []; const seen = [];
   await runCoder({ send: async (r) => { seen.push(r); return { message: { role: "assistant", content: "ok" } }; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "fix @a.js\n\n(The owner pointed at these files: a.js.)", shown: "fix @a.js" });
   assert.equal(events.find((e) => e.type === "user").text, "fix @a.js");
-  assert.match(seen[0].messages.at(-1).content, /pointed at these files: a\.js/);
+  assert.match(seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).content, /pointed at these files: a\.js/);
 });
 
 test("CD46 Review and Security review: the request is written on the server; Coder only reads and reports; the chat shows the short label", async () => {
@@ -2311,7 +2318,8 @@ test("CD82 (owner 2026-11-06) the chat's top bar stays on one line on a computer
 
 test("CD83 (recorded browser test, 2026-11-06) when the owner changes the setup script or network in Environment between messages, Coder is told in the message itself", async () => {
   const m = await envMachine([say("Done.", [])]);
-  const userMsg = () => String((m.seen[0].messages.filter((x) => x.role === "user").pop() || {}).content || "");
+  // (Less tool search's note on the chat's deferred tools, which follows the owner's message: tool-search.test.mjs.)
+  const userMsg = () => String((m.seen[0].messages.filter((x) => x.role === "user" && !x.toolsAnnounced).pop() || {}).content || "");
   try {
     await m.run({ setup: { script: "echo one", network: { mode: "full" } } });
     assert.equal(userMsg(), "go", "the first message on a machine: nothing to tell");

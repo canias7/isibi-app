@@ -153,7 +153,8 @@ test("WS5 in the loop: Grok's web_search call runs as its own Grok call (the cha
   assert.deepEqual([res.code, res.output], [0, "https://nodejs.org/en/blog"]);
   assert.ok(t.r.usage.some((u) => u.searches === 1 && u.cost_ticks === 5000), "the search's own call is in the usage");
   const main = t.seen.filter((q) => !q.webSearch);
-  assert.ok(main.every((q) => q.webSearch === undefined) && main[0].tools.some((x) => x.function.name === "web_search"), "Coder's calls offer the tool, never xAI's own search");
+  // (Offered: one of the tools Claude Code defers, named in tool search's note until loaded; tool-search.test.mjs.)
+  assert.ok(main.every((q) => q.webSearch === undefined) && main[0].messages.some((m) => m.toolsAnnounced && m.toolsAnnounced.added.includes("web_search")), "Coder's calls offer the tool, never xAI's own search");
   const pre = t.hookCalls.find((x) => x.hook_event_name === "PreToolUse");
   assert.deepEqual([pre.tool_name, pre.tool_input], ["WebSearch", { query: "node latest", blocked_domains: ["w3schools.com"] }], "after the input check: `mode` dropped");
   const post = t.hookCalls.find((x) => x.hook_event_name === "PostToolUse");
@@ -348,7 +349,8 @@ test("WEB1 WebSearch's rules as Claude Code 2.1.325 takes them: WebSearch(*) is 
   const t = await job([say("", [call("web_search", { query: "node latest" }, "w1"), call("web_search", { query: "node lts" }, "w2")]), say("ok")], { rules: { deny: ["WebSearch(query:node latest)"] } });
   assert.equal(t.told("w1"), "Permission to use WebSearch with query:node latest has been denied.");
   assert.equal(t.searches.length, 1);
-  assert.ok(t.seen[0].tools.some((x) => x.function.name === "web_search"));
+  // (Offered: named in tool search's note as a deferred tool, as Claude Code defers its WebSearch; tool-search.test.mjs.)
+  assert.ok(t.seen[0].messages.some((m) => m.toolsAnnounced && m.toolsAnnounced.added.includes("web_search")));
 });
 
 test("WEB2 at most 8 searches a call, Claude Code's max_uses: xAI's max_turns does not limit its searches (\"During a single turn, the model may invoke multiple tools in parallel\"), so the search's request has 8 turns of one tool call each (parallel_tool_calls off)", async () => {

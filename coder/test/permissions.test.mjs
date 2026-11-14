@@ -257,7 +257,9 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   ];
   const { r, cards, seen, ran } = await job(steps, { mode: "plan", answers: [{ choice: "no", comment: "no files yet, just plan" }, { choice: "acceptEdits" }, { choice: "yes" }] });
   assert.match(seen[0].messages[0].content, /PERMISSION MODE: Plan \(the owner's pick\)\.\nPlan mode is active\./);
-  assert.ok(seen[0].tools.some((t) => t.function.name === "exit_plan_mode"));
+  // (Offered: one of the tools Claude Code defers, named in tool search's note until loaded; tool-search.test.mjs.)
+  const offered = (q) => [...q.tools.map((t) => t.function.name), ...q.messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
+  assert.ok(offered(seen[0]).includes("exit_plan_mode"));
   assert.deepEqual(cards.map((c) => c.tool), ["write", "plan", "bash"], "ls ran without a card");
   assert.equal(cards[0].path, "notes.md");
   assert.equal(cards[0].why, "Plan mode is on: files change only after you approve the plan.");
@@ -277,7 +279,9 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
 test("CD318 a plan declined with what to change keeps plan mode and Coder revises it; exit_plan_mode outside plan mode is refused", async () => {
   const a = await job([say("", [call("exit_plan_mode", { plan: "1. Rewrite everything" }, "x1")]), say("", [call("exit_plan_mode", { plan: "1. Fix only the cart" }, "x2")]), say("Done.")], { mode: "plan", answers: [{ choice: "no", comment: "smaller, just the cart" }, { choice: "auto" }] });
   assert.equal(a.seen[1].messages.find((m) => m.tool_call_id === "x1").content, REJECTED_SAID + "smaller, just the cart");
-  assert.ok(a.seen[1].tools.some((t) => t.function.name === "exit_plan_mode"), "still in plan mode");
+  // (exit_plan_mode, one of the tools Claude Code defers, called before it was loaded: tool-search.test.mjs.)
+  assert.ok(a.seen[1].messages.some((m) => m.toolsAnnounced && m.toolsAnnounced.added.includes("exit_plan_mode")), "still in plan mode");
+  assert.match(a.seen[1].messages[0].content, /PERMISSION MODE: Plan/, "still in plan mode");
   assert.equal(a.r.mode, "auto");
   const b = await job([say("", [call("exit_plan_mode", { plan: "x" }, "x1")]), say("ok")], { mode: "auto" });
   assert.equal(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");

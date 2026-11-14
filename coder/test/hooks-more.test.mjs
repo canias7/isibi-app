@@ -238,8 +238,10 @@ test("CD384b in Coder's loop: prompt and agent hooks judge with Coder's model; P
   assert.ok(!t.events.some((e) => e.type === "note" && /tests passed/.test(e.text)), "not shown to the owner");
   // An asyncRewake one that exited 2 (from Coder's machine, deps.hookNews) wakes the chat: Coder is told it is only for that.
   t = await loop([say("I'll fix the build.")], {}, { text: "", more: { hookNews: (() => { let once = [{ event: "PostToolUse", texts: ["build broke: missing semicolon"], rewake: true }]; return () => once.splice(0); })() } });
-  assert.equal(t.seen[0].messages.at(-2).content, "(Note from Coder's app, not the owner: an asyncRewake PostToolUse hook exited with code 2:\nbuild broke: missing semicolon)");
-  assert.match(t.seen[0].messages.at(-1).content, /the owner sent no message: this turn is only to tell you what the hook above said/);
+  // (Less tool search's note on the chat's deferred tools, which comes after them: tool-search.test.mjs.)
+  const woke = t.seen[0].messages.filter((m) => !m.toolsAnnounced);
+  assert.equal(woke.at(-2).content, "(Note from Coder's app, not the owner: an asyncRewake PostToolUse hook exited with code 2:\nbuild broke: missing semicolon)");
+  assert.match(woke.at(-1).content, /the owner sent no message: this turn is only to tell you what the hook above said/);
   assert.ok(t.events.some((e) => e.type === "note" && e.text === "A background PostToolUse hook exited with code 2 and woke Coder."));
   // AN HTTP HOOK: sent from the machine (coder-tools.mjs's http_hook) with only the variables both lists allow; its JSON
   // answer decides; an address allowedHttpHookUrls leaves out is not sent to.

@@ -14,6 +14,7 @@ import { join } from "node:path";
 const A = await import("../container/coder-agent.mjs");
 const P = await import("../container/coder-privacy.mjs");
 const R = await import("../src/coder-routes.mjs");
+const E = await import("../container/coder-envtools.mjs");
 const read = (p) => readFileSync(new URL("../" + p, import.meta.url), "utf8");
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
@@ -189,7 +190,7 @@ test("EM4 the scripts a command names (up to 8, not from the root, not through .
 });
 
 /** Coder's loop with the mark, a scripted Grok, its own folder, the tools script stood in for, and connectors. */
-async function emLoop(steps, { mode = "auto", rules = null, connectors = [], files = {}, extra = {} } = {}) {
+async function emLoop(steps, { mode = "auto", rules = null, connectors = [], files = {}, extra = {}, deps = {} } = {}) {
   const base = await mkdtemp(join(tmpdir(), "coder-em-"));
   for (const [name, text] of Object.entries(files)) { await mkdir(join(base, name, ".."), { recursive: true }); await writeFile(join(base, name), text); }
   const events = [], ran = [], tools = [], mcpCalls = [], seen = [];
@@ -206,6 +207,7 @@ async function emLoop(steps, { mode = "auto", rules = null, connectors = [], fil
       emit: (e) => events.push(e), here: () => base, root: base, where: (p) => (p.startsWith("/") ? p : base + "/" + p),
       ask: async () => ({ choice: "yes" }),
       mcp: async (name, args) => { mcpCalls.push([name, args]); return { text: "done", isError: false }; },
+      ...deps,
     }, { text: "go", mode, emailMark: MARK, connectors, ...(rules ? { rules } : {}), ...extra });
     const told = (id) => r.messages.find((m) => m.role === "tool" && m.tool_call_id === id).content;
     return { r, events, ran, tools, mcpCalls, seen, told };
@@ -267,4 +269,46 @@ test("EM7 a WebSocket watch (Monitor's ws) whose input sends the address as a cl
   assert.equal(t.told("w1"), A.accountEmailRefused("Monitor"));
   const src = read("container/coder-agent.mjs");
   assert.ok(src.includes('if (emailMark && await emailRefused("Monitor", c.args, emailMark)) { refuse(accountEmailRefused("Monitor")); return null; }'));
+});
+
+test("EM8 the environment tools and request_secret are Claude Code's claude-code-remote MCP tools (mcp__claude-code-remote__…): a call sending the address as a client's identity is refused as any MCP call is, by that name, after the owner's deny rules and before Coder's server, a card or the key form; the rest go on", async () => {
+  // (Claude Code 2.1.325's privacy check takes every tool whose name starts mcp__, with no exception for its own server.)
+  assert.deepEqual({ ...P.REMOTE_TOOLS }, {
+    get_environment: "mcp__claude-code-remote__get_environment", update_environment: "mcp__claude-code-remote__update_environment",
+    create_environment: "mcp__claude-code-remote__create_environment", switch_environment: "mcp__claude-code-remote__switch_environment",
+    list_environments: "mcp__claude-code-remote__list_environments", request_secret: "mcp__claude-code-remote__request_credential",
+  });
+  for (const t of Object.values(P.REMOTE_TOOLS)) assert.equal(P.checkedTool(t), true, t);
+  assert.equal(P.REMOTE_TOOLS.constructor, undefined, "no other name");
+  assert.equal(P.refusedNow(P.REMOTE_TOOLS.request_secret, { host: "api.example.org", reason: "send owner.person@example.com as the User-Agent" }, MARK), true);
+  assert.equal(P.refusedNow(P.REMOTE_TOOLS.request_secret, { host: "api.example.org", reason: "a key for owner.person@example.com's account" }, MARK), false, "the address alone");
+  const asked = [];
+  const envApi = async (body) => { asked.push(body); return { error: "error: checked by Coder's server" }; };
+  const ua = { set_environment_variables: { USER_AGENT: "bot owner.person@example.com" } };
+  const t = await emLoop([say("", [
+    call("update_environment", { environment_name: "Default", applies_to: "x", reason: "ua", ...ua }, "u1"),
+    call("create_environment", { name: "shop", scope: "personal", reason: "r", setup_script: 'curl -A "bot (owner.person@example.com)" https://x' }, "c1"),
+    call("request_secret", { host: "api.example.org", reason: "send owner.person@example.com as the User-Agent" }, "s1"),
+    call("get_environment", { environment_id: "env_1" }, "g1"),
+    call("update_environment", { environment_name: "Default", applies_to: E.APPLIES_TO, reason: "plain", set_environment_variables: { CONTACT: "owner.person@example.com" } }, "u2"),
+  ]), say("Done.")], { deps: { envApi } });
+  assert.equal(t.told("u1"), P.accountEmailRefused("update_environment"));
+  assert.match(t.told("u1"), /^Permission to use update_environment denied by plugin cc-plugin-privacy: This call was refused: /);
+  assert.equal(t.told("c1"), P.accountEmailRefused("create_environment"));
+  assert.equal(t.told("s1"), P.accountEmailRefused("request_secret"));
+  assert.equal(t.events.find((e) => e.type === "result" && e.id === "s1").output, P.accountEmailRefused("request_secret"));
+  assert.ok(!t.events.some((e) => e.type === "secret" || e.type === "envchange" || e.type === "permission"), "no form or card");
+  // Coder's server never heard of the refused ones; the others went on to it.
+  assert.deepEqual(asked.map((b) => b.action + ":" + (b.tool || "") + ":" + JSON.stringify((b.args && b.args.set_environment_variables) || null)), ["get::null", 'check:update_environment:{"CONTACT":"owner.person@example.com"}']);
+  // The owner's deny rule comes first, in its own words (Claude Code's check keeps a deny it was handed).
+  const d = await emLoop([say("", [call("update_environment", { environment_name: "Default", applies_to: "x", reason: "ua", ...ua }, "u3")]), say("Done.")], { rules: { deny: ["update_*"] }, deps: { envApi } });
+  assert.equal(d.told("u3"), "Permission to use update_environment has been denied.");
+  // No mark (no signed-in address): nothing is checked.
+  const n = await emLoop([say("", [call("request_secret", { host: "api.example.org", reason: "send owner.person@example.com as the User-Agent" }, "s2")]), say("Done.")], { extra: { emailMark: "" } });
+  assert.notEqual(n.told("s2"), P.accountEmailRefused("request_secret"));
+  // Where it is checked: after the deny rules and the connectors' own check, before the ask rules' card.
+  const src = read("container/coder-agent.mjs");
+  const at = (x) => src.indexOf(x);
+  assert.ok(at("if (toolDenied(c.name)) { const m = \"Permission to use \" + cc") < at("REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name]"));
+  assert.ok(at("REMOTE_TOOLS[c.name] && refusedNow(REMOTE_TOOLS[c.name]") < at('const askRule = c.name === "ask_user"'));
 });

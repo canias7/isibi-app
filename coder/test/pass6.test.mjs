@@ -172,7 +172,8 @@ test("CD389 tool-name wildcards in deny and ask rules (Claude Code's \"Tool name
   assert.match(P.ruleProblem("b*"), /^Tool names must start with uppercase/);
 
   // IN THE LOOP: the tools Grok is offered.
-  const names = (t) => (t.seen[0].tools || []).map((x) => x.function.name);
+  // (Offered: sent, or named as deferred in tool search's note, coder-toolsearch.mjs; tool-search.test.mjs.)
+  const names = (t) => [...(t.seen[0].tools || []).map((x) => x.function.name), ...t.seen[0].messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
   let t = await job([say("ok")], { rules: { deny: ["*"], ask: [], allow: [] } });
   assert.deepEqual(names(t), [], "a deny on every tool: none offered, web_search too");
   assert.equal(t.seen[0].webSearch, undefined, "and no search of Grok's own in any call (2026-11-14: web_search is a tool)");
@@ -558,8 +559,9 @@ test("CD396 a command's own hosts in Auto mode (Claude Code's allowed_domains): 
   const hostsOf = (t, cmd) => (t.execs.find((x) => String(x.command).split("\n").pop() === cmd) || {}).hosts;
   const npm = (extra = {}) => say("", [call("bash", { command: "npm install left-pad", description: "Install", allowed_domains: ["registry.npmjs.org"], ...extra }, "b1")]);
   // Offered on bash and monitor where the gate can open hosts; not elsewhere.
-  let t = await job([say("ok")], { extra: { hostLists: "on" } });
-  const tool = (n) => t.seen[0].tools.find((x) => x.function.name === n).function.parameters.properties;
+  // (monitor is one of the tools Claude Code defers: loaded with tool_search first, as Coder would; tool-search.test.mjs.)
+  let t = await job([say("", [call("tool_search", { query: "select:monitor", max_results: 5 }, "s0")]), say("ok")], { extra: { hostLists: "on" } });
+  const tool = (n) => t.seen[1].tools.find((x) => x.function.name === n).function.parameters.properties;
   assert.equal(tool("bash").allowed_domains.description, A.HOSTS_DESC);
   assert.ok(tool("monitor").allowed_domains);
   t = await job([say("ok")], { extra: { hostLists: null } });

@@ -297,7 +297,9 @@ test("TK6 Claude Code's reminder: after 10 steps (each text and each tool call) 
   // Without task_update (a rule took it away): no reminder.
   t = await job(steps, { store, rules: { deny: ["TaskUpdate"], ask: [], allow: [] } });
   assert.ok(t.seen.every((req) => notes(req).length === 0));
-  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "task_update") && t.seen[0].tools.some((x) => x.function.name === "task_create"));
+  // (Offered: sent, or named in tool search's note as one of the tools Claude Code defers, as its Task tools; tool-search.test.mjs.)
+  const offered = (q) => [...q.tools.map((x) => x.function.name), ...q.messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
+  assert.ok(!offered(t.seen[0]).includes("task_update") && offered(t.seen[0]).includes("task_create"));
 });
 
 test("TK7 the chat's list on the machine: root's own file beside the chat's memory, written whole through a new file, never read through a link; the checklist the page shows is capped", async () => {
@@ -373,7 +375,9 @@ test("TK9 CLAUDE_CODE_ENABLE_TASKS=0 (Coder's CODER_ENABLE_TASKS, or the reposit
   const hooks = { PostToolUse: [{ matcher: "TodoWrite", hooks: [{ type: "command", command: "post.sh" }] }] };
   const list = [{ content: "Add tests", status: "in_progress", activeForm: "Adding tests" }, { content: "Ship", status: "pending", activeForm: "Shipping" }];
   const done = list.map((x) => ({ ...x, status: "completed" }));
-  let t = await job([say("", [call("todo_write", { todos: list }, "t1")]), say("", [call("todo_write", { todos: done }, "t2"), call("task_create", { subject: "a", description: "b" }, "c1")]), say("Done.")], { hooks, extra: { tasksOff: true }, deps: { todos } });
+  // (Where it stands among the tools, all upfront: ENABLE_TOOL_SEARCH=false. Under tool search, Claude Code's default, it is
+  // deferred as its TodoWrite is: tool-search.test.mjs.)
+  let t = await job([say("", [call("todo_write", { todos: list }, "t1")]), say("", [call("todo_write", { todos: done }, "t2"), call("task_create", { subject: "a", description: "b" }, "c1")]), say("Done.")], { hooks, extra: { tasksOff: true }, deps: { todos, toolSearch: "false" } });
   const names = t.seen[0].tools.map((x) => x.function.name);
   assert.ok(!names.some((n) => K.isTaskTool(n)), "no task tools");
   assert.equal(names[names.indexOf("enter_plan_mode") + 1], "todo_write", "in their place");
@@ -403,13 +407,15 @@ test("TK9 CLAUDE_CODE_ENABLE_TASKS=0 (Coder's CODER_ENABLE_TASKS, or the reposit
   assert.ok(notes(t.seen[5])[0].content.endsWith("[1. [in_progress] Add tests\n2. [pending] Ship])"));
   assert.ok(t.seen.every((req) => !req.messages.some((m) => typeof m.content === "string" && m.content.includes("The task tools haven't been used recently."))));
   // Rules on the task tools don't touch it; one on TodoWrite does.
+  // (Offered: sent, or named as deferred in tool search's note, as Claude Code defers its TodoWrite; tool-search.test.mjs.)
+  const offered = (q) => [...q.tools.map((x) => x.function.name), ...q.messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
   t = await job([say("ok")], { extra: { tasksOff: true }, rules: { allow: [], ask: [], deny: ["TaskCreate", "TaskGet", "TaskList", "TaskUpdate"] } });
-  assert.ok(t.seen[0].tools.some((x) => x.function.name === "todo_write"));
+  assert.ok(offered(t.seen[0]).includes("todo_write"));
   t = await job([say("ok")], { extra: { tasksOff: true }, rules: { allow: [], ask: [], deny: ["TodoWrite"] } });
-  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "todo_write" || K.isTaskTool(x.function.name)));
+  assert.ok(!offered(t.seen[0]).some((n) => n === "todo_write" || K.isTaskTool(n)));
   // With the task tools (the default): todo_write is no tool.
   t = await job([say("", [call("todo_write", { todos: list }, "t1")]), say("ok")]);
-  assert.ok(!t.seen[0].tools.some((x) => x.function.name === "todo_write"));
+  assert.ok(!offered(t.seen[0]).includes("todo_write"));
   assert.equal(t.told("t1"), "error: No such tool available: todo_write");
   // An agent with tools of its own (Gloopy, its own todo) is not changed by it.
   t = await job([say("ok")], { extra: { tasksOff: true, tools: G.GLOOPY_TOOLS.filter((x) => ["todo", "ask_user"].includes(x.function.name)) } });

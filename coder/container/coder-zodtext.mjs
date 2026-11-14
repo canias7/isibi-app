@@ -8,6 +8,8 @@
  * as JSON ("InputValidationError: [ … ]").
  *
  * No Node module here: Coder's Worker loads plan mode's words (coder-plan.mjs, through coder-perms.mjs), which use this file.
+ * The one copy of these words: coder-zod.mjs (hooks, grep, glob), coder-issues.mjs (web_fetch, web_search) and coder-lsp.mjs
+ * use this formatter (2026-11-14).
  */
 
 /** Claude Code's caps: the other issues listed (its Aun), and each one's message (its Ogr). */

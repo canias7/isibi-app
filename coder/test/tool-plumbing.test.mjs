@@ -55,7 +55,8 @@ test("TP1 a tool's result object travels behind FACTS_MARK: printed first as one
   const copy = readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8").split("\n").find((l) => /^COPY package\.json /.test(l));
   for (const f of ["coder-inputs.mjs", "coder-search.mjs", "coder-webfetch.mjs", "coder-websearch.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
   // (Not Claude Code's environment tools since 2026-11-14: theirs are checked after the PreToolUse hooks, test/env-tools.test.mjs.)
-  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["ask_user", "glob", "grep", "lsp", "web_fetch", "web_search"]);
+  // (And tool_search, Claude Code's ToolSearch, since 2026-11-14: coder-toolsearch.mjs, tool-search.test.mjs.)
+  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["ask_user", "glob", "grep", "lsp", "tool_search", "web_fetch", "web_search"]);
   assert.equal(I.inputCheckFor("read"), null);
   assert.equal(I.inputCheckFor("toString"), null);
 });

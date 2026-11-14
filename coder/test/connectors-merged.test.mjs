@@ -49,25 +49,27 @@ async function go({ steps, mode = "acceptEdits", rules = null, hooks = null, hoo
   const told = (id) => { for (const m of [...seen.flatMap((q) => q.messages), ...(r.messages || [])]) if (m && m.role === "tool" && m.tool_call_id === id) return m.content; return undefined; };
   return { r, seen, events, mcpCalls, cards, hookIns, order, told };
 }
+/** The tools a request offers: those it sends, and those tool search's note names as deferred (tool-search.test.mjs). */
+const offered = (req) => [...req.tools.map((x) => x.function.name), ...req.messages.filter((m) => m && m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
 const pre = (decision, reason) => JSON.stringify({ hookSpecificOutput: { hookEventName: "PreToolUse", permissionDecision: decision, permissionDecisionReason: reason } });
 
 test("MC18 (2026-11-13, merged with main's rules) a deny rule naming a connector tool, or every one (mcp__*), keeps it from Grok and refuses a call anyway in Claude Code's words; an ask rule asks once, not twice", async () => {
   const create = [say("", [call("mcp__linear__create_issue", { title: "Bug" }, "k1")]), say("ok")];
   // Every connector tool denied: none offered, and a call anyway is refused, never sent.
   let t = await go({ steps: create, rules: { deny: ["mcp__*"] } });
-  assert.ok(!t.seen[0].tools.some((x) => x.function.name.startsWith("mcp__") || x.function.name === "connector_search"), "no connector tool offered");
+  assert.ok(!offered(t.seen[0]).some((x) => x.startsWith("mcp__") || x === "connector_search"), "no connector tool offered");
   assert.equal(t.told("k1"), "Permission to use mcp__linear__create_issue has been denied.");
   assert.deepEqual(t.mcpCalls, []);
   // One tool denied by its own name: only that one is kept out.
   t = await go({ steps: [say("done")], rules: { deny: ["mcp__linear__create_issue"] } });
-  const names = t.seen[0].tools.map((x) => x.function.name).filter((x) => x.startsWith("mcp__"));
+  const names = offered(t.seen[0]).filter((x) => x.startsWith("mcp__"));
   assert.deepEqual(names, ["mcp__linear__list_issues"]);
   // All of one connector's tools, by its name alone (Claude Code: "mcp__puppeteer matches any tool provided by the puppeteer
   // server"); a name that is only the start of one names nothing.
   t = await go({ steps: [say("done")], rules: { deny: ["mcp__linear"] } });
-  assert.ok(!t.seen[0].tools.some((x) => x.function.name.startsWith("mcp__")));
+  assert.ok(!offered(t.seen[0]).some((x) => x.startsWith("mcp__")));
   t = await go({ steps: [say("done")], rules: { deny: ["mcp__lin"] } });
-  assert.equal(t.seen[0].tools.filter((x) => x.function.name.startsWith("mcp__")).length, 2);
+  assert.equal(offered(t.seen[0]).filter((x) => x.startsWith("mcp__")).length, 2);
   // Such rules are Claude Code's own and kept: parsed, saved, no warning.
   const P = await import("../container/coder-perms.mjs");
   assert.deepEqual([P.parseRule("mcp__linear__create_issue"), P.parseRule("mcp__linear"), P.parseRule("mcp__linear(x)")], [{ tool: "mcp__linear__create_issue", spec: null, mcp: true }, { tool: "mcp__linear", spec: null, mcp: true }, null]);

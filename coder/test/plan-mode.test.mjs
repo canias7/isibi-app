@@ -55,6 +55,10 @@ async function loop(steps, { mode = "plan", answers = [], hooks = null, hookRun 
     ask: async (pid) => { if (askWait) await new Promise((ok) => setTimeout(ok, askWait)); cards.push(events.find((e) => e.type === "permission" && e.pid === pid)); return answers[k++] || null; },
     ...(box ? { plan: box } : {}),
     ...(modeOf ? { mode: () => modeSet || modeOf(n), setMode: (m) => { modeSet = m; } } : {}),
+    // (Which plan tool is offered when, every tool upfront: ENABLE_TOOL_SEARCH=false. Under tool search, Claude Code's
+    // default since 2026-11-14, exit_plan_mode and enter_plan_mode are deferred, as its ExitPlanMode and EnterPlanMode:
+    // tool-search.test.mjs.)
+    toolSearch: "false",
     ...more,
   }, { text, mode, messages: [], ...(hooks ? { hooks: H.hooksFrom({ hooks }, "settings").list } : {}), ...extra });
   const told = (id) => (r.messages.find((m) => m.role === "tool" && m.tool_call_id === id) || {}).content;
