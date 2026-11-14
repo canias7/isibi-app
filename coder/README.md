@@ -340,7 +340,8 @@ code in **each user's own GitHub**.
      shade as shapes of their own (no ids, so no gradients), a shadow and feet, the
      knobs' grips, the ribbon spools and type basket, a ribbon that lifts as each bar
      strikes (`clg-rb`), and typewriter letters drawn as strokes, every line "fix bug"
-     so a line ends as the drawing began. Tests: `test/coder-logo.test.mjs`.
+     so a line ends as the drawing began. Red with a gold type bar since then (the owner's
+     pick of four colours). Tests: `test/coder-logo.test.mjs`.
 
    **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
    the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits

@@ -324,7 +324,9 @@ test("TW9 (2026-11-14, the owner: \"lets make it a bit more real, like more pres
   assert.doesNotMatch(svg, /\sid="|url\(#|Gradient/, "no ids, so no gradients");
   assert.match(svg, /^<svg class="cl-logo"[^>]*><ellipse cx="50" cy="94.4" rx="46" ry="3.4" fill="#0d1b2a" opacity=".14"\/>/, "first, its shadow on the desk");
   assert.equal((svg.match(/<ellipse cx="(25.4|74.6)" /g) || []).length, 6, "two ribbon spools (the ribbon, its metal, its hub)");
-  assert.match(svg, /<path d="M36.8 56.6A13.2 5.2 0 0 1 63.2 56.6Z" fill="#0a4540"\/>/, "the type basket's slot");
+  assert.match(svg, /<path d="M36.8 56.6A13.2 5.2 0 0 1 63.2 56.6Z" fill="#5e1b15"\/>/, "the type basket's slot");
+  // Red, the owner's pick of four colours (2026-11-14), with a gold type bar that shows against it.
+  assert.ok(svg.includes('fill="#c0392b"/>') && svg.includes('stroke="#f2c14e"') && !svg.includes("#0f766e"), "red, with a gold type bar");
   assert.equal((svg.match(/L[\d.]+ [\d.]+(?=M|")/g) || []).length >= 12, true, "its bars at rest, fanned");
   assert.equal((svg.match(/<rect x="(9.2|11.2|13.2|86|88|90)" y="39.6" width=".8" height="9.8"/g) || []).length, 6, "the knobs' grips");
   assert.equal((svg.match(/<rect x="(13|78)" y="90.6" width="9" height="4.2"/g) || []).length, 2, "its feet");

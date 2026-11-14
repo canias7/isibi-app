@@ -17,6 +17,10 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The typewriter logo is red (your pick of 4 colours: "Yeah, the three")
+
+On my branch, not deployed yet. Same typewriter, now red instead of teal, with a gold type bar so the strike shows against the red. It's red in all three places: the tab on the left, beside the chat's name, and big in an empty chat. All 9 logo tests pass (one now checks it's red).
+
 ## 2026-11-14: The typewriter logo, more real (your words: "lets make it a bit more real, like more present")
 
 On my branch, not deployed yet. Same sizes and places as before (the tab on the left, beside the chat's name, and big in an empty chat), and it still types while Coder works.
