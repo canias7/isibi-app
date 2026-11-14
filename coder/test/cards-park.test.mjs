@@ -169,7 +169,8 @@ test("CP4 No without a note ends the turn in Claude Code's words, the round's la
   const no = await takeUp(first, { choice: "no" });
   assert.equal(no.r.status, "done");
   assert.equal(no.seen.length, 0, "no call to Grok");
-  assert.deepEqual(tools(no.r), [["b1", REJECTED], ["b2", NOT_NOW]]);
+  // (Round 5: the later call, not started when the No came, gets Claude Code's rejection too, as its executor gives it.)
+  assert.deepEqual(tools(no.r), [["b1", REJECTED], ["b2", REJECTED]]);
   assert.equal(no.r.summary, "stopped: the owner said no");
   assert.deepEqual(no.events.map((e) => [e.type, e.id || e.pid, e.output || e.choice]), [["permanswer", first.r.parked.pid, "no"], ["result", "b1", "Not run: you said no."]]);
   assert.deepEqual(no.ran, []);
@@ -189,10 +190,14 @@ test("CP4 No without a note ends the turn in Claude Code's words, the round's la
 test("CP5 a question card (AskUserQuestion), the key card (request_credential) and the plan's card pause and are taken up the same way: the owner's picks, Skip, a reply typed in the chat, Saved, Decline, an approved plan switching the mode", async () => {
   const q = { questions: [{ question: "Which database?", header: "DB", options: [{ label: "Postgres", description: "SQL" }, { label: "SQLite", description: "a file" }], multiSelect: false }] };
   const ask = await loop([say("Let me ask.", [call("ask_user", q, "a1"), call("bash", { command: "echo after" }, "b1")])]);
-  assert.deepEqual([ask.r.status, ask.r.parked.kind, ask.r.parked.site, ask.r.parked.rest], ["parked", "question", "question", ["b1"]]);
+  // (Round 5: the command that only reads ran beside the question and returned before the job paused, so it keeps its result in
+  // the chat, as Claude Code's session keeps it, and the record holds no later call; it is not run again.)
+  assert.deepEqual([ask.r.status, ask.r.parked.kind, ask.r.parked.site, ask.r.parked.rest], ["parked", "question", "question", []]);
+  assert.deepEqual(tools(ask.r), [["b1", "ran: echo after"]]);
   assert.equal(ask.asked[0].o.chat, true, "a message typed while it waits is its reply");
   const picked = await takeUp(ask, { choice: "answers", picks: [{ options: [1], other: "" }] });
   assert.equal(picked.r.messages.find((m) => m.tool_call_id === "b1").content, "ran: echo after", "the round goes on");
+  assert.deepEqual(picked.ran, [], "nothing run again");
   assert.match(picked.r.messages.find((m) => m.tool_call_id === "a1").content, /^Your questions have been answered: "Which database\?"="SQLite"\./);
   assert.equal((await takeUp(ask, { choice: "skip" })).r.messages.find((m) => m.tool_call_id === "a1").content, "The owner did not answer the questions.");
   const reply = await takeUp(ask, { choice: "chat", text: "use mysql", qid: "qabc1234" });

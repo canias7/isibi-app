@@ -35,7 +35,7 @@ import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
 // (A reply's calls side by side, in Claude Code's groups: coder-parallel.mjs. 2026-11-14.)
-import { safeCall, groupEnd, earlyRuns } from "./coder-parallel.mjs";
+import { safeCall, groupEnd, earlyRuns, RoundClosing, closedAs } from "./coder-parallel.mjs";
 import { searchToolDef, GREP_INLINE_MAX, GLOB_INLINE_MAX, SEARCH_TIMEOUT_MS, splitPattern, checkedAt } from "./coder-search.mjs";
 import { LSP_DESCRIPTION, LSP_PROPERTIES, LSP_REQUIRED, LSP_RESULT_MAX, needsKeeper, noticeText } from "./coder-lsp.mjs";
 import { WEB_SEARCH_TOOL, SEARCH_UNGRANTED, searchDecision, searchAskText, searchBudget, searchMaxOf, searchRefillsOf, usedUpText, searchText, searchShown, runWebSearch, checkInput as checkSearchInput, searchModeTools, SEARCH_MODE_NOTE, hookParamsFor } from "./coder-websearch.mjs";
@@ -1882,7 +1882,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // the card's pid and the owner's answer, used once), and the mode its card was shown in, kept for that call (`modePin`).
   let taking = null, modePin = "";
   const emit = (e) => { if (taking && !taking.used && e && e.type === "bash" && e.id === taking.callId) return; if (e && e.type === "result" && typeof e.id === "string") { resultsSeen.set(e.id, e); doneAt.set(e.id, earlyDone.has(e.id) ? earlyDone.get(e.id) : now()); } try { if (typeof deps.emit === "function") deps.emit({ at: now(), ...e, ...(background && CARDS.has(e.type) ? { expires: now() + CARD_TTL_MS } : {}) }); } catch { /* the record never costs the run */ } };
-  const stopped = async () => { try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
+  // (A ROUND ENDING EARLY, in Coder's own runs: the owner's No, their Stop, or a card left open that pauses the job. Its later
+  // calls that ran beside the one that ended it and had their results take their turns then, with nothing else stopping them
+  // (`stopped` answers no meanwhile); the others get their answers at once: coder-parallel.mjs's closedAs. Round 5.)
+  let closing = null;
+  const stopped = async () => { if (closing) return false; try { return typeof deps.stopped === "function" && (await deps.stopped()) === true; } catch { return false; } };
+  // (When the owner pressed Stop, as Coder's machine noted it: a call whose result came before then keeps it.)
+  const stopTime = () => { try { const x = typeof deps.stoppedAt === "function" ? Number(deps.stoppedAt()) : 0; return x > 0 ? x : now(); } catch { return now(); } };
   // THE PERMISSION MODE (the owner, 2026-11-09: "lets build the permission things"; Claude Code's Auto, Accept edits and
   // Plan): the owner's pick for this chat, which they may change while Coder works (deps.mode, from Coder's machine), and
   // which a card may change (switch to Auto; an approved plan). A job from GitHub, where no one can answer, is always Auto.
@@ -2142,6 +2148,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   /** The card's ending as the page shows it, when one of its PermissionRequest hooks decided first: its answer, marked. */
   const hookEnding = (pid, answer) => emit({ type: "permanswer", pid, choice: answer.choice === "yes" || answer.choice === "stop" ? answer.choice : "no", hook: true });
   const askOwner = async (card, { hooks = true } = {}) => {
+    // (A round that ended early shows no card: the call is answered as its end answers it, by Coder's loop. Round 5.)
+    if (closing) throw new RoundClosing(closing.why);
     // (The card of the call taken up again after its job paused: its answer came with this job, so no hook or card again.)
     const owed = owedTo(card && card.id);
     // (Its PermissionRequest hooks: cardHooks, beside the card, cardRace.)
@@ -2724,13 +2732,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const a = canAsk() ? await askOwner(wsCard) : await noOneHooks(wsCard);
       if (!a) { refuse("not run: " + (dec.rule ? "the owner's rule " + dec.rule + " asks them first" : "the owner must approve opening a WebSocket to " + (host || "this address")) + ", and no one can answer here"); return null; }
       const o = answerOutcome(a);
-      if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
+      if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return { end: stopNow(reply) }; }
       if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return { end: end("time") }; }
       if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(a), ...saidMarks(a) }); reply(saidReply(a)); return null; }
-      if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return { end: end("done", { summary: lastSaid || "stopped: the owner said no" }) }; }
+      if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return { end: noEnd(i, "stopped: the owner said no") }; }
       if (dec.paused) resume(dec.paused);
     }
-    if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return { end: end("stopped") }; }
+    if (await stopped()) return { end: stopNow(reply) };
     const limitMs = monitorMs(c.args.timeout_ms);
     const req = Buffer.from(JSON.stringify({ tool: "ws_watch", args: { url, protocols: Array.isArray(ws.protocols) ? ws.protocols : [] } })).toString("base64");
     let r;
@@ -3395,6 +3403,37 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // coder-parallel.mjs.)
   let jobOver = false;
   const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
+  // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
+  // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
+  // rejection (REJECTED; after a Stop, with its "Correction to the text above: this call was stopped while running …",
+  // STOPPED_RUNNING) and one not started its rejection, then asks the model nothing more. Gloopy keeps its own ways: its later
+  // calls not done now after a No, and "stopped by the owner".
+  // (`answeredNow`: whether a call of the chat has its answer already: one that ran beside a card that paused the job, say.)
+  const answeredNow = (id) => convo.some((m) => m && m.role === "tool" && m.tool_call_id === id);
+  /** Closing mode from now (the first reason counts), and what a call's turn throws to go on to the next call. */
+  const closeRound = (why, summary = "") => { if (!closing) closing = { why, at: why === "stop" ? stopTime() : now(), summary }; return new RoundClosing(closing.why); };
+  /** The owner's No without words on call `i`'s card (its own answer given already): Gloopy's job ends as before; Coder's round closes. */
+  const noEnd = (i, summary) => {
+    if (offered) { for (const rest of calls0.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || summary }); }
+    throw closeRound("no", summary);
+  };
+  /**
+   * THE OWNER'S STOP, MET IN A CALL'S TURN: the call is told so (`said`; by default, for a call that was not running, Claude
+   * Code's rejection, and Gloopy's "stopped by the owner"); Gloopy's job ends; Coder's round closes.
+   */
+  const stopNow = (reply, said = "") => {
+    reply(said || (offered ? "stopped by the owner" : REJECTED));
+    if (offered) { emit({ type: "stopped" }); return end("stopped"); }
+    throw closeRound("stop");
+  };
+  /** Whether the owner's Stop came while this call's own run went (its result, if it ran early, came after it): Coder's runs. */
+  const ranIntoStop = async (id) => {
+    if (offered || !(await stopped())) return false;
+    const at = typeof deps.stoppedAt === "function" ? Number(deps.stoppedAt()) || 0 : 0;
+    const done = earlyDone.get(id);
+    return !(at > 0 && done > 0 && done <= at);
+  };
 
   // THE OWNER'S /compact [what to keep] (round 5 of the live test, 2026-11-12, the owner: "fix all 10": Coder's server made the
   // summary away from the chat's machine, so its hooks never ran). Claude Code's, here, where the hooks are: PreCompact hooks
@@ -3467,7 +3506,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (rec.site === "plan") resultsSeen.set(c.id, { code: -1, ran: false });
       if (!no.comment) {
         convo.push({ role: "tool", tool_call_id: c.id, content: REJECTED });
-        for (const id of rec.rest) convo.push({ role: "tool", tool_call_id: id, content: NOT_NOW });
+        // (The round's later calls with no answer yet get Claude Code's rejection too, as its executor gives the calls it had
+        // not started when the No aborted the turn; those that ran beside the card kept their results when the job paused.)
+        for (const id of rec.rest) if (!answeredNow(id)) convo.push({ role: "tool", tool_call_id: id, content: REJECTED });
         convo.push(...held);
         return end("done", { summary: rec.site === "plan" ? "the plan was not approved" : "stopped: the owner said no" });
       }
@@ -3483,14 +3524,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
    * Coder was last told of, kept (coder-park.mjs). The pictures a read opened earlier in the round are too big to keep: Coder
    * is told to read them again.
    */
+  // (Round 5: the calls after it that ran beside its card and had their results took their turns first, closing mode, so their
+  // answers are in the chat, and `rest` holds only those still without one.)
   const parkEnd = (p) => {
-    const r = lastRound, c = r ? r.calls[r.at] : null;
+    const r = lastRound, at = closing && closing.why === "park" && Number.isInteger(closing.i) ? closing.i : r ? r.at : 0, c = r ? r.calls[at] : null;
     if (!c) return end("done", { summary: lastSaid || PARKED_SUMMARY });
     const notes = r.notes.slice();
     const pics = r.pics.filter((x) => x.path !== "the browser");
     if (pics.length) { const n = pics.reduce((a, x) => a + x.urls.length, 0); notes.push("The picture" + (n === 1 ? "" : "s") + " your read opened earlier in this round (" + pics.map((x) => x.path).join(", ") + ") " + (n === 1 ? "is" : "are") + " no longer attached, as this job paused for the owner's answer: read " + (n === 1 ? "it" : "them") + " again if you need to see " + (n === 1 ? "it" : "them") + "."); }
-    const rec = { pid: p.pid, kind: p.kind, site: p.site, call: keptCall(c), rest: r.calls.slice(r.at + 1).map((x) => x.id), mode: p.mode, told: toldMode, rounds, notes, shown: r.shown.slice(), ...(p.card ? { card: p.card } : {}), at: p.at, ...(held && held.length ? { held } : {}) };
+    const rec = { pid: p.pid, kind: p.kind, site: p.site, call: keptCall(c), rest: r.calls.slice(at + 1).filter((x) => !answeredNow(x.id)).map((x) => x.id), mode: p.mode, told: toldMode, rounds, notes, shown: r.shown.slice(), ...(p.card ? { card: p.card } : {}), at: p.at, ...(held && held.length ? { held } : {}) };
     return end("parked", { parked: rec, summary: lastSaid || PARKED_SUMMARY });
+  };
+  /** THE JOB'S END FOR A ROUND THAT ENDED EARLY (round 5): a pause as a card left open pauses it; a Stop; a No. */
+  const closedEnd = () => {
+    if (closing.why === "park") return parkEnd(closing.p);
+    if (closing.why === "stop") { emit({ type: "stopped" }); return end("stopped"); }
+    return end("done", { summary: lastSaid || closing.summary });
   };
   try {
   while (true) {
@@ -3780,6 +3829,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (A PostToolUse hook's new output takes the place of the call's pictures too, its own picture shown instead.)
     const runPost = async () => { const pc = postFor; postFor = null; if (!pc) return; const got = await postHooks(pc); if (!got) return; for (let k = roundPics.length - 1; k >= 0; k--) if (roundPics[k].id === pc.id) roundPics.splice(k, 1); if (got.pics) roundPics.push(got.pics); };
     stopRun = 0;
+    // (Each round starts open: closing mode is a round's own. Round 5.)
+    closing = null;
     // COMMANDS THAT ONLY READ, SEVERAL IN A ROW IN ONE REPLY, RUN AT THE SAME TIME (Bash docs pass 9; Claude Code runs a
     // Bash call alongside others when it only reads, its isConcurrencySafe): with no hooks, each such command that is
     // allowed even in Plan (no folder change, nothing asked, read block or not) starts as soon as the first of the run
@@ -3787,8 +3838,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const ahead = new Map();
     // (`exact`, for Coder's groups below: not with a PreToolUse hook of the owner's that runs for this call, rather than with
     // any hook at all.)
-    const runsAhead = (x, exact = false) => {
-      if (!x || x.name !== "bash" || x.ps || x.monitor || x.rerun || github || (exact ? preHooked(x, x.args) : hookList.length) || !x.args || typeof x.args !== "object") return false;
+    // (`hooked`: its own PreToolUse hooks ran already, at its group's start, and let it go on. Round 5.)
+    const runsAhead = (x, exact = false, hooked = false) => {
+      if (!x || x.name !== "bash" || x.ps || x.monitor || x.rerun || github || (hooked ? false : exact ? preHooked(x, x.args) : hookList.length) || !x.args || typeof x.args !== "object") return false;
       // (Not with the script caps on: they count each command as it is checked, in its turn.)
       if (deps.scriptCaps && deps.scriptCaps.caps) return false;
       const cmd = typeof x.args.command === "string" ? x.args.command : "";
@@ -3817,7 +3869,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // (Gloopy, with its own tools, has no modes: only a tool set to Always allow that the owner has not said no to starts
     // early; one set to Needs approval waits for its card below. 2026-11-13.)
     // (`exact`: as runsAhead's, for Coder's groups below.)
-    const quietWith = (c, exact) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
+    // (`hooked`, `hookAllow`: its own PreToolUse hooks ran at its group's start and let it go on, or allowed it, which approves
+    // it as its turn takes a hook's allow. Round 5.)
+    const quietWith = (c, exact, hooked = false, hookAllow = false) => { const t = c.args !== null && mcpByName.get(c.name); return !!t && t.readOnly && !t.always && (t.perm === "allow" || hookAllow || (!offered && modeNow() === "auto")) && !(offered && denied.has(("Use " + t.label).slice(0, 300))) && !github && !(hooked ? false : exact ? preHooked(c, c.args || {}) : hookList.length) && !toolDenied(c.name) && !wholeRule(ownRules, "ask", c.name) && !(emailMark && refusedNow(c.name, c.args, emailMark)); };
     const quiet = (c) => quietWith(c, false);
     // (A connector's call, as its turn makes it below, or its group's start.)
     // (Through mcpCall: a connector's questions for the owner come as cards, also for a call started early. Round 3.)
@@ -3834,6 +3888,24 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       const named = name === "lsp" ? args.filePath : args.path;
       const p = pat || (typeof named === "string" && named ? named : ".");
       return typeof deps.where === "function" ? deps.where((p === "~" || p.startsWith("~/")) && deps.home ? deps.home + p.slice(1) : p) : p;
+    };
+    // A READ, WRITE OR EDIT THAT ONE OF THE OWNER'S DENY RULES BLOCKS, REFUSED BEFORE ITS HOOKS (round 5; the owner, 2026-11-14:
+    // "Yes pls"). Claude Code 2.1.325's Read, Write and Edit check the deny rules on the file's path in their validateInput,
+    // which runs before any PreToolUse hook ("Validation rejections … happen before hooks run, so they fire neither
+    // PreToolUse nor PostToolUseFailure"): Read a Read rule on the path as given ("File is in a directory that is denied by
+    // your permission settings."); Write and Edit an Edit rule ("File is in a directory …") and then a Read rule ("File is
+    // covered by a Read deny rule in your permission settings and cannot be written." / "… edited."). Those are its own words,
+    // which fileToolDecision gives; a rule on the whole tool, Read's rule matched only where a link leads ("Permission to read
+    // … has been denied."), and Grep's, Glob's and LSP's rules are its permission check's, after the hooks, as before. → the
+    // refusal, or "". (Not Gloopy's, nor a job's from GitHub, where the owner's rules do not apply.)
+    const DENY_BEFORE_HOOKS = /^File is (?:in a directory that is denied by|covered by a Read deny rule in) your permission settings/;
+    const denyFirst = (name, args) => {
+      if (github || offered || !(name === "read" || name === "write" || name === "edit") || !args || typeof args !== "object" || Array.isArray(args)) return "";
+      const a = { ...args };
+      if (typeof a.path !== "string" && typeof a.file_path === "string") a.path = a.file_path;
+      if (typeof a.path !== "string" || !a.path) return "";
+      const d = fileToolDecision(name, targetFor(name, a), { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: a, roots: workdirs.slice(1) });
+      return d && d.verdict === "deny" && DENY_BEFORE_HOOKS.test(String(d.why || "")) ? d.why : "";
     };
     // ONE CALL OF THE TOOLS SCRIPT FOR A FILE TOOL (its turn's below, and its group's start). THE CHAT'S LANGUAGE SERVERS' KEEPER,
     // started by Coder's machine the first time a lookup, a write or an edit needs a server (coder-lsp.mjs needsKeeper; Claude
@@ -3857,9 +3929,43 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // at once (no PreToolUse hook of its own, no card, nothing that refuses it); one the auto mode checker must judge has its
     // verdict asked then, beside the others', as Claude Code asks for each call at its start, and starts once that lets it.
     // Every call still takes its turn below, in the order asked: its checks are made there as before, and it takes the result
-    // of its early start (`early`) only for that same input. A call that needs a hook, a card or the owner runs in its turn
-    // while the others of its group run. (Gloopy keeps its own run-ahead, above.)
+    // of its early start (`early`) only for that same input. A call that needs a card or the owner runs in its turn while the
+    // others of its group run; one with a PreToolUse hook of the owner's runs its hooks at the group's start too (round 5,
+    // startEarly). (Gloopy keeps its own run-ahead, above.)
     const early = earlyRuns({ now, onUsage: (u) => usage.push(u), onTaken: (id, at, done) => { if (at) ranAt.set(id, at); if (done) earlyDone.set(id, done); } });
+    // A CALL AFTER THE ONE THAT ENDED THE ROUND (round 5, closing mode; coder-parallel.mjs's closedAs): its turn, when its early
+    // start had its result by then (it keeps it, told and shown as on any turn); after a Stop, Claude Code's rejection with its
+    // "stopped while running" correction when it was running (the chat shows its step stopped), and its rejection otherwise;
+    // after a No, its rejection; for a pause, nothing yet (its turn comes in the job taken up again).
+    const stepOf = (x) => {
+      const a = x.args && typeof x.args === "object" && !Array.isArray(x.args) ? x.args : {};
+      if (x.name === "bash") return { type: "bash", id: x.id, command: scrub(String(a.command || "")).slice(0, 2000) };
+      if (mcpByName.has(x.name)) return { type: "bash", id: x.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(x.name).label).slice(0, 200) };
+      const spec = RUN_TOOLS[x.name];
+      if (!spec) return null;
+      const p = typeof a.path === "string" ? a.path : typeof a.file_path === "string" ? a.file_path : undefined;
+      return { type: "bash", id: x.id, tool: x.name, verb: spec.verb, command: scrub(visibleChars(String(spec.label(p !== undefined ? { ...a, path: projectPath(deps, p) } : a) || ""))).slice(0, 300) };
+    };
+    // THE OWNER'S STOP SEEN IN A CALL'S TURN BEFORE IT RUNS (round 5): Gloopy's job stops there, as before; in Coder's own runs a
+    // call started at its group's start whose result came before the Stop goes on to take it (null: the turn goes on), one
+    // still running is told it was stopped while running, and one that had not started gets Claude Code's rejection.
+    const stopBefore = async (x, reply) => {
+      if (!(await stopped())) return null;
+      if (offered) return stopNow(reply);
+      const st = early.state(x.id, stopTime());
+      if (st === "done") return null;
+      if (st === "running") { emit({ type: "result", id: x.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
+      return stopNow(reply);
+    };
+    const closedTurn = (x) => {
+      if (!x || !x.id || answeredNow(x.id)) return false;
+      const how = closedAs(closing.why, early.state(x.id, closing.why === "park" ? Infinity : closing.at));
+      if (how === "turn") return true;
+      if (how === "later") return false;
+      if (how === "stopped-running") { const step = stepOf(x); if (step) { emit(step); emit({ type: "result", id: x.id, code: -1, output: "(stopped by the owner while it ran)" }); } }
+      convo.push({ role: "tool", tool_call_id: x.id, content: how === "stopped-running" ? STOPPED_RUNNING : REJECTED });
+      return false;
+    };
     // (A call's own input check made at its group's start, taken again in its turn for that same input: lsp's reads the file.)
     const preChecked = new Map();
     // (The calls before this one were put in their groups already.)
@@ -3877,34 +3983,67 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const startChecked = (x, declinedKey, mode0, action, key, run) => {
       if (!checker || checkerState(...checkKey()).paused || noVerdictRow > 0 || declined.has(declinedKey)) return;
       const how = mode0 === "plan" ? "plan" : "auto";
-      early.checkThenRun(x.id, how + "\n" + action, () => checkAction(deps, { model, convo, skipId: x.id, context, notes: checkerNotes, action, mode: how, repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode }), key, async (v) => !!v && !v.error && v.decision !== "block" && !jobOver && modeNow() === mode0 && now() - started <= maxMs && !(await stopped()), run);
+      early.checkThenRun(x.id, how + "\n" + action, () => checkAction(deps, { model, convo, skipId: x.id, context, notes: checkerNotes, action, mode: how, repo: (checkWhere && checkWhere.repo) || "", branch: (checkWhere && checkWhere.branch) || "", workdir: deps.root || "", auto: autoMode }), key, async (v) => !!v && !v.error && v.decision !== "block" && !jobOver && !closing && modeNow() === mode0 && now() - started <= maxMs && !(await stopped()), run);
+    };
+    // (The checks Claude Code makes before a call's hooks that Coder's turn makes there too, for the calls whose hooks start at
+    // their group's start: a command's own input checks, and a read's deny rule, denyFirst; the input checks of grep, glob,
+    // lsp, web_fetch and web_search are made just before. Only the calls a group's start can run get their hooks there.)
+    const hooksEarly = (x, args) => {
+      if (x.name === "bash") { const cmd = typeof args.command === "string" ? args.command : ""; const bg0 = noBg !== true && (args.run_in_background === true || args.run_in_background === "true"); return !!cmd.trim() && !commandProblem(cmd) && !(bg0 ? "" : sleepBlockFor(cmd, false)); }
+      if (x.name === "read") return !denyFirst(x.name, args);
+      if (READ_TOOLS.has(x.name) || x.name === "web_fetch" || x.name === "web_search") return true;
+      return mcpByName.has(x.name) && !tsKeptOnly.has(x.name);
     };
     const startEarly = async (x) => {
-      // (Not the call taken up again after its job paused: its card's answer comes first, in its turn. Nor a tool in the request's
-      // tools only because the chat's record keeps it: refused in its turn, tsKeptOnly.)
-      if (!x || !x.id || early.has(x.id) || (back && back.call && x.id === back.call.id) || !x.args || typeof x.args !== "object" || Array.isArray(x.args) || tsKeptOnly.has(x.name)) return;
+      // (Not the call taken up again after its job paused: its card's answer comes first, in its turn; nor one answered already,
+      // which ran beside that card before the job paused; nor a tool in the request's tools only because the chat's record keeps
+      // it: refused in its turn, tsKeptOnly.)
+      if (!x || !x.id || early.has(x.id) || answeredNow(x.id) || (back && back.call && x.id === back.call.id) || !x.args || typeof x.args !== "object" || Array.isArray(x.args) || tsKeptOnly.has(x.name)) return;
       const mode0 = modeNow();
       let args = { ...x.args };
-      // (One a hook of the owner's runs for has its own check in its turn, before its hooks, as before.)
-      if (preHooked(x, args)) return;
       const f = EARLY_CHECKS.has(x.name) ? inputCheckFor(x.name) : null;
       if (f) {
         let v;
         try { v = await f({ ...x.args }, { github: !!github, who, webFetchOff: webFetch.off, lspFile, searchModes: !offered }); } catch { return; }
         preChecked.set(x.id, { was: JSON.stringify(x.args), v });
+        // (Refused by its own input check: its turn refuses it, before any hook. Round 5: answered then, early.refused.)
+        if (v && typeof v.error === "string") early.refused(x.id);
         if (!v || typeof v.error === "string") return;
         if (v.args && typeof v.args === "object" && !Array.isArray(v.args)) args = { ...v.args };
       }
-      if (preHooked(x, args)) return;
+      // EACH CALL'S OWN PRETOOLUSE HOOKS, BESIDE THE OTHERS' (round 5; the owner, 2026-11-14: "Yes pls"; Claude Code runs a
+      // call's hooks, its permission check and its card inside that call's own run, so the calls of a group run theirs at the
+      // same time): one with a hook of the owner's has its hooks started now, with the input its turn would give them; when they
+      // decided nothing its turn must act on first (no deny, no ask, no new input, no stop), its run starts right after them, as
+      // one with no hook would, an allow skipping what a hook's allow skips in its turn. Its turn takes their outcome: they run
+      // once. (A call refused before its hooks gets none: hooksEarly.)
+      if (x.name === "read" && denyFirst(x.name, args)) { early.refused(x.id); return; }
+      if (preHooked(x, args)) {
+        if (!hooksEarly(x, args)) return;
+        const tool = ccTool(x.name), input = hookToolInput(x.name, args);
+        early.startHooks(x.id, JSON.stringify(input), async () => {
+          const o = await runHooks("PreToolUse", tool, { tool_name: tool, tool_input: input, tool_use_id: x.id }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" } });
+          // (Its hook's deny: its turn refuses it, so it had its answer then. Not a hook that stops the job or ends the turn.)
+          if (o && o.decision === "deny" && !o.stop && !o.endTurn) early.refused(x.id);
+          const plain = !o || (!o.stop && !o.endTurn && o.decision !== "deny" && o.decision !== "ask" && !o.updatedInput && !(Array.isArray(o.updatedInputs) && o.updatedInputs.length));
+          if (plain && !closing && !jobOver && modeNow() === mode0 && now() - started <= maxMs && !(await stopped())) { try { await startRun(x, args, mode0, true, !!(o && o.decision === "allow")); } catch { /* it runs in its turn */ } }
+          return o;
+        });
+        return;
+      }
+      await startRun(x, args, mode0, false, false);
+    };
+    // (A call's run at its group's start: `hooked`, its hooks ran first, beside the others'; `hookAllow`, one of them allowed it.)
+    const startRun = async (x, args, mode0, hooked, hookAllow) => {
       const here = typeof deps.here === "function" ? String(deps.here() || "") : "";
       // A COMMAND THAT ONLY READS, as main's run-ahead takes one; in Auto, once the checker has let it run (Claude Code's
       // cloud sessions: "read-only and sandboxed shell commands wait for that review and are blocked if it flags them"),
-      // unless the owner's allow rules cover it.
+      // unless the owner's allow rules cover it (or a hook allowed it: its turn asks no checker then, outside Plan).
       if (x.name === "bash") {
-        if (!runsAhead(x, true) || (emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: here || deps.root || "" }))) return;
+        if (!runsAhead(x, true, hooked) || (emailMark && await emailRefused("Bash", x.args, emailMark, { cwd: here || deps.root || "" }))) return;
         const command = x.args.command;
         const ctxB = { cwd: here || deps.root || "/", workdirs, isProtected: isProt, real: (q) => realPath(q), home: deps.home || "", ownDirs: Array.isArray(deps.ownDirs) ? deps.ownDirs : [], scratch: [SCRATCH], planFile: planPath() };
-        if (!checker || mode0 !== "auto" || autoRulesCover(command, ctxB)) { early.start(x.id, "bash\n" + command, () => startAhead(x)); return; }
+        if (!checker || mode0 !== "auto" || hookAllow || autoRulesCover(command, ctxB)) { early.start(x.id, "bash\n" + command, () => startAhead(x)); return; }
         const dec = bashDecision(command, { mode: "auto", rules: ownRules, ...ctxB, input: x.args, byCommand: fileEdits !== false });
         if (dec.verdict !== "allow" || dec.byRule || discardsWork(command)) return;
         startChecked(x, "bash\n" + command, mode0, actionShown("bash", { ...x.args, allowed_domains: undefined }), "bash\n" + command, () => startAhead(x));
@@ -3917,6 +4056,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (x.name === "read") { if (args.allow_large === true) return; delete args.max_chars; }
         const tgt = targetFor(x.name, args);
         const d = github ? null : fileToolDecision(x.name, tgt, { rules: ownRules, root: deps.root || "/", cwd: ruleCwd(), home: deps.home || "", real: (q) => realPath(q), input: args, roots: workdirs.slice(1) });
+        if (d && d.verdict === "deny") early.refused(x.id);
         if (d && (d.verdict === "deny" || d.verdict === "ask")) return;
         // (The same request its turn makes, so its turn takes this run: what the check saw of a search's path too.)
         const saw = (x.name === "grep" || x.name === "glob") && tgt ? checkedAt(tgt) : null;
@@ -3931,8 +4071,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const url = String(args.url || "");
         if (sites.length) { const never = siteFor(sites, (() => { try { return new URL(url).hostname; } catch { return ""; } })()); if (never && never.mode === "deny") return; }
         const d = github ? null : fetchDecision(url, { mode: mode0, rules: ownRules });
-        if (d && d.verdict === "deny") return;
+        if (d && d.verdict === "deny") { early.refused(x.id); return; }
         const key = "web_fetch\n" + JSON.stringify(args);
+        // (A hook's allow: its turn asks neither the checker nor the mode's question, only a rule's. Round 5.)
+        if (hookAllow) { if (!(d && d.verdict === "ask" && d.byRule)) early.start(x.id, key, () => fetchRun(args)); return; }
         if (!!checker && modeChecks(mode0) && !(d && d.verdict === "ask" && d.byRule) && fetchDecision(url, { mode: "acceptEdits", rules: github ? {} : ownRules }).verdict !== "allow") startChecked(x, "web_fetch\n" + url, mode0, actionShown("web_fetch", args), key, () => fetchRun(args));
         else if (!d || d.verdict === "allow") early.start(x.id, key, () => fetchRun(args));
         return;
@@ -3944,12 +4086,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const sDec = github ? { verdict: checker ? "check" : "allow" } : searchDecision({ mode: mode0, rules: ownRules, planChecks, input: args });
         const key = "web_search\n" + JSON.stringify(chk.args);
         const run = () => (webBudget.tryConsume() ? runWebSearch(deps.send, { model, effort, args: chk.args, now }) : null);
+        if (sDec.verdict === "deny") { early.refused(x.id); return; }
+        // (A hook's allow: as for a page fetch, only a deny or ask rule stops it. Round 5.)
+        if (hookAllow) { if (sDec.verdict !== "deny" && !(sDec.verdict === "ask" && sDec.byRule)) early.start(x.id, key, run); return; }
         if (sDec.verdict === "check" && checker) startChecked(x, "web_search\n" + String(args.query || ""), mode0, actionShown("web_search", args), key, run);
         else if (sDec.verdict === "allow" || sDec.verdict === "check") early.start(x.id, key, run);
         return;
       }
       // A CONNECTOR'S READ-ONLY TOOL that asks nothing, as Gloopy's run-ahead takes one.
-      if (mcpByName.has(x.name) && quietWith(x, true)) early.start(x.id, "mcp\n" + JSON.stringify(x.args), () => mcpRun(x));
+      if (mcpByName.has(x.name) && quietWith(x, true, hooked, hookAllow)) early.start(x.id, "mcp\n" + JSON.stringify(x.args), () => mcpRun(x));
     };
     const startGroup = async (i) => {
       const to = groupEnd(calls, i, isSafe);
@@ -3974,8 +4119,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       return end("done", { summary: lastSaid || "asked the owner's OK to send: " + w.step });
     };
     for (let i = back ? back.at : 0; i < calls.length; i++) {
+      try {
       freshRules();
       await runPost();
+      // (ROUND 5, Coder's own runs, coder-parallel.mjs: the owner's Stop seen between two calls ends the round; a call answered
+      // already, one that ran beside a card that paused the job, is not run again in the job that takes the round up again; in
+      // closing mode a call takes its turn only when its early start had its result by then, and the others are answered here.)
+      if (!offered && !closing && (await stopped())) closeRound("stop");
+      if (!offered && back && !(back.call && calls[i].id === back.call.id) && answeredNow(calls[i].id)) continue;
+      if (closing && !closedTurn(calls[i])) continue;
       // (A request of Gloopy's held for the owner's OK ends the turn here, on its card.)
       if (writeHold && writeHold.held) return heldEnd(i);
       // (The run starts in the order asked, this one first, and only while the job has time left and was not stopped: the
@@ -3992,7 +4144,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       deniedLast = false;
       if (hookEnd) { for (const rest of calls.slice(i)) convo.push({ role: "tool", tool_call_id: rest.id, content: "not run: a hook ended this turn" }); return endByHook(hookEnd); }
       // (Coder's group that starts with this call: its calls that need nothing but to run start now, coder-parallel.mjs.)
-      if (!offered && i >= groupTo) await startGroup(i);
+      if (!offered && !closing && i >= groupTo) await startGroup(i);
       const c = calls[i];
       // (The call taken up again after its job paused: as it was when its card showed, in the mode its card was shown in,
       // until its step is done.)
@@ -4091,10 +4243,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const bad0 = commandProblem(cmd0, { powershell: c.name === "powershell" }) || (bg0 ? "" : sleepBlockFor(cmd0, c.name === "powershell"));
         if (bad0) { emit({ type: "bash", id: c.id, command: scrub(cmd0).slice(0, 2000), ...(c.name === "powershell" ? { shell: "powershell" } : {}), ...(c.name === "monitor" ? { monitor: true } : {}) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: bad0 }); reply(bad0); continue; }
       }
+      // A READ, WRITE OR EDIT THAT ONE OF THE OWNER'S DENY RULES BLOCKS (round 5): refused here, before its hooks, as Claude Code
+      // 2.1.325's Read, Write and Edit refuse it in their input check (denyFirst).
+      if (!c.rerun) { const denied0 = denyFirst(c.name, c.args); if (denied0) { const step0 = stepOf(c); if (step0) emit(step0); emit({ type: "result", id: c.id, code: 1, ran: false, output: denied0 }); reply(denied0); continue; } }
       if (hookList.length && !c.rerun && c.args && typeof c.args === "object") {
         const tool = ccTool(c.name, c.name === "monitor");
         const input = hookToolInput(c.name, c.args);
-        const pre = await runHooks("PreToolUse", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: c.name === "monitor" && c.args.ws !== undefined });
+        // (Its hooks started at its group's start, beside the others', for this same input: their outcome, taken. Round 5.)
+        const preEarly = early.takeHooks(c.id, JSON.stringify(input));
+        const pre = preEarly ? await preEarly : await runHooks("PreToolUse", tool, { tool_name: tool, tool_input: input, tool_use_id: c.id }, { tool, input, ctx: { cwd: hookCtx().cwd, root: deps.root || "/", home: deps.home || "" }, ws: c.name === "monitor" && c.args.ws !== undefined });
         if (pre && pre.stop) { reply("not run: a hook stopped this job"); return stopByHook(pre); }
         if (pre && pre.decision === "deny") {
           emit({ type: "bash", id: c.id, ...(c.name === "bash" || c.name === "monitor" ? {} : { tool: c.name, verb: "Blocked" }), command: scrub(String(c.name === "bash" || c.name === "monitor" ? c.args.command || "" : c.args.path || c.args.url || c.args.pattern || c.name)).slice(0, 300) });
@@ -4168,10 +4325,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           const a = canAsk() ? await askOwner(ruleCard) : await noOneHooks(ruleCard);
           if (!a) { reply("not run: the owner's rule " + askRule + " asks first for " + cc + ", and no one can answer in this job"); continue; }
           const o = answerOutcome(a);
-          if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "stop") { return stopNow(reply); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { reply(saidReply(a)); continue; }
-          if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           // (A PermissionRequest hook's new input, checked in askOwner: the call goes with it.)
           if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
           askedByRule = true;
@@ -4182,10 +4339,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (PLAN_ASKS[c.name] && modeNow() === "plan" && canAsk() && !askedByRule) {
         const a = await askOwner({ tool: c.name, id: c.id, what: scrub(PLAN_ASKS[c.name](c.args)).slice(0, 300), why: "Plan mode is on: Coder changes nothing until you approve its plan." });
         const o = answerOutcome(a);
-        if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (o === "stop") { return stopNow(reply); }
         if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (o === "said") { reply(saidReply(a)); continue; }
-        if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+        if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
         if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
       }
       if (c.name === "bash") {
@@ -4406,10 +4563,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (approval.choice !== "none" && approval.choice !== "stop") rmAnswered(st);
           }
           const o = answerOutcome(approval);
-          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return stopNow(reply); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
-          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (approval.choice === "auto" && card.toAuto && autoOff !== true) setMode("auto", "card");
           // (The owner's Yes while auto mode was paused resumes it: Claude Code, "Approving the prompted action resumes auto mode".)
@@ -4422,7 +4579,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             if (ni && typeof ni.command === "string") { c.args = ni; c.rerun = true; c.name = name0; delete c.ps; delete c.monitor; postFor = null; i--; continue; }
           }
         }
-        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        { const sb = await stopBefore(c, reply); if (sb) return sb; }
         // THE TIME LIMIT IS CHECKED BEFORE EACH COMMAND, not only between rounds (the audit). (One already started with the
         // read-only commands beside it was checked when they started: its result is taken.)
         if (!ahead.has(c.id) && !early.has(c.id) && now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
@@ -4453,14 +4610,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // STOPPED WHILE IT RAN (Bash docs pass 9; Claude Code's answer for such a call is its rejection followed by "Correction
         // to the text above: this call was stopped while running, not refused before it ran. …", and "Cancelling a running
         // tool … does not fire" PostToolUseFailure): the page shows what it printed; Coder is told in Claude Code's words; the
-        // job ends there.
-        if (!(r && (r.background || r.notStarted)) && (await stopped())) {
+        // job ends there. (In Coder's own runs, one started at its group's start whose result came before the Stop keeps it, as
+        // Claude Code keeps a call that had returned; the round then ends as a Stop ends it: stopNow. Round 5.)
+        if (!(r && (r.background || r.notStarted)) && (offered ? await stopped() : await ranIntoStop(c.id))) {
           const out0 = noCwdMarks(String((r && r.output) || ""));
           emit({ type: "result", id: c.id, code: r && Number.isInteger(r.code) ? r.code : -1, output: (out0.trim() ? capOutput(out0.replace(/\s+$/, "")) + "\n" : "") + "(stopped by the owner while it ran)" });
           postFor = null;
-          reply(STOPPED_RUNNING);
-          emit({ type: "stopped" });
-          return end("stopped");
+          return stopNow(reply, STOPPED_RUNNING);
         }
         // What the result says about the folder, as Claude Code's do ("Shell cwd was reset to …", "Session cwd remains …"),
         // and, for Grok only, where its commands now start (as Claude Code tells Claude its working directory).
@@ -4630,10 +4786,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           approval = canAsk() ? await askOwner(card, { hooks: !c.rerun }) : c.rerun ? null : await noOneHooks(card);
           if (!approval) { refuse(noOneWhy || (sDec.byRule && sDec.verdict === "ask" ? "not run: the owner's rule " + sDec.rule + " asks them first, and no one can answer here" : hookAsk ? "not run: a PreToolUse hook asks them first, and no one can answer here" : SEARCH_UNGRANTED)); continue; }
           const o = answerOutcome(approval);
-          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return stopNow(reply); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
-          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (sPaused) resume(sPaused);
           // (A PermissionRequest hook's changed input: the call goes through again with it, as for the other tools.)
@@ -4642,7 +4798,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // (An input a hook changed is checked as the call's own was, before it runs.)
         const chk = checkSearchInput(c.args, { searchModes: !offered });
         if (chk.error) { refuse(chk.error); continue; }
-        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        { const sb = await stopBefore(c, reply); if (sb) return sb; }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // THE CHAT'S BUDGET (Claude Code: "While a session is at the limit, searches appear in the conversation as calls that did
         // nothing. Claude gets a notice telling it to continue with the information already gathered"): no search, its notice.
@@ -4659,6 +4815,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const sr = searched || await runWebSearch(deps.send, { model, effort, args: chk.args, now });
         // (The search's own call is counted with the others: what it used, its searches and its cost.)
         if (sr.usage) usage.push(sr.usage);
+        // (The owner's Stop while it ran: as for a page fetch.)
+        if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         if (sr.error) { emit({ type: "result", id: c.id, code: 1, output: scrub(sr.error).slice(0, 2000) }); reply(sr.error + yesNote(approval, c.id)); continue; }
         // (Its result object, Claude Code's WebSearchOutput, for its PostToolUse hooks.)
         toolFacts.set(c.id, sr.facts);
@@ -4702,7 +4860,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (got && got.choice === "park") parkNow(pid, "secret", "secret", shownMode);
         const choice = got && ["saved", "no", "stop"].includes(got.choice) ? got.choice : "none";
         emit({ type: "permanswer", pid, choice });
-        if (choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (choice === "stop") { return stopNow(reply); }
         if (choice === "none" && now() - started > maxMs) { reply("not saved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (choice === "saved") { emit({ type: "result", id: c.id, code: 0, output: "saved" }); reply("saved"); continue; }
         emit({ type: "result", id: c.id, code: 1, output: SECRET_DENIED });
@@ -4818,7 +4976,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const choice = got && ["approved", "refused", "no", "stop"].includes(got.choice) ? got.choice : "none";
         const told = choice === "approved" || choice === "refused" ? scrub(String(got.result || "")).slice(0, 4000) : "";
         emit({ type: "permanswer", pid, choice, ...(choice === "refused" ? { why: told.replace(/^error: /, "").slice(0, 400) } : {}) });
-        if (choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (choice === "stop") { return stopNow(reply); }
         if (choice === "none" && now() - started > maxMs) { reply("not changed: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (choice === "approved" && told) { emit({ type: "result", id: c.id, code: 0, output: told }); reply(told); continue; }
         const no = choice === "refused" && told ? (told.startsWith("error: ") ? told : "error: " + told) : SECRET_DENIED;
@@ -4898,10 +5056,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (!gl && !canAsk() && hookList.length) { const h = await questionHooks(hookToolInput("ask_user", shown), HOOK_DENIED); if (h) { if (h.take) h.take(); noOneAnswer = h.answer; } }
         if (!gl && (canAsk() || noOneAnswer)) {
           const a = noOneAnswer || await askQuestions({ ...qs[0], ...(qs.length > 1 ? { questions: qs } : {}) }, hookToolInput("ask_user", shown), c.id);
-          if (a.choice === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (a.choice === "stop") { return stopNow(reply); }
           if (a.choice === "none") {
             if (now() - started > maxMs) { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
-            reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner gave no answer" });
+            reply(REJECTED); return noEnd(i, "stopped: the owner gave no answer");
           }
           // (A PermissionRequest hook's no: its message, or Claude Code's "Permission denied by hook"; Coder goes on.)
           if (a.choice === "no") { emit({ type: "note", text: scrub("Your PermissionRequest hook said no to Coder's question" + (qs.length > 1 ? "s" : "") + (a.hookWhy ? ": " + a.hookWhy : ".")).slice(0, 2000), hook: "PermissionRequest" }); reply(saidReply(a)); continue; }
@@ -5761,17 +5919,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (A file rule's card no one can answer: Coder is told the card's words, Claude Code's, as for a page fetch. Round 5.)
           if (!approval) { const m = fetchSwitched ? "not run: " + MODE_SWITCHED.charAt(0).toLowerCase() + MODE_SWITCHED.slice(1, -1) + ", and no one can answer here" : !fileAsk && !ruleAsk && fetchAsk ? "Coder requested permissions to use WebFetch, but you haven't granted it yet." : !fileAsk && fileDec && fileDec.verdict === "ask" ? fileDec.why : "not run: " + (fileAsk ? "Plan mode is on, so files change only after the owner approves your plan (call exit_plan_mode with it)" : ruleAsk ? "a PreToolUse hook asks them first, and no one can answer here" : "the owner must approve fetching " + ((fetchDec && fetchDec.host) || "this page") + ", and no one can answer here"); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
           const o = answerOutcome(approval);
-          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "stop") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: stopped." }); return stopNow(reply); }
           if (o === "time") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: no answer before Coder's time limit." }); reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { emit({ type: "result", id: c.id, code: -1, ran: false, output: saidShown(approval), ...saidMarks(approval) }); reply(saidReply(approval)); continue; }
-          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "no") { emit({ type: "result", id: c.id, code: -1, ran: false, output: "Not run: you said no." }); reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           if (approval.choice === "always") for (const r of card.rules || []) addRule(r);
           if (fetchPaused) resume(checkStF);
           // (A PermissionRequest hook's changed input: the call goes through again with it, Bash docs pass 8.)
           if (approval.updatedInput && !c.rerun) { const ni = toolInputFromHook(c.name, approval.updatedInput); if (ni) { c.args = ni; c.rerun = true; postFor = null; i--; continue; } }
         }
         if (c.name === "write" && typeof args.content === "string" && args.content.length > WRITE_MAX) { const m = "error: that is over " + WRITE_MAX + " characters; write the start, then add the rest with edit"; emit({ type: "result", id: c.id, code: 1, output: m }); reply(m); continue; }
-        if (await stopped()) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        { const sb = await stopBefore(c, reply); if (sb) return sb; }
         if (now() - started > maxMs) { reply("not run: " + who + " ran out of time"); emit({ type: "error", text: who + " ran out of time." }); return end("time"); }
         // A SITE THE OWNER SET TO NEVER (2026-11-10) isn't read another way either.
         if (c.name === "web_fetch" && sites.length) {
@@ -5786,6 +5944,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (fetchRun, above; one started at its group's start, coder-parallel.mjs: its result, for this same input.)
           const wf = (await early.take(c.id, "web_fetch\n" + JSON.stringify(args))) || await fetchRun(args);
           if (wf.usage) usage.push(wf.usage);
+          // (THE OWNER'S STOP WHILE IT RAN, in Coder's own runs: Claude Code's rejection with its correction, as for a command, and
+          // the round ends as a Stop ends it; one started at its group's start whose result came first keeps it. Round 5.)
+          if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
           if (wf.facts) toolFacts.set(c.id, wf.facts);
           emit({ type: "result", id: c.id, code: wf.code, output: wf.out.length > MAX_OUTPUT_CHARS ? capOutput(wf.out) : wf.out });
           reply(wf.out + (c.inputNote ? "\n\n" + c.inputNote : "") + yesNote(approval, c.id));
@@ -5833,6 +5994,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (cwdSaid) raw = cwdSaid + raw;
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name)) touch(projectPath(deps, args.path));
         if (code === 0 && (c.name === "write" || c.name === "edit")) noteEdited(projectPath(deps, args.path));
+        // (The owner's Stop while it ran: as for a page fetch, above, once what it changed is noted.)
+        if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         // A read is never cut here (it gives whole lines up to READ_CHARS itself, like Claude Code's Read), nor a search (its
         // own limits and the saved file above, Claude Code's); other tools' output is, to MAX_OUTPUT_CHARS.
         // (An lsp answer goes whole up to Claude Code's 100,000 characters; past that it is saved and its start shown: coder-lsp.mjs.)
@@ -5929,7 +6092,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const a = canAsk() ? await askOwner(planCard) : await noOneHooks(planCard);
         if (!a) { if (shownPlan) emit({ type: "text", text: shownPlan.slice(0, PLAN_SHOW_MAX) }); reply("the plan is shown to the owner; they approve it by changing the mode"); return end("done", { summary: shownPlan.slice(0, 4000) }); }
         const o = answerOutcome(a);
-        if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (o === "stop") { return stopNow(reply); }
         if (o === "time") { reply("not approved: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
         if (o === "said") { refused(); reply(saidReply(a)); continue; }
         // (A PermissionRequest hook's allow, with its input: Claude Code "exits plan mode and restores whatever permission mode
@@ -5939,7 +6102,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           reply(await approve(hooked, !!file && hooked !== (fromFile === null ? "" : fromFile), back, "plan"));
           continue;
         }
-        if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits") || tooLarge) { refused(); reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "the plan was not approved" }); }
+        if (o === "no" || (a.choice !== "auto" && a.choice !== "acceptEdits") || tooLarge) { refused(); reply(REJECTED); return noEnd(i, "the plan was not approved"); }
         // (The owner's edit on the card is their plan, saved to the plan file; with no plan file, it is the plan echoed.)
         const ownerEdit = typeof a.plan === "string" && a.plan !== shownPlan ? a.plan : null;
         const final = ownerEdit !== null ? ownerEdit : asked;
@@ -6116,10 +6279,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (hookSaid || (askWhy && canAsk())) {
           const a = hookSaid || await askOwner(connCard);
           const o = answerOutcome(a);
-          if (o === "stop") { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+          if (o === "stop") { return stopNow(reply); }
           if (o === "time") { reply("not run: Coder ran out of time waiting for the owner's answer"); emit({ type: "error", text: "Coder ran out of time waiting for your answer." }); return end("time"); }
           if (o === "said") { reply(saidReply(a)); continue; }
-          if (o === "no") { reply(REJECTED); for (const rest of calls.slice(i + 1)) convo.push({ role: "tool", tool_call_id: rest.id, content: NOT_NOW }); return end("done", { summary: lastSaid || "stopped: the owner said no" }); }
+          if (o === "no") { reply(REJECTED); return noEnd(i, "stopped: the owner said no"); }
           // (A PermissionRequest hook's allow with a changed input: the call goes with it.)
           if (a.updatedInput) { const ni = toolInputFromHook(c.name, a.updatedInput); if (ni) c.args = ni; }
         }
@@ -6131,7 +6294,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // its server's question waits on its card: the move waits until the card closes, as Claude Code's. Stop on the card
         // stops the turn: coder-elicit.mjs.)
         const later = await untilBackground(running, deps.connectorBgMs || CONNECTOR_BG_MS, asksOf(c));
-        if (later && later.stop) { reply("stopped by the owner"); emit({ type: "stopped" }); return end("stopped"); }
+        if (later && later.stop) { if (!offered) emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); return stopNow(reply, offered ? "" : STOPPED_RUNNING); }
         if (!later) {
           const bgId = "connector-" + (++mcpBgN);
           const b = { label: t.label, done: false, r: null };
@@ -6142,6 +6305,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           continue;
         }
         r = later.x;
+        // (The owner's Stop while it ran, in Coder's own runs: as for a page fetch. Round 5.)
+        if (await ranIntoStop(c.id)) { emit({ type: "result", id: c.id, code: -1, output: "(stopped by the owner while it ran)" }); postFor = null; return stopNow(reply, STOPPED_RUNNING); }
         const out = scrub(String(r.text || ""));
         emit({ type: "result", id: c.id, code: r.isError ? 1 : 0, output: out.slice(0, 4000) });
         // A LONG ANSWER GOES TO A FILE (Claude Code: MCP text over 50,000 characters is saved to a file to read): the start
@@ -6166,10 +6331,24 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
       } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
+      } catch (e) {
+        // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
+        // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop
+        // goes on to the next call in closing mode; a card left open that pauses the job: the calls after it first, then the
+        // pause, after the loop (closedEnd). coder-parallel.mjs.)
+        if (offered || !(e instanceof RoundClosing || (e instanceof Parked && !closing))) throw e;
+        if (postFor && postFor.id === calls[i].id) postFor = null;
+        if (e instanceof Parked) closing = { why: "park", at: now(), summary: "", p: e.card, i };
+        else if (closing && closing.why !== "park" && !answeredNow(calls[i].id)) convo.push({ role: "tool", tool_call_id: calls[i].id, content: REJECTED });
+        continue;
+      }
     }
     // (The call taken up again is done: the mode is the chat's own again.)
     modePin = ""; if (taking) taking.used = true;
     await runPost();
+    // (A round that ended early: the job ends as its No, Stop or pause ends it, every call of the round answered or, for a
+    // pause, left for the job that takes it up again. Round 5.)
+    if (closing) return closedEnd();
     if (hookStop) return stopByHook(hookStop);
     if (hookEnd) return endByHook(hookEnd);
     if (deniedRow >= DENY_INSTEAD_MAX) { const m = deniedRow + " calls in a row refused under permissions.denyInsteadOfPrompting, ending the turn"; emit({ type: "note", text: m, denied: true }); return end("done", { summary: lastSaid || m }); }

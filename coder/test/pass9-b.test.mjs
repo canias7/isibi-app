@@ -219,10 +219,13 @@ test("CD462 commands that only read, several in one reply, run at the same time 
   assert.ok(log.indexOf("start:echo d") > log.indexOf("end:touch x.txt"), "and the one after it its own");
   assert.equal(asked, 0);
   assert.deepEqual(seen.map((x) => x.split("=")[0]), ["1", "2", "3", "4", "5"], "results in the order asked");
-  // With a hook, each in its turn (a PreToolUse hook could change or stop any of them).
+  // With a hook (round 5): each command's hook runs at the group's start, beside the others', and each command starts after its
+  // own hook, still side by side, as Claude Code runs each call's hooks in its own run (before, each ran in its turn).
   started.length = 0; finished.length = 0; log.length = 0; open = 0; most = 0; n = 0;
   await A.runCoder({ root: ROOT, here: () => ROOT, home: "/home/dev", exec, ask, send: async () => { n++; return n === 1 ? say("", calls.slice(0, 3)) : say("Done."); } }, { text: "go", mode: "acceptEdits", hooks: [{ event: "PreToolUse", matcher: "Bash", type: "command", command: "true" }] });
-  assert.equal(most, 1);
+  const own = log.filter((x) => /^(start|end):echo /.test(x));
+  assert.deepEqual(own.slice(0, 3).sort(), ["start:echo b", "start:echo c", "start:echo slow"], "the three commands at once");
+  assert.equal(started.filter((x) => /^echo /.test(x)).length, 3, "each once");
 });
 
 test("CD463 numbers as Claude Code reads them (its mp: 300_000, 300,000, 3e5), for BASH_DEFAULT_TIMEOUT_MS and BASH_MAX_TIMEOUT_MS", () => {

@@ -710,7 +710,10 @@ test("CD382o (round 5) a hook's `if` on Read, Edit, Write or NotebookEdit matche
   const all = [{ event: "PreToolUse", matcher: "Read|Edit|Write", command: "fmt.sh", if: "Edit(src/**)", timeout: 600 }];
   const run = (fp, cwd) => H.hooksFor(all, "PreToolUse", "Edit", { tool: "Edit", input: { file_path: fp }, ctx: { cwd, root: ROOT, home: HOME } }).length;
   assert.deepEqual([run(SUB + "/src/a.ts", SUB), run(ROOT + "/src/a.ts", SUB), run(ROOT + "/src/a.ts", ROOT)], [1, 0, 1]);
-  assert.match(read("container/coder-agent.mjs"), /const pre = await runHooks\("PreToolUse", tool, \{ tool_name: tool, tool_input: input, tool_use_id: c\.id \}, \{ tool, input, ctx: \{ cwd: hookCtx\(\)\.cwd, root: deps\.root \|\| "\/", home: deps\.home \|\| "" \}/);
+  // (Both places a PreToolUse hook starts: in its turn, and with its group before the turn reaches it; round 5's flow.)
+  const agentSrc = read("container/coder-agent.mjs");
+  assert.match(agentSrc, /const pre = preEarly \? await preEarly : await runHooks\("PreToolUse", tool, \{ tool_name: tool, tool_input: input, tool_use_id: c\.id \}, \{ tool, input, ctx: \{ cwd: hookCtx\(\)\.cwd, root: deps\.root \|\| "\/", home: deps\.home \|\| "" \}/);
+  assert.match(agentSrc, /runHooks\("PreToolUse", tool, \{ tool_name: tool, tool_input: input, tool_use_id: x\.id \}, \{ tool, input, ctx: \{ cwd: hookCtx\(\)\.cwd, root: deps\.root \|\| "\/", home: deps\.home \|\| "" \} \}\)/);
   // Coder's loop: with its commands in a subfolder, a PreToolUse hook `if: "Read(src/**)"` runs for src/ there, not the project's.
   const { mkdtemp, mkdir, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");

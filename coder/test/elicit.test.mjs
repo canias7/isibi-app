@@ -372,7 +372,8 @@ test("EL10 Stop on the card is cancel and stops the turn; the job's time running
   assert.equal(s.r.status, "stopped");
   assert.deepEqual(got, { result: { action: "cancel" } });
   assert.equal(s.events.find((e) => e.type === "permanswer").choice, "stop");
-  assert.equal(s.r.messages.find((m) => m.role === "tool").content, "stopped by the owner");
+  // (Round 5: the connector's call was running when Stop came: Claude Code's rejection with its "stopped while running" correction.)
+  assert.equal(s.r.messages.find((m) => m.role === "tool").content, A.STOPPED_RUNNING);
   // No answer (the job's time limit): cancel.
   await turn({ server: async (o) => { got = await o.ask.elicit(Q()); return { text: "x", isError: false }; }, ask: async () => null });
   assert.deepEqual(got, { result: { action: "cancel" } });

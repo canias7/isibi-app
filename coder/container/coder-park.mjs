@@ -20,6 +20,12 @@
  * CARD_CLOSED) and is answered at once. A question card's is its reply ("replied_in_chat"), as before. While the job still
  * runs, Claude Code keeps the card and the message waits in line (its live prompt is closed by no message): so does Coder.
  *
+ * THE CALLS THAT RAN BESIDE THE CARD (round 5, 2026-11-14; coder-parallel.mjs): before the job pauses, those of the round that
+ * had their results take their turns, as Claude Code's session keeps a finished call's result while its machine sleeps, so the
+ * chat holds their answers and the record's `rest` only the calls still without one; the job taken up again runs none of them
+ * again, and Stop, the owner's next message or a No on the card leave their answers as they are (closeParked answers only the
+ * calls without one; a No gives the others Claude Code's rejection, REJECTED).
+ *
  * No Node modules here: Coder's Worker uses the same record (src/coder-routes.mjs).
  */
 import { REJECTED } from "./coder-perms.mjs";
