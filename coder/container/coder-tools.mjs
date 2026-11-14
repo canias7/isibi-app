@@ -83,6 +83,16 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
     if (!st && mustExist) fail("no such file: " + abs);
     return { abs, rel: abs };
   }
+  // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+  // Claude Code: "Plan files for current session are allowed for writing", and for reading): kept by Coder's machine outside
+  // the project, opened only by that exact path (CODER_PLAN_FILE), and never through a link.
+  const plan = process.env.CODER_PLAN_FILE;
+  if (plan && isAbsolute(plan) && abs === resolve(plan)) {
+    let st = null; try { st = await lstat(abs); } catch { /* not written yet */ }
+    if (st && !st.isFile()) fail("the plan file is not a plain file");
+    if (!st && mustExist) fail("no such file: " + abs);
+    return { abs, rel: abs };
+  }
   // THE CHAT'S OWN COMMAND OUTPUT, TO READ (the live test after deploy 75): a background command's log and a long output's
   // saved file are named to Coder by their full path, to read or search (Claude Code's Read opens its output files), but
   // read refused them as outside the project. read and grep (`output`) may open what is in those folders (Coder's machine

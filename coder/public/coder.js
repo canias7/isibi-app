@@ -3206,6 +3206,8 @@
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
   const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
   function permOptions(e) {
+    // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
+    if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
     if (e.tool === 'plan') return [['auto', 'Yes, and use auto mode'], ['acceptEdits', 'Yes, and accept edits'], ['no', 'No, keep planning']].filter(([c]) => !(S.autoOff && c === 'auto'));
     const o = [['yes', 'Yes']];
     if (Array.isArray(e.rules) && e.rules.length) o.push(['always', 'Yes, and don\'t ask again for ' + e.rules.map((r) => '<code>' + esc(ruleShown(r)) + '</code>').join(' and ')]);
@@ -3239,7 +3241,16 @@
     const plan = e.tool === 'plan';
     let body = '';
     // (A heading line with text right under it is a heading too: a plan is often written "## Context" then its lines.)
-    if (plan) body = '<div class="cd-plan-body">' + prose(String(e.plan || '').replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>';
+    // CLAUDE CODE'S PLAN CARD (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify
+    // one"): one too long to show says approval is withheld; one with no plan says Coder wants to exit plan mode (its
+    // "simplified yes/no dialog"); the plan can be edited before it is approved ("edit it directly before Claude proceeds"),
+    // and once approved the card shows the plan as approved.
+    const planEditing = plan && live && !sent && S.planEdits && typeof S.planEdits[e.pid] === 'string';
+    const planText = !plan ? '' : ans && typeof ans.plan === 'string' ? ans.plan : (sent === 'auto' || sent === 'acceptEdits') && S.planEdits && typeof S.planEdits[e.pid] === 'string' ? S.planEdits[e.pid] : String(e.plan || '');
+    if (plan && e.withheld) body = '<p class="cd-perm-desc">' + esc(e.withheld) + '</p>';
+    else if (plan && !planText.trim()) body = '<p class="cd-perm-desc">Coder wants to exit plan mode</p>';
+    else if (planEditing) body = '<textarea class="cd-perm-note cd-plan-text" data-plan-text="' + esc(e.pid) + '" rows="14" spellcheck="false" aria-label="Edit the plan">' + esc(S.planEdits[e.pid]) + '</textarea>';
+    else if (plan) body = '<div class="cd-plan-body">' + prose(planText.replace(/^(#{1,4}[ \t]+.*)$/gm, '\n$1\n')) + '</div>' + (live && !sent ? '<button type="button" class="cd-plan-edit" data-plan-edit="' + esc(e.pid) + '">Edit plan</button>' : '');
     else if (e.tool === 'bash' || e.tool === 'powershell') {
       const lines = Array.isArray(e.lines) ? e.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
       body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
@@ -3277,10 +3288,14 @@
     if (!S.project || (S.permSent && S.permSent[pid])) return;
     // (A note goes with Yes and No only, as in Claude Code: "don't ask again" and "switch to auto mode" take none.)
     const comment = choice === 'always' || choice === 'auto' ? '' : String((S.permNotes && S.permNotes[pid]) || '').trim().slice(0, 2000);
+    // (A plan approved as the owner edited it: the edited plan goes with the Yes, only when it changed. 2026-11-14.)
+    const card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
+    const edit = S.planEdits && typeof S.planEdits[pid] === 'string' ? S.planEdits[pid] : null;
+    const plan = card && card.tool === 'plan' && (choice === 'auto' || choice === 'acceptEdits') && edit !== null && edit !== String(card.plan || '') ? edit : null;
     S.permSent = { ...(S.permSent || {}), [pid]: choice };
     S.permErr = null;
     draw();
-    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment }) });
+    const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid, choice, comment, ...(plan !== null ? { plan } : {}) }) });
     if (r.status !== 200) { delete S.permSent[pid]; S.permErr = { pid, text: (r.data && r.data.error) || 'Your answer could not be sent. Try again.' }; }
     draw();
   }
@@ -3429,6 +3444,8 @@
     // message can be typed then: the queue); only when its text was changed for it does the cursor go to the end.
     const was = focus ? { v: document.activeElement.value, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     const webFocus = document.activeElement && ['cdWebScreen', 'cdWebType', 'cdWebCmd'].includes(document.activeElement.id) ? document.activeElement.id : '';
+    // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
+    const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
     root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
     drawSide();
     wire(root);
@@ -3437,6 +3454,7 @@
     if (nlog && (scroll || atBottom)) nlog.scrollTop = nlog.scrollHeight;
     if (focus) { const i = root.querySelector('#cdIn'); if (i) { i.focus(); if (was && i.value === was.v) { i.setSelectionRange(was.a, was.b, was.d || 'none'); i.scrollTop = was.top; } else i.setSelectionRange(i.value.length, i.value.length); } }
     if (webFocus) { const f = root.querySelector('#' + webFocus); if (f) f.focus(); }
+    if (planAt) { const t = root.querySelector('[data-plan-text="' + CSS.escape(planAt.pid) + '"]'); if (t) { t.focus({ preventScroll: true }); t.setSelectionRange(planAt.a, planAt.b, planAt.d || 'none'); t.scrollTop = planAt.top; } }
     const term = root.querySelector('#cdWebTerm');
     if (term) term.scrollTop = term.scrollHeight;
     if (GLOOPY) setTimeout(hoSync, 0);
@@ -3990,8 +4008,18 @@
     on('[data-perm-choice]', 'click', (e) => answerPerm(e.currentTarget.dataset.permPid, e.currentTarget.dataset.permChoice));
     on('[data-perm-note]', 'input', (e) => { S.permNotes = { ...(S.permNotes || {}), [e.currentTarget.dataset.permNote]: e.currentTarget.value }; });
     on('[data-perm-note]', 'keydown', (e) => { if (e.key === 'Enter') e.preventDefault(); });
+    // THE PLAN, EDITED ON ITS CARD BEFORE IT IS APPROVED (Claude Code's "edit it directly before Claude proceeds"; the owner,
+    // 2026-11-14): Edit plan opens it as text; what is typed is kept for the answer.
+    on('[data-plan-edit]', 'click', (e) => {
+      const pid = e.currentTarget.dataset.planEdit, card = S.events.find((x) => x.type === 'permission' && x.pid === pid);
+      S.planEdits = { ...(S.planEdits || {}), [pid]: String((card && card.plan) || '') };
+      draw();
+      const t = S.root.querySelector('[data-plan-text="' + CSS.escape(pid) + '"]');
+      if (t) { t.focus(); t.setSelectionRange(0, 0); t.scrollTop = 0; }
+    });
+    on('[data-plan-text]', 'input', (e) => { S.planEdits = { ...(S.planEdits || {}), [e.currentTarget.dataset.planText]: e.currentTarget.value }; });
     on('.cd-perm.is-live', 'keydown', (e) => {
-      if (e.target.matches && e.target.matches('input')) return;
+      if (e.target.matches && e.target.matches('input, textarea')) return;
       const opts = e.currentTarget.querySelectorAll('[data-perm-choice]');
       const k = Number(e.key);
       if (k >= 1 && k <= opts.length && !e.ctrlKey && !e.metaKey && !e.altKey) { e.preventDefault(); opts[k - 1].click(); }

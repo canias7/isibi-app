@@ -27,6 +27,8 @@ import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSy
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
 import { runCoder, connectorTools, connectorCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
+// (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
+import { planStore } from "./coder-plan.mjs";
 import { hooksFrom, hooksFor, hookInput, hookShell, splitHookOut, asyncHookTexts, sessionEndBudget, httpUrlAllowed } from "./coder-hooks.mjs";
 import { autoModeSetting } from "./coder-checker.mjs";
 /** The owner's auto mode rules as the Worker sent them, checked again here (autoModeSetting), or null. */
@@ -3463,6 +3465,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       await keepNewest(outDir, OUT_FILES_KEEP);
       if (Number.isInteger(RUN_UID)) { try { await chown(seenDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
     } catch (e) { return fail(500, "could not prepare the memory: " + String((e && e.message) || e).slice(0, 160)); }
+    // THE CHAT'S PLAN FILE (coder-plan.mjs; the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
+    // Claude Code keeps a session's plan in ~/.claude/plans, outside the repository): root's own folder beside the memory,
+    // handed to the AI's user, which holds the chat's one plan file (never in the project, so never on the branch); its
+    // name and Claude Code's two plan flags in a file of root's beside it. Not for Gloopy (no plan mode). A folder that
+    // cannot be made leaves the chat planning as Claude Code's sessions without a disk do.
+    let planBox = null;
+    if (!gloopy) {
+      const planDir = join(memRoot, project + ".plans");
+      try {
+        await mkdir(planDir, { recursive: true, mode: 0o755 });
+        if (Number.isInteger(RUN_UID)) { try { await chown(planDir, RUN_UID, RUN_GID ?? RUN_UID); } catch { /* tests */ } }
+        planBox = planStore({ dir: planDir, stateFile: join(memRoot, project + ".plan.json"), uid: RUN_UID, gid: RUN_GID ?? RUN_UID });
+      } catch { planBox = null; }
+    }
     // THE REPO'S ENVIRONMENT (owner, 2026-11-05, "14"): the owner's own variables
     // for every command, and a setup script run (as `dev`) when this machine first
     // opens the repo, or when the script changed.
@@ -4066,7 +4082,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir,...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -4142,6 +4158,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         ownDirs: [bgDir, outDir],
         // CODER'S MEMORY FILE, which stays writable under the write block (Claude Code's auto memory does).
         memFile,
+        // THE CHAT'S PLAN FILE (coder-plan.mjs, the owner, 2026-11-14): Claude Code's plan mode with a disk.
+        ...(planBox ? { plan: planBox } : {}),
         // THE WORKING FOLDERS ONLY THE REPOSITORY'S SETTINGS ADD (the write block refuses them).
         repoDirs: repoOnlyDirs,
         // THE SCRIPT CAPS (CODER_SCRIPT_CAPS with the scrub on), or null.
@@ -4503,7 +4521,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const pid = String(body.pid || ""), choice = String(body.choice || "");
         if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
         if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
-        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "" });
+        // (And the plan as the owner edited it on the plan's card, with a Yes: Claude Code's "edit it directly before Claude
+        // proceeds"; coder-plan.mjs, the owner, 2026-11-14. At most PLAN_SHOW_MAX characters, as the card shows.)
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}) });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").
