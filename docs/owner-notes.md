@@ -17,6 +17,21 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Environments work like Claude Code's (your words: "Fix base on Claude Code docs, please.")
+
+On my branch, not deployed yet. This is fix 1 of 6 from the recheck against Claude Code's newest docs (the other five helpers are still working).
+
+- **The setup script runs once per chat machine.** It runs at a chat's first message, or when a chat gets a fresh machine. In a chat that has already started, it no longer runs again when you change the script or the network, after 7 days, or after it failed. Claude Code's docs say a change to the script reaches a running session only when its machine is rebuilt. New chats still get your latest script. If the script changed after a chat's machine had its setup, that chat says so once.
+- **Coder can list your environments** with a new read-only tool, list_environments, like Claude Code's.
+- **Environments have a description.** Coder sees its own chat's description and can propose a new one (you approve it on the card). A new environment it proposes gets its reason as the description. The Environment window shows it.
+- **Names can be up to 64 characters** (was 40), like Claude Code. A name you already use is refused instead of getting a number added.
+- **One key per website.** Adding a second key for a website that already has one is refused, and the message names the key that's there.
+- **Blocked websites:** Coder's notes no longer send it straight to "add this website to the list". Like Claude Code, it first decides where a change belongs (this environment or a new one), and the block message names no tool.
+- **Your hooks see the call first:** the environment tools now check their inputs after your PreToolUse hooks, as Claude Code does for these tools, so a hook can see, block or fix a bad call.
+- **Tests:** 3 new environment tests (the list, checks after hooks, the setup running once) and the old ones updated. On the merged branch the 84 environment-related tests all pass. The helper's full run passed 927 of 930: two it fixed and reran (they pass), and the known one that only fails in a helper's copy of the repo.
+
+For you to decide: should you be able to edit the description yourself in the Environment window? Right now it only shows it, and Coder proposes changes that you approve.
+
 ## 2026-11-14: The typewriter logo is red (your pick of 4 colours: "Yeah, the three")
 
 On my branch, not deployed yet. Same typewriter, now red instead of teal, with a gold type bar so the strike shows against the red. It's red in all three places: the tab on the left, beside the chat's name, and big in an empty chat. All 9 logo tests pass (one now checks it's red).
