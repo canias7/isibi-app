@@ -500,7 +500,7 @@ test("CD382l (D3 of recheck 3) the chat's own plan file, in a plansDirectory und
   assert.match(asked.cards[0].why, /^Coder requested permissions to write to \/.*\/\.claude\/plans\/[^/]+\.md, but you haven't granted it yet\.$/);
 });
 
-test("CD382m (round 5) read's, write's and edit's ask cards in Claude Code 2.1.325's words, as grep's, glob's and lsp's: a path rule's \"Coder requested permissions to read from <path>, but you haven't granted it yet.\" (Read rules) or \"… to write to <path> …\" (Edit rules, both tools), first; a rule on the whole tool alone \"Coder requested permissions to use Read (Write, Edit) …\", but \"… write to <path> …\" for write and edit in Auto; the path as Claude Code writes it; told to Coder where no one can answer", async () => {
+test("CD382p (round 5) read's, write's and edit's ask cards in Claude Code 2.1.325's words, as grep's, glob's and lsp's: a path rule's \"Coder requested permissions to read from <path>, but you haven't granted it yet.\" (Read rules) or \"… to write to <path> …\" (Edit rules, both tools), first; a rule on the whole tool alone \"Coder requested permissions to use Read (Write, Edit) …\", but \"… write to <path> …\" for write and edit in Auto; the path as Claude Code writes it; told to Coder where no one can answer", async () => {
   const fd = (tool, path, rules, extra = {}) => P.fileToolDecision(tool, path, { rules: { allow: [], ask: [], deny: [], ...rules }, root: ROOT, home: HOME, ...extra });
   const READ = (p) => "Coder requested permissions to read from " + p + ", but you haven't granted it yet.";
   const WRITE = (p) => "Coder requested permissions to write to " + p + ", but you haven't granted it yet.";
