@@ -188,7 +188,10 @@ test("AQ5 the card's other ways out: Skip (Claude Code's \"The user did not answ
   assert.deepEqual([st.r.status, st.told("q1"), st.seen.length], ["stopped", "stopped by the owner", 1]);
   const none = await job([say("", [call("ask_user", { questions: [DB] }, "q1"), call("bash", { command: "echo no" }, "b1")]), say("never")], { answers: [null] });
   assert.equal(none.told("q1"), "The owner doesn't want to proceed with this tool use. The tool use was rejected (eg. if it was a file edit, the new_string was NOT written to the file). STOP what you are doing and wait for the owner to tell you how to proceed.");
-  assert.deepEqual([none.r.status, none.seen.length, none.ran.includes("echo no")], ["done", 1, false]);
+  // (2026-11-14, Claude Code's groups, coder-parallel.mjs: a command that only reads, asked beside the question, ran while the
+  // question waited, as Claude Code runs AskUserQuestion's siblings; after the No, Coder is told it was not done now, its rule.)
+  assert.deepEqual([none.r.status, none.seen.length, none.ran.includes("echo no")], ["done", 1, true]);
+  assert.equal(none.told("b1"), "The owner doesn't want to take this action right now. STOP what you are doing and wait for the owner to tell you how to proceed.");
   const late = await job([say("", [call("ask_user", { questions: [DB] }, "q1")]), say("never")], { extra: { maxMs: 300 }, answers: [() => new Promise((ok) => setTimeout(() => ok(null), 450))] });
   assert.equal(late.r.status, "time");
   assert.equal(late.told("q1"), "not run: Coder ran out of time waiting for the owner's answer");

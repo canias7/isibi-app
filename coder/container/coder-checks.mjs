@@ -13,6 +13,7 @@
 //                   the cut said in words, never silent.
 //   scrub           anything shaped like a key is blanked before the model or
 //                   the owner sees it.
+import { inputErrorText, customIssue } from "./coder-zodtext.mjs";
 
 export const PROJECT_ROOT = "/work";
 /**
@@ -50,11 +51,15 @@ const REFUSED = [
 /** Why this command may not run ("" when it may). */
 /**
  * A RAW CONTROL CHARACTER IN A COMMAND (Claude Code: its Bash tool refuses "a raw control character other than a tab or
- * newline": "Command contains control characters that would be hidden in the approval dialog"). In Coder the owner reads
- * the command in the chat and on its card, where such a character would hide part of it.
+ * newline"). In Coder the owner reads the command in the chat and on its card, where such a character would hide part of it.
+ * (Claude Code 2.1.325's raw program: the check is a refinement of the `command` input of Bash, PowerShell and Monitor, "command
+ * contains control characters that would be hidden in the approval dialog", so the model is told it as any input its schema
+ * refuses: "InputValidationError: " and, with no missing, unexpected or wrongly typed parameter, zod's own message, the issue as
+ * JSON (its w0). 2026-11-14, round 3; before, Coder's own capitalized sentence with two of its own.)
  */
 export const CONTROL_CHARS = /[\u0000-\u0008\u000B-\u001F\u007F-\u009F]/;
-export const CONTROL_REFUSED = "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'.";
+export const CONTROL_MESSAGE = "command contains control characters that would be hidden in the approval dialog";
+export const CONTROL_REFUSED = inputErrorText("Bash", [customIssue(CONTROL_MESSAGE, ["command"])]);
 /**
  * TWO INVISIBLE CHARACTERS THE POWERSHELL TOOL REFUSES too (Claude Code's errors reference: "PowerShell tool: also U+FEFF or
  * U+180E"; Bash docs pass 9), in its words.
@@ -217,7 +222,8 @@ export function kbSize(bytes) {
 /**
  * `inlineMax` and `readBack`: the environment's sizes (Coder's machine, bashOutputLimits; Claude Code's bashOutputMaxChars and
  * BASH_MAX_OUTPUT_LENGTH), 30,000 each by default. A read-back window smaller than what a command that worked printed keeps
- * its start, " ... [N lines truncated] ...", as Claude Code 2.1.319 does.
+ * its start, then a blank line and "... [N lines truncated] ...", in Claude Code 2.1.325's words (its raw program: `${start}\n\n...
+ * [${n} lines truncated] ...`; a strings dump that drops blank lines had shown it as " ... ["; 2026-11-14, round 3).
  */
 /** How far past 10,000 characters a failure goes before it is cut (Claude Code 2.1.322: cut only past 11,024). */
 export const BASH_FAIL_SLACK = 1024;
@@ -235,7 +241,7 @@ export function bashResultText({ output = "", isError = false, code = 0, size = 
     if (text.length <= inline && !(file && total > inline)) {
       if (text.length <= back) return text;
       const rest = text.slice(back).split("\n").length;
-      return text.slice(0, back) + " ... [" + rest + " lines truncated] ...";
+      return text.slice(0, back) + "\n\n... [" + rest + " lines truncated] ...";
     }
     // (It ends at the last line break in its first 2,000 characters when that is past the first 1,000: Claude Code 2.1.322.)
     const lastBreak = text.slice(0, BASH_PREVIEW).lastIndexOf("\n");

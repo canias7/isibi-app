@@ -308,7 +308,8 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   const out = await runCoder(deps, { text: ask + fileMentions(ask), shown: ask });
   // (Less tool search's note on the chat's deferred tools, which follows them as Claude Code's deferred_tools_delta follows its
   // at_mentioned_files: tool-search.test.mjs.)
-  const msgs = seen[0].messages.filter((m) => !m.toolsAnnounced);
+  // (Nor the notes of the modes, as Claude Code's mode attachments after the message: fix round 3, 2026-11-14.)
+  const msgs = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote);
   assert.equal(msgs.length, 3, "Coder's rules, the owner's message, the note with their files");
   assert.equal(msgs[1].content, (ask + fileMentions(ask)).trim(), "the owner's message is as they wrote it");
   const note = msgs[2];
@@ -543,8 +544,8 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   // (Less tool search's note on the chat's deferred tools, tool-search.test.mjs, in this test file's note checks.)
-  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
-  assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced), "and no note before any step");
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
   let k2 = 0;
@@ -581,9 +582,11 @@ test("CD215 right after a summary made between messages (/compact, a long chat s
   ];
   const events = [], seen = [];
   const out = await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: (e) => events.push(e), exec: machine(dir) }, { messages: history, text: "next" });
-  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1);
+  // (Nor the notes of the modes, which follow as Claude Code's mode attachments do: fix round 3, 2026-11-14.)
+  const plain = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote);
+  const note = plain.at(-1);
   assert.equal(note.appNote, true);
-  assert.equal(seen[0].messages.at(-2).content, "next", "right after the owner's message");
+  assert.equal(plain.at(-2).content, "next", "right after the owner's message");
   assert.ok(note.content.startsWith("(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)\n\n"));
   const order = ["--- b.js ---\n     1\tconst b = 2;", "Referenced file big.js (over 20,000 characters", "--- a.js ---\n     1\tconst a = 1;"];
   let at = -1;
@@ -630,7 +633,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   await writeFile(join(dir, "src", "app.js"), "x\n");
   const seen = [];
   await runCoder({ send: async (q) => { seen.push(q); return say("Done."); }, emit: () => {}, exec: run }, { text: "see @src/ and @data.zip", shown: "see @src/ and @data.zip" });
-  const note = seen[0].messages.filter((m) => !m.toolsAnnounced).at(-1).content;
+  const note = seen[0].messages.filter((m) => !m.toolsAnnounced && !m.modeNote).at(-1).content;
   assert.ok(note.includes("--- src/ (a folder: what is in it) ---\napp.js"));
   assert.ok(note.includes("--- data.zip: not included (data.zip is a binary file (ZIP), not text"));
 });
@@ -1170,10 +1173,10 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   const reply = (id) => out.messages.find((x) => x.role === "tool" && x.tool_call_id === id).content;
   assert.equal(reply("b1"), "apple\nbanana\ncherry");
   assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
-  const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced).map((m) => m.content);
-  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself, otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
+  const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content);
+  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
-  const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced);
+  const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced && !m.modeNote);
   assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
   // What is kept: each line's short fingerprint, never the text.
   const marks = (await readdir(followDir)).filter((f) => f.startsWith("lines-"));
@@ -1254,7 +1257,8 @@ test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Wi
   const { mkdtemp, writeFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.match(NOT_UTF8_NOTE, /^\[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. Its undecodable bytes show above as U\+FFFD \(�\)\. Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding \(iconv\), or ask the owner whether to convert it to UTF-8\.\]$/);
+  // (Claude Code 2.1.325's note, word for word from its raw program, with Coder's tool names: edit and write refuse such a file.)
+  assert.equal(NOT_UTF8_NOTE, "[This file is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD. edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]");
   const dir = await mkdtemp(join(tmpdir(), "coder-enc-"));
   const run = machine(dir);
   const read = async (path, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path, ...args } })).toString("base64") })).output;
@@ -1287,7 +1291,7 @@ test("CD242 a missing file is named with the folder a short path counts from, as
   let first = null;
   await runCoder({ exec: machine(dir), emit: (e) => steps.push(e), send: async (q) => { first = first || q; return say("Done."); } }, { text: "look at @types/node please" });
   assert.equal(steps.filter((e) => e.type === "bash").length, 0);
-  assert.ok(!first.messages.some((m) => m.appNote && !m.toolsAnnounced), "no note for a path that is not a file");
+  assert.ok(!first.messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "no note for a path that is not a file");
   assert.equal(mentionNote === undefined || typeof mentionNote === "function", true);
 });
 
@@ -1332,7 +1336,8 @@ test("CD244 write does not replace a file that is not valid UTF-8 (an old encodi
   const write = async (path, content) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "write", args: { path, content } })).toString("base64") })).output;
   const old = Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a]);
   await writeFile(join(dir, "old.txt"), old);
-  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+  // (Claude Code 2.1.325's one text for Write and Edit, from its raw program, the file named first.)
+  assert.equal(await write("old.txt", "café\n"), "error: old.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
   assert.deepEqual(await readFile(join(dir, "old.txt")), old, "untouched");
   await unlink(join(dir, "old.txt"));
   assert.match(await write("old.txt", "café\n"), /^File created successfully at: old\.txt \(file state is current in your context — no need to Read it back\)$/, "deleted first: a new file");
@@ -1396,9 +1401,9 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   // Only the tools tested so far: read, then write (live, deploys 70 and 71; the owner, 2026-11-09: "Yes"), then edit
   // (live, deploy 73; the owner, 2026-11-09: "Yes fix").
   // Then bash and connectors (both live-tested; the owner, 2026-11-13: "do the docs live now for the tools we have done in
-  // the coder").
+  // the coder"). Then tool search (live since 2026-11-14; the owner, "yes pls all of that": the recheck's TS-9).
   const sections = [...page.matchAll(/<section id="([a-z-]+)"/g)].map((m) => m[1]);
-  assert.deepEqual(sections, ["read", "write", "edit", "bash", "connectors"]);
+  assert.deepEqual(sections, ["read", "write", "edit", "bash", "connectors", "tool-search"]);
   for (const other of ["Grep", "Glob", "Web fetch", "Testing", "Next"]) assert.ok(!new RegExp("<h[1-3][^>]*>" + other + "\\b").test(page) && !page.includes(">" + other + "</a>") && !page.includes(">" + other + "</span>"), other + " is not on the page yet");
   // Plain HTML and CSS, its links all go somewhere.
   assert.doesNotMatch(page, /<script|\son[a-z]+=|javascript:/i, "no script of any kind (script-src 'self' would refuse an inline one)");
@@ -1407,7 +1412,7 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.equal(links.length, 37);
+  assert.equal(links.length, 42);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.
@@ -2101,7 +2106,7 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   assert.match(await tool("edit", { path: "tabs.py", old_string: "2\treturn 1", new_string: "x" }), /^error: String to replace not found in file\./);
   // Encodings: an old one refused with the file as it was; UTF-16 and a UTF-8 mark kept.
   await put("latin1.txt", Buffer.from("caf\xe9 au lait\n", "latin1"));
-  assert.match(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), /^error: latin1\.txt is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary\. .*so nothing was written\. If the file is text, make the change with a command that reads and writes it in its own encoding \(iconv\), or ask the owner whether to convert it to UTF-8 first\.$/);
+  assert.equal(await tool("edit", { path: "latin1.txt", old_string: "au lait", new_string: "noir" }), "error: latin1.txt is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
   assert.deepEqual(await readFile(join(dir, "latin1.txt")), Buffer.from("caf\xe9 au lait\n", "latin1"), "untouched (Coder wrote it back as \"caf� noir\")");
   await put("u16.txt", Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hello utf16\r\n", "utf16le")]));
   assert.equal(await tool("edit", { path: "u16.txt", old_string: "hello", new_string: "hi" }), "The file u16.txt has been updated successfully.");

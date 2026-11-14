@@ -21,7 +21,7 @@ import http from "node:http";
 import os from "node:os";
 import { spawn, spawnSync } from "node:child_process";
 import { createHash, randomUUID, randomBytes, randomInt } from "node:crypto";
-import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir } from "node:fs/promises";
+import { mkdir, readdir, readFile, writeFile, stat, chown, open, unlink, rm, lstat, realpath, lchown, chmod, rename, rmdir, symlink } from "node:fs/promises";
 import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
@@ -54,6 +54,7 @@ import { taskStore, todoStore, taskFileFor } from "./coder-tasks.mjs";
 // (A question card's answer, as the machine takes it: Claude Code's AskUserQuestion; the owner, 2026-11-14.)
 import { questionPicks } from "./coder-askuser.mjs";
 import { parkRecord, parkAnswer } from "./coder-park.mjs";
+import { contentFrom } from "./coder-elicit.mjs";
 import { BUILTIN_RULES, parseRulesFile, checkEdit, editedText } from "./coder-security.mjs";
 export { globMatch };
 import { normNetwork, okPattern, netWalled, VAR_DROPPED_RE } from "./coder-secrets.mjs";
@@ -437,7 +438,7 @@ export function varsNote(vars) {
   const names = Object.keys(vars && typeof vars === "object" ? vars : {});
   if (!names.length) return "";
   const secret = names.filter((k) => secretVar(k, vars[k]));
-  return "\n\nENVIRONMENT VARIABLES the owner set for this repo (available to your commands): " + names.join(", ") + (secret.length ? ". Never print the values of those that look secret: " + secret.join(", ") + " (the chat hides them)" : "");
+  return "\n\nENVIRONMENT VARIABLES the owner set in this chat's environment (available to your commands): " + names.join(", ") + (secret.length ? ". Never print the values of those that look secret: " + secret.join(", ") + " (the chat hides them)" : "");
 }
 /** A SAVED WORKING FOLDER THAT IS NOT THERE, said in the chat (round 5: it was left out without a word). "" for none. */
 export function missingDirsSaid(missing, from, inBox = false) {
@@ -906,8 +907,8 @@ export const REPO_OWN_ENV = { BASH_DEFAULT_TIMEOUT_MS: "BASH_DEFAULT_TIMEOUT_MS"
   // todo_write in place of the task tools, CLAUDE_CODE_TASK_LIST_ID names the list. 2026-11-14; coder-tasks.mjs.)
   CLAUDE_CODE_ENABLE_TASKS: "CODER_ENABLE_TASKS", CLAUDE_CODE_TASK_LIST_ID: "CODER_TASK_LIST_ID",
   // (Tool search's switch, under its own name, one of the variables Claude Code applies from any settings file: 2026-11-14;
-  // coder-toolsearch.mjs.)
-  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH" };
+  // coder-toolsearch.mjs. And its connector descriptions' limit, CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH, under Coder's name.)
+  ENABLE_TOOL_SEARCH: "ENABLE_TOOL_SEARCH", CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH: "CODER_MAX_MCP_DESCRIPTION_LENGTH" };
 export const REPO_OWN_KEYS = { bashOutputMaxChars: "CODER_BASH_OUTPUT_MAX_CHARS", defaultShell: "CODER_DEFAULT_SHELL", respondToBashCommands: "CODER_RESPOND_TO_BASH_COMMANDS" };
 /** Coder's name → the name the repository's file gives it (for what Coder is told). */
 export const REPO_OWN_FROM = Object.fromEntries([...Object.entries(REPO_OWN_ENV), ...Object.entries(REPO_OWN_KEYS)].map(([k, v]) => [v, k]));
@@ -2665,6 +2666,33 @@ export function extrasNote(extras) {
     extras.map((x) => "- " + x.repo + " in " + x.dir + " (from " + x.base + ")" + (x.readOnly ? " (READ-ONLY for the owner: kept on this machine, never sent to GitHub; no pull request)" : "")).join("\n") +
     "\nWork in them with the same tools: give the file tools paths in those folders, and cd there in bash. A pull request for one of them: pull_request with its repo.";
 }
+/**
+ * THE FOLDER THAT HOLDS THE REPOSITORY CHECKOUTS, WHERE THE SETUP SCRIPT STARTS (E7 of recheck 2, 2026-11-14; Claude Code's
+ * environment tools: "The script normally starts in the directory that holds the repository checkouts, not inside one …
+ * Reach a repository by its relative subdirectory, normally its name"; its example: "if [ -d myapp ]; then (cd myapp && npm
+ * install); fi"). Coder's checkouts are named after the chat (root/<chat>, root/<chat>-x1 …), so `root` keeps a link named
+ * after each of the chat's repositories to its checkout: "myapp" for acme/myapp (a second one of the same name as
+ * "<owner>-<name>"). Root's own, made at each job's start, so Coder can try a script from the same folder ("the parent of
+ * your working directory"); a real folder of that name is left as it is. `repos`: [{ repo, dir }]. → { name: dir }.
+ */
+export async function repoLinks(root, repos) {
+  const made = {};
+  for (const { repo, dir } of Array.isArray(repos) ? repos : []) {
+    const [owner, name] = String(repo || "").split("/");
+    if (!owner || !name || typeof dir !== "string" || resolve(dirname(dir)) !== resolve(root)) continue;
+    const n = Object.hasOwn(made, name) ? owner + "-" + name : name;
+    if (!/^[A-Za-z0-9._-]{1,141}$/.test(n) || n === "." || n === ".." || Object.hasOwn(made, n)) continue;
+    const at = join(root, n);
+    const was = await lstat(at).catch(() => null);
+    if (was && !was.isSymbolicLink()) continue;
+    try {
+      if (was) await unlink(at);
+      await symlink(basename(dir), at);
+      made[n] = dir;
+    } catch { /* that one is left out */ }
+  }
+  return made;
+}
 // ── A READ-ONLY CHAT'S WORK, FROM THIS MACHINE (owner item 5) ─────────────────
 // A repository the owner may read but not push to: Coder's work is committed
 // here, on the chat's branch, and nowhere else. The owner sees it (See changes)
@@ -3708,7 +3736,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             ? "\n\nNETWORK: FULL, but for the environment's blocked sites: " + (net.denied || []).join(", ") + ". Any other site on the internet works; a request to a blocked one fails with \"Blocked: … is on this environment's blocked sites\" (curl: \"CONNECT tunnel failed, response 403\"), whatever else allows it. Don't retry those; only the owner can change that list."
             : net.mode === "none"
             ? "\n\nNETWORK: NONE. The owner turned internet access off in this chat's environment: every request to the internet fails (package installs too). Work offline; if the task truly needs a host, that is a need as get_environment's description defines it (it says when and where to propose a change)."
-            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"Blocked by this repo's network list\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
+            : "\n\nNETWORK: this chat's environment is LIMITED to " + (net.mode === "trusted" ? "the default list (package registries, GitHub, cloud SDKs)" : (net.defaults ? "the default list (package registries, GitHub, cloud SDKs)" + (net.hosts.length ? " and " : "") : "") + net.hosts.join(", ")) + (secretHosts.length ? " (plus sites with saved keys)" : "") + ". A request to any other site fails with \"request blocked: no rule or allowlist entry allows host\" (curl: \"CONNECT tunnel failed, response 403\"), and so does web_fetch: if the task needs that site, that is a need as get_environment's description defines it (it says where a change belongs). Your own web search still works.") + (net.mode !== "full" && net.denied && net.denied.length ? " The environment also blocks these sites whatever else allows them: " + net.denied.join(", ") + "." : "") + (net.mode !== "full" && net.mode !== "none" && walled ? " In Auto mode, a command can name the hosts it needs beyond this list in its allowed_domains: the checker reviews them together with the command, and an approved list opens them for that one command alone." : "") + (walled || fwOn ? "" : " (On this machine the list is a guard for tools that use HTTPS_PROXY, not a firewall.)");
         }
       } catch (e) {
         const why = String((e && e.message) || e).slice(0, 120);
@@ -3783,6 +3811,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (t.resume) { t.resume(); t.resume = null; }
     const script = body.setup && typeof body.setup.script === "string" ? body.setup.script.trim().slice(0, SETUP_SCRIPT_MAX) : "";
     let setupFailed = null, setupRan = false, setupCopied = null, setupMoved = false;
+    // WHERE THE SETUP SCRIPT STARTS (E7 of recheck 2, 2026-11-14): in the folder that holds the repository checkouts, as Claude
+    // Code's, each of the chat's repositories by its name there (repoLinks); a script saved before then still starts inside
+    // the chat's repository, as it did when it was written, until it is changed (the Worker's `scriptIn`: "repo").
+    const setupLinks = body.repo ? await repoLinks(root, [{ repo: String(body.repo), dir }, ...extras.map((x) => ({ repo: x.repo, dir: x.dir }))]).catch(() => ({})) : {};
+    const scriptInRepo = !!(body.setup && body.setup.scriptIn === "repo");
+    // (Said with the script in what Coder is told, so a script it tries or proposes starts where it will run.)
+    const linkNames = Object.keys(setupLinks);
+    const setupWhere = () => "\n(" + (scriptInRepo ? "It starts inside this chat's repository folder: it was saved before 2026-11-14 and keeps starting there until it is changed. A script you send starts in " : "It starts in ") + root + ", the folder that holds the repository checkouts" + (linkNames.length ? ", where this chat's repositories are " + linkNames.join(", ") : "") + ".)";
     // WHAT THE OWNER CHANGED IN ENVIRONMENT SINCE THE LAST MESSAGE (recorded
     // browser test, 2026-11-06: the owner fixed the setup script between two
     // messages, yet Coder kept saying the broken line was still there). The
@@ -3846,7 +3882,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (r.code === 0 && !r.timedOut && userPart) {
           const left = Math.max(10, SETUP_MAX_S - Math.round((Date.now() - t0) / 1000));
           // (The owner's Stop ends it: it is one of the turn's own commands.)
-          const u = await execIn(dir, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
+          const u = await execIn(scriptInRepo ? dir : root, userPart, left, { bgDir, kill: true, home, room: t.room, box: t.box, extraEnv: { GOFARTHER_CODER: "1", ...REMOTE_MARK, ...(net.limited ? proxyEnv : {}) }, onStart: (pid) => t.fg.add(pid) });
           r = { code: u.code, timedOut: !!u.timedOut, output: (r.output ? r.output + "\n" : "") + String(u.output || "") };
         }
         if (px && secretList.length) px.setSecrets(secretList);
@@ -3855,8 +3891,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         await setupMark(setupFailed ? "failed" : "ok");
         // WHAT SETUP MADE IS NEVER SAVED TO THE BRANCH (live test, 2026-11-05: an
         // `npm ci` would have committed node_modules): new files from the setup go
-        // in the git folder's own ignore list (root's folder, not the repo).
-        await ignoreNew(dir, gitRoot, remote, root);
+        // in the git folder's own ignore list (root's folder, not the repo). (Each of the chat's repositories': the script starts
+        // above them all now, E7.)
+        for (const d of [dir, ...extras.map((x) => x.dir)]) await ignoreNew(d, gitRoot, remote, root);
       }
       // A CHAT MOVED TO THIS ENVIRONMENT (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one";
       // Claude Code's switch_environment: "Its setup script does NOT run now or at a restart: it runs only if the machine is
@@ -3916,7 +3953,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const contextFor = (notesNow, memoryNow, laterNow) => {
       const styleLines = String(memoryNow || "").split("\n").map((l) => l.trim()).filter((l) => /^style:/i.test(l)).slice(-3);
       const style = styleLines.length ? "THE OWNER'S STYLE (saved earlier; follow it in every answer unless they ask otherwise now):\n" + styleLines.map((l) => "- " + l.replace(/^style:\s*/i, "")).join("\n") + "\n\n" : "";
-      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE REPO'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE REPO'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
+      return (env.CODER_IMAGE === "full" ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) + "\n\n" : "") + style + (awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where this chat stands.\n\n" : "") + contextText(notesNow, memFile, memoryNow, laterNow) + extrasNote(extras) + gitNote(body) + readOnlyNote(body) + envNameNote(body) + undoNote(lastJobOf(body)) + workNote() + (script ? (setupHere === "moved" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: this chat moved to this environment while its machine was running, and it runs only on a fresh machine, so what it installs is not here unless you install it):\n" : setupHere === "not" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine: the owner set or changed it after this chat's machine had its setup, and like Claude Code, a change to the setup script reaches a chat only on a fresh machine (new chats run it), so what it installs is not here unless you install it):\n" : setupHere === "pending" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; it has NOT run on this machine yet: Coder's admin sandbox could not start here, and it runs before a later message whose sandbox starts):\n" : setupHere === "copied" ? "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's; this chat's machine started from the environment's saved copy of its result, made right after it ran in another chat, so it did not run again here. What it installed on the system and in your home is here; what it made inside the project folder (node_modules, say) is not, as the repository is cloned fresh: run the project's own install yourself when the work needs it):\n" : "\n\nTHE ENVIRONMENT'S SETUP SCRIPT (the owner's, already run on this machine: " + (t.box ? "as your own user with admin for anything, like your commands" : "its plain apt-get install lines by Coder's app as admin, every other line as your own user") + "; " + (setupHere === "failed" && !setupRan ? "it FAILED there, so what it failed to set up is not here, and it does not run again on this machine (new chats run it); its output is in the chat" : "its output is in the chat") + "):\n") + script.slice(0, 2000) + setupWhere() : "") + varsNote(ownerVars) + netNote + (setupFailed ? "\n\nTHE SETUP SCRIPT FAILED this time (" + (setupFailed.timedOut ? "it ran past the 5-minute limit" : "exit code " + setupFailed.code) + "). Its last output:\n" + setupFailed.output + "\nLike Claude Code: tell the owner in a few lines which command failed and its exit code, and that they can fix it in Environment → Setup script (new chats run the fixed script). If you have a fix you ran yourself and saw work, propose it with update_environment (setup_script) at the end of your work. Carry on with whatever does not depend on it, and never stand in for the missing part with made-up results unless the owner asks." : "") + (secretHosts.length ? "\n\nNETWORK SECRETS the owner saved (a proxy adds each key to your HTTPS requests to its host; you never see it, and you need no key in the command, e.g. curl https://" + secretHosts[0] + "/...): " + secretHosts.join(", ") : "");
     };
     const context = contextFor(notes, typeof body.memory === "string" ? body.memory : "", later);
     // Gloopy's own context instead (given to runCoder below): its notes about the owner, today's date, its work folder,
@@ -4130,6 +4167,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // CLAUDE CODE'S ENABLE_TOOL_SEARCH (tool search in Coder's chats, coder-toolsearch.mjs; 2026-11-14): the chat's environment's,
         // or the repository's .claude/settings.json `env` one; unset, tool search is on.
         toolSearch: rawVars.ENABLE_TOOL_SEARCH,
+        // (Claude Code's CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH, the chat's CODER_MAX_MCP_DESCRIPTION_LENGTH: both limits on a
+        // connector's descriptions and instructions; coder-toolsearch.mjs mcpDescMaxOf. 2026-11-14.)
+        mcpDescMax: rawVars.CODER_MAX_MCP_DESCRIPTION_LENGTH,
         // THE WORK DISK'S FREE SPACE, for the low-disk warning (Settings; Claude Code's CLAUDE_CODE_WARN_DISK_FREE_GIB: "free
         // space on the working directory's filesystem").
         diskFree: () => { try { const f = statfsSync(dir); return Number(f.bavail) * Number(f.bsize); } catch { return null; } },
@@ -4237,7 +4277,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             }
             return r;
           }
-          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir,...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
+          // (A file tool is told the owner's additional working folders, CODER_WORK_DIRS, which it treats as the project: Claude
+          // Code's additionalDirectories, round 3, 2026-11-14.)
+          const r = await execIn(dir, command, timeoutS, { bgDir, kill: !!tool, home, room: t.room, box: t.box, onStart, prefix: tool ? "" : ps && t.psPrefix !== undefined ? t.psPrefix : t.prefix, ...(tool ? { ...(capped ? { memCg: t.memCgNow() } : {}), ...(hook ? { quietMs: hookQuietMs, shellPrefix: noPrefix ? "" : t.shellPrefix || "" } : {}) } : { onMove, onProgress: (lines) => { t.progress = { at: Date.now(), lines: lines.map((l) => scrub(l)) }; }, memCg: typeof t.memCgNow === "function" ? t.memCgNow() : "", shellPrefix: ps || noPrefix ? "" : t.shellPrefix || "", shell: t.shell || "bash", merge: true }), extraEnv: tool ? { ...(extraEnv || {}), CODER_MEMORY_FILE: memFile, ...(planBox && planBox.current() ? { CODER_PLAN_FILE: planBox.current() } : {}), CODER_SEEN_DIR: seenDir, CODER_OUTPUT_DIRS: bgDir + ":" + outDir, ...(addDirs.length ? { CODER_WORK_DIRS: addDirs.join(":") } : {}),...(moved ? { CODER_CWD: t.cwd } : {}), ...(hookEnvFile ? { CLAUDE_ENV_FILE: hookEnvFile } : {}) } : { ...(extraEnv || {}), ...(pass ? px.env(pass) : {}), [TASK_MARK]: mark }, ...(tool ? { outMax: TOOL_OUTPUT_MAX } : { spillDir: outDir, spillAt: t.outLimits.inlineMax, keep: Math.max(t.outLimits.inlineMax, t.outLimits.readBack) + 10_000, stopAtTimeout: !!sleepFirst || (t.noBg && !monitor) }), ...(moved && (!tool || hook) ? { start: t.cwd } : {}), follow: !!(follow && !tool && !keepHome) });
           // A PICTURE IT PRINTED (a data URL, all of it: from its output file when it was long).
           if (!tool && r && r.code === 0 && !r.background && /^\s*data:image\//.test(String(r.output || ""))) {
             let whole = String(r.output || "");
@@ -4389,8 +4431,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // (A CARD LEFT OPEN, `park` (coder-park.mjs; Claude Code: "Questions stay open until you answer them", "permission
         // prompts, including plan approval, never auto-resolve on idle"): at that time the step's job pauses, its card kept
         // open, and this machine may stop; the owner's answer then starts a job that takes the turn up again at that call.)
-        ask: async (pid, { until = 0, chat = false, park = 0 } = {}) => {
+        // (A CONNECTOR'S QUESTION, MCP elicitation (coder-elicit.mjs), can wait beside another card, from a call still running:
+        // each card waiting is in t.askingAll; `gone`: the server withdrew its question; at the job's end none waits on.)
+        ask: async (pid, { until = 0, chat = false, park = 0, gone = null } = {}) => {
           t.asking = String(pid);
+          (t.askingAll || (t.askingAll = new Set())).add(String(pid));
           const shownAt = Date.now();
           try {
             for (;;) {
@@ -4398,11 +4443,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
               const a = t.answers.get(String(pid));
               if (a) { t.answers.delete(String(pid)); return a; }
               if (chat) { const q = t.queue.find((x) => !x.read && x.at >= shownAt); if (q) { q.read = true; return { choice: "chat", text: q.text, qid: q.qid }; } }
+              if (gone && gone()) return { choice: "gone" };
+              if (t.over) return null;
               if (park && Date.now() >= park) return { choice: "park" };
               if (until && Date.now() > until) return null;
               await new Promise((ok) => setTimeout(ok, 250));
             }
-          } finally { t.asking = ""; }
+          } finally { t.askingAll.delete(String(pid)); t.asking = t.asking === String(pid) ? [...t.askingAll].pop() || "" : t.asking; }
         },
         ...(parkMs > 0 ? { parkMs } : {}),
         ...(gloopy ? { freshContext: async () => gloopyNow((await readMemory(memFile)) ?? "") } : {}),
@@ -4433,7 +4480,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // Coder's own hooks and Auto checker are Coder's, so not used for it (Gloopy has its own permissions, checks and
       // monitor), and its browser rules go as `browserRules`, apart from Coder's permission rules.
       const gloopyOpts = gloopy ? { system: GLOOPY_SYSTEM, zone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 64) : "", browserRules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], monitor: body.monitor === true, granted: typeof body.grant === "string" && body.grant ? [body.grant.slice(0, 300)] : [], schedules, permissions, pages, savedLogins: savedLoginsOf(body), savedCards: gloopy ? savedCardsOf(body) : [], contacts: permissions && permissions.share === "deny" ? [] : contactsOf(body), webhooks, hookBase, workNote: workNoteFor(project), marked: body.marked || null, taught: body.taught || null, attached: gloopy && Array.isArray(body.attached) ? body.attached.filter((x) => x && typeof x.id === "string").slice(0, 10) : [], files: fileList, helper: { system: HELPER_SYSTEM, tools: HELPER_TOOLS, browserTool: HELPER_BROWSER_TOOL, context: "TODAY is " + new Date().toISOString().slice(0, 10) + " (UTC). Files you write go in " + home0 + "/helpers/ (write makes the folder; give the file tools full paths)." }, opening: body.opening === "note" ? "note" : "user", background: body.background === true, checkWrites: true, denied: Array.isArray(body.denied) ? body.denied.filter((x) => typeof x === "string").slice(-20) : [], tools: hasBrowser ? GLOOPY_TOOLS : GLOOPY_TOOLS.filter((x) => !BROWSER_TOOL_NAMES.includes(x.function.name)), nudges: false, who: "Gloopy", github: false, context: gloopyNow(typeof body.memory === "string" ? body.memory : ""), hooks: [], checker: false, rules: null, sessionRules: null } : {};
-      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 10) : [], checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+      runCoder(turnDeps, { notices, lost, stalls, ...(takeUp ? { takeUp: { ...takeUp, ...(envNote ? { note: envNote } : {}) } } : {}), timeouts: t.tmo, outLimits: t.outLimits, noBg: t.noBg, diskWarnGib: PREFS.diskWarnGib, memWarnGib: PREFS.memWarnGib, searchLimits: t.searchLimits, hooks: turnHooks, autoMode: autoModeIn(body.autoMode), denyInstead: PREFS.denyInstead === true, tasksOff: varOff(rawVars.CODER_ENABLE_TASKS), autoOff: PREFS.autoOff === true || repoSet.autoOff, fileEdits: repoSet.defaultMode === "acceptEdits", startMode: repoSet.defaultMode, resumed, lastAt: Number(body.lastAt) || 0, hostLists: nn.mode === "full" ? null : nn.mode === "none" ? "none" : walled ? "on" : "off", rmChecksOff: { subst: varOn(rawVars.CODER_DISABLE_SUBSTITUTION_RM_PROMPT), inline: varOn(rawVars.CODER_DISABLE_INLINE_SHELL_RM_PROMPT), mounted: varOn(rawVars.CODER_DISABLE_MOUNTED_DRIVE_RM_PROMPT), timeout: varOn(rawVars.CODER_DISABLE_DANGEROUS_RM_TIMEOUT) }, powershell: psOn ? { bypass: !varOn(rawVars.CODER_POWERSHELL_RESPECT_EXECUTION_POLICY), defaultShell: String(rawVars.CODER_DEFAULT_SHELL || "").trim().toLowerCase() === "powershell", parseMs: Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS) > 0 ? Math.min(Number(rawVars.CODER_PWSH_PARSE_TIMEOUT_MS), 60000) : 0 } : null, planExit: body.prePlanMode === "acceptEdits" ? "acceptEdits" : "auto", respondToBash: !varOff(rawVars.CODER_RESPOND_TO_BASH_COMMANDS), promptNotify: !varOn(rawVars.CODER_DISABLE_PERMISSION_PROMPT_NOTIFY_HOOKS), readBlock: varOn(rawVars.CODER_BLOCK_READS_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockReads, writeBlock: varOn(rawVars.CODER_BLOCK_WRITES_OUTSIDE_WORKING_DIRECTORIES) || repoSet.blockWrites, connectors: mcpCall ? connectors : [], connectorNotes: mcpCall && Array.isArray(body.connectorNotes) ? body.connectorNotes.slice(0, 10) : [], connectorsWaiting: Array.isArray(body.connectorsWaiting) ? body.connectorsWaiting.map(String).slice(0, 20) : [], connectorsFailed: Array.isArray(body.connectorsFailed) ? body.connectorsFailed.slice(0, 20) : [], connectorsGone: body.connectorsGone && typeof body.connectorsGone === "object" && !Array.isArray(body.connectorsGone) ? body.connectorsGone : null, checker, checkerInPlan: !varOff(rawVars.CODER_USE_AUTO_MODE_DURING_PLAN), checkWhere: { key: project, repo: String(body.repo || ""), branch: String(body.branch || (body.repo ? "coder/" + project : "")) }, emailMark: typeof body.emailMark === "string" && /^\d{1,3}:[0-9a-f]{64}(?:,\d{1,3}:[0-9a-f]{64})?$/.test(body.emailMark) ? body.emailMark : "", editDiff: varOn(rawVars.CODER_BASH_EDIT_DIFF), mode: t.mode, rules: withRepoRules(body.rules, repoSet), sessionRules: body.sessionRules && typeof body.sessionRules === "object" ? body.sessionRules : null, shell: typeof body.shell === "string" ? body.shell.slice(0, 100_000) : "", messages: Array.isArray(body.messages) ? body.messages : [], text: (envNote && String(body.text || "").trim() ? envNote : "") + String(body.text || ""), ...(body.compact && typeof body.compact === "object" ? { compact: { focus: String(body.compact.focus || "").slice(0, 300) } } : {}), shown: typeof body.shown === "string" ? body.shown : envNote ? String(body.text || "") : undefined, images: Array.isArray(body.images) ? body.images.slice(0, 4) : [], context, github: body.github === true, readOnly: { main: body.readOnly === true, extra: extras.filter((x) => x.readOnly).map((x) => x.repo.toLowerCase()) }, base: String(body.base || ""), setupScript: script, setupFailed, lastJob: lastJobOf(body), replyTo: body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null, ...(body.model ? pickModel(body.model, body.effort) : { model: coderModel(env) }) , ...gloopyOpts })
+        // (Its job is over: a connector's question still waiting closes, coder-elicit.mjs.)
+        .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
         .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); return { ...r, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
@@ -4646,7 +4695,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}) });
+        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
@@ -4695,15 +4744,18 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // takes the turn up again. coder-park.mjs.)
       if (url.pathname === "/answer" && req.method === "POST") {
         const pid = String(body.pid || ""), choice = String(body.choice || "");
-        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice)) return send(400, { ok: false, why: "bad answer" });
+        // (And a connector's question, MCP elicitation: Submit or "I'm done, continue" is accept, with a form's values; Decline.)
+        if (!/^p[0-9a-z]{2,24}$/.test(pid) || !(["yes", "always", "auto", "acceptEdits", "no", "saved", "answers", "skip", "approved", "refused"].includes(choice) || ["accept", "decline"].includes(choice))) return send(400, { ok: false, why: "bad answer" });
+        const content = choice === "accept" && body.content !== undefined ? contentFrom(body.content) : null;
+        if (choice === "accept" && body.content !== undefined && !content) return send(400, { ok: false, why: "bad answer" });
         const picks = choice === "answers" ? questionPicks(body.answers) : null;
         if (choice === "answers" && !picks) return send(400, { ok: false, why: "bad answer" });
         if ((choice === "approved" || choice === "refused") && !(typeof body.result === "string" && body.result)) return send(400, { ok: false, why: "bad answer" });
         if (t && !t.running && t.result && t.result.parked && t.result.parked.pid === pid) return send(200, { ok: false, parked: true, why: "Coder paused while that card waited; your answer takes it up again." });
-        if (!t || !t.running || t.result || t.asking !== pid) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
+        if (!t || !t.running || t.result || (t.asking !== pid && !(t.askingAll && t.askingAll.has(pid)))) return send(200, { ok: false, why: "That card is no longer waiting for an answer." });
         // (And the plan as the owner edited it on the plan's card, with a Yes: Claude Code's "edit it directly before Claude
         // proceeds"; coder-plan.mjs, the owner, 2026-11-14. At most PLAN_SHOW_MAX characters, as the card shows.)
-        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}), ...(choice === "approved" || choice === "refused" ? { result: body.result.slice(0, 4000) } : {}) });
+        t.answers.set(pid, { choice, comment: typeof body.comment === "string" ? body.comment.slice(0, 2000) : "", ...(picks ? { picks } : {}), ...(typeof body.plan === "string" && (choice === "auto" || choice === "acceptEdits") ? { plan: body.plan.slice(0, 200_000) } : {}), ...(choice === "approved" || choice === "refused" ? { result: body.result.slice(0, 4000) } : {}), ...(content ? { content } : {}) });
         return send(200, { ok: true });
       }
       // ITS TAKE-BACK (Claude Code: "click the ✕ on it … If Claude has already read the message, it stays in the conversation").

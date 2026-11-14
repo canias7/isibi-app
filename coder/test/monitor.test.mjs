@@ -113,7 +113,8 @@ test("CD381b a monitor's lines come to Coder as events at each step (and wake an
   let news = [{ id: "job7", desc: "The server's log", lines: ["GET /api 500"], dropped: 0 }];
   await A.runCoder({ send: async (req) => { sent.push(req.messages); return say("I saw a 500"); }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), monitorNews: () => { const n = news; news = []; return n; } }, { messages: [{ role: "user", content: "watch the server" }, { role: "assistant", content: "Watching." }], text: "" });
   assert.equal(sent.length, 1);
-  assert.match(sent[0].at(-1).content, /^\(Note from Coder's app, not the owner: Monitor event: "The server's log" \(job7\)\nGET \/api 500\)$/);
+  // (Less the notes of the modes, as Claude Code's mode attachments in the conversation since fix round 3, 2026-11-14.)
+  assert.match(sent[0].filter((m) => !m.modeNote).at(-1).content, /^\(Note from Coder's app, not the owner: Monitor event: "The server's log" \(job7\)\nGET \/api 500\)$/);
   const ev = events.find((e) => e.type === "note" && e.monitor);
   assert.deepEqual(ev.monitor, { job: "job7", desc: "The server's log", lines: ["GET /api 500"] });
 });

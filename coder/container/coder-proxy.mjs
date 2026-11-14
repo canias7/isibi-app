@@ -68,7 +68,10 @@ function publicLookup(hostname, opts, cb) {
 }
 // (Since 2026-11-14, the owner: "Fix base on Claude Code docs, please": it names no tool, as Claude Code's proxy's own block,
 // "Connection blocked by network allowlist", names none; whether and where a change is proposed is get_environment's rule.)
-const BLOCKED = (host) => "Blocked by this repo's network list: " + host + ".";
+// (In Claude Code's cloud words since E5 of recheck 2, 2026-11-14: its agent proxy's own 403, "request blocked: no rule or
+// allowlist entry allows host <host>" (2.1.325 reads it so), where Coder's said "this repo's network list": the list is the
+// chat's environment's, not a repository's.)
+export const BLOCKED = (host) => "request blocked: no rule or allowlist entry allows host " + host;
 /** A host a command's own list doesn't name (Claude Code's words: "not in this command's allowed_domains — re-run the command with this host listed if it needs it"). */
 export const UNLISTED = (host) => "Blocked: " + host + " is not in this command's allowed_domains \u2014 re-run the command with this host listed if it needs it.";
 /** The command a request comes from, by the pass in its proxy address (Proxy-Authorization: Basic cmd:<token>), or "". */
@@ -543,7 +546,7 @@ export async function startProxy({ dir = "/srv/coder-proxy", systemCa = "/etc/ss
     setRepos(list) { repos = (Array.isArray(list) ? list : []).filter((x) => typeof x === "string" && /^[^/\s]+\/[^/\s]+$/.test(x)).map((x) => x.toLowerCase().replace(/\.git$/, "")).slice(0, 50); },
     /** The check before a keyed request other than a read goes on (Gloopy's turn: the audit, 2026-11-10), or null for none. */
     setWriteCheck(fn) { writeCheck = typeof fn === "function" ? fn : null; },
-    /** The repo's network setting: { mode: full | limited | none, hosts }. */
+    /** The chat's environment's network setting: { mode: full | limited | none, hosts }. */
     setNetwork(n) { network = normNetwork(n); },
     /** A command's own hosts, for as long as it runs (its pass: 32 hex characters). */
     openFor(pass, hosts) { if (/^[0-9a-f]{32}$/.test(String(pass)) && Array.isArray(hosts)) lists.set(String(pass), hosts.slice(0, 100).map(String)); },

@@ -8,7 +8,8 @@ export const param = (text) => ({ type: "CommandParameterAst", text });
 export const el = (type, text, more = {}) => ({ type, text, ...more });
 export const cmdAst = (text, ...els) => ({ type: "CommandAst", text, commandElements: els, redirections: [] });
 export const pipeline = (text, elements, more = {}) => ({ type: "PipelineAst", text, elements, ...more });
-export const rawParse = (command, statements, more = {}) => ({ valid: true, errors: [], statements, variables: [], hasStopParsing: false, originalCommand: command, typeLiterals: [], hasUsingStatements: false, hasScriptRequirements: false, hasBackgroundJob: false, ...more });
+// (`hasStopParsingValue`: Claude Code 2.1.325's parse script writes it for every command; a value of `--%` makes it true.)
+export const rawParse = (command, statements, more = {}) => ({ valid: true, errors: [], statements, variables: [], hasStopParsing: false, hasStopParsingValue: false, originalCommand: command, typeLiterals: [], hasUsingStatements: false, hasScriptRequirements: false, hasBackgroundJob: false, ...more });
 
 const words = (t) => t.match(/'[^']*'|"[^"]*"|\S+/g) || [];
 const commandOf = (t) => cmdAst(t, ...words(t).map((w, i) => (i > 0 && /^-[A-Za-z]/.test(w) ? param(w) : str(w))));

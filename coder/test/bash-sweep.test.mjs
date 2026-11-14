@@ -203,7 +203,7 @@ test("CD295 (docs check: Claude Code's Output limits, its bashOutputMaxChars set
   assert.equal(bashResultText({ output: fifty, inlineMax: 100000, readBack: 100000 }), fifty, "inline up to the setting");
   assert.match(bashResultText({ output: fifty, file: "/o/a.txt", size: 50_000 }), /^<persisted-output>\nOutput too large \(48\.8KB\)\. Full output saved to: \/o\/a\.txt/, "the default stays 30,000");
   const tenLines = Array.from({ length: 2000 }, (_, i) => "row " + i).join("\n");
-  assert.equal(bashResultText({ output: tenLines, readBack: 5000 }), tenLines.slice(0, 5000) + " ... [" + tenLines.slice(5000).split("\n").length + " lines truncated] ...", "a read-back window under the output's size, as Claude Code's");
+  assert.equal(bashResultText({ output: tenLines, readBack: 5000 }), tenLines.slice(0, 5000) + "\n\n... [" + tenLines.slice(5000).split("\n").length + " lines truncated] ...", "a read-back window under the output's size, as Claude Code 2.1.325's (a blank line before the marker)");
   const fail = "a".repeat(100_000) + "TAIL" + "b".repeat(60_000);
   assert.ok(bashResultText({ output: fail, isError: true, code: 1, readBack: 150_000 }).includes("TAIL") === false);
   const failEnd = bashResultText({ output: fail, isError: true, code: 1, readBack: 100_004 });

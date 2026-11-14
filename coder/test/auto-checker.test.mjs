@@ -145,13 +145,14 @@ test("CD372 the checker's answer is read leniently, and no verdict blocks (Claud
   const u = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { verdict: () => "I think it is fine", key });
   assert.deepEqual(u.ran, []);
   // (The model's name first, as Claude Code names its classifier's; this test's job names none.)
-  // (An answer with no verdict in it: Claude Code 2.1.322's words for a transient failure of the check, Bash docs pass 8.)
-  assert.equal(u.told("b1"), "Auto mode could not evaluate this action and is blocking it for safety: The classifier gave no verdict (its answer could not be read). This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after 10 responses in a row without a verdict the turn stops.");
-  assert.equal(C.checkUnavailable("grok-4.7", "this page fetch").slice(0, 98), "grok-4.7 is temporarily unavailable, so auto mode cannot determine the safety of this page fetch r");
+  // (An answer with no verdict in it: Claude Code 2.1.325's words for a transient failure of the check, from its raw program,
+  // the tool named as Claude Code names it there; Bash docs pass 8, sweep 3.)
+  assert.equal(u.told("b1"), "The classifier gave no verdict (its answer could not be read), so auto mode cannot determine the safety of bash. This is a transient failure of the check, not a judgment about the action: a later response may get a verdict. You may try the action again once, as-is. Repeated attempts are slowed by a growing delay, and after 10 responses in a row without a verdict the turn stops. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.");
+  assert.equal(C.checkUnavailable("grok-4.7", "web_fetch").slice(0, 92), "grok-4.7 is temporarily unavailable, so auto mode cannot determine the safety of web_fetch r");
   const f = await job([say("", [call("bash", { command: "npm test" }, "b1")]), say("ok")], { verdict: () => new Error("AI call failed: 503"), key });
   assert.deepEqual(f.ran, []);
   // (The checker's model unreachable: Claude Code's "temporarily unavailable" words.)
-  assert.equal(f.told("b1"), "The classifier is temporarily unavailable, so auto mode cannot determine the safety of this bash command right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.");
+  assert.equal(f.told("b1"), "The classifier is temporarily unavailable, so auto mode cannot determine the safety of bash right now. Wait a moment and then try this action again. If it keeps failing, continue with other tasks that don't require this action and come back to it later. Note: reading files, searching code, and other read-only operations do not require the classifier and can still be used.");
   assert.equal(C.checkerState(key).row, 0, "no verdict is not a block");
 });
 
@@ -226,7 +227,7 @@ test("CD375 Auto: a page fetch is judged too, unless an allow rule or a pre-appr
   // (On in the real machine only; a service made in a test has none unless it asks for it.)
   // (Since Gloopy's chat merged in, 2026-11-13, the server is made first, so the link from the owner's computer can come as an upgrade.)
   assert.match(server, /\.\.\.dataDirs\(process\.env\.CODER_DATA\), checker: true \}\);\n[\s\S]{0,200}const srv = http\.createServer\(app\);\n\s+srv\.on\("upgrade", app\.upgrade\);\n\s+srv\.listen\(8080/);
-  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), / coder-checker\.mjs \.\//, "copied into the image");
+  assert.match(readFileSync(new URL("../container/Dockerfile", import.meta.url), "utf8"), / coder-checker\.mjs (?:\S+ )*\.\//, "copied into the image");
   // (Then Gloopy's three, since the merge with main, 2026-11-13.)
   assert.match(server, /copyNeedsBox = true, checker = false, hookQuietMs = 10_000, browserRoot = null, vaultFetch = null, filesFetch = null \} = \{\}\) \{/);
 });

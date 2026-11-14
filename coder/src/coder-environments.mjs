@@ -14,7 +14,7 @@
 //   coder/<uid>/environments.json         the list: { list: [{ id, name, at, archived?, repos?, used?, fromRepo?, description? }] }
 //   coder/<uid>/environments/<id>.json    one environment's settings, sealed like the GitHub token
 
-import { seal, unseal } from "./coder-github.mjs";
+import { seal, unseal, REPO } from "./coder-github.mjs";
 import { normNetwork, normSecret } from "../container/coder-secrets.mjs";
 
 export const ENV_ID = /^[a-z0-9][a-z0-9-]{1,40}$/;
@@ -42,17 +42,27 @@ export async function listEnvs(bucket, uid) {
 }
 export const saveEnvList = (bucket, uid, list) => put(bucket, indexKey(uid), JSON.stringify({ list }));
 
+/**
+ * WHERE ITS SETUP SCRIPT STARTS (E7 of recheck 2, 2026-11-14): since then in the folder that holds the repository checkouts,
+ * as Claude Code's ("The script normally starts in the directory that holds the repository checkouts, not inside one"). A
+ * script saved before then was written to start inside the chat's repository (Coder's words then: "The script starts in this
+ * chat's repository folder"), so it keeps starting there until it is changed: `scriptIn: "repo"` (a record saved before then
+ * has no `scriptIn`). Every record saved since says where its script starts; the machine reads it (server.mjs).
+ */
+const legacyScript = (v) => (v.scriptIn === "repo" || (v.scriptIn === undefined && String(v.script || "").trim() !== "") ? { scriptIn: "repo" } : {});
 /** One environment's settings, unsealed (empty if it has none yet). */
 export async function readEnvData(env, bucket, uid, id) {
   const o = await bucket.get(envDataKey(uid, id));
   if (!o) return empty();
   try {
     const rec = JSON.parse(await o.text()); const v = await unseal(env, rec.box);
-    return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: (Array.isArray(v.secrets) ? v.secrets : []).map(normSecret).filter(Boolean), network: normNetwork(v.network) };
+    return { script: String(v.script || ""), vars: v.vars && typeof v.vars === "object" ? v.vars : {}, secrets: (Array.isArray(v.secrets) ? v.secrets : []).map(normSecret).filter(Boolean), network: normNetwork(v.network), ...legacyScript(v) };
   } catch { return empty(); }
 }
+/** (`e.scriptIn` "repo" only for a script saved before 2026-11-14 and not changed since: a changed or new one leaves it out.) */
 export async function writeEnvData(env, bucket, uid, id, e) {
-  await put(bucket, envDataKey(uid, id), JSON.stringify({ at: Date.now(), box: await seal(env, { script: e.script, vars: e.vars, secrets: e.secrets, network: e.network }) }));
+  const scriptIn = e.scriptIn === "repo" && String(e.script || "").trim() ? "repo" : "checkouts";
+  await put(bucket, envDataKey(uid, id), JSON.stringify({ at: Date.now(), box: await seal(env, { script: e.script, vars: e.vars, secrets: e.secrets, network: e.network, scriptIn }) }));
 }
 
 /** A new id from the name, not used yet. */
@@ -122,6 +132,26 @@ export async function markUsed(bucket, uid, id, repo) {
   e.repos = [...new Set([...(Array.isArray(e.repos) ? e.repos : []), repo].filter(Boolean))].slice(-50);
   e.used = Date.now();
   await saveEnvList(bucket, uid, list);
+}
+
+/**
+ * THE REPOSITORIES AN ENVIRONMENT IS FOR (E8 of recheck 2, 2026-11-14; Claude Code's environment settings have a Repositories
+ * list "where offered (the Default environment has none)"): Coder's `repos`, which say which environments get_environment
+ * lists as saved for a chat's repositories, and where a repository's new chat starts (envForRepo). The Environment window
+ * shows them and the owner adds and takes away ones there.
+ */
+export const ENV_REPOS_MAX = 50;
+export const envRepos = (e) => (e && Array.isArray(e.repos) ? e.repos.filter((r) => typeof r === "string" && REPO.test(r)) : []);
+/** The owner's list, as they leave it: { repos } ("owner/name" each, once whatever the case, at most 50), or { error }. */
+export function reposFrom(list) {
+  if (!Array.isArray(list)) return { error: "the repositories are a list of owner/name" };
+  const out = [];
+  for (const x of list) {
+    const r = typeof x === "string" ? x.trim() : "";
+    if (!REPO.test(r)) return { error: "not a repository like owner/name: " + String(x).slice(0, 60) };
+    if (!out.some((y) => y.toLowerCase() === r.toLowerCase())) out.push(r);
+  }
+  return out.length > ENV_REPOS_MAX ? { error: "at most " + ENV_REPOS_MAX + " repositories" } : { repos: out };
 }
 
 /** What the page may see of the list (names and descriptions only; nothing sealed). */

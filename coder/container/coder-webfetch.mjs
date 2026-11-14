@@ -10,7 +10,7 @@
  *
  * Kept from Coder where Claude Code differs (the owner's choice): a private-network address is never fetched; the page
  * reader is told to ignore instructions inside pages (a system line next to Claude Code's own prompt), and it runs on the
- * chat's own model at low effort.
+ * chat's own model, at the chat's own effort (as Claude Code 2.1.325's reader takes the caller's level).
  */
 import http, { STATUS_CODES } from "node:http";
 import https from "node:https";
@@ -887,7 +887,10 @@ export function sizeShown(bytes) {
   const mb = kb / 1024;
   return mb < 1024 ? one(mb) + "MB" : one(mb / 1024) + "GB";
 }
-const requestError = (message, code) => Object.assign(new Error(message), code ? { code } : {});
+// (Marked `whole`: the tools script tells Coder all of it, not its first 600 characters, coder-tools.mjs's errorLine; Claude
+// Code's texts here name the host, twice in some, and run past 600 for a long one. At most a few thousand: a URL is at most
+// 2,000 characters.)
+export const requestError = (message, code) => Object.assign(new Error(message), code ? { code } : {}, { whole: true });
 /**
  * ONE GET, as Claude Code makes it (no redirect followed by itself; 60 seconds with nothing from the server ends it, in
  * axios's words; a body past 10,485,760 bytes ends it, in axios's words; never left waiting): through Coder's network gate
@@ -1050,7 +1053,8 @@ export function httpErrorText({ statusCode, retryAfter }) {
 }
 export const pastEndText = (offset, length) => "Nothing left to read from offset " + offset + ": this page's text is " + length + " characters long.";
 export const leadText = (offset, length) => "The content below is one part of a longer page: it starts " + offset + " characters into the page's " + length + ".\n";
-export const readOnNote = (from, to, length) => "\n\n[WebFetch note: this page's text is " + length + " characters long and the answer above covers only characters " + from + " to " + to + "; the final " + (length - to) + " were not read — to read on, call web_fetch again with the same url and offset: " + to + ".]";
+// ("[web_fetch note: …": Claude Code writes its tool's own name there, here Coder's. 2026-11-14, round 3.)
+export const readOnNote = (from, to, length) => "\n\n[web_fetch note: this page's text is " + length + " characters long and the answer above covers only characters " + from + " to " + to + "; the final " + (length - to) + " were not read — to read on, call web_fetch again with the same url and offset: " + to + ".]";
 export const binaryNote = (contentType, size, path) => "\n\n[Binary content (" + typeShown(contentType) + ", " + sizeShown(size) + ") also saved to " + path + "]";
 /** A page's text from `offset` (a pair of surrogates never split), as Claude Code takes it. */
 export function fromOffset(text, offset) {

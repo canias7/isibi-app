@@ -16,8 +16,9 @@
 import { psRuleMatches, psExactRule, psAllParts } from "./coder-ps.mjs";
 import { psParseFail, psCommands, psRedirections, psFileRedirections, psPatterns, psCmdlet, psSafetyWhy, psProviderWhy, psDynamicArgs, psWritesState, psCommandReadOnly, psPathArgs, psRecurse, psRemovalDenied, psRemovalWorkdir, psNameType, PS_FORMATTERS } from "./coder-psparse.mjs";
 import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrapperDirs, processWrappers } from "./coder-shell.mjs";
-import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor } from "./coder-filerules.mjs";
+import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS } from "./coder-filerules.mjs";
 import { docSite, pickDomainRule, domainRuleMatches, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
+import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -848,16 +849,41 @@ function searchParamSpec(tool, spec) {
 }
 /**
  * WEBSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code's "Match by input parameter", which "works for any scalar
- * parameter the tool accepts": its query; its two lists are no scalars and never match), and such a rule's content read as
- * one, or null. (No `*` or `?`: Claude Code's rule check refuses them, "WebSearch does not support wildcards".)
+ * parameter the tool accepts": its query, and its mode in Coder's chats since they have it, coder-websearch.mjs; its two lists
+ * are no scalars and never match), and such a rule's content read as one, or null. (No `*` or `?`: Claude Code's rule check
+ * refuses them, "WebSearch does not support wildcards".)
  */
-export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains"]);
+export const WEBSEARCH_RULE_PARAMS = Object.freeze(["query", "allowed_domains", "blocked_domains", "mode"]);
 function webSearchParamSpec(spec) {
   const t = String(spec), k = t.indexOf(":");
   if (k <= 0 || /[*?]/.test(t)) return null;
   const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
   return name && value && WEBSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
 }
+/**
+ * TOOLSEARCH'S INPUTS A DENY OR ASK RULE MAY NAME (Claude Code 2.1.325's rule check for any built-in tool, its wc and POe: the
+ * name before the first colon, the value after it, both trimmed and neither empty; ToolSearch has no primary content field, so
+ * its query may be named; "*" any text), and such a rule's content read as one, or null. 2026-11-14.
+ */
+export const TOOLSEARCH_RULE_PARAMS = Object.freeze(["query", "max_results"]);
+function toolSearchParamSpec(spec) {
+  const t = String(spec), k = t.indexOf(":");
+  if (k <= 0) return null;
+  const name = t.slice(0, k).trim(), value = t.slice(k + 1).trim();
+  return name && value && TOOLSEARCH_RULE_PARAMS.includes(name) ? { name, value } : null;
+}
+/**
+ * A DENY OR ASK RULE ON ONE OF A TOOLSEARCH CALL'S INPUTS (Claude Code's "Match by input parameter": "A parameter rule matches
+ * when Claude calls the tool with that parameter set to that exact value", "A parameter the model omits is never matched",
+ * "The value is compared against the literal input Claude sends, before any normalization"), or "". `input`: the call's input
+ * as Grok sent it (max_results not filled in).
+ */
+export function toolSearchParamRule(rules, kind, input) {
+  if (!input || typeof input !== "object") return "";
+  return (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); if (!x || x.tool !== "ToolSearch" || !x.param || !Object.hasOwn(input, x.param.name)) return false; const v = input[x.param.name]; return settingMatches(x.param.value, typeof v === "string" ? v.trim() : v); }) || "";
+}
+/** Claude Code's refusal under such a rule (its bGt): "Permission to use ToolSearch with query:… has been denied.". */
+export const toolSearchParamDenied = (rule) => "Permission to use ToolSearch with " + ((parseRule(rule) || {}).spec || "") + " has been denied.";
 /** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
 const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
 /**
@@ -902,6 +928,10 @@ export function parseRule(text) {
   // name and value.
   // (And LSP's, `LSP(operation:hover)`, `LSP(line:1)`: the same, since 2026-11-14.)
   if ((m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP") && spec !== null) { const pr = searchParamSpec(m[1], spec); if (pr) return { tool: m[1], spec, param: pr }; }
+  // TOOLSEARCH, CODER'S TOOL_SEARCH (2026-11-14): `ToolSearch(*)` is the whole tool, as Claude Code reads any `Tool(*)` ("Bash(*)
+  // is equivalent to Bash. As a deny rule, both forms remove the tool from Claude's context": tool search off); a rule on one of
+  // its inputs, `ToolSearch(query:select:lsp)`, is used by deny and ask lists (toolSearchParamRule); any other, none.
+  if (m[1] === "ToolSearch") { if (spec === null || spec === "*") return { tool: "ToolSearch", spec: null }; const pr = toolSearchParamSpec(spec); return pr ? { tool: "ToolSearch", spec, param: pr } : null; }
   // A WEBSEARCH RULE ON ITS QUERY (Claude Code 2.1.325: deny and ask rules match `WebSearch(query:<exact text>)` as for any
   // built-in tool's input; 2026-11-14): `param` its name and value, used by deny and ask lists (coder-websearch.mjs).
   if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }
@@ -966,9 +996,19 @@ export function namedForMonitor(dec, rules) {
 }
 /** Claude Code's refusal of a Monitor call under a rule denying every Bash command (its tools reference). */
 export const MONITOR_BASH_DENIED = "Permission to use Monitor has been denied: it runs code as Bash does, and a rule denies Bash.";
+/**
+ * THE NAMES A RULE MAY GIVE ONE OF CODER'S TOOLS (E1 of recheck 2, 2026-11-14): Claude Code's, and for the environment tools
+ * and request_secret, which in Claude Code are its claude-code-remote MCP server's (coder-envtools.mjs REMOTE_TOOL_NAMES), both
+ * that name and Coder's own: `mcp__claude-code-remote__update_environment`, the whole server `mcp__claude-code-remote`
+ * (Claude Code: "mcp__puppeteer matches any tool provided by the puppeteer server"), `mcp__claude-code-remote__*` or `mcp__*`,
+ * and Coder's own `update_*` as before; and by the server's two other names, `mcp__Claude_Code_Remote…` and
+ * `mcp__bf7c680d-5fdc-5ef4-b4a0-abadb619bf0a…`, each exactly (D2 of recheck 3; coder-envtools.mjs remoteAliases).
+ */
+const CODER_NAME_OF = Object.freeze(Object.assign(Object.create(null), Object.fromEntries(Object.entries(REMOTE_TOOL_NAMES).map(([k, v]) => [v, k]))));
+const ruleNamesOf = (tool) => { const t = String(tool ?? ""); const cc = CODER_NAME_OF[t] ? t : Object.hasOwn(REMOTE_TOOL_NAMES, t) ? REMOTE_TOOL_NAMES[t] : ""; return cc ? [cc, ...remoteAliases(cc), CODER_NAME_OF[cc]] : [t]; };
 /** A rule of `kind` on all of a tool (`Bash`, `Bash(*)`, `Monitor`; a connector's `mcp__<server>__<tool>`, or `mcp__<server>` for all of
  * that connector's; an allow rule's wildcard only after a literal mcp__<server>__, as Claude Code's), or "". */
-export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, tool) : x.tool === tool || (x.mcp === true && String(tool).startsWith(x.tool + "__"))); }) || "";
+export const wholeRule = (rules, kind, tool) => (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => { const x = parseRule(r); return !!x && x.spec === null && ruleNamesOf(tool).some((n) => (x.glob ? (kind !== "allow" || anchoredGlob(x.tool)) && toolGlobMatches(x.tool, n) : x.tool === n || (x.mcp === true && n.startsWith(x.tool + "__")))); }) || "";
 /**
  * A WEBSOCKET WATCH'S QUESTION (Claude Code's Monitor `ws` source): a rule denying every Bash command refuses it, as one
  * denying Monitor does; one asking for every Bash command asks the owner, and only the owner (or a PermissionRequest hook)
@@ -1209,6 +1249,12 @@ export function ruleWarning(kind, text) {
 function ruleWarningOf(kind, text) {
   const t = String(text ?? "").trim();
   const k = String(kind || "");
+  // AN ALLOW RULE `X(*)` ON A FILE TOOL (Claude Code 2.1.325, its startup warning, xkt: it now covers the working directories
+  // only, coder-filerules.mjs's STAR_PATH_TOOLS): saved, with that said in its words. (Its last sentence, "Older versions of
+  // Claude Code treat … as …, and this version will too if Anthropic turns this change off", with Coder's name, and without
+  // the switch Anthropic has for it, which Coder has not. Round 3, 2026-11-14.)
+  const star = k === "allow" ? starAllowTool(t) : "";
+  if (star) return { warning: 'Permission allow rule "' + t + '" ' + (STAR_EDIT_TOOLS.has(star) ? "lets " + star + " run without asking only in the working directories" : "adds nothing to " + star + "'s default, which already runs without asking in the working directories") + '. "' + star + '" alone allows every path. Older versions of Coder treat "' + t + '" as "' + star + '".', notice: "" };
   // AN ALLOW RULE WITH A WILDCARD TOOL NAME (Claude Code: "An unanchored allow glob such as "*", "B*", or "mcp__*" is skipped
   // and doesn't auto-approve anything"): saved, with that said.
   if (toolGlob(t)) return k === "allow" && !anchoredGlob(t) ? { warning: 'Allow rule "' + t + '" names tools with a wildcard. An allow rule takes a wildcard only after a literal mcp__<server>__ prefix, so this one is skipped and doesn\'t auto-approve anything.', notice: t + " is skipped · it approves nothing" } : null;
@@ -1525,7 +1571,8 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
   // tee, and to the targets of Bash redirections such as > file and < file"), in every mode: a deny rule refuses it, in
   // Claude Code's words for the path ("Output redirection to '…' was blocked. …"), an ask rule asks.
   const files = commandFiles({ ...read, cmds: ruleCmds(read.cmds) }, { cwd, home });
-  const fctx = { root: workdirs[0] || cwd, home, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (A deny or ask rule's relative path applies in the chat's other working folders too: Claude Code 2.1.325, fileRuleHit's `roots`.)
+  const fctx = { root: workdirs[0] || cwd, home, roots: workdirs.slice(1), sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const ruleFiles = [...files, ...commandFiles({ ...shadow, cmds: ruleCmds(shadow.cmds) }, { cwd, home })];
   const fileHit = (kind) => { for (const f of ruleFiles) { const r = fileProbes(f).map((pr) => fileRuleHit(rules[kind], f.tool, pr.p, kind, { ...fctx, isDir: pr.dir })).find(Boolean); if (r) return { f, rule: r }; } return null; };
   const fd = fileHit("deny");
@@ -1831,10 +1878,11 @@ export function bashDecision(command, { mode = "auto", rules = {}, cwd = "/", wo
  * the same path, including creating a new file there"). A rule on the whole tool by Claude Code's name (Write, Grep, Glob,
  * LSP) matches each call. Deny, then ask; nothing here approves (Coder's file tools work inside the project only).
  */
-export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null } = {}) {
+export function fileToolDecision(tool, path, { rules = {}, root = "/", home = "", real = null, isDir = false, input = null, roots = [] } = {}) {
   const name = TOOL_RULE_NAMES[tool];
   if (!name) return { verdict: "", rule: "", why: "" };
-  const ctx = { root, home, isDir, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
+  // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
+  const ctx = { root, home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
   const edits = tool === "write" || tool === "edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
@@ -1887,9 +1935,11 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", home = ""
   // (LSP in Claude Code's order, as Grep's and Glob's: its own read check of the file first, so a Read ask rule on the file asks
   // in that rule's words; then a rule on the whole tool or on one of its inputs, in Claude Code's words, "Claude requested
   // permissions to use LSP, but you haven't granted it yet."; "Claude" is Coder here. 2026-11-14.)
+  // (The Read ask rule's card in its read check's words, as Grep's and Glob's: Claude Code's Yx, "Claude requested permissions
+  // to read from <path>, but you haven't granted it yet." Round 3, 2026-11-14.)
   if (tool === "lsp") {
     const ra = hit(rules.ask, "Read", "ask");
-    if (ra) return { verdict: "ask", rule: ra, why: "Your rule " + ra + " asks first for reading " + p + "." };
+    if (ra) return { verdict: "ask", rule: ra, why: "Coder requested permissions to read from " + p + ", but you haven't granted it yet." };
     const la = whole("ask") || globWhole("ask") || paramHit("ask");
     return la ? { verdict: "ask", rule: la, why: "Coder requested permissions to use LSP, but you haven't granted it yet." } : { verdict: "", rule: "", why: "" };
   }

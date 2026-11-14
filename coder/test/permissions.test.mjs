@@ -210,10 +210,13 @@ test("CD314 Accept edits: a command that is not read-only waits on a card (Claud
   assert.deepEqual(ran, ["npm test"]);
   assert.equal(r.status, "done");
   assert.equal(r.mode, "acceptEdits");
-  const result = seen[1].messages.find((m) => m.role === "tool" && m.tool_call_id === "b1");
-  assert.match(result.content, /\n\n\(The owner approved this with a note: only the cart ones matter\)$/, "Claude Code: a Yes's comment comes after the result");
-  // What the system tells Grok of the mode.
-  assert.match(seen[0].messages[0].content, /PERMISSION MODE: Accept edits \(the owner's pick\)/);
+  const at = seen[1].messages.findIndex((m) => m.role === "tool" && m.tool_call_id === "b1");
+  // Claude Code: a Yes's comment comes after the result, exactly as typed, as the owner's own text (fix round 3, 2026-11-14).
+  assert.doesNotMatch(seen[1].messages[at].content, /only the cart ones matter|with a note/);
+  assert.deepEqual(seen[1].messages[at + 1], { role: "user", content: "only the cart ones matter" });
+  // What Grok is told of the mode: Coder's own note for Accept edits, in the conversation (never the system message).
+  assert.ok(seen[0].messages.some((m) => m.modeNote === "acceptEdits" && /PERMISSION MODE: Accept edits \(the owner's pick\)/.test(m.content)));
+  assert.doesNotMatch(seen[0].messages[0].content, /PERMISSION MODE/);
 });
 
 test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same command runs without a card after; 'Yes, and switch to auto mode' switches the chat to Auto", async () => {
@@ -227,8 +230,9 @@ test("CD315 'Yes, and don't ask again' saves the rule for this repo and the same
   assert.equal(b.r.mode, "auto");
   assert.ok(b.events.some((e) => e.type === "mode" && e.mode === "auto" && e.by === "card"));
   assert.ok(b.seen[1].messages.some((m) => m.role === "user" && /The owner's permission mode is now Auto\./.test(m.content)));
-  // (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", with Coder's names.)
-  assert.match(b.seen[1].messages[0].content, /PERMISSION MODE: Auto \(the owner's pick\)\.\n## Auto Mode Active\n\nBias toward working without stopping for clarifying questions/);
+  // (Claude Code 2.1.325's auto mode reminder, "## Auto Mode Active", with Coder's names: in the conversation since fix round
+  // 3, as its auto_mode attachment.)
+  assert.ok(b.seen[1].messages.some((m) => m.modeNote === "auto" && /^\(Note from Coder's app, not the owner:\n## Auto Mode Active\n\nBias toward working without stopping for clarifying questions/.test(m.content)));
 });
 
 test("CD316 No stops the turn with Claude Code's words (its other calls are not run); No with a note goes on with the note; Stop while it waits stops", async () => {
@@ -256,7 +260,8 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
     say("Done."),
   ];
   const { r, cards, seen, ran } = await job(steps, { mode: "plan", answers: [{ choice: "no", comment: "no files yet, just plan" }, { choice: "acceptEdits" }, { choice: "yes" }] });
-  assert.match(seen[0].messages[0].content, /PERMISSION MODE: Plan \(the owner's pick\)\.\nPlan mode is active\./);
+  // (Plan mode's reminder in the conversation, Claude Code's plan_mode attachment: fix round 3, 2026-11-14.)
+  assert.ok(seen[0].messages.some((m) => m.planReminder && /^\(Note from Coder's app, not the owner:\nPlan mode is active\./.test(m.content)));
   // (Offered: one of the tools Claude Code defers, named in tool search's note until loaded; tool-search.test.mjs.)
   const offered = (q) => [...q.tools.map((t) => t.function.name), ...q.messages.filter((m) => m.toolsAnnounced).flatMap((m) => m.toolsAnnounced.added)];
   assert.ok(offered(seen[0]).includes("exit_plan_mode"));
@@ -269,9 +274,9 @@ test("CD317 Plan mode: read-only commands run; a file edit waits on a card; exit
   const approved = seen[3].messages.find((m) => m.tool_call_id === "x1").content;
   assert.equal(approved, "The owner has approved your plan. You can now start coding. Start with updating your todo list if applicable\n\n## Approved Plan:\n1. Add a total() test\n2. Fix the cart");
   // ("## Exited Plan Mode" as its own note after the approval, before the next step, as Claude Code's plan_mode_exit.)
-  assert.match(seen[3].messages.at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
-  assert.ok(!seen[3].tools.some((t) => t.function.name === "exit_plan_mode"), "no way out of a mode it is not in");
-  assert.match(seen[3].messages[0].content, /PERMISSION MODE: Accept edits/);
+  assert.match(seen[3].messages.filter((m) => !m.modeNote).at(-1).content, /^\(Note from Coder's app, not the owner:\n## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\./);
+  assert.ok(seen[3].messages.at(-1).modeNote === "acceptEdits", "then the note of the mode the approval chose");
+  assert.equal(seen[3].messages[0].content, seen[0].messages[0].content, "the system message is the same in every mode");
   assert.equal(r.mode, "acceptEdits");
   assert.equal(cards[2].toAuto, true);
 });
@@ -281,7 +286,7 @@ test("CD318 a plan declined with what to change keeps plan mode and Coder revise
   assert.equal(a.seen[1].messages.find((m) => m.tool_call_id === "x1").content, REJECTED_SAID + "smaller, just the cart");
   // (exit_plan_mode, one of the tools Claude Code defers, called before it was loaded: tool-search.test.mjs.)
   assert.ok(a.seen[1].messages.some((m) => m.toolsAnnounced && m.toolsAnnounced.added.includes("exit_plan_mode")), "still in plan mode");
-  assert.match(a.seen[1].messages[0].content, /PERMISSION MODE: Plan/, "still in plan mode");
+  assert.equal(a.r.messages.filter((m) => m.planReminder).length, 1, "still in plan mode: its reminder, once (Claude Code's cadence)");
   assert.equal(a.r.mode, "auto");
   const b = await job([say("", [call("exit_plan_mode", { plan: "x" }, "x1")]), say("ok")], { mode: "auto" });
   assert.equal(b.seen[1].messages.find((m) => m.tool_call_id === "x1").content, "error: You are not in plan mode. To enter plan mode, call the enter_plan_mode tool first. If your plan was already approved, continue with implementation.");
@@ -291,7 +296,7 @@ test("CD319 the owner changes the mode while Coder works: from its next step on,
   // Plan for the first round, then the owner picks Accept edits.
   const { seen, cards, r } = await job([say("", [call("bash", { command: "ls" }, "b1")]), say("", [call("bash", { command: "mkdir build" }, "b2")]), say("Done.")], { mode: "plan", modeOf: (n) => (n < 1 ? "plan" : "acceptEdits") });
   assert.equal(cards.length, 0, "mkdir runs without asking in Accept edits");
-  const note = seen[1].messages.at(-1);
+  const note = seen[1].messages.filter((m) => !m.modeNote).at(-1);
   assert.equal(note.role, "user");
   assert.match(note.content, /## Exited Plan Mode\n\nYou have exited plan mode\. You can now make edits, run tools, and take actions\.\n\nThe owner's permission mode is now Accept edits\./);
   assert.equal(r.mode, "acceptEdits");

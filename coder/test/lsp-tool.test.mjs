@@ -45,7 +45,10 @@ async function withEnv(env, f) {
 
 test("LS1 Grok gets Claude Code's LSP tool: its own description word for word, its inputs (operation, filePath, line, character, query) with their descriptions, the same required ones and nothing else; Coder's old `action`, `path`, `column` and its diagnostics action are gone", () => {
   const t = A.CODER_TOOLS.find((x) => x.function.name === "lsp").function;
+  // (With Claude Code's four blank lines, as its raw 2.1.325 program has them: before "Supported operations:", "All operations
+  // require:", "The workspaceSymbol operation also takes:" and "Note:". 2026-11-14, round 3.)
   assert.equal(t.description, `Interact with Language Server Protocol (LSP) servers to get code intelligence features.
+
 Supported operations:
 - goToDefinition: Find where a symbol is defined
 - findReferences: Find all references to a symbol
@@ -56,12 +59,15 @@ Supported operations:
 - prepareCallHierarchy: Get call hierarchy item at a position (functions/methods)
 - incomingCalls: Find all functions/methods that call the function at a position
 - outgoingCalls: Find all functions/methods called by the function at a position
+
 All operations require:
 - filePath: The file to operate on
 - line: The line number (1-based, as shown in editors)
 - character: The character offset (1-based, as shown in editors)
+
 The workspaceSymbol operation also takes:
 - query: The symbol name or partial name to search for. Always provide it — most language servers return no results for an empty query.
+
 Note: LSP servers must be configured for the file type. If no server is available, an error will be returned.`);
   assert.deepEqual(t.parameters, {
     type: "object",
@@ -215,8 +221,12 @@ test("LS4 the answers are Claude Code's, word for word: \"Defined in …\", \"Fo
   assert.deepEqual(f("findReferences", [at(a, 0, 16), at(a, 1, 18), at(b, 4, 0)]), { formatted: "Found 3 references across 2 files:\n\nsrc/a.ts:\n  Line 1:17\n  Line 2:19\n\nsrc/b.ts:\n  Line 5:1", resultCount: 3, fileCount: 2 });
   assert.equal(f("findReferences", [at(a, 0, 16)]).formatted, "Found 1 reference:\n  src/a.ts:1:17");
   assert.equal(f("findReferences", []).formatted, "No references found. This may occur if the symbol has no usages, or if the LSP server has not fully indexed the workspace.");
-  assert.deepEqual(f("hover", { contents: { kind: "markdown", value: "```ts\nfunction add(a: number): number\n```" }, range: { start: { line: 0, character: 16 } } }), { formatted: "Hover info at 1:17:\n```ts\nfunction add(a: number): number\n```", resultCount: 1, fileCount: 1 });
-  assert.equal(f("hover", { contents: ["a", { language: "ts", value: "b" }] }).formatted, "a\nb");
+  // (A blank line after "Hover info at L:C:", and between a hover's parts, as Claude Code 2.1.325's raw program writes them: its
+  // ts and Hl. 2026-11-14, round 3.)
+  assert.deepEqual(f("hover", { contents: { kind: "markdown", value: "```ts\nfunction add(a: number): number\n```" }, range: { start: { line: 0, character: 16 } } }), { formatted: "Hover info at 1:17:\n\n```ts\nfunction add(a: number): number\n```", resultCount: 1, fileCount: 1 });
+  assert.equal(f("hover", { contents: ["a", { language: "ts", value: "b" }] }).formatted, "a\n\nb");
+  assert.equal(f("hover", { contents: { kind: "markdown", value: "**x**: number" }, range: { start: { line: 3, character: 2 } } }).formatted, "Hover info at 4:3:\n\n**x**: number");
+  assert.equal(f("hover", { contents: ["a", { language: "ts", value: "let x: number" }], range: { start: { line: 0, character: 0 } } }).formatted, "Hover info at 1:1:\n\na\n\nlet x: number");
   assert.equal(f("hover", { contents: "plain" }).formatted, "plain");
   assert.deepEqual(f("hover", null), { formatted: "No hover information available. This may occur if the cursor is not on a symbol, or if the LSP server has not fully indexed the file.", resultCount: 0, fileCount: 0 });
   const tree = [{ name: "Cart", kind: 5, detail: "class", range: { start: { line: 0 } }, children: [{ name: "add", kind: 6, range: { start: { line: 1 } } }, { name: "total", kind: 6, detail: "(): number", range: { start: { line: 4 } } }] }, { name: "helper", kind: 12, range: { start: { line: 9 } } }, { name: "odd", kind: 99, range: { start: { line: 11 } } }];
@@ -253,6 +263,45 @@ test("LS5 results from files git ignores are left out, as Claude Code 2.1.47 lea
     const w = tool(p.dir, "lsp", { operation: "workspaceSymbol", filePath: "src/a.py", line: 1, character: 1, query: "x" }, p.env);
     assert.ok(w.out.endsWith("Found 1 symbol in workspace:\n\nsrc/a.py:\n  x (Variable) - Line 1"), w.out);
   } finally { await L.stopKeeper(p.dir); }
+});
+
+test("LS5b git is asked which results it ignores from the folder the commands are in, as Claude Code's tool asks from its current folder (its ue()): a lookup made in another of the chat's repositories leaves out that repository's ignored files (from the project's folder, git refused every path there)", async () => {
+  let git = true; try { execFileSync("git", ["--version"]); } catch { git = false; }
+  if (!git) return;
+  const p = await project({ "src/main.py": "y = 0\n" });
+  execFileSync("git", ["init", "-q"], { cwd: p.dir });
+  const other = await mkdtemp(join(tmpdir(), "coder-lspother-"));
+  for (const [f, t] of Object.entries({ ".gitignore": "vendor/\n", "src/a.py": "x = 1\n", "vendor/m/x.py": "x = 2\n" })) { await mkdir(join(other, f, ".."), { recursive: true }); await writeFile(join(other, f), t); }
+  execFileSync("git", ["init", "-q"], { cwd: other });
+  const at = (rel, l) => ({ uri: "file://" + join(other, rel), range: { start: { line: l, character: 0 }, end: { line: l, character: 1 } } });
+  await p.script({ "textDocument/references": [at("src/a.py", 0), at("vendor/m/x.py", 0)] });
+  try {
+    const r = tool(p.dir, "lsp", { operation: "findReferences", filePath: "src/a.py", line: 1, character: 1 }, p.env, { CODER_EXTRA_ROOTS: other, CODER_CWD: other });
+    assert.equal(r.code, 0, r.out);
+    assert.ok(r.out.endsWith("Found 1 reference:\n  src/a.py:1:1"), r.out);
+    // (And the function itself is given that folder.)
+    const seen = [];
+    const check = async (paths, cwd) => { seen.push(cwd); return { code: 1, stdout: "" }; };
+    await withEnv(p.env, () => L.runLsp({ operation: "findReferences", filePath: join(other, "src/a.py"), line: 1, character: 1 }, { root: p.dir, base: other, inside: async (x) => ({ abs: x }), check }));
+    assert.deepEqual(seen, [other]);
+  } finally { await L.stopKeeper(p.dir); await rm(other, { recursive: true, force: true }); }
+});
+
+test("LS5c a file in one of the owner's additional working folders is looked up as one in the project (Claude Code's LSP reads there without asking, as its Read does: \"Files in additional directories follow the same permission rules as the original working directory\"; Coder's refused it as outside the project), never in their .git", async () => {
+  const p = await project({ "src/main.py": "y = 0\n" });
+  const extra = await mkdtemp(join(tmpdir(), "coder-lspwork-"));
+  await mkdir(join(extra, ".git"), { recursive: true });
+  await writeFile(join(extra, "lib.py"), "x = 1\n"); await writeFile(join(extra, ".git", "x.py"), "x\n");
+  await p.script({ "textDocument/references": [{ uri: "file://" + join(extra, "lib.py"), range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } } }] });
+  try {
+    const args = { operation: "findReferences", filePath: join(extra, "lib.py"), line: 1, character: 1 };
+    const r = tool(p.dir, "lsp", args, p.env, { CODER_WORK_DIRS: extra });
+    assert.equal(r.code, 0, r.out);
+    // (Named as Claude Code's formatter names it: from the folder, one folder up included.)
+    assert.ok(r.out.endsWith("Found 1 reference:\n  ../" + extra.split("/").pop() + "/lib.py:1:1"), r.out);
+    assert.deepEqual(tool(p.dir, "lsp", args, p.env), { code: 1, out: "error: that path is outside the project" }, "only the owner's own working folders");
+    assert.deepEqual(tool(p.dir, "lsp", { ...args, filePath: join(extra, ".git", "x.py") }, p.env, { CODER_WORK_DIRS: extra }), { code: 1, out: "error: the .git folder is off limits" });
+  } finally { await L.stopKeeper(p.dir); await rm(extra, { recursive: true, force: true }); }
 });
 
 test("LS6 what the servers report is sent once, as Claude Code's registry sends it: duplicates left out, errors first, at most 10 a file and 30 in all, every severity; an edit forgets what was sent for its file; the note is Claude Code's, cut at 4,000 characters", () => {
@@ -552,7 +601,7 @@ test("LS10 what the servers report after a write or an edit is taken once per st
   } finally { await k.stop(); }
 });
 
-test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and its result object; the step names the file as the project does; a Read ask rule asks \"for reading\"; a long answer reaches Grok whole (not cut at 12,000 characters), the chat's copy is cut; a lookup may take the job's time left (Claude Code's calls have no limit of their own), as a lookup", async () => {
+test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and its result object; the step names the file as the project does; a Read ask rule asks in Claude Code's words (\"Coder requested permissions to read from …\"); a long answer reaches Grok whole (not cut at 12,000 characters), the chat's copy is cut; a lookup may take the job's time left (Claude Code's calls have no limit of their own), as a lookup", async () => {
   const hookCalls = [], execs = [];
   const facts = { operation: "findReferences", result: "R".repeat(50_000), filePath: "src/a.py", resultCount: 1, fileCount: 1 };
   const exec = async (x) => {
@@ -574,7 +623,8 @@ test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and
   const post = hookCalls.find((h) => h.hook_event_name === "PostToolUse");
   assert.deepEqual(post.tool_response, facts);
   assert.equal(cards.length, 1);
-  assert.equal(cards[0].why, "Your rule Read(src/**) asks first for reading /w/shop/src/a.py.");
+  // (In Claude Code's words, its read check's, as Grep's and Glob's cards: round 3, 2026-11-14.)
+  assert.equal(cards[0].why, "Coder requested permissions to read from /w/shop/src/a.py, but you haven't granted it yet.");
   assert.equal(events.find((e) => e.type === "bash" && e.id === "l1").command, "findReferences src/a.py:1:5");
   // (What Grok was sent: the saved chat keeps less, as for every long answer.)
   const answer = seen[1].messages.find((m) => m.tool_call_id === "l1").content;

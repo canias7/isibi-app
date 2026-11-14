@@ -513,9 +513,9 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   const twice = [say("", [call("bash", { command: "npm install" }, "b1")]), say("", [call("bash", { command: "npm install" }, "b2")]), say("ok")];
   t = await job(twice, { verdict: () => "I can't help with evaluating that." });
   assert.equal(t.checks.length, 1);
-  assert.equal(t.told("b1"), C.noVerdictTold("The classifier", "hard", "it declined to judge this action"));
+  assert.equal(t.told("b1"), C.noVerdictTold("The classifier", "hard", "it declined to judge this action", "bash"));
   assert.match(t.told("b1"), /so retrying this action will get the same answer\. Don't retry it\./);
-  assert.equal(t.told("b2"), C.noVerdictTold("The classifier", "hard", "it declined to judge this action"));
+  assert.equal(t.told("b2"), C.noVerdictTold("The classifier", "hard", "it declined to judge this action", "bash"));
   assert.deepEqual(t.results("b1").map((e) => e.notRun), ["auto mode's check had no usable answer"], "the dim row's words");
   // A request a safety system turned away is hard too.
   assert.equal((await C.checkAction({ send: async () => { throw new Error("AI call failed: 400 content moderation"); } }, { action: "x" })).kind, "hard");
@@ -526,7 +526,7 @@ test("CD416 Auto mode's details, as Claude Code's docs and program give them: ev
   t = await job(many, { verdict: () => "hmm" });
   assert.equal(t.checks.length, 10);
   assert.deepEqual(t.sleeps, [1000, 2000, 4000, 8000, 16000, 30000, 30000, 30000, 30000]);
-  assert.ok(t.events.some((e) => e.type === "error" && e.text.startsWith("Auto mode unavailable — stopped after repeated responses with no safety verdict")));
+  assert.ok(t.events.some((e) => e.type === "error" && e.text === "Auto mode is unavailable — the server returned no safety verdict for the last 10 responses, so Coder stopped. Send a message to try again, or switch out of auto mode."));
   // A verdict in between starts the count again.
   t = await job([say("", [call("bash", { command: "npm install a" }, "d1")]), say("", [call("bash", { command: "npm install b" }, "d2")]), say("", [call("bash", { command: "npm install c" }, "d3")]), say("ok")], { verdict: (a, nth) => (nth === 2 ? '{"decision":"allow"}' : "hmm") });
   assert.deepEqual(t.sleeps, [1000], "after a verdict, no wait");
@@ -638,7 +638,7 @@ test("CD417 hooks meeting commands, as Claude Code's hooks reference gives them:
   t = await loop([say("", [call("bash", { command: "sleep 40" }, "b1")]), say("ok")], both);
   assert.deepEqual([t.hookCalls.length, /^Blocked: standalone sleep 40/.test(t.told("b1"))], [0, true], "rejected before hooks run");
   t = await loop([say("", [call("bash", { command: "printf 'a\u0007b'" }, "b1")]), say("ok")], both);
-  assert.deepEqual([t.hookCalls.length, t.told("b1")], [0, "Command contains control characters that would be hidden in the approval dialog (in Coder, the chat and the owner's card show the command). Write them as escapes instead, such as printf '\\033[1m' or $'\\r'."]);
+  assert.deepEqual([t.hookCalls.length, t.told("b1")], [0, "error: InputValidationError: [\n  {\n    \"code\": \"custom\",\n    \"path\": [\n      \"command\"\n    ],\n    \"message\": \"command contains control characters that would be hidden in the approval dialog\"\n  }\n]"]);
   // A BASH MATCHER ON A MONITOR'S COMMAND: a Bash call; its allow and updatedInput no effect; never for a WebSocket watch, nor
   // when its `if` names Monitor; a matcher that includes Monitor gets the Monitor call.
   const hooks6 = [{ event: "PreToolUse", matcher: "Bash", type: "command", command: "a.sh" }, { event: "PreToolUse", matcher: "Bash|Monitor", type: "command", command: "b.sh" }, { event: "PreToolUse", matcher: "Bash", type: "command", command: "c.sh", if: "Monitor(tail *)" }, { event: "PreToolUse", matcher: ".*", type: "command", command: "d.sh", if: "Bash(tail *)" }];

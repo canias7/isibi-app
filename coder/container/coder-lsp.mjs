@@ -22,8 +22,13 @@ import { kbSize } from "./coder-checks.mjs";
 import { issuesText } from "./coder-zodtext.mjs";
 
 // ── WHAT GROK IS TOLD ───────────────────────────────────────────────────────────────────────────────────────────────────
-/** Claude Code 2.1.323's own description of its LSP tool, word for word (the owner, 2026-11-14). */
+/**
+ * Claude Code 2.1.323's own description of its LSP tool, word for word (the owner, 2026-11-14), with its blank lines (2.1.325's
+ * raw program: a blank line before "Supported operations:", "All operations require:", "The workspaceSymbol operation also
+ * takes:" and "Note:"; a strings dump that drops blank lines had lost them).
+ */
 export const LSP_DESCRIPTION = `Interact with Language Server Protocol (LSP) servers to get code intelligence features.
+
 Supported operations:
 - goToDefinition: Find where a symbol is defined
 - findReferences: Find all references to a symbol
@@ -34,12 +39,15 @@ Supported operations:
 - prepareCallHierarchy: Get call hierarchy item at a position (functions/methods)
 - incomingCalls: Find all functions/methods that call the function at a position
 - outgoingCalls: Find all functions/methods called by the function at a position
+
 All operations require:
 - filePath: The file to operate on
 - line: The line number (1-based, as shown in editors)
 - character: The character offset (1-based, as shown in editors)
+
 The workspaceSymbol operation also takes:
 - query: The symbol name or partial name to search for. Always provide it — most language servers return no results for an empty query.
+
 Note: LSP servers must be configured for the file type. If no server is available, an error will be returned.`;
 export const LSP_OPERATIONS = Object.freeze(["goToDefinition", "findReferences", "hover", "documentSymbol", "workspaceSymbol", "goToImplementation", "prepareCallHierarchy", "incomingCalls", "outgoingCalls"]);
 /**
@@ -207,15 +215,17 @@ function fmtReferences(r, root) {
   for (const [k, w] of files) { out.push("\n" + k + ":"); for (const v of w) out.push("  Line " + (v.range.start.line + 1) + ":" + (v.range.start.character + 1)); }
   return out.join("\n");
 }
+// (Hover's parts joined by a blank line, and a blank line after "Hover info at L:C:", as Claude Code 2.1.325's raw program has
+// them: its Hl joins with "\n\n" and its ts writes `Hover info at ${line}:${character}:\n\n${text}`. 2026-11-14, round 3.)
 function hoverText(c) {
-  if (Array.isArray(c)) return c.map((r) => (typeof r === "string" ? r : r.value)).join("\n");
+  if (Array.isArray(c)) return c.map((r) => (typeof r === "string" ? r : r.value)).join("\n\n");
   if (typeof c === "string") return c;
   return c.value;
 }
 function fmtHover(r) {
   if (!r) return "No hover information available. This may occur if the cursor is not on a symbol, or if the LSP server has not fully indexed the file.";
   const t = hoverText(r.contents);
-  return r.range ? "Hover info at " + (r.range.start.line + 1) + ":" + (r.range.start.character + 1) + ":\n" + t : t;
+  return r.range ? "Hover info at " + (r.range.start.line + 1) + ":" + (r.range.start.character + 1) + ":\n\n" + t : t;
 }
 function symbolLines(e, depth = 0) {
   let line = "  ".repeat(depth) + e.name + " (" + kindName(e.kind) + ")";
@@ -1027,7 +1037,9 @@ export async function runLsp(args, { root, base = root, inside = async (p) => ({
   if (got.noServer) return answer("No LSP server available for file type: " + extname(abs));
   if (got.noItem) return answer(NO_CALL_ITEM, { resultCount: 0, fileCount: 0 });
   try {
-    const x = await filterResult(a.operation, got.result, root, check);
+    // (Git asked from the folder the commands are in, as Claude Code's tool asks from its current folder: its `ue()`, 2.1.325.
+    // From the project's folder, a lookup made in another of the chat's repositories had git refuse every path. Round 3.)
+    const x = await filterResult(a.operation, got.result, base, check);
     const { formatted, resultCount, fileCount } = formatResult(a.operation, x, base);
     return { text: formatted.length > LSP_RESULT_MAX ? await persisted(formatted, scratch) : formatted, facts: { operation: a.operation, result: formatted, filePath: a.filePath, resultCount, fileCount } };
   } catch (e) { return answer("Error performing " + a.operation + ": " + messageOf(e)); }

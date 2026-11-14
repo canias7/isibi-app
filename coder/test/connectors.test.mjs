@@ -3,7 +3,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { toolName, toolsFor, readAnswer, addConnector, finishSignIn, readConnectors, connectorOut, removeConnector, handleMcp, keepJobTools, listKey, cleanUrl, TOOLS_MAX } from "../src/coder-mcp.mjs";
+import { toolName, toolsFor, readAnswer, addConnector, finishSignIn, readConnectors, connectorOut, removeConnector, handleMcp, keepJobTools, listKey, cleanUrl } from "../src/coder-mcp.mjs";
 import { modelPass } from "../src/coder-model-gate.mjs";
 import { runCoder, connectorTools, connectorCaller } from "../container/coder-agent.mjs";
 
@@ -47,7 +47,7 @@ function fakeServer({ auth = false, sse = false } = {}) {
   return { fetchFn, seen };
 }
 
-test("MC1 (2026-11-10) the tools Grok sees: mcp__<connector>__<tool>, at most 64 characters, no two alike, switched-off and signed-out connectors left out, at most TOOLS_MAX", () => {
+test("MC1 (2026-11-10) the tools Grok sees: mcp__<connector>__<tool>, at most 64 characters, no two alike, switched-off and signed-out connectors left out, every one of them (no cap since 2026-11-14, as Claude Code)", () => {
   assert.equal(toolName("Linear", "create_issue"), "mcp__linear__create_issue");
   assert.equal(toolName("My Notion!", "search.pages"), "mcp__my_notion__search_pages");
   assert.ok(toolName("x".repeat(80), "y".repeat(80)).length <= 64);
@@ -64,7 +64,9 @@ test("MC1 (2026-11-10) the tools Grok sees: mcp__<connector>__<tool>, at most 64
   assert.match(tools[0].description, /^From the Linear connector \(MCP\)\. A/);
   assert.deepEqual(tools[1].parameters, { type: "object", properties: {} });
   const many = [{ id: "cm", name: "M", status: "ok", tools: Array.from({ length: 40 }, (_, i) => ({ name: "t" + i })) }, { id: "cn", name: "N", status: "ok", tools: Array.from({ length: 40 }, (_, i) => ({ name: "t" + i })) }, { id: "co", name: "O", status: "ok", tools: Array.from({ length: 40 }, (_, i) => ({ name: "t" + i })) }];
-  assert.equal(toolsFor(many).tools.length, TOOLS_MAX);
+  assert.equal(toolsFor(many).tools.length, 120);
+  // (Why the others are not offered, by the names they would have: tool search tells Grok, coder-toolsearch.mjs.)
+  assert.deepEqual(toolsFor(list, ["cc"]).gone, { mcp__off__z: "switched_off", mcp__out__z: "needs_auth" });
 });
 
 test("MC2 (2026-11-10) an MCP answer is read as JSON or as an event stream; an address must be https with no password", async () => {
@@ -519,7 +521,10 @@ test("MC16 (2026-11-11, Claude.ai's connector pages) per-chat connectors and too
   await m.setConnectorState(b, "u1", id, { disabled: false });
   // Every connector off at once.
   await m.writeConnectorSettings(b, "u1", { allOff: true });
-  assert.deepEqual(await m.jobConnectors(b, "u1", "chat-1", 3, {}, false), {});
+  // (No tools; only why, for a chat that loaded one: tool search tells Grok, 2026-11-14.)
+  const allOff = await m.jobConnectors(b, "u1", "chat-1", 3, {}, false);
+  assert.deepEqual(Object.keys(allOff), ["connectorsGone"]);
+  assert.ok(Object.values(allOff.connectorsGone).every((w) => w === "disabled"));
   await m.writeConnectorSettings(b, "u1", { allOff: false });
   assert.equal((await m.jobConnectors(b, "u1", "chat-1", 4, {}, false)).connectors.length, 2);
   // Every tool of a connector at once.
@@ -545,7 +550,9 @@ test("MC16 (2026-11-11, Claude.ai's connector pages) per-chat connectors and too
   // Coder told about a connector waiting for its sign-in, and the chat shows it.
   let i = 0; const seen = [], events = [];
   await runCoder({ send: async (q) => { seen.push(q); return { message: { role: "assistant", content: "ok" }, usage: { in: 1, out: 1 } }; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "x", connectorsWaiting: ["Notion"] });
-  assert.match(seen[0].messages[0].content, /CONNECTORS NOT SIGNED IN YET: Notion\./);
+  // (In tool search's note, in Claude Code's words, since 2026-11-14; nothing in the system prompt.)
+  assert.ok(!seen[0].messages[0].content.includes("CONNECTORS NOT SIGNED IN YET"));
+  assert.ok(seen[0].messages.some((x) => x.role === "user" && String(x.content).includes("The following MCP servers require authentication before their tools can be used:\nNotion\n")));
   assert.ok(events.some((e) => e.type === "note" && e.text === "Not signed in yet: Notion. Sign in from Connectors to use it here."));
   // The routes and the page.
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");

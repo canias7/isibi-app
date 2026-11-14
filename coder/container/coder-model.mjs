@@ -117,6 +117,9 @@ export const retryLine = ({ attempt, maxRetries, waitMs, error }) =>
 /**
  * A `send` for `runCoder`: `{ model, messages, tools, tool_choice, onRetry } → { message, searches, usage }`.
  * Throws on a missing key, a failed call (after Claude Code's retries, above) or an answer with no message (the loop says so).
+ * A request with `emptyOk` (the page reader's and a web search's own, which say an empty answer in Claude Code's words: "The
+ * small, fast model that reads the content gave no answer. Trying again may work.", a search's result with no links) gets
+ * one instead, a message with no text, its use counted.
  * `onRetry({ attempt, maxRetries, waitMs, error })`: told before each wait.
  * `via` `{ url, headers }`: through Coder's Worker with the job's pass (no key here).
  */
@@ -165,8 +168,9 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
       }
       if (!r.ok) { const t = await r.text().catch(() => ""); throw Object.assign(new Error("AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : "")), { status: r.status }); }
       const j = await r.json();
-      const { message, searches } = fromResponsesOutput(j);
-      if (!message) throw new Error("the AI answered with no message");
+      const { message: answered, searches } = fromResponsesOutput(j);
+      if (!answered && req.emptyOk !== true) throw new Error("the AI answered with no message");
+      const message = answered || { role: "assistant", content: "" };
       const u = j.usage || {};
       const web = (u.server_side_tool_usage_details && u.server_side_tool_usage_details.web_search_calls) || searches.length;
       // WHAT THE CALL REALLY USED (owner, 2026-11-10: "make sure it's actually on low", and the prompt cache): the input

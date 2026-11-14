@@ -17,7 +17,7 @@ test("CD383 hooks as Claude Code reads them: the settings' shape, its matchers, 
   // agent hooks (CD384); an unknown event is named.
   const s = H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ type: "command", command: "./no-rm.sh", timeout: 5 }, { type: "prompt", prompt: "x" }] }], Bogus: [] } }, "project");
   assert.deepEqual(s.list, [{ event: "PreToolUse", matcher: "Bash", type: "command", timeout: 5, ownTimeout: true, source: "project", command: "./no-rm.sh" }, { event: "PreToolUse", matcher: "Bash", type: "prompt", timeout: 30, source: "project", prompt: "x" }]);
-  assert.deepEqual(s.problems, ["Bogus is not an event Coder has (it has SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionDenied, TaskCreated, TaskCompleted, Notification, Stop, StopFailure, PreCompact, PostCompact, CwdChanged, FileChanged, SessionEnd)"]);
+  assert.deepEqual(s.problems, ["Bogus is not an event Coder has (it has SessionStart, UserPromptSubmit, PreToolUse, PermissionRequest, PostToolUse, PostToolUseFailure, PostToolBatch, PermissionDenied, TaskCreated, TaskCompleted, Notification, Stop, StopFailure, PreCompact, PostCompact, CwdChanged, FileChanged, Elicitation, ElicitationResult, SessionEnd)"]);
   // Timeouts: 600 seconds, 30 on UserPromptSubmit.
   assert.deepEqual([H.timeoutFor("PreToolUse"), H.timeoutFor("UserPromptSubmit"), H.timeoutFor("Stop", 9999)], [600, 30, 9999], "a hook's own timeout kept (600 is Claude Code's default, no cap: Bash docs pass 9)");
   assert.equal(H.hooksFrom({ disableAllHooks: true }).disabled, true);

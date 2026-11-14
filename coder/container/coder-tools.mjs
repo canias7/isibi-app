@@ -51,6 +51,8 @@ const BASE = (() => { const c = process.env.CODER_CWD; return c && isAbsolute(c)
 
 class ToolError extends Error {}
 const fail = (m) => { throw new ToolError(m); };
+/** The owner's additional working folders, as Coder's machine names them (CODER_WORK_DIRS, full paths, ":" between). */
+export const workDirs = () => String(process.env.CODER_WORK_DIRS || "").split(":").filter((x) => x && isAbsolute(x) && !x.includes("\0")).map((x) => resolve(x));
 
 /** A path inside the project, or an error. Links that lead outside are refused too. */
 /**
@@ -112,13 +114,22 @@ async function inside(p, { mustExist = false, tool = "", output = false } = {}) 
   }
   // THE CHAT'S OTHER REPOSITORIES (2026-11-06, like Claude Code's several repos
   // in one session): their folders, next to this one, count as inside too.
-  const home = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))].find((r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); }) || ROOT;
+  const holds = (r) => { const x = relative(r, abs); return !x.startsWith("..") && !isAbsolute(x); };
+  const roots = [ROOT, SCRATCH, ...String(process.env.CODER_EXTRA_ROOTS || "").split(":").filter((x) => x && isAbsolute(x))];
+  // THE OWNER'S ADDITIONAL WORKING FOLDERS (Claude Code's additionalDirectories; round 3, 2026-11-14): Coder's machine names
+  // them (CODER_WORK_DIRS), and they count as inside too, as Claude Code's "Files in additional directories follow the same
+  // permission rules as the original working directory" (they had been refused as outside the project, while Coder was told to
+  // work in them). The innermost one that holds the path is its own.
+  const work = workDirs().filter(holds).sort((x, y) => y.length - x.length);
+  const home = roots.find(holds) || work[0] || ROOT;
   const rel = relative(home, abs);
   if (rel.startsWith("..") || isAbsolute(rel)) fail("that path is outside the project");
   if (rel.split(sep)[0] === ".git") fail("the .git folder is off limits");
+  // (Never the .git folder of any of them that holds it: a working folder around the project, or inside another one.)
+  if ([...roots, ...work].some((r) => holds(r) && relative(r, abs).split(sep)[0] === ".git")) fail("the .git folder is off limits");
   // How the file is named in the tool's answer: from the project's folder, or by its full path when the commands are in
-  // another folder (or it is in the scratch folder).
-  const shown = home === SCRATCH || BASE !== ROOT ? abs : rel;
+  // another folder (or it is in the scratch folder, or one of the owner's working folders).
+  const shown = home === SCRATCH || BASE !== ROOT || !roots.includes(home) ? abs : rel;
   // The deepest part that exists must really be inside (no link out of the project).
   let probe = abs;
   for (;;) {
@@ -591,10 +602,15 @@ export const PARTIAL_HINT = "Do not answer from this part alone if the answer ma
  * lines, as Claude Code's Read says it (the owner, 2026-11-08: "Yea fix that"; tried side by side: "[This file is not
  * valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes
  * show above as U+FFFD. Edit and Write will refuse it: …]"). Before, Coder saw the � with no word of why, and a write
- * then saved the � over the real letters. Coder's edit and write do not refuse such a file (yet), so the note says
- * what they would do.
+ * then saved the � over the real letters. Coder's edit and write refuse such a file now, as Claude Code's do, so the note is
+ * Claude Code 2.1.325's own, word for word from its raw program, with Coder's tool names and "the owner" (2026-11-14, round 3).
  */
-export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD (�). Write refuses it, and edit would save the � in their place and lose those bytes for good, so do not use edit on it either: change it with a command that keeps its encoding (iconv), or ask the owner whether to convert it to UTF-8.]";
+export const NOT_UTF8_NOTE = "[This file is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Its undecodable bytes show above as U+FFFD. edit and write will refuse it: change it with a shell command that keeps its encoding, or ask the owner whether to convert it to UTF-8.]";
+/**
+ * WHY WRITE AND EDIT REFUSE A FILE THAT IS NOT VALID UTF-8, in Claude Code 2.1.325's words (its one text for both tools, from
+ * its raw program; the path first, as Coder's file tools name the file), with Coder's tool name and "the owner".
+ */
+export const NOT_UTF8_REFUSED = "is not valid UTF-8: it uses a legacy encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. These tools write UTF-8 (or UTF-16LE behind its byte-order mark) and never convert a file's encoding on their own, so nothing was written. If the file is text, make the change with a shell command that reads and writes it in its own encoding (iconv, or PowerShell Get-Content/Set-Content -Encoding), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.";
 
 /**
  * WRITE, WITH CLAUDE CODE'S CHECKS (the owner, 2026-11-08: "Compare it to claude code write ones and make sure they need
@@ -790,7 +806,7 @@ export async function toolWrite(args) {
     const wasAll = old.length <= WRITE_DIFF_MAX ? old : null;
     if (old.length > UTF8_HEAD) { old = old.subarray(0, UTF8_HEAD); let k = old.length; while (k > 0 && old[k - 1] >= 0x80) k--; old = old.subarray(0, k); }
     const u = utf16Of(old);
-    if (!u && !isUtf8(old)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Write saves UTF-8 (or UTF-16 behind its byte-order mark) and never changes a file's encoding on its own, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first. To replace the whole file with new UTF-8 text anyway, delete it first, then write it.");
+    if (!u && !isUtf8(old)) fail(rel + " " + NOT_UTF8_REFUSED);
     if (u === "le") bytes = Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(content, "utf16le")]);
     if (u === "be") { const b = Buffer.from(content, "utf16le"); b.swap16(); bytes = Buffer.concat([Buffer.from([0xfe, 0xff]), b]); }
     if (!u && old[0] === 0xef && old[1] === 0xbb && old[2] === 0xbf && !content.startsWith("\ufeff")) bytes = Buffer.concat([old.subarray(0, 3), bytes]);
@@ -918,7 +934,8 @@ export async function toolEdit(args) {
   // NOT VALID UTF-8 (an old encoding, or binary): nothing written, as Claude Code's Edit ("File is not valid UTF-8 … This
   // tool saves the whole file as UTF-8, which would replace every byte it cannot decode with U+FFFD. Nothing was written.").
   // Coder's edit wrote it back with every such letter lost ("café" became "caf�").
-  if (!u && !isUtf8(buf)) fail(rel + " is not valid UTF-8: it uses an old encoding such as Windows-1252, Shift-JIS or GBK, or it is binary. Edit saves the whole file as UTF-8 (or UTF-16 behind its byte-order mark), which would replace every byte it cannot decode with U+FFFD, so nothing was written. If the file is text, make the change with a command that reads and writes it in its own encoding (iconv), or ask the owner whether to convert it to UTF-8 first.");
+  // (In Claude Code 2.1.325's words, its one text for Write and Edit: NOT_UTF8_REFUSED.)
+  if (!u && !isUtf8(buf)) fail(rel + " " + NOT_UTF8_REFUSED);
   const raw = u ? fileText(buf) : buf.toString("utf8");
   const bom = !u && raw.startsWith("\ufeff");
   const text = bom ? raw.slice(1) : raw;
@@ -1050,7 +1067,7 @@ function viaProxy(url) {
   return { createConnection: (_o, cb) => {
     const c = http.request({ host: px.hostname, port: px.port, method: "CONNECT", path: url.hostname + ":" + (url.port || 443) });
     c.on("connect", (res, sock) => {
-      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "blocked by this repo's network list: " + url.hostname : "the proxy refused " + url.hostname)); }
+      if (res.statusCode !== 200) { sock.destroy(); return cb(new ToolError(res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + url.hostname : "the proxy refused " + url.hostname)); }
       cb(null, tls.connect({ socket: sock, servername: url.hostname }));
     });
     c.on("error", (e) => cb(e));
@@ -1146,6 +1163,30 @@ async function seenList(dir) {
   try { const j = JSON.parse(await readFile(join(dir, "index.json"), "utf8")); return Array.isArray(j) ? j.filter((x) => x && typeof x.abs === "string" && isAbsolute(x.abs) && typeof x.hash === "string") : []; } catch { return []; }
 }
 async function seenSave(dir, list) { const tmp = join(dir, "index.json." + process.pid + ".tmp"); await writeFile(tmp, JSON.stringify(list)); await rename(tmp, join(dir, "index.json")); }
+/**
+ * THE RECORD'S LOCK (2026-11-14: a reply's calls side by side, as Claude Code runs them, coder-parallel.mjs). The tools script
+ * runs once per call, so reads made at the same time would each take the record, add their file and save it, and all but the
+ * last would be lost (edit and write would then say a file was never read). Each change of the record holds this lock: a
+ * file made only when it is not there; one older than SEEN_LOCK_STALE_MS was left by a run that was stopped, and is taken
+ * over; after SEEN_LOCK_WAIT_MS the change is made without it, as before.
+ */
+export const SEEN_LOCK_STALE_MS = 10_000, SEEN_LOCK_WAIT_MS = 5_000;
+async function seenLocked(fn) {
+  const dir = seenDir();
+  if (!dir) return fn();
+  const lock = join(dir, "index.lock"), until = Date.now() + SEEN_LOCK_WAIT_MS;
+  let held = false;
+  while (!held) {
+    try { await (await openFile(lock, "wx")).close(); held = true; } catch (e) {
+      if (!e || e.code !== "EEXIST") break;
+      const st = await stat(lock).catch(() => null);
+      if (st && Date.now() - st.mtimeMs > SEEN_LOCK_STALE_MS) { await unlink(lock).catch(() => {}); continue; }
+      if (Date.now() > until) break;
+      await new Promise((ok) => setTimeout(ok, 5 + Math.floor(Math.random() * 20)));
+    }
+  }
+  try { return await fn(); } finally { if (held) await unlink(lock).catch(() => {}); }
+}
 /** A file's path as the tools take it: from the project's folder, or whole for one of the chat's other repositories. */
 function showPath(abs) { const r = relative(ROOT, abs); return r && !r.startsWith("..") && !isAbsolute(r) ? r : abs; }
 /**
@@ -1156,7 +1197,8 @@ const lineMark = (l) => createHash("sha256").update(l).digest("hex").slice(0, 8)
 const marksOf = (buf) => fileText(buf).split("\n").map(lineMark).join("");
 const marksFile = (dir, abs) => join(dir, "lines-" + fingerprint(Buffer.from(abs)).slice(0, 24) + ".txt");
 /** Notes a text file as Coder now knows it, after a read, a write or an edit (not the memory file). */
-async function remember(abs, buf, { whole = true, cmd = false } = {}) {
+async function remember(...a) { return seenLocked(() => rememberNow(...a)); }
+async function rememberNow(abs, buf, { whole = true, cmd = false } = {}) {
   const dir = seenDir();
   const mem = process.env.CODER_MEMORY_FILE;
   if (!dir || (mem && abs === resolve(mem))) return;
@@ -1180,7 +1222,8 @@ async function remember(abs, buf, { whole = true, cmd = false } = {}) {
  * other read, a write or an edit of it makes a new record, without the mark), as Claude Code's Write refuses a file
  * read "only partially with a PARTIAL view notice".
  */
-async function markPartial(abs) {
+async function markPartial(abs) { return seenLocked(() => markPartialNow(abs)); }
+async function markPartialNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1196,7 +1239,8 @@ async function markPartial(abs) {
  * start of this file, and nothing shows that you have since read all of it in one call, so a Write could lose the rest.").
  * A file read whole, written or edited in this chat already stands as it is.
  */
-async function markStart(abs, st) {
+async function markStart(abs, st) { return seenLocked(() => markStartNow(abs, st)); }
+async function markStartNow(abs, st) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1215,7 +1259,8 @@ async function markStart(abs, st) {
  * a file read whole (tried, 2026-11-09: a file read with limit 3 was edited without it). Unlike a PARTIAL view, it does not
  * stop write (Claude Code's Write takes a file read with a limit, on newer models). A whole read makes a new record.
  */
-async function markPart(abs) {
+async function markPart(abs) { return seenLocked(() => markPartNow(abs)); }
+async function markPartNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1225,7 +1270,8 @@ async function markPart(abs) {
   } catch { /* never costs the tool */ }
 }
 /** Read all at once (no offset or limit, nothing left out): no longer shown only in part. */
-async function clearStart(abs) {
+async function clearStart(abs) { return seenLocked(() => clearStartNow(abs)); }
+async function clearStartNow(abs) {
   const dir = seenDir();
   if (!dir) return;
   try {
@@ -1268,7 +1314,8 @@ function changedLines(was, buf) {
  * { followed, changed: [{ path } | { path, gone: true }] }, and the files brought up to date. A file only touched (the
  * same bytes) is no change; one grown past 256 KB is a change, and is not followed after.
  */
-export async function toolChanged({ reset = false, shown = null } = {}) {
+export async function toolChanged(o) { return seenLocked(() => changedNow(o)); }
+async function changedNow({ reset = false, shown = null } = {}) {
   const dir = seenDir();
   // THE CHANGES CODER'S NOTE HAS NOW SHOWN GROK (its lines, after the round): no longer "changed and not shown", so write
   // may replace them, as Claude Code's Write may once its "changed on disk" note has shown the change.
@@ -1593,7 +1640,7 @@ export async function toolWsWatch({ url, protocols = [] }, { out = (t) => proces
     if (px) {
       const p = new URL(px);
       const c = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: (host.includes(":") ? "[" + host + "]" : host) + ":" + port });
-      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "blocked by this repo's network list: " + host : "the proxy refused " + host }); } done({ sock }); });
+      c.on("connect", (res, sock) => { if (res.statusCode !== 200) { sock.destroy(); return done({ error: res.statusCode === 403 ? "request blocked: no rule or allowlist entry allows host " + host : "the proxy refused " + host }); } done({ sock }); });
       c.on("error", (e) => done({ error: String((e && e.message) || e).slice(0, 300) }));
       c.end();
       return;
@@ -1719,6 +1766,13 @@ export async function toolSendFile({ path }) {
   return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
 }
 
+/**
+ * A TOOL'S FAILURE AS CODER IS TOLD IT: "error: " and its words, the first 600 characters; a search's (coder-search.mjs's
+ * SearchError, `long`) the first 4,000; a page fetch's own (coder-webfetch.mjs's requestError, `whole`: Claude Code's texts,
+ * such as its words for a host that does not resolve or one the network list blocks, which name the host) all of it.
+ */
+export const errorLine = (e) => { const m = String((e && e.message) || e); return "error: " + (e && e.whole === true ? m : m.slice(0, e && e.long === true ? 4000 : 600)); };
+
 export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
@@ -1739,7 +1793,7 @@ if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {
     // (`ctx`: what Coder's loop adds for a tool, Grep's and Glob's settings and the owner's Read deny rules. A search's
     // failure is told whole, in Claude Code's words, ripgrep's own message in it: coder-search.mjs's SearchError.)
     try { text = printedAnswer(await fn(req.args || {}, req.ctx || {})); }
-    catch (e) { return say("error: " + String((e && e.message) || e).slice(0, e && e.long === true ? 4000 : 600), 1); }
+    catch (e) { return say(errorLine(e), 1); }
     say(text, 0);
   })();
 }

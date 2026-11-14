@@ -240,6 +240,85 @@ export function planModeNote({ file = "", exists = false, exitOffered = true } =
 }
 /** The note with no plan file and exit_plan_mode offered (kept under its old name: coder-perms.mjs gives it on). */
 export const PLAN_NOTE = planModeNote();
+/**
+ * PLAN MODE'S SHORT REMINDER BETWEEN TWO WHOLE ONES (Claude Code 2.1.325's sparse plan_mode reminder, word for word from its
+ * program, with Coder's names and "the owner" for "the user"): with a plan file, where it is; with none, where the plan goes
+ * (to exit_plan_mode, or, when that tool is denied, in the reply).
+ */
+export function planModeSparse({ file = "", exitOffered = true } = {}) {
+  const head = "Plan mode still active (see full instructions earlier in conversation). ";
+  if (file) return head + "Read-only except plan file (" + file + "). Follow 5-phase workflow. End turns with ask_user (for clarifications) or exit_plan_mode (for plan approval). Never ask about plan approval via text or ask_user.";
+  return head + "Read-only, and there is no plan file. Follow 5-phase workflow. " + (exitOffered ? "When the plan is final, call exit_plan_mode with it as `plan`. Never ask about plan approval via text or ask_user." : "When the plan is final, give it in your reply. Only the owner can end plan mode, by changing the session's permission mode.");
+}
+/** Claude Code's TURNS_BETWEEN_ATTACHMENTS: plan mode's reminder at most once every this many of the owner's messages. */
+export const PLAN_REMINDER_TURNS = 5;
+/** Its FULL_REMINDER_EVERY_N_ATTACHMENTS: the whole reminder the first time and every this many times after; the short one between. */
+export const PLAN_FULL_EVERY = 5;
+/** Where a plan goes, for the reminder: "file" (the plan file), "exit" (exit_plan_mode's `plan`) or "reply" (that tool denied). */
+export const planKind = ({ file = "", exitOffered = true } = {}) => (file ? "file" : exitOffered ? "exit" : "reply");
+/**
+ * WHETHER PLAN MODE'S REMINDER IS DUE BEFORE THIS STEP, AND WHICH ONE (fix round 3, 2026-11-14; Claude Code 2.1.325's
+ * plan_mode attachment, looked at before each of its model calls): since plan mode was last left (an app note with "## Exited
+ * Plan Mode"), none while fewer than PLAN_REMINDER_TURNS messages of the owner's came after the last reminder; then "full"
+ * the first time and every PLAN_FULL_EVERY-th time, "sparse" between; "full" too when where the plan goes changed since the
+ * last one (its kind). Reminders carry `planReminder` (their kind). `skipFrom`: the owner's messages from there on are not
+ * counted yet (a job's first step: Claude Code decides before it adds the message that starts the turn); `owners(m)`: whether
+ * a message is one of the owner's (not a note of Coder's app, a summary, or a message sent while Coder worked). null when none
+ * is due.
+ */
+export function planReminderDue(messages, { kind = "file", skipFrom = Infinity, owners = (m) => m.role === "user" && m.appNote !== true } = {}) {
+  const list = Array.isArray(messages) ? messages : [];
+  let owner = 0, since = 0, last = null;
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || m.role !== "user") continue;
+    if (m.planReminder) { since++; if (!last) last = m; continue; }
+    if (m.appNote === true && typeof m.content === "string" && m.content.includes("## Exited Plan Mode")) break;
+    if (!last && i < skipFrom && owners(m)) owner++;
+  }
+  const changed = !!last && last.planReminder !== kind;
+  if (last && !changed && owner < PLAN_REMINDER_TURNS) return null;
+  return changed || (since + 1) % PLAN_FULL_EVERY === 1 ? "full" : "sparse";
+}
+// ── THE OTHER NOTES OF THE MODES, FROM THE CONVERSATION (fix round 3, 2026-11-14) ──
+// Claude Code tells its model of a mode only in the conversation, never in its system prompt ("so the cached prefix stays
+// intact"), and decides each of these notes from the conversation before each model call: its plan_mode_exit (out of plan
+// mode, a reminder not yet followed by "## Exited Plan Mode"), its auto_mode (in auto mode, once, until "## Exited Auto
+// Mode") and its auto_mode_exit. Coder's notes carry what they are: `planReminder`, `modeNote` ("auto", "acceptEdits").
+const said = (m, t) => typeof m.content === "string" && m.content.includes(t);
+/** Of a mode's note and its end, which came last in the conversation: "note", "end" or null. */
+function lastMark(messages, isNote, isEnd) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || m.role !== "user" || m.appNote !== true) continue;
+    if (isNote(m)) return "note";
+    if (isEnd(m)) return "end";
+  }
+  return null;
+}
+const planMarks = (messages) => lastMark(messages, (m) => !!m.planReminder, (m) => said(m, "## Exited Plan Mode"));
+const autoMarks = (messages) => lastMark(messages, (m) => m.modeNote === "auto", (m) => said(m, "## Exited Auto Mode"));
+/** Plan mode's end is owed (out of plan mode): its last reminder is not yet followed by "## Exited Plan Mode". */
+export const planExitOwed = (messages) => planMarks(messages) === "note";
+/** Auto mode's note is owed (in auto mode): none since auto mode was last left. */
+export const autoNoteOwed = (messages) => autoMarks(messages) !== "note";
+/** Auto mode's end is owed (out of auto mode): its note is not yet followed by "## Exited Auto Mode". */
+export const autoExitOwed = (messages) => autoMarks(messages) === "note";
+/**
+ * Coder's own Accept edits note is owed (Claude Code has none for that mode; Coder's words for it, given once in the mode
+ * since fix round 3 instead of in the system message): the conversation's last note of a mode, or of a mode's change or end,
+ * is not this same note.
+ */
+export function editsNoteOwed(messages, content) {
+  const list = Array.isArray(messages) ? messages : [];
+  for (let i = list.length - 1; i >= 0; i--) {
+    const m = list[i];
+    if (!m || m.role !== "user" || m.appNote !== true) continue;
+    if (m.modeNote || m.planReminder || said(m, "## Exited ") || said(m, "The owner's permission mode is now")) return !(m.modeNote === "acceptEdits" && m.content === content);
+  }
+  return true;
+}
 /** Leaving plan mode (Claude Code's "## Exited Plan Mode"), and where the plan file is, when there is one. */
 export const PLAN_EXITED = "## Exited Plan Mode\n\nYou have exited plan mode. You can now make edits, run tools, and take actions.";
 export const planExitedNote = (file = "", exists = false) => PLAN_EXITED + (file && exists ? " The plan file is located at " + file + " if you need to reference it." : "");

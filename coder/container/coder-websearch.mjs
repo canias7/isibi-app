@@ -7,20 +7,28 @@
  * search again. Search once, then reply with a brief summary of the results."), and Coder gets the result in Claude Code's
  * words ("Web search results for query: …", "Links: […]", the summary, the REMINDER line). Its permission is Claude
  * Code's (a rule on the whole tool: WebSearch; asked without one, judged by auto mode's checker in Auto), and so is the
- * chat's search budget (200 calls, refilling about 100 an hour).
+ * search budget: 200 calls a turn in Coder's chats, as in Claude Code's cloud sessions (the owner, 2026-11-14, chose Claude
+ * Code's rule); Gloopy's chat keeps its own count (200, refilling about 100 an hour).
+ *
+ * CLAUDE CODE'S `mode` (its cloud sessions' WebSearch, 2.1.325; the owner, 2026-11-14, chose to add it): Coder's chats and
+ * jobs from GitHub are offered Claude Code's input, "standard" or "extended", with its description and its note in the
+ * system prompt, word for word (WEB_SEARCH_MODE_TOOL, SEARCH_MODE_NOTE); a call without it runs "extended", as Claude Code's
+ * prefault. Gloopy and its helpers keep the tool as it was (WEB_SEARCH_TOOL, no `mode`, dropped when sent).
  *
  * Where Grok can't do what Claude Code does, the closest, said here: xAI's web search takes its domain lists per request
  * (`filters`), at most 5 domains each; it has no limit on searches per request, only on turns (`max_turns`), so its searches
  * are held to Claude Code's 8 by one tool call a turn (`parallel_tool_calls` off) and 8 turns; its sources come with no
- * titles, so a link's title is its address; and it has no lighter or fuller search, so Claude Code's `mode` input (only some
- * of its sessions have it) is left out, and dropped when sent, as Claude Code drops it where it is off.
+ * titles, so a link's title is its address; and it has no search profile (Claude Code's "standard" asks Anthropic's search
+ * for its "fast" one), so "extended" is the search as it was (up to 8 searches) and "standard" the lightest request that
+ * still searches: one turn, so one search (xAI's "Quick lookups | 1-2").
  */
 import { wholeRule, normMode, parseRule, settingMatches } from "./coder-perms.mjs";
 import { issuesText, typeIssue, keysIssue, minLengthIssue } from "./coder-issues.mjs";
+import { valueIssue } from "./coder-zodtext.mjs";
 
 /** Claude Code's name for the tool: what its permission rules and hooks say (Coder's own name is `web_search`). */
 export const WEB_SEARCH_NAME = "WebSearch";
-/** THE CHAT'S SEARCH BUDGET (Claude Code's tools reference: "An interactive terminal session has a limit of 200 WebSearch calls"; "an interactive terminal session's limit refills at about 100 calls per hour"). */
+/** THE SEARCH BUDGET (Claude Code's tools reference: "An interactive terminal session has a limit of 200 WebSearch calls"; "an interactive terminal session's limit refills at about 100 calls per hour"; Gloopy's chat's refill). */
 export const SEARCHES_MAX = 200, REFILLS_DEFAULT = 100;
 const HOUR_MS = 3_600_000;
 /** xAI's limit on each domain list ("Only search within specific domains (max 5)"; "Exclude specific domains from search (max 5)"). */
@@ -34,6 +42,15 @@ export const DOMAINS_MAX = 5;
  */
 export const SEARCH_MAX_USES = 8;
 export const SEARCH_MAX_TURNS = SEARCH_MAX_USES;
+/**
+ * A "standard" SEARCH'S TURNS: one (one search, its tool calls one a turn), the lightest xAI request that still searches (xAI's
+ * tool usage guide, "When to Use max_turns": "Quick lookups | 1-2 | Fastest response, may miss deeper insights"; "When the
+ * agent reaches the limit, it will stop making additional tool calls and generate a final response"). "extended" has 8.
+ */
+export const SEARCH_STANDARD_TURNS = 1;
+/** Claude Code's two kinds of search, and the one a call without `mode` runs (its schema's `.prefault("extended")`). */
+export const SEARCH_MODES = Object.freeze(["standard", "extended"]);
+export const SEARCH_MODE_DEFAULT = "extended";
 /**
  * WHAT THE SEARCH'S REQUEST ASKS xAI TO RETURN: the sources of each search (xAI: "web_search_call.action.sources" for the
  * Responses API), and the summary without xAI's inline [[1]](url) marks (its "no_inline_citations"), as Claude Code's own
@@ -53,6 +70,7 @@ export const WEB_SEARCH_DESCRIPTION = "Search the web. Returns result blocks wit
 /**
  * THE TOOL (Claude Code's inputs, its hooks reference and Agent SDK: query, allowed_domains, blocked_domains, with its own
  * descriptions; "query" at least 2 characters; no other input). The lists say xAI's limit, as a list of 6 is refused.
+ * Gloopy's and its helpers' (Gloopy stays as it is): Coder's own chats and jobs have WEB_SEARCH_MODE_TOOL in its place.
  */
 export const WEB_SEARCH_TOOL = Object.freeze({ type: "function", function: {
   name: "web_search",
@@ -63,6 +81,32 @@ export const WEB_SEARCH_TOOL = Object.freeze({ type: "function", function: {
     blocked_domains: { type: "array", items: { type: "string" }, description: "Never include search results from these domains (at most " + DOMAINS_MAX + ")" },
   }, required: ["query"], additionalProperties: false },
 } });
+/**
+ * CLAUDE CODE'S `mode` (its cloud sessions' WebSearch, 2.1.325: `mode` after the other inputs, "standard" or "extended", its
+ * description word for word, and in its schema's `required` with `query`, as the tool reaches the model; the owner,
+ * 2026-11-14, chose to add it).
+ */
+export const SEARCH_MODE_DESCRIPTION = "\"standard\": the normal web search: quick and cheap; right for straightforward lookups (reference facts, official pages, documentation, well-known people, places and topics) and simple follow-up lookups. \"extended\": a thorough, fresh search at several times the cost and latency.";
+export const WEB_SEARCH_MODE_TOOL = Object.freeze({ type: "function", function: {
+  ...WEB_SEARCH_TOOL.function,
+  parameters: { ...WEB_SEARCH_TOOL.function.parameters, properties: {
+    ...WEB_SEARCH_TOOL.function.parameters.properties,
+    mode: { type: "string", enum: [...SEARCH_MODES], description: SEARCH_MODE_DESCRIPTION },
+  }, required: ["query", "mode"] },
+} });
+/** Coder's own tools with Claude Code's web_search, `mode` and all, in the place of the one without it. */
+export const searchModeTools = (list) => (Array.isArray(list) ? list : []).map((t) => (t && t.function && t.function.name === "web_search" ? WEB_SEARCH_MODE_TOOL : t));
+/**
+ * THE SCHEMA A HOOK'S REWRITE IS CHECKED WITH (coder-hookcheck.mjs): the input side of Claude Code's, as zod writes it (its
+ * `mode` not required, "extended" by default), so a rewrite that leaves `mode` out runs "extended", as Claude Code's schema
+ * fills it in; any other tool's parameters as they are.
+ */
+export const hookParamsFor = (name, params) => (name === "web_search" && params && params.properties && params.properties.mode ? { ...params, properties: { ...params.properties, mode: { default: SEARCH_MODE_DEFAULT, ...params.properties.mode } }, required: (Array.isArray(params.required) ? params.required : []).filter((k) => k !== "mode") } : params);
+/**
+ * CLAUDE CODE'S NOTE ON IT, its own part of the system prompt whenever the tool is offered (its 2.1.325 system_hint, word for
+ * word, web_search for its WebSearch).
+ */
+export const SEARCH_MODE_NOTE = "web_search takes a `mode`. Use \"standard\" by default: it is the normal search, quick and cheap. Use \"extended\" only when a \"standard\" result comes back thin, off-target or possibly outdated, or from the start for hard-to-find or niche facts, very recent events, prices and availability, and multi-step research: it is thorough and fresh but several times the cost. When you plan several searches, send them in the same turn.";
 
 /** THE SEARCH'S OWN REQUEST: Claude Code's system text and question, "another Claude model" being "another model" here. */
 export const SEARCH_SYSTEM = "You run a web search for another model, which is waiting on the result and can search again. Search once, then reply with a brief summary of the results.";
@@ -84,14 +128,17 @@ const INPUTS = ["query", "allowed_domains", "blocked_domains"];
  * Code's: query a string of at least 2 characters, the lists strings, nothing else), refused in Claude Code's words
  * ("InputValidationError: WebSearch failed due to the following issue:" with "The required parameter `query` is missing",
  * "An unexpected parameter `x` was provided", "The parameter `x` type is expected as `string` but provided as `number`"; and
- * when only a value is wrong, such as a query of one character, zod's own issues as JSON, coder-issues.mjs); `mode`, which
- * Claude Code takes only where its search modes are on, dropped without a word, as it drops it elsewhere. Then its own checks
- * ("Error: Missing query", "Error: Cannot specify both allowed_domains and blocked_domains in the same request"), Coder's mark
- * of a failed call ("error: ") in place of their "Error: "; and xAI's limit of 5 domains a list.
+ * when only a value is wrong, such as a query of one character, zod's own issues as JSON, coder-issues.mjs); its `mode`
+ * ("standard" or "extended"; any other value refused with zod's issue; none given: "extended", Claude Code's prefault, which
+ * its hooks then see), for Coder's own chats and jobs; for Gloopy's (`ctx.searchModes` false), whose tool has none, dropped
+ * without a word, as Claude Code drops it where its search modes are off. Then its own checks ("Error: Missing query", "Error:
+ * Cannot specify both allowed_domains and blocked_domains in the same request"), Coder's mark of a failed call ("error: ")
+ * in place of their "Error: "; and xAI's limit of 5 domains a list.
  */
-export function checkInput(args) {
+export function checkInput(args, ctx = {}) {
+  const modes = !(ctx && ctx.searchModes === false);
   const a = args && typeof args === "object" && !Array.isArray(args) ? { ...args } : {};
-  delete a.mode;
+  if (!modes) delete a.mode;
   const issues = [];
   if (typeof a.query !== "string") issues.push(typeIssue("string", a.query, ["query"]));
   const short = minLengthIssue(a.query, 2, ["query"]);
@@ -101,7 +148,8 @@ export function checkInput(args) {
     if (!Array.isArray(a[k])) issues.push(typeIssue("array", a[k], [k]));
     else a[k].forEach((x, i) => { if (typeof x !== "string") issues.push(typeIssue("string", x, [k, i])); });
   }
-  const unknown = Object.keys(a).filter((k) => !INPUTS.includes(k));
+  if (modes && a.mode !== undefined && !SEARCH_MODES.includes(a.mode)) issues.push(valueIssue(SEARCH_MODES, ["mode"]));
+  const unknown = Object.keys(a).filter((k) => !INPUTS.includes(k) && !(modes && k === "mode"));
   if (unknown.length) issues.push(keysIssue(unknown));
   if (issues.length) return { error: "error: InputValidationError: " + issuesText("web_search", issues) };
   if (!a.query.length) return { error: "error: Missing query" };
@@ -113,6 +161,7 @@ export function checkInput(args) {
   const out = { query: a.query };
   if (Array.isArray(a.allowed_domains)) out.allowed_domains = a.allowed_domains;
   if (Array.isArray(a.blocked_domains)) out.blocked_domains = a.blocked_domains;
+  if (modes) out.mode = a.mode === undefined ? SEARCH_MODE_DEFAULT : a.mode;
   return { args: out };
 }
 
@@ -159,8 +208,8 @@ export function searchMaxOf(v) {
   const n = /^\d+$/.test(t) ? Number(t) : NaN;
   return Number.isSafeInteger(n) && n > 0 ? n : SEARCHES_MAX;
 }
-/** (`unset`: the rate when the setting says none: 100 an hour in a chat, 0 in a job from GitHub, Claude Code's "In a
- * non-interactive session the default is 0, which turns refill off".) */
+/** (`unset`: the rate when the setting says none: 0 in Coder's chats and jobs from GitHub, Claude Code's "In a
+ * non-interactive session the default is 0, which turns refill off", as its cloud sessions are; 100 an hour in Gloopy's.) */
 export function searchRefillsOf(v, unset = REFILLS_DEFAULT) {
   const t = v === undefined || v === null ? "" : String(v);
   const n = /^\d+$/.test(t) ? Number(t) : NaN;
@@ -168,22 +217,26 @@ export function searchRefillsOf(v, unset = REFILLS_DEFAULT) {
 }
 
 /**
- * THE CHAT'S SEARCH BUDGET (Claude Code's: a count of the calls made, shared by every agent of the session, that refills over
- * time: each hour gives back `refills` calls, the rate in use being the lower of the old and the new when it changes; it
- * starts over once nothing is used). Coder's chat is Claude Code's session, so the count is kept with the chat (`keep`:
- * { load, save }, a file beside its other state) and lasts across its messages and its machine's sleeps.
+ * THE SEARCH BUDGET (Claude Code's: a count of the calls made, shared by every agent of the session, that refills over time:
+ * each hour gives back `refills` calls, the rate in use being the lower of the old and the new when it changes; it starts
+ * over once nothing is used). Kept with the chat (`keep`: { load, save }, a file beside its other state), so it lasts across
+ * the machine's sleeps. COUNTED PER TURN IN CODER'S CHATS (the owner, 2026-11-14, chose Claude Code's rule; its cloud sessions
+ * are non-interactive: "the limit applies per turn, not per session … The limit resets when you send the next message"):
+ * `fresh`, a new turn, starts from none and keeps that at once, so a card that paused the job and its answer stay one turn
+ * (the job that takes the answer up goes on from the kept count). Gloopy's chat: one count for the whole chat, as before.
  */
-export function searchBudget({ keep = null, max = SEARCHES_MAX, refills = REFILLS_DEFAULT, now = () => Date.now() } = {}) {
+export function searchBudget({ keep = null, fresh = false, max = SEARCHES_MAX, refills = REFILLS_DEFAULT, now = () => Date.now() } = {}) {
   let s = null;
   const load = () => {
     if (s) return s;
     let o = null;
-    try { o = keep && typeof keep.load === "function" ? keep.load() : null; } catch { o = null; }
+    try { o = !fresh && keep && typeof keep.load === "function" ? keep.load() : null; } catch { o = null; }
     const ok = o && typeof o === "object" && Number.isSafeInteger(o.used) && o.used >= 0 && Number.isFinite(o.carry) && o.carry >= 0 && Number.isFinite(o.at) && Number.isFinite(o.rate) && o.rate >= 0;
     s = ok ? { used: o.used, carry: o.carry, at: o.at, rate: o.rate } : { used: 0, carry: 0, at: now(), rate: refills };
     return s;
   };
   const save = () => { try { if (keep && typeof keep.save === "function") keep.save({ ...s }); } catch { /* counted in memory still */ } };
+  if (fresh) { load(); save(); }
   const settle = () => {
     load();
     const t = now(), rate = Math.min(refills, s.rate), dt = Math.max(0, t - s.at);
@@ -207,9 +260,10 @@ const calls = (n) => n + " " + (n === 1 ? "call" : "calls");
 /**
  * WHAT CODER IS TOLD WHEN THE BUDGET IS USED UP (Claude Code 2.1.325's text, with Coder's names: its session is Coder's
  * chat, its user the owner, its tools web_search and bash, its setting CODER_MAX_WEB_SEARCHES_PER_SESSION). The call ran and
- * did nothing, as Claude Code's ("searches appear in the conversation as calls that did nothing"). `perTurn`: a job started
- * from GitHub, whose budget is its own turn's, as Claude Code's non-interactive runs' ("the limit applies per turn, not per
- * session"), in its words for one ("this turn's", "per turn", "send a follow-up message after this reply").
+ * did nothing, as Claude Code's ("searches appear in the conversation as calls that did nothing"). `perTurn`: Coder's chats
+ * and jobs started from GitHub, whose budget is the turn's, as Claude Code's non-interactive runs' and cloud sessions' ("the
+ * limit applies per turn, not per session"), in its words for one ("this turn's", "per turn", "send a follow-up message after
+ * this reply"); Gloopy's chat, "this chat's".
  */
 export function usedUpText({ max = SEARCHES_MAX, refills = REFILLS_DEFAULT, perTurn = false } = {}) {
   const scope = perTurn ? "turn" : "chat";
@@ -294,9 +348,11 @@ export function searchShown({ results = [] } = {}) {
 
 /**
  * ONE SEARCH: its own request through Coder's model client (Claude Code: a request with the search as its only tool, forced,
- * on the caller's model and effort), with xAI's web search (`webSearch`: its domain filters), at most 8 searches (one call
- * a turn, 8 turns) and its sources asked for. Gives { facts, text, usage } or { error } (Coder's "error: " mark and the client's words, or Claude
- * Code's when the request ended with nothing).
+ * on the caller's model and effort), with xAI's web search (`webSearch`: its domain filters), its sources asked for, and one
+ * call a turn: "extended" (and a call without `mode`) at most 8 searches in 8 turns, "standard" one turn, one search. An answer
+ * with nothing in it is taken (`emptyOk`), as Claude Code takes one: its result is the query's line and the REMINDER, no
+ * links (2.1.325 throws only on an API error: "if(J!==null&&ve.results.length===0)throw"). Gives { facts, text, usage } or
+ * { error } (Coder's "error: " mark and the client's words, or Claude Code's when the request ended with nothing).
  */
 export function searchRequest({ model = "", effort = "", args = {} } = {}) {
   const query = typeof args.query === "string" ? args.query : "";
@@ -308,9 +364,10 @@ export function searchRequest({ model = "", effort = "", args = {} } = {}) {
     tools: [],
     webSearch: { ...(allowed.length ? { allowed_domains: allowed } : {}), ...(blocked.length ? { excluded_domains: blocked } : {}) },
     tool_choice: "required",
-    maxTurns: SEARCH_MAX_TURNS,
+    maxTurns: args.mode === "standard" ? SEARCH_STANDARD_TURNS : SEARCH_MAX_TURNS,
     parallelToolCalls: false,
     include: [...SEARCH_INCLUDE],
+    emptyOk: true,
   };
 }
 export async function runWebSearch(send, { model = "", effort = "", args = {}, now = () => Date.now() } = {}) {

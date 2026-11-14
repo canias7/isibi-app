@@ -181,6 +181,9 @@ export function pushesFor(events, meta, now = Date.now()) {
     // A STEP WAITING ON THE OWNER'S YES (the permission modes, 2026-11-09; Claude Code's push "when Claude needs your input"):
     // a command, a file, a web page, or the plan to approve.
     else if (e.type === "permission") out.push({ kind: "actions", title: (e.tool === "plan" ? who + "'s plan is ready" : who + " needs your approval") + tail, body: permissionLine(e) });
+    // A CONNECTOR'S QUESTION FOR THE OWNER (MCP elicitation; Claude Code's cloud says "Claude needs your input" and "Answer the
+    // MCP server's question to continue"), and which connector asks.
+    else if (e.type === "elicit") out.push({ kind: "actions", title: who + " needs your input" + tail, body: "Answer the MCP server's question to continue" + (e.connector ? " (" + String(e.connector).slice(0, 80) + ")" : "") });
     else if (e.type === "done" && meta && now - Number(meta.at || now) >= LONG_JOB_MS) out.push({ kind: "decides", title: who + " finished" + tail, body: e.text || "" });
   }
   return out.slice(0, NOTIFY_MAX + 1);

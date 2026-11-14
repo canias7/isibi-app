@@ -12,18 +12,32 @@
  * has waited PARK_MS, or at the job's time limit, the job PAUSES: it ends as "parked", saved with the call it waits on (the
  * record below), its branch saved as at any job's end, and its machine may stop. The card stays open in the chat. The owner's
  * answer, minutes or hours later, starts a job that takes the turn up again at that call: the answer is the call's result, in
- * the words it gives today, and the turn goes on. Stop closes it as a Stop on a waiting card does.
+ * the words it gives today, and the turn goes on. Stop closes it as Claude Code's Stop on such a card does.
+ *
+ * A MESSAGE OF THE OWNER'S THAT IS NOT THE CARD'S ANSWER (fix round 3, 2026-11-14; Claude Code 2.1.325's cloud host, its
+ * "parked permission" taken in by the Claude Code that the next message starts again): to a permission card or the plan's,
+ * it closes the card ("new_input": the card is withdrawn, every call of that round still without a result is told
+ * CARD_CLOSED) and is answered at once. A question card's is its reply ("replied_in_chat"), as before. While the job still
+ * runs, Claude Code keeps the card and the message waits in line (its live prompt is closed by no message): so does Coder.
  *
  * No Node modules here: Coder's Worker uses the same record (src/coder-routes.mjs).
  */
-import { NOT_NOW } from "./coder-perms.mjs";
+import { REJECTED } from "./coder-perms.mjs";
 
 /** How long a card waits inside its job before the job pauses ("after a few minutes without activity"). */
 export const PARK_MS = 5 * 60 * 1000;
 /** What a paused job's end says when Coder said nothing before its card. */
 export const PARKED_SUMMARY = "waiting for the owner's answer";
-/** What the waiting call is told when the owner presses Stop instead of answering (Coder's words for a Stop on a card). */
-export const PARK_STOPPED = "stopped by the owner";
+/**
+ * WHAT EVERY CALL OF THE ROUND IS TOLD WHEN THE OWNER'S NEXT MESSAGE CLOSES A PAUSED PERMISSION OR PLAN CARD (Claude Code
+ * 2.1.325's own words for it, its new_input "toolDenialKind: cancelled", with "owner" for "user" as Coder's copies of its
+ * words for a refused or stopped call have it).
+ */
+export const CARD_CLOSED = "[Tool call not completed: an approval request was still unanswered when the message that follows arrived and was closed, so the action awaiting approval did not run. Nobody refused it, so this is not the owner's decision; ask again if it is still needed.]";
+/** What the chat shows under a step whose card the owner's next message closed. */
+export const CARD_CLOSED_SHOWN = "Not run: you sent a new message before answering.";
+/** The card kinds the owner's next message closes (a permission card, the plan's among them). */
+export const CLOSED_BY_MESSAGE = Object.freeze(["permission"]);
 /** The card kinds that wait inside a turn: their events' types. */
 export const PARK_KINDS = Object.freeze(["permission", "question", "secret", "envchange"]);
 /**
@@ -139,19 +153,54 @@ export function parkedRound(messages, record) {
 }
 
 /**
- * THE CARD CLOSED WITHOUT ITS JOB (the owner's Stop, a Rewind or an Undo while it waited): the waiting call is told it was
- * stopped, as on a Stop while its job ran, and the round's calls after it that it held back get Claude Code's words for calls
- * a stop cancelled (NOT_NOW); every call then has its answer, as the AI's API needs. Answers the messages (unchanged when
- * they do not end on that round).
+ * THE CARD CLOSED WITHOUT ITS JOB (the owner's Stop, a Rewind or an Undo while it waited; or the owner's next message,
+ * CARD_CLOSED): every call of the round still without a result is told so, the waiting call and the ones after it it held
+ * back alike, as Claude Code tells every call of a paused turn (a Stop: REJECTED, its "user-rejected" words). Every call
+ * then has its answer, as the AI's API needs. Answers the messages (unchanged when they do not end on that round).
  */
-export function closeParked(messages, record, said = PARK_STOPPED) {
+export function closeParked(messages, record, said = REJECTED, rest = said) {
   const r = parkRecord(record);
   const round = r ? parkedRound(messages, r) : null;
   if (!round) return Array.isArray(messages) ? messages : [];
   const replied = new Set(messages.slice(round.at + 1).filter((y) => y && y.role === "tool").map((y) => y.tool_call_id));
   const out = messages.slice();
   out.push({ role: "tool", tool_call_id: r.call.id, content: said });
-  for (const tc of round.msg.tool_calls) if (tc && tc.id !== r.call.id && !replied.has(tc.id)) out.push({ role: "tool", tool_call_id: tc.id, content: NOT_NOW });
+  for (const tc of round.msg.tool_calls) if (tc && tc.id !== r.call.id && !replied.has(tc.id)) out.push({ role: "tool", tool_call_id: tc.id, content: rest });
+  return out;
+}
+/**
+ * What the chat shows when the owner's next message closes a paused card (`p`: its record, or the chat's meta.parked): its
+ * answer ("closed", no longer answerable), and the step's line when it showed one. The job goes on with the message.
+ */
+export function closedEvents(p, at = Date.now()) {
+  if (!isObj(p) || !PID.test(String(p.pid || ""))) return [];
+  const callId = typeof p.call === "string" ? p.call : isObj(p.call) && typeof p.call.id === "string" ? p.call.id : "";
+  return [
+    { at, type: "permanswer", pid: p.pid, choice: "closed" },
+    ...(STEP_SITES.includes(p.site) && callId ? [{ at, type: "result", id: callId, code: -1, ran: false, output: CARD_CLOSED_SHOWN }] : []),
+  ];
+}
+/**
+ * THE OWNER'S WORDS WITH A YES (fix round 3, 2026-11-14): Claude Code puts what they typed with an approval, exactly, as a
+ * text of its own after the call's result in the same message ("acceptFeedback"), and its API takes a message's results
+ * first and its texts after them. Coder keeps them with the call's result (`words`) and gives them to Grok as the owner's
+ * own text after the round's results: answers the messages as Grok gets them.
+ */
+export function wordsAfterResults(messages) {
+  const list = Array.isArray(messages) ? messages : [];
+  if (!list.some((m) => m && m.role === "tool" && typeof m.words === "string" && m.words)) return list;
+  const out = [];
+  let owed = [];
+  const pay = () => { for (const w of owed) out.push({ role: "user", content: w }); owed = []; };
+  for (const m of list) {
+    if (!m || m.role !== "tool") pay();
+    if (m && m.role === "tool" && typeof m.words === "string") {
+      const { words, ...rest } = m;
+      out.push(rest);
+      if (words) owed.push(words);
+    } else out.push(m);
+  }
+  pay();
   return out;
 }
 /**
