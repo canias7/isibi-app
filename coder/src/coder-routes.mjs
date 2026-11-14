@@ -486,13 +486,15 @@ async function hiddenValues(env, bucket, uid, meta) {
   // every value was hidden, so a variable set to `false` turned every "false" in the chat into "[hidden]".)
   return [...Object.entries(envNow.vars).filter(([k, v]) => secretVar(k, v)).map(([, v]) => String(v)), ...envNow.secrets.flatMap((x) => [...x.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(x.kind, x.config)]), ...jobKeys].filter((v) => v.length >= 4);
 }
-/** Those values hidden in a job's steps: their text, the lines a write shows under its step (the owner, 2026-11-09), and the files a command changed. */
+/** Those values hidden in a job's steps: their text, the lines a write shows under its step (the owner, 2026-11-09), the files a command changed, and what the language servers reported. */
 export function hideIn(events, values) {
   const hide = (x) => { let t = String(x); for (const v of values) t = t.split(v).join("[hidden]"); return t; };
   if (values.length) for (const ev of events) {
     for (const f of ["text", "output", "command"]) if (typeof ev[f] === "string") ev[f] = hide(ev[f]);
     if (ev && ev.change && Array.isArray(ev.change.lines)) ev.change.lines = ev.change.lines.map(hide);
     if (ev && Array.isArray(ev.problems)) ev.problems = ev.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || "") } : p));
+    // What the language servers reported, one row for each note Coder was given (its files' paths and problems).
+    if (ev && ev.type === "diagnostics" && Array.isArray(ev.files)) ev.files = ev.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), problems: Array.isArray(f.problems) ? f.problems.map((p) => (p && typeof p === "object" ? { ...p, message: hide(p.message || ""), code: hide(p.code || ""), source: hide(p.source || "") } : p)) : [] } : f));
     // The files a command changed (their names and lines, under its step).
     if (ev && ev.files && typeof ev.files === "object") {
       if (Array.isArray(ev.files.files)) ev.files.files = ev.files.files.map((f) => (f && typeof f === "object" ? { ...f, path: hide(f.path || ""), lines: Array.isArray(f.lines) ? f.lines.map(hide) : [] } : f));

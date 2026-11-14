@@ -1946,8 +1946,25 @@
     return '<div class="cd-files">' + rows + rest + note + '</div>';
   }
   /**
+   * WHAT THE LANGUAGE SERVERS REPORTED, ONE ROW FOR EACH NOTE CODER WAS GIVEN (Claude Code's: "Found N new diagnostic issues in
+   * M files (ctrl+o to expand)", every problem of every file counted; "Fix base on Claude Code docs, please", 2026-11-14), and
+   * the issues a tap away as its expanded view shows them: each file by its path, each problem with Claude Code's mark for its
+   * severity (✘ ⚠ ℹ ★, ● for any other), its line and column, its code and its source. Only text, never markup.
+   */
+  function diagnosticsHTML(e, i) {
+    const files = (Array.isArray(e.files) ? e.files : []).filter((f) => f && typeof f.path === 'string' && Array.isArray(f.problems) && f.problems.length);
+    if (!files.length) return '';
+    const n = files.reduce((a, f) => a + f.problems.length, 0);
+    const k = 'diag:' + i, open = !!S.open[k];
+    const mark = (s) => ({ error: '✘', warning: '⚠', info: 'ℹ', hint: '★' }[s] || '●');
+    return '<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="' + esc(k) + '">Found ' + n + ' new diagnostic issue' + (n === 1 ? '' : 's') + ' in ' + files.length + ' file' + (files.length === 1 ? '' : 's') + '<span>' + (open ? 'Hide' : 'Show') + '</span></button>' +
+      (open ? '<pre class="cd-probs-list">' + files.map((f) => esc(f.path) + ':\n' + f.problems.map((p) => '  ' + mark(p && p.severity) + ' [Line ' + esc(String(p.line)) + ':' + esc(String(p.column)) + '] ' + esc(p.message) + (p.code ? ' [' + esc(p.code) + ']' : '') + (p.source ? ' (' + esc(p.source) + ')' : '')).join('\n')).join('\n\n') + '</pre>' : '') +
+    '</div>';
+  }
+  /**
    * "Found N new diagnostic issues in 1 file", and the issues themselves a tap away (as Claude Code's Ctrl+O shows them), each
    * with Claude Code's mark for its severity (✘ ⚠ ℹ ★: the owner, 2026-11-14, "start fixing and filling in gaps on those tools").
+   * (A write's or an edit's own, in a chat from before 2026-11-14's per-step reports: diagnosticsHTML since.)
    */
   function stepProblems(r, key) {
     const list = r && Array.isArray(r.problems) ? r.problems.filter((p) => p && typeof p.message === 'string').slice(0, 20) : [];
@@ -2501,6 +2518,8 @@
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
+      // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
+      else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
       else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');

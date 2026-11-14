@@ -357,7 +357,8 @@ test("CD303 (the live test after deploy 75) after a pause, Coder's machine wakes
   const woken = [];
   S.wakeStarters([{ pid: 4242 }, { pid: 0 }, null, { pid: "x" }, { pid: 77 }], { cont: (pid) => woken.push(pid) });
   assert.deepEqual(woken, [4242, 77]);
-  assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(live\); finish\(\);/);
+  // (And the chats' language-server keepers', kept as background commands are: LSP_KEEPERS, 2026-11-14.)
+  assert.match(serverSrc(), /resumeAI\(p\.procs, \{ boxPid: boxKept \? boxKept\.pid : 0 \}\); wakeStarters\(\[\.\.\.live, \.\.\.keepers\]\); finish\(\);/);
   const init = readFileSync(new URL("../container/coder-sandbox-init.sh", import.meta.url), "utf8");
   assert.match(init, /\nset \+e\nwhile :; do sleep 3600 & wait \$! \|\| true; done\n$/, "the sandbox's first process collects what ends in it, and never ends");
 });

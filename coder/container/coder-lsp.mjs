@@ -5,17 +5,19 @@
 //   .ts .tsx .js .jsx .mts .cts .mjs .cjs  typescript-language-server --stdio
 //   .py .pyi                               pyright-langserver --stdio
 // A server runs for the whole chat, as Claude Code keeps one per language for its session: Coder's tool script runs once
-// per call, so a small keeper (coder-lspd.mjs) holds the servers on the chat's machine, as the same user and inside the same
-// sandbox as the call that started it; the script talks to it over a socket in a folder only that user can open. It stops
-// after a while with nothing to do, and Coder's end of a turn stops it with all the AI's other processes. Where it cannot
-// run, each call starts its server, asks, and stops it.
+// per call, so a small keeper (coder-lspd.mjs) holds the servers on the chat's machine. Coder's service starts it the first
+// time a call needs a server, as the AI's own user inside the same sandbox and room as its commands, the way it starts a
+// background command, and keeps it at each turn's end as it keeps those (server.mjs, LSP_KEEPERS): it ends when the chat's
+// machine stops. The tool script talks to it over a socket in a folder only that user can open. What the servers report
+// waits in the keeper, and Coder's loop takes it once per step, after whatever tool ran, and with the owner's next message
+// (Claude Code's diagnostics attachment, 2026-11-14). Where no keeper runs, each lookup starts its server, asks, and stops it.
 import { spawn } from "node:child_process";
-import { open, stat, lstat, mkdir, writeFile, unlink, access } from "node:fs/promises";
-import { constants } from "node:fs";
+import { open, stat, lstat, mkdir, writeFile, unlink } from "node:fs/promises";
+import { readFileSync } from "node:fs";
 import { createConnection, createServer } from "node:net";
 import { createHash, randomUUID } from "node:crypto";
 import { pathToFileURL, fileURLToPath } from "node:url";
-import { extname, relative, resolve, basename, join, isAbsolute, delimiter } from "node:path";
+import { extname, relative, resolve, basename, join, isAbsolute } from "node:path";
 import { kbSize } from "./coder-checks.mjs";
 
 // ── WHAT GROK IS TOLD ───────────────────────────────────────────────────────────────────────────────────────────────────
@@ -70,53 +72,98 @@ export function serverFor(path, servers = LSP_SERVERS) {
 // a file over 10 MB is not opened; a request waits 60 seconds ("requestTimeout … Defaults to 60000"); a ContentModified
 // answer is asked again three times, 0.5, 1 and 2 seconds apart; a server that crashes is started again at the next request,
 // at most three times in a row ("maxRestarts", 3); at most 50 files open at once ("LRU with 50-doc cap"); diagnostics: at
-// most 10 for a file and 30 in all, their text cut at 4,000 characters.
+// most 10 for a file and 30 in all, their text cut at 4,000 characters. A server's start and its stop have no time limit
+// ("startupTimeout", "shutdownTimeout": "When unset, no timeout applies"; the official plugins set neither), and nothing
+// waits for a report after a write or an edit.
 export const LSP_RESULT_MAX = 100_000, LSP_FILE_MAX = 10_000_000, LSP_REQUEST_MS = 60_000, LSP_MAX_RESTARTS = 3, LSP_OPEN_MAX = 50;
 export const DIAG_PER_FILE = 10, DIAG_TOTAL = 30, DIAG_NOTE_CHARS = 4000, DIAG_DELIVERED_MAX = 500;
 const CONTENT_MODIFIED = -32801, RETRIES = 3, RETRY_MS = 500;
 // Claude Code's protocol limits: "accepts message headers up to 64 KiB and a message body up to 32 MiB".
 const HEADER_MAX = 64 * 1024, BODY_MAX = 32 * 1024 * 1024;
 /**
- * CODER'S OWN TIME LIMITS (no Claude Code number: its calls have none, Coder's tool commands do): a server gets 60 seconds
- * to start (told in Claude Code's words for its startupTimeout), and the tool waits 195 seconds in all for the keeper; after
- * a write or an edit, it waits at most 20 seconds for the server's report, taken once the server has been quiet 0.8 seconds.
+ * CODER'S OWN LIMIT, WHERE CLAUDE CODE HAS ONE ELSEWHERE: when no keeper runs, each lookup starts a server of its own and
+ * stops it once answered (Claude Code has no such way: its servers stop only when its session ends, within its own exit's
+ * limits), and the keeper stops its servers when it ends: each such stop waits at most 5 seconds.
  */
-export const LSP_STARTUP_MS = 60_000, LSP_CALL_MS = 195_000, SYNC_WAIT_MS = 20_000, SETTLE_MS = 800;
+export const LSP_STOP_MS = 5000;
 
 // ── THE INPUT, CHECKED AS CLAUDE CODE CHECKS IT ─────────────────────────────────────────────────────────────────────────
 const KNOWN_INPUTS = ["operation", "filePath", "line", "character", "query"];
-/** A value's type in zod's words ("received string", "received array"). */
-const zodType = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "nan" : typeof v);
+/** A value's type in zod's words ("received string", "received array", "received NaN"). */
+const zodType = (v) => (v === null ? "null" : Array.isArray(v) ? "array" : typeof v === "number" && Number.isNaN(v) ? "NaN" : typeof v === "number" && !Number.isFinite(v) ? "Infinity" : typeof v);
+const SAFE_NOTE = "Integers must be within the safe integer range.";
 /**
- * THE LSP TOOL'S INPUT, AS CLAUDE CODE TAKES IT (coder-inputs.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on
- * those tools"): a strict object, refused before any hook in Claude Code's words ("InputValidationError: LSP failed due to the
- * following issue:\nThe required parameter `line` is missing"), its issues in Claude Code's order: missing parameters, then
- * unexpected ones, then wrong types, then the rest ("The parameter `operation` is invalid: Invalid option: …").
+ * WHAT ZOD FINDS WRONG WITH AN LSP CALL'S INPUT, issue by issue, as Claude Code 2.1.325's schema finds it (a strict object:
+ * `operation` one of its nine, `filePath` a string, `line` and `character` positive integers, `query` an optional string):
+ * each issue as zod 4 makes it, its fields in zod's order, in the order of the schema's fields, unknown names last.
  */
-export function checkInput(args) {
-  const a = args && typeof args === "object" && !Array.isArray(args) ? args : {};
-  const missing = [], unexpected = [], types = [], other = [];
-  if (!LSP_OPERATIONS.includes(a.operation)) other.push("The parameter `operation` is invalid: Invalid option: expected one of " + LSP_OPERATIONS.map((o) => '"' + o + '"').join("|"));
-  if (a.filePath === undefined) missing.push("filePath"); else if (typeof a.filePath !== "string") types.push(["filePath", "string", zodType(a.filePath)]);
+export function zodIssues(args) {
+  if (!args || typeof args !== "object" || Array.isArray(args)) return [{ expected: "object", code: "invalid_type", path: [], message: "Invalid input: expected object, received " + zodType(args) }];
+  const a = args, out = [];
+  const wrong = (k, want, v) => ({ expected: want, code: "invalid_type", ...(typeof v === "number" && !Number.isFinite(v) && want === "number" ? { received: zodType(v) } : {}), path: [k], message: "Invalid input: expected " + want + ", received " + (v === undefined ? "undefined" : zodType(v)) });
+  if (!(typeof a.operation === "string" && LSP_OPERATIONS.includes(a.operation))) out.push({ code: "invalid_value", values: [...LSP_OPERATIONS], path: ["operation"], message: "Invalid option: expected one of " + LSP_OPERATIONS.map((o) => JSON.stringify(o)).join("|") });
+  if (typeof a.filePath !== "string") out.push(wrong("filePath", "string", a.filePath));
   for (const k of ["line", "character"]) {
     const v = a[k];
-    if (v === undefined) missing.push(k);
-    else if (typeof v !== "number" || Number.isNaN(v)) types.push([k, "number", zodType(v)]);
-    else if (!Number.isInteger(v)) types.push([k, "int", "number"]);
-    else if (!Number.isSafeInteger(v)) { other.push("The parameter `" + k + "` is invalid: " + (v > 0 ? "Too big: expected int to be <=" + Number.MAX_SAFE_INTEGER : "Too small: expected int to be >=" + Number.MIN_SAFE_INTEGER)); if (v < 0) other.push("The parameter `" + k + "` is invalid: Too small: expected number to be >0"); }
-    else if (v <= 0) other.push("The parameter `" + k + "` is invalid: Too small: expected number to be >0");
+    if (typeof v !== "number" || !Number.isFinite(v)) { out.push(wrong(k, "number", v)); continue; }
+    // (A fraction stops there: zod's int check ends the field's checks.)
+    if (!Number.isInteger(v)) { out.push({ expected: "int", format: "safeint", code: "invalid_type", path: [k], message: "Invalid input: expected int, received number" }); continue; }
+    if (v > Number.MAX_SAFE_INTEGER) out.push({ code: "too_big", maximum: Number.MAX_SAFE_INTEGER, note: SAFE_NOTE, origin: "int", inclusive: true, path: [k], message: "Too big: expected int to be <=" + Number.MAX_SAFE_INTEGER });
+    if (v < Number.MIN_SAFE_INTEGER) out.push({ code: "too_small", minimum: Number.MIN_SAFE_INTEGER, note: SAFE_NOTE, origin: "int", inclusive: true, path: [k], message: "Too small: expected int to be >=" + Number.MIN_SAFE_INTEGER });
+    if (v <= 0) out.push({ origin: "number", code: "too_small", minimum: 0, inclusive: false, path: [k], message: "Too small: expected number to be >0" });
   }
-  if (a.query !== undefined && typeof a.query !== "string") types.push(["query", "string", zodType(a.query)]);
-  for (const k of Object.keys(a)) if (!KNOWN_INPUTS.includes(k)) unexpected.push(k);
+  if (a.query !== undefined && typeof a.query !== "string") out.push(wrong("query", "string", a.query));
+  const extra = Object.keys(a).filter((k) => !KNOWN_INPUTS.includes(k));
+  if (extra.length) out.push({ code: "unrecognized_keys", keys: extra, path: [], message: "Unrecognized key" + (extra.length > 1 ? "s" : "") + ": " + extra.map((k) => JSON.stringify(k)).join(", ") });
+  return out;
+}
+/**
+ * CLAUDE CODE'S WORDS FOR THOSE ISSUES (its formatter, 2.1.325, copied): missing parameters, then unexpected ones, then wrong
+ * types, then the rest ("The parameter `operation` is invalid: …", at most 20); and when nothing is missing, unexpected or of
+ * the wrong type, only values wrong (line 0, an unknown operation), zod's own raw list of the issues, as Claude Code gives it.
+ */
+export function zodText(issues, tool = "LSP") {
+  const key = (path) => path.reduce((n, r, s) => (typeof r === "number" ? n + "[" + r + "]" : s === 0 ? String(r) : n + "." + r), "");
+  const missing = issues.filter((q) => q.code === "invalid_type" && String(q.message || "").includes("received undefined")).map((q) => key(q.path));
+  const unexpected = issues.filter((q) => q.code === "unrecognized_keys").flatMap((q) => q.keys.map((y) => key([...q.path, y])));
+  const types = issues.filter((q) => q.code === "invalid_type" && !String(q.message || "").includes("received undefined")).map((q) => { const m = /received (\w+)/.exec(String(q.message || "")); return [key(q.path), q.expected, m ? m[1] : "unknown"]; });
+  const rest = issues.filter((q) => q.code !== "invalid_type" && q.code !== "unrecognized_keys").map((q) => {
+    const p = key(q.path), who = p === "" ? "The input" : "The parameter `" + p + "`", said = String(q.message || "").replace(/^Invalid input(?:: |$)/, "").slice(0, 500);
+    return said !== "" ? who + " is invalid: " + said : q.code === "invalid_union" ? who + " matches none of the accepted forms" : who + " is invalid";
+  });
   const lines = [
     ...missing.map((k) => "The required parameter `" + k + "` is missing"),
     ...unexpected.map((k) => "An unexpected parameter `" + k + "` was provided"),
     ...types.map(([k, want, got]) => "The parameter `" + k + "` type is expected as `" + want + "` but provided as `" + got + "`"),
-    ...other.slice(0, 20),
-    ...(other.length > 20 ? ["(" + (other.length - 20) + " more issue" + (other.length - 20 === 1 ? "" : "s") + " not listed)"] : []),
   ];
-  if (!lines.length) return { args: a };
-  return { error: "error: InputValidationError: LSP failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n") };
+  if (!lines.length) return JSON.stringify(issues, null, 2);
+  lines.push(...rest.slice(0, 20));
+  if (rest.length > 20) lines.push("(" + (rest.length - 20) + " more issue" + (rest.length - 20 === 1 ? "" : "s") + " not listed)");
+  return tool + " failed due to the following " + (lines.length > 1 ? "issues" : "issue") + ":\n" + lines.join("\n");
+}
+/**
+ * THE LSP TOOL'S INPUT, AS CLAUDE CODE TAKES IT (coder-inputs.mjs; the owner, 2026-11-14: "start fixing and filling in gaps on
+ * those tools"): refused before any hook in Claude Code's words ("InputValidationError: LSP failed due to the following
+ * issue:\nThe required parameter `line` is missing"; with only values wrong, "InputValidationError: [ … ]").
+ */
+export function checkInput(args) {
+  const issues = zodIssues(args);
+  if (!issues.length) return { args };
+  return { error: "error: InputValidationError: " + zodText(issues) };
+}
+/**
+ * THE FILE'S OWN CHECKS, AS CLAUDE CODE'S LSP TOOL MAKES THEM BEFORE ANY HOOK OR PERMISSION (its validateInput, 2.1.325: "File
+ * does not exist: …", "Cannot access file: …. <why>", "Path is not a file: …"): `abs` the file as the call names it, from the
+ * folder Grok's commands are in. The refusal's text, or "" when the file is one. (Run by Coder's tool script, as the AI's user
+ * where it sees the chat's files: coder-tools.mjs lsp_file.)
+ */
+export async function fileProblem(filePath, abs) {
+  let st;
+  try { st = await stat(abs); } catch (e) {
+    if (e && e.code === "ENOENT") return "File does not exist: " + filePath;
+    return "Cannot access file: " + filePath + ". " + messageOf(e);
+  }
+  return st.isFile() ? "" : "Path is not a file: " + filePath;
 }
 
 // ── WHAT A CALL ASKS THE SERVER (Claude Code's own requests) ────────────────────────────────────────────────────────────
@@ -372,12 +419,45 @@ export function diagnosticsNote(files) {
   if (body.length > DIAG_NOTE_CHARS) body = body.slice(0, DIAG_NOTE_CHARS - 12) + "…[truncated]";
   return "<new-diagnostics>The following new diagnostic issues were detected:\n\n" + body + "</new-diagnostics>";
 }
-/** Where a tool's answer carries the diagnostics note for after the round (taken off by Coder's loop, never shown as is). */
-export const LSP_NOTE_MARK = "\u0000coder-diagnostics\u0000";
-/** An answer and its note: `{ text, note }`. */
-export function noteAnswer(raw) {
-  const s = String(raw ?? ""), k = s.indexOf(LSP_NOTE_MARK);
-  return k < 0 ? { text: s, note: "" } : { text: s.slice(0, k), note: s.slice(k + LSP_NOTE_MARK.length) };
+/**
+ * THE SAME REPORT FOR THE CHAT (Claude Code's row: "Found N new diagnostic issues in M files (ctrl+o to expand)", every
+ * problem of every file the note holds counted; its expanded view, each file by its path and each problem with its mark):
+ * `{ files: [{ path, problems: [{ severity, line, column, message, code, source }] }] }`, the paths named from `base`.
+ */
+export function diagnosticsShown(files, base) {
+  const named = (p) => { if (!base || !isAbsolute(p)) return p; const r = relative(base, p).replaceAll("\\", "/"); return r.length < p.length && !r.startsWith("../../") ? r : p; };
+  return {
+    files: files.map((f) => ({
+      path: named(String(f.uri)),
+      problems: f.diagnostics.map((d) => ({ severity: String(d.severity || "Error").toLowerCase(), line: d.range.start.line + 1, column: d.range.start.character + 1, message: String(d.message), code: d.code || "", source: d.source || "" })),
+    })),
+  };
+}
+/**
+ * CLAUDE CODE 2.1.323'S WARNING WHEN A LANGUAGE SERVER CAN'T START ("Added a warning when a plugin's language server can't
+ * start, naming the server and what to check"), in its words, for the owner, once for each server: a program not found, a
+ * program that can't be run, or else the reason (Claude Code: "The Errors tab in /plugin may have the reason", the tab that
+ * shows it). Coder's servers come with its machine, not from a plugin, so its "If you don't need it, disable the plugin that
+ * provides it." is left out.
+ */
+export function startFailureNotice(name, command, e) {
+  const head = 'Language server "' + visible(name) + "\" couldn't start", spaced = /\s/.test(String(command));
+  const prog = spaced ? "its program" : 'its program "' + visible(basename(String(command))) + '"';
+  const code = e && e.code;
+  if (code === "ENOENT") return head + ": " + prog + " wasn't found. " + (spaced ? 'Check that it\'s installed at the path the plugin gives, and that any arguments are in "args", not in "command".' : basename(String(command)) === String(command) ? "Check that it's installed and on your PATH." : "Check that it's installed at the path the plugin gives.");
+  if (code === "EACCES" || code === "EPERM") return head + ": " + prog + " can't be run. Check that the file is executable and that you have permission to run it.";
+  return head + ": " + visible(messageOf(e)).slice(0, 300);
+}
+/** A name as a warning shows it: no control characters. */
+const visible = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, " ");
+/**
+ * A WARNING THE KEEPER PASSED ON (`{ name, code, reason }`), as the owner is shown it: made here from one of Coder's own
+ * servers and its program (a name the keeper gives that is none of them shows nothing), or "".
+ */
+export function noticeText(n) {
+  const name = n && typeof n.name === "string" ? n.name : "";
+  if (!Object.prototype.hasOwnProperty.call(LSP_SERVERS, name)) return "";
+  return startFailureNotice(name, LSP_SERVERS[name].command, { code: typeof n.code === "string" ? n.code : undefined, message: String(n.reason ?? "") });
 }
 
 // ── ONE LANGUAGE SERVER (Claude Code's client and server instance) ──────────────────────────────────────────────────────
@@ -401,42 +481,66 @@ function headerLength(text) {
   if (n > BODY_MAX) return new Error("LSP server declared a message larger than the size limit — refusing to buffer it");
   return n;
 }
-/** Node's word for a program that is not there, as Claude Code's runtime says it ("Executable not found in $PATH: …"). */
-const spawnError = (e, command) => (e && e.code === "ENOENT" ? new Error('Executable not found in $PATH: "' + command + '"') : e instanceof Error ? e : new Error(String(e)));
-/** Is a program on PATH (Claude Code checks a server's binary the same way before it recommends a plugin)? */
-export async function onPath(command, path = process.env.PATH) {
-  if (command.includes("/")) return access(command, constants.X_OK).then(() => true, () => false);
-  for (const d of String(path || "").split(delimiter).filter(Boolean)) {
-    try { await access(join(d, command), constants.X_OK); const s = await stat(join(d, command)); if (s.isFile()) return true; } catch { /* not here */ }
+/** Node's word for a program that is not there, as Claude Code's runtime says it ("Executable not found in $PATH: …"), its code kept. */
+const spawnError = (e, command) => (e && e.code === "ENOENT" ? Object.assign(new Error('Executable not found in $PATH: "' + command + '"'), { code: "ENOENT" }) : e instanceof Error ? e : new Error(String(e)));
+/**
+ * HOW MANY TIMES THE KERNEL'S OOM KILLER FIRED IN A MEMORY CGROUP (cgroup v2's memory.events, v1's memory.oom_control:
+ * "oom_kill N"), as Claude Code reads its tool cgroup's; undefined when it can't be read.
+ */
+export function oomKills(dir, read = readFileSync) {
+  if (typeof dir !== "string" || !dir) return undefined;
+  for (const f of ["memory.events", "memory.oom_control"]) {
+    try { const m = /^oom_kill (\d+)$/m.exec(String(read(join(dir, f), "utf8"))); if (m) return Number(m[1]); } catch { /* the other one */ }
   }
-  return false;
+  return undefined;
+}
+/**
+ * WHY A SERVER ENDED, IN CLAUDE CODE 2.1.325'S WORDS: "exit code 3" or "killed by signal SIGKILL", and when it was killed (or
+ * exited 137) under the chat's memory cap, " — killed at the tool memory limit (…)" when the cgroup's OOM count went up since
+ * it started, " — likely killed at the tool memory limit (…)" when that can't be read (Claude Code names its
+ * CLAUDE_CODE_TOOL_MEMORY_LIMIT; Coder's is CODER_TOOL_MEMORY_LIMIT). `{ why, oom }`.
+ */
+export function crashWhy(code, signal, { memCg = "", oomBefore, read } = {}) {
+  const base = code === null ? "killed by signal " + signal : "exit code " + code;
+  const oom = (signal === "SIGKILL" || code === 137) && memCg ? (() => { const now = oomKills(memCg, read); return oomBefore === undefined || now === undefined ? undefined : now > oomBefore; })() : false;
+  return { why: base + (oom === true ? " — killed at the tool memory limit (CODER_TOOL_MEMORY_LIMIT)" : oom === undefined ? " — likely killed at the tool memory limit (CODER_TOOL_MEMORY_LIMIT)" : ""), oom: oom === true };
 }
 
 /**
- * A LANGUAGE SERVER'S PROCESS AND ITS CONVERSATION (Claude Code 2.1.323's): stdio only, logs from its stderr dropped; a stdout
+ * A LANGUAGE SERVER'S PROCESS AND ITS CONVERSATION (Claude Code 2.1.325's): stdio only, logs from its stderr dropped; a stdout
  * that breaks the protocol, or a message over the limits, disconnects it, counted as a crash; requests it sends us are
  * answered (configuration, capability registrations ignored, anything else "Unhandled method").
  */
 class LspClient {
   constructor(name, onCrash) { this.name = name; this.onCrash = onCrash; this.conn = null; this.notes = new Map(); this.requests = new Map(); }
   get initialized() { const c = this.conn; return !!(c && c.proc && c.initialized && !c.failed); }
-  /** Its process started: each start has a connection of its own, so a stop that ends late never touches a later one. */
-  async start(command, args, { env, cwd }) {
+  /**
+   * Its process started: each start has a connection of its own, so a stop that ends late never touches a later one.
+   * `memCg`: the chat's memory cgroup when language servers are under its cap (a kill there is said: crashWhy).
+   */
+  async start(command, args, { env, cwd, memCg = "" }) {
     const conn = { proc: null, waiting: new Map(), id: 0, initialized: false, failed: null, stopping: false };
     this.conn = conn;
+    const oomBefore = memCg ? oomKills(memCg) : undefined;
     let p;
     try { p = spawn(command, args, { stdio: ["pipe", "pipe", "ignore"], env, cwd, windowsHide: true }); } catch (e) { conn.failed = spawnError(e, command); throw conn.failed; }
     conn.proc = p;
     try { await new Promise((ok, no) => { p.once("spawn", ok); p.once("error", (e) => no(spawnError(e, command))); }); } catch (e) { conn.failed = e; conn.proc = null; throw e; }
     p.on("error", (e) => { if (!conn.stopping && !conn.failed) conn.failed = spawnError(e, command); });
     p.on("exit", (code, signal) => {
-      if (conn.stopping || !conn.proc) return;
-      const e = new Error("LSP server " + this.name + " crashed with " + (code === null ? "killed by signal " + signal : "exit code " + code));
+      if (conn.stopping || conn.proc !== p) return;
+      // (A clean exit, code 0, is no crash in Claude Code: its connection is closed, the server is left as it is, and a
+      // request to it is refused, "server is running", until the chat's end.)
+      if (code === null ? signal === null : code === 0) { conn.initialized = false; return; }
+      const w = crashWhy(code, signal, { memCg, oomBefore });
+      const e = Object.assign(new Error("LSP server " + this.name + " crashed with " + w.why), { oomKilledInToolCgroup: w.oom });
       conn.failed = e; conn.initialized = false; conn.proc = null;
       this.reject(conn, e);
       if (this.conn === conn) this.onCrash(e);
     });
     p.stdin.on("error", () => { /* its end is the exit's to tell */ });
+    // (Its output closed: the connection is, as Claude Code's onClose has it.)
+    p.stdout.on("close", () => { if (!conn.stopping && conn.proc === p) conn.initialized = false; });
     this.reader(conn, p);
   }
   reader(conn, p) {
@@ -512,17 +616,19 @@ class LspClient {
   async initialize(params) { const conn = this.conn; const r = await this.ask(conn, "initialize", params); this.send(conn, { jsonrpc: "2.0", method: "initialized", params: {} }); conn.initialized = true; return r; }
   onNotification(method, f) { this.notes.set(method, f); }
   onRequest(method, f) { this.requests.set(method, f); }
-  /** shutdown (with no params, Claude Code 2.1.31), then exit even when shutdown fails (2.1.269), then its process ended. */
-  async stop(ms = 5000) {
+  /**
+   * shutdown (with no params, Claude Code 2.1.31), then exit even when shutdown fails (2.1.269), then its process ended if it
+   * has not ended yet, as Claude Code's stop ends it. `ms`: the most it waits for shutdown and exit (Claude Code's
+   * shutdownTimeout; none when not given).
+   */
+  async stop(ms) {
     const conn = this.conn;
     if (!conn) return;
     conn.stopping = true;
     const p = conn.proc;
     if (p && p.exitCode === null && p.signalCode === null) {
       const bye = (async () => { try { await this.ask(conn, "shutdown"); } catch { /* exit all the same */ } this.send(conn, { jsonrpc: "2.0", method: "exit" }); })();
-      try { await withTimeout(bye, Math.min(ms || 5000, 5000), "LSP server '" + this.name + "' timed out during shutdown"); } catch { /* ended below */ }
-      // (A moment for it to leave on its own after `exit`, then ended.)
-      if (p.exitCode === null && p.signalCode === null) await withTimeout(new Promise((ok) => p.once("exit", ok)), 1000, "").catch(() => {});
+      try { if (ms) await withTimeout(bye, ms, "LSP server '" + this.name + "' timed out after " + ms + "ms during shutdown"); else await bye; } catch { /* ended below */ }
       if (p.exitCode === null && p.signalCode === null) { try { p.kill(); } catch { /* gone */ } }
     }
     conn.proc = null; conn.initialized = false;
@@ -531,15 +637,18 @@ class LspClient {
 }
 
 /**
- * ONE LANGUAGE SERVER AS CLAUDE CODE RUNS IT (its 2.1.323 server instance): started on first use; Claude Code's initialize
- * (its capabilities: UTF-16 positions, call hierarchy, document symbols in a tree), with Coder's own name for the client;
- * each request waits LSP_REQUEST_MS and is asked again on ContentModified; after a crash it is started again at the next
- * request, unless it crashed more than LSP_MAX_RESTARTS times in a row.
+ * ONE LANGUAGE SERVER AS CLAUDE CODE RUNS IT (its 2.1.325 server instance): started on first use, with no time limit on its
+ * start unless one is given (Claude Code's startupTimeout); Claude Code's initialize (its capabilities: UTF-16 positions,
+ * call hierarchy, document symbols in a tree), with Coder's own name for the client; CLAUDE_PROJECT_DIR, the chat's project,
+ * in its environment ("Claude Code also sets this variable in the environment of … plugin LSP servers"); each request waits
+ * LSP_REQUEST_MS and is asked again on ContentModified; after a crash it is started again at the next request, unless it
+ * crashed more than LSP_MAX_RESTARTS times in a row. A start that fails leaves Claude Code's warning for the owner
+ * (`startFailureNotice`).
  */
 export class LspServer {
-  constructor(name, config, { root, requestMs = LSP_REQUEST_MS, startupMs = LSP_STARTUP_MS, maxRestarts = LSP_MAX_RESTARTS, env = process.env } = {}) {
-    this.name = name; this.config = config; this.root = root; this.requestMs = requestMs; this.startupMs = startupMs; this.maxRestarts = maxRestarts; this.env = env;
-    this.state = "stopped"; this.lastError = null; this.crashes = 0; this.gaveUp = false; this.starting = null;
+  constructor(name, config, { root, requestMs = LSP_REQUEST_MS, startupMs, maxRestarts = LSP_MAX_RESTARTS, env = process.env, memCg = "" } = {}) {
+    this.name = name; this.config = config; this.root = root; this.requestMs = requestMs; this.startupMs = startupMs; this.maxRestarts = maxRestarts; this.env = env; this.memCg = memCg;
+    this.state = "stopped"; this.lastError = null; this.crashes = 0; this.gaveUp = false; this.starting = null; this.startFailureNotice = undefined;
     this.client = new LspClient(name, (e) => { this.state = "error"; this.lastError = e; this.crashes++; });
   }
   async start() {
@@ -557,7 +666,7 @@ export class LspServer {
     }
     try {
       this.state = "starting";
-      await this.client.start(this.config.command, this.config.args || [], { env: { ...this.env, ...(this.config.env || {}) }, cwd: this.root });
+      await this.client.start(this.config.command, this.config.args || [], { env: { ...this.env, CLAUDE_PROJECT_DIR: this.root, ...(this.config.env || {}) }, cwd: this.root, memCg: this.memCg });
       this.client.onRequest("workspace/configuration", (p) => (Array.isArray(p && p.items) ? p.items : []).map((i) => pick(this.config.settings, i && i.section)));
       this.client.onRequest("client/registerCapability", () => null);
       this.client.onRequest("client/unregisterCapability", () => null);
@@ -585,11 +694,12 @@ export class LspServer {
       init.catch(() => {});
       if (this.startupMs) await withTimeout(init, this.startupMs, "LSP server '" + this.name + "' timed out after " + this.startupMs + "ms during initialization"); else await init;
       if (this.state !== "starting") throw this.lastError || new Error("LSP server crashed during startup");
-      this.state = "running"; this.crashes = 0; this.gaveUp = false;
+      this.state = "running"; this.crashes = 0; this.gaveUp = false; this.startFailureNotice = undefined;
       if (this.config.settings != null) { try { this.client.notify("workspace/didChangeConfiguration", { settings: this.config.settings }); } catch { /* told at its next start */ } }
     } catch (e) {
-      this.client.stop().catch(() => {});
+      this.client.stop(this.config.shutdownTimeout ?? this.startupMs).catch(() => {});
       this.state = "error"; this.lastError = e;
+      this.startFailureNotice = startFailureNotice(this.name, this.config.command, e);
       throw e;
     }
   }
@@ -634,11 +744,11 @@ function pick(settings, section) {
  * older version of the file.
  */
 export class LspManager {
-  constructor(root, { servers = LSP_SERVERS, registry = new DiagnosticsRegistry(), requestMs, startupMs, maxRestarts, env } = {}) {
+  constructor(root, { servers = LSP_SERVERS, registry = new DiagnosticsRegistry(), requestMs, startupMs, maxRestarts, env, memCg = "" } = {}) {
     this.root = root; this.registry = registry;
-    this.servers = new Map(); this.byExt = new Map(); this.open = new Map(); this.versions = new Map(); this.published = new Map(); this.waiters = new Set();
+    this.servers = new Map(); this.byExt = new Map(); this.open = new Map(); this.versions = new Map(); this.noticed = new Set();
     for (const [name, config] of Object.entries(servers)) {
-      const s = new LspServer(name, config, { root, requestMs, startupMs, maxRestarts, env });
+      const s = new LspServer(name, config, { root, requestMs, startupMs, maxRestarts, env, memCg });
       this.servers.set(name, s);
       for (const e of Object.keys(config.extensionToLanguage)) { const k = e.toLowerCase(); if (!this.byExt.has(k)) this.byExt.set(k, []); this.byExt.get(k).push(name); }
       s.onNotification("textDocument/publishDiagnostics", (p) => this.published_(name, p));
@@ -648,40 +758,29 @@ export class LspManager {
     if (!p || typeof p !== "object" || !("uri" in p) || !("diagnostics" in p)) return;
     if (p.version !== undefined) { const v = this.versions.get(p.uri); if (v !== undefined && p.version < v) return; }
     const files = reportFiles(p);
-    const path = files[0].uri;
-    this.published.set(path, (this.published.get(path) || 0) + 1);
-    for (const w of this.waiters) w(path);
     if (!files[0].diagnostics.length) return;
     if (this.servers.get(name)?.config?.diagnostics === false) return;
     this.registry.register({ serverName: name, files });
   }
-  /** How many reports a server has published for a file so far (empty ones too). */
-  publishCount(path) { return this.published.get(path) || 0; }
-  /** Wait until a file has a report after `before`, then until its server is quiet SETTLE_MS, or `deadline`. */
-  async settled(path, before, deadline, settleMs = SETTLE_MS) {
-    let last = this.publishCount(path), changedAt = Date.now();
-    const seen = () => this.publishCount(path) > before;
-    await new Promise((done) => {
-      let t = null;
-      const finish = () => { if (t) clearTimeout(t); this.waiters.delete(w); done(); };
-      const tick = () => {
-        const now = Date.now();
-        if (now >= deadline) return finish();
-        if (seen() && now - changedAt >= settleMs) return finish();
-        t = setTimeout(tick, Math.max(10, Math.min(seen() ? settleMs - (now - changedAt) : deadline - now, deadline - now)));
-      };
-      const w = (p) => { if (p !== path) return; const n = this.publishCount(path); if (n !== last) { last = n; changedAt = Date.now(); } if (t) clearTimeout(t); tick(); };
-      this.waiters.add(w);
-      tick();
-    });
+  /**
+   * THE WARNINGS FOR SERVERS THAT COULD NOT START, each server's once (Claude Code shows each server's once a session, while
+   * it is in error): `{ name, code, reason }` each, for noticeText.
+   */
+  takeNotices() {
+    const out = [];
+    for (const [name, s] of this.servers) if (s.state === "error" && s.lastError && s.startFailureNotice !== undefined && !this.noticed.has(name)) { this.noticed.add(name); out.push({ name, code: typeof s.lastError.code === "string" ? s.lastError.code : "", reason: messageOf(s.lastError) }); }
+    return out;
   }
   serverForFile(path) { const names = this.byExt.get(extname(path).toLowerCase()); return names && names.length ? this.servers.get(names[0]) : undefined; }
+  /**
+   * A FILE'S SERVER, STARTED IF IT IS STOPPED OR FAILED (Claude Code's ensureServerStarted): one already starting is not waited
+   * for, as in Claude Code, so a call meanwhile is refused ("server is starting"). A new process has none of the old one's
+   * files open.
+   */
   async ensureStarted(path) {
     const s = this.serverForFile(path);
     if (!s) return undefined;
-    // (One being started, by a write a moment ago, is waited for: Claude Code 2.1.0, "Fixed race condition where LSP tool
-    // could return "no server available" during startup". A new process has none of the old one's files open.)
-    if (s.state !== "running") { const was = s.client.conn; await s.start(); if (s.client.conn !== was) for (const [u, n] of this.open) if (n === s.name) this.open.delete(u); }
+    if (s.state === "stopped" || s.state === "error") { await s.start(); for (const [u, n] of this.open) if (n === s.name) this.open.delete(u); }
     return s;
   }
   touch(uri, name) { this.open.delete(uri); this.open.set(uri, name); }
@@ -701,13 +800,13 @@ export class LspManager {
     if (this.open.get(uri) === s.name) this.touch(uri, s.name);
     return s.request(method, params);
   }
+  // (A file's text to its server, as Claude Code sends it, and its errors in its words: "Failed to sync file open <path>: …".)
   async openFile(path, text) {
     const s = await this.ensureStarted(path);
     if (!s) return;
     const uri = pathToFileURL(resolve(path)).href;
-    // (Opened meanwhile, by a call that waited for the same start: this text is the newer one, so it is sent as a change.)
-    if (this.open.get(uri) === s.name) { this.touch(uri, s.name); s.notify("textDocument/didChange", { textDocument: { uri, version: this.nextVersion(uri) }, contentChanges: [{ text }] }); return; }
-    s.notify("textDocument/didOpen", { textDocument: { uri, languageId: s.config.extensionToLanguage[extname(path).toLowerCase()] || "plaintext", version: this.nextVersion(uri), text } });
+    if (this.open.get(uri) === s.name) { this.touch(uri, s.name); return; }
+    try { s.notify("textDocument/didOpen", { textDocument: { uri, languageId: s.config.extensionToLanguage[extname(path).toLowerCase()] || "plaintext", version: this.nextVersion(uri), text } }); } catch (e) { throw new Error("Failed to sync file open " + path + ": " + messageOf(e)); }
     this.touch(uri, s.name);
     this.evict();
   }
@@ -716,13 +815,13 @@ export class LspManager {
     const uri = pathToFileURL(resolve(path)).href;
     if (!s || s.state !== "running" || this.open.get(uri) !== s.name) return this.openFile(path, text);
     this.touch(uri, s.name);
-    s.notify("textDocument/didChange", { textDocument: { uri, version: this.nextVersion(uri) }, contentChanges: [{ text }] });
+    try { s.notify("textDocument/didChange", { textDocument: { uri, version: this.nextVersion(uri) }, contentChanges: [{ text }] }); } catch (e) { throw new Error("Failed to sync file change " + path + ": " + messageOf(e)); }
   }
   async saveFile(path) {
     const s = this.serverForFile(path);
     const uri = pathToFileURL(resolve(path)).href;
     if (!s || s.state !== "running" || this.open.get(uri) !== s.name) return;
-    s.notify("textDocument/didSave", { textDocument: { uri } });
+    try { s.notify("textDocument/didSave", { textDocument: { uri } }); } catch (e) { throw new Error("Failed to sync file save " + path + ": " + messageOf(e)); }
   }
   isFileOpen(path) { const n = this.open.get(pathToFileURL(resolve(path)).href); return n !== undefined && this.servers.get(n)?.state === "running"; }
   async shutdown(ms) { await Promise.allSettled([...this.servers.values()].filter((s) => s.state === "running" || s.state === "error" || s.state === "starting").map((s) => s.stop(ms))); this.open.clear(); }
@@ -752,9 +851,11 @@ export async function lookupIn(mgr, { file, operation, line, character, query })
 const messageOf = (e) => String((e && e.message) || e);
 
 // ── THE KEEPER: THE SERVERS KEPT RUNNING FOR THE CHAT ───────────────────────────────────────────────────────────────────
-/** How long the keeper waits with nothing to do before it stops (Coder's; under node's test runner, 3 seconds). */
-export const IDLE_MS = 10 * 60 * 1000;
-const idleMs = () => { const v = Number(process.env.CODER_LSP_IDLE_MS); return Number.isFinite(v) && v > 0 ? v : process.env.NODE_TEST_CONTEXT ? 3000 : IDLE_MS; };
+/**
+ * NO IDLE STOP (Claude Code keeps a session's language servers until the session ends; the keeper ends with the chat's
+ * machine). CODER_LSP_IDLE_MS is for the tests only: the keeper then stops after that long with nothing asked of it.
+ */
+const idleMs = () => { const v = Number(process.env.CODER_LSP_IDLE_MS); return Number.isFinite(v) && v > 0 ? v : 0; };
 /**
  * The keeper's socket for a project: in `$HOME/.coder-lsp`, a folder only this user may open (made so, and checked: a
  * plain folder of this user's, nothing for group or others), named for the project. Null where there is no such folder.
@@ -769,13 +870,13 @@ export async function socketFor(root, home = process.env.HOME) {
   const sock = join(dir, createHash("sha256").update(resolve(root)).digest("hex").slice(0, 16) + ".sock");
   return Buffer.byteLength(sock) <= 100 ? sock : null;
 }
-/** One request to the keeper and its answer (a line of JSON each way), or the connection's error. */
+/** One request to the keeper and its answer (a line of JSON each way), or the connection's error. `ms`: 0 for no limit. */
 export function askKeeper(sock, req, ms) {
   return new Promise((ok, no) => {
     let buf = "", done = false;
     const c = createConnection(sock);
-    const end = (f, v) => { if (done) return; done = true; clearTimeout(t); try { c.destroy(); } catch { /* closed */ } f(v); };
-    const t = setTimeout(() => end(no, Object.assign(new Error("no response after " + ms + "ms"), { code: "ETIMEDOUT" })), ms);
+    const end = (f, v) => { if (done) return; done = true; if (t) clearTimeout(t); try { c.destroy(); } catch { /* closed */ } f(v); };
+    const t = ms > 0 ? setTimeout(() => end(no, Object.assign(new Error("no response after " + ms + "ms"), { code: "ETIMEDOUT" })), ms) : null;
     c.setEncoding("utf8");
     c.on("connect", () => c.write(JSON.stringify(req) + "\n"));
     c.on("data", (d) => {
@@ -788,68 +889,67 @@ export function askKeeper(sock, req, ms) {
     c.on("close", () => end(no, Object.assign(new Error("the keeper closed the connection"), { code: "ECONNRESET" })));
   });
 }
-const KEEPER = fileURLToPath(new URL("./coder-lspd.mjs", import.meta.url));
 /**
- * THE KEEPER'S ANSWER, STARTING IT WHEN NONE RUNS: started as a program of its own (node coder-lspd.mjs), apart from the call
- * (its own session, nothing of the call's output held open), so the call ends and the servers stay. Null when the keeper
- * cannot be used here (no private folder, or it did not come up): the caller then does the work itself.
+ * THE KEEPER'S PROGRAM, as Coder's service starts it (server.mjs): `node --no-warnings coder-lspd.mjs <project>`, its input and
+ * output nowhere (it prints nothing, and Coder's service holds nothing of it open). (Under node's test runner only, the keeper
+ * a test's turn starts stops after 3 seconds with nothing to do, so it never outlives the test.)
  */
-export async function keeperCall(root, req, ms) {
+export const KEEPER_SCRIPT = fileURLToPath(new URL("./coder-lspd.mjs", import.meta.url));
+const shq = (s) => "'" + String(s).replace(/'/g, "'\\''") + "'";
+export const keeperCommand = (root) => (process.env.NODE_TEST_CONTEXT ? "CODER_LSP_IDLE_MS=3000 " : "") + "exec node --no-warnings " + shq(KEEPER_SCRIPT) + " " + shq(resolve(root)) + " </dev/null >/dev/null 2>&1";
+/**
+ * DOES A CALL NEED THE CHAT'S KEEPER (Coder's service starts it first, as Claude Code starts a server the first time a file it
+ * handles is looked up, written or edited): a lookup, or a write or an edit, of a file one of the servers takes.
+ */
+export function needsKeeper(name, args) {
+  const p = name === "lsp" ? args && args.filePath : name === "write" || name === "edit" ? args && args.path : null;
+  return typeof p === "string" && !!serverFor(p);
+}
+/**
+ * THE KEEPER'S ANSWER, when one runs for the project, or null when none answers (no private folder, none started, or it is
+ * closing). A call never starts one: Coder's service does (server.mjs).
+ */
+export async function keeperCall(root, req, ms = 0) {
   const sock = await socketFor(root);
   if (!sock) return null;
-  // (A keeper that is closing answers so, and is taken as none: a new one is started.)
-  try { const r = await askKeeper(sock, req, ms); if (!(r && r.closing === true)) return r; } catch (e) { if (!e || !["ENOENT", "ECONNREFUSED"].includes(e.code)) throw e; }
-  try {
-    const p = spawn(process.execPath, ["--no-warnings", KEEPER, resolve(root), sock], { cwd: root, detached: true, stdio: "ignore", env: process.env });
-    p.on("error", () => {});
-    p.unref();
-  } catch { return null; }
-  const until = Date.now() + 5000;
-  while (Date.now() < until) {
-    await sleep(40);
-    try { const up = await askKeeper(sock, { op: "ping" }, 1000); if (up && up.closing === true) continue; return await askKeeper(sock, req, ms); } catch (e) { if (!e || !["ENOENT", "ECONNREFUSED"].includes(e.code)) throw e; }
-  }
-  return null;
+  try { const r = await askKeeper(sock, req, ms); return r && r.closing === true ? null : r; } catch (e) { if (e && ["ENOENT", "ECONNREFUSED"].includes(e.code)) return null; throw e; }
 }
 /** The keeper of a project, stopped (its servers shut down first): for the tests. */
 export async function stopKeeper(root) { const sock = await socketFor(root); if (!sock) return false; try { await askKeeper(sock, { op: "stop" }, 10_000); return true; } catch { return false; } }
 
 /**
  * A REQUEST TO THE KEEPER: "lookup" (one call of the tool), "sync" (a file just written or edited: what was sent for it is
- * forgotten, its new text sent to its server, and, when `deliver`, the server's report waited for), "take" (what the servers
- * reported since), "ping", "stop". Every lookup and every sync that delivers takes what waits, as Claude Code takes it after
- * each step.
+ * forgotten, and its new text sent to its server, as Claude Code sends it, without waiting), "take" (what the servers reported
+ * since, and the warnings for servers that could not start: Coder's loop takes them once per step), "ping", "stop".
  */
 export async function keeperAnswer(mgr, req) {
   const op = req && req.op;
   if (op === "ping") return { ok: true, pid: process.pid, root: mgr.root };
-  if (op === "take") return { ok: true, pending: mgr.registry.takePending() };
+  if (op === "take") return { ok: true, pending: mgr.registry.takePending(), notices: mgr.takeNotices() };
   if (op === "stop") return { ok: true };
   if (op === "lookup") {
     let r;
     try { r = await lookupIn(mgr, req); } catch (e) { r = { error: messageOf(e) }; }
-    return { ok: true, ...r, pending: mgr.registry.takePending() };
+    return { ok: true, ...r };
   }
   if (op === "sync") {
     const file = resolve(String(req.file || "")), text = String(req.text ?? "");
-    if (!serverFor(file)) return { ok: true, pending: [] };
+    if (!serverFor(file)) return { ok: true };
     mgr.registry.clearDeliveredForFile(file);
     mgr.registry.clearPendingForFile(file);
-    const before = mgr.publishCount(file);
-    const work = (async () => { await mgr.changeFile(file, text); await mgr.saveFile(file); })();
-    work.catch(() => {});
-    if (req.deliver !== true) return { ok: true, pending: [] };
-    const deadline = Date.now() + Math.max(0, Math.min(Number(req.waitMs) || 0, SYNC_WAIT_MS));
-    try { await withTimeout(work, Math.max(1, deadline - Date.now()), "waited"); } catch (e) { if (messageOf(e) !== "waited") return { ok: false, error: messageOf(e), pending: [] }; }
-    await mgr.settled(file, before, deadline);
-    return { ok: true, pending: mgr.registry.takePending() };
+    mgr.changeFile(file, text).catch(() => {});
+    mgr.saveFile(file).catch(() => {});
+    return { ok: true };
   }
   return { ok: false, error: "unknown request" };
 }
 
-/** THE KEEPER ITSELF (coder-lspd.mjs runs it): one project's servers, on its socket, until it has been idle IDLE_MS. */
-export async function serveKeeper(root, sock, { idle = idleMs(), exit = (c) => process.exit(c) } = {}) {
-  const mgr = new LspManager(root);
+/**
+ * THE KEEPER ITSELF (coder-lspd.mjs runs it): one project's servers, on its socket, until it is stopped or its machine stops.
+ * `memCg`: the chat's memory cgroup when language servers are under its cap (Coder's service says so: CODER_LSP_MEMCG).
+ */
+export async function serveKeeper(root, sock, { idle = idleMs(), exit = (c) => process.exit(c), memCg = String(process.env.CODER_LSP_MEMCG || "") } = {}) {
+  const mgr = new LspManager(root, { memCg: memCg.startsWith("/sys/fs/cgroup/") ? memCg : "" });
   let busy = 0, timer = null, closing = false;
   const server = createServer((c) => {
     let buf = "";
@@ -870,19 +970,19 @@ export async function serveKeeper(root, sock, { idle = idleMs(), exit = (c) => p
       try { c.end(JSON.stringify(ans) + "\n"); } catch { /* the caller left */ }
     });
   });
-  // CLOSING: its socket goes first (a call from now on starts a new keeper, whose socket this one never touches), the answers
-  // under way are given, then its servers are shut down (shutdown, then exit) and it ends.
+  // CLOSING: its socket goes first (a call from then on finds no keeper), the answers under way are given, then its servers
+  // are shut down (shutdown, then exit, LSP_STOP_MS at most) and it ends.
   const close = async (code) => {
     if (closing) return; closing = true;
     if (timer) { clearTimeout(timer); timer = null; }
     try { server.close(); } catch { /* closed */ }
     await unlink(sock).catch(() => {});
     for (let i = 0; busy > 0 && i < 400; i++) await sleep(25);
-    await mgr.shutdown(5000).catch(() => {});
+    await mgr.shutdown(LSP_STOP_MS).catch(() => {});
     await sleep(50);
     exit(code);
   };
-  const arm = () => { if (timer) clearTimeout(timer); if (busy || closing) return; timer = setTimeout(() => close(0), idle); };
+  const arm = () => { if (timer) clearTimeout(timer); timer = null; if (!idle || busy || closing) return; timer = setTimeout(() => close(0), idle); };
   const listen = () => new Promise((ok, no) => { server.once("error", no); server.listen(sock, () => { server.removeListener("error", no); ok(); }); });
   try { await listen(); } catch (e) {
     if (!e || e.code !== "EADDRINUSE") throw e;
@@ -910,74 +1010,68 @@ export async function persisted(text, dir) {
 }
 
 /**
- * THE LSP TOOL (coder-tools.mjs runs it, as the AI's user in the project): `{ text, facts, note }`: the answer for Grok,
- * Claude Code's result object for the hooks ({ operation, result, filePath, resultCount, fileCount }), and the diagnostics
- * note for after the round (what the servers reported and was not yet sent). `inside` keeps the file inside the project
- * (Coder's own rule, kept: no file outside it, none in .git); `root` is the project's folder (the servers' workspace),
- * `base` the folder Grok's commands are in (paths in answers are named from there), `scratch` where a long answer is kept.
- * A check that refuses throws (Grok gets "error: …"); every other answer is a result, as in Claude Code.
+ * THE LSP TOOL (coder-tools.mjs runs it, as the AI's user in the project): `{ text, facts }`: the answer for Grok, and Claude
+ * Code's result object for the hooks ({ operation, result, filePath, resultCount, fileCount }). Its input and its file were
+ * checked before the call's hooks (checkInput, fileProblem); `inside` keeps the file inside the project (Coder's own rule,
+ * kept: no file outside it, none in .git); `root` is the project's folder (the servers' workspace), `base` the folder Grok's
+ * commands are in (paths in answers are named from there), `scratch` where a long answer is kept, `callMs` how long it waits
+ * for the keeper (0: as long as its run may last). A check that refuses throws (Grok gets "error: …"); every other answer is a
+ * result, as in Claude Code ("Error performing hover: …").
  */
-export async function runLsp(args, { root, base = root, inside = async (p) => ({ abs: resolve(base, p) }), scratch = "/tmp/coder-scratch", callMs = LSP_CALL_MS, check } = {}) {
+export async function runLsp(args, { root, base = root, inside = async (p) => ({ abs: resolve(base, p) }), scratch = "/tmp/coder-scratch", callMs = 0, check } = {}) {
   const v = checkInput(args);
   if (v.error) throw new Error(v.error.replace(/^error: /, ""));
   const a = v.args;
   // (An empty path is the folder the commands are in, as Claude Code resolves it: not a file.)
   const { abs } = a.filePath === "" ? { abs: base } : await inside(a.filePath);
-  let st;
-  try { st = await stat(abs); } catch (e) { if (e && (e.code === "ENOENT" || e.code === "ENOTDIR")) throw new Error("File does not exist: " + a.filePath); throw new Error("Cannot access file: " + a.filePath + ". " + messageOf(e)); }
-  if (!st.isFile()) throw new Error("Path is not a file: " + a.filePath);
-  const answer = (result, counts = {}, note = "") => ({ text: result, facts: { operation: a.operation, result, filePath: a.filePath, ...counts }, note });
-  if (st.size > LSP_FILE_MAX) return answer("File too large for LSP analysis (" + Math.ceil(st.size / 1e6) + "MB exceeds 10MB limit)");
-  const s = serverFor(abs);
-  if (!s) return answer("No LSP server available for file type: " + extname(abs));
-  // (A server whose program is not installed: Claude Code's error for it, and no keeper started for nothing.)
-  if (!(await onPath(s.command))) return answer("Error performing " + a.operation + ": " + 'Executable not found in $PATH: "' + s.command + '"');
+  const answer = (result, counts = {}) => ({ text: result, facts: { operation: a.operation, result, filePath: a.filePath, ...counts } });
   const req = { op: "lookup", file: abs, operation: a.operation, line: a.line, character: a.character, ...(a.query !== undefined ? { query: a.query } : {}) };
   let got;
-  try { got = await keeperCall(root, req, callMs); } catch (e) { got = { ok: true, error: messageOf(e), pending: [] }; }
-  if (!got) {
-    // NO KEEPER HERE: the server for this one call, started, asked and stopped.
-    const mgr = new LspManager(root);
-    try { got = { ok: true, ...(await lookupIn(mgr, req).catch((e) => ({ error: messageOf(e) }))) }; got.pending = mgr.registry.takePending(); } finally { await mgr.shutdown(5000).catch(() => {}); }
+  if (!serverFor(abs)) {
+    // (No server takes it: Claude Code opens it all the same, so a file over 10 MB is said so first.)
+    try { const fh = await open(abs, "r"); try { const st = await fh.stat(); got = st.size > LSP_FILE_MAX ? { tooLarge: Math.ceil(st.size / 1e6) } : { noServer: true }; } finally { await fh.close(); } } catch (e) { got = { error: messageOf(e) }; }
+  } else {
+    try { got = await keeperCall(root, req, callMs); } catch (e) { got = { ok: true, error: messageOf(e) }; }
+    if (!got) {
+      // NO KEEPER HERE: the server for this one call, started, asked and stopped.
+      const mgr = new LspManager(root);
+      try { got = { ok: true, ...(await lookupIn(mgr, req).catch((e) => ({ error: messageOf(e) }))) }; } finally { await mgr.shutdown(LSP_STOP_MS).catch(() => {}); }
+    }
   }
-  const files = (Array.isArray(got.pending) ? got.pending : []).flatMap((p) => (p && Array.isArray(p.files) ? p.files : []));
-  const note = files.length ? diagnosticsNote(files) : "";
-  if (got.error !== undefined) return answer("Error performing " + a.operation + ": " + got.error, {}, note);
-  if (got.tooLarge) return answer("File too large for LSP analysis (" + got.tooLarge + "MB exceeds 10MB limit)", {}, note);
-  if (got.noServer) return answer("No LSP server available for file type: " + extname(abs), {}, note);
-  if (got.noItem) return answer(NO_CALL_ITEM, { resultCount: 0, fileCount: 0 }, note);
+  if (got.error !== undefined) return answer("Error performing " + a.operation + ": " + got.error);
+  if (got.tooLarge) return answer("File too large for LSP analysis (" + got.tooLarge + "MB exceeds 10MB limit)");
+  if (got.noServer) return answer("No LSP server available for file type: " + extname(abs));
+  if (got.noItem) return answer(NO_CALL_ITEM, { resultCount: 0, fileCount: 0 });
   try {
     const x = await filterResult(a.operation, got.result, root, check);
     const { formatted, resultCount, fileCount } = formatResult(a.operation, x, base);
-    return { text: formatted.length > LSP_RESULT_MAX ? await persisted(formatted, scratch) : formatted, facts: { operation: a.operation, result: formatted, filePath: a.filePath, resultCount, fileCount }, note };
-  } catch (e) { return answer("Error performing " + a.operation + ": " + messageOf(e), {}, note); }
+    return { text: formatted.length > LSP_RESULT_MAX ? await persisted(formatted, scratch) : formatted, facts: { operation: a.operation, result: formatted, filePath: a.filePath, resultCount, fileCount } };
+  } catch (e) { return answer("Error performing " + a.operation + ": " + messageOf(e)); }
 }
 
 /**
  * AFTER A WRITE OR AN EDIT (Claude Code: "each time Claude edits or writes a file the server handles, Claude gets the errors
- * and warnings the server reports"): the file's new text goes to its server (its server started for it the first time), and
- * when `deliver`, what the servers report is taken once the report for this file is in (at most SYNC_WAIT_MS): `{ note,
- * problems, problemsAll }`, the note for Grok after the round and this file's problems for the chat; null when nothing
- * came. (Claude Code sends the text and goes on; it tells Claude at its next step what came meanwhile. Coder has no step of
- * its own between Grok's calls, so the write waits for the report instead.) An agent with no shell (`deliver` false) only
- * sends the text, as Claude Code tells only an agent that has Bash.
+ * and warnings the server reports"): what was sent for the file is forgotten, and its new text goes to its server (started
+ * for it the first time) through the chat's keeper, as Claude Code's Write and Edit send it: without waiting for its report,
+ * which Coder's loop takes at its next step (takeNews). True when the keeper took it.
  */
-export async function syncAfterWrite({ abs, text, deliver = true }, { root, waitMs = SYNC_WAIT_MS } = {}) {
-  const s = serverFor(abs);
-  if (!s || typeof text !== "string" || text.length > LSP_FILE_MAX || !(await onPath(s.command))) return null;
-  const req = { op: "sync", file: abs, text, deliver: deliver === true, waitMs };
+export async function syncAfterWrite({ abs, text }, { root } = {}) {
+  if (!serverFor(abs) || typeof text !== "string" || text.length > LSP_FILE_MAX) return false;
+  // (The keeper answers at once; at most 10 seconds for one that does not, so a write never waits on it.)
+  try { const got = await keeperCall(root, { op: "sync", file: abs, text }, 10_000); return !!(got && got.ok); } catch { return false; }
+}
+
+/**
+ * WHAT WAITS IN THE KEEPER FOR CODER'S NEXT STEP (Claude Code 2.1.325 gathers its LSP diagnostics attachment at every step,
+ * after whatever tool ran, and with the next prompt; it never waits for a report): the servers' reports not yet taken, as
+ * Claude Code's note for Grok (`note`) and its row for the chat (`shown`, paths named from `base`), and the warnings for
+ * servers that could not start (`notices`, for the owner: `{ name, code, reason }`). Null when no keeper answers.
+ */
+export async function takeNews(root, { base = root, ms = 10_000 } = {}) {
   let got;
-  // (A keeper that did not answer in time: nothing this time, and no second server for it, so the write stays in its time.)
-  try { got = await keeperCall(root, req, waitMs + 10_000); } catch { return null; }
-  if (got === null && deliver === true) {
-    // NO KEEPER HERE: a server for this one write, its report taken, then stopped.
-    const mgr = new LspManager(root);
-    try { got = await keeperAnswer(mgr, req); } catch { got = null; } finally { await mgr.shutdown(5000).catch(() => {}); }
-  }
-  if (!got || !got.ok || deliver !== true) return null;
+  try { got = await keeperCall(root, { op: "take" }, ms); } catch { return null; }
+  if (!got || !got.ok) return null;
   const files = (Array.isArray(got.pending) ? got.pending : []).flatMap((p) => (p && Array.isArray(p.files) ? p.files : []));
-  if (!files.length) return null;
-  const mine = files.find((f) => f.uri === abs);
-  const problems = (mine ? mine.diagnostics : []).map((d) => ({ severity: String(d.severity).toLowerCase(), line: d.range.start.line + 1, column: d.range.start.character + 1, message: d.message, code: d.code || "", source: d.source || "" }));
-  return { note: diagnosticsNote(files), problems, problemsAll: problems.length };
+  const notices = (Array.isArray(got.notices) ? got.notices : []).filter((n) => n && typeof n === "object").slice(0, 10).map((n) => ({ name: String(n.name ?? ""), code: String(n.code ?? ""), reason: String(n.reason ?? "").slice(0, 2000) }));
+  return { note: files.length ? diagnosticsNote(files) : "", shown: files.length ? diagnosticsShown(files, base) : null, notices };
 }

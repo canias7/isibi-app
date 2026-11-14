@@ -1053,8 +1053,8 @@ test("CD39 background jobs: bash with run_in_background gives a job; a monitor's
   } finally { await close(); }
 });
 
-test("CD40 lsp: Claude Code's LSP tool with its typescript-lsp and pyright-lsp plugins' servers (the owner, 2026-11-14: \"start fixing and filling in gaps on those tools\"); references and a write's report from the real servers (checked where they are installed)", async () => {
-  const { serverFor, stopKeeper } = await import("../container/coder-lsp.mjs");
+test("CD40 lsp: Claude Code's LSP tool with its typescript-lsp and pyright-lsp plugins' servers (the owner, 2026-11-14: \"start fixing and filling in gaps on those tools\"); references and a write's report from the real servers, through the chat's keeper, the report taken at a later step (checked where they are installed)", async () => {
+  const { serverFor, stopKeeper, KEEPER_SCRIPT } = await import("../container/coder-lsp.mjs");
   assert.equal(serverFor("a.ts").command, "typescript-language-server");
   assert.deepEqual(serverFor("a.ts").args, ["--stdio"]);
   assert.equal(serverFor("a.mts").extensionToLanguage[".mts"], "typescript", "the plugin sends .mts as TypeScript");
@@ -1067,14 +1067,21 @@ test("CD40 lsp: Claude Code's LSP tool with its typescript-lsp and pyright-lsp p
   let has = true; try { execFileSync("typescript-language-server", ["--version"]); } catch { has = false; }
   if (!has) return;
   const dir = await mkdtemp(join(tmpdir(), "coder-lsp-"));
+  // (The chat's keeper, as Coder's machine starts it.)
+  const { spawn } = await import("node:child_process");
+  const keeper = spawn(process.execPath, ["--no-warnings", KEEPER_SCRIPT, dir], { cwd: dir, detached: true, stdio: "ignore" });
   try {
     writeFileSync(join(dir, "m.ts"), "export function add(a: number, b: number) { return a + b; }\nconst x: string = add(1, 2);\n");
     const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
     const run = (tool, args) => execFileSync("node", [script, Buffer.from(JSON.stringify({ tool, args })).toString("base64")], { cwd: dir }).toString();
+    await new Promise((ok) => setTimeout(ok, 1000));
     assert.match(run("lsp", { operation: "findReferences", filePath: "m.ts", line: 1, character: 17 }), /Found 2 references across 1 files:\n\nm\.ts:\n {2}Line 1:17\n {2}Line 2:19$/);
     const w = run("write", { path: "m.ts", content: "const y: string = 3;\n", check: true });
-    assert.match(w, /Type 'number' is not assignable to type 'string'/);
-  } finally { await stopKeeper(dir); }
+    assert.doesNotMatch(w, /not assignable/, "the write's answer is its own, at once");
+    let note = "";
+    for (let i = 0; i < 60 && !/not assignable/.test(note); i++) { await new Promise((ok) => setTimeout(ok, 500)); const t = run("lsp_take", {}); if (t) note += JSON.parse(t).note; }
+    assert.match(note, /Type 'number' is not assignable to type 'string'/);
+  } finally { await stopKeeper(dir); if (keeper.exitCode === null) { try { process.kill(keeper.pid, "SIGKILL"); } catch { /* gone */ } } }
 });
 
 test("CD42 @coder in GitHub comments: only signed notifications, only connected+allowed accounts; Coder answers as the app and posts the result when the job ends", async () => {

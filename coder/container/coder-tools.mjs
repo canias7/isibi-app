@@ -755,7 +755,8 @@ function writeInputs(args) {
 }
 export async function toolWrite(args) {
   const { path, content, note: namesNote } = writeInputs(args);
-  // (`check`: true, the language server's report for Grok after the round; "sync", the file's new text for its server only.)
+  // (`check`: true or "sync", the file's new text for its language server; what it reports is taken at Coder's next step, and
+  // told only to an agent with a shell, as Claude Code tells it: coder-agent.mjs.)
   const show_change = !!(args && args.show_change === true), check = args && (args.check === true || args.check === "sync") ? args.check : false;
   const { abs, rel: inRel } = await inside(path, { tool: "write" });
   // NAMED IN FULL OUTSIDE THE PROJECT'S OWN FOLDER (Claude Code 2.1.304: "Fixed Write results … showing a file outside the
@@ -800,11 +801,11 @@ export async function toolWrite(args) {
   await remember(abs, bytes);
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
-  // THE FILE'S LANGUAGE SERVER IS TOLD, AND WHAT IT REPORTS IS TAKEN (coder-lsp.mjs syncAfterWrite; the owner, 2026-11-14:
-  // "start fixing and filling in gaps on those tools"; Claude Code: "each time Claude edits or writes a file the server
-  // handles, Claude gets the errors and warnings the server reports"), when Coder's app asks (`check`): the note goes to Grok
-  // after the round (`diagnostics`), this file's problems to the chat (`problems`); none of it in this answer.
-  const lsp = check ? await lspAfterWrite(abs, content.replace(/^\ufeff/, ""), check) : null;
+  // THE FILE'S LANGUAGE SERVER IS TOLD (coder-lsp.mjs syncAfterWrite; the owner, 2026-11-14: "start fixing and filling in gaps
+  // on those tools"; Claude Code: "each time Claude edits or writes a file the server handles, Claude gets the errors and
+  // warnings the server reports"), when Coder's app asks (`check`): its new text goes to the chat's keeper, without waiting
+  // for the report, as Claude Code's Write sends it; Coder's loop takes what the servers report at its next step.
+  if (check) await lspAfterWrite(abs, content.replace(/^\ufeff/, ""));
   const text = (st ? "The file " + rel + " has been updated successfully." : "File created successfully at: " + rel) + WRITE_FRESH + (memSaid ? "\n" + memSaid : "") + namesNote;
   // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Write output, { type, filePath, content,
   // structuredPatch, originalFile }; the text it had, and the diff, left out past FACTS_TEXT_MAX, as Claude Code's "too large
@@ -812,17 +813,15 @@ export async function toolWrite(args) {
   const facts = args && args.facts === true;
   const got = {};
   const change = show_change === true || facts ? await writeChange(oldText, content.replace(/^\ufeff/, ""), got).catch(() => null) : null;
-  const answer = (show_change === true && change) || lsp ? WRITE_MARK + JSON.stringify({ text, change: show_change === true ? change : null, ...lspFields(lsp) }) : text;
+  const answer = show_change === true && change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
   if (!facts) return answer;
   const before = typeof oldText === "string" && oldText.length <= FACTS_TEXT_MAX ? oldText : null;
   return { text: answer, facts: { type: st ? "update" : "create", filePath: abs, content, structuredPatch: st && before !== null && Array.isArray(got.hunks) ? got.hunks : [], originalFile: st ? before : null } };
 }
-/** A write's or an edit's language server report (coder-lsp.mjs), or null: never costs the write. */
-async function lspAfterWrite(abs, text, check) {
-  try { const { syncAfterWrite } = await import("./coder-lsp.mjs"); return await syncAfterWrite({ abs, text, deliver: check === true }, { root: ROOT }); } catch { return null; }
+/** A write's or an edit's new text to its language server (coder-lsp.mjs): never costs the write. */
+async function lspAfterWrite(abs, text) {
+  try { const { syncAfterWrite } = await import("./coder-lsp.mjs"); return await syncAfterWrite({ abs, text }, { root: ROOT }); } catch { return false; }
 }
-/** What a write's answer carries of it: this file's problems for the chat, and the note for Grok after the round. */
-const lspFields = (lsp) => (lsp ? { problems: lsp.problems.slice(0, 20), problemsAll: lsp.problemsAll, diagnostics: lsp.note } : {});
 
 /**
  * EDIT, AS CLAUDE CODE'S EDIT (tool 3; the owner, 2026-11-09: "Notebook for later, but yea do this"; its docs read whole,
@@ -991,16 +990,16 @@ async function writeOver(abs, bytes, rel) {
     try { await writeFile(abs, bytes); } finally { await chmod(abs, mode).catch(() => {}); }
   }
 }
-/** Edit's answer, as write's: its memory note, the language server's report (`check`), and the change (`show_change`). */
+/** Edit's answer, as write's: its memory note, the file's new text for its language server (`check`), and the change (`show_change`). */
 async function editAnswer({ rel, abs, said, before, after, show_change, check, bytes, facts = null }) {
   const mem = process.env.CODER_MEMORY_FILE;
   const memSaid = mem && isAbsolute(mem) && abs === resolve(mem) ? memoryNote(bytes) : "";
   // (The file's language server told, as after a write: lspAfterWrite.)
-  const lsp = check ? await lspAfterWrite(abs, after, check) : null;
+  if (check) await lspAfterWrite(abs, after);
   const text = said + (memSaid ? "\n" + memSaid : "");
   const got = {};
   const change = show_change === true || facts ? await writeChange(before, after, got).catch(() => null) : null;
-  const answer = (show_change === true && change) || lsp ? WRITE_MARK + JSON.stringify({ text, change: show_change === true ? change : null, ...lspFields(lsp) }) : text;
+  const answer = show_change === true && change ? WRITE_MARK + JSON.stringify({ text, change }) : text;
   // (Its result object for the PostToolUse hooks, when Coder's loop asks: Claude Code's Edit output, { filePath, oldString,
   // newString, originalFile, structuredPatch, userModified, replaceAll }. 2026-11-14.)
   if (!facts) return answer;
@@ -1072,13 +1071,37 @@ export async function toolWebFetch(args, request = null) {
 
 /**
  * CLAUDE CODE'S LSP TOOL (coder-lsp.mjs runLsp; the owner, 2026-11-14: "start fixing and filling in gaps on those tools"): its
- * answer for Grok, its result object for the hooks (`facts`), and, behind LSP_NOTE_MARK, the diagnostics the servers sent
- * meanwhile, for Coder's loop to tell Grok after the round. The file stays inside the project, never in .git (`inside`).
+ * answer for Grok and its result object for the hooks (`facts`). The file stays inside the project, never in .git
+ * (`inside`). `ctx.callMs`: the most it waits for the chat's keeper; none given, as long as its run lasts (Coder's loop gives
+ * a lookup the job's time left).
  */
-export async function toolLsp(args) {
-  const { runLsp, LSP_NOTE_MARK } = await import("./coder-lsp.mjs");
-  const r = await runLsp(args, { root: ROOT, base: BASE, inside: (p) => inside(p), scratch: SCRATCH });
-  return { text: r.text + (r.note ? LSP_NOTE_MARK + r.note : ""), facts: r.facts };
+export async function toolLsp(args, ctx = {}) {
+  const { runLsp } = await import("./coder-lsp.mjs");
+  const callMs = Number(ctx && ctx.callMs);
+  return runLsp(args, { root: ROOT, base: BASE, inside: (p) => inside(p), scratch: SCRATCH, callMs: Number.isFinite(callMs) && callMs > 0 ? callMs : 0 });
+}
+/**
+ * THE LSP TOOL'S FILE CHECKS, BEFORE ANY HOOK (coder-lsp.mjs fileProblem; Claude Code's validateInput: "File does not exist:
+ * …", "Path is not a file: …", "Cannot access file: …"), where the chat's files are seen, from the folder Grok's commands are
+ * in: "ok", or the refusal as an error.
+ */
+export async function toolLspFile(args) {
+  const { fileProblem } = await import("./coder-lsp.mjs");
+  const filePath = args && typeof args.filePath === "string" ? args.filePath : "";
+  // (A null byte is the tool's own refusal, `inside`; an empty path is the folder the commands are in, as Claude Code resolves it.)
+  if (filePath.includes("\0")) return "ok";
+  const why = await fileProblem(filePath, filePath === "" ? BASE : resolve(BASE, filePath));
+  if (why) fail(why);
+  return "ok";
+}
+/**
+ * WHAT THE CHAT'S LANGUAGE SERVERS REPORTED SINCE CODER'S LAST STEP (coder-lsp.mjs takeNews), for Coder's loop: JSON of `{ note,
+ * shown, notices }`, or "" when no keeper runs.
+ */
+export async function toolLspTake() {
+  const { takeNews } = await import("./coder-lsp.mjs");
+  const news = await takeNews(ROOT, { base: BASE });
+  return news ? JSON.stringify(news) : "";
 }
 
 /**
@@ -1696,7 +1719,7 @@ export async function toolSendFile({ path }) {
   return JSON.stringify({ path: rel, name: abs.split(sep).pop(), size: st.size, data: (await readFile(abs)).toString("base64") });
 }
 
-export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
+export const TOOLS = { page_file: toolPageFile, save_file: toolSaveFile, send_file: toolSendFile, ps_parse: toolPsParse, save_picture: toolSavePicture, fit_picture: toolFitPicture, lsp: toolLsp, lsp_file: toolLspFile, lsp_take: toolLspTake, read: toolRead, write: toolWrite, edit: toolEdit, grep: toolGrep, glob: toolGlob, web_fetch: toolWebFetch, mtimes: toolMtimes, listing: toolListing, changed: toolChanged, seen: toolSeen, snap: toolSnap, snapdiff: toolSnapDiff, http_hook: toolHttpHook, stamps: toolStamps, ws_watch: toolWsWatch };
 
 // Run as a command: node coder-tools.mjs <base64 of {"tool": ..., "args": {...}}>
 if (process.argv[1] && import.meta.url === "file://" + process.argv[1]) {

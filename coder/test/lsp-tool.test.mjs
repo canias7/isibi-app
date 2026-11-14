@@ -6,8 +6,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, mkdir, readFile, chmod, rm, truncate } from "node:fs/promises";
-import { readFileSync, existsSync, statSync } from "node:fs";
-import { spawnSync, execFileSync } from "node:child_process";
+import { readFileSync, existsSync, statSync, readdirSync } from "node:fs";
+import { spawn, spawnSync, execFileSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -16,6 +16,7 @@ const A = await import("../container/coder-agent.mjs");
 const H = await import("../container/coder-hooks.mjs");
 const T = await import("../container/coder-tools.mjs");
 const I = await import("../container/coder-inputs.mjs");
+const permsMod = await import("../container/coder-perms.mjs");
 const FAKE = new URL("./fixtures/fake-lsp/", import.meta.url).pathname;
 const TOOLS = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
@@ -77,7 +78,9 @@ Note: LSP servers must be configured for the file type. If no server is availabl
   assert.equal(A.RUN_TOOLS.lsp.verb, "Looked up");
   assert.equal(A.RUN_TOOLS.lsp.label({ operation: "findReferences", filePath: "src/a.py", line: 3, character: 5 }), "findReferences src/a.py:3:5");
   assert.equal(A.RUN_TOOLS.lsp.label({ filePath: { x: 1 } }), " [object Object]", "any input is labelled without failing");
-  assert.equal(I.inputCheckFor("lsp"), L.checkInput);
+  // Its checks before any hook: the input (checkInput), then the file where the chat's files are (ctx.lspFile).
+  assert.equal(I.inputCheckFor("lsp"), I.checkLsp);
+  assert.deepEqual(I.checkLsp({ operation: "hover", filePath: "a.py", line: 1, character: 1 }), L.checkInput({ operation: "hover", filePath: "a.py", line: 1, character: 1 }), "with no file check given, the input's alone");
   // Its servers: Claude Code's official typescript-lsp and pyright-lsp plugins'.
   assert.deepEqual(L.LSP_SERVERS.typescript, { command: "typescript-language-server", args: ["--stdio"], extensionToLanguage: { ".ts": "typescript", ".tsx": "typescriptreact", ".js": "javascript", ".jsx": "javascriptreact", ".mts": "typescript", ".cts": "typescript", ".mjs": "javascript", ".cjs": "javascript" } });
   assert.deepEqual(L.LSP_SERVERS.pyright, { command: "pyright-langserver", args: ["--stdio"], extensionToLanguage: { ".py": "python", ".pyi": "python" } });
@@ -87,15 +90,35 @@ Note: LSP servers must be configured for the file type. If no server is availabl
   assert.ok(copy.includes(" coder-lsp.mjs coder-lspd.mjs "));
 });
 
-test("LS2 a call is checked as Claude Code checks its input, before any hook, card or run, refused in its words (\"InputValidationError: LSP failed due to the following issue: …\"): missing, then unexpected, then wrongly typed, then the rest", async () => {
+test("LS2 a call is checked as Claude Code checks its input, before any hook, card or run, refused in its words (\"InputValidationError: LSP failed due to the following issue: …\"): missing, then unexpected, then wrongly typed, then the rest; with only values wrong (line 0, an unknown operation), zod's own raw list of issues, as Claude Code 2.1.325 gives it", async () => {
   const ok = { operation: "findReferences", filePath: "a.py", line: 1, character: 1 };
   assert.deepEqual(L.checkInput(ok), { args: ok });
   assert.deepEqual(L.checkInput({ ...ok, query: "add" }), { args: { ...ok, query: "add" } });
   assert.equal(L.checkInput({ ...ok, line: undefined }).error, "error: InputValidationError: LSP failed due to the following issue:\nThe required parameter `line` is missing");
   assert.equal(L.checkInput({ operation: "definition", filePath: "a.py", column: 3, line: 2 }).error, "error: InputValidationError: LSP failed due to the following issues:\nThe required parameter `character` is missing\nAn unexpected parameter `column` was provided\nThe parameter `operation` is invalid: Invalid option: expected one of \"goToDefinition\"|\"findReferences\"|\"hover\"|\"documentSymbol\"|\"workspaceSymbol\"|\"goToImplementation\"|\"prepareCallHierarchy\"|\"incomingCalls\"|\"outgoingCalls\"");
   assert.equal(L.checkInput({ ...ok, filePath: 7, line: "3", character: 1.5, query: null }).error, "error: InputValidationError: LSP failed due to the following issues:\nThe parameter `filePath` type is expected as `string` but provided as `number`\nThe parameter `line` type is expected as `number` but provided as `string`\nThe parameter `character` type is expected as `int` but provided as `number`\nThe parameter `query` type is expected as `string` but provided as `null`");
-  assert.equal(L.checkInput({ ...ok, line: 0 }).error, "error: InputValidationError: LSP failed due to the following issue:\nThe parameter `line` is invalid: Too small: expected number to be >0");
   assert.equal(L.checkInput({ ...ok, character: [1] }).error, "error: InputValidationError: LSP failed due to the following issue:\nThe parameter `character` type is expected as `number` but provided as `array`");
+  // A wrong type beside a wrong value: the value's line after the types, as before.
+  assert.equal(L.checkInput({ ...ok, line: "3", character: 0 }).error, "error: InputValidationError: LSP failed due to the following issues:\nThe parameter `line` type is expected as `number` but provided as `string`\nThe parameter `character` is invalid: Too small: expected number to be >0");
+  // ONLY VALUES WRONG: zod's issues as they are, JSON with two spaces (zod 4's own message; reproduced with zod in
+  // recheck-lsp/zodtest, 2026-11-14).
+  const OPS = '[\n      "goToDefinition",\n      "findReferences",\n      "hover",\n      "documentSymbol",\n      "workspaceSymbol",\n      "goToImplementation",\n      "prepareCallHierarchy",\n      "incomingCalls",\n      "outgoingCalls"\n    ]';
+  const opIssue = '  {\n    "code": "invalid_value",\n    "values": ' + OPS + ',\n    "path": [\n      "operation"\n    ],\n    "message": "Invalid option: expected one of \\"goToDefinition\\"|\\"findReferences\\"|\\"hover\\"|\\"documentSymbol\\"|\\"workspaceSymbol\\"|\\"goToImplementation\\"|\\"prepareCallHierarchy\\"|\\"incomingCalls\\"|\\"outgoingCalls\\""\n  }';
+  const small = (k) => '  {\n    "origin": "number",\n    "code": "too_small",\n    "minimum": 0,\n    "inclusive": false,\n    "path": [\n      "' + k + '"\n    ],\n    "message": "Too small: expected number to be >0"\n  }';
+  assert.equal(L.checkInput({ ...ok, line: 0 }).error, "error: InputValidationError: [\n" + small("line") + "\n]");
+  assert.equal(L.checkInput({ ...ok, line: 0, character: -2 }).error, "error: InputValidationError: [\n" + small("line") + ",\n" + small("character") + "\n]");
+  assert.equal(L.checkInput({ ...ok, operation: "definition" }).error, "error: InputValidationError: [\n" + opIssue + "\n]");
+  assert.equal(L.checkInput({ filePath: "a.py", line: 1, character: 1 }).error, "error: InputValidationError: [\n" + opIssue + "\n]", "no operation at all: zod's enum issue, not a missing one");
+  assert.equal(L.checkInput({ ...ok, operation: "x", line: 0 }).error, "error: InputValidationError: [\n" + opIssue + ",\n" + small("line") + "\n]");
+  assert.equal(L.checkInput({ ...ok, line: 2 ** 60 }).error, 'error: InputValidationError: [\n  {\n    "code": "too_big",\n    "maximum": 9007199254740991,\n    "note": "Integers must be within the safe integer range.",\n    "origin": "int",\n    "inclusive": true,\n    "path": [\n      "line"\n    ],\n    "message": "Too big: expected int to be <=9007199254740991"\n  }\n]');
+  assert.equal(L.checkInput({ ...ok, line: -(2 ** 60) }).error, 'error: InputValidationError: [\n  {\n    "code": "too_small",\n    "minimum": -9007199254740991,\n    "note": "Integers must be within the safe integer range.",\n    "origin": "int",\n    "inclusive": true,\n    "path": [\n      "line"\n    ],\n    "message": "Too small: expected int to be >=-9007199254740991"\n  },\n' + small("line") + "\n]");
+  // (What JSON cannot carry, in zod's words all the same: NaN and Infinity are wrong types; not an object at all.)
+  assert.equal(L.checkInput({ ...ok, line: NaN }).error, "error: InputValidationError: LSP failed due to the following issue:\nThe parameter `line` type is expected as `number` but provided as `NaN`");
+  assert.equal(L.checkInput([1]).error, "error: InputValidationError: LSP failed due to the following issue:\nThe parameter `` type is expected as `object` but provided as `array`");
+  // The formatter as Claude Code's: more than 20 other issues are counted, not listed.
+  const many = Array.from({ length: 23 }, (_, i) => ({ code: "custom", path: ["x" + i], message: "m" + i }));
+  const t = L.zodText([{ expected: "string", code: "invalid_type", path: ["filePath"], message: "Invalid input: expected string, received undefined" }, ...many]);
+  assert.match(t, /^LSP failed due to the following issues:\nThe required parameter `filePath` is missing\nThe parameter `x0` is invalid: m0\n[\s\S]*\nThe parameter `x19` is invalid: m19\n\(3 more issues not listed\)$/);
   assert.equal(L.checkInput({ ...ok, path: "a.py", file_path: "a.py" }).error, "error: InputValidationError: LSP failed due to the following issues:\nAn unexpected parameter `path` was provided\nAn unexpected parameter `file_path` was provided");
   // In Coder's loop: refused before any PreToolUse hook, nothing run; the step shows it.
   const events = [], hooksRun = [], ran = [];
@@ -111,6 +134,54 @@ test("LS2 a call is checked as Claude Code checks its input, before any hook, ca
   const step = events.find((e) => e.type === "bash" && e.id === "l1");
   assert.deepEqual([step.verb, step.command], ["Looked up", "hover a.py"]);
   assert.deepEqual([events.find((e) => e.type === "result" && e.id === "l1").code, events.find((e) => e.type === "result" && e.id === "l1").ran], [-1, false]);
+});
+
+test("LS2b the file's own checks run before any hook or card, as Claude Code's validateInput (\"File does not exist: …\", \"Path is not a file: …\", \"Cannot access file: …\"), on Coder's machine where the chat's files are: a refused call fires neither PreToolUse nor PostToolUseFailure, and the step shows it not run", async () => {
+  // The checks themselves, as the tools script makes them (from the folder Grok's commands are in).
+  const p = await project({ "src/a.py": "x = 1\n" });
+  const run = (filePath, extra = {}) => tool(p.dir, "lsp_file", { filePath }, p.env, extra);
+  assert.deepEqual(run("src/a.py"), { code: 0, out: "ok" });
+  assert.deepEqual(run("src/nope.py"), { code: 1, out: "error: File does not exist: src/nope.py" });
+  assert.deepEqual(run("src"), { code: 1, out: "error: Path is not a file: src" });
+  assert.deepEqual(run(""), { code: 1, out: "error: Path is not a file: " }, "the folder the commands are in");
+  assert.deepEqual(run("a.py", { CODER_CWD: join(p.dir, "src") }), { code: 0, out: "ok" }, "a short path from where the commands are");
+  // (Claude Code's "Cannot access file" for anything but a missing file: here a path through a file.)
+  assert.deepEqual(run("src/a.py/x"), { code: 1, out: "error: Cannot access file: src/a.py/x. ENOTDIR: not a directory, stat '" + join(p.dir, "src/a.py/x") + "'" });
+  assert.equal(await L.fileProblem("x", join(p.dir, "src/a.py")), "");
+  // In Coder's loop: refused before the hooks; the tools script's check ran, the lookup did not.
+  const events = [], hooksRun = [], tools = [];
+  let n = 0;
+  const r = await A.runCoder({
+    send: async () => [say("", [call("lsp", { operation: "hover", filePath: "src/nope.py", line: 1, character: 1 }, "l1")]), say("done")][Math.min(n++, 1)],
+    exec: async (x) => {
+      if (x.hook) { hooksRun.push(JSON.parse(x.payload).hook_event_name); return { code: 0, output: "" }; }
+      const m = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
+      if (!m) return { code: 0, output: "" };
+      const req = JSON.parse(Buffer.from(m[1], "base64").toString("utf8"));
+      tools.push([req.tool, x.here]);
+      return req.tool === "lsp_file" ? { code: 1, output: "error: File does not exist: " + req.args.filePath } : { code: 0, output: "?" };
+    },
+    emit: (e) => events.push(e), here: () => "/w/shop", root: "/w/shop", where: (q) => (q.startsWith("/") ? q : "/w/shop/" + q),
+  }, { text: "go", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "LSP", hooks: [{ type: "command", command: "pre.sh" }] }], PostToolUseFailure: [{ matcher: "LSP", hooks: [{ type: "command", command: "fail.sh" }] }] } }, "settings").list });
+  assert.equal(r.messages.find((m) => m.tool_call_id === "l1").content, "error: File does not exist: src/nope.py");
+  assert.deepEqual(hooksRun, [], "neither PreToolUse nor PostToolUseFailure");
+  assert.deepEqual(tools, [["lsp_file", true]], "the check ran where Grok's commands are; the lookup never did");
+  assert.deepEqual([events.find((e) => e.type === "bash" && e.id === "l1").command, events.find((e) => e.type === "result" && e.id === "l1").ran], ["hover src/nope.py:1:1", false]);
+  // A file that is one: the hooks, then the lookup.
+  tools.length = 0; hooksRun.length = 0; n = 0;
+  await A.runCoder({
+    send: async () => [say("", [call("lsp", { operation: "hover", filePath: "src/a.py", line: 1, character: 1 }, "l2")]), say("done")][Math.min(n++, 1)],
+    exec: async (x) => {
+      if (x.hook) { hooksRun.push(JSON.parse(x.payload).hook_event_name); const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
+      const m = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
+      if (!m) return { code: 0, output: "" };
+      tools.push([JSON.parse(Buffer.from(m[1], "base64").toString("utf8")).tool, x.here]);
+      return { code: 0, output: "ok" };
+    },
+    emit: () => {}, here: () => "/w/shop", root: "/w/shop", where: (q) => (q.startsWith("/") ? q : "/w/shop/" + q),
+  }, { text: "go", messages: [], hooks: H.hooksFrom({ hooks: { PreToolUse: [{ matcher: "LSP", hooks: [{ type: "command", command: "pre.sh" }] }] } }, "settings").list });
+  assert.deepEqual(tools, [["lsp_file", true], ["lsp", true]]);
+  assert.deepEqual(hooksRun, ["PreToolUse"]);
 });
 
 test("LS3 each operation asks its server what Claude Code's asks: line and character from 1 for Grok, from 0 for the server; references with the declaration; workspaceSymbol its query (\"\" when none); incoming and outgoing calls the call hierarchy item first", () => {
@@ -228,6 +299,9 @@ test("LS7 a language server as Claude Code runs it: its initialize (Coder named 
     await sleep(300);
     const log = p.log();
     const init = log.find((m) => m.method === "initialize").params;
+    // (CLAUDE_PROJECT_DIR in its environment, the chat's project: "Claude Code also sets this variable in the environment of …
+    // plugin LSP servers".)
+    assert.deepEqual(log.filter((m) => m.start).map((m) => m.projectDir), [p.dir, p.dir]);
     assert.deepEqual(init.clientInfo, { name: "Coder" });
     assert.equal(init.processId, process.pid);
     assert.deepEqual(init.workspaceFolders, [{ uri: "file://" + p.dir, name: p.dir.split("/").pop() }]);
@@ -268,6 +342,8 @@ test("LS7 a language server as Claude Code runs it: its initialize (Coder named 
     mgr.published_("pyright", { uri, version: 5, diagnostics: [{ range: { start: { line: 0, character: 0 } }, message: "now", severity: 2 }] });
     assert.equal(mgr.registry.takePending()[0].files[0].diagnostics[0].message, "now");
   } finally { await mgr.shutdown(3000); }
+  // (Each is then ended, as Claude Code's stop ends one still there after `exit`: the stand-in reads what is left first.)
+  await sleep(400);
   const end = p.log().map((m) => m.method).filter(Boolean);
   assert.deepEqual([end.filter((x) => x === "shutdown").length, end.filter((x) => x === "exit").length], [2, 2], "each server: shutdown, then exit");
   assert.ok(end.lastIndexOf("exit") > end.indexOf("shutdown"));
@@ -308,39 +384,101 @@ test("LS8 a server's failures, in Claude Code's words: a request answered in no 
   try { await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { message: "LSP server sent non-protocol output in the header block — its stdout is desynchronized from the base protocol (logs/banners on stdout instead of stderr?)" }); } finally { await mgr.shutdown(2000); }
   // A program that is not there: Claude Code's runtime's words.
   mgr = new L.LspManager(p.dir, { env: p.env, servers: { pyright: { command: "no-such-server-xyz", args: [], extensionToLanguage: { ".py": "python" } } } });
-  try { await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { message: 'Executable not found in $PATH: "no-such-server-xyz"' }); } finally { await mgr.shutdown(2000); }
+  try {
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { message: 'Executable not found in $PATH: "no-such-server-xyz"' });
+    // Claude Code 2.1.323's warning for it, for the owner, once for the server.
+    assert.deepEqual(mgr.takeNotices(), [{ name: "pyright", code: "ENOENT", reason: 'Executable not found in $PATH: "no-such-server-xyz"' }]);
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }));
+    assert.deepEqual(mgr.takeNotices(), [], "once");
+  } finally { await mgr.shutdown(2000); }
 });
 
-test("LS9 the tool on Coder's machine: Claude Code's answers and errors, its result object for the hooks behind FACTS_MARK, one server kept for the chat by the keeper, results over 100,000 characters saved with their start shown; Coder's own rule kept (inside the project, never .git)", async () => {
+test("LS8b more of a server's ends, as Claude Code's: a clean exit (code 0) is no crash (it is not started again, and a request is refused, \"server is running\"); one killed under the chat's memory cap says so (\"— killed at the tool memory limit (CODER_TOOL_MEMORY_LIMIT)\", or \"likely\" when the cgroup can't be read); one still starting is not waited for; and the warning when one can't start, in Claude Code's words", async () => {
+  const p = await project({ "a.py": "x = 1\n", "b.py": "y = 2\n" });
+  const file = join(p.dir, "a.py");
+  // A clean exit: no crash, no new start.
+  await p.script({ cleanExitOn: "textDocument/definition", "textDocument/hover": { contents: "x" } });
+  let mgr = new L.LspManager(p.dir, { env: p.env, requestMs: 500 });
+  try {
+    assert.deepEqual(await L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { result: { contents: "x" } });
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "goToDefinition", line: 1, character: 1 }), { message: "LSP request 'textDocument/definition' failed for server 'pyright': no response after 500ms" });
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { message: "Cannot send request to LSP server 'pyright': server is running" });
+    assert.equal(p.log().filter((m) => m.start).length, 1, "not started again");
+    assert.equal(mgr.servers.get("pyright").crashes, 0);
+  } finally { await mgr.shutdown(2000); }
+  // Killed (SIGKILL) under the memory cap: the cgroup's OOM count went up since it started.
+  const cg = await mkdtemp(join(tmpdir(), "coder-lspcg-"));
+  await writeFile(join(cg, "memory.events"), "low 0\nhigh 0\nmax 3\noom 1\noom_kill 1\n");
+  await p.script({ killOn: "textDocument/definition" });
+  mgr = new L.LspManager(p.dir, { env: p.env, memCg: cg });
+  try {
+    await mgr.openFile(file, "x = 1\n");
+    await writeFile(join(cg, "memory.events"), "low 0\nhigh 0\nmax 4\noom 2\noom_kill 2\n");
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "goToDefinition", line: 1, character: 1 }), { message: "LSP request 'textDocument/definition' failed for server 'pyright': LSP server pyright crashed with killed by signal SIGKILL — killed at the tool memory limit (CODER_TOOL_MEMORY_LIMIT)" });
+    assert.equal(mgr.servers.get("pyright").lastError.oomKilledInToolCgroup, true);
+  } finally { await mgr.shutdown(2000); }
+  // ... and when the cgroup's count can't be read: "likely"; with no cap: the signal alone.
+  for (const [memCg, tail] of [[join(cg, "gone"), " — likely killed at the tool memory limit (CODER_TOOL_MEMORY_LIMIT)"], ["", ""]]) {
+    mgr = new L.LspManager(p.dir, { env: p.env, memCg });
+    try { await assert.rejects(L.lookupIn(mgr, { file, operation: "goToDefinition", line: 1, character: 1 }), { message: "LSP request 'textDocument/definition' failed for server 'pyright': LSP server pyright crashed with killed by signal SIGKILL" + tail }); } finally { await mgr.shutdown(2000); }
+  }
+  assert.deepEqual(L.crashWhy(137, null, { memCg: cg, oomBefore: 2, read: () => "oom_kill 2\n" }), { why: "exit code 137", oom: false }, "the count did not go up: nothing said");
+  assert.deepEqual(L.crashWhy(3, null, { memCg: cg, oomBefore: 0, read: () => "oom_kill 9\n" }), { why: "exit code 3", oom: false }, "not a kill");
+  assert.equal(L.oomKills(cg, () => "oom_kill_disable 0\nunder_oom 0\noom_kill 5\n"), 5, "cgroup v1's memory.oom_control");
+  // A server still starting is not waited for (Claude Code's ensureServerStarted): a call meanwhile is refused.
+  await p.script({ slowInit: 800, "textDocument/hover": { contents: "late" } });
+  mgr = new L.LspManager(p.dir, { env: p.env });
+  try {
+    const first = mgr.openFile(join(p.dir, "b.py"), "y = 2\n");
+    await sleep(100);
+    await assert.rejects(L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { message: "Failed to sync file open " + file + ": Cannot send notification to LSP server 'pyright': server is starting" });
+    await first;
+    assert.deepEqual(await L.lookupIn(mgr, { file, operation: "hover", line: 1, character: 1 }), { result: { contents: "late" } }, "once it runs");
+  } finally { await mgr.shutdown(2000); }
+  // The warning, Claude Code 2.1.323's words without its plugin sentence (Coder's servers come with its machine).
+  assert.equal(L.noticeText({ name: "pyright", code: "ENOENT", reason: "x" }), "Language server \"pyright\" couldn't start: its program \"pyright-langserver\" wasn't found. Check that it's installed and on your PATH.");
+  assert.equal(L.noticeText({ name: "typescript", code: "EACCES", reason: "x" }), "Language server \"typescript\" couldn't start: its program \"typescript-language-server\" can't be run. Check that the file is executable and that you have permission to run it.");
+  assert.equal(L.noticeText({ name: "pyright", code: "", reason: "LSP server pyright crashed with exit code 3" }), "Language server \"pyright\" couldn't start: LSP server pyright crashed with exit code 3");
+  assert.equal(L.noticeText({ name: "evil\nname", code: "ENOENT" }), "", "only Coder's own servers");
+  assert.equal(L.startFailureNotice("go", "/opt/go/bin/gopls", { code: "ENOENT" }), "Language server \"go\" couldn't start: its program \"gopls\" wasn't found. Check that it's installed at the path the plugin gives.");
+});
+
+/** The chat's keeper, started as Coder's machine starts it (coder-lspd.mjs with the project), with the test's PATH and HOME. */
+async function keeper(p, extra = {}) {
+  const k = spawn(process.execPath, ["--no-warnings", L.KEEPER_SCRIPT, p.dir], { cwd: p.dir, env: { ...p.env, ...extra }, detached: true, stdio: "ignore" });
+  const sock = await L.socketFor(p.dir, extra.HOME || p.env.HOME);
+  for (let i = 0; i < 100; i++) { try { await L.askKeeper(sock, { op: "ping" }, 500); break; } catch { await sleep(50); } }
+  return { proc: k, alive: () => k.exitCode === null && k.signalCode === null, stop: () => L.stopKeeper(p.dir) };
+}
+
+test("LS9 the tool on Coder's machine: Claude Code's answers and errors, its result object for the hooks behind FACTS_MARK, one server kept for the chat by its keeper, results over 100,000 characters saved with their start shown; Coder's own rule kept (inside the project, never .git)", async () => {
   const p = await project({ "src/a.py": "x = 1\nprint(x)\n", "Gemfile.rb": "puts 1\n", "src/sub/keep.py": "y = 2\n" });
   const at = (l, c) => ({ uri: "$URI", range: { start: { line: l, character: c }, end: { line: l, character: c + 1 } } });
   await p.script({ "textDocument/references": [at(0, 0), at(1, 6)], "textDocument/definition": [at(0, 0)] });
+  const k = await keeper(p);
   try {
     const r = tool(p.dir, "lsp", { operation: "findReferences", filePath: "src/a.py", line: 1, character: 1 }, p.env);
     assert.equal(r.code, 0);
     const fa = A.factsAnswer(r.out);
     assert.equal(fa.text, "Found 2 references across 1 files:\n\nsrc/a.py:\n  Line 1:1\n  Line 2:7");
     assert.deepEqual(fa.facts, { operation: "findReferences", result: fa.text, filePath: "src/a.py", resultCount: 2, fileCount: 1 });
-    // From a folder below: paths from there; one server for the chat.
+    // From a folder below: paths from there; one server for the chat, its keeper's.
     const r2 = tool(p.dir, "lsp", { operation: "goToDefinition", filePath: "a.py", line: 2, character: 7 }, p.env, { CODER_CWD: join(p.dir, "src") });
     assert.equal(A.factsAnswer(r2.out).text, "Defined in a.py:1:1");
     assert.equal(p.log().filter((m) => m.start).length, 1, "the keeper's server answered both");
-    assert.ok(existsSync(join(process.env.HOME, ".coder-lsp")), "the keeper's folder");
-    // Claude Code's errors: the file's checks fail the call; the rest are answers.
+    // Claude Code's errors: Coder's own rule (inside the project, never .git) and a wrong input fail the call; the rest are
+    // answers. (The file's own checks ran before, with the hooks: lsp_file, LS2b.)
     const e = (args, extra) => tool(p.dir, "lsp", { operation: "hover", line: 1, character: 1, ...args }, p.env, extra);
-    assert.deepEqual(e({ filePath: "src/nope.py" }), { code: 1, out: "error: File does not exist: src/nope.py" });
-    assert.deepEqual(e({ filePath: "src" }), { code: 1, out: "error: Path is not a file: src" });
-    assert.deepEqual(e({ filePath: "" }), { code: 1, out: "error: Path is not a file: " });
     assert.deepEqual(e({ filePath: "/etc/hostname" }), { code: 1, out: "error: that path is outside the project" });
     assert.deepEqual(e({ filePath: ".git/config" }), { code: 1, out: "error: the .git folder is off limits" });
-    assert.deepEqual(e({ filePath: "src/a.py", line: 0 }), { code: 1, out: "error: InputValidationError: LSP failed due to the following issue:\nThe parameter `line` is invalid: Too small: expected number to be >0" });
+    assert.match(e({ filePath: "src/a.py", line: 0 }).out, /^error: InputValidationError: \[\n {2}\{\n {4}"origin": "number",/);
     const rb = e({ filePath: "Gemfile.rb" });
     assert.equal(rb.code, 0);
     assert.deepEqual(A.factsAnswer(rb.out), { text: "No LSP server available for file type: .rb", facts: { operation: "hover", result: "No LSP server available for file type: .rb", filePath: "Gemfile.rb" } });
+    assert.equal(A.factsAnswer(e({ filePath: "gone.py" }).out).text, "Error performing hover: ENOENT: no such file or directory, open '" + join(p.dir, "gone.py") + "'", "gone since its check: Claude Code's catch-all answer");
     await writeFile(join(p.dir, "big.py"), "");
     await truncate(join(p.dir, "big.py"), 10_500_001);
     assert.equal(A.factsAnswer(e({ filePath: "big.py" }).out).text, "File too large for LSP analysis (11MB exceeds 10MB limit)");
-    assert.equal(A.factsAnswer(e({ filePath: "src/sub/keep.py" }, { PATH: "/usr/bin:/bin" }).out).text, 'Error performing hover: Executable not found in $PATH: "pyright-langserver"', "no server program: Claude Code's error, no keeper");
     // Over 100,000 characters: saved whole, its start shown, as Claude Code persists a long result.
     await p.script({ "textDocument/references": Array.from({ length: 9000 }, (_, i) => ({ uri: "file://" + join(p.dir, "src", "f" + i + ".py"), range: { start: { line: i, character: 0 }, end: { line: i, character: 1 } } })) });
     const long = A.factsAnswer(tool(p.dir, "lsp", { operation: "findReferences", filePath: "src/a.py", line: 1, character: 1 }, p.env).out);
@@ -349,55 +487,75 @@ test("LS9 the tool on Coder's machine: Claude Code's answers and errors, its res
     assert.ok(m, long.text.slice(0, 300));
     assert.equal(readFileSync(m[2], "utf8"), long.facts.result);
     await rm(m[2], { force: true });
-  } finally { await L.stopKeeper(p.dir); }
+  } finally { await k.stop(); }
 });
 
-test("LS10 what the servers report after a write or an edit goes to Grok after the round, Claude Code's note inside the round's note; the next call takes what came in later; reports for files a lookup opened come too; an agent with no shell only sends the text", async () => {
+test("LS10 what the servers report after a write or an edit is taken once per step, after whatever tool ran, as Claude Code gathers its diagnostics attachment, with no wait; one that comes after the turn's last step goes to Coder with the owner's next message; what was sent is remembered for the whole chat; the chat shows Claude Code's row for each note; an agent with no shell only sends the text", async () => {
   const p = await project({ "s.py": "ok = 1\n", "o.py": "BAD old\n" });
-  await p.script({ "textDocument/hover": { contents: "x" } });
+  // (Each report comes 0.8 seconds after the text, so the step right after a write never has it yet; and at each change the
+  // server reports every open file again, as a whole-project checker does.)
+  await p.script({ "textDocument/hover": { contents: "x" }, slowReport: 800, reportAll: true });
+  const k = await keeper(p);
+  let starts = 0;
+  const lsp = { start: async () => { starts++; return true; }, alive: () => k.alive() };
   const exec = async (x) => {
-    const m = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
-    if (!m) return { code: 0, output: "ok\n" };
+    if (/^sleep /.test(String(x.command))) { await sleep(Number(String(x.command).split(" ")[1]) * 1000); return { code: 0, output: "" }; }
+    if (!/coder-tools\.mjs (\S+)$/.test(String(x.command))) return { code: 0, output: "ok\n" };
     const r = spawnSync("bash", ["-c", x.command], { cwd: p.dir, env: p.env, encoding: "utf8", timeout: 60_000 });
     return { code: r.status, output: String(r.stdout || "") };
   };
-  const run = async (calls, extra = {}) => {
+  const run = async (rounds, extra = {}, opts = {}) => {
     let n = 0;
     const events = [];
-    const r = await A.runCoder({ send: async () => [say("", calls), say("done")][Math.min(n++, 1)], exec, emit: (e) => events.push(e), here: () => p.dir, root: p.dir, where: (q) => (q.startsWith("/") ? q : p.dir + "/" + q), ...extra }, { text: "go", messages: [] });
-    return { r, events };
+    const r = await A.runCoder({ send: async () => rounds[Math.min(n++, rounds.length - 1)], exec, emit: (e) => events.push(e), here: () => p.dir, root: p.dir, where: (q) => (q.startsWith("/") ? q : p.dir + "/" + q), lsp, ...extra }, { text: "go", messages: [], ...opts });
+    return { r, events, notes: r.messages.filter((m) => m.role === "user" && /new-diagnostics/.test(String(m.content))).map((m) => m.content) };
   };
   try {
-    // A lookup opens o.py; its report comes in after; the write's report and o.py's go together after the round.
-    let t = await run([call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]);
+    // An edit, then a step that takes a second: the step right after the edit has nothing yet; the next one takes the report,
+    // the edited file's and the one a lookup opened, in Claude Code's note inside the round's note, and the chat's row.
+    let t = await run([say("", [call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]), say("", [call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]), say("", [call("bash", { command: "sleep 1.2", description: "Wait" }, "b1")]), say("done")]);
     assert.equal(t.r.messages.find((m) => m.tool_call_id === "l1").content, "x");
-    await sleep(400);
-    t = await run([call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]);
     const at = t.r.messages.findIndex((m) => m.tool_call_id === "e1");
     assert.equal(t.r.messages[at].content, "The file s.py has been updated successfully.");
-    assert.equal(t.r.messages[at + 1].content, "(Note from Coder's app, not the owner, about your last commands:\n<new-diagnostics>The following new diagnostic issues were detected:\n\no.py:\n  ✘ [Line 1:1] bad thing: BAD old [fake-bad] (Fake)\n\ns.py:\n  ✘ [Line 2:1] bad thing: BAD new [fake-bad] (Fake)\n  ★ [Line 3:3] a hint [7]</new-diagnostics>)");
-    assert.deepEqual(t.events.find((e) => e.type === "result" && e.id === "e1").problems, [{ severity: "error", line: 2, column: 1, message: "bad thing: BAD new", code: "fake-bad" }, { severity: "hint", line: 3, column: 3, message: "a hint", code: "7" }]);
-    // The same problems are sent again after the next edit of the file (Claude Code forgets what it sent for an edited file).
-    t = await run([call("edit", { path: "s.py", old_string: "HINT x", new_string: "z = 3" }, "e2")]);
-    assert.match(t.r.messages.find((m) => m.role === "user" && /new-diagnostics/.test(m.content)).content, /s\.py:\n {2}✘ \[Line 2:1\] bad thing: BAD new \[fake-bad\] \(Fake\)<\/new-diagnostics>\)$/);
-    // An agent with no shell (a Gloopy helper): the text goes to the server, no note; the write's answer is the write's alone.
+    assert.ok(!/new-diagnostics/.test(String((t.r.messages[at + 1] || {}).content)), "no wait after the edit: nothing yet at the step right after it");
+    const after = t.r.messages.findIndex((m) => m.tool_call_id === "b1");
+    assert.equal(t.r.messages[after + 1].content, "(Note from Coder's app, not the owner, about your last commands:\n<new-diagnostics>The following new diagnostic issues were detected:\n\no.py:\n  ✘ [Line 1:1] bad thing: BAD old [fake-bad] (Fake)\n\ns.py:\n  ✘ [Line 2:1] bad thing: BAD new [fake-bad] (Fake)\n  ★ [Line 3:3] a hint [7]</new-diagnostics>)");
+    const rows = t.events.filter((e) => e.type === "diagnostics").map(({ at, ...e }) => e);
+    assert.deepEqual(rows, [{ type: "diagnostics", files: [{ path: "o.py", problems: [{ severity: "error", line: 1, column: 1, message: "bad thing: BAD old", code: "fake-bad", source: "Fake" }] }, { path: "s.py", problems: [{ severity: "error", line: 2, column: 1, message: "bad thing: BAD new", code: "fake-bad", source: "Fake" }, { severity: "hint", line: 3, column: 3, message: "a hint", code: "7", source: "" }] }] }]);
+    assert.ok(t.events.findIndex((e) => e.type === "diagnostics") > t.events.findIndex((e) => e.type === "result" && e.id === "b1"), "after the step it came with");
+    assert.equal(t.events.find((e) => e.type === "result" && e.id === "e1").problems, undefined, "not under the edit's own step");
+    assert.equal(starts, 2, "the keeper asked for before the lookup and the edit");
+    // A REPORT AFTER THE TURN'S LAST STEP: kept by the keeper, and given with the owner's next message. WHAT WAS SENT IS
+    // REMEMBERED FOR THE WHOLE CHAT: o.py, reported again but not edited, is not new; the edited s.py's problems are sent again
+    // (an edit forgets what was sent for its file), as in Claude Code.
+    t = await run([say("", [call("edit", { path: "s.py", old_string: "HINT x", new_string: "z = 3\nWARN" }, "e2")]), say("done")]);
+    assert.deepEqual(t.notes, [], "nothing in this turn: the report came after its last step");
+    await sleep(1200);
+    t = await run([say("done")]);
+    assert.deepEqual(t.notes, ["(Note from Coder's app, not the owner:\n<new-diagnostics>The following new diagnostic issues were detected:\n\ns.py:\n  ✘ [Line 2:1] bad thing: BAD new [fake-bad] (Fake)\n  ⚠ [Line 4:1] a warning (Fake)</new-diagnostics>)"]);
+    assert.equal(t.events.filter((e) => e.type === "diagnostics").length, 1);
+    // A lookup changes nothing: nothing new.
+    t = await run([say("", [call("lsp", { operation: "hover", filePath: "s.py", line: 1, character: 1 }, "l2")]), say("", [call("bash", { command: "sleep 0.3", description: "Wait" }, "b2")]), say("done")]);
+    assert.deepEqual(t.notes, [], "nothing new");
+    // An agent with no shell (a Gloopy helper): the text goes to the server, no note and no take.
     const helper = A.CODER_TOOLS.filter((x) => ["read", "write", "edit"].includes(x.function.name));
-    let n = 0;
-    const events = [];
-    const r = await A.runCoder({ send: async () => [say("", [call("write", { path: "s.py", content: "BAD helper\n" }, "w1")]), say("done")][Math.min(n++, 1)], exec, emit: (e) => events.push(e), here: () => p.dir, root: p.dir, where: (q) => (q.startsWith("/") ? q : p.dir + "/" + q) }, { text: "go", messages: [], tools: helper });
-    assert.ok(!r.messages.some((m) => m.role === "user" && /new-diagnostics/.test(String(m.content))), "no note for an agent without a shell");
-    assert.equal(events.find((e) => e.type === "result" && e.id === "w1").problems, undefined);
-    await sleep(400);
+    t = await run([say("", [call("write", { path: "s.py", content: "BAD helper\n" }, "w1")]), say("done")], {}, { tools: helper });
+    await sleep(1200);
+    assert.deepEqual(t.notes, []);
     assert.ok(p.log().filter((m) => m.method === "textDocument/didChange").some((m) => m.params.contentChanges[0].text === "BAD helper\n"), "its server has the new text");
-  } finally { await L.stopKeeper(p.dir); }
+    // With no keeper for the chat (deps.lsp absent): nothing is taken, and nothing waits.
+    t = await run([say("", [call("bash", { command: "sleep 0.1", description: "Wait" }, "b3")]), say("done")], { lsp: undefined });
+    assert.deepEqual(t.notes, []);
+  } finally { await k.stop(); }
 });
 
-test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and its result object; the step names the file as the project does; a Read ask rule asks \"for reading\"; a long answer reaches Grok whole (not cut at 12,000 characters), the chat's copy is cut; the call may take LSP_EXEC_S, as a lookup", async () => {
+test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and its result object; the step names the file as the project does; a Read ask rule asks \"for reading\"; a long answer reaches Grok whole (not cut at 12,000 characters), the chat's copy is cut; a lookup may take the job's time left (Claude Code's calls have no limit of their own), as a lookup", async () => {
   const hookCalls = [], execs = [];
   const facts = { operation: "findReferences", result: "R".repeat(50_000), filePath: "src/a.py", resultCount: 1, fileCount: 1 };
   const exec = async (x) => {
     if (x.hook === true) { const mark = /<<coder-hook-stderr-[a-z0-9]+>>/.exec(String(x.command)); hookCalls.push(JSON.parse(x.payload)); return { code: 0, output: "\n" + mark[0] + "\n" }; }
-    if (/coder-tools\.mjs/.test(String(x.command))) { execs.push(x); return { code: 0, output: T.printedAnswer({ text: facts.result + L.LSP_NOTE_MARK + "<new-diagnostics>The following new diagnostic issues were detected:\n\na.py:\n  ✘ [Line 1:1] e</new-diagnostics>", facts }) }; }
+    const m = /coder-tools\.mjs (\S+)$/.exec(String(x.command));
+    if (m) { const req = JSON.parse(Buffer.from(m[1], "base64").toString("utf8")); execs.push({ ...x, req }); return req.tool === "lsp" ? { code: 0, output: T.printedAnswer({ text: facts.result, facts }) } : { code: 0, output: "ok" }; }
     return { code: 0, output: "ok\n" };
   };
   let n = 0;
@@ -418,18 +576,19 @@ test("LS11 in Coder's loop: the hooks get Claude Code's input (no file_path) and
   // (What Grok was sent: the saved chat keeps less, as for every long answer.)
   const answer = seen[1].messages.find((m) => m.tool_call_id === "l1").content;
   assert.ok(answer.startsWith("R".repeat(50_000)), "whole");
-  assert.ok(!answer.includes("new-diagnostics"), "the note is not in the answer");
-  assert.equal(seen[1].messages.find((m) => m.role === "user" && /new-diagnostics/.test(m.content)).content, "(Note from Coder's app, not the owner, about your last commands:\n<new-diagnostics>The following new diagnostic issues were detected:\n\na.py:\n  ✘ [Line 1:1] e</new-diagnostics>)");
   assert.ok(events.find((e) => e.type === "result" && e.id === "l1").output.length < 13_000, "the chat keeps its usual share");
-  assert.deepEqual([execs[0].timeoutS, execs[0].kind], [A.LSP_EXEC_S, "lsp"]);
-  assert.equal(A.LSP_EXEC_S, 200);
+  const look = execs.find((x) => x.req.tool === "lsp");
+  assert.deepEqual([look.kind, look.here], ["lsp", true]);
+  assert.ok(look.timeoutS > 2600 && look.timeoutS <= A.CODER_MAX_MS / 1000, "the job's time left: " + look.timeoutS);
+  assert.equal(A.LSP_EXEC_MIN_S, 60);
+  assert.deepEqual(execs.map((x) => x.req.tool), ["lsp_file", "lsp"], "its file checked first, then the lookup; no take without a keeper");
   // The hooks' input for read, write and edit keeps Claude Code's file_path beside Coder's path; lsp's has none to add.
   assert.deepEqual(H.hookToolInput("lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }), { operation: "hover", filePath: "a.py", line: 1, character: 1 });
   assert.deepEqual(H.toolInputFromHook("lsp", { operation: "hover", filePath: "b.py", line: 2, character: 1 }), { operation: "hover", filePath: "b.py", line: 2, character: 1 });
   assert.equal(H.hookToolInput("read", { path: "a.py" }).file_path, "a.py");
 });
 
-test("LS12 the keeper: in a folder only its user may open, named for the project; none where that folder is not private (each call then starts its server and stops it); it stops after idling, or when asked, and a stale socket is taken over", async () => {
+test("LS12 the keeper: in a folder only its user may open, named for the project; a call never starts one (where none runs, each lookup starts its server and stops it, and a write tells none); it has no idle stop of its own, as Claude Code keeps a session's servers; it stops when asked, its socket going first; a stale socket is taken over", async () => {
   const home = await mkdtemp(join(tmpdir(), "coder-lsphome-"));
   const p = await project({ "a.py": "x = 1\n" });
   const sock = await L.socketFor(p.dir, home);
@@ -438,45 +597,186 @@ test("LS12 the keeper: in a folder only its user may open, named for the project
   assert.notEqual(await L.socketFor(p.dir + "x", home), sock);
   assert.equal(statSync(join(home, ".coder-lsp")).mode & 0o777, 0o700);
   assert.equal(await L.socketFor(p.dir, "relative/home"), null);
-  // Not private: no keeper; the call still answers, its server started and stopped for it.
+  // Not private: no keeper can run; each lookup starts its server and stops it.
   await chmod(join(home, ".coder-lsp"), 0o755);
   assert.equal(await L.socketFor(p.dir, home), null);
   await p.script({ "textDocument/hover": { contents: "per call" } });
-  const once = () => tool(p.dir, "lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }, { ...p.env, HOME: home });
+  const once = (extra = {}) => tool(p.dir, "lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }, { ...p.env, HOME: home, ...extra });
   assert.equal(A.factsAnswer(once().out).text, "per call");
   assert.equal(A.factsAnswer(once().out).text, "per call");
   assert.equal(p.log().filter((m) => m.start).length, 2, "a server per call");
+  await sleep(300);
   assert.equal(p.log().filter((m) => m.method === "exit").length, 2, "each stopped");
+  // (A server program that is not there, with no keeper: Claude Code's error for it.)
+  assert.equal(A.factsAnswer(once({ PATH: "/usr/bin:/bin" }).out).text, 'Error performing hover: Executable not found in $PATH: "pyright-langserver"');
   await chmod(join(home, ".coder-lsp"), 0o700);
-  // A keeper: started by the first call, stops after idling (CODER_LSP_IDLE_MS), its socket gone.
-  assert.equal(A.factsAnswer(tool(p.dir, "lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }, { ...p.env, HOME: home, CODER_LSP_IDLE_MS: "1500" }).out).text, "per call");
+  // A private folder but no keeper: the call starts none (Coder's machine starts it), and a write's sync goes nowhere.
+  assert.equal(A.factsAnswer(once().out).text, "per call");
+  assert.ok(!existsSync(sock), "no keeper started by a call");
+  assert.equal(await L.syncAfterWrite({ abs: join(p.dir, "a.py"), text: "BAD\n" }, { root: p.dir }), false);
+  assert.equal(await L.takeNews(p.dir), null, "nothing to take from");
+  // A keeper (CODER_LSP_IDLE_MS unset): still there after a while with nothing to do.
+  const k = await keeper(p, { HOME: home });
+  await sleep(1500);
+  assert.ok(k.alive(), "no idle stop");
   const ping = await L.askKeeper(sock, { op: "ping" }, 2000);
-  assert.deepEqual([ping.ok, ping.root], [true, p.dir]);
-  await sleep(3500);
-  assert.ok(!existsSync(sock), "gone after idling");
-  assert.equal(p.log().filter((m) => m.method === "exit").length, 3, "its server stopped with it");
+  assert.deepEqual([ping.ok, ping.root, ping.pid], [true, p.dir, k.proc.pid]);
+  await L.askKeeper(sock, { op: "stop" }, 5000);
+  for (let i = 0; i < 50 && k.alive(); i++) await sleep(50);
+  assert.ok(!k.alive() && !existsSync(sock), "stopped when asked");
+  // The tests' own knob: an idle stop after CODER_LSP_IDLE_MS.
+  const k2 = await keeper(p, { HOME: home, CODER_LSP_IDLE_MS: "700" });
+  await sleep(1600);
+  assert.ok(!k2.alive() && !existsSync(sock), "gone after idling, with the knob");
   // A stale socket (nothing listening on it): taken over by a new keeper.
   await writeFile(sock, "");
   const { serveKeeper } = L;
   let exited = null;
-  const k = await serveKeeper(p.dir, sock, { idle: 60_000, exit: (c) => { exited = c; } });
-  try { assert.equal((await L.askKeeper(sock, { op: "ping" }, 2000)).pid, process.pid); } finally { await k.close(0); }
+  const k3 = await serveKeeper(p.dir, sock, { idle: 0, exit: (c) => { exited = c; } });
+  try { assert.equal((await L.askKeeper(sock, { op: "ping" }, 2000)).pid, process.pid); } finally { await k3.close(0); }
   assert.equal(exited, 0);
   assert.ok(!existsSync(sock));
-  // Closing while an answer is under way: its socket goes at once (a call from then on starts a new keeper), the answer is
-  // still given, then its servers stop and it ends.
-  await p.script({ noReport: true });
+  // Closing while an answer is under way: its socket goes at once, the answer is still given, then its servers stop and it
+  // ends. (A lookup whose server is slow to start.)
+  await p.script({ slowInit: 1200, "textDocument/hover": { contents: "slow" } });
   await withEnv(p.env, async () => {
     let ended = null;
-    const k2 = await L.serveKeeper(p.dir, sock, { idle: 60_000, exit: (c) => { ended = c; } });
-    const under = L.askKeeper(sock, { op: "sync", file: join(p.dir, "a.py"), text: "x = 2\n", deliver: true, waitMs: 1500 }, 10_000);
-    await sleep(400);
-    const closing = k2.close(0);
+    const k4 = await L.serveKeeper(p.dir, sock, { idle: 0, exit: (c) => { ended = c; } });
+    const under = L.askKeeper(sock, { op: "lookup", file: join(p.dir, "a.py"), operation: "hover", line: 1, character: 1 }, 10_000);
+    await sleep(300);
+    const closing = k4.close(0);
     await sleep(50);
     assert.ok(!existsSync(sock), "its socket gone at once");
     assert.equal(ended, null, "not ended while an answer is under way");
-    assert.deepEqual(await under, { ok: true, pending: [] });
+    assert.deepEqual(await under, { ok: true, result: { contents: "slow" } });
     await closing;
     assert.equal(ended, 0);
   });
+  // A sync is answered at once, the work going on in the keeper (Claude Code's Write sends the text and goes on).
+  await p.script({ slowInit: 1500 });
+  await withEnv(p.env, async () => {
+    const k5 = await L.serveKeeper(p.dir, sock, { idle: 0, exit: () => {} });
+    try {
+      const t0 = Date.now();
+      assert.deepEqual(await L.askKeeper(sock, { op: "sync", file: join(p.dir, "a.py"), text: "BAD 5\n" }, 5000), { ok: true });
+      assert.ok(Date.now() - t0 < 1000, "not waiting for the server's start or report");
+      assert.deepEqual(await L.askKeeper(sock, { op: "take" }, 5000), { ok: true, pending: [], notices: [] }, "nothing yet");
+      await sleep(2200);
+      const taken = await L.askKeeper(sock, { op: "take" }, 5000);
+      assert.equal(taken.pending[0].files[0].diagnostics[0].message, "bad thing: BAD 5");
+    } finally { await k5.close(0); }
+  });
+});
+
+test("LS13 Coder's machine starts the chat's keeper as the AI's user, as a background command is started, and keeps it at each turn's end as it keeps those: none of the chat's background commands (not listed, keeps no machine awake); a second call finds it running", async () => {
+  const S = await import("../container/server.mjs");
+  const roots = { root: await mkdtemp(join(tmpdir(), "coder-lspw-")), gitRoot: await mkdtemp(join(tmpdir(), "coder-lspg-")), memRoot: await mkdtemp(join(tmpdir(), "coder-lspm-")), bgRoot: await mkdtemp(join(tmpdir(), "coder-lspb-")) };
+  const project = "lsp-keeper-1";
+  const dir = join(roots.root, project);
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "a.py"), "x = 1\n");
+  const aside = await mkdtemp(join(tmpdir(), "coder-lspfake-"));
+  // The AI's home, with the stand-in servers on the AI's PATH (its ~/.local/bin), and their log and script through the owner's
+  // variables, as on Coder's machine.
+  const home = await mkdtemp(join(tmpdir(), "coder-lsphome-"));
+  await mkdir(join(home, ".local", "bin"), { recursive: true });
+  for (const name of ["pyright-langserver", "typescript-language-server"]) { await writeFile(join(home, ".local", "bin", name), "#!/bin/sh\nexec node " + JSON.stringify(join(FAKE, "fake-lsp.mjs")) + " \"$@\"\n"); await chmod(join(home, ".local", "bin", name), 0o755); }
+  const vars = { FAKE_LSP_LOG: join(aside, "log.jsonl"), FAKE_LSP_SCRIPT: join(aside, "script.json") };
+  await writeFile(vars.FAKE_LSP_SCRIPT, JSON.stringify({ "textDocument/hover": { contents: "kept" } }));
+  const steps = [say("", [call("lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }, "l1")]), say("", [call("lsp", { operation: "hover", filePath: "a.py", line: 1, character: 1 }, "l2")]), say("Done.", [])];
+  let n = 0;
+  const app = S.createApp({ ...roots, home, send: async () => steps[Math.min(n++, steps.length - 1)] });
+  const http = await import("node:http");
+  const srv = http.createServer(app);
+  await new Promise((r) => srv.listen(0, r));
+  const base = "http://127.0.0.1:" + srv.address().port;
+  try {
+    await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project, text: "go", messages: [], setup: { vars } }) });
+    let st;
+    for (let i = 0; i < 300; i++) { st = await (await fetch(base + "/state?project=" + project + "&since=0")).json(); if (st.result) break; await sleep(100); }
+    const res = (id) => (st.events.find((e) => e.type === "result" && e.id === id) || {}).output || "";
+    assert.equal(res("l1"), "kept");
+    assert.equal(res("l2"), "kept");
+    assert.ok(S.keeperAlive(project), "running after the turn's end");
+    const k = S.LSP_KEEPERS.get(project);
+    assert.ok(Number.isInteger(k.pid) && k.pid > 0);
+    const log = readFileSync(vars.FAKE_LSP_LOG, "utf8").split("\n").filter(Boolean).map((l) => JSON.parse(l));
+    assert.equal(log.filter((m) => m.start).length, 1, "one server, the keeper's, for both lookups");
+    assert.equal(log.find((m) => m.start).projectDir, dir, "CLAUDE_PROJECT_DIR, the chat's project");
+    assert.deepEqual(st.result.background, [], "none of the chat's background commands");
+    assert.equal(S.busyState(new Map()).busy, false, "it keeps no machine awake");
+  } finally {
+    srv.close();
+    await withEnv({ HOME: home }, () => L.stopKeeper(dir)).catch(() => {});
+    for (let i = 0; i < 100 && S.keeperAlive(project); i++) await sleep(50);
+  }
+  assert.ok(!S.keeperAlive(project), "one that ended is forgotten");
+  // QUIETLY, for real as root, with a user id of the test's own as the AI's: a keeper's process group is kept (paused, then
+  // continued) where the AI's other processes end, as a running background command's is. (Not the machine's dev: other runs on
+  // this machine may have processes as dev.)
+  if (!(process.getuid && process.getuid() === 0)) return;
+  const AI = 47123;
+  const asAI = (code) => spawn(process.execPath, ["-e", code], { uid: AI, gid: AI, detached: true, stdio: "ignore", cwd: "/" });
+  const lone = asAI("setInterval(() => {}, 1000)"), keeperLike = asAI("require('child_process').spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' }); setInterval(() => {}, 1000)"), stray = asAI("setInterval(() => {}, 1000)");
+  const alive = (pid) => { try { process.kill(pid, 0); return true; } catch { return false; } };
+  const group = (pgid) => readdirSync("/proc").filter((x) => /^\d+$/.test(x)).filter((x) => { try { return readFileSync("/proc/" + x + "/stat", "utf8").replace(/^\d+ \(.*\) /, "").split(" ")[2] === String(pgid); } catch { return false; } }).map(Number);
+  await sleep(600);
+  const servers = group(keeperLike.pid).filter((x) => x !== keeperLike.pid);
+  assert.equal(servers.length, 1, "the keeper-like process started one of its own, in its group");
+  S.LSP_KEEPERS.set("lsp-keeper-2", { pid: keeperLike.pid, box: false });
+  try {
+    const go = await S.quietly({ uid: AI, gid: AI });
+    assert.equal(typeof go, "function");
+    go();
+    await sleep(300);
+    assert.ok(alive(keeperLike.pid) && alive(servers[0]), "the keeper and what it started go on");
+    assert.ok(!alive(stray.pid) && !alive(lone.pid), "the AI's other processes ended");
+  } finally {
+    for (const c of [lone, keeperLike, stray]) { try { process.kill(-c.pid, "SIGKILL"); } catch { /* gone */ } }
+    S.LSP_KEEPERS.delete("lsp-keeper-2");
+  }
+});
+
+test("LS14 LSP(param:value) deny and ask rules, as Claude Code's \"Match by input parameter\" (Grep's and Glob's way): operation, line, character and query; never filePath, its primary content field, which is kept, never matches, and is warned of in Claude Code's words", () => {
+  const P = permsMod;
+  assert.deepEqual(P.parseRule("LSP(operation:hover)"), { tool: "LSP", spec: "operation:hover", param: { name: "operation", value: "hover" } });
+  assert.deepEqual(P.parseRule("LSP(line : 3)").param, { name: "line", value: "3" }, "whitespace around the colon ignored");
+  assert.equal(P.parseRule("LSP(filePath:src/a.ts)"), null);
+  assert.equal(P.ruleKept("LSP(filePath:src/a.ts)"), true);
+  assert.equal(P.ruleSaved("LSP(operation:*)"), true);
+  assert.deepEqual(P.ruleWarning("deny", "LSP(filePath:src/a.ts)"), { warning: 'Permission deny rule "LSP(filePath:src/a.ts)" targets filePath as a raw string and will not match — use LSP(…) for LSP\'s own matcher.', notice: "Deny rule LSP(filePath:src/a.ts) never matches · use LSP(…)" });
+  assert.equal(P.ruleWarning("allow", "LSP(filePath:src/a.ts)"), null, "only deny and ask rules are warned of");
+  const input = (o) => ({ operation: "hover", filePath: "a.py", line: 1, character: 1, ...o });
+  const dec = (rules, o) => P.fileToolDecision("lsp", "/w/a.py", { rules: { allow: [], ask: [], deny: [], ...rules }, root: "/w", input: input(o) });
+  assert.deepEqual(dec({ deny: ["LSP(operation:hover)"] }), { verdict: "deny", rule: "LSP(operation:hover)", why: "Permission to use LSP with operation:hover has been denied." });
+  assert.equal(dec({ deny: ["LSP(operation:hover)"] }, { operation: "findReferences" }).verdict, "");
+  assert.equal(dec({ deny: ["LSP(operation:*Calls)"] }, { operation: "incomingCalls" }).verdict, "deny", "* matches any text");
+  assert.equal(dec({ deny: ["LSP(query:*)"] }).verdict, "", "a parameter left out is never matched");
+  assert.equal(dec({ deny: ["LSP(query:*)"] }, { query: "Cart" }).verdict, "deny");
+  assert.equal(dec({ deny: ["LSP(filePath:a.py)"] }).verdict, "", "never filePath");
+  assert.deepEqual(dec({ ask: ["LSP(line:1)"] }), { verdict: "ask", rule: "LSP(line:1)", why: "Coder requested permissions to use LSP, but you haven't granted it yet." });
+  assert.equal(dec({ ask: ["LSP(line:1)"] }, { line: 2 }).verdict, "");
+  assert.equal(dec({ ask: ["LSP(line:1)"], deny: ["Read(./a.py)"] }).verdict, "deny", "a deny rule on its file first");
+  assert.equal(dec({ allow: ["LSP(operation:hover)"], deny: ["LSP(operation:hover)"] }).verdict, "deny", "an allow rule approves nothing here");
+});
+
+test("LS15 the chat shows Claude Code's row for every note: \"Found N new diagnostic issues in M files\", all its files counted, the issues a tap away with Claude Code's marks; the owner's values are hidden in it when saved", async () => {
+  const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const body = ui.slice(ui.indexOf("  function diagnosticsHTML(e, i) {"), ui.indexOf("\n  }\n", ui.indexOf("  function diagnosticsHTML(e, i) {")) + 4);
+  const S = { open: {} };
+  const esc = (s) => String(s).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  const make = new Function("S", "esc", body + "\nreturn diagnosticsHTML;");
+  const draw = make(S, esc);
+  const e = { type: "diagnostics", files: [{ path: "src/a.ts", problems: [{ severity: "error", line: 2, column: 5, message: "Type 'string' is not <assignable>", code: "2322", source: "typescript" }, { severity: "warning", line: 3, column: 1, message: "unused", code: "", source: "" }] }, { path: "b.py", problems: [{ severity: "hint", line: 1, column: 1, message: "h", code: "", source: "Pyright" }] }] };
+  assert.match(draw(e, 7), /^<div class="cd-probs"><button type="button" class="cd-probs-row" data-problems="diag:7">Found 3 new diagnostic issues in 2 files<span>Show<\/span><\/button><\/div>$/);
+  assert.match(draw({ files: [{ path: "x.py", problems: [{ severity: "error", line: 1, column: 1, message: "m" }] }] }, 1), />Found 1 new diagnostic issue in 1 file</);
+  assert.equal(draw({ files: [] }, 1), "");
+  S.open["diag:7"] = true;
+  const open = draw(e, 7);
+  assert.ok(open.includes("<pre class=\"cd-probs-list\">src/a.ts:\n  ✘ [Line 2:5] Type 'string' is not &lt;assignable&gt; [2322] (typescript)\n  ⚠ [Line 3:1] unused\n\nb.py:\n  ★ [Line 1:1] h (Pyright)</pre>"), open);
+  assert.match(ui, /else if \(e\.type === 'diagnostics'\) out\.push\(diagnosticsHTML\(e, i\)\);/);
+  // Saved with the owner's values hidden, its paths too.
+  const { hideIn } = await import("../src/coder-routes.mjs");
+  const [h] = hideIn([{ type: "diagnostics", files: [{ path: "sk-secret-1/a.py", problems: [{ severity: "error", line: 1, column: 1, message: "BAD sk-secret-1", code: "sk-secret-1", source: "sk-secret-1" }] }] }], ["sk-secret-1"]);
+  assert.deepEqual(h.files, [{ path: "[hidden]/a.py", problems: [{ severity: "error", line: 1, column: 1, message: "BAD [hidden]", code: "[hidden]", source: "[hidden]" }] }]);
 });

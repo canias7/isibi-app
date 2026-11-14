@@ -124,7 +124,7 @@
         <h3 id="write-see">What you see</h3>
         <ul>
           <li>Under each write, what it wrote: a new file's lines, or what changed in a replaced file (lines taken out in red, lines added in green), with the counts on the step, such as <code>+12</code> or <code>+3 &minus;2</code>. The first lines show; tap for the rest.</li>
-          <li>For JavaScript, TypeScript and Python files, a language server checks the file right after the write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code> (tap to see them), and Coder is told about them, so it can fix them.</li>
+          <li>For JavaScript, TypeScript and Python files, a language server checks the file after the write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code> (tap to see them), and Coder is told about them at its next step, so it can fix them.</li>
           <li>Up to about <b>90,000 characters</b> at a time. A longer file is written in parts: the start first, then the rest added with edit.</li>
         </ul>
 
@@ -161,7 +161,7 @@
         <h3 id="edit-see">What you see</h3>
         <ul>
           <li>Under each edit, what changed: lines taken out in red, lines added in green, with the counts on the step, such as <code>+3 &minus;2</code>. The first lines show; tap for the rest.</li>
-          <li>For JavaScript, TypeScript and Python files, a language server checks the file right after the edit, as after a write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code>, and Coder is told about them, so it can fix them.</li>
+          <li>For JavaScript, TypeScript and Python files, a language server checks the file after the edit, as after a write. New mistakes show as <code>Found 1 new diagnostic issue in 1 file</code>, and Coder is told about them at its next step, so it can fix them.</li>
           <li>After an edit in a folder with its own <code>CODER.md</code> (or <code>AGENTS.md</code>), Coder is shown that file, so it follows that folder's instructions.</li>
         </ul>
 
