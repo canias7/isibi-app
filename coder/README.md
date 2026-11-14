@@ -335,8 +335,12 @@ code in **each user's own GitHub**.
      `test/env-tools.test.mjs`.
    - *Coder's logo* (`public/coder-logo.js`, `public/coder-logo.css`): a typewriter
      drawn in SVG, in Coder's tab, its chat's bar and its empty chat; it types while
-     Coder's open chat runs, and one line on a hover or a click. Tests:
-     `test/coder-logo.test.mjs`.
+     Coder's open chat runs, and one line on a hover or a click. Made more real the
+     same day (the owner: "lets make it a bit more real, like more present"): light and
+     shade as shapes of their own (no ids, so no gradients), a shadow and feet, the
+     knobs' grips, the ribbon spools and type basket, a ribbon that lifts as each bar
+     strikes (`clg-rb`), and typewriter letters drawn as strokes, every line "fix bug"
+     so a line ends as the drawing began. Tests: `test/coder-logo.test.mjs`.
 
    **Permission modes** (owner, 2026-11-09: "lets build the permission things", with
    the Claude app's Mode menu), like Claude Code's cloud sessions: Auto, Accept edits

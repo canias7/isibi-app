@@ -101,8 +101,8 @@ test("TW2 the typewriter is drawn once, in coder-logo.js (window.coderLogoHTML, 
   const svg = window.coderLogoHTML(34);
   assert.match(svg, /^<svg class="cl-logo" viewBox="0 0 100 100" width="34" height="34" aria-hidden="true" focusable="false">/);
   assert.doesNotMatch(svg, /\sid="/, "no ids");
-  // The paper and its lines, the roller and knobs, the return lever, the two type bars, the keys and the space bar.
-  for (const part of ["clg-car", "clg-lever", "clg-feed", "clg-l2", "clg-l3", "clg-bl", "clg-br", "clg-sp", "clg-k0", "clg-k10"]) assert.match(svg, new RegExp('class="' + part + '"'), part);
+  // The paper and its lines, the roller and knobs, the return lever, the ribbon, the two type bars, the keys and the space bar.
+  for (const part of ["clg-car", "clg-lever", "clg-feed", "clg-l2", "clg-l3", "clg-rb", "clg-bl", "clg-br", "clg-sp", "clg-k0", "clg-k10"]) assert.match(svg, new RegExp('class="' + part + '"'), part);
   assert.doesNotMatch(svg, /cl-run|style=/, "still");
   assert.match(window.coderLogoHTML(120), /width="120" height="120"/);
 });
@@ -184,14 +184,15 @@ test("TW5 in a real browser: a line of typing ends as it began (every part where
   try {
     const page = await browser.newPage();
     await page.setContent('<!doctype html><style>.held * { animation-play-state: paused !important; }' + read("public/coder-logo.css") + '</style><div id="w"></div><script>' + read("public/coder-logo.js") + "</script>");
-    // Every shape that shows: where it is on the screen, how visible (with its groups'), its colour.
+    // Every shape that shows (the paper's letters, the spools and the lever's knob too): where it is on the screen, how
+    // visible (with its groups'), its colour.
     const pose = (at) => page.evaluate((at) => {
       const w = document.getElementById("w");
       w.innerHTML = window.coderLogoHTML(160);
       const s = w.firstChild;
       if (at !== null) { s.classList.add("cl-run", "held"); s.style.setProperty("--cl-d", "-" + at + "ms"); }
       const shown = [];
-      for (const e of s.querySelectorAll("rect, path")) {
+      for (const e of s.querySelectorAll("rect, path, ellipse, circle")) {
         let o = 1;
         for (let n = e; n !== s; n = n.parentNode) o *= Number(getComputedStyle(n).opacity);
         if (o < 0.01) continue;
@@ -315,4 +316,48 @@ test("TW8 the logo's two files are served like the page's others (Coder's Worker
   const sw = read("public/sw.js");
   assert.match(sw, /It caches nothing and\n\/\/ handles no requests: the page always comes from the network\./);
   assert.doesNotMatch(sw, /addEventListener\(\s*["']fetch["']|caches\./, "no fetch handler, no cache");
+});
+
+test("TW9 (2026-11-14, the owner: \"lets make it a bit more real, like more present\") more real: a shadow under it, feet, light and shade as shapes of their own (no gradients, so still no ids), the roller's knobs with grips, the ribbon spools and the type basket on its deck, and typewriter letters on the paper (strokes, not text), the same line each time; the ribbon lifts to the paper as each bar strikes", () => {
+  const { window } = logoScript();
+  const svg = window.coderLogoHTML(160);
+  assert.doesNotMatch(svg, /\sid="|url\(#|Gradient/, "no ids, so no gradients");
+  assert.match(svg, /^<svg class="cl-logo"[^>]*><ellipse cx="50" cy="94.4" rx="46" ry="3.4" fill="#0d1b2a" opacity=".14"\/>/, "first, its shadow on the desk");
+  assert.equal((svg.match(/<ellipse cx="(25.4|74.6)" /g) || []).length, 6, "two ribbon spools (the ribbon, its metal, its hub)");
+  assert.match(svg, /<path d="M36.8 56.6A13.2 5.2 0 0 1 63.2 56.6Z" fill="#0a4540"\/>/, "the type basket's slot");
+  assert.equal((svg.match(/L[\d.]+ [\d.]+(?=M|")/g) || []).length >= 12, true, "its bars at rest, fanned");
+  assert.equal((svg.match(/<rect x="(9.2|11.2|13.2|86|88|90)" y="39.6" width=".8" height="9.8"/g) || []).length, 6, "the knobs' grips");
+  assert.equal((svg.match(/<rect x="(13|78)" y="90.6" width="9" height="4.2"/g) || []).length, 2, "its feet");
+  // The paper: typewriter letters drawn as strokes (no text, so the same on every computer and nothing for the page's
+  // search or a copy), every line "fix bug": each line the one under it moved up a line, letter for letter, so a line
+  // ends as the drawing began. The line's last 3 letters, and the next line's first 3, show as their bars strike.
+  assert.doesNotMatch(svg, /<text/);
+  const letters = [...svg.matchAll(/<path(?: class="([^"]+)")? d="([^"]+)" fill="none" stroke="#0d1b2a" stroke-width=".72"/g)].map((m) => ({ cls: m[1] || "", d: m[2] }));
+  assert.equal(letters.length, 21, "the faint line (6), the line done (6), the line being typed (6) and the next line's first 3");
+  assert.deepEqual(letters.filter((l) => l.cls).map((l) => l.cls), ["clg-m clg-m5", "clg-m clg-m6", "clg-m clg-m7", "clg-m clg-n1", "clg-m clg-n2", "clg-m clg-n3"]);
+  const at = (d) => [...d.matchAll(/M(-?[\d.]+) (-?[\d.]+)/g)].map((m) => [Number(m[1]), Number(m[2])]);
+  const shape = (d) => d.replace(/M-?[\d.]+ -?[\d.]+/g, "M");
+  const lines = [letters.slice(0, 6), letters.slice(6, 12), letters.slice(12, 18), letters.slice(18)];
+  for (let k = 1; k < lines.length; k++) lines[k].forEach((l, i) => {
+    const up = lines[k - 1][i];
+    assert.equal(shape(l.d), shape(up.d), "line " + k + ", letter " + i + ": the same letter as the line above");
+    assert.deepEqual(at(l.d).map(([x, y]) => [x, Math.round((y - 6) * 100) / 100]), at(up.d), "one line (6) lower");
+  });
+  assert.equal(new Set(lines[1].map((l) => shape(l.d))).size, 6, "six different letters: f, i, x, b, u, g");
+  assert.ok(svg.includes('<g class="clg-l3" opacity=".3">') && svg.includes('<g class="clg-l2">'));
+  // The ribbon: at rest below the line; lifted once for each strike of a bar, and down again before the next.
+  const css = read("public/coder-logo.css");
+  const kf = /@keyframes clg-rb\{(.*)\}\n/.exec(css)[1];
+  const steps = [...kf.matchAll(/([\d.]+)%\{transform:([^;}]+)/g)].map((m) => [Number(m[1]), m[2]]);
+  assert.deepEqual(steps[0], [0, "none"]);
+  assert.deepEqual(steps.at(-1), [100, "none"], "a line ends with the ribbon where it began");
+  const lifts = steps.filter(([, t]) => t !== "none");
+  assert.equal(lifts.length, 12, "six strikes, up and held");
+  const strikes = [];
+  for (const k of ["bl", "br"]) {
+    const bar = new RegExp("@keyframes clg-" + k + "\\{(.*)\\}").exec(css)[1];
+    for (const m of bar.matchAll(/([\d.]+)%\{transform:none\}/g)) strikes.push(Number(m[1]));
+  }
+  assert.equal(strikes.length, 6);
+  for (const s of strikes) assert.ok(lifts.some(([p]) => Math.abs(p - s) < 0.5), "the ribbon is up as the bar strikes at " + s + "%");
 });

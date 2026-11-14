@@ -17,6 +17,16 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: The typewriter logo, more real (your words: "lets make it a bit more real, like more present")
+
+On my branch, not deployed yet. Same sizes and places as before (the tab on the left, beside the chat's name, and big in an empty chat), and it still types while Coder works.
+
+- **Depth:** it's lit from the top left, with a shadow under it, rubber feet, and a fine outline so it stands out when small.
+- **Real typewriter parts:** grips on the roller's knobs, two ribbon spools and the fan of type bars on top, and a black-and-red ribbon where the letters hit the paper. The ribbon lifts every time a type bar strikes, like a real one.
+- **Real letters on the paper:** typewriter letters with little serifs, drawn as pen strokes so they look the same on every computer.
+- **Every line says "fix bug".** If the lines said different words, the text would jump back each time a line finished. With the same line every time, the typing loops forever with no jump.
+- **Tests:** all 9 logo tests pass, one of them new. The motion test now also checks the letters, the spools and the ribbon end each line exactly where they started.
+
 ## 2026-11-14: Coder's tools copied from Claude Code, and Coder's typewriter logo (your words: "start fixing and filling in gaps on those tools", "Do all the talk to you tools execpt for the notify one", and "make it in code, not an image")
 
 On my branch, not merged or deployed yet. Nine helpers copied Claude Code's tools from its docs (and, where the docs say nothing, from Claude Code's own program), a tenth made the logo, and I put their work together. All 926 tests pass on my side.
