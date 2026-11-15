@@ -19,6 +19,21 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-15: Gloopy's tools cost only when needed too (your words: "yes fix it too")
 
+Live on gofarther.dev (deploy 192, your words: "ok yes"). Checked in the test account's Gloopy chat with Grok on Low, all
+three passed:
+
+1. **The note:** asked, without any tool, which tools are held back, Gloopy answered "monitor, pay, request_secret,
+   schedule, stop_job, vault, webhook": exactly the seven, so its long chat switched at once.
+2. **Loading one:** asked to load schedule and list the schedules, Gloopy answered "tool_search loaded schedule, and you
+   have 0 schedules". No card, nothing changed.
+3. **Calling one without loading it:** Gloopy chose to load it first ("I need the webhook tool's schema before I can call
+   it, so I'm loading it now"), as the note tells it to, and the list then worked (0 webhooks).
+
+- **Cost of the check:** about 20 to 30 cents, my estimate: 4 messages (one before the deploy, for a number that never
+  came, see below). Gloopy's first call of each message reads its whole chat at full price, as noted below.
+- **Found:** Gloopy's chat doesn't save how many tokens its messages used (Coder's chats do), so its costs can't be seen
+  on the page or checked afterwards. It can be saved the same way as Coder's.
+
 - **Before:** every call Gloopy made to Grok carried all 24 of its tools (about 9,900 tokens) and its instructions
   (about 2,600), before any of the chat.
 - **Now:** the seven it rarely needs are held back: pay, vault, schedule, webhook, monitor, stop_job and the key request.
