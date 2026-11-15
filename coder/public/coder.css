@@ -1326,3 +1326,37 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-title-menu button:hover { background: #f3f0ea; }
 #gfApp .cd-title-in { font: inherit; font-size: 14.5px; font-weight: 600; max-width: 34ch; padding: 2px 6px; border-radius: 6px; border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; }
 #gfApp .cd-head:has(> .cd-title-in) > .cd-title-bar { display: none; }
+/* LIKE CLAUDE CODE ON THE WEB (the owner's recording, 2026-11-15), Coder only (#gfApp): the grey "Working… 3s" line; the small
+   grey row under each message (✓ Just now, copy, rewind; under an answer copy, thumbs up and down, the time); the panel on
+   the right on a desktop. */
+#gfApp .cd-working { color: #8a8f98; font-size: 13px; padding: 4px 2px; display: flex; gap: 6px; align-items: baseline; }
+#gfApp .cd-working-w { animation: cd-pulse 1.8s infinite ease-in-out; }
+@keyframes cd-pulse { 0%, 100% { opacity: 1; } 50% { opacity: .55; } }
+@media (prefers-reduced-motion: reduce) { #gfApp .cd-working-w { animation: none; } }
+#gfApp .cd-working-s { font-variant-numeric: tabular-nums; }
+#gfApp .cd-meta { display: flex; align-items: center; gap: 2px; color: #9aa0a8; font-size: 12px; margin-top: -2px; }
+#gfApp .cd-meta-a { margin-top: 2px; margin-left: -5px; }
+#gfApp .cd-meta-t { padding: 0 5px; white-space: nowrap; }
+#gfApp .cd-meta-b { border: 0; background: transparent; color: inherit; width: 24px; height: 24px; border-radius: 6px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; padding: 0; }
+#gfApp .cd-meta-b:hover { background: #efece6; color: #0d1b2a; }
+#gfApp .cd-meta-b[aria-pressed="true"] { color: #0d1b2a; background: #ebe7e0; }
+#gfApp .cd-meta-b.is-done { color: #0f766e; }
+#gfApp .cd-meta-u { opacity: .85; }
+#gfApp .cd-rp-tog { border: 0; background: transparent; color: #6b7280; width: 30px; height: 30px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; cursor: pointer; margin-left: 2px; }
+#gfApp .cd-rp-tog:hover, #gfApp .cd-rp-tog[aria-pressed="true"] { background: #efece6; color: #0d1b2a; }
+#gfApp .cd-rpanel { display: none; }
+@media (max-width: 1099px) { #gfApp .cd-rp-tog { display: none; } }
+@media (min-width: 1100px) {
+  #gfApp .cd.rp-open { position: relative; padding-right: 280px; }
+  #gfApp .cd.rp-open > .cd-head { margin-right: -280px; }
+  #gfApp .cd-rpanel { display: flex; flex-direction: column; gap: 4px; position: absolute; right: 0; bottom: 0; top: 0; width: 280px; box-sizing: border-box; border-left: 1px solid #ece8e1; padding: 14px 12px; overflow-y: auto; background: #faf9f7; }
+  #gfApp .cd-rp-sec { display: flex; flex-direction: column; gap: 5px; text-align: left; border: 0; background: transparent; border-radius: 10px; padding: 10px 12px; font: inherit; color: #0d1b2a; min-width: 0; }
+  #gfApp button.cd-rp-sec { cursor: pointer; }
+  #gfApp button.cd-rp-sec:hover { background: #f1eee8; }
+  #gfApp .cd-rp-h { font: 600 12px Inter, system-ui, sans-serif; color: #6b7280; }
+  #gfApp .cd-rp-row { display: flex; align-items: center; gap: 7px; font-size: 13px; min-width: 0; color: #374151; }
+  #gfApp .cd-rp-row svg { flex: none; color: #8a8f98; }
+  #gfApp .cd-rp-dim { color: #9aa0a8; font-size: 12.5px; }
+  #gfApp .cd-rp-bar { height: 4px; border-radius: 4px; background: #ebe7e0; overflow: hidden; }
+  #gfApp .cd-rp-bar i { display: block; height: 100%; background: #0f766e; }
+}

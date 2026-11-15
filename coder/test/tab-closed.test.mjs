@@ -131,7 +131,7 @@ test("CD114 wiring: every minute the Worker runs the watch list beside @coder's 
   // Marked running and watched BEFORE the machine is asked (it sets up first, and the tab may close meanwhile).
   assert.match(routes, /await saveMeta\(bucket, uid, next\);[\s\S]{0,600}await watchJob\(bucket, \{ uid, email: user\.email, id, turn: next\.turn \}\)\.catch\(\(\) => \{\}\);[\s\S]{0,600}let r;\n(?:\s*\/\/[^\n]*\n|\s*next\.timing\.asked = Date\.now\(\);\n){0,3}\s+try \{\n\s+r = await post\("\/turn", \{/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(page, /'Coder is working… you can close this tab'/);
+  assert.match(page, /'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl\+Enter to queue for later'/);
   assert.match(page, /if \(r\.data\.reload\) \{ if \(r\.data\.project\) S\.project = r\.data\.project; S\.running = false; syncEntry\(\); draw\(\); return reloadChat\(id\); \}/, "shown as done at once, then the saved chat");
   assert.match(page, /async function reloadChat\(id\) \{\n\s+const r = await call\('\/projects\/' \+ encodeURIComponent\(id\)\);/);
 });

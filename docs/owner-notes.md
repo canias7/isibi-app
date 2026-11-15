@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-15: Coder's chat looks more like Claude Code on the web
+
+- While Coder starts on a message, a grey line says "Working… 3s" (or "Starting Coder's machine… 12s") and counts the seconds, instead of three dots.
+- Under each of your messages: "✓ Just now" (then 2m ago, 1h ago…), a copy button and a rewind button (it opens the rewind window for that message). Under Coder's answers: copy, thumbs up, thumbs down (they only light up on your screen; nothing is sent) and the time.
+- While Coder works, the message box says "Enter to send, Ctrl+Enter to queue for later". Messages still wait in line as before, and Stop stays.
+- On a wide screen, a panel on the right shows the chat's Environment (environment, repository, branch), Context and Connectors (how many are on). Click one to open its window. The small button at the end of the top bar hides or shows it, and your browser remembers.
+
 ## Waiting on you (noted 2026-11-06, your word: "Note it, i will do it later")
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
