@@ -1279,3 +1279,13 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-mode-rules { padding-left: 12px; font-weight: 400; color: #8a8884; }
 .cx-badge.cx-logo { background: #fff; border: 1px solid #ebe7e0; }
 .cx-badge.cx-logo img { display: block; width: 18px; height: 18px; }
+
+/* SETTINGS, PLAIN (the owner, 2026-11-15: "settings lol, look at them, ewwwww"): roomy rows, a title with one short line,
+   the control on the right; section names small and grey; the code-written parts closed under Advanced. */
+.cd-set-head { margin: 22px 0 4px; font: 500 12.5px Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: #8a8884; }
+.cd-set-row, .cd-sure .cd-notify-sw { padding: 12px 0; border-bottom: 1px solid #f0ede7; }
+.cd-set-row span, .cd-sure .cd-notify-sw span { font-size: 13px; color: #8a8884; line-height: 1.45; }
+.cd-set-row b, .cd-sure .cd-notify-sw b { font-size: 14.5px; font-weight: 500; color: #1f1e1d; }
+.cd-set-adv { margin-top: 22px; border-top: 1px solid #f0ede7; padding-top: 10px; }
+.cd-set-adv > summary { cursor: pointer; font: 500 14.5px Inter, system-ui, sans-serif; color: #1f1e1d; padding: 6px 0; }
+.cd-set-adv > summary::after { content: " · hooks and Auto mode rules, written as code"; font-weight: 400; font-size: 13px; color: #8a8884; }

@@ -329,37 +329,43 @@
       paint();
     };
     const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    let advOpen = false;
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
-        '<div class="cd-sure-text">For all your chats. Each one is saved as soon as you change it.</div>' +
-        '<div class="cd-set-head">Background commands</div>' +
-        '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
+        '<div class="cd-sure-text">For all your chats. Changes save on their own.</div>' +
+        '<div class="cd-set-head">Commands</div>' +
+        '<label class="cd-set-row"><span><b>Longest one may run</b><br>For commands Coder leaves running in the background.</span>' +
           '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
-        '<div class="cd-set-head">Disk and memory</div>' +
-        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>When off, anything it started keeps going.</span></label>' +
+        '<div class="cd-set-head">Warnings</div>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder then asks you before deleting files it didn’t make.</span>' +
           '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' : 'Off (default)', prefs.diskWarnGib === g)).join('') + '</select></label>' +
-        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left. Claude Code’s CLAUDE_CODE_WARN_MEMORY_FREE_GIB.</span>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left.</span>' +
           '<select id="cdSetMem" aria-label="Low-memory warning">' + MEM_GIB.map((g) => opt(g, g ? g + ' GB available' : 'Off (default)', prefs.memWarnGib === g)).join('') + '</select></label>' +
+        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
+        '<div class="cd-set-head">Permissions</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
+        // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
+        // sit closed under Advanced; the rest is plain.
+        '<details class="cd-set-adv" id="cdSetAdv"' + (advOpen ? ' open' : '') + '><summary>Advanced</summary>' +
         // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
         '<div class="cd-set-head">Hooks</div>' +
         '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too (not in a chat with several repositories, as in Claude Code’s cloud); <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
-        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
-        '<div class="cd-set-head">Permissions</div>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>A step that would wait for your answer is refused at once, and Coder goes on with the rest; after 20 in a row, it stops. Claude Code’s permissions.denyInsteadOfPrompting.</span></label>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits instead, and Auto is not offered. Claude Code’s disableAutoMode.</span></label>' +
         // AUTO MODE'S CHECKER (Claude Code's autoMode block, from your own settings only).
         '<div class="cd-set-head">Auto mode rules</div>' +
         '<div class="cd-set-hint">What the checker in Auto mode goes by, as in Claude Code’s <code>autoMode</code>: <code>environment</code> (your trusted repos, domains and services), <code>allow</code> (exceptions to blocks), <code>soft_deny</code> (blocked unless you ask for it) and <code>hard_deny</code> (always blocked), each a list of plain sentences. Put <code>"$defaults"</code> in a list to keep the built-in entries; a list without it replaces them. <code>"classifyAllShell": true</code> sends every command to the checker, whatever your allow rules.</div>' +
         '<textarea id="cdSetAuto" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Auto mode rules (JSON)" placeholder="' + esc('{ "environment": [ "$defaults", "Trusted internal domains: *.corp.example.com" ], "soft_deny": [ "$defaults", "Never change the billing tables" ] }') + '">' + esc(autoDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetAutoSave">Save auto mode rules</button></div>' +
+        '</details>' +
         (warns.length ? warns.map((w) => '<p class="cd-rules-warn">⚠ ' + esc(w) + '</p>').join('') : '') +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
       $('cdSetDone').onclick = close;
+      $('cdSetAdv').ontoggle = (e) => { advOpen = e.currentTarget.open; };
       $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
       $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
