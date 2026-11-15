@@ -222,7 +222,7 @@ test("TW6 in a real browser, the page: Coder's tab shows the typewriter at 34 px
   try {
     const { page, st, errors, logos } = await openPage(browser);
     const one = async (where) => (await logos()).find((x) => x.where === where);
-    assert.deepEqual((await logos()).map((x) => [x.where, x.w, x.h, x.run, x.moving]), [["tab", 34, 34, false, 0], ["bar", 26, 26, false, 0], ["empty", 120, 120, false, 0]]);
+    assert.deepEqual((await logos()).map((x) => [x.where, x.w, x.h, x.run, x.moving]), [["tab", 24, 24, false, 0], ["bar", 26, 26, false, 0], ["empty", 120, 120, false, 0]]  /* (24: the one sidebar's small switch, 2026-11-15) */);
     assert.equal((await page.textContent('.gf-tab[data-agent="coder"]')).trim(), "", "no emoji in the tab");
     const movingIn = (sel) => page.waitForFunction((sel) => { const s = document.querySelector(sel); return s && s.getAnimations({ subtree: true }).filter((a) => a.playState === "running").length > 10; }, sel, { timeout: 3000 });
     // A hover on Coder's tab: one line, then still, by itself.
