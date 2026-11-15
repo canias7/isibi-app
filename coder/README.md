@@ -373,7 +373,10 @@ code in **each user's own GitHub**.
      words for why it can't be used; connectors waiting for sign-in or failed are named
      as Claude Code names them, and a failed one's tools aren't offered; a hook's
      rewrite of the result is checked; `ToolSearch(*)` is the whole tool;
-     `CODER_MAX_MCP_DESCRIPTION_LENGTH`. Tests: `test/tool-search.test.mjs`.
+     `CODER_MAX_MCP_DESCRIPTION_LENGTH`. Since 2026-11-15 (the owner: "make sure the cost is right ABOUT the tools, only
+     calling them when necessary") the environment tools and request_secret are held back too (`DEFERRED_TOOLS`), about
+     8,400 of the 13,000 tokens of tools every call carried; Claude Code's cloud sends its remote tools upfront, Coder
+     doesn't, for the cost. Tests: `test/tool-search.test.mjs`.
    - *Calls side by side* (`coder-parallel.mjs`, round 3): a reply's consecutive calls
      of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
      web_search, read-only commands and connector tools, and the others it marks so)

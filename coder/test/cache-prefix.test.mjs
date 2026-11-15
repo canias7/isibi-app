@@ -356,8 +356,9 @@ test("CP9 the saved chat is the conversation as sent (the owner, 2026-11-14: \"y
 });
 
 test("CP10 the cache breaks only at a summary: a job that fills the conversation past Claude Code's auto-compact threshold (here CODER_AUTOCOMPACT_PCT_OVERRIDE at 5%, 24,000 tokens) is summarized whole before its next request; every request before it starts with the last one; the one after it keeps the system message and the tools, byte for byte, and starts with the summary; from there each request, the next message's too, starts with the last one", async () => {
-  // (Each read some 5,000 tokens; the system message and the tools some 16,000.)
-  const exec = bigMachine(20_000);
+  // (Each read some 10,000 tokens; the system message and the tools some 8,000 since the environment tools and request_secret
+  // are held back, 2026-11-15.)
+  const exec = bigMachine(40_000);
   const c = chat();
   const vars = { CODER_AUTOCOMPACT_PCT_OVERRIDE: "5" };
   await c.run([say("Hello.")], { text: "hi", deps: { exec }, opts: { compactVars: vars }, real: true });

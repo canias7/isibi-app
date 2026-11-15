@@ -101,6 +101,21 @@ On my branch, not deployed yet.
   `test/live-save.test.mjs`: CD121b (the machine lost after a summary in the job). The files around them were updated
   and pass.
 
+## 2026-11-15: Tools cost only when needed (your words: "make sure the cost is right ABOUT the tools, only calling them when necessary")
+
+- **What every call to Grok carried before any of the chat:** about 16,000 tokens: Coder's instructions (about 3,000)
+  and 20 tools (about 13,000). Six of those tools, the five environment tools and the key request (request_secret),
+  were about 8,400 tokens on every call, though Coder needs them only when the network or a key is the problem.
+- **Now:** those six are held back like web fetch, web search, the task tools and the others: Grok sees only their names
+  in a short list, and loads one with tool search the moment it needs it. Every call is about 8,400 tokens lighter,
+  about half of the fixed cost. Claude Code's cloud sends its own versions of these tools on every call; Coder doesn't, to
+  save that cost.
+- **Chats from before keep them** in their requests (taking them out would make Grok read those chats again at full
+  price); new chats start without them.
+- **Still sent every call:** bash, read, write, edit, grep, glob, ask_user and Coder's own GitHub tools (pull_request,
+  review, undo and the others), about 4,600 tokens, as Claude Code sends its core tools.
+- **Tests:** the tool-search list test, and the files that use these tools.
+
 ## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
 
 On my branch, not deployed yet.
