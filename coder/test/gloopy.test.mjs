@@ -99,8 +99,11 @@ test("GL6 (2026-11-09) on Coder's machine, a Gloopy turn gets Gloopy's instructi
     let st;
     for (let i = 0; i < 200; i++) { st = await (await fetch(base + "/state?project=gloopy-main&since=0")).json(); if (st.result) break; await new Promise((ok) => setTimeout(ok, 50)); }
     assert.equal(st.result.status, "done");
-    const sys = seen[0].messages[0].content;
-    assert.ok(sys.startsWith(GLOOPY_SYSTEM), "Gloopy's instructions");
+    // (Since 2026-11-15 its system message is its instructions alone, the same at every message, and its context is told in
+    // the conversation, as Coder's: test/gloopy-cache.test.mjs.)
+    assert.equal(seen[0].messages[0].content, GLOOPY_SYSTEM, "Gloopy's instructions");
+    const sys = seen[0].messages.filter((m) => m.role === "user").map((m) => String(m.content)).join("\n\n");
+    assert.match(sys, /^\(Note from Coder's app, not the owner:\nAs you answer the owner's questions, you can use the following context:\n/, "its context, before the owner's message");
     assert.match(sys, /YOUR NOTES ABOUT THE OWNER, kept between conversations, in .*MEMORY\.md:\nName: Ana/);
     assert.match(sys, /NETWORK: your computer can reach any site on the internet\./);
     assert.doesNotMatch(sys, /NETWORK: NONE|THE REPO'S|YOUR MEMORY FOR THIS REPO/, "nothing of Coder's repo context");
@@ -158,10 +161,13 @@ test("GL7 (2026-11-09) your Gloopy: made the first time with no GitHub, not one 
     assert.ok(events.some((e) => e.type === "done" && e.text === "Nice to meet you, Ana!"));
     assert.ok(!events.some((e) => e.type === "github"), "nothing about GitHub in its chat");
     assert.ok(seen[0].messages[0].content.startsWith("You are Gloopy"), "Gloopy's instructions on the machine");
-    // The next message: Gloopy is given its notes.
+    // The next message: Gloopy has what it wrote in its notes, in its conversation, and the same system message (since
+    // 2026-11-15 its notes are told again only when its machine starts again or after a summary, as Claude Code's memory:
+    // test/gloopy-cache.test.mjs).
     await go("projects/" + GLOOPY_ID + "/message", { method: "POST", body: JSON.stringify({ text: "Who am I?" }) });
     await until();
-    assert.match(seen.at(-1).messages[0].content, /YOUR NOTES ABOUT THE OWNER, kept between conversations, in .*MEMORY\.md:\nName: Ana/);
+    assert.equal(seen.at(-1).messages[0].content, seen[0].messages[0].content, "the same system message");
+    assert.match(JSON.stringify(seen.at(-1).messages), /MEMORY\.md\\",\\"content\\":\\"Name: Ana\\n|Name: Ana/);
     assert.deepEqual(outside, [], "no call to GitHub or anywhere else");
     // Coder's own buttons are not Gloopy's.
     for (const action of ["pr", "undo", "changes", "env"]) {
@@ -358,8 +364,9 @@ test("GL14 Gloopy is offered its browser only on a machine that has one (the ful
     for (let i = 0; i < 200 && !seen.length; i++) await new Promise((ok) => setTimeout(ok, 50));
     const { GLOOPY_HELD_BACK } = await import("../container/gloopy-agent.mjs");
     assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES.filter((n) => !GLOOPY_HELD_BACK.includes(n)), "tool_search"].sort(), "its browser tools too (pay held back until tool_search loads it, 2026-11-15)");
-    assert.doesNotMatch(seen[0].messages[0].content, /YOUR BROWSER is not on this computer/);
-    assert.match(seen[0].messages[0].content, /THIS MACHINE: Ubuntu 24\.04/, "and what else the full image has");
+    const told = seen[0].messages.filter((m) => m.role === "user").map((m) => String(m.content)).join("\n\n");
+    assert.doesNotMatch(told, /YOUR BROWSER is not on this computer/);
+    assert.match(told, /THIS MACHINE: Ubuntu 24\.04/, "and what else the full image has");
   } finally { srv.close(); }
 });
 
@@ -1250,7 +1257,8 @@ test("GL32 (2026-11-09) all of it: you ask for a daily brief; Gloopy asks on a c
   const { runGloopySchedules, readSchedules } = await import("../src/gloopy-schedules.mjs");
   const roots = { root: await mkdtemp(join(tmpdir(), "gl-sw-")), gitRoot: await mkdtemp(join(tmpdir(), "gl-sg-")), memRoot: await mkdtemp(join(tmpdir(), "gl-sm-")), bgRoot: await mkdtemp(join(tmpdir(), "gl-sb-")) };
   const seen = [];
-  const sys = (req) => String(req.messages[0].content), lastUser = (req) => String(req.messages.filter((m) => m.role === "user" && !m.appNote).at(-1).content);
+  // (Gloopy's context: in its conversation since 2026-11-15, the latest of what it was told.)
+  const sys = (req) => req.messages.map((m) => String(m.content || "")).join("\n\n"), lastUser = (req) => String(req.messages.filter((m) => m.role === "user" && !m.appNote).at(-1).content);
   const steps = [
     () => say("", [call("schedule", { action: "add", name: "Morning news", task: "Find today's top 3 news stories and notify the owner with them.", time_zone: "Europe/Lisbon", every: "weekday", time: "08:00" }, "a1")]),
     (req) => { assert.match(JSON.stringify(req.messages), /the owner approved the schedule: Run “Morning news” every weekday at 08:00 \(Europe\/Lisbon\)\. It is kept as s[a-z0-9]+; its first run is /); assert.match(sys(req), /YOUR SCHEDULES \(approved by the owner; schedule list says more\): \n- s[a-z0-9]+ · Morning news · every weekday at 08:00 \(Europe\/Lisbon\) · next /); return say("Done: the news every weekday at 8."); },

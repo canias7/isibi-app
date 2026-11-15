@@ -37,7 +37,7 @@ export const autoModeIn = (v) => { if (!v || typeof v !== "object" || Array.isAr
 import { normMode, MODES, ruleSaved } from "./coder-perms.mjs";
 import { webFetchSettings } from "./coder-webfetch.mjs";
 import { scrubVars, scriptCapsIn } from "./coder-scrub.mjs";
-import { GLOOPY_SYSTEM, GLOOPY_TOOLS, GLOOPY_HELD_BACK, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContext } from "./gloopy-agent.mjs";
+import { GLOOPY_SYSTEM, GLOOPY_TOOLS, GLOOPY_HELD_BACK, BROWSER_TOOL_NAMES, HELPER_SYSTEM, HELPER_TOOLS, HELPER_BROWSER_TOOL, gloopyContextPieces } from "./gloopy-agent.mjs";
 import { makeBrowserHub, RESTORE_FILE } from "./gloopy-browser.mjs";
 import { makeTunnel, makeRouteProxy, wsAccept } from "./gloopy-route.mjs";
 import { coderSend, coderModel, pickModel } from "./coder-model.mjs";
@@ -4153,7 +4153,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const fileList = gloopy && Array.isArray(body.files) ? body.files.filter((x) => x && typeof x.id === "string").slice(0, 30) : [];
     let hookBase = "/api/coder/gloopy-hook/";
     try { if (body.egress && typeof body.egress.url === "string" && /^https?:\/\//.test(body.egress.url)) hookBase = new URL(body.egress.url).origin + "/api/coder/gloopy-hook/"; } catch { /* the relative address */ }
-    const gloopyNow = (memoryNow) => gloopyContext({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, schedulesPaused: body.schedulesPaused === true, ownerZone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 60) : "", permissions, rules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], pages, savedLogins: savedLoginsOf(body), savedCards: savedCardsOf(body), contacts: contactsOf(body), webhooks, files: fileList, background: body.background === true });
+    // (Gloopy's context as pieces, for its conversation, not its system message: 2026-11-15, the owner: "yes pls".)
+    const gloopyNow = (memoryNow) => gloopyContextPieces({ memFile, memory: memoryNow, workDir: home0, machine: hasBrowser ? (t.box ? MACHINE_ADMIN : MACHINE_TOOLS) : "", awayH, browser: hasBrowser, schedules, schedulesPaused: body.schedulesPaused === true, ownerZone: typeof body.ownerZone === "string" ? body.ownerZone.slice(0, 60) : "", permissions, rules: Array.isArray(body.rules) ? body.rules : [], sites: Array.isArray(body.sites) ? body.sites : [], pages, savedLogins: savedLoginsOf(body), savedCards: savedCardsOf(body), contacts: contactsOf(body), webhooks, files: fileList, background: body.background === true });
     // A SAVED LOGIN (2026-11-09; src/gloopy-vault.mjs): this service asks Coder's Worker for the one login of the site the
     // browser is on, with this job's own pass, and types it into the page itself; nothing of it reaches the AI.
     const eg = body.egress && typeof body.egress === "object" ? body.egress : null;

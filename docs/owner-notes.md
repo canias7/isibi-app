@@ -17,7 +17,45 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-15: Gloopy's chat uses Grok's cache, like Coder's (your words: "yes pls")
+
+On my branch, not deployed yet.
+
+- **Before:** Gloopy's instructions held the time of day and its other details (its notes about you, your schedules,
+  permissions, saved logins and the rest), made again at every message. So on the first call of every message Grok read
+  Gloopy's whole chat again at full price. Its saved chat also shortened tool answers over 12,000 characters.
+- **Now:** its instructions are the same at every message. The details are told in the conversation instead: all of them
+  at the first message, then only what changed (the time at each message, your schedules when they change, and so on).
+  Its notes about you are told again when its computer starts again or after a summary, as Claude Code does with its
+  memory. Long answers are kept whole. So each message's request starts with the last one's, and Grok's cache serves it
+  (a test checks it byte for byte).
+- **Pictures** stay out of the saved chat, as before: each browser step brings a screenshot, and keeping the newest few
+  (as Coder does) would change an early part of the chat at nearly every job.
+- **Its token use is saved** for each message now, as Coder's chats' is.
+- **Your Gloopy chat:** the first message after the deploy reads it once at full price (the instructions change once);
+  from then on it is cached.
+- **Summaries:** Gloopy keeps its own. Once its saved chat passes 300 KB, its older messages are summarized before your
+  next message (your newest three stay whole). Each summary means one message read at full price, as with Claude Code.
+  With answers kept whole, it gets there a little sooner.
+- **Tests:** `test/gloopy-cache.test.mjs` (8 new), and four older Gloopy tests updated (they looked for the details in
+  its instructions).
+
 ## 2026-11-15: Gloopy's tools cost only when needed too (your words: "yes fix it too")
+
+Live on gofarther.dev (deploy 192, your words: "ok yes"). Checked in the test account's Gloopy chat with Grok on Low, all
+three passed:
+
+1. **The note:** asked, without any tool, which tools are held back, Gloopy answered "monitor, pay, request_secret,
+   schedule, stop_job, vault, webhook": exactly the seven, so its long chat switched at once.
+2. **Loading one:** asked to load schedule and list the schedules, Gloopy answered "tool_search loaded schedule, and you
+   have 0 schedules". No card, nothing changed.
+3. **Calling one without loading it:** Gloopy chose to load it first ("I need the webhook tool's schema before I can call
+   it, so I'm loading it now"), as the note tells it to, and the list then worked (0 webhooks).
+
+- **Cost of the check:** about 20 to 30 cents, my estimate: 4 messages (one before the deploy, for a number that never
+  came, see below). Gloopy's first call of each message reads its whole chat at full price, as noted below.
+- **Found:** Gloopy's chat doesn't save how many tokens its messages used (Coder's chats do), so its costs can't be seen
+  on the page or checked afterwards. It can be saved the same way as Coder's.
 
 - **Before:** every call Gloopy made to Grok carried all 24 of its tools (about 9,900 tokens) and its instructions
   (about 2,600), before any of the chat.

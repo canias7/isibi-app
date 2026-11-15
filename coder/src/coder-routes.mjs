@@ -2816,7 +2816,8 @@ async function gloopyState(g) {
     // A run its monitor paused (2026-11-10) did not finish: said so, with why.
     const paused = st === "done" && typeof s.result.paused === "string" && s.result.paused ? "Paused by its monitor: " + s.result.paused.slice(0, 200) : "";
     if (meta.run && typeof meta.run.id === "string") await endRun(bucket, uid, meta.run.id, paused ? "failed" : st === "done" ? (waits ? "waiting" : "succeeded") : "failed", paused || (st === "done" ? (waits ? "It is waiting for your answer." : "") : RUN_FAILED[st] || String(s.result.summary || "Something went wrong.").slice(0, 200)));
-    const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, run: waits ? meta.run || null : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now() };
+    // (What the message's AI calls used, as Coder's chats keep it: `usage`, 2026-11-15, the owner: "yes pls".)
+    const ended = { ...meta, marks, saved: meta.turn, ...(cwd ? { cwd } : {}), waiting: asked ? asked.type : null, pending: want, run: waits ? meta.run || null : null, ran: Math.max(0, Date.now() - Number(meta.at || Date.now())), summary: String(s.result.summary || "").slice(0, 4000) || meta.summary || "", status: s.result.status === "done" ? "idle" : s.result.status, at: Date.now(), usage: usageSummary(s.result.usage, meta.turn) };
     await saveMeta(bucket, uid, ended);
     await unwatch();
     await dropLive(bucket, uid, id).catch(() => {});
