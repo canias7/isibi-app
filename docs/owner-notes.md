@@ -36,8 +36,9 @@ about 5 cents a message instead of about 20.
   Gloopy's whole chat again at full price. Its saved chat also shortened tool answers over 12,000 characters.
 - **Now:** its instructions are the same at every message. The details are told in the conversation instead: all of them
   at the first message, then only what changed (the time at each message, your schedules when they change, and so on).
-  Its notes about you are told again when its computer starts again or after a summary, as Claude Code does with its
-  memory. Long answers are kept whole. So each message's request starts with the last one's, and Grok's cache serves it
+  Its notes about you are told again when its computer starts again (it is suspended when idle, not stopped, so that
+  means after a deploy) or after a summary, as Claude Code does with its memory; Gloopy's own changes to them are in the
+  chat already, and only Gloopy writes them. Long answers are kept whole. So each message's request starts with the last one's, and Grok's cache serves it
   (a test checks it byte for byte).
 - **Pictures** stay out of the saved chat, as before: each browser step brings a screenshot, and keeping the newest few
   (as Coder does) would change an early part of the chat at nearly every job.
