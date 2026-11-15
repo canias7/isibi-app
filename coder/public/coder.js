@@ -391,7 +391,11 @@
     down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   };
   const PERM_WORDS = { allow: 'Always allow', ask: 'Needs approval', block: 'Blocked' };
-  const cxBadge = (name) => { const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
+  // THE APPS' OWN LOGOS (the owner, 2026-11-15: "they dont have the actual logos"): Simple Icons' (CC0), served from
+  // /logos; a connector without one keeps its letter.
+  const CX_LOGOS = ['neon', 'supabase', 'cloudflare', 'railway', 'resend', 'sentry', 'linear', 'notion', 'robinhood', 'stripe', 'clerk', 'render', 'redis'];
+  const cxLogo = (name) => { const w = String(name || '').trim().toLowerCase().split(/\s+/)[0]; return CX_LOGOS.includes(w) ? w : ''; };
+  const cxBadge = (name) => { const lg = cxLogo(name); if (lg) return '<span class="cx-badge cx-logo"><img src="/logos/' + lg + '.svg" alt="" width="18" height="18"></span>'; const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
   const cxTitle = (t) => t.title || String(t.name || '').replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
   async function showConnectors(note) {
     const r = await call('/connectors');

@@ -19,3 +19,13 @@ test("LK2 the quiet look is Coder's only (#gfApp): the mode menu's Mode title, p
   assert.match(css, /#gfApp \.cd-mode-btn svg, #gfApp \.cd-connchip svg \{ display: none; \}/);
   assert.match(app, /@media \(min-width: 801px\) \{\n  \.gf-sidewrap \{ flex-direction: column;/);
 });
+
+test("LK3 connectors show their apps' own logos (Simple Icons, CC0), served from /logos; one without a logo keeps its letter", async () => {
+  const { existsSync } = await import("node:fs");
+  const ui = read("coder.js");
+  const list = ui.match(/const CX_LOGOS = \[([^\]]+)\]/)[1].match(/'([a-z]+)'/g).map((x) => x.slice(1, -1));
+  for (const n of list) assert.ok(existsSync(new URL("../public/logos/" + n + ".svg", import.meta.url)), n);
+  assert.ok(!list.includes("vanta"), "no Vanta logo in the set: its letter stays");
+  assert.match(ui, /if \(lg\) return '<span class="cx-badge cx-logo"><img src="\/logos\/' \+ lg \+ '\.svg" alt="" width="18" height="18"><\/span>';/);
+  assert.match(read("logos/LICENSE.txt"), /Simple Icons/);
+});

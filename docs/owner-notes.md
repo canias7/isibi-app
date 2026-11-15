@@ -17,6 +17,8 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+- **To go over later (your word, 2026-11-15: "this is something we are gonna go over later on, note it"): permission rules.** In Coder they're kept on our server, one list per repository, opened from the gear menu (or /permissions for the mode). In Claude Code they live in settings files (yours, and the project's .claude/settings.json). We'll decide together how ours should work.
+
 ## 2026-11-15: The empty chat no longer says "What should we work on in ?" (your word: "fix")
 
 On the branch, not live yet. Live after "merge and deploy".

@@ -1277,3 +1277,5 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-mode-ck { color: #2f6fdc; font-size: 15px; width: 18px; }
 #gfApp .cd-mode-row kbd { border: 0; background: transparent; color: #8a8884; font-size: 13px; }
 #gfApp .cd-mode-rules { padding-left: 12px; font-weight: 400; color: #8a8884; }
+.cx-badge.cx-logo { background: #fff; border: 1px solid #ebe7e0; }
+.cx-badge.cx-logo img { display: block; width: 18px; height: 18px; }
