@@ -1256,3 +1256,11 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-head .cd-branch { color: #8a857d; }
 #gfApp .cd-pick select { field-sizing: content; }
 #gfApp .cd-sic { background: transparent; border: 0; width: 18px; color: #9a958c; }
+
+/* UNDER THE MESSAGE BOX, LIKE CLAUDE CODE (the owner, 2026-11-15: "look under the chatbox"): one quiet row of plain grey
+   words, model, effort, mode, connectors; no arrows, no icons, no colours. Coder only. */
+#gfApp .cd-picks { gap: 0; align-items: center; }
+#gfApp .cd-pick select { background-image: none; padding: 4px 8px; color: #6b7280; font-weight: 400; font-size: 13px; }
+#gfApp .cd-mode-btn, #gfApp .cd-connchip { color: #6b7280 !important; font-weight: 400; font-size: 13px; padding: 4px 8px; }
+#gfApp .cd-mode-btn svg, #gfApp .cd-connchip svg { display: none; }
+#gfApp .cd-pick select:hover, #gfApp .cd-mode-btn:hover, #gfApp .cd-connchip:hover { color: #0d1b2a !important; }
