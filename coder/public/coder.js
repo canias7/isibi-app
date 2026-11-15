@@ -1533,6 +1533,8 @@
   // `opts.card`: the message only answers one of Gloopy's cards (a step the owner said no to stays refused until their own next message).
   async function send(text, opts) {
     text = String(text || '').trim();
+    // /permissions OPENS THE MODE MENU, as in Claude Code (the owner, 2026-11-15, with its screenshot): nothing is sent.
+    if (!GLOOPY && /^\/permissions$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; S.modeMenu = true; draw(); return; }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -3395,7 +3397,7 @@
         '<button type="button" role="menuitemradio" aria-checked="' + (x.id === cur.id) + '" class="cd-mode-row' + (x.id === cur.id ? ' is-on' : '') + '" data-mode="' + x.id + '">' +
           '<span class="cd-mode-ic">' + ICON[x.icon] + '</span><span class="cd-mode-t"><b>' + esc(x.name) + '</b><small>' + esc(x.info) + '</small></span>' +
           '<span class="cd-mode-ck">' + (x.id === cur.id ? '✓' : '') + '</span><kbd>' + (k + 1) + '</kbd></button>').join('') +
-        '<div class="cd-modes-sep"></div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…</button></div>' : '') +
+        (GLOOPY ? '<div class="cd-modes-sep"></div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…</button>' : '') + '</div>' : '') +
     '</div>';
   }
   async function setChatMode(m) {
@@ -3720,7 +3722,7 @@
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
   async function showRules() {
     S.modeMenu = false; draw();
-    if (!S.project) return;
+    if (!S.project) return note('Open a chat first: permission rules are kept for each repository.');
     const repo = S.project.repo;
     // (`notices`: Claude Code's short warning row for a rule it keeps but warns about, "⚠ … allows any option at its * · use
     // an exact value"; `warn`: its full warning, shown when such a rule is added. Bash docs pass 5.)
@@ -4654,6 +4656,7 @@
       if (!S.connHook) {
         S.connHook = true;
         window.addEventListener('gf:connectors', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showConnectors(); });
+        if (!GLOOPY) window.addEventListener('gf:rules', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showRules(); });
         // Back from a connector's sign-in: the list opens with how it went.
         const back = new URLSearchParams(location.search).get('connector');
         if (back && !GLOOPY) { history.replaceState(null, '', location.pathname); showConnectors(back === 'connected' ? 'Signed in: the connector is ready.' : 'The sign-in did not finish. Try again.'); }
