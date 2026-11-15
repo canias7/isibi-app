@@ -3241,6 +3241,21 @@
     const rank = (p) => { const l = p.toLowerCase(), name = l.slice(l.lastIndexOf('/') + 1); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2; };
     return list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.length - b.length || (a < b ? -1 : 1)).slice(0, 8);
   }
+  // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
+  // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
+  const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan'], ['/rewind', 'Go back to an earlier message']];
+  function slashMatches() { if (GLOOPY || S.slashOff || !/^\/[\w-]*$/.test(S.draft || '')) return []; const q = S.draft.toLowerCase(); return SLASH.filter(([c]) => c.startsWith(q)); }
+  function slashHTML() {
+    const list = slashMatches();
+    if (!list.length) return '';
+    const sel = Math.min(S.slashSel || 0, list.length - 1);
+    return '<div class="cd-mention cd-slash" role="listbox">' + list.map(([c, d], i) => '<button type="button" class="cd-mention-i' + (i === sel ? ' on' : '') + '" data-slash="' + esc(c) + '" role="option"><b>' + esc(c) + '</b><span>' + esc(d) + '</span></button>').join('') + '</div>';
+  }
+  function pickSlash(c) {
+    S.slashSel = 0;
+    if (c === '/compact') { S.draft = '/compact '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
+    S.draft = ''; draw(); send(c);
+  }
   function mentionHTML() {
     const list = mentionMatches();
     if (!list.length) return '';
@@ -3790,7 +3805,7 @@
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + bgHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
+    return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
@@ -4577,7 +4592,8 @@
       if (!href) { note('That file could not be saved.'); return; }
       const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     });
-    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
+    on('[data-slash]', 'mousedown', (e) => { e.preventDefault(); pickSlash(e.currentTarget.dataset.slash); });
+    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); if (e.currentTarget.dataset.slash) return; const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
@@ -4625,13 +4641,18 @@
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
         // In the ! box, a word with a / in it lists the paths that fit (Claude Code's "live file path autocomplete").
         const sp = !m && /^!/.test(input.value) ? /(^!\s*|\s)([\w.~@+-]*\/[\w./~@+-]*)$/.exec(before) : null;
-        const had = mentionMatches().length;
+        const had = mentionMatches().length + slashMatches().length;
+        S.slashOff = false; S.slashSel = 0;
         S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : sp ? { at: before.length - sp[2].length, q: sp[2], shell: true } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
-        if (had || mentionMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+        if (had || mentionMatches().length || slashMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
+        const sl = slashMatches();
+        if (sl.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = ((S.slashSel || 0) + (e.key === 'ArrowDown' ? 1 : sl.length - 1)) % sl.length; return draw(); }
+        if (sl.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
+        if (sl.length && e.key === 'Escape') { S.slashOff = true; return draw(); }
         const list = mentionMatches();
         if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.mentionSel = ((S.mentionSel || 0) + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
         if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); const pick = list[Math.min(S.mentionSel || 0, list.length - 1)]; return S.mention && S.mention.shell ? pickShellPath(pick) : pickMention(pick); }

@@ -1289,3 +1289,7 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-set-adv { margin-top: 22px; border-top: 1px solid #f0ede7; padding-top: 10px; }
 .cd-set-adv > summary { cursor: pointer; font: 500 14.5px Inter, system-ui, sans-serif; color: #1f1e1d; padding: 6px 0; }
 .cd-set-adv > summary::after { content: " · hooks and Auto mode rules, written as code"; font-weight: 400; font-size: 13px; color: #8a8884; }
+.cd-slash .cd-mention-i { display: flex; gap: 12px; align-items: baseline; }
+.cd-slash .cd-mention-i b { font-weight: 500; min-width: 110px; }
+.cd-slash .cd-mention-i span { color: #8a8884; font-size: 13px; }
+.cd-slash .cd-mention-i span { font-family: Inter, system-ui, sans-serif; }
