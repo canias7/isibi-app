@@ -1324,7 +1324,19 @@ export const CODER_TOOLS = Object.freeze([
     description: "In an auto-fix job started by a review comment, answer in that comment's thread on GitHub, once you have resolved it: one or two sentences on what you changed, or why nothing needed to change. It is posted as the owner, marked as written by Coder, when your turn ends. Only the comment this job was started for.",
     parameters: { type: "object", properties: { comment_id: { type: "integer" }, body: { type: "string" } }, required: ["comment_id", "body"] },
   } },
+  // RENAMING THE CHAT, like Claude Code renaming its session (live test 2026-11-15: the owner said "hey, name this chat
+  // testing"): the title is saved on the chat when the turn ends, and shown as a "Renamed chat" step.
+  { type: "function", function: {
+    name: "rename_chat",
+    description: "Rename this chat (the name in the sidebar and the top bar). Use it ONLY when the owner asks to name or rename the chat. title: plain text, 1 to 80 characters.",
+    parameters: { type: "object", properties: { title: { type: "string" } }, required: ["title"] },
+  } },
 ]);
+/** A chat's title as rename_chat takes it: plain text on one line, 1-80 characters, or "" when it is not one. */
+export function chatTitleOf(v) {
+  const t = String(typeof v === "string" ? v : "").replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim();
+  return t && t.length <= 80 ? t : "";
+}
 
 /**
  * PLAN MODE'S WAY OUT (Claude Code's ExitPlanMode: "Presents a plan for approval and exits plan mode"), offered only while
@@ -1523,7 +1535,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix", "enter_plan_mode"]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1606,7 +1618,7 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 ${CODER_URLS_LINE}
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), rename_chat (renames this chat, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
@@ -6741,6 +6753,13 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
         emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
         reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+      } else if (c.name === "rename_chat") {
+        if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
+        const title = chatTitleOf(scrub(String(c.args.title || "")));
+        if (!title) { reply("error: give a title of 1 to 80 characters"); continue; }
+        sessionTitle = title;
+        emit({ type: "renamed", text: title });
+        reply("ok: this chat is now named \u201c" + title + "\u201d.");
       } else if (c.name === "notify") {
         const message = scrub(String(c.args.message || "")).replace(/\s+/g, " ").trim().slice(0, 200);
         if (!message) { reply("error: write the message"); continue; }
@@ -6908,7 +6927,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop

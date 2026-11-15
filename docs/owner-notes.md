@@ -19,6 +19,10 @@ log (81,000 lines) is in git history.
 
 - **To go over later (your word, 2026-11-15: "this is something we are gonna go over later on, note it"): permission rules.** In Coder they're kept on our server, one list per repository, opened from the gear menu (or /permissions for the mode). In Claude Code they live in settings files (yours, and the project's .claude/settings.json). We'll decide together how ours should work.
 
+## 2026-11-15: Coder can rename a chat, and so can you
+
+In the live test you told Coder "hey, name this chat testing" and it had no way to. Now it does, like Claude Code renaming its session: Coder has a rename tool, the chat shows a "Renamed chat" step ("This chat is now named “testing”."), and the new name shows in the sidebar and the top bar. You can rename it yourself too: the small ▾ next to the chat's name in the top bar has Rename; type the new name, Enter saves, Esc cancels. Names are 1 to 80 characters. A job started from GitHub can't rename the chat. Not yet tried live in the browser; not deployed.
+
 ## 2026-11-15: The empty chat no longer says "What should we work on in ?" (your word: "fix")
 
 On the branch, not live yet. Live after "merge and deploy".

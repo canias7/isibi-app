@@ -1293,3 +1293,13 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-slash .cd-mention-i b { font-weight: 500; min-width: 110px; }
 .cd-slash .cd-mention-i span { color: #8a8884; font-size: 13px; }
 .cd-slash .cd-mention-i span { font-family: Inter, system-ui, sans-serif; }
+
+/* THE CHAT TITLE'S ▾ MENU (2026-11-15, like Claude Code's): Rename, as an inline edit. Coder only (#gfApp). */
+#gfApp .cd-title-wrap { position: relative; display: inline-flex; margin-left: -6px; }
+#gfApp .cd-title-more { border: 0; background: transparent; color: inherit; opacity: .6; cursor: pointer; padding: 2px 4px; font-size: 12px; border-radius: 4px; }
+#gfApp .cd-title-more:hover, #gfApp .cd-title-more[aria-expanded="true"] { opacity: 1; background: rgba(127,127,127,.15); }
+#gfApp .cd-title-menu { position: absolute; top: 100%; left: 0; z-index: 30; margin-top: 4px; min-width: 120px; padding: 4px; border-radius: 8px; border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+#gfApp .cd-title-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+#gfApp .cd-title-menu button:hover { background: #f3f0ea; }
+#gfApp .cd-title-in { font: inherit; font-size: 14.5px; font-weight: 600; max-width: 34ch; padding: 2px 6px; border-radius: 6px; border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; }
+#gfApp .cd-head:has(> .cd-title-in) > .cd-title-bar { display: none; }
