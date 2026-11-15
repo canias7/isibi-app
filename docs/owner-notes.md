@@ -19,7 +19,20 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-15: Sign-in is a code we email, no password (your words: "no passwords , just email codes pls")
 
-On the branch, not live yet. Live after "merge and deploy".
+Live on gofarther.dev (deploy 194, your words: "ok yes"). Checked live, with no Grok call (sign-in doesn't use Grok):
+
+1. **Sessions from before:** the test browser stayed signed in after the deploy, and Coder answered as usual. Nobody has
+   to sign in again.
+2. **The new card:** in a fresh browser, only the email box and **Email me a code**. A real code went to the test
+   account. **Send a new code**, pressed at once, got Supabase's own "For security purposes, you can only request this
+   after 57 seconds.", so no second email was sent.
+3. **The code you sent me:** it signed in and Coder opened. Coder answered with the session's proof and refused the same
+   session without it.
+4. **A window left open from before** (checked on my side against the new server, not live): its old card still signs
+   in. Its "Create an account" works too, and whatever is typed in the password box is ignored.
+
+Not tried live: **Use another email** (it only changes the card; tested on my side), a brand-new email (needs another
+inbox), and the limit of 5 codes (it would send 5 emails).
 
 - **The card asks only for your email.** Press **Email me a code**, type the code from the email, press **Sign in**.
   There is no password box any more.
