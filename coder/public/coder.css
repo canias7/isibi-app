@@ -1235,3 +1235,61 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-el-open { border: 1px solid #1f1e1d; background: #fff; color: #1f1e1d; }
 .cd-elicit.is-opened .cd-el-open { background: #f5f3ee; }
 .cd-el-btns .cd-secret-save:disabled, .cd-el-btns .cd-secret-no:disabled { opacity: .55; cursor: default; }
+
+/* CODER'S CLEANER LOOK, LIKE CLAUDE CODE (the owner, 2026-11-15: "the frontend looks confusing and weird … compare it to
+   claude code"; Coder in the browser first, Gloopy later): steps are light rows, not boxes; the top bar is quiet, with
+   Create PR the one strong button; the menus under the message box are only as wide as their words. Coder only (#gfApp). */
+#gfApp .cd-group-box { border: 0; background: transparent; margin-top: 2px; }
+#gfApp .cd-group-box .cd-cmd { padding: 0 0 0 4px; }
+#gfApp .cd-group-box .cd-cmd + .cd-cmd { border-top: 0; }
+#gfApp .cd-group-box .cd-cmd-row { padding: 3px 0; }
+#gfApp .cd-group-box .cd-cmd-row svg { opacity: .7; }
+#gfApp .cd-group-head { font-size: 13.5px; }
+#gfApp .cd-cmd-row { font-size: 13.5px; }
+#gfApp .cd-cmd-text { font-size: 13.5px; }
+#gfApp .cd-head { gap: 8px; }
+#gfApp .cd-head .cd-hbtn { border-color: transparent; background: transparent; color: #4b5563; font-weight: 500; }
+#gfApp .cd-head .cd-hbtn:hover { background: #f1eee8; color: #0d1b2a; }
+#gfApp .cd-head .cd-hbtn[aria-pressed="true"] { background: #ebe7e0; color: #0d1b2a; border-color: transparent; }
+#gfApp .cd-head #cdMakePr { background: #0d1b2a; color: #fff; font-weight: 600; margin-left: 4px; }
+#gfApp .cd-head #cdMakePr:hover { background: #24364a; }
+#gfApp .cd-head .cd-branch { color: #8a857d; }
+#gfApp .cd-pick select { field-sizing: content; }
+#gfApp .cd-sic { background: transparent; border: 0; width: 18px; color: #9a958c; }
+
+/* UNDER THE MESSAGE BOX, LIKE CLAUDE CODE (the owner, 2026-11-15: "look under the chatbox"): one quiet row of plain grey
+   words, model, effort, mode, connectors; no arrows, no icons, no colours. Coder only. */
+#gfApp .cd-picks { gap: 0; align-items: center; }
+#gfApp .cd-pick select { background-image: none; padding: 4px 8px; color: #6b7280; font-weight: 400; font-size: 13px; }
+#gfApp .cd-mode-btn, #gfApp .cd-connchip { color: #6b7280 !important; font-weight: 400; font-size: 13px; padding: 4px 8px; }
+#gfApp .cd-mode-btn svg, #gfApp .cd-connchip svg { display: none; }
+#gfApp .cd-pick select:hover, #gfApp .cd-mode-btn:hover, #gfApp .cd-connchip:hover { color: #0d1b2a !important; }
+
+/* THE MODE MENU, LIKE CLAUDE CODE'S (the owner, 2026-11-15, with both side by side): a small "Mode" title, no icons, plain
+   grey numbers, tighter rows, a blue tick. Coder only. */
+#gfApp .cd-modes { padding: 10px 6px 6px; width: 380px; }
+#gfApp .cd-modes::before { content: "Mode"; display: block; padding: 0 12px 6px; font: 400 13px Inter, system-ui, sans-serif; color: #8a8884; }
+#gfApp .cd-mode-ic { display: none; }
+#gfApp .cd-mode-row { padding: 7px 12px; gap: 8px; align-items: center; }
+#gfApp .cd-mode-t { gap: 1px; }
+#gfApp .cd-mode-t b { font-weight: 400; font-size: 14.5px; }
+#gfApp .cd-mode-t small { font-size: 13px; color: #8a8884; }
+#gfApp .cd-mode-ck { color: #2f6fdc; font-size: 15px; width: 18px; }
+#gfApp .cd-mode-row kbd { border: 0; background: transparent; color: #8a8884; font-size: 13px; }
+#gfApp .cd-mode-rules { padding-left: 12px; font-weight: 400; color: #8a8884; }
+.cx-badge.cx-logo { background: #fff; border: 1px solid #ebe7e0; }
+.cx-badge.cx-logo img { display: block; width: 18px; height: 18px; }
+
+/* SETTINGS, PLAIN (the owner, 2026-11-15: "settings lol, look at them, ewwwww"): roomy rows, a title with one short line,
+   the control on the right; section names small and grey; the code-written parts closed under Advanced. */
+.cd-set-head { margin: 22px 0 4px; font: 500 12.5px Inter, system-ui, sans-serif; letter-spacing: 0; text-transform: none; color: #8a8884; }
+.cd-set-row, .cd-sure .cd-notify-sw { padding: 12px 0; border-bottom: 1px solid #f0ede7; }
+.cd-set-row span, .cd-sure .cd-notify-sw span { font-size: 13px; color: #8a8884; line-height: 1.45; }
+.cd-set-row b, .cd-sure .cd-notify-sw b { font-size: 14.5px; font-weight: 500; color: #1f1e1d; }
+.cd-set-adv { margin-top: 22px; border-top: 1px solid #f0ede7; padding-top: 10px; }
+.cd-set-adv > summary { cursor: pointer; font: 500 14.5px Inter, system-ui, sans-serif; color: #1f1e1d; padding: 6px 0; }
+.cd-set-adv > summary::after { content: " · hooks and Auto mode rules, written as code"; font-weight: 400; font-size: 13px; color: #8a8884; }
+.cd-slash .cd-mention-i { display: flex; gap: 12px; align-items: baseline; }
+.cd-slash .cd-mention-i b { font-weight: 500; min-width: 110px; }
+.cd-slash .cd-mention-i span { color: #8a8884; font-size: 13px; }
+.cd-slash .cd-mention-i span { font-family: Inter, system-ui, sans-serif; }

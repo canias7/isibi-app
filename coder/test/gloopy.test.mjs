@@ -209,7 +209,7 @@ test("GL9 (2026-11-09) the Gloopy tab opens Gloopy's chat (no more \"Coming soon
   assert.match(ui, /if \(!S\.root \|\| S\.root\.hidden\) return;/, "only the tab that shows draws the side");
   assert.match(ui, /<b>Hi, I’m Gloopy<\/b>/);
   assert.match(ui, /GLOOPY \? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file'/);
-  assert.match(ui, /\(mark && !GLOOPY \? '<button type="button" class="cd-rewind"/, "no Rewind in Gloopy's chat (it rewinds a branch)");
+  assert.match(ui, /\(mark && !GLOOPY && S\.rewindPick \? '<button type="button" class="cd-rewind"/, "no Rewind in Gloopy's chat (it rewinds a branch)");
 });
 
 // ── GLOOPY'S BROWSER (2026-11-09) ───────────────────────────────────────────

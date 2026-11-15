@@ -239,7 +239,7 @@ test("CD105 Rewind, like Claude Code's: back to before one of your messages — 
   assert.match(routes, /\.map\(\(m\) => \(\{ \.\.\.m, msg: m\.msg - dropM, ev: m\.ev - dropE \}\)\)\.filter\(\(m\) => m\.msg >= 0 && m\.ev >= 0\)/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /\[\.\.\.\(changed \? \[\['both', 'Restore code and chat'\]\] : \[\]\), \['chat', changed \? 'Restore chat only' : 'Restore chat'\], \.\.\.\(changed \? \[\['code', 'Restore code only'\]\] : \[\]\),/);
-  assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\)\);/);
+  assert.match(page, /on\('\[data-rewind\]', 'click', \(e\) => \{ S\.rewindPick = false; rewind\(Number\(e\.currentTarget\.dataset\.rewind\)\); \}\);/);
 });
 
 test("CD106 (2026-11-06) the code-try count never blocks sign-in if the bucket refuses a conditional write; it still counts", async () => {

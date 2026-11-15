@@ -126,3 +126,15 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 /* GLOOPY NEEDS YOU (the docs, 2026-11-10): a mark on its tab while it waits for your answer. */
 .gf-tab { position: relative; }
 .gf-tab.needs-you::after { content: ''; position: absolute; top: 5px; right: 5px; width: 10px; height: 10px; border-radius: 50%; background: #d93025; box-shadow: 0 0 0 2px #f4f2ee; }
+
+/* ONE SIDEBAR, LIKE THE CLAUDE APP (the owner, 2026-11-15, screen 1, with a screenshot of Claude Code): the Coder and
+   Gloopy switch is two small icons at the top of the one column (as the Claude app's chat and code icons), not a second
+   strip; no brand row. Browser view only (wide screens). */
+@media (min-width: 801px) {
+  .gf-sidewrap { flex-direction: column; width: 272px; }
+  .gf-rail { width: auto; flex-direction: row; border-right: 0; padding: 12px 14px 6px; gap: 4px; justify-content: flex-start; }
+  .gf-tab { width: 38px; height: 34px; border-radius: 9px; }
+  .gf-tab .gf-av, .gf-tab .gf-av svg { width: 24px !important; height: 24px !important; }
+  .gf-colbrand { display: none; }
+  .gf-col { width: auto; flex: 1; padding-top: 4px; }
+}

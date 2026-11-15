@@ -329,37 +329,43 @@
       paint();
     };
     const opt = (v, label, on) => '<option value="' + v + '"' + (on ? ' selected' : '') + '>' + esc(label) + '</option>';
+    let advOpen = false;
     const paint = () => {
       box.innerHTML = '<div class="cd-sure-title">Settings</div>' +
-        '<div class="cd-sure-text">For all your chats. Each one is saved as soon as you change it.</div>' +
-        '<div class="cd-set-head">Background commands</div>' +
-        '<label class="cd-set-row"><span><b>Longest one may run</b><br>Coder’s machine stays on while one runs. Claude Code’s is 2 hours unless raised.</span>' +
+        '<div class="cd-sure-text">For all your chats. Changes save on their own.</div>' +
+        '<div class="cd-set-head">Commands</div>' +
+        '<label class="cd-set-row"><span><b>Longest one may run</b><br>For commands Coder leaves running in the background.</span>' +
           '<select id="cdSetBg" aria-label="Longest a background command may run">' + BG_HOURS.map((h) => opt(h, h + ' hours' + (h === 2 ? ' (default)' : ''), prefs.bgHours === h)).join('') + '</select></label>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>Off: like Claude Code, what it started with setsid or timeout keeps running after you stop it.</span></label>' +
-        '<div class="cd-set-head">Disk and memory</div>' +
-        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder is told once, and asks you before deleting anything it didn’t make. Claude Code’s CLAUDE_CODE_WARN_DISK_FREE_GIB.</span>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetStop"' + (prefs.endDetached ? ' checked' : '') + '><span><b>Stopping one also stops what it started in the background</b><br>When off, anything it started keeps going.</span></label>' +
+        '<div class="cd-set-head">Warnings</div>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when the disk has less than</b><br>Coder then asks you before deleting files it didn’t make.</span>' +
           '<select id="cdSetDisk" aria-label="Low-disk warning">' + DISK_GIB.map((g) => opt(g, g ? g + ' GB free' : 'Off (default)', prefs.diskWarnGib === g)).join('') + '</select></label>' +
-        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left. Claude Code’s CLAUDE_CODE_WARN_MEMORY_FREE_GIB.</span>' +
+        '<label class="cd-set-row"><span><b>Warn Coder when memory has less than</b><br>Coder is told once how much is left.</span>' +
           '<select id="cdSetMem" aria-label="Low-memory warning">' + MEM_GIB.map((g) => opt(g, g ? g + ' GB available' : 'Off (default)', prefs.memWarnGib === g)).join('') + '</select></label>' +
+        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
+        '<div class="cd-set-head">Permissions</div>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
+        // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
+        // sit closed under Advanced; the rest is plain.
+        '<details class="cd-set-adv" id="cdSetAdv"' + (advOpen ? ' open' : '') + '><summary>Advanced</summary>' +
         // HOOKS (the owner, 2026-11-10: "yea do all 4"): their own, as in Claude Code's settings.
         '<div class="cd-set-head">Hooks</div>' +
         '<div class="cd-set-hint">Your own checks that run at points in Coder’s work, written as in Claude Code’s settings: <code>PreToolUse</code>, <code>PostToolUse</code>, <code>UserPromptSubmit</code>, <code>Stop</code>, <code>SessionStart</code>, <code>FileChanged</code> and more. A <code>command</code> hook runs on Coder’s machine like its commands, with the details on stdin; an <code>http</code> hook posts them to a web address; a <code>prompt</code> or <code>agent</code> hook asks Coder’s model (Grok, low effort). <code>"async": true</code> runs one in the background. The repository’s own hooks in <code>.claude/settings.json</code> run too (not in a chat with several repositories, as in Claude Code’s cloud); <code>"disableAllHooks": true</code> turns them all off.</div>' +
         '<textarea id="cdSetHooks" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Your hooks (JSON)" placeholder="' + esc('{ "hooks": { "PostToolUse": [ { "matcher": "Edit|Write", "hooks": [ { "type": "command", "command": "npx prettier --write \"$(jq -r .tool_input.file_path)\"" } ] } ] } }') + '">' + esc(hooksDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetHooksSave">Save hooks</button></div>' +
-        // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
-        '<div class="cd-set-head">Permissions</div>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>A step that would wait for your answer is refused at once, and Coder goes on with the rest; after 20 in a row, it stops. Claude Code’s permissions.denyInsteadOfPrompting.</span></label>' +
-        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits instead, and Auto is not offered. Claude Code’s disableAutoMode.</span></label>' +
         // AUTO MODE'S CHECKER (Claude Code's autoMode block, from your own settings only).
         '<div class="cd-set-head">Auto mode rules</div>' +
         '<div class="cd-set-hint">What the checker in Auto mode goes by, as in Claude Code’s <code>autoMode</code>: <code>environment</code> (your trusted repos, domains and services), <code>allow</code> (exceptions to blocks), <code>soft_deny</code> (blocked unless you ask for it) and <code>hard_deny</code> (always blocked), each a list of plain sentences. Put <code>"$defaults"</code> in a list to keep the built-in entries; a list without it replaces them. <code>"classifyAllShell": true</code> sends every command to the checker, whatever your allow rules.</div>' +
         '<textarea id="cdSetAuto" class="cd-set-hooks" spellcheck="false" autocomplete="off" aria-label="Auto mode rules (JSON)" placeholder="' + esc('{ "environment": [ "$defaults", "Trusted internal domains: *.corp.example.com" ], "soft_deny": [ "$defaults", "Never change the billing tables" ] }') + '">' + esc(autoDraft) + '</textarea>' +
         '<div class="cd-sure-row cd-set-hooks-row"><button type="button" class="cd-notify-done" id="cdSetAutoSave">Save auto mode rules</button></div>' +
+        '</details>' +
         (warns.length ? warns.map((w) => '<p class="cd-rules-warn">⚠ ' + esc(w) + '</p>').join('') : '') +
         (err ? '<p class="cd-secret-err">' + esc(err) + '</p>' : note ? '<div class="cd-notify-note">' + esc(note) + '</div>' : '') +
         '<div class="cd-sure-row"><button type="button" class="cd-notify-done" id="cdSetDone">Done</button></div>';
       const $ = (id) => box.querySelector('#' + id);
       $('cdSetDone').onclick = close;
+      $('cdSetAdv').ontoggle = (e) => { advOpen = e.currentTarget.open; };
       $('cdSetBg').onchange = (e) => save('bgHours', Number(e.currentTarget.value));
       $('cdSetStop').onchange = (e) => save('endDetached', e.currentTarget.checked);
       $('cdSetDisk').onchange = (e) => save('diskWarnGib', Number(e.currentTarget.value));
@@ -391,7 +397,11 @@
     down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>',
   };
   const PERM_WORDS = { allow: 'Always allow', ask: 'Needs approval', block: 'Blocked' };
-  const cxBadge = (name) => { const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
+  // THE APPS' OWN LOGOS (the owner, 2026-11-15: "they dont have the actual logos"): Simple Icons' (CC0), served from
+  // /logos; a connector without one keeps its letter.
+  const CX_LOGOS = ['neon', 'supabase', 'cloudflare', 'railway', 'resend', 'sentry', 'linear', 'notion', 'robinhood', 'stripe', 'clerk', 'render', 'redis'];
+  const cxLogo = (name) => { const w = String(name || '').trim().toLowerCase().split(/\s+/)[0]; return CX_LOGOS.includes(w) ? w : ''; };
+  const cxBadge = (name) => { const lg = cxLogo(name); if (lg) return '<span class="cx-badge cx-logo"><img src="/logos/' + lg + '.svg" alt="" width="18" height="18"></span>'; const n = String(name || '?'); let h = 0; for (const ch of n) h = (h * 31 + ch.charCodeAt(0)) % 360; return '<span class="cx-badge" style="background:hsl(' + h + ',55%,92%);color:hsl(' + h + ',45%,32%)">' + esc(n.trim().charAt(0).toUpperCase() || '?') + '</span>'; };
   const cxTitle = (t) => t.title || String(t.name || '').replace(/[_-]+/g, ' ').replace(/^./, (c) => c.toUpperCase());
   async function showConnectors(note) {
     const r = await call('/connectors');
@@ -1154,6 +1164,13 @@
     return later.some((c) => c.tracked !== false);
   }
   // REWIND (like Claude Code's /rewind, 2026-11-06): back to before one of your messages.
+  async function rewindPicker() {
+    if (!S.project || S.running) return note(S.running ? 'Wait for Coder to finish, then /rewind.' : 'Open a chat first.');
+    const list = (S.project.marks || []).filter((m) => S.events[m.ev] && S.events[m.ev].type === 'user').map((m) => [String(m.turn), String(S.events[m.ev].text || '(a picture)').replace(/\s+/g, ' ').slice(0, 90)]);
+    if (!list.length) return note('Nothing to rewind to yet.');
+    const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
+    if (pick) rewind(Number(pick));
+  }
   async function rewind(turn) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
@@ -1533,6 +1550,11 @@
   // `opts.card`: the message only answers one of Gloopy's cards (a step the owner said no to stays refused until their own next message).
   async function send(text, opts) {
     text = String(text || '').trim();
+    // /permissions OPENS THE MODE MENU, as in Claude Code (the owner, 2026-11-15, with its screenshot): nothing is sent.
+    // /rewind, AS IN CLAUDE CODE (the owner, 2026-11-15: "put rewind as a model call or a / please", then its screenshot):
+    // no Rewind link above every message; /rewind opens a small Rewind window listing your messages to pick from.
+    if (!GLOOPY && /^\/rewind$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; draw(); rewindPicker(); return; }
+    if (!GLOOPY && /^\/permissions$/i.test(text)) { S.draft = ''; const box = document.getElementById('cdIn'); if (box) box.value = ''; S.modeMenu = true; draw(); return; }
     if (/^!\s*\S/.test(text)) rememberShell(text);
     // COMMENTS ON THE CHANGES go with the message; the server writes them in.
     const comments = S.comments.map((c) => ({ file: c.file, line: c.line, quote: c.quote, text: c.text }));
@@ -2295,7 +2317,7 @@
       if (e.type === 'text' && e.quiet === true) return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
-      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div></div>');
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY && S.rewindPick ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div></div>');
       else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));
       else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
@@ -3219,6 +3241,26 @@
     const rank = (p) => { const l = p.toLowerCase(), name = l.slice(l.lastIndexOf('/') + 1); return name.startsWith(q) ? 0 : name.includes(q) ? 1 : 2; };
     return list.filter((p) => p.toLowerCase().includes(q)).sort((a, b) => rank(a) - rank(b) || a.length - b.length || (a < b ? -1 : 1)).slice(0, 8);
   }
+  // THE "/" LIST, LIKE CLAUDE CODE'S (the owner, 2026-11-15: "make sure the list comes up when i press it"): typing / at the
+  // start of the box lists Coder's commands with a line each; ↑↓ to move, Enter or Tab or a click to pick, Esc to close.
+  const SLASH = [['/compact', 'Shrink this chat into a short summary (add what to keep after it)'], ['/permissions', 'Choose the mode: Auto, Accept edits or Plan'], ['/rewind', 'Go back to an earlier message']];
+  function slashMatches() { if (GLOOPY || S.slashOff || !/^\/[\w-]*$/.test(S.draft || '')) return []; const q = S.draft.toLowerCase(); return SLASH.filter(([c]) => c.startsWith(q)); }
+  function slashHTML() {
+    const list = slashMatches();
+    if (!list.length) return '';
+    const sel = Math.min(S.slashSel || 0, list.length - 1);
+    return '<div class="cd-mention cd-slash" role="listbox">' + list.map(([c, d], i) => '<button type="button" class="cd-mention-i' + (i === sel ? ' on' : '') + '" data-slash="' + esc(c) + '" role="option"><b>' + esc(c) + '</b><span>' + esc(d) + '</span></button>').join('') + '</div>';
+  }
+  // "!" ALONE: a line saying what it does (the owner, 2026-11-15: "same for @ and !"), like Claude Code's bash-mode hint.
+  function bangHTML() {
+    if (GLOOPY || !/^!\s*$/.test(S.draft || '')) return '';
+    return '<div class="cd-mention cd-slash cd-bang" role="note"><div class="cd-mention-i"><b>! command</b><span>Runs a command on Coder’s machine yourself, without the AI. For example: ! npm test</span></div></div>';
+  }
+  function pickSlash(c) {
+    S.slashSel = 0;
+    if (c === '/compact') { S.draft = '/compact '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
+    S.draft = ''; draw(); send(c);
+  }
   function mentionHTML() {
     const list = mentionMatches();
     if (!list.length) return '';
@@ -3395,7 +3437,7 @@
         '<button type="button" role="menuitemradio" aria-checked="' + (x.id === cur.id) + '" class="cd-mode-row' + (x.id === cur.id ? ' is-on' : '') + '" data-mode="' + x.id + '">' +
           '<span class="cd-mode-ic">' + ICON[x.icon] + '</span><span class="cd-mode-t"><b>' + esc(x.name) + '</b><small>' + esc(x.info) + '</small></span>' +
           '<span class="cd-mode-ck">' + (x.id === cur.id ? '✓' : '') + '</span><kbd>' + (k + 1) + '</kbd></button>').join('') +
-        '<div class="cd-modes-sep"></div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…</button></div>' : '') +
+        (GLOOPY ? '<div class="cd-modes-sep"></div><button type="button" class="cd-mode-rules" data-rules-open>Permission rules…</button>' : '') + '</div>' : '') +
     '</div>';
   }
   async function setChatMode(m) {
@@ -3720,7 +3762,7 @@
   // THE OWNER'S RULES FOR THIS REPOSITORY (Claude Code's /permissions: its allow, ask and deny rules, added and removed there).
   async function showRules() {
     S.modeMenu = false; draw();
-    if (!S.project) return;
+    if (!S.project) return note('Open a chat first: permission rules are kept for each repository.');
     const repo = S.project.repo;
     // (`notices`: Claude Code's short warning row for a rule it keeps but warns about, "⚠ … allows any option at its * · use
     // an exact value"; `warn`: its full warning, shown when such a rule is added. Bash docs pass 5.)
@@ -3768,7 +3810,7 @@
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + bgHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
+    return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
@@ -4465,7 +4507,7 @@
     on('#cdCommentIn', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); addComment(); } if (e.key === 'Escape') { S.commenting = null; draw(); } });
     on('#cdCommentX', 'click', () => { S.commenting = null; draw(); });
     on('[data-uncomment]', 'click', (e) => { S.comments.splice(Number(e.currentTarget.dataset.uncomment), 1); draw(); });
-    on('[data-rewind]', 'click', (e) => rewind(Number(e.currentTarget.dataset.rewind)));
+    on('[data-rewind]', 'click', (e) => { S.rewindPick = false; rewind(Number(e.currentTarget.dataset.rewind)); });
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix !== true }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
@@ -4555,7 +4597,8 @@
       if (!href) { note('That file could not be saved.'); return; }
       const a = document.createElement('a'); a.href = href; a.download = name; document.body.appendChild(a); a.click(); a.remove();
     });
-    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
+    on('[data-slash]', 'mousedown', (e) => { e.preventDefault(); pickSlash(e.currentTarget.dataset.slash); });
+    on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); if (e.currentTarget.dataset.slash) return; const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
@@ -4603,13 +4646,18 @@
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
         // In the ! box, a word with a / in it lists the paths that fit (Claude Code's "live file path autocomplete").
         const sp = !m && /^!/.test(input.value) ? /(^!\s*|\s)([\w.~@+-]*\/[\w./~@+-]*)$/.exec(before) : null;
-        const had = mentionMatches().length;
+        const had = mentionMatches().length + slashMatches().length + (bangHTML() ? 1 : 0);
+        S.slashOff = false; S.slashSel = 0;
         S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : sp ? { at: before.length - sp[2].length, q: sp[2], shell: true } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
-        if (had || mentionMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+        if (had || mentionMatches().length || slashMatches().length || bangHTML()) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
+        const sl = slashMatches();
+        if (sl.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = ((S.slashSel || 0) + (e.key === 'ArrowDown' ? 1 : sl.length - 1)) % sl.length; return draw(); }
+        if (sl.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
+        if (sl.length && e.key === 'Escape') { S.slashOff = true; return draw(); }
         const list = mentionMatches();
         if (list.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.mentionSel = ((S.mentionSel || 0) + (e.key === 'ArrowDown' ? 1 : list.length - 1)) % list.length; return draw(); }
         if (list.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey) { e.preventDefault(); const pick = list[Math.min(S.mentionSel || 0, list.length - 1)]; return S.mention && S.mention.shell ? pickShellPath(pick) : pickMention(pick); }
@@ -4654,6 +4702,7 @@
       if (!S.connHook) {
         S.connHook = true;
         window.addEventListener('gf:connectors', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showConnectors(); });
+        if (!GLOOPY) window.addEventListener('gf:rules', () => { if (S.root && S.root.isConnected && S.root.getClientRects().length) showRules(); });
         // Back from a connector's sign-in: the list opens with how it went.
         const back = new URLSearchParams(location.search).get('connector');
         if (back && !GLOOPY) { history.replaceState(null, '', location.pathname); showConnectors(back === 'connected' ? 'Signed in: the connector is ready.' : 'The sign-in did not finish. Try again.'); }

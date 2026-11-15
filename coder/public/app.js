@@ -140,6 +140,8 @@
     $('gfBack').addEventListener('click', () => { if (busy) return; step = 1; $('gfCode').value = ''; say(''); draw(); $('gfMail').focus(); });
     $('gfOut').addEventListener('click', async () => { await window.Auth.signOut(); location.href = '/'; });
     // NOTIFICATIONS (owner item 8): Coder's screen opens its panel.
+    // PERMISSION RULES in the gear menu (2026-11-15: out of the mode menu, which /permissions opens, as in Claude Code).
+    $('gfRules').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:rules')); });
     $('gfConnectors').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:connectors')); });
     $('gfNotify').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:notify')); });
     // SETTINGS (owner, 2026-11-10: "the setting put it in settings"): Coder's own, for all the owner's chats.
