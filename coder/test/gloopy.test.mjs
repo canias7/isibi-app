@@ -107,7 +107,9 @@ test("GL6 (2026-11-09) on Coder's machine, a Gloopy turn gets Gloopy's instructi
     // Not the full image (no Chrome or Playwright): no browser, and Gloopy is told so.
     const { BROWSER_TOOL_NAMES } = await import("../container/gloopy-agent.mjs");
     assert.deepEqual(BROWSER_TOOL_NAMES, ["browser", "sign_in", "pay", "handoff"]);
-    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), GLOOPY_TOOL_NAMES.filter((n) => !BROWSER_TOOL_NAMES.includes(n)).sort());
+    // (Since 2026-11-15, the owner: "yes fix it too": the tools held back until tool_search loads them are not sent: test/gloopy-holdback.test.mjs.)
+    const { GLOOPY_HELD_BACK } = await import("../container/gloopy-agent.mjs");
+    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES.filter((n) => !BROWSER_TOOL_NAMES.includes(n) && !GLOOPY_HELD_BACK.includes(n)), "tool_search"].sort());
     assert.match(sys, /YOUR BROWSER is not on this computer right now/);
     assert.ok(!st.events.some((e) => e.tool === "setup"), "no setup script ran");
     assert.equal(st.result.memory, "Name: Ana", "the notes come back for the Worker to keep");
@@ -354,7 +356,8 @@ test("GL14 Gloopy is offered its browser only on a machine that has one (the ful
   try {
     await fetch(base + "/turn", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ project: "gloopy-main", agent: "gloopy", text: "hi", messages: [] }) });
     for (let i = 0; i < 200 && !seen.length; i++) await new Promise((ok) => setTimeout(ok, 50));
-    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES].sort());
+    const { GLOOPY_HELD_BACK } = await import("../container/gloopy-agent.mjs");
+    assert.deepEqual(seen[0].tools.map((t) => t.function.name).sort(), [...GLOOPY_TOOL_NAMES.filter((n) => !GLOOPY_HELD_BACK.includes(n)), "tool_search"].sort(), "its browser tools too (pay held back until tool_search loads it, 2026-11-15)");
     assert.doesNotMatch(seen[0].messages[0].content, /YOUR BROWSER is not on this computer/);
     assert.match(seen[0].messages[0].content, /THIS MACHINE: Ubuntu 24\.04/, "and what else the full image has");
   } finally { srv.close(); }
@@ -2782,7 +2785,8 @@ test("GL61 (2026-11-09) files on Gloopy's machine, for real: the owner's attachm
     assert.equal(st.result.status, "done", JSON.stringify(st.result).slice(0, 500));
     const msg = (id) => st.result.messages.find((m) => m.tool_call_id === id).content;
     // The attachment was in its folder before it started, and its message said where.
-    assert.match(seen[0].messages.at(-1).content, /the owner attached a file, now in your work folder: files\/Lisbon report\.pdf \(1 KB\)/);
+    // (Tool search's note comes after the owner's message since 2026-11-15: the owner's is the last one that is theirs.)
+    assert.match(seen[0].messages.filter((m) => m.role === "user" && !String(m.content).startsWith("(Note from Coder's app")).at(-1).content, /the owner attached a file, now in your work folder: files\/Lisbon report\.pdf \(1 KB\)/);
     assert.match(msg("b1"), /%PDF-1\.4 made-up Lisbon report/);
     assert.deepEqual(st.events.find((e) => e.type === "user").files, [{ id: "f000000000001", name: "Lisbon report.pdf", size: PDF.length }]);
     // Sent: read from inside its folder, handed to the Worker with the job's pass; the owner gets a card.
