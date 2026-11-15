@@ -46,3 +46,10 @@ test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permi
   assert.match(ui, /if \(sl\.length && e\.key === 'Escape'\) \{ S\.slashOff = true;/);
   assert.match(ui, /on\('\[data-slash\]', 'mousedown', \(e\) => \{ e\.preventDefault\(\); pickSlash\(e\.currentTarget\.dataset\.slash\); \}\);/);
 });
+
+test("LK6 typing ! alone shows what it does (a line, like Claude Code's bash-mode hint); @ keeps listing the chat's files", () => {
+  const ui = read("coder.js");
+  assert.match(ui, /if \(GLOOPY \|\| !\/\^!\\s\*\$\/\.test\(S\.draft \|\| ''\)\) return '';/);
+  assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
+  assert.match(ui, /const m = GLOOPY \? null : \/\(\^\|\\s\)@\(\[\\w\.\/-\]\*\)\$\/\.exec\(before\);/);
+});

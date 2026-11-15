@@ -3251,6 +3251,11 @@
     const sel = Math.min(S.slashSel || 0, list.length - 1);
     return '<div class="cd-mention cd-slash" role="listbox">' + list.map(([c, d], i) => '<button type="button" class="cd-mention-i' + (i === sel ? ' on' : '') + '" data-slash="' + esc(c) + '" role="option"><b>' + esc(c) + '</b><span>' + esc(d) + '</span></button>').join('') + '</div>';
   }
+  // "!" ALONE: a line saying what it does (the owner, 2026-11-15: "same for @ and !"), like Claude Code's bash-mode hint.
+  function bangHTML() {
+    if (GLOOPY || !/^!\s*$/.test(S.draft || '')) return '';
+    return '<div class="cd-mention cd-slash cd-bang" role="note"><div class="cd-mention-i"><b>! command</b><span>Runs a command on Coder’s machine yourself, without the AI. For example: ! npm test</span></div></div>';
+  }
   function pickSlash(c) {
     S.slashSel = 0;
     if (c === '/compact') { S.draft = '/compact '; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } return; }
@@ -3805,7 +3810,7 @@
   function composerHTML() {
     const busy = S.running || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
-    return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
+    return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
         '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
@@ -4641,11 +4646,11 @@
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
         // In the ! box, a word with a / in it lists the paths that fit (Claude Code's "live file path autocomplete").
         const sp = !m && /^!/.test(input.value) ? /(^!\s*|\s)([\w.~@+-]*\/[\w./~@+-]*)$/.exec(before) : null;
-        const had = mentionMatches().length + slashMatches().length;
+        const had = mentionMatches().length + slashMatches().length + (bangHTML() ? 1 : 0);
         S.slashOff = false; S.slashSel = 0;
         S.mention = m ? { at: before.length - m[2].length - 1, q: m[2] } : sp ? { at: before.length - sp[2].length, q: sp[2], shell: true } : null; S.mentionSel = 0;
         if (S.mention) await loadFiles();
-        if (had || mentionMatches().length || slashMatches().length) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
+        if (had || mentionMatches().length || slashMatches().length || bangHTML()) { const pos = input.selectionStart; draw(); const i = S.root.querySelector('#cdIn'); if (i) { i.focus(); i.setSelectionRange(pos, pos); } }
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
