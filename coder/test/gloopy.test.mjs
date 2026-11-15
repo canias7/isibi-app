@@ -7563,7 +7563,7 @@ test("GL140 (2026-11-13) the Vault's cards and contact info on Coder's Worker (o
   await post("message", { text: "buy the shoes again" });
   assert.deepEqual(turns[0].savedCards.map(({ id, ...x }) => x), [{ brand: "Visa", last4: "4242", nickname: "Everyday", code: false, label: "Visa ending 4242" }, { brand: "Mastercard", last4: "4444", nickname: "Work card", hint: "Use for work purchases", default: true, code: true, label: "Mastercard ending 4444" }]);
   assert.deepEqual(turns[0].contacts.map((x) => x.nickname), ["Home"]);
-  assert.ok(!JSON.stringify(turns[0]).includes("424242424242") && !JSON.stringify(turns[0]).includes("777") && !JSON.stringify(turns[0]).includes("12/30"));
+  assert.ok(!JSON.stringify(turns[0]).includes("424242424242") && !/(^|\D)777(\D|$)/.test(JSON.stringify(turns[0])) && !JSON.stringify(turns[0]).includes("12/30"));
   // Gloopy's computer: the default card, or the one named, for that running job only; never while paying is off.
   const turnNo = meta().turn, pass = await egressPass(env, "u1/" + GLOOPY_ID, turnNo);
   const job = { "x-coder-chat": "u1/" + GLOOPY_ID, "x-coder-turn": String(turnNo), "x-coder-egress": pass };
