@@ -17,9 +17,40 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-15: Whole answers, mid-job summaries and lighter calls are live, tested with Grok on Low (your words: "ok , before you run the check , make sure the cost is right ABOUT the tools")
+
+Merged into main and deployed (deploy 190: whole answers and pictures in the saved chat, summaries from the cache,
+pictures stored on their own, tool definitions kept per chat; deploy 191: the lighter calls and the count fix below).
+Then one test chat of canias7/testingforclaude with Grok on Low, six checks, all passed. For this test only, the
+chat's window was set to 100,000 tokens, so the summary came at about 73,600 tokens instead of 441,600. That setting
+was removed after; the test environment's other variables were not touched.
+
+1. **A long file kept whole:** Coder made a 2,000-line file and read all of it (66,000 characters). A new chat, so
+   nothing was in Grok's cache yet: 21,760 of 58,215 tokens cached (37%). 8.5 cents.
+2. **The next message:** "Reply with only the word ok" was 37,376 of 37,540 tokens cached (99.6%), with that whole
+   file still in the chat. Before, the saved chat cut tool answers over 12,000 characters, so this message would have
+   read the chat again at full price. 1.9 cents.
+3. **A picture:** Coder made a red 32×32 picture, read it, and answered "red". 4 calls, 151,424 of 152,474 tokens
+   cached (99%). 8 cents.
+4. **The picture in the next message:** asked not to read anything again, Coder answered "red" from the chat. The
+   picture was stored on its own and fetched back exactly, so 38,272 of 38,502 tokens were cached (99%). 2 cents.
+5. **A summary in the middle of a job:** Coder made three more 2,000-line files and read them together. That passed
+   the summary mark, so before its next call to Grok it summarized the chat ("Conversation compacted"), as Claude
+   Code does in the middle of a job. Then, as Claude Code does, it brought back the files it had read: the small
+   script it wrote came back whole, and the four big files only by name (each over 20,000 characters). So it read the
+   last 3 lines of each again and gave the three last lines, all right. 5 calls, 118,272 of 223,872 tokens cached
+   (53%: the three files were new, and the chat after a summary starts fresh). 28.7 cents.
+6. **After the summary:** asked which files it had read, Coder answered "big1.txt, red.png, big2.txt, big3.txt,
+   big4.txt", right, from the summary. The chat was 12,638 tokens instead of about 120,000; 98% cached. 0.7 cents.
+
+- **Lighter calls, measured on the code now live:** the fixed part of every call is about 8,000 tokens (Coder's
+  instructions 2,500, its machine note 500, the 14 tools always sent 4,600, tool search 350), down from about 16,400.
+  That is about 0.4 cents less on each cached call and 1.7 cents less on one that isn't cached.
+- **Cost of the whole check:** about 50 cents of Grok on Low (15 calls).
+
 ## 2026-11-14: Summaries come mostly from the cache, and the Worker never holds a chat's pictures
 
-On my branch, not deployed yet. Two follow-ups to the entry below.
+Now live (see the entry above). Two follow-ups to the entry below.
 
 - **Summaries, as Claude Code asks for them:** Coder now asks Grok for a summary with the conversation itself: the same
   instructions, tools and messages as its other requests, with Claude Code's summary instructions added at the end. So
@@ -50,7 +81,7 @@ On my branch, not deployed yet. Two follow-ups to the entry below.
 
 ## 2026-11-14: The saved chat keeps everything as sent, and long chats are summarized the way Claude Code does it (your words: "yes copy claude code")
 
-On my branch, not deployed yet.
+Now live (deploy 190; see the 2026-11-15 entry at the top).
 
 - **The cache:** after each message, Coder's saved chat used to shorten any tool answer over 12,000 characters and swap
   each picture for a note. So the next message's request no longer matched the last one from that point, and Grok read
@@ -123,7 +154,7 @@ On my branch, not deployed yet.
 
 ## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
 
-On my branch, not deployed yet.
+Now live (deploy 190; see the 2026-11-15 entry at the top).
 
 - **What the live test showed:** after Coder loaded web_fetch and you said No on its card, the next message (a command,
   then Stop) had only 1,152 of 20,420 tokens cached. The same happened to the turn that answered your `!cat …` command
