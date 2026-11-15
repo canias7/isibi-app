@@ -17,6 +17,16 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-15: The empty chat no longer says "What should we work on in ?" (your word: "fix")
+
+On the branch, not live yet. Live after "merge and deploy".
+
+- Seen in the live sign-in check: when a chat's repository wasn't known yet (no repository picked, or the chat still
+  loading), the empty chat asked "What should we work on in ?".
+- Now it asks **"What should we work on?"** until the repository is known, then **"What should we work on in
+  owner/repo?"** as before.
+- Test: TW10 (a real browser: the question while the chat loads, then with its repository). TW2 updated.
+
 ## 2026-11-15: Sign-in is a code we email, no password (your words: "no passwords , just email codes pls")
 
 Live on gofarther.dev (deploy 194, your words: "ok yes"). Checked live, with no Grok call (sign-in doesn't use Grok):
