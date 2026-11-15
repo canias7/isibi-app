@@ -1235,3 +1235,24 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-el-open { border: 1px solid #1f1e1d; background: #fff; color: #1f1e1d; }
 .cd-elicit.is-opened .cd-el-open { background: #f5f3ee; }
 .cd-el-btns .cd-secret-save:disabled, .cd-el-btns .cd-secret-no:disabled { opacity: .55; cursor: default; }
+
+/* CODER'S CLEANER LOOK, LIKE CLAUDE CODE (the owner, 2026-11-15: "the frontend looks confusing and weird … compare it to
+   claude code"; Coder in the browser first, Gloopy later): steps are light rows, not boxes; the top bar is quiet, with
+   Create PR the one strong button; the menus under the message box are only as wide as their words. Coder only (#gfApp). */
+#gfApp .cd-group-box { border: 0; background: transparent; margin-top: 2px; }
+#gfApp .cd-group-box .cd-cmd { padding: 0 0 0 4px; }
+#gfApp .cd-group-box .cd-cmd + .cd-cmd { border-top: 0; }
+#gfApp .cd-group-box .cd-cmd-row { padding: 3px 0; }
+#gfApp .cd-group-box .cd-cmd-row svg { opacity: .7; }
+#gfApp .cd-group-head { font-size: 13.5px; }
+#gfApp .cd-cmd-row { font-size: 13.5px; }
+#gfApp .cd-cmd-text { font-size: 13.5px; }
+#gfApp .cd-head { gap: 8px; }
+#gfApp .cd-head .cd-hbtn { border-color: transparent; background: transparent; color: #4b5563; font-weight: 500; }
+#gfApp .cd-head .cd-hbtn:hover { background: #f1eee8; color: #0d1b2a; }
+#gfApp .cd-head .cd-hbtn[aria-pressed="true"] { background: #ebe7e0; color: #0d1b2a; border-color: transparent; }
+#gfApp .cd-head #cdMakePr { background: #0d1b2a; color: #fff; font-weight: 600; margin-left: 4px; }
+#gfApp .cd-head #cdMakePr:hover { background: #24364a; }
+#gfApp .cd-head .cd-branch { color: #8a857d; }
+#gfApp .cd-pick select { field-sizing: content; }
+#gfApp .cd-sic { background: transparent; border: 0; width: 18px; color: #9a958c; }
