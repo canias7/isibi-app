@@ -2317,8 +2317,8 @@
       if (e.type === 'text' && e.quiet === true) return;
       flush();
       const mark = e.type === 'user' && !S.running && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === i) : null;
-      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY && S.rewindPick ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div></div>');
-      else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));
+      if (e.type === 'user') out.push('<div class="cd-user">' + (mark && !GLOOPY && S.rewindPick ? '<button type="button" class="cd-rewind" data-rewind="' + Number(mark.turn) + '" title="Rewind to before this message">Rewind</button>' : '') + (e.thumbs && e.thumbs.length ? '<div class="cd-thumbs">' + e.thumbs.map((u) => '<img src="' + esc(u) + '" alt="">').join('') + '</div>' : e.images ? '<div class="cd-imgnote">' + esc(e.images) + ' picture' + (e.images > 1 ? 's' : '') + '</div>' : '') + (Array.isArray(e.files) && e.files.length ? '<div class="cd-user-files">' + e.files.map((f) => '<button type="button" class="cd-file-chip" data-file-get="' + esc(f.id) + '" data-file-name="' + esc(f.name) + '" title="Download">' + ICON.doc + '<span class="cd-file-n">' + esc(f.name) + '</span><small>' + esc(sizeWords(Number(f.size) || 0)) + '</small></button>').join('') + '</div>' : '') + '<div class="cd-bubble' + (e.shell ? ' cd-bubble-shell' : '') + '">' + esc(e.text) + '</div>' + (GLOOPY ? '' : userMetaHTML(e, i, mark)) + '</div>');
+      else if (e.type === 'text' || e.type === 'done') out.push('<div class="cd-ai">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) + (GLOOPY ? '' : aiMetaHTML(e, i)) : ''));
       else if (e.type === 'permission') out.push(permHTML(e));
       else if (e.type === 'github') out.push('<div class="cd-gh">' + ICON.gh + '<span>' + prose(e.text).replace(/^<p>|<\/p>$/g, '') + '</span></div>');
       else if (e.type === 'error') out.push('<div class="cd-err">' + esc(noColor(e.text)) + '</div>');
@@ -2639,9 +2639,82 @@
     });
     flush();
     if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));
+    else if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type !== 'user')) out.push(workingHTML(lastUser));
     else if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
     out.push(queueHTML());
     return out.join('');
+  }
+  // LIKE CLAUDE CODE ON THE WEB (the owner's recording, 2026-11-15): a grey "Working… 3s" line (or "Starting Coder's
+  // machine… 12s" while the chat's start is marked, project.starting) with a live seconds counter until the first step shows;
+  // under each of the owner's messages "✓ Just now" with copy and rewind; under Coder's answers copy, thumbs up and down
+  // (only pressed here, nothing is sent) and the time.
+  function relTime(at) {
+    const s = Math.max(0, Math.floor((Date.now() - Number(at || 0)) / 1000));
+    if (!at || s < 60) return 'Just now';
+    if (s < 3600) return Math.floor(s / 60) + 'm ago';
+    if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+    return Math.floor(s / 86400) + 'd ago';
+  }
+  const META_ICON = {
+    copy: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a1 1 0 0 1-1-1V4a1 1 0 0 1 1-1h10a1 1 0 0 1 1 1v1"/></svg>',
+    rewind: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/><path d="M3 3v5h5"/></svg>',
+    up: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 10v11H4V10zM7 10l4-8a3 3 0 0 1 3 3v4h6a2 2 0 0 1 2 2.3l-1.4 8A2 2 0 0 1 18.6 21H7"/></svg>',
+    down: '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M17 14V3h3v11zM17 14l-4 8a3 3 0 0 1-3-3v-4H4a2 2 0 0 1-2-2.3l1.4-8A2 2 0 0 1 5.4 3H17"/></svg>',
+    panel: '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2"/><path d="M15 4v16"/></svg>',
+  };
+  function userMetaHTML(e, i, mark) {
+    return '<div class="cd-meta cd-meta-u"><span class="cd-meta-t" data-rel-at="' + Number(e.at || 0) + '">✓ ' + esc(relTime(e.at)) + '</span>' +
+      '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' +
+      (mark ? '<button type="button" class="cd-meta-b" data-rewind-to="' + Number(mark.turn) + '" aria-label="Rewind to here" title="Rewind to before this message">' + META_ICON.rewind + '</button>' : '') + '</div>';
+  }
+  function aiMetaHTML(e, i) {
+    const k = String(e.at || i), t = (S.rated || {})[k] || '';
+    return '<div class="cd-meta cd-meta-a">' +
+      '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' +
+      '<button type="button" class="cd-meta-b" data-rate="up" data-rate-k="' + esc(k) + '" aria-label="Good answer" aria-pressed="' + (t === 'up') + '" title="Good answer">' + META_ICON.up + '</button>' +
+      '<button type="button" class="cd-meta-b" data-rate="down" data-rate-k="' + esc(k) + '" aria-label="Bad answer" aria-pressed="' + (t === 'down') + '" title="Bad answer">' + META_ICON.down + '</button>' +
+      '<span class="cd-meta-t" data-rel-at="' + Number(e.at || 0) + '">' + esc(relTime(e.at)) + '</span></div>';
+  }
+  function workingHTML(lastUser) {
+    const u = lastUser >= 0 ? S.events[lastUser] : null;
+    if (!S.workFrom || S.workFrom.k !== lastUser) S.workFrom = { k: lastUser, at: Date.now() };
+    const from = u && Number(u.at) > 0 && Number(u.at) <= Date.now() ? Number(u.at) : S.workFrom.at;
+    const starting = !!(S.project && S.project.starting);
+    return '<div class="cd-working" role="status"><span class="cd-working-w">' + (starting ? 'Starting Coder’s machine…' : 'Working…') + '</span> <span class="cd-working-s" data-work-from="' + from + '">' + Math.max(0, Math.floor((Date.now() - from) / 1000)) + 's</span></div>';
+  }
+  // (The counter and the times tick on their own, between redraws.)
+  function metaTick() {
+    if (!S.root || !S.root.isConnected) return;
+    S.root.querySelectorAll('[data-work-from]').forEach((n) => { n.textContent = Math.max(0, Math.floor((Date.now() - Number(n.dataset.workFrom)) / 1000)) + 's'; });
+    S.root.querySelectorAll('[data-rel-at]').forEach((n) => { const t = (n.closest('.cd-meta-u') ? '✓ ' : '') + relTime(Number(n.dataset.relAt)); if (n.textContent !== t) n.textContent = t; });
+  }
+  // THE RIGHT-HAND PANEL (desktop, 1100px and wider, like Claude Code on the web): Environment, Context and Connectors; open
+  // unless the owner closed it (remembered on this browser).
+  function rpOpen() { try { return localStorage.getItem('cd.rpanel') !== '0'; } catch (er) { return true; } }
+  function rpSet(on) { try { localStorage.setItem('cd.rpanel', on ? '1' : '0'); } catch (er) { /* no storage */ } }
+  function rpConnLoad() {
+    const id = S.project && S.project.id;
+    if (!id || (S.rpConn && S.rpConn.id === id)) return;
+    S.rpConn = { id, n: null };
+    call('/projects/' + encodeURIComponent(id) + '/connectors').then((r) => {
+      if (!S.rpConn || S.rpConn.id !== id) return;
+      const list = r && r.status === 200 && r.data && Array.isArray(r.data.connectors) ? r.data.connectors : [];
+      S.rpConn.n = r && r.data && r.data.allOff === true ? 0 : list.filter((c) => c && c.on !== false).length;
+      draw();
+    });
+  }
+  function rpanelHTML() {
+    const p = S.project;
+    if (!p || GLOOPY) return '';
+    rpConnLoad();
+    const pct = p.contextPct != null && Number.isFinite(Number(p.contextPct)) ? Math.max(0, Math.min(100, Math.round(Number(p.contextPct)))) : null;
+    const n = S.rpConn && S.rpConn.id === p.id ? S.rpConn.n : null;
+    const row = (icon, text) => '<span class="cd-rp-row">' + icon + '<span class="cd-ell">' + esc(text) + '</span></span>';
+    return '<aside class="cd-rpanel" aria-label="This chat">' +
+      '<button type="button" class="cd-rp-sec" id="cdRpEnv"><span class="cd-rp-h">Environment</span>' + row(ICON.cloud, S.envInfo ? S.envInfo.name : 'Default') + row(ICON.gh, p.repo) + row(ICON.branch, p.branch) + '</button>' +
+      '<div class="cd-rp-sec" id="cdRpCtx"><span class="cd-rp-h">Context</span>' + (pct === null ? '<span class="cd-rp-row cd-rp-dim">Coder keeps the conversation for you</span>' : '<span class="cd-rp-row">' + pct + '% used</span><span class="cd-rp-bar"><i style="width:' + pct + '%"></i></span>') + '</div>' +
+      '<button type="button" class="cd-rp-sec" id="cdRpConn"><span class="cd-rp-h">Connectors</span><span class="cd-rp-row">' + (n === null ? 'Loading…' : n + ' connected') + '</span></button>' +
+    '</aside>';
   }
   // MESSAGES WAITING FOR CODER (Claude Code: "Sent and queued messages show in gray until Claude starts responding to them";
   // on the web, "To take a queued message back, click the ✕ on it"): at the end of the chat until Coder reads them.
@@ -3092,6 +3165,7 @@
       (p && !p.readOnly && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
+      (p ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
   }
@@ -3812,7 +3886,7 @@
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Coder is working… you can close this tab') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         (S.running || (!GLOOPY && S.project && S.project.parked)
@@ -3925,9 +3999,12 @@
     const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, cls: askEl.classList.contains('cd-ask-note') ? 'cd-ask-note' : 'cd-ask-in', a: askEl.selectionStart, b: askEl.selectionEnd } : null;
     // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
     const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
-    root.innerHTML = '<div class="cd">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + '</div>';
+    const rp = S.phase === 'chat' && !GLOOPY && S.project && rpOpen() ? rpanelHTML() : '';
+    root.innerHTML = '<div class="cd' + (rp ? ' rp-open' : '') + '">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + rp + '</div>';
+    if (!GLOOPY && !S.metaTimer) S.metaTimer = setInterval(metaTick, 1000);
     drawSide();
     wire(root);
+    { const rpEl = root.querySelector('.cd-rpanel'), hd = root.querySelector('.cd > .cd-head'); if (rpEl && hd) rpEl.style.top = (hd.offsetTop + hd.offsetHeight) + 'px'; }
     const keyPid = keyKept ? String(keyKept.dataset.secretPid || '') : '';
     const keyNew = /^p[0-9a-z]{2,24}$/.test(keyPid) ? root.querySelector('.cd-secret-key[data-secret-pid="' + keyPid + '"]') : null;
     if (keyNew) {
@@ -4604,6 +4681,12 @@
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });
     on('#cdEffort', 'change', (e) => { S.pick.effort = e.target.value; savePick(); });
     on('#cdConnChip', 'click', () => { showChatConnectors(); });
+    on('#cdRpToggle', 'click', () => { rpSet(!rpOpen()); draw(); });
+    on('#cdRpEnv', 'click', () => { S.showEnv = true; S.showChanges = false; loadEnv(); draw(); });
+    on('#cdRpConn', 'click', () => { showChatConnectors(); });
+    on('[data-copy-ev]', 'click', (e) => { const ev = S.events[Number(e.currentTarget.dataset.copyEv)]; const b = e.currentTarget; if (!ev) return; try { navigator.clipboard.writeText(String(ev.text || '')).then(() => { b.classList.add('is-done'); setTimeout(() => b.classList.remove('is-done'), 1200); }, () => {}); } catch (er) { /* not allowed */ } });
+    on('[data-rate]', 'click', (e) => { const k = e.currentTarget.dataset.rateK, v = e.currentTarget.dataset.rate; S.rated = S.rated || {}; S.rated[k] = S.rated[k] === v ? '' : v; draw(); });
+    on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo)); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
     on('#cdMode', 'click', (e) => { e.stopPropagation(); S.modeMenu = !S.modeMenu; draw(); });
     on('.cd-modes', 'click', (e) => e.stopPropagation());

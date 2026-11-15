@@ -6225,7 +6225,7 @@ test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all
   const { readFileSync } = await import("node:fs");
   const ui = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
-  assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) : ''));"));
+  assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) + (GLOOPY ? '' : aiMetaHTML(e, i)) : ''));"));
   assert.match(ui, /e\.shots\.filter\(\(u\) => typeof u === 'string' && u\.length <= 60000 && \/\^data:image\\\/jpeg;base64,\[A-Za-z0-9\+\/\]\+=\*\$\/\.test\(u\)\)\.slice\(0, 2\)/, "only the machine's own small JPEGs, two at most");
   assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.events"));
   assert.ok(ui.includes("      if (e.type === 'text' && e.quiet === true) return;\n      flush();"), "a quiet line is left out of the chat");

@@ -292,7 +292,7 @@ test("CD297 (docs check: Claude Code's shell mode, \"history-based autocomplete:
   assert.equal((await go("projects/shop-hist1/message", { method: "POST", body: JSON.stringify({ text: "! git status" }) })).status, 200);
   assert.equal(turns.at(-1).shell, "git status");
   assert.deepEqual((await (await go("projects/shop-hist1")).json()).shellHistory, ["git status"]);
-  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, ""), /localStorage/, "nothing in the browser's storage");
+  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, "").replace(/  function rpOpen\(\) [^\n]*\n  function rpSet\(on\) [^\n]*\n/, ""), /localStorage/, "nothing in the browser's storage");
   assert.match(ui, /const found = shellHistory\(\)\.filter\(\(c\) => c\.startsWith\(tab\.typed\) && c !== tab\.typed\);/);
   assert.match(ui, /then Coder answers what it printed · Tab completes<\/div>/);
 });

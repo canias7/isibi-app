@@ -589,7 +589,7 @@ test("CD21 the screen asks the server: the commands, the model list and pick, an
   assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   assert.doesNotMatch(ui, /Comments on the changes:/, "the server writes the comments in, not the page");
   // The pick is kept on the account; only the desktop app's own notifications switch (owner item 8) is kept on the device.
-  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, ""), /localStorage/, "the pick is kept on the account");
+  assert.doesNotMatch(ui.replace(/  const localNotifyOn = [^\n]*\n  const setLocalNotify = [^\n]*\n/, "").replace(/  function rpOpen\(\) [^\n]*\n  function rpSet\(on\) [^\n]*\n/, ""), /localStorage/, "the pick is kept on the account");
   assert.match(ui, /r\.background \? 'bg'/);
 });
 
