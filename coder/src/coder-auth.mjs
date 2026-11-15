@@ -1,31 +1,31 @@
 // WHO IS ASKING (2026-11-05): Go Farther's Supabase sign-in,
 // checked by Coder's own Worker.
 //
-// THE EMAILED CODE, REALLY REQUIRED (the audit, 2026-11-06). Sign-in is the
-// password, then a code emailed to the user, both through this Worker
+// SIGN-IN IS A CODE WE EMAIL, NO PASSWORD (the owner, 2026-11-15: "no
+// passwords, just email codes pls"; until then the password, then the code,
+// since the audit of 2026-11-06). Both steps go through this Worker
 // (coder-signin.mjs). But Supabase's address and its public key are in
 // wrangler.jsonc, and this repository is public, so anyone could ask Supabase
-// for a session straight away: with the password alone (no code), or with the
-// inbox alone (an emailed code, no password). Supabase accepts those sessions
-// as genuine. So a Supabase session is no longer enough here: the Worker also
-// wants its own proof, which it hands out only at the end of its own two steps.
+// for a session straight away: with an account's old password, or with a code
+// asked from Supabase directly. Supabase accepts those sessions as genuine. So a
+// Supabase session is not enough here: the Worker also wants its own proof,
+// which it hands out only at the end of its own code step.
 //
-//   the ticket  after the password step (15 minutes): "this email gave its
-//               password here", needed to send the code to /api/auth/verify
+//   the ticket  when a code is sent (15 minutes): "a code was sent to this
+//               email here", needed to send the code to /api/auth/verify
 //   the proof   after the code step: "this Supabase session was made through
-//               both steps here", sent with every call in the x-coder-proof
+//               the code step here", sent with every call in the x-coder-proof
 //               header. Supabase keeps a session's id when it is refreshed, so
 //               the proof lasts as long as the session.
 //
 // Both are signed with a key made from CODER_TOKEN_KEY. Without that key no
 // ticket or proof can be made or accepted, so nobody can sign in (fail closed).
-// Two more things kept in the bucket close the gaps the review found (below):
-// the password the Worker remembers (a password set at Supabase with the inbox
-// alone is refused) and the count of code checks (5 per email per 15 minutes).
+// Two counts kept in the bucket close the rest (below): codes sent (5 per email
+// per 15 minutes) and code checks (5 per email per 15 minutes).
 
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-/** How long the password step's ticket lasts. */
+/** How long the ticket of a sent code lasts. */
 export const TICKET_MS = 15 * 60 * 1000;
 /** The header the page sends the proof in. */
 export const PROOF_HEADER = "x-coder-proof";
@@ -87,58 +87,11 @@ export async function proofOk(env, sessionId, proof) {
   return !!want && sameText(want, proof);
 }
 
-// THE PASSWORD THE WORKER REMEMBERS (the audit, 2026-11-06, after review).
-// Supabase lets any of its sessions set a new password, and a session asked for
-// with the inbox alone (a code straight from Supabase) is enough for that. With
-// that new password, both steps here would pass. So the first time a password
-// passes the password step here, the Worker keeps its own scrambled copy of it
-// (coder/<user id>/signin-pin.json), and from then on the password step also
-// wants that same password. The copy is PBKDF2 with a random salt, then signed
-// with the proof key, so the bucket alone does not help anyone guess the
-// password. Coder has no page to change a password: one changed at Supabase is
-// refused here until that file is deleted; the next password step then
-// remembers the new one. A copy made with another CODER_TOKEN_KEY is remembered
-// again at the next password step.
-/** PBKDF2 rounds for the remembered password: the most a Cloudflare Worker allows. */
-export const PIN_ROUNDS = 100000;
-/** Where the remembered password of one account is kept. */
-export const pinKeyOf = (uid) => "coder/" + uid + "/signin-pin.json";
-async function pinOf(key, password, salt) {
-  const base = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, ["deriveBits"]);
-  const bits = await crypto.subtle.deriveBits({ name: "PBKDF2", hash: "SHA-256", salt, iterations: PIN_ROUNDS }, base, 256);
-  return mac(key, "pin:" + b64url(bits));
-}
-/**
- * Whether `password` is the one the Worker remembers for this account. Nothing
- * remembered yet (or remembered with another key): it is remembered now, and
- * the answer is yes. No proof key, no bucket, or a damaged copy: no.
- */
-export async function rememberedPassword(env, uid, password) {
-  const key = await proofKey(env);
-  const bucket = env && env.CODER_BUCKET;
-  if (!key || !bucket || typeof uid !== "string" || !/^[\w-]{1,100}$/.test(uid) || typeof password !== "string" || !password) return false;
-  const check = (await mac(key, "pin-key")).slice(0, 16);
-  const o = await bucket.get(pinKeyOf(uid));
-  if (o) {
-    let p = null;
-    try { p = JSON.parse(await o.text()); } catch { p = null; }
-    if (!p || typeof p.k !== "string" || typeof p.salt !== "string" || typeof p.pin !== "string") return false;
-    if (p.k === check) {
-      let salt;
-      try { salt = unb64url(p.salt); } catch { return false; }
-      return salt.length === 16 && sameText(await pinOf(key, password, salt), p.pin);
-    }
-  }
-  const salt = crypto.getRandomValues(new Uint8Array(16));
-  await bucket.put(pinKeyOf(uid), JSON.stringify({ v: 1, k: check, salt: b64url(salt), pin: await pinOf(key, password, salt), at: Date.now() }), { httpMetadata: { contentType: "application/json" } });
-  return true;
-}
-
-// WRONG CODES ARE COUNTED (the audit, 2026-11-06, after review). After the
-// password step, the emailed code is all that stands between someone with the
-// password and Coder, and a ticket can be used for 15 minutes. So each email
-// gets 5 code checks per 15 minutes, counted before Supabase is asked, whatever
-// the ticket; a right code clears the count and a new password step does not.
+// WRONG CODES ARE COUNTED (the audit, 2026-11-06, after review). The emailed
+// code is all that stands between anyone and an account, and a ticket can be
+// used for 15 minutes. So each email gets 5 code checks per 15 minutes, counted
+// before Supabase is asked, whatever the ticket; a right code clears the count
+// and a new code sent does not.
 // The count is changed only if nobody changed it in between (R2 checks the
 // etag, If-Match, or that there is none yet, If-None-Match), so guesses sent all
 // at once cannot all slip through.
@@ -152,22 +105,21 @@ export async function codeCountKeyOf(env, email) {
 }
 const JSON_TYPE = { httpMetadata: { contentType: "application/json" } };
 /**
- * One code check taken for this email: `{ ok: true }`; `{ wait }` (ms) when
- * CODE_TRIES were taken in the last CODE_WINDOW_MS; `{ busy: true }` when
- * too many checks for it came at once; `{ off: true }` without a bucket or key.
+ * One more of a count kept under `key` (`tries` per `windowMs`): `{ ok: true }`;
+ * `{ wait }` (ms) when that many were taken in the window; `{ busy: true }`
+ * when too many came at once; `{ off: true }` without a bucket or key.
  */
-export async function takeCodeTry(env, email, now = Date.now()) {
+async function takeOne(env, key, tries, windowMs, now) {
   const bucket = env && env.CODER_BUCKET;
-  const key = await codeCountKeyOf(env, email);
   if (!bucket || !key) return { off: true };
   for (let i = 0; i < 4; i++) {
     const o = await bucket.get(key);
     let c = null;
     if (o) { try { c = JSON.parse(await o.text()); } catch { c = null; } }
-    const live = !!c && Number.isFinite(c.n) && Number.isFinite(c.since) && c.since > 0 && now - c.since < CODE_WINDOW_MS;
+    const live = !!c && Number.isFinite(c.n) && Number.isFinite(c.since) && c.since > 0 && now - c.since < windowMs;
     const n = live ? c.n : 0;
     const since = live ? c.since : now;
-    if (n >= CODE_TRIES) return { wait: Math.max(1, since + CODE_WINDOW_MS - now) };
+    if (n >= tries) return { wait: Math.max(1, since + windowMs - now) };
     const onlyIf = new Headers(o ? { "if-match": o.httpEtag || '"' + o.etag + '"' } : { "if-none-match": "*" });
     let wrote;
     try { wrote = await bucket.put(key, JSON.stringify({ n: n + 1, since }), { ...JSON_TYPE, onlyIf }); }
@@ -182,13 +134,33 @@ export async function takeCodeTry(env, email, now = Date.now()) {
   }
   return { busy: true };
 }
+/** One code check taken for this email (CODE_TRIES per CODE_WINDOW_MS): takeOne's answer. */
+export async function takeCodeTry(env, email, now = Date.now()) {
+  return takeOne(env, await codeCountKeyOf(env, email), CODE_TRIES, CODE_WINDOW_MS, now);
+}
+// CODES SENT ARE COUNTED TOO (2026-11-15, with sign-in by code alone): each
+// email gets 5 codes per 15 minutes, counted before Supabase is asked to send
+// one, so nobody can flood an inbox (or Coder's emails) from the sign-in card.
+// Supabase also waits a minute between two codes for the same email.
+/** Codes sent per email in SEND_WINDOW_MS. */
+export const SEND_TRIES = 5;
+export const SEND_WINDOW_MS = 15 * 60 * 1000;
+/** Where one email's count of codes sent is kept (the email itself is not in the name). */
+export async function sendCountKeyOf(env, email) {
+  const key = await proofKey(env);
+  return key ? "coder/signin-sends/" + (await mac(key, "sends:" + email)) + ".json" : "";
+}
+/** One code sent to this email (SEND_TRIES per SEND_WINDOW_MS): takeOne's answer. */
+export async function takeSendTry(env, email, now = Date.now()) {
+  return takeOne(env, await sendCountKeyOf(env, email), SEND_TRIES, SEND_WINDOW_MS, now);
+}
 /** A right code: the count starts again. */
 export async function clearCodeCount(env, email) {
   const key = await codeCountKeyOf(env, email);
   if (key && env.CODER_BUCKET) await env.CODER_BUCKET.put(key, JSON.stringify({ n: 0, since: 0 }), JSON_TYPE);
 }
 
-/** The password step's ticket: who gave their password here, for which code, until when. */
+/** The ticket of a sent code: which email it was sent to here, which kind of code, until when. */
 export async function makeTicket(env, email, type, now = Date.now()) {
   const key = await proofKey(env);
   if (!key) return "";

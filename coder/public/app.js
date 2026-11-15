@@ -1,4 +1,4 @@
-// THE PAGE: sign in (password, then a code we email, as before), then Coder.
+// THE PAGE: sign in (a code we email: no password, 2026-11-15), then Coder.
 (function () {
   'use strict';
   const $ = (id) => document.getElementById(id);
@@ -24,8 +24,7 @@
       if (B && B.open) B.open({ url: u.href }); else window.open(u.href, '_blank', 'noopener');
     }, true);
   }
-  let mode = 'in';      // in | up
-  let step = 1;         // 1: email + password, 2: the emailed code
+  let step = 1;         // 1: the email, 2: the emailed code
   let codeType = 'email';
   let busy = false;
 
@@ -81,27 +80,28 @@
   function openSignin() { $('gfGate').classList.add('signing'); draw(); setTimeout(() => $('gfMail').focus(), 0); }
   // What was typed in the ask box is kept for Coder's chat box after sign-in.
   function keepAsk() { try { const v = $('gfAskIn').value.trim(); if (v) sessionStorage.setItem('gf_ask', v); } catch (e) { /* private mode */ } }
-  $('gfSignin').addEventListener('click', () => { keepAsk(); mode = 'in'; step = 1; openSignin(); });
+  $('gfSignin').addEventListener('click', () => { keepAsk(); step = 1; openSignin(); });
   $('gfAsk').addEventListener('submit', (e) => { e.preventDefault(); keepAsk(); openSignin(); });
   $('gfAskIn').addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); keepAsk(); openSignin(); } });
+  // ONE CARD FOR SIGNING IN AND SIGNING UP (the owner, 2026-11-15: "no passwords, just email codes pls"): the email, then
+  // the code we send it; a new email's first code makes its account.
   function draw() {
-    $('gfTitle').textContent = step === 2 ? 'Check your email' : mode === 'in' ? 'Sign in' : 'Create your account';
-    $('gfSub').textContent = step === 2 ? 'We sent a code to ' + $('gfMail').value.trim() + '.' : 'Coder works on your code in your own GitHub.';
+    $('gfTitle').textContent = step === 2 ? 'Check your email' : 'Sign in';
+    $('gfSub').textContent = step === 2 ? 'We sent a code to ' + $('gfMail').value.trim() + '.' : 'We\u2019ll email you a code. New here? The same code makes your account.';
     $('gfStep1').hidden = step === 2;
     $('gfStep2').hidden = step !== 2;
-    $('gfSwitch').hidden = step === 2;
-    $('gfSwitch').textContent = mode === 'in' ? 'New here? Create an account' : 'Have an account? Sign in';
-    $('gfPw').autocomplete = mode === 'in' ? 'current-password' : 'new-password';
-    $('gfGo').textContent = busy ? 'One moment…' : step === 2 ? 'Verify' : mode === 'in' ? 'Continue' : 'Create account';
+    $('gfCodeActs').hidden = step !== 2;
+    $('gfGo').textContent = busy ? 'One moment\u2026' : step === 2 ? 'Sign in' : 'Email me a code';
     $('gfGo').disabled = busy;
+    $('gfResend').disabled = busy;
   }
-  function say(t) { $('gfMsg').textContent = t || ''; }
+  // (`ok`: good news, such as a new code sent, not an error.)
+  function say(t, ok) { $('gfMsg').textContent = t || ''; $('gfMsg').classList.toggle('gf-ok', !!ok); }
 
   async function submit(e) {
     e.preventDefault();
     if (busy) return;
     const email = $('gfMail').value.trim();
-    const pw = $('gfPw').value;
     say('');
     busy = true; draw();
     try {
@@ -109,28 +109,35 @@
         await window.Auth.verifyCode(email, $('gfCode').value.trim(), codeType);
         busy = false; return showApp();
       }
-      if (!email || !pw) throw new Error('Enter your email and password.');
-      if (mode === 'in') {
-        await window.Auth.signIn(email, pw);
-        codeType = 'email'; step = 2;
-      } else {
-        // A new account also needs the emailed code (the audit, 2026-11-06).
-        if (pw.length < 6) throw new Error('Use at least 6 characters for the password.');
-        const r = await window.Auth.signUp(email, pw);
-        codeType = r.type || 'signup'; step = 2;
-      }
+      if (!email) throw new Error('Enter your email.');
+      const r = await window.Auth.sendCode(email);
+      codeType = (r && r.type) || 'email'; step = 2; $('gfCode').value = '';
     } catch (err) {
-      // THE PASSWORD STEP'S TICKET RAN OUT (15 minutes): back to that step (the audit, 2026-11-06).
+      // THE CODE'S TICKET RAN OUT (15 minutes), or too many tries: back to the email (the audit, 2026-11-06).
       if (err && err.restart) { step = 1; $('gfCode').value = ''; }
       say((err && err.message) || 'Something went wrong.');
     }
     busy = false; draw();
     if (step === 2) $('gfCode').focus();
   }
+  // A NEW CODE for the same email (Supabase sends at most one a minute; Coder's Worker five per 15 minutes).
+  async function resend() {
+    if (busy) return;
+    say('');
+    busy = true; draw();
+    try {
+      const r = await window.Auth.sendCode($('gfMail').value.trim());
+      codeType = (r && r.type) || 'email'; $('gfCode').value = '';
+      say('We sent a new code.', true);
+    } catch (err) { say((err && err.message) || 'Something went wrong.'); }
+    busy = false; draw();
+    $('gfCode').focus();
+  }
 
   document.addEventListener('DOMContentLoaded', () => {
     $('gfForm').addEventListener('submit', submit);
-    $('gfSwitch').addEventListener('click', () => { mode = mode === 'in' ? 'up' : 'in'; say(''); draw(); });
+    $('gfResend').addEventListener('click', resend);
+    $('gfBack').addEventListener('click', () => { if (busy) return; step = 1; $('gfCode').value = ''; say(''); draw(); $('gfMail').focus(); });
     $('gfOut').addEventListener('click', async () => { await window.Auth.signOut(); location.href = '/'; });
     // NOTIFICATIONS (owner item 8): Coder's screen opens its panel.
     $('gfConnectors').addEventListener('click', () => { $('gfMenu').hidden = true; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); window.dispatchEvent(new CustomEvent('gf:connectors')); });
@@ -141,7 +148,7 @@
     else {
       showGate();
       // THE SESSION ENDED (the audit, 2026-11-06): straight to the sign-in card.
-      if (window.Auth.justEnded()) { mode = 'in'; step = 1; openSignin(); say('Sign in again.'); }
+      if (window.Auth.justEnded()) { step = 1; openSignin(); say('Sign in again.'); }
     }
   });
 })();

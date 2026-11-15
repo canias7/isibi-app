@@ -32,6 +32,9 @@ body { padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) en
 .gf-go { border: 0; background: #0d1b2a; color: #fff; border-radius: 999px; padding: 11px 18px; font: 600 14px Inter, system-ui, sans-serif; cursor: pointer; }
 .gf-go:disabled { opacity: .5; cursor: default; }
 .gf-switch { border: 0; background: none; color: #6b7280; text-decoration: underline; font: 13px Inter, system-ui, sans-serif; cursor: pointer; }
+.gf-codeacts { display: flex; justify-content: space-between; gap: 12px; }
+.gf-codeacts[hidden] { display: none; }
+.gf-msg.gf-ok { color: #067647; }
 
 @media (max-width: 520px) { .gf-email { display: none; } .gf-top { padding: 10px 14px; } }
 

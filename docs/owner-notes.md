@@ -7,7 +7,7 @@ log (81,000 lines) is in git history.
 ## Waiting on you (noted 2026-11-06, your word: "Note it, i will do it later")
 
 - **Delete the "gofarther-ml" tunnel in Cloudflare.** It linked the old open AI model server (Ollama) to model.gofarther.dev. Its address is already deleted, so nobody can reach it, but the computer running it is still on. In Cloudflare: Zero Trust, Networks, Tunnels, gofarther-ml. Its Connectors tab shows which computer it runs on. Delete the tunnel, and stop Ollama on that computer if you don't need it.
-- Optional: turn on leaked-password protection for Coder's sign-in in Supabase.
+- Only when you add a new person to Coder (added 2026-11-15): check that Supabase's "Confirm sign up" email shows the code. A brand-new email gets that email, not the one you get. In Supabase: Authentication, Email Templates, Confirm sign up: it needs `{{ .Token }}` in it. If it only has a link, add the code.
 - Only when you want automatic code reviews (added 2026-11-07): in GitHub's settings for the gofarther-coder app, tick the "Pull request" events and set "Checks" to read and write. `@coder review` comments work without this.
 - **Connect Linear on jessica.gofarther.dev (added 2026-11-11, "note it for later im not home").** Linear's login has a "Verify you are human" check that only you can do.
   1. Sign in at jessica.gofarther.dev as the test account.
@@ -17,17 +17,59 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-15: Sign-in is a code we email, no password (your words: "no passwords , just email codes pls")
+
+On the branch, not live yet. Live after "merge and deploy".
+
+- **The card asks only for your email.** Press **Email me a code**, type the code from the email, press **Sign in**.
+  There is no password box any more.
+- **New here? The same card.** A new email's first code makes its account, so the separate "Create an account" is gone.
+  Only the accounts allowed to use Coder can use it, as before.
+- **On the code step:** **Send a new code** sends another one to the same email (the card says "We sent a new code."),
+  and **Use another email** goes back to the email.
+- **Just as safe as before:**
+  - The code only works with the 15-minute ticket this page gets when the code is sent, and Coder's server still adds
+    its proof to every session it makes. A session made straight at Supabase, with an old password or with a code asked
+    there, still can't use Coder.
+  - Wrong codes: 5 tries per email every 15 minutes, as before.
+  - New: codes sent are limited too, 5 per email every 15 minutes ("Too many codes for this email. Wait 15 minutes,
+    then try again."). Supabase also makes you wait a minute between two codes for the same email, and the card shows
+    its words.
+- **Gone:** the password step, the scrambled copy of your password that Coder kept since 2026-11-06, and "Create an
+  account". Your old password still exists at Supabase, but it opens nothing in Coder. The old saved copies
+  (`signin-pin.json`) aren't read any more; they can stay or be deleted.
+- **After it goes live:** you stay signed in (your session and its proof don't change). Reload any open Coder window to
+  get the new card. A window from before still works: it still shows a password box, but what's typed there is
+  ignored and the code is sent.
+- **Only when you add a new person:** a brand-new email gets Supabase's "Confirm sign up" email, not the one you get.
+  It needs the code in it (see "Waiting on you").
+- The desktop and phone apps show gofarther.dev itself, so they get the new card too.
+- Tests: CD86 to CD89 rewritten for codes only (sending the code from the email alone, the new limit on codes sent, a
+  new email's first code making its account, the old sign-up address doing the same, the card with its new buttons and
+  no password box). CD22 updated.
+
 ## 2026-11-15: Gloopy's chat uses Grok's cache, like Coder's (your words: "yes pls")
 
-On my branch, not deployed yet.
+Live on gofarther.dev (deploy 193, your words: "yes pls"). Checked in the test account's Gloopy chat with Grok on Low,
+with Gloopy's own numbers now that they are saved:
+
+1. **The first message after the deploy:** 1,152 of 16,730 tokens cached, as expected (the instructions changed once):
+   3.2 cents.
+2. **The next message:** 16,640 of 16,746 tokens cached (99.4%): 0.85 cents, about a quarter of what the same message
+   cost before.
+3. **A message with a command step:** 33,408 of 33,750 tokens cached (99%) over its 2 calls: 1.8 cents.
+
+The whole check: about 6 cents. In a longer Gloopy chat the saving per message is bigger in cents: at 100,000 tokens,
+about 5 cents a message instead of about 20.
 
 - **Before:** Gloopy's instructions held the time of day and its other details (its notes about you, your schedules,
   permissions, saved logins and the rest), made again at every message. So on the first call of every message Grok read
   Gloopy's whole chat again at full price. Its saved chat also shortened tool answers over 12,000 characters.
 - **Now:** its instructions are the same at every message. The details are told in the conversation instead: all of them
   at the first message, then only what changed (the time at each message, your schedules when they change, and so on).
-  Its notes about you are told again when its computer starts again or after a summary, as Claude Code does with its
-  memory. Long answers are kept whole. So each message's request starts with the last one's, and Grok's cache serves it
+  Its notes about you are told again when its computer starts again (it is suspended when idle, not stopped, so that
+  means after a deploy) or after a summary, as Claude Code does with its memory; Gloopy's own changes to them are in the
+  chat already, and only Gloopy writes them. Long answers are kept whole. So each message's request starts with the last one's, and Grok's cache serves it
   (a test checks it byte for byte).
 - **Pictures** stay out of the saved chat, as before: each browser step brings a screenshot, and keeping the newest few
   (as Coder does) would change an early part of the chat at nearly every job.

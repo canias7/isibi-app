@@ -2,17 +2,18 @@
 // only to Coder's Worker (/api/auth/*), which talks to Supabase. The page keeps
 // its session (the tokens) and asks the Worker for a fresh one before it ends.
 //
-// BOTH STEPS, EVERY TIME (the audit, 2026-11-06): the password step gives a
-// ticket, kept here until the code step sends it back; the code step gives the
-// session and the Worker's proof that both steps happened, kept with the
-// session and sent with every call to Coder (x-coder-proof). A session without
-// a proof (every one from before this change) is not used: sign in once more.
+// A CODE WE EMAIL, NO PASSWORD (the owner, 2026-11-15: "no passwords, just
+// email codes pls"): sending the code gives a ticket, kept here until the code
+// step sends it back; the code step gives the session and the Worker's proof
+// that it happened there (the audit, 2026-11-06), kept with the session and
+// sent with every call to Coder (x-coder-proof). A session without a proof is
+// not used: sign in once more.
 const SESSION_KEY = 'gf_session_v1';
 const AGAIN_KEY = 'gf_signin_again';
 
 const Auth = (() => {
   let session = null; // { access_token, refresh_token, expires_at (ms), user: { id, email }, proof }
-  let ticket = '';    // from the password step, for the code step (15 minutes)
+  let ticket = '';    // from the code being sent, for the code step (15 minutes)
 
   const usable = (s) => (s && typeof s.access_token === 'string' && s.access_token && typeof s.proof === 'string' && s.proof ? s : null);
   function load() { try { session = usable(JSON.parse(localStorage.getItem(SESSION_KEY) || 'null')); } catch (e) { session = null; } return session; }
@@ -28,10 +29,8 @@ const Auth = (() => {
     return d;
   }
 
-  /** Password checked; a code is emailed; the ticket is kept for the code step. */
-  async function signIn(email, password) { const d = await post('signin', { email, password }); ticket = d.ticket || ''; return d; }
-  /** A new account: `{ step: 'code', type }`, and the ticket is kept for the code step. */
-  async function signUp(email, password) { const d = await post('signup', { email, password }); ticket = d.ticket || ''; return d; }
+  /** A code is emailed (a new email's first code also makes its account); the ticket is kept for the code step. */
+  async function sendCode(email) { const d = await post('signin', { email }); ticket = d.ticket || ''; return d; }
   /** The emailed code, with the ticket → signed in, with the proof. */
   async function verifyCode(email, code, type) {
     const d = await post('verify', { email, code, type, ticket });
@@ -112,7 +111,7 @@ const Auth = (() => {
   // signing this tab out (the audit, 2026-11-06, after review).
   try { if (!session && localStorage.getItem(SESSION_KEY)) localStorage.removeItem(SESSION_KEY); } catch (e) {}
   return {
-    signIn, signUp, verifyCode, refresh, accessToken, signOut, end, justEnded,
+    sendCode, verifyCode, refresh, accessToken, signOut, end, justEnded,
     isSignedIn: () => !!session,
     proof: () => (session && session.proof) || '',
     email: () => (session && session.user && session.user.email) || '',

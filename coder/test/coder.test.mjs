@@ -596,26 +596,26 @@ test("CD21 the screen asks the server: the commands, the model list and pick, an
 test("CD22 on the server: sign-in goes through the Worker; settings, slash commands and comments are worked out there", async () => {
   const { handleSignin, sessionOf } = await import("../src/coder-signin.mjs");
   const { commentsText } = await import("../src/coder-routes.mjs");
-  // SIGN-IN: password checked, then a code emailed; the code gives a session.
+  // SIGN-IN: a code emailed from the email alone (no password since 2026-11-15); the code gives a session.
   const calls = [];
   // Since the audit (2026-11-06): a ticket between the steps, and a session id in the token for the proof;
-  // the account's id and the bucket for the remembered password and the code count (test/auth-proof.test.mjs).
+  // the bucket for the counts of codes sent and code checks (test/auth-proof.test.mjs).
   const acc = "h." + Buffer.from(JSON.stringify({ session_id: "s1" })).toString("base64url") + ".sig";
   const fetchFn = async (url, init) => {
     calls.push([url, JSON.parse(init.body || "{}")]);
     const J = (o, s = 200) => new Response(JSON.stringify(o), { status: s });
-    if (url.endsWith("token?grant_type=password")) return JSON.parse(init.body).password === "right" ? J({ access_token: "a", user: { id: "u1" } }) : J({ error_description: "Invalid login credentials" }, 400);
     if (url.endsWith("/otp")) return J({});
     if (url.endsWith("/verify")) return J({ access_token: acc, refresh_token: "ref", expires_in: 3600, user: { id: "u1", email: "me@example.com", role: "x" } });
     return J({}, 404);
   };
   const env = { SUPABASE_URL: "https://sb", SUPABASE_ANON_KEY: "anon", CODER_TOKEN_KEY: KEY, CODER_BUCKET: fakeBucket() };
   const post = (a, b) => handleSignin(new Request("https://gofarther.dev/api/auth/" + a, { method: "POST", body: JSON.stringify(b) }), env, { fetchFn });
-  assert.equal((await post("signin", { email: "me@example.com", password: "wrong" })).status, 401);
-  const ok = await post("signin", { email: "Me@example.com", password: "right" });
+  assert.equal((await post("signin", { email: "not-an-email" })).status, 400);
+  const ok = await post("signin", { email: "Me@example.com" });
   const { ticket, ...said } = await ok.json();
   assert.deepEqual(said, { ok: true, step: "code", type: "email" });
-  assert.deepEqual(calls.find((c) => c[0].endsWith("/otp"))[1], { email: "me@example.com", create_user: false }, "a sign-in never makes an account");
+  assert.deepEqual(calls.map((c) => c[0].split("/").pop()), ["otp"], "no password is checked");
+  assert.deepEqual(calls[0][1], { email: "me@example.com", create_user: true }, "a new email's first code makes its account");
   const v = await (await post("verify", { email: "me@example.com", code: "123456", type: "email", ticket })).json();
   assert.equal(v.session.access_token, acc);
   assert.deepEqual(v.session.user, { id: "u1", email: "me@example.com" }, "only what the page needs");

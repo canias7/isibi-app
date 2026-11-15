@@ -15,8 +15,8 @@ code in **each user's own GitHub**.
 | `src/coder-live.mjs` | The chat saved as it goes: the machine sends each job's steps here every few seconds; kept sealed until the job is saved, put back in the chat if the machine is lost |
 | `src/coder-watch.mjs` | The watch list: every minute, each running job is kept awake and saved when it ends, with or without an open tab |
 | `src/coder-github.mjs` | Sign in with GitHub, the user's token (encrypted), repositories, pull requests |
-| `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that both steps (password, then the emailed code) happened, the password it remembers and the count of code checks |
-| `src/coder-signin.mjs` | `/api/auth/...`: the password step, the emailed code, sign-up, refresh, sign-out |
+| `src/coder-auth.mjs` | Go Farther sign-in (Supabase), the Worker's proof that the emailed code was taken here, and the counts of codes sent and code checks |
+| `src/coder-signin.mjs` | `/api/auth/...`: the code sent from the email alone (no password), the code taken, refresh, sign-out |
 | `src/coder-page.mjs` | Serves the page with its safety headers |
 | `src/coder-mcp.mjs` | Connectors (MCP): each person's list, sign-in to each app (OAuth, kept sealed), its tools, and the machine's connector calls, which go through the Worker (`/api/coder/mcp`) with the job's pass |
 | `test-copy.mjs` | The two test copies' settings (test.gofarther.dev, where Gloopy was built, and jessica.gofarther.dev, where the connectors were: each its own Worker, storage and Fly.io machines), made from `wrangler.jsonc` for the deploy button's "test" and "jessica" choices |
@@ -816,31 +816,38 @@ calls only), and only when the chat's environment has no setup script. Since
 2026-11-13 (CD73); it had counted installs that were refused and never ran, and
 came when a setup script was there.
 
-**Sign-in is both steps, every time** (the audit, 2026-11-06). The password
-step gives the page a 15-minute ticket and ends Supabase's own session for it;
-the emailed code is only taken with that ticket. The code step gives the
+**Sign-in is a code we email, no password** (the owner, 2026-11-15: "no
+passwords, just email codes pls"). The card asks for the email only ("Email me a
+code"); the Worker asks Supabase for its sign-in by code (`/otp` with
+`create_user: true`, so a new email's first code makes its account: one card for
+signing in and signing up) and gives the page a 15-minute ticket. The emailed
+code is only taken with that ticket (`type: "email"`). The code step gives the
 session and the Worker's proof, which the page sends with every call
 (`x-coder-proof`). A Supabase session without the proof gets "Sign in again."
+That includes a session made straight at Supabase with an account's old password
+(accounts from before still have one there) or with a code asked there directly.
 Tickets and proofs are signed with a key made from `CODER_TOKEN_KEY`; without
-it nobody can sign in.
+it nobody can sign in. The old `/api/auth/signup` route does the same as
+`signin`, and a password a page from before sends is not read. The card's code
+step has "Send a new code" and "Use another email".
 
-- **The password the Worker remembers.** Anyone with the inbox alone could ask
-  Supabase for a code and then set a new password there. So the first time an
-  account's password passes the password step here, the Worker keeps its own
-  scrambled copy (`coder/<user id>/signin-pin.json` in the bucket), and after
-  that the password step wants that same password too. Coder has no page to
-  change a password. **If a password is ever changed at Supabase** (the
-  dashboard, a reset email), Coder refuses it with "That email and password do
-  not match." until that one file is deleted; the next sign-in then remembers
-  the new password. Until an account's first password step here, nothing is
-  remembered for it, and the same is true right after `CODER_TOKEN_KEY` changes.
+- **Codes sent are counted.** Each email gets 5 codes per 15 minutes, counted
+  before Supabase is asked ("Too many codes for this email. Wait 15 minutes, then
+  try again."); Supabase adds its own minute between two codes for one email,
+  and its words are shown as they are.
 - **Wrong codes are counted.** Each email gets 5 code checks per 15 minutes,
   before Supabase is asked. Then the card says to wait and start again. A right
-  code starts the count again; a new password step does not.
+  code starts the count again; a new code sent does not.
+- **For a brand-new email** Supabase sends its "Confirm sign up" email, not the
+  "Magic Link" one. For it to show a code too, that template needs `{{ .Token }}`
+  (Supabase: Authentication, Email Templates). Only accounts in `CODER_USERS`
+  may use Coder anyway.
+- Until 2026-11-15 the Worker also kept a scrambled copy of each account's
+  password (`coder/<user id>/signin-pin.json`). Nothing reads those files now.
 
 **The code is never stored with us.** Coder's bucket keeps the chat, the project
 list and the GitHub connection (encrypted with `CODER_TOKEN_KEY`), and for
-sign-in the remembered passwords (scrambled) and the code counts.
+sign-in the counts of codes sent and code checks.
 
 **The GitHub login never enters Coder's machine** (2026-11-07, like Claude
 Code: "GitHub credentials ... never enter the session VM"). The machine is given
