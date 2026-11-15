@@ -73,6 +73,8 @@ On my branch, not deployed yet.
   - `DISABLE_AUTO_COMPACT`, or `autoCompactEnabled: false`: a full chat then stops with "Context limit reached".
   - `CODER_AUTO_COMPACT_WINDOW`: a window from 100k to 1M tokens. 200k makes Coder summarize at 165,600.
   - Not the percentage: as in Claude Code's cloud sessions, Coder sets it itself (92), whatever you set.
+- **Your choice (2026-11-15, your word: "440k"):** Coder keeps Grok's full window and summarizes at about 441,600
+  tokens, as above, not at 200k.
 - **Limits I raised so nothing in between drops a big chat** (the Worker's ones since lowered again, with the pictures
   kept apart: see the entry above):
   - Coder's machine now takes 48 MB at once (was 8 MB).
