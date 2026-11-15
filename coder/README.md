@@ -466,6 +466,14 @@ code in **each user's own GitHub**.
      only what changed; instruction files are told again after the machine restarts or
      a summary, as Claude Code's. Coder's own Accept edits note is gone. Tests:
      `test/plan-mode.test.mjs`, `test/context-cache.test.mjs`.
+     Gloopy too since 2026-11-15 (the owner: "yes pls"): its machine gives its context as
+     pieces (`gloopyContextPieces`, keys in `GLOOPY_CONTEXT_KEYS`: its notes about the
+     owner "i:", told again after a restart or a summary; the time of day, schedules,
+     permissions and the rest "s:", told when they change; the recap after a break "e:"),
+     so its system message is `GLOOPY_SYSTEM` alone; its saved chat keeps each answer
+     whole (pictures still left out: a screenshot comes with every browser step); and the
+     Worker keeps each message's `usage`, as Coder's. A helper's context (a text) stays
+     in its system message. Tests: `test/gloopy-cache.test.mjs`.
    - *Hooks and cards* (round 4): `mcp_tool` hooks call the chat's connectors through the
      Worker (`/api/coder/mcp` `{hook}`), as Claude Code's; a card shows at once while its
      PermissionRequest hooks run, and the first answer wins ("· by your PermissionRequest

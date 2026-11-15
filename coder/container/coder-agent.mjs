@@ -2998,8 +2998,15 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // the same for the whole chat, as Claude Code keeps its system prompt): in Coder's own chats and its jobs from GitHub,
   // what Coder's machine knows (the repo's instruction files, the memory, the working folder, the environment, git, the
   // date…) is told in notes in the conversation, never in the system message; `context` keeps its text for the checker and
-  // the marks. Gloopy's context stays in its system message, as before.
-  const ctxOn = !offered;
+  // the marks. Gloopy's too since 2026-11-15 (the owner: "yes pls", to fix Gloopy's cache as Coder's was), when its machine
+  // gives its context as pieces (gloopy-agent.mjs gloopyContextPieces): the time of day, its notes about the owner, its
+  // schedules and the rest no longer change its system message at each message. A helper's (a text) stays in its system
+  // message.
+  const ctxOn = !offered || Array.isArray(context);
+  /** Gloopy's own job with its context in the conversation: its saved chat keeps each answer whole too (saved, below). */
+  const gloopyWhole = !!offered && ctxOn;
+  /** The pieces a re-read of the context keeps (they come from the job, not from the machine's context). */
+  const jobPieces = new Set(["s:CONNECTOR INSTRUCTIONS", "s:CONNECTORS NOT SIGNED IN"]);
   let ctxNow = ctxOn ? piecesOf(context) : null;
   if (ctxOn) context = piecesText(ctxNow);
   let compactions = 0, summarizeAgainAt = 0;
@@ -3196,7 +3203,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // without tool search, it doesn't tell Claude. Gloopy is told as before. 2026-11-14.)
   const mcpWaiting = !github && Array.isArray(connectorsWaiting) ? connectorsWaiting.map((n) => String(n).slice(0, 40)).filter(Boolean).slice(0, offered ? 10 : 20) : [];
   if (mcpWaiting.length && offered) {
-    context = (context ? context + "\n\n" : "") + "CONNECTORS NOT SIGNED IN YET: " + mcpWaiting.join(", ") + ". Their tools are not available in this job; if the owner's request needs one, say that they sign it in (Connectors, the connector, Sign in) and ask again.";
+    const waiting = "CONNECTORS NOT SIGNED IN YET: " + mcpWaiting.join(", ") + ". Their tools are not available in this job; if the owner's request needs one, say that they sign it in (Connectors, the connector, Sign in) and ask again.";
+    // (Gloopy's context in the conversation, 2026-11-15: a piece of it, told when it changes.)
+    if (ctxOn) { ctxNow.push(piece("s:CONNECTORS NOT SIGNED IN", "\n\n" + waiting)); context = piecesText(ctxNow); }
+    else context = (context ? context + "\n\n" : "") + waiting;
   }
   // CONNECTORS THAT FAILED (status "error": their tools are not offered), with their errors: Claude Code's failed MCP servers,
   // named in tool search's note and in a search that finds nothing ("With tool search, Claude Code tells Claude which server
@@ -3657,9 +3667,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // every tool result and image block whole): in Coder's chats each answer, note and picture is saved as Grok was sent it, so
   // the next message's request starts with this one's, byte for byte; what keeps the chat small enough is Claude Code's
   // auto-compact (autoCompact, below), and keepPics for the pictures. The copy saved as the job goes is the same with its
-  // pictures left out (the Worker keeps it only in case the machine stops mid-job). Gloopy's saved chat is cut as before.
-  const saved = (m) => (offered ? forSaving(noPics(m)) : m);
-  const savedLive = (m) => (offered ? forSaving(noPics(m)) : noPics(m));
+  // pictures left out (the Worker keeps it only in case the machine stops mid-job). Gloopy's saved chat keeps each answer whole
+  // too since 2026-11-15 (gloopyWhole; the owner: "yes pls"), its pictures still left out: each step of its browser brings a
+  // screenshot, and keeping the newest few would change an early part of the chat at nearly every job. A helper's is cut.
+  const saved = (m) => (offered ? (gloopyWhole ? noPics(m) : forSaving(noPics(m))) : m);
+  const savedLive = (m) => (offered ? (gloopyWhole ? noPics(m) : forSaving(noPics(m))) : noPics(m));
   // (`whole`: how many times Claude Code's auto-compact summarized the conversation in this job; from the first, the copy is the
   // whole conversation, the summary first, not this job's part after the saved chat.)
   try { if (typeof deps.watch === "function") deps.watch(() => convo.map(savedLive), { whole: () => autoCompacted }); } catch { /* never costs the run */ }
@@ -3934,7 +3946,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // re-injects CLAUDE.md and its memory "from disk" after compaction.)
     if (ctxOn) {
       if (typeof deps.freshContext === "function") {
-        try { const c = await deps.freshContext(); if (Array.isArray(c) || (typeof c === "string" && c.trim())) { ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => p.key === "s:CONNECTOR INSTRUCTIONS")]; context = piecesText(ctxNow); } } catch { /* the one it had stays */ }
+        try { const c = await deps.freshContext(); if (Array.isArray(c) || (typeof c === "string" && c.trim())) { ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => jobPieces.has(p.key))]; context = piecesText(ctxNow); } } catch { /* the one it had stays */ }
       }
       convo.push(...contextNotes(convo, ctxNow, { reason: "compaction" }));
       await markShownStart(deps, context);
@@ -4007,7 +4019,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
             try {
               const c = await deps.freshContext();
               if (ctxOn && (Array.isArray(c) || (typeof c === "string" && c.trim()))) {
-                ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => p.key === "s:CONNECTOR INSTRUCTIONS")];
+                ctxNow = [...piecesOf(c), ...ctxNow.filter((p) => jobPieces.has(p.key))];
                 context = piecesText(ctxNow);
                 convo.push(...contextNotes(convo, ctxNow, { reason: "compaction" }));
                 await markShownStart(deps, context);

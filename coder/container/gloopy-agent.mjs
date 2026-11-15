@@ -375,9 +375,10 @@ export function savedLoginsLine(list) {
   return shown.map(say).join(", ") + (all.length > shown.length ? ", and " + (all.length - shown.length) + " more sites (sign_in finds a site's own)." : ".");
 }
 
-export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], files = [], background = false } = {}) {
+function gloopyParts({ memFile, memory = "", now = Date.now(), workDir = "", machine = "", awayH = 0, browser = true, schedules = [], schedulesPaused = false, ownerZone = "", permissions = null, rules = [], sites = [], pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], files = [], background = false } = {}) {
   const notes = String(memory || "").slice(0, GLOOPY_NOTES_MAX);
   const day = new Date(now).toISOString().slice(0, 10);
+  // (Each part's place is its key in GLOOPY_CONTEXT_KEYS; "" for one with nothing to say.)
   return [
     awayH ? "THE OWNER IS COMING BACK AFTER A BREAK of about " + awayH + " hour" + (awayH === 1 ? "" : "s") + ": start your answer with a one-line recap of where things stand." : "",
     // The owner's device's time zone (the docs, 2026-11-10; Grok Bot's Timezone "Auto-detect follows this computer").
@@ -407,5 +408,22 @@ export function gloopyContext({ memFile, memory = "", now = Date.now(), workDir 
     schedulesPaused ? "YOUR BACKGROUND WORK IS PAUSED by the owner: no schedule, wake-up or webhook call runs until they type /resume. You can still set them up; say that they won't run until then." : "",
     "FILES (kept for you: the owner's attachments and the files you sent; files get puts one in files/): " + (Array.isArray(files) && files.length ? "\n" + files.slice(0, 30).map((f) => "- " + String(f.id || "") + " · " + String(f.name || "").replace(/[\p{Cc}\p{Cf}]/gu, "").slice(0, 120) + " · " + (Number(f.size) >= 1048576 ? (Number(f.size) / 1048576).toFixed(1) + " MB" : Math.max(1, Math.round(Number(f.size) / 1024)) + " KB") + " · " + (f.dir === "out" ? "you sent it" : "from the owner") + (f.at ? " · " + new Date(f.at).toISOString().slice(0, 10) : "")).join("\n") : "none."),
     "YOUR WEBHOOKS (webhook list says more): " + (Array.isArray(webhooks) && webhooks.length ? "\n" + webhooks.slice(0, 10).map(webhookLine).join("\n") : "none."),
-  ].filter(Boolean).join("\n\n");
+  ];
+}
+/**
+ * GLOOPY'S CONTEXT AS PIECES (the owner, 2026-11-15: "yes pls", to fix Gloopy's cache the way Coder's was fixed in round 4,
+ * coder-context.mjs): the parts of gloopyParts, each with its key, whose first letter says how it is kept in the
+ * conversation: "e:" this message's own news (told once), "i:" the notes about the owner (read again only on the chat's
+ * first message since its machine started, or after a summary, as Claude Code reads its memory), "s:" the rest, the time
+ * of day among them, told again when it changes. So Gloopy's system message is the same for the whole chat, and Grok's cache
+ * keeps the chat from one message to the next.
+ */
+export const GLOOPY_CONTEXT_KEYS = Object.freeze(["e:BACK AFTER A BREAK", "s:TODAY", "i:YOUR NOTES ABOUT THE OWNER", "s:WHERE YOUR COMMANDS RUN", "s:THIS MACHINE", "s:NETWORK", "s:YOUR BROWSER", "s:YOUR PERMISSIONS", "s:THIS RUN", "s:THE OWNER'S CUSTOM RULES", "s:THE OWNER'S SITES", "s:SAVED LOGINS", "s:SAVED CARDS", "s:THE OWNER'S CONTACT INFO", "s:YOUR PAGES", "s:YOUR SCHEDULES", "s:BACKGROUND WORK PAUSED", "s:FILES", "s:YOUR WEBHOOKS"]);
+/** Gloopy's context as one text, as its system message had it until 2026-11-15 (and a helper's still has it). */
+export function gloopyContext(opts = {}) { return gloopyParts(opts).filter(Boolean).join("\n\n"); }
+/** Gloopy's context as pieces, for its conversation (coder-context.mjs piece): the parts with something to say, each with its key. */
+export function gloopyContextPieces(opts = {}) {
+  const parts = gloopyParts(opts), out = [];
+  parts.forEach((t, i) => { if (t) out.push({ key: GLOOPY_CONTEXT_KEYS[i], text: (out.length ? "\n\n" : "") + t }); });
+  return out;
 }
