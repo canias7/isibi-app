@@ -86,7 +86,7 @@ test("CD379 Grok's prompt cache: every AI call of a chat carries the chat's own 
   const env = { CODER_TOKEN_KEY: KEY, XAI_API_KEY: "xai-x", CODER_PUBLIC_URL: "https://coder.gofarther.dev", CODER_BUCKET: bucket };
   const a = await G.modelAccess(env, UID, "shop-m1", 3);
   const seen = [];
-  const r = await G.handleModel(new Request("https://coder.gofarther.dev" + G.MODEL_PATH, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": a.chat, "x-coder-turn": "3", "x-coder-until": String(a.until), "x-coder-model": a.pass }, body: JSON.stringify({ model: "grok-4.7", input: [{ role: "user", content: "hi" }], reasoning: { effort: "low" }, prompt_cache_key: "someone-elses" }) }), env, { fetchFn: async (url, init) => { seen.push(JSON.parse(init.body)); return new Response("{}", { status: 200 }); } });
+  const r = await G.handleModel(new Request("https://coder.gofarther.dev" + G.MODEL_PATH, { method: "POST", headers: { "content-type": "application/json", "x-coder-chat": a.chat, "x-coder-turn": "3", "x-coder-until": String(a.until), "x-coder-model": a.pass }, body: JSON.stringify({ model: "grok-4.7", input: [{ role: "user", content: "hi" }], reasoning: { effort: "low" }, prompt_cache_key: "someone-elses" }) }), env, { fetchFn: async (url, init) => { seen.push(JSON.parse(typeof init.body === "string" ? init.body : new TextDecoder().decode(init.body))); return new Response("{}", { status: 200 }); } });
   assert.equal(r.status, 200);
   assert.equal(seen[0].prompt_cache_key, k1);
   assert.deepEqual(seen[0].reasoning, { effort: "low" }, "the rest of the call as the machine sent it");

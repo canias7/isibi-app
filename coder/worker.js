@@ -7,7 +7,7 @@ import { corsHeaders } from "./src/coder-cors.mjs";
 import { servePage } from "./src/coder-page.mjs";
 import { handleSignin } from "./src/coder-signin.mjs";
 import { handleEgress, EGRESS_PATH } from "./src/coder-egress.mjs";
-import { handleLive, LIVE_PATH } from "./src/coder-live.mjs";
+import { handleLive, LIVE_PATH, handleLivePic, LIVE_PIC_PATH } from "./src/coder-live.mjs";
 import { handleGit, GIT_PATH } from "./src/coder-git.mjs";
 import { handleModel, MODEL_PATH } from "./src/coder-model-gate.mjs";
 import { handleMcp, MCP_PATH } from "./src/coder-mcp.mjs";
@@ -128,6 +128,9 @@ export default {
     } else if (url.pathname === LIVE_PATH) {
       // THE CHAT SAVED AS IT GOES (2026-11-06, like Claude Code): a job's own pass, not a user.
       res = await handleLive(request, env, { waitUntil: (p) => ctx.waitUntil(p) });
+    } else if (url.pathname === LIVE_PIC_PATH) {
+      // A CODER CHAT'S PICTURES, KEPT APART FROM ITS SAVED CHAT (2026-11-14, the Worker's memory): the job's own pass too.
+      res = await handleLivePic(request, env);
     } else if (url.pathname.startsWith("/api/coder/")) {
       const m = machinesFor(env);
       res = await handleCoder(request, env, ctx, { authUser: (r) => authUser(r, env), container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState, routeLink: m.routeLink });

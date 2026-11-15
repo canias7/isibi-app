@@ -17,6 +17,146 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-14: Summaries come mostly from the cache, and the Worker never holds a chat's pictures
+
+On my branch, not deployed yet. Two follow-ups to the entry below.
+
+- **Summaries, as Claude Code asks for them:** Coder now asks Grok for a summary with the conversation itself: the same
+  instructions, tools and messages as its other requests, with Claude Code's summary instructions added at the end. So
+  Grok's cache serves almost all of it, and a summary costs mostly cached tokens ($0.50 a million instead of $2.00):
+  about $0.22 at the 441,600 mark, plus its answer. Before, Coder sent a plain-text copy of the chat, all at full price.
+  - If Grok says even that request is too long, Coder leaves out the oldest steps and tries again, up to 3 times, as
+    Claude Code does. The summary then says part of the chat isn't in it. If all 3 fail, the chat says "Conversation too
+    long. Use Rewind to go back a few messages and try again."
+  - If Grok answers with no words, Coder falls back to its old plain-text summary request.
+  - The summaries made on Coder's server (Rewind's, and the last resort before a job) stay plain text: the server doesn't
+    have Coder's instructions and tools.
+- **The Worker's memory:** a Cloudflare Worker has 128 MB. With pictures kept in the saved chat, a chat with 24 pictures
+  is about 20 MB, and I measured what the server held at once with one:
+  - starting a message, saving a job, Undo and Rewind: 108 to 129 MB of memory for the code alone (200 to 275 MB all
+    told), so these would have failed;
+  - each request to Grok passing through the server: 108 MB.
+- **The fix:** each picture is now stored on its own, and the saved chat only names it. Coder's machine sends a job's new
+  pictures at its end and fetches them back at the next message, so Grok gets exactly the same bytes and the cache still
+  holds. The server also passes requests to Grok on without unpacking them. Now each of those fits in under 48 MB,
+  measured with the same 20 MB chat, and a test checks it.
+  - If a picture can't be stored or fetched back, it is left out and the chat says so.
+  - The page never downloads a chat's conversation, only its steps (checked).
+- **Limits now** (instead of the ones in the entry below): a saved chat up to 8 MB of text, the server's last-resort
+  summary past 6 MB, the copy saved while a job runs up to 4 MB.
+- **Gloopy:** unchanged. The 500K window and the 92% stay as they are, waiting for your answer on a smaller window.
+- **Tests:** `test/worker-memory.test.mjs` (new, 5: each server route run with a 48 MB limit), `test/autocompact.test.mjs`
+  AC9 (the summary request and its fallbacks), and the files around them updated and passing.
+
+## 2026-11-14: The saved chat keeps everything as sent, and long chats are summarized the way Claude Code does it (your words: "yes copy claude code")
+
+On my branch, not deployed yet.
+
+- **The cache:** after each message, Coder's saved chat used to shorten any tool answer over 12,000 characters and swap
+  each picture for a note. So the next message's request no longer matched the last one from that point, and Grok read
+  the rest of the chat again at full price. Now Coder saves the chat exactly as it sent it to Grok, as Claude Code's
+  transcript keeps every tool result and picture. The next message starts with the last one, byte for byte. Pictures
+  keep their limit: the newest 24, up to 18 MB. Your earlier pictures now count toward it too; the ones in your newest
+  message always stay.
+- **A big job never loses the chat:** Claude Code's auto-compact, copied with its numbers. Before every request to Grok,
+  Coder counts the chat's tokens from what Grok said the last request used, plus an estimate of anything after it. At
+  441,600 of Grok's 500,000 tokens, Coder summarizes the whole conversation. (Claude Code's rule: the window less 20,000
+  kept for the answer is 480,000, and its cloud sessions summarize at 92% of that, a share they set for themselves. On a
+  computer, Claude Code would wait until 467,000.) Grok is told in Claude Code's words, and the chat shows "Conversation
+  compacted". Then, as in Claude Code, the files Coder was working on are read again (up to five). The plan file, your
+  instructions and memory (fresh from disk) and the hooks come back too. If Grok ever refuses a request as too long,
+  Coder summarizes and tries once more. After 3 failed summaries in a row, Coder stops trying for that job. If the chat
+  fills up again within 3 steps, 3 times in a row, the job ends with Claude Code's "Autocompact is thrashing" message.
+  The cache now breaks only at a summary.
+- **Settings you can use** (Claude Code's, with Coder's names), in the chat's environment or the repository's settings:
+  - `DISABLE_COMPACT`: turns off /compact too.
+  - `DISABLE_AUTO_COMPACT`, or `autoCompactEnabled: false`: a full chat then stops with "Context limit reached".
+  - `CODER_AUTO_COMPACT_WINDOW`: a window from 100k to 1M tokens. 200k makes Coder summarize at 165,600.
+  - Not the percentage: as in Claude Code's cloud sessions, Coder sets it itself (92), whatever you set.
+- **Your choice (2026-11-15, your word: "440k"):** Coder keeps Grok's full window and summarizes at about 441,600
+  tokens, as above, not at 200k.
+- **Limits I raised so nothing in between drops a big chat** (the Worker's ones since lowered again, with the pictures
+  kept apart: see the entry above):
+  - Coder's machine now takes 48 MB at once (was 8 MB).
+  - The Worker keeps a Coder chat up to 40 MB (was 400 KB). It only summarizes before a job past 32 MB (was 300 KB), as
+    a last resort.
+  - The copy saved while a job runs can be up to 16 MB (was 4 MB) and leaves pictures out. If it is still too large,
+    only that copy is skipped; the steps still go.
+  - If the machine stops after a summary in the job, the Worker now saves the summarized chat. Before, it would have
+    added that piece to the old chat.
+  - Grok's own request limit (30 MB) is unchanged.
+- **Gloopy:** unchanged.
+- **Cost:** each message now sends long answers and pictures whole, so it has more tokens. Those tokens are at the
+  cached price ($0.50 instead of $2.00 a million). A long chat can now grow to 441,600 tokens before a summary. Before,
+  it was summarized at 450,000 characters, about 130,000 tokens with Coder's instructions and tools. At the top, one
+  request is now about $0.22 when cached and $0.88 when not (about $0.07 and $0.26 before). Setting
+  `CODER_AUTO_COMPACT_WINDOW=200k` keeps chats smaller if you prefer.
+  - A summary now reads up to 1.4 million characters of the chat (it was 150,000), at full price: at most about $0.90.
+    It is usually far less, because each tool answer goes in cut to 1,500 characters. And it only happens near the
+    441,600 mark.
+  - Claude Code's own summary request reuses the cached chat. Coder's sends a plain-text copy, so it isn't cached.
+    (Copied since: see the entry above.)
+- **Tests:** `test/autocompact.test.mjs` (new, 8). `test/cache-prefix.test.mjs`: CP9 (a long read, an @-file, a read's
+  picture and yours, then the next message byte for byte) and CP10 (a summary mid-job, the only break).
+  `test/live-save.test.mjs`: CD121b (the machine lost after a summary in the job). The files around them were updated
+  and pass.
+
+## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
+
+On my branch, not deployed yet.
+
+- **What the live test showed:** after Coder loaded web_fetch and you said No on its card, the next message (a command,
+  then Stop) had only 1,152 of 20,420 tokens cached. The same happened to the turn that answered your `!cat …` command
+  after Settings' hooks were set back to none. 1,152 is what a brand-new chat's first call gets: Grok had nothing of the
+  chat then.
+- **What I found with a pretend Grok:** in those messages Coder sends each request as the one before it plus the new
+  messages, byte for byte (the system message, the tools, the earlier messages). The No, the Stop, the machine starting
+  again, the `!` command and the hooks change change nothing in it. So the live breaks came from Grok's side (its cache
+  lost the chat while the card or Settings waited), or from a setting that changed a tool between the two messages.
+- **The fix:** some settings did change the tools between two messages: the background limit in Settings, the command time
+  limits, the output limits, background commands off, the network gate, web_fetch's cache time, a connector's description
+  or its length limit. Each one made Grok read the whole chat again at full price. Now every tool keeps the definition the
+  chat first sent it with, as Claude Code keeps its tools for a session. It is kept in the chat's record, so it also holds
+  after a summary or a machine restart. A connector tool whose inputs changed is sent as it is now, and so are Coder's own
+  tools after a deploy that changes them.
+- **Still breaks the cache, unchanged (your call):** loading a tool with tool_search (Grok has no deferred tools, so the
+  whole prompt is read again once); a tool result over 12,000 characters or a picture, which the saved chat shortens after
+  the message; a deny rule on WebSearch or `CODER_ENABLE_TASKS` changing the system message; PowerShell turned on mid-chat.
+- **Fixed after, as asked:** the bash tool's description is meant to say zsh when Coder's
+  commands run in zsh (they do on Coder's machines unless `CODER_SHELL` says bash), as Claude Code's names your shell. It
+  was given your `!` command instead of the machine's shell, so it never did. Now it says zsh. A chat's first message sends
+  the right one and keeps it; chats from before keep what they sent until a new version of Coder's tool code, which this
+  fix is, so each of them reads its prompt again once after the deploy.
+- **Tests:** `test/cache-prefix.test.mjs` (new, 8), and the files around it all pass.
+- **Cost:** nothing; it saves Grok reading a chat again after a setting change.
+
+## 2026-11-14: Rounds 4, 5 and 6 are live on gofarther.dev, tested with Grok on Low (your words: "yes pls")
+
+Merged into main and deployed (deploy 189). Then one test chat of canias7/testingforclaude with Grok on Low, ten checks,
+all passed:
+
+1. **Environment lookup:** Coder found "Live test 10 Nov"; opened, the step shows the answer as a table.
+2. **Cheaper messages:** on the second message, 18,048 of Grok's 18,156 input tokens (99%) came from its cache.
+3. **Long output:** `seq 1 300000` (1.9 MB) was saved to a file; Coder saw "Output too large (1.9MB)." with the start and
+   end.
+4. **Binary file:** read refused a `.zip` in Claude Code's words.
+5. **No:** the fetch card offered "Yes, and don't ask again for example.org"; after No, the two reads beside it kept
+   their results and the fetch was "not run".
+6. **Stop:** Stop cut a running command (exit 137); asked afterwards, Coder quoted Claude Code's "stopped while it ran"
+   text.
+7. **Card words:** "Permission rule Read(./notes/**) requires confirmation for this command." and "Coder requested
+   permissions to read from …/notes/a.txt, but you haven't granted it yet."
+8. **Environment window:** the Description row is there; the description isn't repeated at the top.
+9. **Hooks get full paths:** Grok asked for `README.md`; the hook got `/data/work/testingforclaude-njpkw12i/README.md`.
+10. **`.bmp` and `~/`:** `t.bmp` refused as a binary file; `~/.bashrc` refused as outside the project.
+
+- **Found, being looked at:** the cache misses once more than it should after Coder loads a tool through tool search,
+  and once after Coder answers your own `!` command (1,152 of about 20,000 tokens cached on those messages, then back to
+  98-99%). A helper is reproducing it on my side, without paid calls.
+- **My test script's mistake, not Coder's:** my last check was sent while Coder was still answering my `!` command; its
+  card waited, the job paused after 5 minutes as designed, and answering the card finished it.
+- **Cost:** about 15 Grok messages on Low.
+
 ## 2026-11-14: Round 6: Claude Code's way on the open questions (your words: "do what claude code does")
 
 On my branch with rounds 4 and 5, not deployed yet. Four helpers, each with follow-ups. All 1,181 tests passed after

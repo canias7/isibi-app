@@ -143,12 +143,12 @@ import { readPages, pagesForTurn, keepPages, removePage, pageAddress, servePageF
 import { scanCard } from "./gloopy-cardscan.mjs";
 import { readLogins, saveLogin, editLogin, importLogins, removeLogin, loginList, loginFor, loginSite, LOGINS_MAX, readCards, saveCard, editCard, removeCard, cardList, cardLabel, cardBrand, checkCard, cardFor, cardsForTurn, CARDS_MAX, readContacts, saveContact, editContact, removeContact, contactList, CONTACTS_MAX } from "./gloopy-vault.mjs";
 import { cleanSchedule, checkSchedule, whenLocal, whenWords, cleanWebhook, HOOK_ID, okZone } from "../container/gloopy-schedule.mjs";
-import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT } from "./coder-summary.mjs";
+import { summarize, compactHistory, marksAfter, COMPACT_HISTORY_AT, CODER_COMPACT_SAFETY } from "./coder-summary.mjs";
 import { summaryMessage, filesTouched } from "../container/coder-compact.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH, sendHeld, dropHeld } from "./coder-egress.mjs";
 import { keepBackup, readBackup, forgetSite, WORK_MAX, BROWSER_MAX } from "./gloopy-backup.mjs";
 import { watchJob, watchKey, watchBackground, WATCH_PREFIX } from "./coder-watch.mjs";
-import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps } from "./coder-live.mjs";
+import { livePass, LIVE_PATH, readLive, dropLive, wholeSteps, prunePics, dropPics } from "./coder-live.mjs";
 import { gitAccess } from "./coder-git.mjs";
 import { readConnectors, connectorOut, setPerms, CATALOG, CATALOG_LATER, addConnector, removeConnector, finishSignIn, toolsFor as connectorTools, keepJobTools, refreshTools, clientDoc, jobConnectors, expandConnectorRefs, readConnectorSettings, writeConnectorSettings, setConnectorState, STATE_COOKIE as MCP_COOKIE, CALLBACK_PATH as MCP_CALLBACK, jobTool, callTool } from "./coder-mcp.mjs";
 import { githubReady, makeState, readState, newNonce, STATE_COOKIE, signInUrl, installUrl, exchangeCode, saveConnection, forgetConnection, userToken, gh, ghRead, repoAccess, listRepos, openPullRequest, postReview, REPO, BRANCH, seal, unseal } from "./coder-github.mjs";
@@ -438,6 +438,13 @@ async function getJson(bucket, key, fallback) {
   try { return JSON.parse(await o.text()); } catch { return fallback; }
 }
 const putJson = (bucket, key, v) => bucket.put(key, JSON.stringify(v), { httpMetadata: { contentType: "application/json" } });
+/** getJson, and the stored text's length (so a chat's size is known without making it again: the Worker's memory, 2026-11-14). */
+async function getJsonSized(bucket, key, fallback) {
+  const o = await bucket.get(key);
+  if (!o) return { value: fallback, size: 0 };
+  const t = await o.text();
+  try { return { value: JSON.parse(t), size: t.length }; } catch { return { value: fallback, size: 0 }; }
+}
 /**
  * A DELETED CHAT'S BRANCH RECORDS (branchKey: which chat a branch's pull request news and `@coder` comments go to): its own
  * branch's and the one it works on (auto-fix may have moved it onto a pull request's), only while they name this chat.
@@ -523,14 +530,16 @@ async function endLostJob(env, bucket, uid, meta, note) {
   await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...steps, ev].slice(-MAX_EVENTS));
   if (steps.length || kept.messages) {
     const asked = (steps.find((e) => e && e.type === "user") || {}).text;
-    // The chat's saved history, then this job's part as far as it came (to its last whole step).
+    // The chat's saved history, then this job's part as far as it came (to its last whole step); or, when Claude Code's
+    // auto-compact summarized the conversation in the job (`whole`), the conversation it sent, the summary first, in its place.
     const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    const base = wholeSteps([...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
+    const base = wholeSteps(kept.whole === true ? kept.messages : [...(Array.isArray(saved) ? saved : []), ...(kept.messages || [])]);
+    if (kept.whole === true) meta = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: (Array.isArray(saved) ? saved.length : 0) + 1 }) };
     const told = [
       { role: "user", appNote: true, content: "(Note from Coder's app, not the owner: Coder's machine stopped during the last job, so the job ended there" + (typeof asked === "string" && asked && !(kept.messages && kept.messages.length) ? ". The owner had asked: \"" + asked.slice(0, 2000) + "\"" : "") + ". Its steps are kept in the chat, but the changes it made in the files since the last save are gone: the branch has only what was saved before.)" },
       { role: "assistant", content: "Understood: that job was cut off, and its unsaved changes are gone." },
     ];
-    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told]));
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...base, ...told], historyMaxFor(meta)));
   }
   const idle = { ...meta, status: "idle", saved: meta.turn, at: Date.now() };
   await saveMeta(bucket, uid, idle);
@@ -695,26 +704,45 @@ async function sameMessage(bucket, metaKey, meta, mid, pause = (ms) => new Promi
 }
 /** How much conversation Coder keeps (the audit): the oldest is dropped first, starting again at a message from the user. */
 export const HISTORY_MAX = 400 * 1024;
+/**
+ * A CODER CHAT'S, SINCE ITS SAVED CHAT KEEPS EVERY ANSWER WHOLE (2026-11-14, the owner: "yes copy claude code"): a last resort
+ * only, as Claude Code's auto-compact keeps the conversation under Grok's window (some 2 MB of text) and its pictures are kept
+ * apart (coder-live.mjs): 8 MB, which each of the Worker's routes holds within its 128 MB (test/worker-memory.test.mjs).
+ * Gloopy's chats keep HISTORY_MAX.
+ */
+export const CODER_HISTORY_MAX = 8 * 1024 * 1024;
+export const historyMaxFor = (meta) => (meta && meta.kind === "gloopy" ? HISTORY_MAX : CODER_HISTORY_MAX);
 export function capHistory(messages, max = HISTORY_MAX) { return capHistoryInfo(messages, max).messages; }
-/** capHistory, and how many of the messages went from the front (`dropped`): Rewind's marks move up by that many. */
+/**
+ * capHistory, and how many of the messages went from the front (`dropped`): Rewind's marks move up by that many; and (`text`)
+ * the saved chat's JSON as it measured it, to save as it is, so it is not made twice (the Worker's memory, 2026-11-14).
+ */
 export function capHistoryInfo(messages, max = HISTORY_MAX) {
-  if (!Array.isArray(messages)) return { messages: [], dropped: 0 };
-  let out = messages, dropped = 0;
-  while (out.length && JSON.stringify(out).length > max) {
+  if (!Array.isArray(messages)) return { messages: [], dropped: 0, text: "[]" };
+  let out = messages, dropped = 0, text = JSON.stringify(out);
+  // A PICTURE STILL IN THE SAVED CHAT ITSELF (its machine could not keep it apart on the Worker: coder-live.mjs) goes first,
+  // with a note in its place, as the saved chat had before 2026-11-14: never the conversation for it.
+  if (text.length > max && out.some((m) => m && Array.isArray(m.images) && m.images.some((u) => typeof u === "string" && u.startsWith("data:")))) {
+    out = out.map((m) => { if (!m || !Array.isArray(m.images)) return m; const inline = m.images.filter((u) => typeof u === "string" && u.startsWith("data:")); if (!inline.length) return m; const rest = m.images.filter((u) => !inline.includes(u)); const { images: _all, ...base } = m; return { ...base, ...(rest.length ? { images: rest } : {}), content: String(m.content || "") + "\n[" + inline.length + " picture" + (inline.length > 1 ? "s" : "") + " attached]" }; });
+    text = JSON.stringify(out);
+  }
+  while (out.length && text.length > max) {
     // At one of the owner's messages (or a summary), never at a note of Coder's app.
     const next = out.findIndex((m, i) => i > 0 && m && m.role === "user" && m.appNote !== true);
-    if (next > 0) { out = out.slice(next); dropped += next; continue; }
+    if (next > 0) { out = out.slice(next); dropped += next; text = JSON.stringify(out); continue; }
     // ONE JOB ALONE IS OVER THE SIZE (the review, 2026-11-08: it used to leave nothing at all): its long answers are cut
     // shorter instead, and only if that is not enough does the job's own record go, keeping the owner's message.
     for (const keep of [2000, 300]) {
       out = out.map((m) => (m && (m.role === "tool" || m.appNote === true) && typeof m.content === "string" && m.content.length > keep ? { ...m, content: m.content.slice(0, keep) + "\n[… cut short in the saved chat: read the file again if you need it]" } : m));
-      if (JSON.stringify(out).length <= max) return { messages: out, dropped };
+      const t = JSON.stringify(out);
+      if (t.length <= max) return { messages: out, dropped, text: t };
     }
     // The owner's message stays where Rewind's mark for it now points (the second review, 2026-11-08: the mark was lost).
     const at = out.findIndex((m) => m && m.role === "user" && m.appNote !== true && typeof m.content === "string");
-    return at >= 0 ? { messages: [{ ...out[at], content: out[at].content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }], dropped: dropped + at } : { messages: [], dropped: messages.length };
+    const last = at >= 0 ? [{ ...out[at], content: out[at].content.slice(0, 20000) }, { role: "assistant", content: "(The steps of this job were too long to keep in the saved chat.)" }] : [];
+    return { messages: last, dropped: at >= 0 ? dropped + at : messages.length, text: JSON.stringify(last) };
   }
-  return { messages: out, dropped };
+  return { messages: out, dropped, text };
 }
 /** WHAT "UNDO" WOULD UNDO (owner, 2026-11-06, "3"): the chat's last commit, and whether the last job made it. */
 export function lastJobFor(meta) {
@@ -1219,7 +1247,8 @@ export async function handleCoder(request, env, ctx, deps) {
   const call = (path, init) => box().fetch(new Request("http://coder" + path, init));
   const post = (path, body, more = {}) => call(path, { method: "POST", headers: { "content-type": "application/json", ...more }, body: JSON.stringify(body) });
   // A SUMMARY BY CODER'S OWN MODEL (owner items 3 and 9), on this Worker (deps.summarize in tests).
-  const summarizeFn = (m, f) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn }));
+  // (`o.gloopy`: a Gloopy chat's summary, its copy as before 2026-11-14.)
+  const summarizeFn = (m, f, o = {}) => (typeof deps.summarize === "function" ? deps.summarize(m, f) : summarize(env, m, f, { fetchFn, gloopy: !!(o && o.gloopy) }));
   // (This chat's own routes, called from here as the page calls them: an answer that takes a paused turn up again starts its
   // job as a message does, coder-park.mjs.)
   const self = (path, body) => { const headers = new Headers(request.headers); headers.set("content-type", "application/json"); return handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + path, body === undefined ? { method: "GET", headers } : { method: "POST", headers, body: JSON.stringify(body) }), env, ctx, deps); };
@@ -1429,17 +1458,22 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!t) return unclaimed(json({ error: "connect GitHub again: the connection has ended", connect: true }, 409));
       const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
       if (running >= maxRunning(env)) return unclaimed(json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429));
-      let messages = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
+      const read0 = await getJsonSized(bucket, keyOf(uid, id, "messages.json"), []);
+      let messages = read0.value;
       // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
       // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
+      // (Since 2026-11-14 Coder's machine summarizes the chat itself, by Claude Code's auto-compact, before its first request;
+      // here only a chat nearing what the machine takes, CODER_COMPACT_SAFETY, as a last resort.)
       let baseMarks = Array.isArray(meta.marks) ? meta.marks : [];
       // (Not before the owner's /compact, which summarizes all of it.) Made by one start only (START_SETTLE_MS, Gloopy's).
-      if (!compactJob && !takeUp && Array.isArray(messages) && JSON.stringify(messages).length > COMPACT_HISTORY_AT) {
+      // (`deps.compactSafety`: a test's own size for it.)
+      const safety = Number(deps.compactSafety) > 0 ? Number(deps.compactSafety) : CODER_COMPACT_SAFETY;
+      if (!compactJob && !takeUp && Array.isArray(messages) && read0.size > safety) {
         await new Promise((ok) => setTimeout(ok, START_SETTLE_MS));
         if (!(await claim.held())) return lostStart();
       }
       // (Nor before a turn taken up again: its open round must stay whole. coder-park.mjs.)
-      const squeezed = compactJob || takeUp ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn);
+      const squeezed = compactJob || takeUp ? { messages, from: 0, to: 0 } : await compactHistory(messages, summarizeFn, { at: safety, size: read0.size });
       if (squeezed.to) {
         messages = squeezed.messages;
         await putJson(bucket, keyOf(uid, id, "messages.json"), messages);
@@ -1813,8 +1847,8 @@ export async function handleCoder(request, env, ctx, deps) {
       // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
       const cj = s.result.compact && typeof s.result.compact === "object" ? s.result.compact : null;
       if (cj && cj.done === true && Number.isInteger(cj.to) && cj.to > 0) meta.marks = marksAfter(meta.marks, { from: 0, to: cj.to });
-      const capped = capHistoryInfo(s.result.messages), kept = capped.messages;
-      await putJson(bucket, keyOf(uid, id, "messages.json"), kept);
+      const capped = capHistoryInfo(s.result.messages, historyMaxFor(meta)), kept = capped.messages;
+      await bucket.put(keyOf(uid, id, "messages.json"), capped.text, { httpMetadata: { contentType: "application/json" } });
       if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
       await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
@@ -1862,6 +1896,8 @@ export async function handleCoder(request, env, ctx, deps) {
       if (background.length || Number(s.result.hooksRunning) > 0) await watchBackground(bucket, { uid, email: user.email, id, maxMs: machinePrefs(await getJson(bucket, settingsKey(uid), {})).bgMaxMs }).catch(() => {});
       // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
       await dropLive(bucket, uid, id).catch(() => {});
+      // (And the pictures kept apart that the saved chat no longer names: coder-live.mjs, 2026-11-14.)
+      await prunePics(bucket, uid, id, kept).catch(() => 0);
       // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still
       // queued, they go out without another key press, in the order you typed them"): the next message starts now, and the
       // page loads the chat to follow it.
@@ -1990,7 +2026,7 @@ export async function handleCoder(request, env, ctx, deps) {
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
     // Coder is told, so its next message knows the change is gone.
     const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
-    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs, { role: "user", content: "(Note from Coder's app: the owner pressed Undo. Your last job's commit \"" + last.title + "\" was reverted; those changes are no longer in the files.)" }, { role: "assistant", content: "Understood: that change was undone." }]));
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs, { role: "user", content: "(Note from Coder's app: the owner pressed Undo. Your last job's commit \"" + last.title + "\" was reverted; those changes are no longer in the files.)" }, { role: "assistant", content: "Understood: that change was undone." }], historyMaxFor(meta)));
     const next = { ...meta, commits: commits.slice(0, -1), at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events: [ev] });
@@ -2025,7 +2061,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const ev = { at: Date.now(), type: "note", text: "Summarized conversation: " + (sumWay === "upto" ? "everything above this point" : "this point and everything below it") + " is now a summary for Coder" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
       const evAt = Math.max(0, Math.min(mark.ev, evs.length));
       const nextEvs = [...evs.slice(0, evAt), ev, ...evs.slice(evAt)].slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to)), msgs.slice(from, to)), ...msgs.slice(to)]));
+      await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory([...msgs.slice(0, from), summaryMessage(sum, what + (focus ? ", focused on: " + focus : ""), filesTouched(msgs.slice(from, to)), msgs.slice(from, to)), ...msgs.slice(to)], historyMaxFor(meta)));
       await putJson(bucket, keyOf(uid, id, "events.json"), nextEvs);
       const next = { ...meta, marks: marksAfter(meta.marks, { from, to, evAt }), at: Date.now() };
       await saveMeta(bucket, uid, next);
@@ -2080,7 +2116,7 @@ export async function handleCoder(request, env, ctx, deps) {
     if (code && !chat && restored && restored.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner restored the code to before an earlier message, as Claude Code's checkpoints do. The files your file tools (write, edit) had changed since then are back as they were: " + namesSaid(restored) + "." + (skippedFiles.length ? " Skipped and left as they are: " + namesSaid(skippedFiles) + "." : "") + " Files that only commands changed were left as they are. Nothing to do now.)" }];
     else if (code && !chat && !restored && later.length) msgs = [...msgs, { role: "user", content: "(Note from Coder's app: the owner rewound the code to before an earlier message. The commits of the later jobs were reverted: " + later.map((c) => "\"" + c.title + "\"").join(", ") + ". Those changes are no longer in the files. Nothing to do now.)" }];
     await putJson(bucket, keyOf(uid, id, "events.json"), events);
-    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs));
+    await putJson(bucket, keyOf(uid, id, "messages.json"), capHistory(msgs, historyMaxFor(meta)));
     const next = { ...meta, commits, marks: chat ? (meta.marks || []).filter((m) => m.turn < turn) : meta.marks, at: Date.now() };
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next, events });
@@ -2430,6 +2466,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // (And a paused turn's record: coder-park.mjs.)
     for (const k of ["meta.json", "messages.json", "events.json", "parked.json"]) if (typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, k));
     await dropLive(bucket, uid, id).catch(() => {});
+    // (And its pictures, kept apart from the saved chat: coder-live.mjs.)
+    await dropPics(bucket, uid, id).catch(() => {});
     // ITS BRANCH RECORDS GO TOO, only those that are this chat's (round 6 of the live test, 2026-11-12: a deleted chat's record
     // still sent `@coder` on its pull request to it, "Coder could not start: no such project", and would have kept another
     // chat from turning on auto-fix for that pull request, "belongs to another chat").
@@ -2505,11 +2543,11 @@ async function startGloopy(g) {
     const msgs = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
     if (!Array.isArray(msgs) || !msgs.length) return json({ error: "There is nothing to summarize yet." }, 400);
     const focus = String(compact[1] || "").replace(/\s+/g, " ").trim().slice(0, 300);
-    const sum = await summarizeFn(msgs, focus);
+    const sum = await summarizeFn(msgs, focus, { gloopy: true });
     if (!sum) return json({ error: "The summary could not be made. Try again in a minute." }, 502);
     const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "note", text: "Compacted: the conversation so far is now a summary for Gloopy" + (focus ? " (kept in focus: " + focus.slice(0, 160) + ")" : "") + ". The chat still shows it all." };
-    await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs), msgs)]);
+    await putJson(bucket, keyOf(uid, id, "messages.json"), [summaryMessage(sum, "the conversation before the owner's /compact" + (focus ? ", focused on: " + focus : ""), filesTouched(msgs), msgs, { gloopy: true })]);
     await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, ev].slice(-MAX_EVENTS));
     const next = { ...meta, marks: marksAfter(meta.marks, { from: 0, to: msgs.length }), at: Date.now() };
     await saveMeta(bucket, uid, next);
@@ -2584,7 +2622,7 @@ async function startGloopy(g) {
     await new Promise((ok) => setTimeout(ok, START_SETTLE_MS));
     if (!(await claim.held())) return lostStart();
   }
-  const squeezed = await compactHistory(messages, summarizeFn);
+  const squeezed = await compactHistory(messages, (m, f) => summarizeFn(m, f, { gloopy: true }), { gloopy: true });
   if (squeezed.to) {
     messages = squeezed.messages;
     await putJson(bucket, keyOf(uid, id, "messages.json"), messages);

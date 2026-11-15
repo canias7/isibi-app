@@ -80,7 +80,9 @@ async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, ch
   return { r, log, events, cards, requests, hookIns, checks, when, told };
 }
 /** The job's last message (the saved record ends with it). */
-const last = (t) => t.r.messages[t.r.messages.length - 1];
+// (The chat's record of the tools a stopped request carried rides on its mark, as its answer is not kept: the cache fix of
+// 2026-11-14, test/cache-prefix.test.mjs. The mark itself is compared here.)
+const last = (t) => { const { toolLocks: _l, toolLocksV: _v, toolsDeclared: _d, ...m } = t.r.messages[t.r.messages.length - 1]; return m; };
 /** The interrupt marks in a record. */
 const marks = (msgs) => msgs.filter((m) => m && m.role === "user" && /^\[Request interrupted by the owner/.test(String(m.content)));
 

@@ -19,8 +19,12 @@ export const CODER_MODELS = [
   // reasoning.effort low / medium / high (xAI's default) / xhigh; reasoning cannot be turned off.
   // CODER'S DEFAULT IS LOW (owner, 2026-11-10: "can you do the effort level on low and make sure it's actually on low"):
   // xAI's "Uses some reasoning tokens, but still fast", for "latency-sensitive agentic use and simple tool calling".
-  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high", "xhigh"], effort: "low" },
+  // ITS CONTEXT WINDOW (xAI's model list: maxPromptLength 500,000 tokens), for Claude Code's auto-compact (coder-compact.mjs
+  // compactLimits; the owner, 2026-11-14: "yes copy claude code").
+  { id: "grok-4.7", name: "Grok 4.7", efforts: ["low", "medium", "high", "xhigh"], effort: "low", contextWindow: 500_000 },
 ];
+/** A model's context window, in tokens: the list's, or the first model's for one not on it. */
+export const modelWindow = (model) => (CODER_MODELS.find((x) => x.id === model) || CODER_MODELS[0]).contextWindow;
 /** A model and effort from the list: `{ model, effort }`, the defaults for anything else. */
 export function pickModel(model, effort) {
   const m = CODER_MODELS.find((x) => x.id === model) || CODER_MODELS[0];

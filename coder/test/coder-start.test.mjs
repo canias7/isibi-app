@@ -36,7 +36,9 @@ async function setup() {
     if (u.pathname === "/stop") { t.running = null; return Response.json({ ok: true, running: false }); }
     return Response.json({ ok: true });
   } };
-  const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => t.machine,
+  // (A long chat here is one past the size Coder's Worker summarizes it at as a last resort since 2026-11-14, CODER_COMPACT_SAFETY:
+  // set to the old 300 KB for these tests, whose point is a start that waits for a summary.)
+  const deps = { compactSafety: 300 * 1024, fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: uid, email: "me@x.y" }), container: () => t.machine,
     summarize: async (m) => { t.sums.push(m.length); if (t.gate) await t.gate.promise; return "Ana and Coder fixed the login button."; } };
   const ctx = { waitUntil: (p) => { t.waited.push(p); } };
   t.go = (path, init = {}) => handleCoder(new Request("https://gofarther.dev/api/coder/" + path, { ...init, headers: { "content-type": "application/json" } }), env, ctx, deps);

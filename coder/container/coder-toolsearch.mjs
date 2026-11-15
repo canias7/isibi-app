@@ -27,8 +27,21 @@
  *   through a summary on the summary's message (its compact boundary's preCompactDiscoveredTools).
  *
  * Coder keeps its conversation in xAI's request shape, which has no deferred definitions: a tool not loaded is left out of
- * the request's tools, and a load adds it after the others, in the order loaded, so the request's start (and Grok's prompt
- * cache) changes only when a new tool is loaded, and only from that tool on.
+ * the request's tools, and a load adds it after the others, in the order loaded, so the request's tools change only when a
+ * new tool is loaded. (Live, 2026-11-14: Grok's cache then kept only its first 1,152 tokens, the part a chat's very first
+ * call gets too, so with Grok any change in the tools costs the whole prompt once, not only what follows the new tool.)
+ *
+ * EVERY TOOL KEEPS THE DEFINITION IT WAS FIRST SENT WITH (the cache fix of 2026-11-14; Claude Code's tool schema cache, its
+ * toolSchemaCache, newer than the 2.1.42 this machine has to read: each tool's schema as the session first rendered it, kept
+ * for the session, as the tools come before the system prompt and any change in them is a new prompt): the chat's
+ * record keeps, for each tool its requests carried, what was sent (`toolLocks`, on the answer of the request that first sent
+ * it, with the version of Coder's tool code then, `toolLocksV`, and carried by a summary), and every later request sends those
+ * bytes again (lockTools), whatever the job's settings make of the tool now (a time limit, the background limit in Settings,
+ * the output limits, background commands off, the network gate's allowed_domains, PowerShell's options, web_fetch's cache
+ * time, a connector's description or its length limit, plan mode's two forms of exit_plan_mode). As in Claude Code, a
+ * connector tool's lock lasts while its parameters stay the same (its key: the name and the input schema), and Coder's own
+ * tools are made again only by a new version of Coder's tool code (Claude Code's own after an update: its changelog, "Fixed
+ * prompt cache misses in long sessions caused by tool schema bytes changing mid-session").
  *
  * ONE COPY OF A LOADED TOOL'S DEFINITION (the owner, 2026-11-14: "fix it"): Claude Code's ToolSearch answers with tool
  * references, which the API turns into the definitions; Grok has no such references, and needs the definition in the
@@ -259,6 +272,52 @@ export function toolsDeclaredIn(messages) {
   for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolsDeclared)) out = m.toolsDeclared.filter(isEntry);
   return out;
 }
+/**
+ * ONE LOCK OF THE RECORD (`toolLocks`): a tool's name when what was sent is its stock definition (Coder's own as its code
+ * defines it, no setting changing it: the job's `stock`), else `{ def }`, the definition as sent. The message that holds them
+ * says the version of Coder's tool code they were sent by (`toolLocksV`): one of Coder's own holds only for that version, by
+ * name as well as by definition; a connector's lasts while its parameters stay the same, whatever the version.
+ */
+const isLock = (e) => (typeof e === "string" && !!e) || (!!e && typeof e === "object" && !Array.isArray(e) && isDef(e.def));
+export const lockName = (e) => (typeof e === "string" ? e : isLock(e) ? e.def.function.name : "");
+/** The locks a message holds, by name, each with the version it says (`{ e, v }`). */
+const locksOf = (m) => { const v = typeof m.toolLocksV === "string" ? m.toolLocksV : ""; return (Array.isArray(m.toolLocks) ? m.toolLocks : []).filter(isLock).map((e) => [lockName(e), { e, v }]); };
+/**
+ * THE LOCKS SOME MESSAGES HOLD, FOR A SUMMARY OF THEM (a summary's carried ones included): a later one for a tool in place of an
+ * earlier one; those of Coder's own tools only from the last version that locked any (one of an older version holds for none
+ * that came after it), a connector's whatever the version. → `{ toolLocks, toolLocksV }`, or null when there are none.
+ */
+export function toolLocksIn(messages) {
+  const out = new Map();
+  let last = null;
+  for (const m of Array.isArray(messages) ? messages : []) if (m && typeof m === "object" && Array.isArray(m.toolLocks)) for (const [n, x] of locksOf(m)) { out.set(n, x); if (!isMcpName(n)) last = x.v; }
+  const kept = [...out].filter(([n, x]) => isMcpName(n) || x.v === last).map(([, x]) => x.e);
+  return kept.length ? { toolLocks: kept, ...(last !== null ? { toolLocksV: last } : {}) } : null;
+}
+const sameJson = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+/**
+ * THE REQUEST'S TOOLS AS THE CHAT FIRST SENT THEM (Claude Code's toolSchemaCache, keyed by the tool's name, and an MCP tool's
+ * input schema with it): `list`, the tools this request carries (their names and order as requestTools, or the chat's tools,
+ * give them), each sent with its lock (`locks`, toolSearchRecord's, name → { e, v }) while it holds: one of Coder's own while
+ * Coder's tool code is the version that locked it (`version`), a name lock as the tool's stock definition (`stock`, by name),
+ * a definition lock as recorded; a connector's while its parameters are the ones this job has for it. A tool with no lock
+ * that holds goes as it is, and is locked now. → `{ tools, locks }`: the tools to send, and the locks to record on the
+ * request's answer (`toolLocks`, with `toolLocksV` the version), or null when there are none.
+ */
+export function lockTools(list, locks = new Map(), { stock = new Map(), version = "" } = {}) {
+  const tools = [], fresh = [];
+  for (const t of Array.isArray(list) ? list : []) {
+    if (!isDef(t)) continue;
+    const n = t.function.name, x = locks instanceof Map ? locks.get(n) : undefined, e = x && isLock(x.e) ? x.e : null;
+    let held = null;
+    if (e && isMcpName(n)) held = typeof e !== "string" && e.def.function.name === n && sameJson(e.def.function.parameters, t.function.parameters) ? e.def : null;
+    else if (e && x.v === version) held = typeof e === "string" ? (stock instanceof Map && isDef(stock.get(n)) && e === n ? stock.get(n) : null) : e.def.function.name === n ? e.def : null;
+    if (held) { tools.push(held); continue; }
+    tools.push(t);
+    fresh.push(stock instanceof Map && stock.has(n) && sameJson(stock.get(n), t) ? n : { def: t });
+  }
+  return { tools, locks: fresh.length ? fresh : null };
+}
 /** Whether tool search was on in some messages: for a summary of them. */
 export function toolSearchOnIn(messages) {
   return (Array.isArray(messages) ? messages : []).some((m) => m && typeof m === "object" && ((m.role === "tool" && Array.isArray(m.toolsLoaded)) || (m.toolsAnnounced && typeof m.toolsAnnounced === "object") || m.toolSearchOn === true));
@@ -271,15 +330,17 @@ export function toolSearchOnIn(messages) {
  * was on (`declared`), and whether the chat already ran without it (`ranWithout`: it has answers, no sign of tool search,
  * and no summary made since Coder has it, which starts it afresh, as Claude Code's compaction does). Round 5: the upfront
  * tools its requests carried, in order, as last recorded (`upfront`: names, and a connector tool's definition), and the tools
- * whose calls were refused as "still listed" and not said to run again since (`refused`).
+ * whose calls were refused as "still listed" and not said to run again since (`refused`). The cache fix: each tool's lock and
+ * the version of Coder's tool code it says, by name, a later one in place of an earlier one (`locks`: lockTools).
  */
 export function toolSearchRecord(messages) {
-  const loaded = new Set(), announced = new Set(), listed = new Set(), told = new Set(), kept = new Map(), refused = new Set(), callNames = new Map();
+  const loaded = new Set(), announced = new Set(), listed = new Set(), told = new Set(), kept = new Map(), refused = new Set(), callNames = new Map(), locks = new Map();
   let declared = false, answered = false, summarized = false, lastNeedsAuth = [], lastFailed = [], upfront = [];
   for (const m of Array.isArray(messages) ? messages : []) {
     if (!m || typeof m !== "object") continue;
     if (m.role === "assistant") answered = true;
     if (Array.isArray(m.toolsDeclared)) upfront = m.toolsDeclared.filter(isEntry);
+    if (Array.isArray(m.toolLocks)) for (const [n, x] of locksOf(m)) locks.set(n, x);
     if (m.role === "assistant" && Array.isArray(m.tool_calls)) for (const c of m.tool_calls) if (c && c.id && c.function) callNames.set(String(c.id), String(c.function.name || ""));
     if (m.role === "tool" && typeof m.content === "string") { const x = STILL_LISTED_RE.exec(m.content); if (x && callNames.get(String(m.tool_call_id)) === x[1]) refused.add(x[1]); }
     if (Array.isArray(m.toolsLoaded)) {
@@ -300,7 +361,7 @@ export function toolSearchRecord(messages) {
       if (Array.isArray(a.failed)) lastFailed = a.failed.filter((f) => f && typeof f.name === "string");
     }
   }
-  return { loaded, kept, announced, listed, told, refused, upfront, lastNeedsAuth, lastFailed, declared, ranWithout: answered && !declared && !summarized };
+  return { loaded, kept, announced, listed, told, refused, upfront, locks, lastNeedsAuth, lastFailed, declared, ranWithout: answered && !declared && !summarized };
 }
 
 // ── ON OR OFF, FOR ONE JOB ──────────────────────────────────────────────────────────────────────────────────────────────
@@ -338,7 +399,7 @@ export const isDeferred = (name, upfront = new Set()) => DEFERRED_TOOLS.includes
  * The tools the request sends: the chat's tools less the deferred ones not loaded (its request builder: "if(!vs.has(
  * _s.name))return!0; … return eo.has(_s.name)"): the upfront ones in the chat's order, then the loaded ones in the order
  * they were first loaded (`loaded`, a Set, keeps it). The same chat gives the same list, and a load only adds a tool at
- * its end, so Grok's prompt cache keeps everything before it. A loaded tool whose source went away stays, with the
+ * its end (each one's definition then held as first sent: lockTools). A loaded tool whose source went away stays, with the
  * definition it was loaded with (`kept`, the chat's record), as Claude Code keeps its tool list for the whole conversation
  * ("a server connecting or disconnecting mid-session doesn't disturb anything already cached"); at most XAI_TOOLS_MAX. So
  * does an upfront tool that left (`upfront`, the chat's record of them: upfrontTools). Round 5.

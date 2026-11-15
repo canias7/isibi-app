@@ -283,7 +283,12 @@ test("TS13 a loaded tool stays after a summary (Claude Code carries them on its 
   const out = await SUM.compactHistory(msgs, async () => "summary", { at: 10 });
   assert.deepEqual(out.messages[0].toolsLoaded, ["lsp"]);
   assert.match(read("src/coder-routes.mjs"), /filesTouched\(msgs\.slice\(from, to\)\), msgs\.slice\(from, to\)\)/);
-  assert.match(read("src/coder-routes.mjs"), /filesTouched\(msgs\), msgs\)\]/);
+  // (Gloopy's /compact on the Worker, in its words as before since 2026-11-14: `{ gloopy: true }`.)
+  assert.match(read("src/coder-routes.mjs"), /filesTouched\(msgs\), msgs, \{ gloopy: true \}\)\]/);
+  // (A Gloopy chat's summary before a job carries them too, in its words as before.)
+  const g = await SUM.compactHistory(msgs, async () => "summary", { at: 10, gloopy: true });
+  assert.deepEqual(g.messages[0].toolsLoaded, ["lsp"]);
+  assert.ok(g.messages[0].content.startsWith(C.SUMMARY_TAG) && g.messages[0].compactSummary === undefined, "Gloopy's words as before");
   // The owner's /compact in a job, then the next message: lsp still sent, the others named again.
   const first = await job([say("", [call("tool_search", { query: "select:lsp", max_results: 5 }, "s1")]), say("done")]);
   const compacted = await job([say("the summary")], { messages: first.r.messages, extra: { compact: { focus: "" } } });
