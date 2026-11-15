@@ -46,7 +46,7 @@ import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
-import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools } from "./coder-toolsearch.mjs";
+import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools, heldBackRefusal } from "./coder-toolsearch.mjs";
 import { PARK_MS, PARKED_SUMMARY, STEP_SITES, Parked, parkRecord, parkAnswer, parkedRound, closeParked, keptCall, siteOfCard, wordsAfterResults } from "./coder-park.mjs";
 import { askedCall, untilBackground, serverOf, cardAnswer, cardEnding, elicitHookVerdict, elicitHookAnswer, afterResultHooks, elicitReply, responseNotice, completeNotice, toolDisplayName } from "./coder-elicit.mjs";
 import { HOOK_EVENTS, STOP_BLOCK_CAP, ENV_FILE_EVENTS, GATING_EVENTS, AGENT_HOOK_TURNS, HOOK_JUDGE, hooksFor, hookInput, hookResult, persistHookText, hooksOutcome, ccTool, hookToolInput, toolInputFromHook, givenPathKept, hookAnswers, answeredText, hookName, hookNoteText, hookPrompt, parseHookVerdict, httpUrlAllowed, asyncHookTexts, watchedNames, stopFailureKind, hookShell, splitHookOut, asBashInput, withoutGrant, ruleEntry, entryRule, runMcpToolHook } from "./coder-hooks.mjs";
@@ -1843,7 +1843,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1855,6 +1855,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const webCacheKey = deps && typeof deps.chatId === "string" && deps.chatId ? "chat:" + deps.chatId : "job:" + randomUUID();
   if (Array.isArray(tools)) tools = webFetchTools(tools, webFetch);
   const offered = Array.isArray(tools) ? new Set(tools.map((t) => t && t.function && t.function.name).filter(Boolean)) : null;
+  // GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too"; gloopy-agent.mjs GLOOPY_HELD_BACK): those
+  // of `holdBack` it is offered are named in tool search's note and sent only once tool_search has loaded them, from then on
+  // for the rest of the chat, as Coder's deferred tools (coder-toolsearch.mjs). Its connectors keep their connector_search.
+  const holding = offered && Array.isArray(holdBack) ? new Set(holdBack.filter((n) => typeof n === "string" && offered.has(n))) : new Set();
+  const gTs = holding.size > 0;
   // (CLAUDE_CODE_ENABLE_TASKS=0, Coder's CODER_ENABLE_TASKS: todo_write in place of the four task tools, and Claude Code's
   // system prompt line names it: "Use TodoWrite to plan and track work". Coder's own run only. 2026-11-14.)
   const todosOn = tasksOff === true && !offered;
@@ -3166,6 +3171,23 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // offered the owner's connector tools after them, as Coder is after its own (with the tool search when there are many;
   // the tools it finds are added here too).
   const connectorFns = () => chatTools.filter((f) => f && f.function && (mcpByName.has(f.function.name) || (mcpDeferred && f.function.name === "connector_search")));
+  /**
+   * GLOOPY'S OWN TOOLS AS A REQUEST SENDS THEM (holding, 2026-11-15): with tools held back, those not loaded yet are left out
+   * and tool_search comes after the rest, then the loaded ones in the order they were first loaded (the chat's record,
+   * which a summary keeps); so a load only adds a tool at the end of Gloopy's own, before the connectors' tools.
+   */
+  const gloopyTools = () => {
+    if (!gTs) return tools;
+    const loaded = toolSearchRecord(convo).loaded;
+    const own = (n) => tools.find((t) => t && t.function && t.function.name === n);
+    return [...tools.filter((t) => !(t && t.function && holding.has(t.function.name))), TOOL_SEARCH_TOOL, ...[...loaded].filter((n) => holding.has(n)).map(own).filter(Boolean)];
+  };
+  /** Tool search's note for Gloopy's held-back tools (coder-toolsearch.mjs announcement): named once, and said gone if one leaves. */
+  const gNote = () => {
+    const rec = toolSearchRecord(convo);
+    const up = new Set(tools.map((t) => (t && t.function ? t.function.name : "")).filter((n) => n && !holding.has(n)));
+    return announcement({ deferred: [...holding], loaded: rec.loaded, announced: rec.announced, listed: rec.listed, told: rec.told, upfront: up });
+  };
   // SERVER INSTRUCTIONS (Claude Code: a server's instructions, up to 4,096 characters, reach the model at the start), marked
   // as the servers' own words, not the owner's.
   const mcpNotes = mcpTools.length ? (Array.isArray(connectorNotes) ? connectorNotes : []).filter((n) => n && typeof n.instructions === "string" && n.instructions.trim()).slice(0, 10) : [];
@@ -3439,7 +3461,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const locking = !offered && !github, recNow = locking ? toolSearchRecord(convo) : null;
     const locked = (list) => (locking ? lockTools(list, recNow.locks, { stock: STOCK_TOOLS, version: TOOLS_V }) : { tools: list, locks: null });
     if (tsOn) { const pool = tsPool(modeRound === "plan" ? !!planRound : !!planBox), rec = toolSearchRecord(convo), was = github ? [] : rec.upfront; tsSent = requestTools(pool, tsDeferred(pool), rec.loaded, github ? new Map() : rec.kept, was, tsCatalog); const here = new Set(pool.map((t) => t.function.name)); keptOnly = new Set(tsSent.map((t) => t.function.name).filter((n) => !here.has(n))); if (!github) { const up = upfrontRecord(locked(upfrontTools(pool, tsDeferred(pool), was, tsCatalog)).tools, tsCatalog); if (!sameTools(up, was)) upfrontNew = up; } }
-    const sending = locked(offered ? [...tools, ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools);
+    const sending = locked(offered ? [...gloopyTools(), ...connectorFns()] : tsSent ? tsSent : exitListed ? withExit(chatTools, (modeRound === "plan" ? planRound : planBox) ? EXIT_PLAN_TOOL : EXIT_PLAN_TOOL_NO_FILE) : chatTools);
     return { sending, keptOnly, upfrontNew };
   };
   /** The system message of every request of the chat: Coder's instructions, and a job from GitHub's own note (its context is in the conversation: ctxOn). */
@@ -4052,6 +4074,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     // TOOL SEARCH'S NOTE (coder-toolsearch.mjs, Claude Code's deferred_tools_delta, which comes before its plan mode, auto mode
     // and task reminders): the chat's deferred tools not yet named, or named and gone, said before this step.
     if (tsOn) { const note = tsNote(tsPool(!!planBox)); if (note) convo.push(note); }
+    else if (gTs) { const note = gNote(); if (note) convo.push(note); }
     const modeRound = modeNow();
     // (The chat's plan file this round, in plan mode or just out of it: Claude Code's planFilePath and plan. 2026-11-14.)
     const planRound = modeRound === "plan" || toldMode === "plan" ? await planNow() : null;
@@ -4612,7 +4635,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (c.args === null) { reply("error: the arguments were not valid JSON"); continue; }
       // A TOOL THIS AGENT WAS NOT OFFERED (Gloopy, 2026-11-09) is not run, even when its name is one of Coder's.
       if (!offered && (c.name === "browser" || c.name === "sign_in" || c.name === "pay" || c.name === "handoff" || c.name === "schedule" || c.name === "webhook" || c.name === "helpers" || c.name === "page" || c.name === "files" || c.name === "todo")) { reply("error: no such tool: " + c.name + (c.name === "browser" ? " (use Chrome or Playwright through bash)" : "")); continue; }
-      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search")) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
+      if (offered && !offered.has(c.name) && !mcpByName.has(c.name) && !(mcpDeferred && c.name === "connector_search") && !(gTs && c.name === TOOL_SEARCH)) { reply("error: no such tool: " + c.name.slice(0, 40) + " (your tools are " + [...offered].join(", ") + "; to finish, answer in words)"); continue; }
+      // ONE OF GLOOPY'S HELD-BACK TOOLS CALLED BEFORE TOOL_SEARCH LOADED IT (holding, 2026-11-15): run when its input fits its
+      // definition, as Claude Code runs a deferred tool's call its schema accepts; refused otherwise in Claude Code's words,
+      // with its note to load the tool first (coder-toolsearch.mjs heldBackRefusal).
+      if (gTs && holding.has(c.name) && !c.rerun && !toolSearchRecord(convo).loaded.has(c.name)) {
+        const no = heldBackRefusal(tools.find((t) => t && t.function && t.function.name === c.name), c.args);
+        if (no) { reply(no); continue; }
+      }
       // A TOOL STILL IN THE REQUEST'S TOOLS WHOSE SOURCE WENT AWAY (tool search keeps a loaded tool's definition: tsKeptOnly):
       // refused in Claude Code's words, before any check or hook. (One a deny rule names is refused by the rule, below.)
       if (!offered && tsKeptOnly.has(c.name) && !toolDenied(c.name)) { reply(stillListed(c.name)); continue; }
@@ -6734,15 +6764,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");
-      } else if (c.name === TOOL_SEARCH && tsOn) {
+      } else if (c.name === TOOL_SEARCH && (tsOn || gTs)) {
         // CLAUDE CODE'S ToolSearch (coder-toolsearch.mjs): the tools found, named in its words for tools whose definitions
         // were just delivered elsewhere (each definition goes once, in the request's tools: the owner, 2026-11-14, "fix it"),
         // or "No matching deferred tools found" (with the connectors that failed); the deferred ones found are kept with the
         // result (`toolsLoaded`, and their definitions, `toolDefs`) and sent with every request from the next one on; its
         // PostToolUse hooks get its result object, and a rewrite of it that matches its shape is what Grok reads and what
         // loads (postHooks, `tsAnswer`). The chat shows no line for it, as Claude Code shows none.
-        const pool = tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox), deferred = tsDeferred(pool);
-        const r = runToolSearch(c.args, { pool, deferred, hints: mcpHints, descMax: descUp, failed: mcpFailed });
+        // (Gloopy's: its own tools, those held back to load; its connectors keep their connector_search. 2026-11-15.)
+        const pool = gTs ? tools : tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox), deferred = gTs ? holding : tsDeferred(pool);
+        const r = runToolSearch(c.args, { pool, deferred, hints: gTs ? null : mcpHints, descMax: descUp, failed: gTs ? [] : mcpFailed });
         toolFacts.set(c.id, r.facts);
         c.tsAnswer = (v) => toolSearchAnswer(v, { pool, deferred });
         c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";

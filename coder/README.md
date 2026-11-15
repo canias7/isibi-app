@@ -377,6 +377,14 @@ code in **each user's own GitHub**.
      calling them when necessary") the environment tools and request_secret are held back too (`DEFERRED_TOOLS`), about
      8,400 of the 13,000 tokens of tools every call carried; Claude Code's cloud sends its remote tools upfront, Coder
      doesn't, for the cost. Tests: `test/tool-search.test.mjs`.
+     Gloopy too since 2026-11-15 (the owner: "yes fix it too"): its jobs hold back pay, vault, schedule, webhook,
+     monitor, stop_job and request_secret (`GLOOPY_HELD_BACK` in `gloopy-agent.mjs`, given by the machine with Gloopy's
+     own jobs, not its helpers'; runCoder's `holdBack`), about 3,200 tokens lighter every call with tool_search's own
+     ~350. The same note and tool_search; a loaded one stays for the chat (its record, kept by summaries); Gloopy's one
+     long chat switches at its next message. A held-back tool called before it was loaded runs when its input fits its
+     definition (top level: required inputs, types, listed values), as Claude Code runs a deferred tool's call its schema
+     accepts, and is refused otherwise with Claude Code's InputValidationError and its note to load it first
+     (`heldBackRefusal`). Its connectors keep connector_search. Tests: `test/gloopy-holdback.test.mjs`.
    - *Calls side by side* (`coder-parallel.mjs`, round 3): a reply's consecutive calls
      of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
      web_search, read-only commands and connector tools, and the others it marks so)

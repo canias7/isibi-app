@@ -61,7 +61,7 @@
  *
  * No Node module here: Coder's Worker loads this file, through the summaries' module (coder-compact.mjs).
  */
-import { inputErrorText, typeIssue } from "./coder-zodtext.mjs";
+import { inputErrorText, typeIssue, valueIssue } from "./coder-zodtext.mjs";
 
 /** The tool's name in Coder (Claude Code's ToolSearch). */
 export const TOOL_SEARCH = "tool_search";
@@ -94,6 +94,12 @@ export const SEARCH_HINTS = Object.freeze({
   update_environment: "propose a change to this chat's environment (allowed hosts, variables, setup script)",
   create_environment: "propose a new cloud environment",
   switch_environment: "move this chat onto another environment",
+  // (Gloopy's own tools held back until needed, 2026-11-15, the owner: "yes fix it too": Coder's words, as above. Its
+  // monitor, stop_job and request_secret have theirs.)
+  pay: "pay at a checkout: fill in the owner's payment card",
+  vault: "update the owner's Vault (saved logins, cards, contacts)",
+  schedule: "do something later or on repeat: a reminder, a wake-up, a recurring job",
+  webhook: "start work when another service calls a web address (webhook)",
 });
 
 /**
@@ -195,6 +201,32 @@ export function notLoadedHint(def) {
   try { schema = " For reference, this tool's input schema is: " + JSON.stringify(def.function.parameters); } catch { schema = ""; }
   return "\n\nThis tool's schema was not sent to the API — it was not in the discovered-tool set derived from message history. Without the schema in your prompt, typed parameters (arrays, numbers, booleans) get emitted as strings and the client-side parser rejects them. Load the tool first: call " + TOOL_SEARCH + " with query \"select:" + name + "\", then retry this call." + schema;
 }
+/**
+ * A HELD-BACK TOOL CALLED BEFORE TOOL_SEARCH LOADED IT (Gloopy's tools, 2026-11-15, the owner: "yes fix it too"): Claude Code
+ * checks a deferred tool's input against its schema even when the schema was not sent, runs a call that fits, and refuses
+ * one that doesn't with its InputValidationError and the note to load the tool first (notLoadedHint). Gloopy's own tools have
+ * no schema check of their own, so their definition's top level is checked here: an object, each required input there, and
+ * each input's type and listed values. "" when the input fits (the call runs), else the refusal.
+ */
+export function heldBackRefusal(def, args) {
+  const name = def && def.function ? String(def.function.name || "") : "";
+  const p = def && def.function && def.function.parameters && typeof def.function.parameters === "object" ? def.function.parameters : {};
+  const props = p.properties && typeof p.properties === "object" ? p.properties : {};
+  const issues = [];
+  if (!args || typeof args !== "object" || Array.isArray(args)) issues.push(typeIssue("object", args, []));
+  else {
+    for (const k of Array.isArray(p.required) ? p.required : []) if (args[k] === undefined && kindOf(props[k])) issues.push(typeIssue(kindOf(props[k]), undefined, [k]));
+    for (const [k, v] of Object.entries(args)) {
+      const s = props[k], want = kindOf(s);
+      if (!s || v === undefined) continue;
+      if (want && !fitsKind(want, v)) issues.push(typeIssue(want, v, [k]));
+      else if (Array.isArray(s.enum) && s.enum.length && !s.enum.includes(v)) issues.push(valueIssue(s.enum, [k]));
+    }
+  }
+  return issues.length ? inputErrorText(name, issues) + notLoadedHint(def) : "";
+}
+const kindOf = (s) => (s && typeof s.type === "string" ? (s.type === "integer" ? "number" : s.type) : "");
+const fitsKind = (want, v) => (want === "array" ? Array.isArray(v) : want === "object" ? !!v && typeof v === "object" && !Array.isArray(v) : want === "number" ? typeof v === "number" && !Number.isNaN(v) : typeof v === want);
 const listed = (names) => names.slice(0, NAMES_LISTED_MAX).join(", ") + (names.length > NAMES_LISTED_MAX ? ", and " + (names.length - NAMES_LISTED_MAX) + " more" : "");
 
 // ── ITS SWITCH ──────────────────────────────────────────────────────────────────────────────────────────────────────────

@@ -267,6 +267,13 @@ const GLOOPY_SECRET_INPUTS = Object.freeze({
 const FROM_CODER = CODER_TOOLS.filter((t) => GLOOPY_TOOL_NAMES.includes(t.function.name)).map((t) => (t.function.name === "request_secret" ? { ...t, function: { ...t.function, description: GLOOPY_SECRET_WORDS, parameters: { ...t.function.parameters, properties: GLOOPY_SECRET_INPUTS } } } : t.function.name === "ask_user" ? GLOOPY_ASK_TOOL : t));
 const TODO_AT = FROM_CODER.findIndex((t) => t.function.name === "ask_user") + 1;
 export const GLOOPY_TOOLS = Object.freeze([...FROM_CODER.slice(0, TODO_AT), TODO_TOOL, ...FROM_CODER.slice(TODO_AT), BROWSER_TOOL, SIGN_IN_TOOL, PAY_TOOL, HANDOFF_TOOL, SCHEDULE_TOOL, WEBHOOK_TOOL, HELPERS_TOOL, PAGE_TOOL, FILES_TOOL, VAULT_TOOL]);
+/**
+ * GLOOPY'S TOOLS HELD BACK UNTIL NEEDED (the owner, 2026-11-15: "yes fix it too", after Coder's "make sure the cost is right
+ * ABOUT the tools, only calling them when necessary"): about 3,600 tokens on every call to Grok, for tools most jobs never
+ * use. A note names them, and tool_search loads one when Gloopy needs it, as Coder's deferred tools (coder-toolsearch.mjs).
+ * The machine gives this list with Gloopy's own jobs (not its helpers'), and runCoder holds them back (its `holdBack`).
+ */
+export const GLOOPY_HELD_BACK = Object.freeze(["pay", "vault", "schedule", "webhook", "monitor", "stop_job", "request_secret"]);
 /** The tools that need a browser on the machine. */
 export const BROWSER_TOOL_NAMES = Object.freeze(["browser", "sign_in", "pay", "handoff"]);
 

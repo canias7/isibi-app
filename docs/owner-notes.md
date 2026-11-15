@@ -17,6 +17,28 @@ log (81,000 lines) is in git history.
 - **Change the test account's password (added 2026-11-11):** it was in the chat.
 - Only when you want the apps in the stores (added 2026-11-07): an Apple Developer account ($99 a year) and a Google Play Console account ($25 once).
 
+## 2026-11-15: Gloopy's tools cost only when needed too (your words: "yes fix it too")
+
+- **Before:** every call Gloopy made to Grok carried all 24 of its tools (about 9,900 tokens) and its instructions
+  (about 2,600), before any of the chat.
+- **Now:** the seven it rarely needs are held back: pay, vault, schedule, webhook, monitor, stop_job and the key request.
+  Grok sees only their names in a short note, and loads one with tool search when it needs it. Once loaded, it stays for
+  the rest of the chat, summaries included. Every call is about 3,200 tokens lighter (the tool search tool itself adds
+  about 350), the same way as Coder's since this morning.
+- **Your Gloopy chat** switches at its next message. Gloopy has one long chat, so keeping the old way for chats from
+  before (as Coder does) would have meant it never got lighter.
+- **If Gloopy calls one of them without loading it first** (it may, from what it did earlier in the chat): when what it
+  sent fits the tool, the call runs, as Claude Code does; if not, it is told what is wrong and to load the tool first, in
+  Claude Code's words. Nothing runs in that case.
+- **Unchanged:** Gloopy's helpers (they never had these tools), its connectors (they keep their own search), and what
+  each tool does.
+- **Found on the way, not changed:** Gloopy's instructions include the time of day, which changes with every message, so
+  the first call of each message can't use Grok's cache: Grok reads Gloopy's whole chat at full price each time (up to
+  about 22 cents in a long chat). Coder had the same problem and it was fixed in round 4 by moving the changing parts
+  out of the instructions. Gloopy also still shortens long tool answers in its saved chat, which Coder stopped doing
+  yesterday. Both can be fixed the same way as Coder's, if you want.
+- **Tests:** `test/gloopy-holdback.test.mjs` (11 new).
+
 ## 2026-11-15: Whole answers, mid-job summaries and lighter calls are live, tested with Grok on Low (your words: "ok , before you run the check , make sure the cost is right ABOUT the tools")
 
 Merged into main and deployed (deploy 190: whole answers and pictures in the saved chat, summaries from the cache,
