@@ -19,7 +19,17 @@ log (81,000 lines) is in git history.
 
 ## 2026-11-15: Gloopy's chat uses Grok's cache, like Coder's (your words: "yes pls")
 
-On my branch, not deployed yet.
+Live on gofarther.dev (deploy 193, your words: "yes pls"). Checked in the test account's Gloopy chat with Grok on Low,
+with Gloopy's own numbers now that they are saved:
+
+1. **The first message after the deploy:** 1,152 of 16,730 tokens cached, as expected (the instructions changed once):
+   3.2 cents.
+2. **The next message:** 16,640 of 16,746 tokens cached (99.4%): 0.85 cents, about a quarter of what the same message
+   cost before.
+3. **A message with a command step:** 33,408 of 33,750 tokens cached (99%) over its 2 calls: 1.8 cents.
+
+The whole check: about 6 cents. In a longer Gloopy chat the saving per message is bigger in cents: at 100,000 tokens,
+about 5 cents a message instead of about 20.
 
 - **Before:** Gloopy's instructions held the time of day and its other details (its notes about you, your schedules,
   permissions, saved logins and the rest), made again at every message. So on the first call of every message Grok read
