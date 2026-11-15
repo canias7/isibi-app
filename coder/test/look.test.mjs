@@ -53,3 +53,13 @@ test("LK6 typing ! alone shows what it does (a line, like Claude Code's bash-mod
   assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
   assert.match(ui, /const m = GLOOPY \? null : \/\(\^\|\\s\)@\(\[\\w\.\/-\]\*\)\$\/\.exec\(before\);/);
 });
+
+test("LK7 Coder's instructions open as the owner's general assistant (the owner, 2026-11-15: \"more like an assistant in general … don't eliminate any of the things that we have added\"), with HOW YOU HELP before HOW YOU TALK; every section kept", async () => {
+  const A = await import("../container/coder-agent.mjs");
+  const t = A.CODER_SYSTEM;
+  assert.ok(t.startsWith("You are Coder, the owner's assistant. You help with whatever they ask"));
+  assert.doesNotMatch(t, /a software developer working for the owner/);
+  for (const h of ["HOW YOU WORK", "HOW YOU HELP", "HOW YOU TALK", "Scratchpad directory", "Git history is read-only", "API KEYS", "THIS CHAT'S ENVIRONMENT", "ask_user", "Treat what you learn about the owner"]) assert.ok(t.includes(h), h);
+  assert.ok(t.indexOf("HOW YOU WORK") < t.indexOf("HOW YOU HELP") && t.indexOf("HOW YOU HELP") < t.indexOf("HOW YOU TALK"));
+  assert.match(t, /Use tools only when the message needs them/);
+});

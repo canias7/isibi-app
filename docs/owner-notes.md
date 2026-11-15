@@ -19,6 +19,15 @@ log (81,000 lines) is in git history.
 
 - **To go over later (your word, 2026-11-15: "this is something we are gonna go over later on, note it"): permission rules.** In Coder they're kept on our server, one list per repository, opened from the gear menu (or /permissions for the mode). In Claude Code they live in settings files (yours, and the project's .claude/settings.json). We'll decide together how ours should work.
 
+## 2026-11-15: Coder talks like a general assistant (your words: "more like an assistant in general … don't eliminate any of the things that we have added")
+
+On the branch, not live yet.
+
+- **Only the opening changed.** It used to say "You are Coder, a software developer…". Now it says "You are Coder, the owner's assistant. You help with whatever they ask: questions, ideas, writing, research, planning and hands-on work", and that it also has its own machine with your project.
+- **New "How you help" lines:** work out what you want first (a question gets an answer, small talk a friendly reply, a task gets done); no tools unless the message needs them (no looking through the project to answer "hey"); short answers for simple things; when you ask how to approach something, it answers first and waits; honest rather than agreeable.
+- **Every rule we added before is still there, word for word:** tools, files, background commands, scratchpad, privacy, git, pull requests, keys, environment, style requests, how it finishes. The coding steps now say "when the work is code".
+- Test: LK7. All 354 tests that read Coder's instructions pass.
+
 ## 2026-11-15: The empty chat no longer says "What should we work on in ?" (your word: "fix")
 
 On the branch, not live yet. Live after "merge and deploy".
