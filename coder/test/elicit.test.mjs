@@ -1144,8 +1144,8 @@ test("EL24 (round 6) a 2026-07-28 server's questions come in its result (input_r
   assert.equal(x.calls.length, 11);
   // Out of time while the card waits: Claude Code's words; the card withdrawn; not made again.
   const never = machine(() => new Promise(() => {}));
-  x = await run([need({ q: { method: "elicitation/create", params: FORM } }, "s"), done], { ask: never.ask, totalMs: 80 });
-  assert.equal(x.error.message, E.timedOutText("Linear", "make_issue", 80));
+  x = await run([need({ q: { method: "elicitation/create", params: FORM } }, "s"), done], { ask: never.ask, totalMs: 400 });
+  assert.equal(x.error.message, E.timedOutText("Linear", "make_issue", 400));
   assert.equal(never.withdrawn.length, 1);
   assert.equal(x.calls.length, 1);
 });
