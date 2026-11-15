@@ -2238,6 +2238,17 @@ export async function handleCoder(request, env, ctx, deps) {
     await saveMeta(bucket, uid, next);
     return json({ ok: true, project: next });
   }
+  // RENAME THE CHAT from the page (the title's ▾ menu, like Claude Code's; 2026-11-15): plain text, 1-80 characters.
+  // (Only the owner's own chats: another account's chat is not under their key, so it is "no such project" above.)
+  if (!action && request.method === "POST") {
+    let body = {}; try { body = await request.json(); } catch { body = {}; }
+    const title = typeof body.title === "string" ? body.title.replace(/[\u0000-\u001f\u007f]+/g, " ").replace(/\s+/g, " ").trim() : "";
+    if (!title || title.length > 80) return json({ error: "a chat's name is 1 to 80 characters" }, 400);
+    const now = await getJson(bucket, metaKey, meta);
+    const next = { ...now, title };
+    await saveMeta(bucket, uid, next);
+    return json({ ok: true, project: next });
+  }
   if (action === "base" && request.method === "POST") {
     if (meta.turn > 0) return json({ error: "this chat's starting branch was picked before its first message; start a new chat to use another one" }, 409);
     let body = {}; try { body = await request.json(); } catch { body = {}; }

@@ -1692,6 +1692,8 @@
         return true;
       });
       if (fresh.length) S.events = S.events.concat(fresh);
+      // CODER RENAMED THE CHAT (rename_chat): the new name at once, in the top bar and the sidebar.
+      for (const e of fresh) if (e.type === 'renamed' && e.text && S.project) { S.project.title = String(e.text).slice(0, 80); syncEntry(); drawSide(); }
       // THE DESKTOP APP, its window not in front: Coder's own notify, or a question, in this chat (owner item 8).
       if (DESKTOP_APP && localNotifyOn() && !document.hasFocus() && 'Notification' in window && Notification.permission === 'granted') {
         const info = S.pushInfo || { decides: true, actions: true };
@@ -2669,6 +2671,8 @@
       // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
+      // RENAMED CHAT, Claude Code's "Renamed session" step.
+      else if (e.type === 'renamed') out.push('<div class="cd-localnote cd-renamed"><b>Renamed chat</b> · This chat is now named “' + esc(e.text) + '”.</div>');
       // ITS MONITOR PAUSED THE RUN (2026-11-10; dots' "a pause can surface a warning for the owner to review").
       else if (e.type === 'paused') out.push('<div class="cd-paused" role="status"><b>Gloopy paused this task</b><p>' + esc(e.why || 'Something in it looked wrong.') + '</p><p class="cd-paused-how">Its monitor watches over each run and stops when something looks off. Tell Gloopy how to carry on, or leave it.</p></div>');
     });
@@ -3116,7 +3120,12 @@
     return '<div class="cd-head">' +
       '<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button>' +
       '<span class="cd-cl-av" aria-hidden="true">' + coderFig(26) + '</span>' +
-      (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b><span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
+      (p ? '<b class="cd-title-bar" title="' + esc(title) + '">' + esc(title) + '</b>' +
+        // THE TITLE'S ▾ MENU, like Claude Code's (2026-11-15): Rename, an inline edit (Enter saves, Esc cancels) in the title's place.
+        (S.renaming ? '<input class="cd-title-in" id="cdTitleIn" maxlength="80" aria-label="Chat name" value="' + esc(p.title || '') + '">' : '') +
+        (S.renaming ? '' : '<span class="cd-title-wrap"><button type="button" class="cd-title-more" id="cdTitleMore" aria-label="Chat menu" aria-expanded="' + (S.titleMenu ? 'true' : 'false') + '">▾</button>' +
+          (S.titleMenu ? '<span class="cd-title-menu" role="menu"><button type="button" role="menuitem" id="cdRename">Rename</button></span>' : '') + '</span>') +
+        '<span class="cd-repo-bar" title="' + esc(p.repo) + '">' + ICON.gh + '<span class="cd-ell">' + esc(p.repo) + '</span></span>' : '') +
       (p ? '<span class="cd-branch" title="' + esc(p.branch) + '">' + ICON.branch + '<span class="cd-ell">' + esc(p.branch) + '</span></span>' : '') +
       // A READ-ONLY REPOSITORY (owner item 5, like Claude Code: any public repository can be worked on).
       (p && p.readOnly ? '<span class="cd-ro" title="You can read this repository on GitHub but not push to it, so Coder keeps its work on its machine (See changes shows it, and downloads it as a patch file).">Read-only</span>' : '') +
@@ -4549,6 +4558,20 @@
     on('[data-rewind]', 'click', (e) => { S.rewindPick = false; rewind(Number(e.currentTarget.dataset.rewind)); });
     on('#cdMakePr', 'click', () => send(PR_ASK));
     on('#cdMakeDraft', 'click', () => send(PR_ASK_DRAFT));
+    on('#cdTitleMore', 'click', () => { S.titleMenu = !S.titleMenu; draw(); });
+    on('#cdRename', 'click', () => { S.titleMenu = false; S.renaming = true; draw(); const i = root.querySelector('#cdTitleIn'); if (i) { i.focus(); i.select(); } });
+    on('#cdTitleIn', 'keydown', async (e) => {
+      if (e.key === 'Escape') { e.preventDefault(); S.renaming = false; return draw(); }
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const v = e.currentTarget.value.replace(/\s+/g, ' ').trim();
+      S.renaming = false;
+      if (!v || v === (S.project.title || '')) return draw();
+      const r = await call('/projects/' + encodeURIComponent(S.project.id), { method: 'POST', body: JSON.stringify({ title: v.slice(0, 80) }) });
+      if (r.status === 200 && r.data && r.data.project) { S.project = { ...S.project, title: r.data.project.title }; syncEntry(); drawSide(); }
+      else S.error = (r.data && r.data.error) || 'The chat could not be renamed.';
+      draw();
+    });
     on('#cdAutofix', 'click', async () => { const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/autofix', { method: 'POST', body: JSON.stringify({ on: S.project.autofix !== true }) }); if (r.status === 200 && r.data) { S.project = r.data.project; draw(); } });
     on('#cdBaseSel', 'change', (e) => pickBase(e.currentTarget.value));
     on('#cdAddRepo', 'change', (e) => { const v = e.currentTarget.value; if (v) changeRepos(v, true); });

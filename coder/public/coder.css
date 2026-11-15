@@ -1317,3 +1317,12 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 @keyframes cl-ball { 0%, 79% { opacity: 0; transform: none; } 80% { opacity: 1; transform: none; } 86% { opacity: 1; transform: translate(-40px, -46px) rotate(-200deg); } 93% { opacity: 1; transform: translate(-72px, 70px) rotate(-420deg); } 96%, 100% { opacity: 0; transform: translate(-76px, 70px); } }
 @keyframes cl-jump { 0% { transform: none; } 20% { transform: scale(1.1, .85); } 50% { transform: translateY(-30px) rotate(8deg); } 80% { transform: scale(1.08, .9); } 100% { transform: none; } }
 @media (prefers-reduced-motion: reduce) { .cd-cl-play * { animation: none !important; } }
+/* THE CHAT TITLE'S ▾ MENU (2026-11-15, like Claude Code's): Rename, as an inline edit. Coder only (#gfApp). */
+#gfApp .cd-title-wrap { position: relative; display: inline-flex; margin-left: -6px; }
+#gfApp .cd-title-more { border: 0; background: transparent; color: inherit; opacity: .6; cursor: pointer; padding: 2px 4px; font-size: 12px; border-radius: 4px; }
+#gfApp .cd-title-more:hover, #gfApp .cd-title-more[aria-expanded="true"] { opacity: 1; background: rgba(127,127,127,.15); }
+#gfApp .cd-title-menu { position: absolute; top: 100%; left: 0; z-index: 30; margin-top: 4px; min-width: 120px; padding: 4px; border-radius: 8px; border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; box-shadow: 0 6px 20px rgba(0,0,0,.15); }
+#gfApp .cd-title-menu button { display: block; width: 100%; text-align: left; border: 0; background: transparent; color: inherit; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 13.5px; }
+#gfApp .cd-title-menu button:hover { background: #f3f0ea; }
+#gfApp .cd-title-in { font: inherit; font-size: 14.5px; font-weight: 600; max-width: 34ch; padding: 2px 6px; border-radius: 6px; border: 1px solid #e0dbd2; background: #fff; color: #0d1b2a; }
+#gfApp .cd-head:has(> .cd-title-in) > .cd-title-bar { display: none; }
