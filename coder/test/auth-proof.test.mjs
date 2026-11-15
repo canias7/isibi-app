@@ -1,14 +1,13 @@
-// THE EMAILED CODE, REALLY REQUIRED (the audit, 2026-11-06). Coder's routes take
-// only a session made through both sign-in steps on Coder's own Worker (the
-// password, then the emailed code), shown by the Worker's proof. Tested with a
-// fake Supabase (no real sign-in, no email is sent), the real routes over a fake
-// bucket, and the page's own sign-in code run with stand-ins for the browser.
+// SIGN-IN BY A CODE WE EMAIL, NO PASSWORD (the owner, 2026-11-15: "no passwords, just email codes pls"), STILL ONLY
+// THROUGH CODER'S WORKER (the audit, 2026-11-06). Coder's routes take only a session made by the code step on Coder's
+// own Worker, shown by the Worker's proof. Tested with a fake Supabase (no real sign-in, no email is sent), the real
+// routes over a fake bucket, and the page's own sign-in code run with stand-ins for the browser.
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createHmac, pbkdf2Sync } from "node:crypto";
+import { createHmac } from "node:crypto";
 import vm from "node:vm";
-import { authUser, proofFor, proofOk, makeTicket, readTicket, sessionIdOf, sameText, TICKET_MS, rememberedPassword, pinKeyOf, PIN_ROUNDS, takeCodeTry, codeCountKeyOf, CODE_TRIES, CODE_WINDOW_MS } from "../src/coder-auth.mjs";
+import { authUser, proofFor, proofOk, makeTicket, readTicket, sessionIdOf, sameText, TICKET_MS, takeCodeTry, codeCountKeyOf, CODE_TRIES, CODE_WINDOW_MS, takeSendTry, sendCountKeyOf, SEND_TRIES, SEND_WINDOW_MS } from "../src/coder-auth.mjs";
 import { handleSignin } from "../src/coder-signin.mjs";
 import { handleCoder } from "../src/coder-routes.mjs";
 import { corsHeaders } from "../src/coder-cors.mjs";
@@ -98,7 +97,10 @@ function fakeSupabase({ signup = "confirm", user = 200 } = {}) {
       issued.add(s.access);
       return J({ access_token: s.access, refresh_token: s.refresh, expires_in: 3600, user: s.user });
     }
-    if (what === "otp") return J({});
+    if (what === "otp") {
+      if (!users.has(body.email)) { if (body.create_user === false) return J({ msg: "Signups not allowed for otp" }, 422); users.set(body.email, { id: "u-" + body.email.split("@")[0], email: body.email }); }
+      return J({});
+    }
     if (what === "verify") { const x = users.get(body.email); return x && body.token === "123456" ? J(start(x, "code")) : J({ msg: "Token has expired or is invalid" }, 403); }
     if (what === "logout") {
       if (mode.logoutThrows) throw new TypeError("fetch failed");
@@ -147,24 +149,25 @@ const coder = async (env, sb, path, token, proof) => {
   return { status: r.status, data: await r.json() };
 };
 const AGAIN = { error: "Sign in again.", signin: true };
-const START_AGAIN = { error: "Start again: enter your email and password.", restart: true };
+const START_AGAIN = { error: "Start again: enter your email.", restart: true };
 
-/** Password, then the code, through the Worker: `{ session, proof }`. */
+/** The code sent, then the code, through the Worker: `{ session, proof }`. */
 async function signInFully(env, sb, email = "me@example.com") {
-  const t = await (await auth(env, sb, "signin", { email, password: "right" })).json();
+  const t = await (await auth(env, sb, "signin", { email })).json();
   return (await auth(env, sb, "verify", { email, code: "123456", type: "email", ticket: t.ticket })).json();
 }
 
-test("CD86 (the audit, 2026-11-06) Coder's routes refuse a Supabase session made without both steps on the Worker: password only, inbox only (straight, or by setting a new password at Supabase), another session's proof, or no proof key", async () => {
+test("CD86 (the audit, 2026-11-06; codes only since 2026-11-15) Coder's routes refuse a Supabase session not made by the Worker's code step: an old password straight at Supabase, a code verified straight at Supabase, another session's proof, or no proof key", async () => {
   const sb = fakeSupabase();
   const env = envFor();
-  // PASSWORD ONLY: a session straight from Supabase's password sign-in (the public key allows it). No code, so no proof.
+  // AN OLD PASSWORD: a session straight from Supabase's password sign-in (the public key allows it, and accounts from
+  // before 2026-11-15 still have a password there). Not through the Worker's code step, so no proof.
   const pw = await sb.direct("token?grant_type=password", { email: "me@example.com", password: "right" });
   assert.match(pw.access_token, /^[\w-]+\.[\w-]+\.[\w-]+$/);
   assert.deepEqual(await coder(env, sb, "projects", pw.access_token), { status: 401, data: AGAIN }, "a password-only session gets in");
   assert.deepEqual(await coder(env, sb, "settings", pw.access_token, ""), { status: 401, data: AGAIN });
   assert.deepEqual(await coder(env, sb, "projects", pw.access_token, "made-up-proof-made-up-proof-made-up-proof12"), { status: 401, data: AGAIN }, "a made-up proof");
-  // INBOX ONLY: a code asked from Supabase directly and verified there. No password, so no proof.
+  // A CODE STRAIGHT AT SUPABASE: asked from Supabase directly and verified there, not through the Worker: no proof.
   await sb.direct("otp", { email: "me@example.com", create_user: false });
   const inbox = await sb.direct("verify", { type: "email", email: "me@example.com", token: "123456" });
   assert.ok(sessionIdOf(inbox.access_token), "Supabase's tokens carry their session id");
@@ -207,79 +210,35 @@ test("CD86 (the audit, 2026-11-06) Coder's routes refuse a Supabase session made
   const [kp, ks] = known.split(".");
   assert.equal(ks, createHmac("sha256", pk).update("ticket:" + kp).digest("base64url"));
   assert.deepEqual(JSON.parse(Buffer.from(kp, "base64url").toString()), { e: "me@example.com", t: "email", x: 1_000_000 + TICKET_MS });
-  // Every proof, ticket signature and remembered password is compared in constant time.
+  // Every proof and ticket signature is compared in constant time.
   assert.match(proofOk.toString(), /sameText\(want, proof\)/);
   assert.match(readTicket.toString(), /sameText\(await mac\(key, "ticket:" \+ m\[1\]\), m\[2\]\)/);
-  assert.match(rememberedPassword.toString(), /sameText\(await pinOf\(key, password, salt\), p\.pin\)/);
-  // THE REMEMBERED PASSWORD, as kept in the bucket since the owner's sign-in above: PBKDF2 (100,000 rounds, a random
-  // 16-byte salt), then signed with the proof key ("pin:"). Never the password itself.
-  const pin = env.CODER_BUCKET.read(pinKeyOf("u1"));
-  assert.deepEqual(Object.keys(pin).sort(), ["at", "k", "pin", "salt", "v"]);
-  assert.equal(PIN_ROUNDS, 100000);
-  assert.equal(Buffer.from(pin.salt, "base64url").length, 16);
-  assert.equal(pin.pin, createHmac("sha256", pk).update("pin:" + pbkdf2Sync("right", Buffer.from(pin.salt, "base64url"), 100000, 32, "sha256").toString("base64url")).digest("base64url"));
-  assert.equal(pin.k, createHmac("sha256", pk).update("pin-key").digest("base64url").slice(0, 16));
-  assert.ok(!JSON.stringify(pin).includes("right"));
-
-  // INBOX ONLY, THEN A NEW PASSWORD SET AT SUPABASE. The inbox-only session may set a new password there (Supabase allows
-  // it for a session from the last 24 hours, without the old one), and Supabase then takes that password. The Worker does
-  // not: it remembers the owner's password from the owner's sign-in. Its password step answers as for a wrong password,
-  // ends its own session, and sends no code and no ticket.
-  const ib = fakeSupabase();
-  const ienv = envFor();
-  const owner = await signInFully(ienv, ib);
-  await ib.direct("otp", { email: "me@example.com", create_user: false });
-  const inbox2 = await ib.direct("verify", { type: "email", email: "me@example.com", token: "123456" });
-  await ib.direct("user", { password: "set-by-someone-else" }, { method: "PUT", token: inbox2.access_token });
-  assert.equal(ib.passwords.get("me@example.com"), "set-by-someone-else", "Supabase took the new password");
-  ib.calls.length = 0;
-  const taken = await auth(ienv, ib, "signin", { email: "me@example.com", password: "set-by-someone-else" });
-  assert.deepEqual([taken.status, await taken.json()], [401, { error: "That email and password do not match." }]);
-  assert.deepEqual(ib.calls.map((c) => c.what + (c.scope ? ":" + c.scope : "")), ["token", "logout:local"], "a code was sent");
-  assert.ok(ib.via("password").every(([, s]) => s.ended), "the password step's session was left open");
-  assert.deepEqual(await coder(ienv, ib, "projects", inbox2.access_token), { status: 401, data: AGAIN }, "the inbox-only session itself");
-  assert.equal((await coder(ienv, ib, "projects", owner.session.access_token, owner.proof)).status, 200, "the owner's own session is untouched");
-  // A PASSWORD CHANGED AT SUPABASE BY THE OWNER is refused the same way. The one way back (README.md): delete
-  // coder/<user id>/signin-pin.json; the next password step then remembers the password Supabase has.
-  ib.passwords.set("me@example.com", "owners-new-password");
-  assert.equal((await auth(ienv, ib, "signin", { email: "me@example.com", password: "owners-new-password" })).status, 401);
-  await ienv.CODER_BUCKET.delete(pinKeyOf("u1"));
-  const back = await (await auth(ienv, ib, "signin", { email: "me@example.com", password: "owners-new-password" })).json();
-  assert.deepEqual([back.ok, back.type, typeof back.ticket], [true, "email", "string"]);
-  assert.deepEqual([await rememberedPassword(ienv, "u1", "owners-new-password"), await rememberedPassword(ienv, "u1", "set-by-someone-else")], [true, false]);
+  // NO PASSWORD IS KEPT ANYWHERE (2026-11-15): nothing of the old remembered password is written.
+  assert.ok(![...env.CODER_BUCKET.m.keys()].some((k) => /signin-pin/.test(k)));
   // THE BROWSER MAY SEND THE PROOF where it sends the token; the Worker still wires the real check.
   assert.match(corsHeaders(new Request("https://gofarther.dev/", { headers: { Origin: "https://gofarther.dev" } }), { APP_ORIGIN: "https://gofarther.dev" })["access-control-allow-headers"], /^authorization, content-type, x-coder-proof$/);
   assert.match(readFileSync(HERE("worker.js"), "utf8"), /authUser: \(r\) => authUser\(r, env\),/);
 });
 
-test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password step ends its own session (scope=local only, never for a token without a session id) and gives a 15-minute ticket, only for the password the Worker remembers; the code is only taken with a genuine, current ticket for that email, 5 checks per email per 15 minutes; the proof opens Coder", async () => {
+test("CD87 (2026-11-15: a code we email, no password; the audit of 2026-11-06) the code is sent from the email alone (Supabase's sign-in by code, a new email's account made with it), with a 15-minute ticket and no session; the code is only taken with that ticket; codes sent and code checks are counted", async () => {
   const sb = fakeSupabase();
   const env = envFor();
-  // A WRONG PASSWORD: no ticket, no code sent.
-  const bad = await auth(env, sb, "signin", { email: "me@example.com", password: "wrong" });
-  assert.equal(bad.status, 401);
-  assert.equal((await bad.json()).ticket, undefined);
-  assert.ok(!sb.calls.some((c) => c.what === "otp"));
-  // THE PASSWORD STEP.
-  sb.calls.length = 0;
+  // NOT AN EMAIL: nothing is sent.
+  const bad = await auth(env, sb, "signin", { email: "not-an-email" });
+  assert.deepEqual([bad.status, await bad.json()], [400, { error: "Enter a valid email." }]);
+  assert.deepEqual(sb.calls, []);
+  // THE CODE IS SENT from the email alone: a password sent by a page from before is not read, and no session is made.
   const before = Date.now();
-  const r1 = await auth(env, sb, "signin", { email: " Me@Example.com ", password: "right" });
+  const r1 = await auth(env, sb, "signin", { email: " Me@Example.com ", password: "anything" });
   const text = await r1.text();
   const step1 = JSON.parse(text);
   assert.equal(r1.status, 200);
   assert.deepEqual(Object.keys(step1).sort(), ["ok", "step", "ticket", "type"]);
   assert.deepEqual([step1.ok, step1.step, step1.type], [true, "code", "email"]);
-  // ITS OWN SESSION IS ENDED AT ONCE, with its own token and scope=local; never the global sign-out.
-  assert.deepEqual(sb.calls.map((c) => c.what + (c.grant ? ":" + c.grant : "") + (c.scope ? ":" + c.scope : "")), ["token:password", "logout:local", "otp"]);
-  const [[pwSid, pwSession]] = sb.via("password");
-  assert.ok(!/access_token|refresh_token/.test(text) && !text.includes(pwSession.access) && !text.includes(pwSession.refresh), "the password step hands out a session");
-  const logout = sb.calls.find((c) => c.what === "logout");
-  assert.equal(logout.bearer, pwSession.access, "ended with its own token");
-  assert.equal(sessionIdOf(logout.bearer), pwSid);
-  assert.equal(pwSession.ended, true);
-  assert.ok(!sb.calls.some((c) => c.what === "logout" && c.scope !== "local"), "a global sign-out (every device) was asked for");
-  assert.deepEqual(sb.calls.find((c) => c.what === "otp").body, { email: "me@example.com", create_user: false });
-  assert.equal((await coder(env, sb, "projects", pwSession.access, await proofFor(env, pwSid))).status, 401, "the password step's session is over, even with a proof");
+  assert.deepEqual(sb.calls.map((c) => c.what), ["otp"], "only the code is asked for: no password check, no session");
+  assert.deepEqual(sb.calls[0].body, { email: "me@example.com", create_user: true });
+  assert.ok(!/access_token|refresh_token/.test(text));
+  assert.equal(sb.sessions.size, 0, "a session was made before the code");
   // THE TICKET: signed, says only who, which code, until when (15 minutes).
   const t = await readTicket(env, step1.ticket);
   assert.deepEqual([t.email, t.type], ["me@example.com", "email"]);
@@ -329,7 +288,7 @@ test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password s
   assert.deepEqual((await authUser(new Request("https://x/", { headers: { Authorization: "Bearer " + v.session.access_token, "x-coder-proof": v.proof } }), env, { fetchFn: sb.fetchFn })), { id: "u1", email: "me@example.com" });
   // NO PROOF KEY: no sign-in at all, and Supabase is not even asked (fail closed).
   const sb2 = fakeSupabase();
-  for (const [action, password] of [["signin", "right"], ["signup", "secret1"]]) assert.deepEqual([(await auth(envFor({ CODER_TOKEN_KEY: "" }), sb2, action, { email: "me@example.com", password })).status], [503], action);
+  for (const action of ["signin", "signup"]) assert.deepEqual([(await auth(envFor({ CODER_TOKEN_KEY: "" }), sb2, action, { email: "me@example.com" })).status], [503], action);
   const noKey = await auth(envFor({ CODER_TOKEN_KEY: "" }), sb2, "verify", { email: "me@example.com", code: "123456", type: "email", ticket: step1.ticket });
   assert.deepEqual([noKey.status, await noKey.json()], [401, START_AGAIN]);
   assert.deepEqual(sb2.calls, []);
@@ -339,55 +298,9 @@ test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password s
   assert.equal(oddR.status, 502);
   assert.equal((await oddR.json()).session, undefined);
 
-  // A PASSWORD-STEP TOKEN WITHOUT A SESSION ID IS NOT LOGGED OUT: for such a token Supabase's logout ends EVERY session of
-  // the user, whatever the scope (the fake does what GoTrue does), which would sign the owner out on every device.
-  const gs = fakeSupabase();
-  const genv = envFor();
-  const mine = await signInFully(genv, gs);
-  gs.mode.pwNoSid = true;
-  gs.calls.length = 0;
-  const noSid = await auth(genv, gs, "signin", { email: "me@example.com", password: "right" });
-  assert.deepEqual([noSid.status, typeof (await noSid.json()).ticket], [200, "string"]);
-  assert.deepEqual(gs.calls.map((c) => c.what), ["token", "otp"], "a logout was asked for with a token that has no session id");
-  assert.equal((await coder(genv, gs, "projects", mine.session.access_token, mine.proof)).status, 200, "the owner's other session still works");
-  // (What that logout would have done, as GoTrue does it:)
-  await gs.fetchFn(SB + "/auth/v1/logout?scope=local", { method: "POST", headers: { authorization: "Bearer " + gs.via("password").at(-1)[1].access }, body: "{}" });
-  assert.deepEqual(await coder(genv, gs, "projects", mine.session.access_token, mine.proof), { status: 401, data: { error: "sign in first" } });
-  // THE LOGOUT IS BEST EFFORT: when Supabase cannot be reached for it, the code is still sent and the ticket given.
-  const ts = fakeSupabase();
-  ts.mode.logoutThrows = true;
-  const lt = await auth(envFor(), ts, "signin", { email: "me@example.com", password: "right" });
-  const ltj = await lt.json();
-  assert.deepEqual([lt.status, ltj.ok, typeof ltj.ticket], [200, true, "string"]);
-  assert.deepEqual(ts.calls.map((c) => c.what + (c.scope ? ":" + c.scope : "")), ["token", "logout:local", "otp"]);
-  assert.deepEqual(ts.calls.at(-1).body, { email: "me@example.com", create_user: false });
-
-  // THE PASSWORD THE WORKER REMEMBERS: nothing is remembered before an account's first password step here; that step
-  // remembers it, and the same password is taken again without remembering it anew.
-  const rb = fakeSupabase();
-  const renv = envFor();
-  assert.equal(renv.CODER_BUCKET.read(pinKeyOf("u1")), null);
-  assert.equal((await auth(renv, rb, "signin", { email: "me@example.com", password: "right" })).status, 200);
-  const first = renv.CODER_BUCKET.m.get(pinKeyOf("u1")).etag;
-  assert.equal((await auth(renv, rb, "signin", { email: "me@example.com", password: "right" })).status, 200);
-  assert.equal(renv.CODER_BUCKET.m.get(pinKeyOf("u1")).etag, first);
-  // A copy made with another CODER_TOKEN_KEY (the key was changed) is remembered again at the next password step.
-  const rotated = envFor({ CODER_TOKEN_KEY: Buffer.alloc(32, 9).toString("base64"), CODER_BUCKET: renv.CODER_BUCKET });
-  assert.equal(await rememberedPassword(rotated, "u1", "right"), true);
-  assert.notEqual(renv.CODER_BUCKET.m.get(pinKeyOf("u1")).etag, first);
-  assert.deepEqual([await rememberedPassword(rotated, "u1", "right"), await rememberedPassword(rotated, "u1", "wrong")], [true, false]);
-  // A damaged copy is refused (fail closed) until it is deleted; no proof key, no bucket or no account id: refused.
-  await renv.CODER_BUCKET.put(pinKeyOf("u1"), "{");
-  assert.deepEqual([(await auth(renv, rb, "signin", { email: "me@example.com", password: "right" })).status, await rememberedPassword(renv, "u1", "right")], [401, false]);
-  for (const [why, e, uid] of [["no key", envFor({ CODER_TOKEN_KEY: "" }), "u1"], ["no bucket", envFor({ CODER_BUCKET: undefined }), "u1"], ["no id", envFor(), ""], ["odd id", envFor(), "../u1"]]) assert.equal(await rememberedPassword(e, uid, "right"), false, why);
-  // SUPABASE'S ANSWER WITHOUT THE ACCOUNT'S ID: no code, no ticket (fail closed).
-  const noId = { calls: [], fetchFn: async (url, init) => { noId.calls.push(String(url)); return String(url).includes("grant_type=password") ? new Response(JSON.stringify({ access_token: jwt({ sub: "u1", session_id: "s-x" }), refresh_token: "r" })) : new Response(null, { status: 204 }); } };
-  const ni = await auth(envFor(), noId, "signin", { email: "me@example.com", password: "right" });
-  assert.deepEqual([ni.status, await ni.json()], [502, { error: "Sign-in did not finish. Try again." }]);
-  assert.ok(!noId.calls.some((u) => u.endsWith("/otp")));
   // NO BUCKET: no sign-in at all, and Supabase is not even asked (fail closed).
   const nb = fakeSupabase();
-  for (const [action, password] of [["signin", "right"], ["signup", "secret1"]]) assert.equal((await auth(envFor({ CODER_BUCKET: undefined }), nb, action, { email: "me@example.com", password })).status, 503, action);
+  for (const action of ["signin", "signup"]) assert.equal((await auth(envFor({ CODER_BUCKET: undefined }), nb, action, { email: "me@example.com" })).status, 503, action);
   const nbv = await auth(envFor({ CODER_BUCKET: undefined }), nb, "verify", { email: "me@example.com", code: "123456", type: "email", ticket: await makeTicket(env, "me@example.com", "email") });
   assert.deepEqual([nbv.status, await nbv.json()], [503, { error: "sign-in is not set up" }]);
   assert.deepEqual(nb.calls, []);
@@ -396,7 +309,7 @@ test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password s
   // reset them, a right code does, and guesses sent all at once cannot slip through.
   const lb = fakeSupabase();
   const lenv = envFor();
-  const ticketOf = async (sb, e) => (await (await auth(e, sb, "signin", { email: "me@example.com", password: "right" })).json()).ticket;
+  const ticketOf = async (sb, e) => (await (await auth(e, sb, "signin", { email: "me@example.com" })).json()).ticket;
   const verifies = (sb) => sb.calls.filter((c) => c.what === "verify").length;
   const tk1 = await ticketOf(lb, lenv);
   for (let i = 0; i < CODE_TRIES; i++) {
@@ -407,7 +320,7 @@ test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password s
   const sixth = await auth(lenv, lb, "verify", { email: "me@example.com", code: "123456", type: "email", ticket: tk1 });
   assert.deepEqual([sixth.status, await sixth.json()], [429, { error: "Too many tries with the code. Wait 15 minutes, then start again.", restart: true }], "even the right code, after five wrong ones");
   assert.equal(verifies(lb), 5, "Supabase was asked a sixth time");
-  // A NEW PASSWORD STEP (a fresh ticket) does not reset the count.
+  // A NEW CODE SENT (a fresh ticket) does not reset the count.
   const tk2 = await ticketOf(lb, lenv);
   assert.equal((await auth(lenv, lb, "verify", { email: "me@example.com", code: "123456", type: "email", ticket: tk2 })).status, 429);
   assert.equal(verifies(lb), 5);
@@ -447,9 +360,32 @@ test("CD87 (the audit, 2026-11-06) both steps through the Worker: the password s
   // No bucket or no key: nothing can be counted, so nothing is checked (fail closed).
   assert.deepEqual(await takeCodeTry(envFor({ CODER_BUCKET: undefined }), "me@example.com"), { off: true });
   assert.deepEqual(await takeCodeTry(envFor({ CODER_TOKEN_KEY: "" }), "me@example.com"), { off: true });
+
+  // CODES SENT ARE COUNTED (2026-11-15): 5 per email per 15 minutes, before Supabase is asked, the old sign-up route too;
+  // each email its own count, under a name that does not show it.
+  const sl = fakeSupabase();
+  const senv = envFor();
+  for (let i = 0; i < SEND_TRIES; i++) assert.equal((await auth(senv, sl, "signin", { email: "me@example.com" })).status, 200, String(i));
+  const sixthSend = await auth(senv, sl, "signin", { email: "me@example.com" });
+  assert.deepEqual([sixthSend.status, await sixthSend.json()], [429, { error: "Too many codes for this email. Wait 15 minutes, then try again." }]);
+  assert.deepEqual([SEND_TRIES, SEND_WINDOW_MS, sl.calls.filter((c) => c.what === "otp").length], [5, 15 * 60 * 1000, 5]);
+  assert.equal((await auth(senv, sl, "signup", { email: "me@example.com" })).status, 429, "the old sign-up route counts too");
+  assert.equal((await auth(senv, sl, "signin", { email: "other@example.com" })).status, 200, "another email has its own count");
+  const sk = await sendCountKeyOf(senv, "me@example.com");
+  assert.match(sk, /^coder\/signin-sends\/[\w-]{43}\.json$/);
+  assert.notEqual(sk, await codeCountKeyOf(senv, "me@example.com"));
+  const sheld = senv.CODER_BUCKET.read(sk);
+  await senv.CODER_BUCKET.put(sk, JSON.stringify({ ...sheld, since: sheld.since - SEND_WINDOW_MS }));
+  assert.equal((await auth(senv, sl, "signin", { email: "me@example.com" })).status, 200, "the 15 minutes passed");
+  // SUPABASE'S OWN LIMIT (a minute between two codes for the same email): its words, as a 429.
+  const slow = { fetchFn: async () => new Response(JSON.stringify({ msg: "For security purposes, you can only request this after 42 seconds." }), { status: 429 }) };
+  const s429 = await auth(envFor(), slow, "signin", { email: "me@example.com" });
+  assert.deepEqual([s429.status, await s429.json()], [429, { error: "For security purposes, you can only request this after 42 seconds." }]);
+  assert.deepEqual(await takeSendTry(envFor({ CODER_BUCKET: undefined }), "me@example.com"), { off: true });
+  assert.deepEqual(await takeSendTry(envFor({ CODER_TOKEN_KEY: "" }), "me@example.com"), { off: true });
 });
 
-test("CD88 (the audit, 2026-11-06) refresh hands the proof back only while it is valid for the session, and Supabase busy or down does not end the session; sign-up also needs the emailed code, with a ticket", async () => {
+test("CD88 (the audit, 2026-11-06) refresh hands the proof back only while it is valid for the session, and Supabase busy or down does not end the session; a new email's first code makes its account (2026-11-15), and the old sign-up route only sends a code", async () => {
   const sb = fakeSupabase();
   const env = envFor();
   const me = await signInFully(env, sb);
@@ -491,36 +427,22 @@ test("CD88 (the audit, 2026-11-06) refresh hands the proof back only while it is
   const down = await auth(env, { fetchFn: async () => new Response("", { status: 504 }) }, "refresh", { refresh_token: "rt-x" });
   assert.deepEqual([down.status, await down.json()], [502, { error: "The session could not be renewed. Try again in a minute.", ended: false }]);
 
-  // SIGN-UP, EMAIL CONFIRMATION ON: "check your email" with a signup ticket (this request set the password).
-  const sc = fakeSupabase({ signup: "confirm" });
-  const up = await (await auth(env, sc, "signup", { email: "new@example.com", password: "secret1" })).json();
-  assert.deepEqual([up.ok, up.step, up.type], [true, "code", "signup"]);
-  assert.deepEqual([(await readTicket(env, up.ticket)).email, (await readTicket(env, up.ticket)).type], ["new@example.com", "signup"]);
-  assert.equal(up.session, undefined);
-  assert.deepEqual((await (await auth(env, sc, "verify", { email: "new@example.com", code: "123456", type: "email", ticket: up.ticket })).json()), START_AGAIN, "a signup ticket is for the signup code only");
-  const upv = await (await auth(env, sc, "verify", { email: "new@example.com", code: "123456", type: "signup", ticket: up.ticket })).json();
-  assert.equal(upv.proof, await proofFor(env, sessionIdOf(upv.session.access_token)));
-  assert.equal((await coder(env, sc, "projects", upv.session.access_token, upv.proof)).status, 200);
-  assert.ok(!sc.calls.some((c) => c.what === "logout"));
-  // SIGN-UP, A SESSION AT ONCE: that session is ended (scope=local), and the new account still needs the emailed code.
-  const ss = fakeSupabase({ signup: "session" });
-  const now = await auth(env, ss, "signup", { email: "new@example.com", password: "secret1" });
-  const nowText = await now.text();
-  const nowJ = JSON.parse(nowText);
-  assert.deepEqual([now.status, nowJ.ok, nowJ.step, nowJ.type, Object.keys(nowJ).sort()], [200, true, "code", "email", ["ok", "step", "ticket", "type"]]);
-  assert.deepEqual(ss.calls.map((c) => c.what + (c.scope ? ":" + c.scope : "")), ["signup", "logout:local", "otp"]);
-  const [[, upSession]] = ss.via("signup");
-  assert.ok(!/access_token|refresh_token/.test(nowText) && !nowText.includes(upSession.access) && !nowText.includes(upSession.refresh), "a session handed out without the code");
-  assert.equal(ss.calls[1].bearer, upSession.access);
-  assert.equal(upSession.ended, true);
-  assert.deepEqual(ss.calls[2].body, { email: "new@example.com", create_user: false });
-  // Even with a proof made for it, that session opens nothing: it was ended at Supabase.
-  assert.deepEqual(await coder(env, ss, "projects", upSession.access, await proofFor(env, sessionIdOf(upSession.access))), { status: 401, data: { error: "sign in first" } });
-  const ssv = await (await auth(env, ss, "verify", { email: "new@example.com", code: "123456", type: "email", ticket: nowJ.ticket })).json();
-  assert.equal((await coder(env, ss, "projects", ssv.session.access_token, ssv.proof)).status, 200);
-  // SIGN-UP FOR AN ACCOUNT THAT EXISTS: today's answer, and no ticket.
-  const ex = await auth(env, fakeSupabase({ signup: "exists" }), "signup", { email: "me@example.com", password: "secret1" });
-  assert.deepEqual([ex.status, await ex.json()], [409, { error: "That account already exists — sign in instead." }]);
+  // A NEW EMAIL (2026-11-15): its first code makes its account (Supabase's sign-in by code), with the same ticket and proof.
+  const nu = fakeSupabase();
+  assert.equal(nu.users.has("new@example.com"), false);
+  const first = await (await auth(env, nu, "signin", { email: "new@example.com" })).json();
+  assert.deepEqual([first.ok, first.step, first.type], [true, "code", "email"]);
+  assert.deepEqual(nu.calls.at(-1).body, { email: "new@example.com", create_user: true });
+  const made = await (await auth(env, nu, "verify", { email: "new@example.com", code: "123456", type: "email", ticket: first.ticket })).json();
+  assert.equal(made.session.user.email, "new@example.com");
+  assert.equal(made.proof, await proofFor(env, sessionIdOf(made.session.access_token)));
+  assert.equal((await coder(env, nu, "projects", made.session.access_token, made.proof)).status, 200);
+  // THE OLD SIGN-UP ROUTE (a page from before): the same as sign-in, a code and a ticket; its password is not read and
+  // Supabase's password sign-up and sign-in are never asked.
+  const old = await auth(env, nu, "signup", { email: "other@example.com", password: "secret1" });
+  const oldJ = await old.json();
+  assert.deepEqual([old.status, oldJ.type, typeof oldJ.ticket], [200, "email", "string"]);
+  assert.ok(!nu.calls.some((c) => c.what === "signup" || c.what === "token"), "Supabase's password sign-up or sign-in was asked");
 });
 
 // ── THE PAGE ─────────────────────────────────────────────────────────────────
@@ -576,9 +498,9 @@ function runApp(Auth) {
   return { els, submit };
 }
 
-test("CD89 (the audit, 2026-11-06) the page keeps the ticket for the code step (sign-in and sign-up), stores the proof with the session and sends it on every call and refresh; a session without a proof is not used, is removed, and is not taken from another tab; a refused session goes back to sign-in once, never in a loop, keeping what was typed; a renewal that fails only for now keeps the session", async () => {
+test("CD89 (the audit, 2026-11-06) the page keeps the ticket of the code sent (and of a new code) for the code step, stores the proof with the session and sends it on every call and refresh; a session without a proof is not used, is removed, and is not taken from another tab; a refused session goes back to sign-in once, never in a loop, keeping what was typed; a renewal that fails only for now keeps the session", async () => {
   const user = { id: "u1", email: "me@example.com" };
-  // SIGN IN: the ticket from the password step goes to the code step (again after a wrong code); the proof is kept with the session.
+  // SIGN IN: the ticket of the code sent goes to the code step (again after a wrong code); the proof is kept with the session.
   const t = runAuth({ answers: {
     signin: [200, { ok: true, step: "code", type: "email", ticket: "T1" }],
     verify: (b) => (b.code === "000000" ? [401, { error: "That code did not work." }] : [200, { ok: true, session: { access_token: "A1", refresh_token: "R1", expires_at: Date.now() + 30_000, user }, proof: "P1" }]),
@@ -586,7 +508,8 @@ test("CD89 (the audit, 2026-11-06) the page keeps the ticket for the code step (
     logout: [200, { ok: true }],
   } });
   assert.equal(t.Auth.isSignedIn(), false);
-  await t.Auth.signIn("me@example.com", "pw-123");
+  await t.Auth.sendCode("me@example.com");
+  assert.deepEqual(t.sent[0].body, { email: "me@example.com" }, "the email alone: no password");
   await assert.rejects(t.Auth.verifyCode("me@example.com", "000000", "email"), /That code did not work/);
   assert.equal(t.Auth.isSignedIn(), false);
   await t.Auth.verifyCode("me@example.com", "123456", "email");
@@ -601,20 +524,22 @@ test("CD89 (the audit, 2026-11-06) the page keeps the ticket for the code step (
   await t.Auth.signOut();
   assert.deepEqual([t.sent.at(-1).url, t.sent.at(-1).headers.authorization, t.sent.at(-1).headers["x-coder-proof"]], ["/api/auth/logout", "Bearer A2", "P1"]);
   assert.equal(t.local.getItem("gf_session_v1"), null);
-  // SIGN UP: the ticket from the sign-up step goes to the code step too, with the kind of code the Worker named.
-  const up = runAuth({ answers: {
-    signup: [200, { ok: true, step: "code", type: "signup", ticket: "T-UP" }],
-    verify: (b) => (b.ticket === "T-UP" && b.type === "signup" ? [200, { ok: true, session: { access_token: "A1", refresh_token: "R1", expires_at: Date.now() + 3600e3, user }, proof: "P1" }] : [401, { error: "Start again: enter your email and password.", restart: true }]),
+  // A NEW CODE (Send a new code): the newest ticket goes to the code step.
+  let n = 0;
+  const re = runAuth({ answers: {
+    signin: () => [200, { ok: true, step: "code", type: "email", ticket: "T" + ++n }],
+    verify: (b) => (b.ticket === "T2" ? [200, { ok: true, session: { access_token: "A1", refresh_token: "R1", expires_at: Date.now() + 3600e3, user }, proof: "P1" }] : [401, { error: "Start again: enter your email.", restart: true }]),
   } });
-  const upd = await up.Auth.signUp("new@example.com", "pw-123456");
-  assert.deepEqual([upd.step, upd.type], ["code", "signup"]);
-  await up.Auth.verifyCode("new@example.com", "123456", "signup");
-  assert.deepEqual(up.sent.find((x) => x.url === "/api/auth/verify").body, { email: "new@example.com", code: "123456", type: "signup", ticket: "T-UP" });
-  assert.deepEqual([up.Auth.isSignedIn(), up.Auth.proof(), JSON.parse(up.local.getItem("gf_session_v1")).proof], [true, "P1", "P1"]);
+  await re.Auth.sendCode("me@example.com");
+  await re.Auth.sendCode("me@example.com");
+  await re.Auth.verifyCode("me@example.com", "123456", "email");
+  assert.deepEqual(re.sent.find((x) => x.url === "/api/auth/verify").body, { email: "me@example.com", code: "123456", type: "email", ticket: "T2" });
+  assert.deepEqual([re.Auth.isSignedIn(), re.Auth.proof()], [true, "P1"]);
+  assert.deepEqual([typeof re.Auth.signIn, typeof re.Auth.signUp], ["undefined", "undefined"], "no password sign-in left on the page");
   // A TICKET THAT RAN OUT: the error says to start again.
-  const old = runAuth({ answers: { verify: [401, { error: "Start again: enter your email and password.", restart: true }] } });
+  const old = runAuth({ answers: { verify: [401, { error: "Start again: enter your email.", restart: true }] } });
   const err = await old.Auth.verifyCode("me@example.com", "123456", "email").catch((e) => e);
-  assert.deepEqual([err.message, err.restart], ["Start again: enter your email and password.", true]);
+  assert.deepEqual([err.message, err.restart], ["Start again: enter your email.", true]);
   // NO PROOF IN THE REFRESH ANSWER: the session is not kept (sign in again).
   const dropped = runAuth({ stored: { access_token: "A1", refresh_token: "R1", expires_at: Date.now() + 30_000, user, proof: "P1" }, answers: { refresh: [200, { ok: true, session: { access_token: "A2", refresh_token: "R2", expires_at: Date.now() + 3600e3, user } }] } });
   assert.equal(dropped.Auth.isSignedIn(), true);
@@ -740,25 +665,41 @@ test("CD89 (the audit, 2026-11-06) the page keeps the ticket for the code step (
   assert.deepEqual([gate.els.gfShell.hidden, gate.els.gfGate.hidden, gate.els.gfGate.classes.has("signing"), gate.els.gfMsg.textContent, gate.els.gfTitle.textContent, gate.els.gfStep1.hidden], [true, false, true, "Sign in again.", "Sign in", false]);
   const landing = runApp({ isSignedIn: () => false, justEnded: () => false });
   assert.deepEqual([landing.els.gfGate.classes.has("signing"), landing.els.gfMsg.textContent], [false, ""], "an ordinary visit shows the landing page");
-  // A wrong code stays on the code step; a ticket that ran out goes back to the password step.
+  // THE CARD (2026-11-15): the email alone, then the code; a wrong code stays on the code step; a ticket that ran out goes
+  // back to the email; a new code can be sent; another email can be used.
   const seen = [];
   let verifyErr = Object.assign(new Error("That code did not work."), { restart: false });
-  const card = runApp({ isSignedIn: () => false, justEnded: () => false, signIn: async (e) => { seen.push(["signIn", e]); return { ok: true, step: "code", type: "email", ticket: "T" }; }, signUp: async (e) => { seen.push(["signUp", e]); return { ok: true, step: "code", type: "email", ticket: "T" }; }, verifyCode: async (e, c, type) => { seen.push(["verify", e, c, type]); throw verifyErr; } });
-  card.els.gfMail.value = "me@example.com"; card.els.gfPw.value = "pw-123";
+  let sendErr = null;
+  const card = runApp({ isSignedIn: () => false, justEnded: () => false, sendCode: async (e) => { seen.push(["sendCode", e]); if (sendErr) throw sendErr; return { ok: true, step: "code", type: "email", ticket: "T" }; }, verifyCode: async (e, c, type) => { seen.push(["verify", e, c, type]); throw verifyErr; } });
+  assert.deepEqual([card.els.gfTitle.textContent, card.els.gfGo.textContent, card.els.gfStep1.hidden, card.els.gfStep2.hidden, card.els.gfCodeActs.hidden], ["Sign in", "Email me a code", false, true, true]);
+  assert.match(card.els.gfSub.textContent, /New here\? The same code makes your account\./);
   await card.submit();
-  assert.deepEqual([card.els.gfStep1.hidden, card.els.gfStep2.hidden], [true, false]);
+  assert.deepEqual([card.els.gfMsg.textContent, seen.length], ["Enter your email.", 0], "no email, nothing sent");
+  card.els.gfMail.value = "me@example.com";
+  await card.submit();
+  assert.deepEqual([card.els.gfStep1.hidden, card.els.gfStep2.hidden, card.els.gfCodeActs.hidden, card.els.gfTitle.textContent, card.els.gfSub.textContent, card.els.gfGo.textContent], [true, false, false, "Check your email", "We sent a code to me@example.com.", "Sign in"]);
   card.els.gfCode.value = "000000";
   await card.submit();
   assert.deepEqual([card.els.gfStep2.hidden, card.els.gfMsg.textContent], [false, "That code did not work."]);
-  verifyErr = Object.assign(new Error("Start again: enter your email and password."), { restart: true });
+  // Send a new code: the same email; a line that says so (not an error); the code box emptied.
+  card.els.gfCode.value = "000000";
+  await card.els.gfResend.on.click[0]();
+  assert.deepEqual([card.els.gfMsg.textContent, card.els.gfMsg.classes.has("gf-ok"), card.els.gfCode.value, card.els.gfStep2.hidden], ["We sent a new code.", true, "", false]);
+  sendErr = new Error("Too many codes for this email. Wait 15 minutes, then try again.");
+  await card.els.gfResend.on.click[0]();
+  assert.deepEqual([card.els.gfMsg.textContent, card.els.gfMsg.classes.has("gf-ok")], ["Too many codes for this email. Wait 15 minutes, then try again.", false]);
+  sendErr = null;
+  // A ticket that ran out: back to the email.
+  verifyErr = Object.assign(new Error("Start again: enter your email."), { restart: true });
   card.els.gfCode.value = "123456";
   await card.submit();
-  assert.deepEqual([card.els.gfStep1.hidden, card.els.gfStep2.hidden, card.els.gfCode.value, card.els.gfMsg.textContent], [false, true, "", "Start again: enter your email and password."]);
-  // A new account goes to the code step too, with the kind of code the Worker named.
-  card.els.gfSwitch.on.click[0]();
+  assert.deepEqual([card.els.gfStep1.hidden, card.els.gfStep2.hidden, card.els.gfCode.value, card.els.gfMsg.textContent], [false, true, "", "Start again: enter your email."]);
+  // Use another email: from the code step back to the email.
   await card.submit();
-  card.els.gfCode.value = "123456";
-  await card.submit();
-  assert.deepEqual(seen.map((x) => x[0]), ["signIn", "verify", "verify", "signUp", "verify"]);
-  assert.deepEqual(seen.at(-1), ["verify", "me@example.com", "123456", "email"]);
+  card.els.gfBack.on.click[0]();
+  assert.deepEqual([card.els.gfStep1.hidden, card.els.gfStep2.hidden, card.els.gfCodeActs.hidden, card.els.gfMsg.textContent], [false, true, true, ""]);
+  assert.deepEqual(seen.map((x) => x[0]), ["sendCode", "verify", "sendCode", "sendCode", "verify", "sendCode"]);
+  assert.deepEqual(seen[1], ["verify", "me@example.com", "000000", "email"]);
+  // No password anywhere on the page.
+  assert.doesNotMatch(readFileSync(HERE("public/index.html"), "utf8"), /type="password"|gfPw|Create an account/);
 });

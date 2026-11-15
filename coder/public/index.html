@@ -51,14 +51,13 @@
         <p class="gf-sub" id="gfSub">Coder works on your code in your own GitHub.</p>
         <div id="gfStep1">
           <label>Email<input type="email" id="gfMail" autocomplete="email" required /></label>
-          <label>Password<input type="password" id="gfPw" autocomplete="current-password" minlength="6" required /></label>
         </div>
         <div id="gfStep2" hidden>
           <label>The code we emailed you<input type="text" id="gfCode" inputmode="numeric" autocomplete="one-time-code" maxlength="10" /></label>
         </div>
         <p class="gf-msg" id="gfMsg" role="alert"></p>
-        <button type="submit" class="gf-go" id="gfGo">Continue</button>
-        <button type="button" class="gf-switch" id="gfSwitch">New here? Create an account</button>
+        <button type="submit" class="gf-go" id="gfGo">Email me a code</button>
+        <div class="gf-codeacts" id="gfCodeActs" hidden><button type="button" class="gf-switch" id="gfResend">Send a new code</button><button type="button" class="gf-switch" id="gfBack">Use another email</button></div>
       </form>
     </section>
     <div class="gf-shell" id="gfShell" hidden>
