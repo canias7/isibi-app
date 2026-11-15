@@ -373,7 +373,10 @@ code in **each user's own GitHub**.
      words for why it can't be used; connectors waiting for sign-in or failed are named
      as Claude Code names them, and a failed one's tools aren't offered; a hook's
      rewrite of the result is checked; `ToolSearch(*)` is the whole tool;
-     `CODER_MAX_MCP_DESCRIPTION_LENGTH`. Tests: `test/tool-search.test.mjs`.
+     `CODER_MAX_MCP_DESCRIPTION_LENGTH`. Since 2026-11-15 (the owner: "make sure the cost is right ABOUT the tools, only
+     calling them when necessary") the environment tools and request_secret are held back too (`DEFERRED_TOOLS`), about
+     8,400 of the 13,000 tokens of tools every call carried; Claude Code's cloud sends its remote tools upfront, Coder
+     doesn't, for the cost. Tests: `test/tool-search.test.mjs`.
    - *Calls side by side* (`coder-parallel.mjs`, round 3): a reply's consecutive calls
      of Claude Code's concurrency-safe tools (read, grep, glob, lsp, web_fetch,
      web_search, read-only commands and connector tools, and the others it marks so)
@@ -2221,7 +2224,8 @@ holds. Pictures stay within `keepPics`' room (the newest 24, 18 MB), the owner's
 earlier ones counted too; this message's always stay. Before every request to
 Grok, a message's first too, the conversation's tokens (the last answer's real
 use, kept on it as `tokens`, and 4 characters a token and 2,000 a picture for
-what came after it) are checked against Claude Code's thresholds for the model's
+what came after it; with no answer to count from, the system message and the tools
+the request carries too, never the ones held back for tool_search) are checked against Claude Code's thresholds for the model's
 window in the models list (Grok 4.7: 500,000): the effective window is the window
 less the answer's reserve (at most 20,000), and auto-compact runs 13,000 below
 it, or, as in Claude Code's cloud sessions, which set `CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`

@@ -67,7 +67,11 @@ import { inputErrorText, typeIssue } from "./coder-zodtext.mjs";
 export const TOOL_SEARCH = "tool_search";
 
 /** Coder's tools that Claude Code 2.1.325 defers (its built-in tools with `shouldDefer: true`), in Coder's names. */
-export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode"]);
+// (2026-11-15, the owner: "make sure the cost is right ABOUT the tools, only calling them when necessary": the environment tools
+// and request_secret, about 8,400 tokens a call, used only when the network or a key is the problem, are held back too and
+// loaded by tool_search when needed. Claude Code's cloud sends its remote tools on every call; Coder holds them back to save
+// that cost. A chat whose requests already carried them keeps them, as upfrontTools keeps tools that leave.)
+export const DEFERRED_TOOLS = Object.freeze(["lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment"]);
 
 /** Their search hints, Claude Code's own (its `searchHint`, matched by a keyword search), with Coder's swaps. */
 export const SEARCH_HINTS = Object.freeze({
@@ -83,6 +87,13 @@ export const SEARCH_HINTS = Object.freeze({
   task_update: "update a task",
   enter_plan_mode: "switch to plan mode to design an approach before coding",
   exit_plan_mode: "present plan for approval and start coding (plan mode only)",
+  // (Coder's own words for the six held back since 2026-11-15: Claude Code has no hint for its remote tools.)
+  request_secret: "ask the owner for an API key or token a host needs",
+  get_environment: "look up this chat's cloud environment (network access, variables, setup script)",
+  list_environments: "list the owner's cloud environments",
+  update_environment: "propose a change to this chat's environment (allowed hosts, variables, setup script)",
+  create_environment: "propose a new cloud environment",
+  switch_environment: "move this chat onto another environment",
 });
 
 /**

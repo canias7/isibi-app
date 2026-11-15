@@ -19,8 +19,8 @@ const ROOT = "/work/shop";
 const call = (name, args, id) => ({ id, type: "function", function: { name, arguments: JSON.stringify(args) } });
 const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) } });
 const PNG = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==";
-/** A threshold of 24,000 tokens (5% of the effective 480,000): the system message and the tools are some 16,000 of them. */
-const SMALL = { CODER_AUTOCOMPACT_PCT_OVERRIDE: "5" };
+/** A threshold of `tokens` (CODER_AUTOCOMPACT_PCT_OVERRIDE, its percentage of the effective 480,000: 1% is 4,800 tokens). */
+const at = (tokens) => ({ CODER_AUTOCOMPACT_PCT_OVERRIDE: String(tokens / 4_800) });
 
 /**
  * A CHAT ON A PRETEND MACHINE, each message a job, its messages kept as the Worker keeps them. Grok's answers in turn, each with
@@ -69,6 +69,14 @@ function chat({ summary = () => "THE SUMMARY of what came before." } = {}) {
   return { sent, sums, run, get messages() { return saved; }, set messages(m) { saved = m; } };
 }
 const asInput = (req) => M.toResponsesInput(req.messages).input.map((x) => JSON.stringify(x));
+/** A request's tokens as the stand-in Grok counts them (4 characters a token, the messages and the tools). */
+const tokensOf = (req) => Math.ceil(JSON.stringify({ m: req.messages, t: req.tools }).length / 4);
+// WHAT A CHAT'S FIRST REQUEST CARRIES BEFORE ANY READ (the system message, the tools, a short message), measured, so each
+// threshold below is that and some room: it holds whatever the tools weigh (some 16,000 tokens of them until the environment
+// tools and request_secret were held back for tool_search, 2026-11-15; some 8,000 since).
+const BASE = await (async () => { const c = chat(); await c.run([say("ok")], { text: "hi", vars: {} }); return tokensOf(c.sent[0]); })();
+/** The default threshold: 8,000 tokens past it (as 5%, 24,000, was when the tools weighed 16,000). */
+const SMALL = at(BASE + 8_000);
 
 test("AC1 Claude Code's thresholds for Grok's window (its tle, WX and Alt: the output reserve of at most 20,000, the 13,000 buffer, the warning 20,000 below, the 3,000 stop with auto-compact off; 92% of the effective window, the percentage its cloud sessions set themselves), its settings and their words, and the model list's window", () => {
   assert.equal(M.modelWindow("grok-4.7"), 500_000);
@@ -119,7 +127,7 @@ test("AC2 the conversation's tokens as Claude Code counts them: the last answer'
   const c = chat();
   await c.run([say("Hello.")], { text: "hi", vars: {} });
   const ans = c.messages.find((m) => m.role === "assistant");
-  assert.ok(ans.tokens > 15_000 && ans.tokens < 30_000, String(ans.tokens));
+  assert.equal(ans.tokens, tokensOf(c.sent[0]) + 40, "what its request read and the answer it wrote");
   const r = await A.runCoder({ send: async () => ({ ...say("ok"), usage: { in: 10_000, out: 900, reasoning: 800 } }), exec: async () => ({ code: 0, output: "" }), emit: () => {}, here: () => ROOT, root: ROOT, where: (p) => p }, { text: "hi", mode: "acceptEdits" });
   assert.equal(r.messages.find((m) => m.role === "assistant").tokens, 10_100);
 });
@@ -168,6 +176,8 @@ test("AC4 mid-turn, between two rounds: a tool result that fills the conversatio
   const one = await c.run([say("", [call("read", { path: "big60000.txt" }, "r1")]), say("", [call("bash", { command: "ls", description: "List" }, "b1")]), say("All done.")], { text: "read the big file, then list", deps: { watch: (g, o) => { get = g; opt = o; } } });
   assert.equal(opt.whole(), 1, "the machine is told it is the whole conversation");
   assert.ok(K.isSummary(get()[0]));
+  // (One summary: right after it, with no answer to count from, the count is what the next request carries, not the tools held
+  // back for tool_search; counted, they made it some 12,000 tokens more, and a second summary at once. 2026-11-15.)
   assert.equal(c.sums.length, 1);
   assert.equal(one.r.status, "done");
   assert.equal(c.sent.length, 3);
@@ -288,8 +298,9 @@ test("AC9 Claude Code's compact request (its compactConversation, the coordinato
   const tooLong = () => Object.assign(new Error("AI call failed: 400 prompt is too long"), { status: 400 });
   const reads = Array.from({ length: 8 }, (_, i) => say("", [call("read", { path: "big2000-" + "abcdefgh"[i] + ".txt" }, "s" + i)]));
   const c = chat({ summary: (n) => (n <= 2 ? tooLong() : "<analysis>notes</analysis>\n<summary>THE SUMMARY after two tries.</summary>") });
-  // (At 6%, 28,800 tokens: the eight small reads fit with the system message and the tools; the big one does not.)
-  await c.run([...reads, say("", [call("read", { path: "big60000.txt" }, "r1")]), say("All done.")], { text: "read them, then the big file", vars: { CODER_AUTOCOMPACT_PCT_OVERRIDE: "6" } });
+  // (12,800 tokens past what a request carries before any read: the eight small reads, some 500 tokens each, fit; the big one,
+  // some 15,000, does not.)
+  await c.run([...reads, say("", [call("read", { path: "big60000.txt" }, "r1")]), say("All done.")], { text: "read them, then the big file", vars: at(BASE + 12_800) });
   assert.equal(c.sums.length, 3);
   assert.ok(c.sums.every((q) => K.isCompactRequest(q)), "each time Claude Code's compact request");
   assert.ok(c.sums[1].messages.length < c.sums[0].messages.length && c.sums[2].messages.length < c.sums[1].messages.length, "the oldest rounds left out");
