@@ -41,7 +41,7 @@ test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind op
 test("LK5 typing / lists Coder's commands (Claude Code's list): /compact, /permissions, /rewind with a line each; ↑↓, Enter or Tab, a click, Esc", () => {
   const ui = read("coder.js");
   assert.match(ui, /const SLASH = \[\['\/compact', [^\]]+\], \['\/permissions', [^\]]+\], \['\/rewind', [^\]]+\]\];/);
-  assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ mentionHTML\(\) \+/);
+  assert.match(ui, /bgHTML\(\) \+ slashHTML\(\) \+ bangHTML\(\) \+ mentionHTML\(\) \+/);
   assert.match(ui, /if \(sl\.length && \(e\.key === 'Enter' \|\| e\.key === 'Tab'\)[^\n]*pickSlash\(/);
   assert.match(ui, /if \(sl\.length && e\.key === 'Escape'\) \{ S\.slashOff = true;/);
   assert.match(ui, /on\('\[data-slash\]', 'mousedown', \(e\) => \{ e\.preventDefault\(\); pickSlash\(e\.currentTarget\.dataset\.slash\); \}\);/);
