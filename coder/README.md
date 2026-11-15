@@ -2109,6 +2109,30 @@ told which (`MACHINE_ADMIN` or `MACHINE_TOOLS`). `test/sandbox.test.mjs` tries i
 for real as root (the deploy runs it), and the GitHub machine check tries it in
 the full image given as a disk, with the real gate (`test/sandbox-check.mjs`).
 
+**A new chat's machine, started early** (owner, 2026-11-15: "start the machine
+when a repo is picked"). When the owner picks a repository, the page asks
+`POST /api/coder/projects/<id>/warm` (not waited for): the Worker asks the
+chat's machine `/warm` (on the environment's finished saved copy, when there is
+one), which makes it on Fly.io; nothing runs on it, and unused it stops after
+the usual quiet time. Only before the chat's first message. One maker at a time
+(`<machine record>.making`, `flyBox`): the first message's start, coming while
+the machine is still being made, waits for that machine instead of making a
+second. The clone and setup still happen at the first message.
+
+**A turn's step times** (2026-11-15): kept with the chat (`meta.timing`, as
+milliseconds since the Worker got the message: `asked` the machine, `machine`
+had the job with its clone and setup done, and the machine's own `m.got`,
+`m.cloneStart`/`m.cloneEnd`, `m.setupStart`, `m.ready`, `m.began`,
+`m.firstAsk`/`m.firstAnswer` (the first model request), `m.answered`,
+`m.ended`, then `saved`), and logged as `coder: turn timing`. The page asks with
+`early=1`, so a job's answer is shown as soon as the machine has it, before the
+save (the push to GitHub); its next look saves the turn.
+
+**The owner's message is never lost**: the chat records it when its turn starts
+(`meta.asked`), and a job ended as lost (`endLostJob`) or a start that stopped
+half-way puts it back before the error (marked `lost`, which the page shows at
+once even while the message is still being sent: `watchSend`).
+
 **The environment's saved copy of its setup** (owner, 2026-11-07: "ok start";
 like Claude Code's environment cache: "If it completes in under about 5 minutes,
 the filesystem is snapshotted and reused", and "Cloud sessions start from a
@@ -2116,23 +2140,30 @@ fresh clone of your repository"). On Fly.io, when a chat's setup script runs on
 a fresh disk (no job has worked on it: no `.coder-used`, and no project on it
 before the job's clone), in the admin sandbox (so
 all it made is on that disk: the sandbox's layer and dev's home), and works
-within its five minutes, the job waits before Coder starts (`held`): the machine
-writes the copy's note (`.coder-copy.json`: the chat, the setup's fingerprint
-`setupSha` of the script and the network setting, the Coder version) and flushes
-the disk; the Worker has Fly save the disk (`snapshotChat`: kept 8 days,
-`CACHE_KEEP_DAYS`) and records it on the environment
+within its five minutes, the copy is taken when that first turn ENDS (since
+2026-11-15; before, the job waited for it before Coder started, which made a
+new chat's first message slow and once left a job stuck): the job starts at
+once, and at the turn's end, the machine idle, it writes the copy's note
+(`.coder-copy.json`: the chat, the setup's fingerprint `setupSha` of the script
+and the network setting, the Coder version) and flushes the disk (`copyAtEnd`,
+20 seconds at most), and its result says `copy: true`. The Worker (which noted
+`copyWant` on the chat when the turn started) then has Fly save the disk in the
+background (`snapshotChat`: kept 8 days, `CACHE_KEEP_DAYS`; nothing waits for
+it), records it on the environment
 (`coder/<uid>/environments/<id>.cache.json`: Fly's name for the copy and its
 disk, its size, region and Coder version, the setup's key `setupKeyOf`, and
-`ready` once Fly has finished it), then tells the machine to go (`/go`, with a
-note the machine puts in the chat; without an answer it goes on after 2
-minutes, `HOLD_MS`).
+`ready` once Fly has finished it), and says so in the chat. What the turn left
+in the project is no part of what a new chat gets: `takeCopy` clears the
+project's folders. (`/go` and `HOLD_MS` are left from the old wait: an older
+machine still holds, and goes on by itself after 2 minutes.)
 
 Fly saves a disk when it gets to it, not when asked (live test #25,
 2026-11-07; its docs: "Scheduled to snapshot volume", and a copy goes "from
 waiting to running to created"; one took over 7 minutes to finish). So the
-Worker waits until Fly lists the copy as `running` (it is saving the disk) or
-`created`, then 10 seconds more (`CACHE_START_MS` 80 seconds at most, within
-the machine's 2 minutes; not started by then: no copy, said in the chat), and
+Worker waits (in the background) until Fly lists the copy as `running` (it is
+saving the disk) or `created`, then 10 seconds more (`CACHE_START_MS` 80
+seconds at most; not started by then: no copy, and the next new chat tries
+again), and
 the copy's note stays on the chat's disk for good, so a copy saved later still
 says what it is. A new chat in the environment gets its disk made from the
 copy only once Fly has finished it (`copyState`, asked at the chat's first

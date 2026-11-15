@@ -3001,6 +3001,31 @@ export const COPY_NOTE = ".coder-copy.json";
 export const USED_NOTE = ".coder-used";
 /** How long a job waits for the Worker's go while its disk is saved; then it goes on by itself. */
 export const HOLD_MS = 2 * 60 * 1000;
+/**
+ * THE COPY'S NOTE, WRITTEN AT THE TURN'S END (2026-11-15; before, the job waited for the copy before it began): root's own
+ * file on the kept disk, then all of it written out (sync, at most 20 seconds, never blocking this machine). True when written.
+ */
+/** The model's sender, noting when its first request went and its first answer came (the turn's step times). */
+export function timedSend(timing, send) {
+  if (typeof send !== "function") return send;
+  return async (...args) => {
+    if (!timing.firstAsk) timing.firstAsk = Date.now();
+    const r = await send(...args);
+    if (!timing.firstAnswer) timing.firstAnswer = Date.now();
+    return r;
+  };
+}
+export async function copyAtEnd({ data, project, sha, image, now = Date.now(), syncMs = 20_000 }) {
+  if (typeof data !== "string" || !data.startsWith("/") || !sha) return false;
+  await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha, image, at: now }), { mode: 0o600 });
+  await new Promise((ok) => {
+    let p = null;
+    const done = () => { clearTimeout(timer); ok(); };
+    const timer = setTimeout(() => { try { p && p.kill(); } catch { /* gone */ } ok(); }, syncMs);
+    try { p = spawn("sync", ["-f", data], { stdio: "ignore" }); p.on("exit", done); p.on("error", done); } catch { done(); }
+  });
+  return true;
+}
 
 /** The setup's fingerprint: its script and the network setting (what Claude Code's cache follows). */
 export function setupSha(script, net) {
@@ -3626,6 +3651,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (`mode`: the chat's permission mode, which the owner may change while it runs, /mode; `answers`: the owner's answers
     // to its cards, /answer; `asking`: the card a step waits on.)
     const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "", writes: { check: null }, start };
+    // THE TURN'S STEP TIMES (2026-11-15: where a message's seconds go), handed to the Worker with the result: `timing`.
+    t.timing = { got: t.started };
     // (A paused turn taken up again starts with the messages that waited for its card: queuedFrom. coder-park.mjs.)
     t.queue = queuedFrom(body.queued);
 
@@ -3664,7 +3691,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
+        t.timing.cloneStart = Date.now();
         const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true });
+        t.timing.cloneEnd = Date.now();
         if (!prep.ok) return fail(502, prep.why);
         if (prep.note) t.events.push({ at: Date.now(), type: "note", text: prep.note });
       } else {
@@ -4015,6 +4044,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       } else if (due) {
         const id = "setup-" + Date.now();
         setupRan = true;
+        t.timing.setupStart = Date.now();
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
         // THE SETUP SCRIPT CANNOT READ THE OWNER'S VARIABLES OR KEYS (owner,
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
@@ -4307,14 +4337,20 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const mcpCall = connectors.length ? connectorCaller(via, fetch, gloopy ? {} : { roots: workRoots }) : null;
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
     // made on the disk (the admin sandbox), when the Worker asks for one.
-    const hold = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));
+    // (2026-11-15: the job no longer waits for it. A new chat's first message took 97 s, and one that took the old wait got
+    // stuck. The job starts at once; the copy's note is written when the turn ENDS, the disk synced, and the Worker then has
+    // Fly.io save the disk, in the background: copyAtEnd.)
+    const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));
+    if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
+    t.timing.ready = Date.now();
     const begin = () => {
+      t.timing.began = Date.now();
       // A job has worked on this disk: no copy is made of it from now on.
       if (data) { try { writeFileSync(join(data, USED_NOTE), String(Date.now())); } catch { /* read-only */ } }
       const { notices, lost, stalls } = backgroundNews();
       const turnHooks = hooksForTurn(dir, body.hooks, { github: body.github === true, several: extraRepos(body).length > 0 });
       const turnDeps = {
-        send: via ? coderSend(env, { via }) : sendFn,
+        send: timedSend(t.timing, via ? coderSend(env, { via }) : sendFn),
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
         ...(mcpCall ? { mcp: mcpCall, mcpHook: connectorHookCaller(via) } : {}),
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
@@ -4693,7 +4729,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             try { const go = await quietly(); if (go) go(); } catch (e) { console.log("coder: the turn's end: " + String((e && e.message) || e).slice(0, 200)); killUser(); }
             await tidyBg(bgDir, project).catch(() => {});
           } finally {
-            t.result = { ...result, background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid) };
+            t.timing.answered = t.timing.answered || Date.now();
+            // THE SETUP COPY, TAKEN NOW THE TURN IS OVER (2026-11-15): the machine is idle, so its disk is as the setup and the
+            // turn left it; takeCopy clears the project's folders when a new chat starts from it. At most 20 seconds.
+            const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image }).catch(() => false) : false;
+            t.copyWanted = null;
+            t.timing.ended = Date.now();
+            t.result = { ...result, background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid), timing: { ...t.timing }, ...(copy ? { copy: true } : {}) };
             // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,
             // /gloopy/signin or /gloopy/card; and no request of Gloopy's goes on unchecked once its turn is over.
             { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest || r.keyRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : r.keyRequest ? { kind: "key", ...r.keyRequest } : { kind: "card", ...r.cardRequest }); }
@@ -4703,23 +4745,6 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           }
         });
     };
-    if (hold) {
-      try {
-        // root's own file on the kept disk (dev cannot make or change one there), then all of it written out.
-        await writeFile(join(data, COPY_NOTE), JSON.stringify({ from: project, sha: setupSha(script, net), image, at: Date.now() }), { mode: 0o600 });
-        spawnSync("sync", ["-f", data], { stdio: "ignore", timeout: 60000 });
-        let gone = false;
-        const timer = setTimeout(() => t.release && t.release(), holdMs);
-        // The note stays on this disk (takeCopy): Fly.io may save the disk after the job has gone on.
-        t.release = (note) => {
-          if (gone) return;
-          gone = true; clearTimeout(timer); t.release = null;
-          if (typeof note === "string" && note.trim()) t.events.push({ at: Date.now(), type: "note", text: note.trim().slice(0, 400) });
-          begin();
-        };
-        return [200, { ok: true, held: true }];
-      } catch { /* no copy this time */ }
-    }
     if (gloopy) await restoreGloopy().catch(() => {});
     if (gloopy) await browserZone(body);
     if (gloopy) await browserRoute(body.route === true);
@@ -4729,6 +4754,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
   // WHEN THE WORKER LAST ASKED THIS MACHINE FOR SOMETHING (not counting /busy
   // or /health): on Fly.io a machine quiet for 10 minutes is stopped (src/coder-fly.mjs).
   let lastAsked = Date.now();
+  // What became of the saved copy for a machine made by /warm, by chat, until its first turn.
+  const warmCopy = new Map();
   // BACKGROUND COMMANDS PAST THEIR TIME LIMIT are stopped, and those that ended are noted, every few seconds (tool 4).
   // (And an idle chat with news is woken at once, Bash docs pass 8: wakeIdle; only on the real machine, liveFetch.)
   const jobTimer = setInterval(() => { try { checkJobs(); } catch { /* next time */ } try { if (liveFetch) wakeIdle(liveFetch); } catch { /* next time */ } }, JOB_CHECK_MS);
@@ -4853,7 +4880,12 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       lastAsked = Date.now();
       // x-coder-copy: what became of the environment's saved copy (Coder's Worker sets it, with this machine's key).
-      if (url.pathname === "/turn" && req.method === "POST") { const [st, o] = await startTurn(body, { copy: String(req.headers["x-coder-copy"] || "") }); return send(st, o); }
+      // (A machine started early, when the owner picked the repository (/warm, 2026-11-15): what became of the copy was told
+      // then, and is used by the chat's first turn.)
+      if (url.pathname === "/turn" && req.method === "POST") { const p0 = String(body.project || ""); const told = String(req.headers["x-coder-copy"] || "") || warmCopy.get(p0) || ""; warmCopy.delete(p0); const [st, o] = await startTurn(body, { copy: told }); return send(st, o); }
+      // A NEW CHAT'S MACHINE STARTED EARLY (2026-11-15: started when the owner picks the repository, so it is up when the
+      // first message comes): nothing runs; what became of the environment's saved copy is kept for the first turn.
+      if (url.pathname === "/warm" && req.method === "POST") { const p0 = String(body.project || ""); if (!PROJECT_ID.test(p0)) return send(400, { error: "bad project" }); const c = String(req.headers["x-coder-copy"] || ""); if (c) warmCopy.set(p0, c.slice(0, 220)); return send(200, { ok: true, warm: true }); }
       const project = String(body.project || url.searchParams.get("project") || "");
       if (!PROJECT_ID.test(project)) return send(400, { error: "bad project" });
       const t = turns.get(project);

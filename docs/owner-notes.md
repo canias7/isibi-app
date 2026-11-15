@@ -19,6 +19,24 @@ log (81,000 lines) is in git history.
 
 - **To go over later (your word, 2026-11-15: "this is something we are gonna go over later on, note it"): permission rules.** In Coder they're kept on our server, one list per repository, opened from the gear menu (or /permissions for the mode). In Claude Code they live in settings files (yours, and the project's .claude/settings.json). We'll decide together how ours should work.
 
+## 2026-11-15: A faster first message, and a message is never lost (your word: "a")
+
+On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io yet: it needs your test in the browser.
+
+- **No wait for the setup copy any more.** A new chat's first message took 97 seconds. Part of that was Coder waiting
+  while Fly.io saved a copy of the setup. Now Coder starts at once, and the copy is saved after that first answer, in
+  the background.
+- **The machine starts when you pick the repository.** It's warming up while you type, so the first message doesn't wait
+  for it. If you never send a message, it stops by itself after the usual 10 quiet minutes. It still uses the big
+  16 GB machine (your "a").
+- **Your message is never lost.** When a job is lost (the machine restarted), your message stays in the chat, above
+  the error. Before, only the error stayed.
+- **No more endless "…".** If a job is lost while your message is still being sent, the page shows the error right
+  away, without reopening the chat.
+- **Answers show sooner.** Coder's answer appears as soon as it is written, before the save to GitHub finishes.
+- **Step times.** Each message now records how long each step took (machine start, clone, setup, Grok's answer, the
+  save), so we can see where the seconds go.
+- Tests: FS1 to FS6, and CD152, CD153, CD192 updated.
 ## 2026-11-15: The typewriter plays on the new-chat page (your words: "put the writer there too, doing funny stuff", "instead of fix bug put funny words")
 
 - On the "New chat: pick a repository" page, Coder's typewriter now sits above the title and types all the time.

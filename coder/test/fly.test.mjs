@@ -658,3 +658,34 @@ test("CD248 (2026-11-12) Gloopy's computer starts in seconds (owner: \"yes build
   assert.ok(routes.includes('const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);'));
   assert.ok(worker.includes("container: (name, o) => { const box = flyBox(env, name, {}, o || {}); return { fetch: (req) => box.fetch(req) }; }"));
 });
+
+test("FS5 a new chat's machine started early (/warm, owner 2026-11-15: \"start the machine when a repo is picked\"): /warm may make it, the first message then finds it (no second machine); while one request makes it, another waits for that one instead of making a second", async () => {
+  const b = fakeBucket(), w = fakeFly();
+  const box = F.flyBox(envWith(b), "user-7-warm-1", deps(w));
+  assert.equal((await box.fetch(signed(new Request("http://coder/warm", { method: "POST", body: JSON.stringify({ project: "warm-1" }) })))).status, 200);
+  assert.equal(w.machines.size, 1, "made by the early start");
+  w.api.length = 0;
+  assert.equal((await box.fetch(signed(new Request("http://coder/turn", { method: "POST", body: "{}" })))).status, 200);
+  assert.ok(!w.api.some((x) => x === "POST /machines" || x === "POST /volumes"), "the message's start makes no second machine: " + w.api.join(", "));
+  assert.equal(w.machines.size, 1);
+  // ANOTHER IS BEING MADE (the early start, still at it): this request waits for it, and goes to it once it is there.
+  const b2 = fakeBucket(), w2 = fakeFly();
+  const names = await F.flyNames("user-8-warm-2");
+  await b2.put(names.key + ".making", JSON.stringify({ at: Date.now() }));
+  let looks = 0;
+  const maker = F.flyBox(envWith(b2), "user-8-warm-2", deps(w2));
+  const waiter = F.flyBox(envWith(b2), "user-8-warm-2", { ...deps(w2), sleep: async () => { if (++looks === 2) { await b2.delete(names.key + ".making"); await maker.fetch(signed(new Request("http://coder/warm", { method: "POST", body: "{}" }))); } } });
+  assert.equal((await waiter.fetch(signed(new Request("http://coder/turn", { method: "POST", body: "{}" })))).status, 200);
+  assert.equal(w2.machines.size, 1, "one machine, made by the other request");
+  assert.equal(b2.m.has(names.key + ".making"), false, "the maker's mark goes when it is done");
+  // A MARK LEFT BEHIND (its maker cut off long ago): not waited for.
+  const b3 = fakeBucket(), w3 = fakeFly();
+  const n3 = await F.flyNames("user-9-warm-3");
+  await b3.put(n3.key + ".making", JSON.stringify({ at: Date.now() - F.FLY_PULL_MS - 1000 }));
+  assert.equal((await F.flyBox(envWith(b3), "user-9-warm-3", deps(w3)).fetch(signed(new Request("http://coder/turn", { method: "POST", body: "{}" })))).status, 200);
+  assert.equal(w3.machines.size, 1);
+  // Anything else still never makes one.
+  const b4 = fakeBucket(), w4 = fakeFly();
+  assert.equal((await F.flyBox(envWith(b4), "user-6-warm-4", deps(w4)).fetch(signed(new Request("http://coder/state?project=warm-4")))).status, 503);
+  assert.equal(w4.machines.size, 0);
+});

@@ -539,7 +539,7 @@ test("EN9 the owner's approval: checked again on the environment as it is then (
   const routes = readFileSync(HERE("src/coder-routes.mjs"), "utf8");
   assert.match(routes, /if \(action === "envchange" && request\.method === "POST"\) \{[\s\S]{0,200}const r = await approveEnvChange\(\{ env, bucket, uid, id, meta, deps, body, reachRunning \}\);\n\s*return json\(r, r\.error \? 409 : 200\);/);
   // The next job is told once that the chat moved (its machine skips that environment's setup script), and forgets it.
-  assert.match(routes, /jobReplyTo: replyTo && replyTo\.ids\.length \? replyTo : null, envMoved: undefined \};/);
+  assert.match(routes, /jobReplyTo: replyTo && replyTo\.ids\.length \? replyTo : null, envMoved: undefined[,}]/);
   assert.match(routes, /lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{/);
 });
 

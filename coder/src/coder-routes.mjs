@@ -521,15 +521,39 @@ export function hideIn(events, values) {
  * Code, which keeps "your conversation history" but not the work that was
  * still running). Then the chat is free. Answers `{ steps, ev, idle }`.
  */
+/**
+ * A TURN'S STEP TIMES (2026-11-15), as milliseconds since the Worker got the message: the Worker's own (`got` 0, `asked`:
+ * the machine asked, `machine`: it had the job, its clone and setup done) and the machine's (`m.*`), and `saved`. Only
+ * numbers are kept.
+ */
+export function turnTiming(worker, machine, savedAt) {
+  const w = worker && typeof worker === "object" ? worker : {};
+  const m = machine && typeof machine === "object" ? machine : {};
+  const t0 = Number(w.got) > 0 ? Number(w.got) : Number(m.got) || savedAt;
+  const out = { at: t0 };
+  for (const k of ["asked", "machine"]) if (Number(w[k]) > 0) out[k] = Number(w[k]) - t0;
+  for (const k of ["got", "cloneStart", "cloneEnd", "setupStart", "ready", "began", "firstAsk", "firstAnswer", "answered", "ended"]) if (Number(m[k]) > 0) out["m." + k] = Number(m[k]) - t0;
+  out.saved = savedAt - t0;
+  return out;
+}
+/** The owner's message of the chat's current turn, as the chat recorded it when the turn started: `{ text, at }`, or null. */
+export function askedFor(meta) {
+  const a = meta && meta.asked && typeof meta.asked === "object" ? meta.asked : null;
+  return a && a.turn === meta.turn && typeof a.text === "string" && a.text.trim() ? a : null;
+}
 async function endLostJob(env, bucket, uid, meta, note) {
   const id = meta.id;
   const kept = await readLive(env, bucket, uid, id, meta.turn).catch(() => ({ events: [], messages: null }));
   const steps = hideIn(kept.events, kept.events.length ? await hiddenValues(env, bucket, uid, meta).catch(() => []) : []);
-  const ev = { at: Date.now(), ...note };
+  const ev = { at: Date.now(), lost: true, ...note };
   const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-  await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...steps, ev].slice(-MAX_EVENTS));
-  if (steps.length || kept.messages) {
-    const asked = (steps.find((e) => e && e.type === "user") || {}).text;
+  // THE OWNER'S MESSAGE IS NEVER LOST (live test, 2026-11-15: a job lost before its machine sent a step left only the error,
+  // and the message was gone): when no step of this job brought it, it goes back from the chat's record of it (meta.asked).
+  const mine = askedFor(meta);
+  const userBack = mine && !steps.some((e) => e && e.type === "user") ? [{ at: Number(mine.at) || Date.now(), type: "user", text: mine.text }] : [];
+  await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ...userBack, ...steps, ev].slice(-MAX_EVENTS));
+  if (steps.length || kept.messages || userBack.length) {
+    const asked = (steps.find((e) => e && e.type === "user") || {}).text || (mine ? mine.text : "");
     // The chat's saved history, then this job's part as far as it came (to its last whole step); or, when Claude Code's
     // auto-compact summarized the conversation in the job (`whole`), the conversation it sent, the summary first, in its place.
     const saved = await getJson(bucket, keyOf(uid, id, "messages.json"), []);
@@ -673,7 +697,7 @@ export function startingOf(meta) {
 async function claimStart(bucket, uid, meta, metaKey, mid, said = "") {
   const id = "t" + crypto.randomUUID().replace(/-/g, "").slice(0, 16);
   const at = Date.now();
-  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at, ...(said ? { said: String(said).replace(/\s+/g, " ").trim().slice(0, 200) } : {}) } });
+  await saveMeta(bucket, uid, { ...meta, status: "running", at, starting: { id, mid, turn: meta.turn, was: meta.status || "idle", at, ...(said ? { said: String(said).replace(/\s+/g, " ").trim().slice(0, 200), text: String(said).trim().slice(0, 4000) } : {}) } });
   const ours = (cur) => { const s = startingOf(cur); return !!s && s.id === id; };
   return {
     id,
@@ -1291,6 +1315,8 @@ export async function handleCoder(request, env, ctx, deps) {
   }
 
   if (action === "message" && request.method === "POST") {
+    // THE TURN'S STEP TIMES (2026-11-15): when this Worker got the message; the rest are added as it goes (meta.timing).
+    const gotAt = Date.now();
     // A MESSAGE THAT CAN'T GET STUCK (owner, 2026-11-13: "fix 1", from the note Gloopy's session left: Gloopy's fix of
     // 2026-11-12/13, the same here): the chat is marked as starting before the slow part (claimStart); the same message sent
     // twice waits for its first copy (sameMessage); a start that fails puts the chat back only while it is still its own
@@ -1539,7 +1565,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // to review comment threads"): only one GitHub's news started the job for; kept for its end.
       const rt = body.autofix === true && body.fromGithub === true && body.replyTo && typeof body.replyTo === "object" ? body.replyTo : null;
       const replyTo = rt && Number.isInteger(rt.pr) && rt.pr > 0 && Array.isArray(rt.ids) ? { pr: rt.pr, ids: rt.ids.filter((x) => Number.isInteger(x) && x > 0).slice(0, 10) } : null;
-      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined };
+      const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
       const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !q.shell && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
@@ -1573,6 +1599,8 @@ export async function handleCoder(request, env, ctx, deps) {
       };
       // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
       let r;
+      // (The step times so far: kept with the chat now, so a job lost on the way still says how far it came.)
+      next.timing.asked = Date.now();
       try {
       r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
@@ -1591,18 +1619,9 @@ export async function handleCoder(request, env, ctx, deps) {
       claim = null;
       // (The paused turn is taken up: its record goes. coder-park.mjs.)
       if (takeUp && typeof bucket.delete === "function") await bucket.delete(keyOf(uid, id, "parked.json")).catch(() => {});
-      // THE COPY IS SAVED NOW: the setup just ran on this chat's fresh disk and worked, and the
-      // machine waits (before Coder starts) while Fly.io saves the disk; then it is told to go.
-      // (Not saved, or no answer: the machine goes on by itself after a while.)
-      let started = null;
-      try { started = await r.json(); } catch { started = null; }
-      if (started && started.held === true) {
-        const snap = copyOn ? await deps.snapshot(uid + "-" + id).catch(() => null) : null;
-        if (snap) await writeEnvCache(bucket, uid, envId, { ...snap, key: setupKey, at: Date.now(), from: id }).catch(() => {});
-        // Said in the chat by the machine, after its setup (like Claude Code's cache, which is otherwise unseen).
-        const note = !copyOn ? "" : snap ? "Setup: Fly.io " + (snap.ready ? "saved" : "is saving") + " a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it" + (snap.ready ? "" : " once it is finished, in a few minutes,") + " and skip the setup." : "Setup: a copy of the setup's result could not be saved this time (Fly.io did not start saving it in time). The next new chat in this environment runs the setup and tries again.";
-        await post("/go", { project: id, ...(note ? { note } : {}) }).catch(() => {});
-      }
+      // THE MACHINE HAS THE JOB (its clone and setup are done): when, for the step times. (2026-11-15: no longer held for the
+      // setup's copy; that is taken when the turn ends, below in /state.)
+      try { const cur = await getJson(bucket, metaKey, null); if (cur && cur.turn === next.turn && cur.status === "running") await saveMeta(bucket, uid, { ...cur, timing: { ...(cur.timing || {}), ...next.timing, machine: Date.now() } }); } catch { /* only the times */ }
       // Auto-fix tries in a row; a message from the owner starts the count again.
       await markUsed(bucket, uid, envId, meta.repo).catch(() => {});
       // STOPPED WHILE THE MACHINE WAS SETTING UP (the chat was freed meanwhile): the machine stops it too.
@@ -1618,6 +1637,24 @@ export async function handleCoder(request, env, ctx, deps) {
     });
   }
 
+  // A NEW CHAT'S MACHINE STARTED EARLY (owner, 2026-11-15: "start the machine when a repo is picked"): the page asks as soon
+  // as the owner picks the repository, so the machine is up (on the environment's saved copy, when one is finished) when the
+  // first message comes. Nothing runs on it; unused, it stops after the usual quiet time. Only before the chat's first
+  // message, and never a second machine (coder-fly.mjs: one maker at a time; the message's start waits for this one's).
+  if (action === "warm" && request.method === "POST") {
+    if (meta.turn !== 0 || meta.status === "running") return json({ ok: true, warm: false });
+    const head = {};
+    try {
+      const envId = await envIdOf(bucket, uid, meta);
+      const setup = await readEnvData(env, bucket, uid, envId);
+      if (typeof deps.cacheUsable === "function" && String(setup.script || "").trim()) {
+        const c = await readEnvCache(bucket, uid, envId);
+        if (c && c.ready === true && deps.cacheUsable(c, await setupKeyOf(setup))) { head[FROM_COPY] = c.snapshot; head[FROM_COPY_GB] = String(Number(c.size) || 0); }
+      }
+    } catch { /* an empty disk, as without a copy */ }
+    const r = await post("/warm", { project: id }, head).catch(() => null);
+    return json({ ok: !!(r && r.ok), warm: !!(r && r.ok) });
+  }
   // THE CHAT'S PERMISSION MODE, picked in the page's mode menu (Claude Code's cloud sessions: picked "both when you create the
   // task and while the session runs"): saved with the chat and told to its running job (from its next step on); a pick
   // other than Plan is also where new chats start.
@@ -1700,11 +1737,13 @@ export async function handleCoder(request, env, ctx, deps) {
       if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
       const back = { ...meta, status: typeof starting.was === "string" && starting.was !== "running" ? starting.was : "idle", starting: null, at: Date.now() };
       const said = typeof starting.said === "string" && starting.said ? " (“" + starting.said + "”)" : "";
-      const ev = { at: Date.now(), type: "error", text: "Your last message" + said + " didn't reach Coder: sending it stopped half-way. Send it again." };
+      const ev = { at: Date.now(), type: "error", lost: true, text: "Your last message" + said + " didn't reach Coder: sending it stopped half-way. Send it again." };
+      // (The message itself stays in the chat, before the error: 2026-11-15.)
+      const userBack = typeof starting.text === "string" && starting.text.trim() ? [{ at: Number(starting.at) || Date.now(), type: "user", text: starting.text }] : [];
       const evs = await getJson(bucket, keyOf(uid, id, "events.json"), []);
-      await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ev].slice(-MAX_EVENTS));
+      await putJson(bucket, keyOf(uid, id, "events.json"), [...(Array.isArray(evs) ? evs : []), ...userBack, ev].slice(-MAX_EVENTS));
       await saveMeta(bucket, uid, back);
-      return json({ ok: true, events: [ev], next: since, running: false, project: back });
+      return json({ ok: true, events: [...userBack, ev], next: since, running: false, project: back });
     }
     let s = null;
     try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
@@ -1731,6 +1770,12 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     // THE TURN ENDED: the chat is kept, and the work goes to GitHub (a commit on
     // Coder's branch, pushed, and a pull request), once per turn.
+    // THE ANSWER SHOWN AT ONCE (2026-11-15: a one-line answer took ~14 s end to end): the page that asks with `early=1` gets
+    // the job's last steps (its answer) as soon as the machine has them, before the save below (the push to GitHub takes
+    // seconds); its next look, a moment later, with nothing new to show, saves the turn.
+    if (s.result && meta.status === "running" && meta.saved < meta.turn && url.searchParams.get("early") === "1" && Array.isArray(s.events) && s.events.length) {
+      return json({ ok: true, events: s.events, next: s.next || since, running: true, ending: true, project: meta });
+    }
     if (s.result && meta.status === "running" && meta.saved < meta.turn) {
       // THE TURN'S END IS DONE ONCE (the audit): the machine hands it to the
       // first asker only, so two tabs never push or save it twice.
@@ -1842,6 +1887,15 @@ export async function handleCoder(request, env, ctx, deps) {
       }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
+      // THE ENVIRONMENT'S SETUP COPY, TAKEN NOW THE TURN IS OVER (2026-11-15; before, the job waited for it before it began):
+      // the setup ran on this chat's fresh disk and worked, and the machine wrote the copy's note and synced its disk at the
+      // turn's end. Fly.io saves the disk in the background; nothing waits for it.
+      const cw = meta.copyWant && typeof meta.copyWant === "object" ? meta.copyWant : null;
+      if (s.result.copy === true && cw && typeof deps.snapshot === "function") {
+        const saving = deps.snapshot(uid + "-" + id).then(async (snap) => { if (snap) await writeEnvCache(bucket, uid, cw.envId, { ...snap, key: cw.key, at: Date.now(), from: id }); }).catch(() => {});
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(saving); else await saving;
+        fresh.push({ at: Date.now(), type: "note", text: "Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup." });
+      }
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
       // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
@@ -1890,6 +1944,11 @@ export async function handleCoder(request, env, ctx, deps) {
       // (The environment as the chat has it now: an environment card approved while this job ran may have moved it.)
       const envNow = await getJson(bucket, metaKey, null);
       if (envNow && envNow.envId !== ended.envId) Object.assign(ended, { envId: envNow.envId, envMoved: envNow.envMoved });
+      // THE TURN'S STEP TIMES (2026-11-15): the Worker's (got, asked, machine) and the machine's (got, clone, setup, began,
+      // first model request and answer, answered, ended), and when it was saved; kept with the chat and logged.
+      ended.timing = turnTiming(meta.timing, s.result.timing, Date.now());
+      ended.copyWant = null;
+      console.log("coder: turn timing " + id + " #" + meta.turn + " " + JSON.stringify(ended.timing));
       await saveMeta(bucket, uid, ended);
       await unwatch();
       // (And while one of its asyncRewake hooks runs, which may wake it.)
