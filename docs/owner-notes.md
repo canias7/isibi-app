@@ -115,6 +115,11 @@ On my branch, not deployed yet.
 - **Still sent every call:** bash, read, write, edit, grep, glob, ask_user and Coder's own GitHub tools (pull_request,
   review, undo and the others), about 4,600 tokens, as Claude Code sends its core tools.
 - **Tests:** the tool-search list test, and the files that use these tools.
+- **Fixed with it (2026-11-15):** when Coder counts a chat's size with no answer from Grok to count from (a chat's
+  first request, or right after a summary), it counted every one of the chat's tools, the held-back ones too, though
+  those are never sent until loaded: about 12,000 tokens too many. Close to the summary mark, that could make a second
+  summary right after one, for nothing. It now counts the tools the request really carries. The summary tests now
+  measure what a request carries first, so they hold whatever the tools weigh.
 
 ## 2026-11-14: Grok's cache: each tool keeps the definition it was first sent with
 

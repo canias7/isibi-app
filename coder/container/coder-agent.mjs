@@ -3839,7 +3839,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const cset = offered ? null : compactSettings(compactVars);
   if (cset && cset.warning && (!(Array.isArray(messages) && messages.length) || resumed === true)) emit({ type: "note", text: cset.warning });
   const ctxWindow = modelWindow(model);
-  const overheadTokens = Math.ceil((String(system).length + JSON.stringify(chatTools).length) / CHARS_PER_TOKEN);
+  // WHAT GOES BEFORE THE CONVERSATION IN A REQUEST, for a count with no answer in it to count from (a chat's first request, or
+  // right after a summary): the system message and the tools the request carries (the last one's; before any, those the next
+  // will carry), not every tool of the chat. (The coordinator's follow-up of 2026-11-15: the tools held back for tool_search,
+  // never sent until loaded, were counted, some 12,000 tokens too many, enough for a needless second summary just after one.)
+  const overheadOf = (list) => Math.ceil((systemText().length + JSON.stringify(list).length) / CHARS_PER_TOKEN);
+  let overheadTokens = offered ? 0 : overheadOf(roundTools(modeNow(), null).sending.tools);
   /**
    * THIS ROUND'S LIMITS (coder-compact.mjs compactLimits). `deps.compactAt`, a test's or the operator's own: 0, no automatic
    * summary (nor a limit); a number, the conversation's size in characters (as before 2026-11-14) at which to make one.
@@ -4119,6 +4124,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     const sending = rt.sending;
     tsLocksNew = sending.locks;
     lastSentTools = sending.tools;
+    if (!offered) overheadTokens = overheadOf(sending.tools);
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
     // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions. systemText.)
     try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }

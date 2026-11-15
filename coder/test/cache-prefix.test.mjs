@@ -355,12 +355,16 @@ test("CP9 the saved chat is the conversation as sent (the owner, 2026-11-14: \"y
   assert.notEqual(A.forSaving({ role: "tool", tool_call_id: "r1", content: long }).content, long);
 });
 
-test("CP10 the cache breaks only at a summary: a job that fills the conversation past Claude Code's auto-compact threshold (here CODER_AUTOCOMPACT_PCT_OVERRIDE at 5%, 24,000 tokens) is summarized whole before its next request; every request before it starts with the last one; the one after it keeps the system message and the tools, byte for byte, and starts with the summary; from there each request, the next message's too, starts with the last one", async () => {
-  // (Each read some 10,000 tokens; the system message and the tools some 8,000 since the environment tools and request_secret
-  // are held back, 2026-11-15.)
+test("CP10 the cache breaks only at a summary: a job that fills the conversation past Claude Code's auto-compact threshold (here CODER_AUTOCOMPACT_PCT_OVERRIDE at 15,000 tokens past what a request carries before any read) is summarized whole before its next request; every request before it starts with the last one; the one after it keeps the system message and the tools, byte for byte, and starts with the summary; from there each request, the next message's too, starts with the last one", async () => {
+  // (Each read some 10,000 tokens. The threshold is what a request carries before any read and 15,000 more, measured first, so
+  // it holds whatever the tools weigh: the system message and the tools were some 16,000 tokens, some 8,000 since the
+  // environment tools and request_secret are held back, 2026-11-15. CODER_AUTOCOMPACT_PCT_OVERRIDE: 1% is 4,800 tokens.)
   const exec = bigMachine(40_000);
+  const probe = chat();
+  await probe.run([say("Hello.")], { text: "hi", deps: { exec }, real: true });
+  const base = Math.ceil(JSON.stringify({ m: probe.sent[0].req.messages, t: probe.sent[0].req.tools }).length / 4);
   const c = chat();
-  const vars = { CODER_AUTOCOMPACT_PCT_OVERRIDE: "5" };
+  const vars = { CODER_AUTOCOMPACT_PCT_OVERRIDE: String((base + 15_000) / 4_800) };
   await c.run([say("Hello.")], { text: "hi", deps: { exec }, opts: { compactVars: vars }, real: true });
   const two = await c.run([say("", [call("read", { file_path: "big1.txt" }, "r1")]), say("", [call("read", { file_path: "big2.txt" }, "r2")]), say("Read both.")], { text: "read big1.txt and big2.txt", deps: { exec }, opts: { compactVars: vars }, real: true });
   await c.run([say("ok")], { text: "and now?", deps: { exec }, opts: { compactVars: vars }, real: true });
