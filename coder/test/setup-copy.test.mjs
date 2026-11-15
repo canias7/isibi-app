@@ -24,7 +24,7 @@ const ENV = (bucket) => ({ CODER_ON: "on", CODER_USERS: "me@x.y", GITHUB_APP_CLI
 const UID = "user-1234567890abcdef";
 const wait = (ms) => new Promise((ok) => setTimeout(ok, ms));
 
-test("CD152 the Worker: a setup run on a fresh disk is saved as the environment's copy while the machine waits, then the machine is told to go (with a note for the chat); a new chat in the environment is pointed at the copy only once Fly.io has finished it (live test #25), and while it is being finished runs the setup itself and makes no second copy; never on Cloudflare, without a setup script, or for another script", async () => {
+test("CD152 the Worker: a setup run on a fresh disk is saved as the environment's copy when the chat's first turn ends (2026-11-15; the job never waits for it), with a note for the chat; a new chat in the environment is pointed at the copy only once Fly.io has finished it (live test #25), and while it is being finished runs the setup itself and makes no second copy; never on Cloudflare, without a setup script, or for another script", async () => {
   const { handleCoder } = await import("../src/coder-routes.mjs");
   const { saveConnection } = await import("../src/coder-github.mjs");
   const E = await import("../src/coder-environments.mjs");
@@ -39,6 +39,9 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
     const body = req.method === "POST" ? await req.json() : null;
     machine.calls.push({ path: u.pathname, body, copy: req.headers.get(FROM_COPY), gb: req.headers.get(FROM_COPY_GB) });
     if (u.pathname === "/turn") return Response.json({ ok: true, ...(machine.held ? { held: true } : {}) });
+    // THE TURN'S END (2026-11-15: the copy is taken then): the machine's result says whether its disk is ready to be saved.
+    if (u.pathname === "/state") return Response.json({ running: false, result: { status: "done", summary: "Done.", messages: [], ...(machine.copy ? { copy: true } : {}) }, events: [], next: 0 });
+    if (u.pathname === "/push") return Response.json({ ok: true, pushed: false, changed: false });
     return Response.json({ ok: true });
   } });
   const snaps = [], asked = [];
@@ -56,17 +59,30 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
     return id;
   };
   const turnOf = () => machine.calls.find((c) => c.path === "/turn");
+  // The chat's turn ends: what the page's next look saves. Answers the notes it added to the chat.
+  const end = async (id, more) => {
+    const deps = { fetchFn: async () => new Response("{}", { status: 404 }), authUser: async () => ({ id: UID, email: "me@x.y" }), container: box, ...more };
+    const r = await handleCoder(new Request("https://gofarther.dev/api/coder/projects/" + id + "/state?since=0"), env, {}, deps);
+    assert.equal(r.status, 200, await r.clone().text());
+    const evs = JSON.parse(bucket.m.get("coder/" + UID + "/" + id + "/events.json") || "[]");
+    return evs.filter((e) => e.type === "note").map((e) => e.text);
+  };
   const key = await E.setupKeyOf({ script, network: null });
   const rec = () => E.readEnvCache(bucket, UID, "default");
 
-  // THE FIRST CHAT: no copy yet. It asks for one; the machine ran the setup on a fresh disk and waits.
-  machine.held = true;
+  // THE FIRST CHAT: no copy yet. It asks for one; the machine runs the setup on a fresh disk and the job starts AT ONCE
+  // (2026-11-15: no wait, no /go). The copy is taken when the turn ends.
   const a = await send(fly);
   assert.deepEqual(turnOf().body.cache, { make: true });
   assert.equal(turnOf().copy, null, "no copy to start from yet");
-  assert.deepEqual(snaps, [UID + "-" + a], "this chat's disk is saved");
-  assert.deepEqual(machine.calls.map((c) => c.path), ["/turn", "/go"], "then the machine is told to go");
-  assert.deepEqual(machine.calls[1].body, { project: a, note: "Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup." });
+  assert.deepEqual(snaps, [], "nothing saved while the job starts");
+  assert.deepEqual(machine.calls.map((c) => c.path), ["/turn"], "never held, never told to go");
+  assert.deepEqual(JSON.parse(bucket.m.get("coder/" + UID + "/" + a + "/meta.json")).copyWant, { envId: "default", key: await E.setupKeyOf({ script, network: null }) });
+  machine.copy = true;
+  assert.deepEqual(await end(a, fly), ["Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup."]);
+  machine.copy = false;
+  assert.deepEqual(snaps, [UID + "-" + a], "this chat's disk is saved at the turn's end");
+  assert.equal(JSON.parse(bucket.m.get("coder/" + UID + "/" + a + "/meta.json")).copyWant, null);
   const r0 = await rec();
   assert.deepEqual({ ...r0, at: 0 }, { ...snapAnswer, key, at: 0, from: a });
   assert.ok(Date.now() - r0.at < 60_000);
@@ -75,8 +91,11 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
 
   // A NEW CHAT A MINUTE LATER (the live test): Fly is still finishing the copy, so this chat runs the setup
   // itself, says why in the chat, and makes no second copy.
-  machine.held = false;
-  await send(fly);
+  const b0 = await send(fly);
+  machine.copy = true; snaps.length = 0;
+  assert.deepEqual(await end(b0, fly), [], "no second copy even when the machine says its disk is ready");
+  assert.deepEqual(snaps, []);
+  machine.copy = false;
   assert.deepEqual(asked, ["vs_Good1234"], "Fly is asked where the copy stands");
   assert.equal(turnOf().copy, null, "not pointed at an unfinished copy (Fly refuses it)");
   assert.deepEqual(turnOf().body.cache, { make: false, note: "Setup: Fly.io is still finishing the environment's saved copy of the setup (asked for 1 minute ago), so this chat runs the setup script itself. New chats start from the copy once it is finished." });
@@ -125,27 +144,30 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
   // THE OWNER CHANGED THE SETUP SCRIPT: the old copy is not used; a new one is made (finished at once: said so).
   await E.writeEnvCache(bucket, UID, "default", { ...r0, ready: true });
   await E.writeEnvData(env, bucket, UID, "default", { script: script + " jq", vars: {}, secrets: [], network: null });
-  machine.held = true;
   snapAnswer = { ...snapAnswer, ready: true, retention: 8 };
   const c = await send(fly);
   assert.equal(turnOf().copy, null);
+  machine.copy = true;
+  await end(c, fly);
+  machine.copy = false;
   assert.deepEqual(snaps, [UID + "-" + c]);
   assert.equal((await rec()).key, await E.setupKeyOf({ script: script + " jq", network: null }));
-  assert.equal(machine.calls[1].body.note, "Setup: Fly.io saved a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it and skip the setup.");
   // The network setting is part of it too (the variables and keys never reach the setup).
   assert.notEqual(await E.setupKeyOf({ script, network: { mode: "full" } }), key);
   assert.equal(await E.setupKeyOf({ script: "  " + script + "\n", network: { mode: "trusted" } }), key, "the same script and setting");
 
-  // FLY.IO DID NOT START SAVING IN TIME: no copy recorded; the machine is still told to go, and the chat says so.
+  // FLY.IO DID NOT START SAVING IN TIME: no copy recorded (the next new chat runs the setup and tries again).
   const before = bucket.m.get(E.envCacheKey(UID, "default"));
   snapAnswer = null;
-  await send(fly);
-  assert.deepEqual(machine.calls.map((x) => x.path), ["/turn", "/go"]);
-  assert.match(machine.calls[1].body.note, /^Setup: a copy of the setup's result could not be saved this time \(Fly\.io did not start saving it in time\)\. The next new chat in this environment runs the setup and tries again\.$/);
+  await E.writeEnvData(env, bucket, UID, "default", { script: script + " jq2", vars: {}, secrets: [], network: null });
+  const d0 = await send(fly);
+  machine.copy = true;
+  await end(d0, fly);
+  machine.copy = false;
   assert.equal(bucket.m.get(E.envCacheKey(UID, "default")), before);
+  await E.writeEnvData(env, bucket, UID, "default", { script: script + " jq", vars: {}, secrets: [], network: null });
 
   // ON CLOUDFLARE (no saved copies there), or WITHOUT A SETUP SCRIPT: never asked for, never pointed at.
-  machine.held = false;
   await send({});
   assert.deepEqual(turnOf().body.cache, { make: false });
   assert.equal(turnOf().copy, null);
@@ -153,11 +175,11 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
   await send(fly);
   assert.deepEqual(turnOf().body.cache, { make: false });
   assert.equal(turnOf().copy, null);
-  // A machine that waits all the same (an older Worker's ask, say) is told to go, with nothing to say.
+  // A machine that says it waits all the same (an older machine): never told to go; it goes on by itself.
   machine.held = true;
   await send({});
-  assert.deepEqual(machine.calls.map((x) => x.path), ["/turn", "/go"]);
-  assert.deepEqual(machine.calls[1].body, { project: "shop-c" + n });
+  assert.deepEqual(machine.calls.map((x) => x.path), ["/turn"]);
+  machine.held = false;
 });
 
 // ── THE MACHINE ──
@@ -197,32 +219,28 @@ async function diskMachine(opts = {}) {
   return { S, data, dirs, seen, post, turn, state, done, close };
 }
 
-test("CD153 the machine: after a setup that ran on a fresh disk and worked, the job waits (its disk being saved) until told to go (with the Worker's note for the chat), or a while; the copy's note stays on the disk (live test #25: Fly saves a disk when it gets to it); never after a failed setup, on a disk a job has worked on, or unasked. A disk made from the copy: the other chat's own files go, the setup does not run again (said in the chat and to Coder); a copy of another setup, or one that says nothing, leaves a fresh disk, and the chat says why, as it does when the copy could not be used at all", async () => {
+test("CD153 the machine: after a setup that ran on a fresh disk and worked, the job starts at once (2026-11-15) and the copy's note is written at the turn's end, the disk synced (result.copy); the copy's note stays on the disk (live test #25: Fly saves a disk when it gets to it); never after a failed setup, on a disk a job has worked on, or unasked. A disk made from the copy: the other chat's own files go, the setup does not run again (said in the chat and to Coder); a copy of another setup, or one that says nothing, leaves a fresh disk, and the chat says why, as it does when the copy could not be used at all", async () => {
   const m = await diskMachine({ holdMs: 60_000 });
   const script = "echo setup-ran";
   try {
-    // A FRESH DISK, ASKED FOR A COPY: the setup runs and works; the job waits, Coder not started yet.
+    // A FRESH DISK, ASKED FOR A COPY (2026-11-15): the setup runs and works; the job starts AT ONCE (no wait for the copy).
     const r = await m.turn("shop-aaa1", { setup: { script }, cache: { make: true } });
-    assert.deepEqual(r, { ok: true, held: true });
+    assert.deepEqual(r, { ok: true }, "never held");
+    const s = await m.done("shop-aaa1");
+    assert.equal(s.result.status, "done");
+    assert.equal(m.seen.length, 1, "Coder started without waiting");
+    assert.equal(s.result.copy, true, "the turn's end says the disk is ready to be saved");
+    // THE COPY'S NOTE, written at the turn's end, the disk synced: what the Worker then has Fly.io save.
     const note = JSON.parse(await readFile(join(m.data, m.S.COPY_NOTE), "utf8"));
     const { normNetwork } = await import("../container/coder-secrets.mjs");
     const sha = m.S.setupSha(script, normNetwork(undefined));
     assert.deepEqual({ ...note, at: 0 }, { from: "shop-aaa1", sha, image: "registry.fly.io/app:coder-1", at: 0 }, "the copy's own note, on the disk being saved");
-    await wait(300);
-    assert.equal(m.seen.length, 0, "Coder waits while the disk is saved");
-    assert.equal((await m.state("shop-aaa1")).running, true, "the job counts as working (the machine stays awake)");
-    // TOLD TO GO: Coder starts, after the Worker's note in the chat; the disk has had a job. The note stays:
-    // Fly.io may save the disk after the job went on, and the copy must still say what it is.
-    assert.deepEqual(await m.post("/go", { project: "shop-aaa1", note: "Setup: Fly.io is saving a copy." }), { ok: true, went: true });
-    const s = await m.done("shop-aaa1");
-    assert.equal(s.result.status, "done");
-    assert.equal(m.seen.length, 1);
-    const said = s.events.filter((e) => e.type === "note").map((e) => e.text);
-    assert.deepEqual(said, ["Setup: Fly.io is saving a copy."]);
-    assert.ok(s.events.findIndex((e) => e.tool === "setup") < s.events.findIndex((e) => e.text === said[0]), "after the setup's own step");
-    assert.equal(existsSync(join(m.data, m.S.COPY_NOTE)), true);
+    assert.ok(note.at >= s.result.timing.answered, "written once the turn was over");
+    // The turn's step times, for the Worker (where a message's seconds go).
+    for (const k of ["got", "cloneStart", "cloneEnd", "setupStart", "ready", "began", "firstAsk", "firstAnswer", "answered", "ended"]) assert.ok(Number(s.result.timing[k]) > 0, k);
+    assert.ok(s.result.timing.got <= s.result.timing.began && s.result.timing.began <= s.result.timing.firstAsk && s.result.timing.firstAnswer <= s.result.timing.ended);
     assert.equal(existsSync(join(m.data, m.S.USED_NOTE)), true);
-    assert.deepEqual(await m.post("/go", { project: "shop-aaa1" }), { ok: true, went: false }, "a second go changes nothing");
+    assert.deepEqual(await m.post("/go", { project: "shop-aaa1" }), { ok: true, went: false }, "an older Worker's go changes nothing");
     // A DISK A JOB HAS WORKED ON: never saved as the copy (the setup changed; since 2026-11-14 it does not run again on this
     // machine, as Claude Code's: test/env-tools.test.mjs EN14); its own note stays.
     assert.deepEqual(await m.turn("shop-aaa1", { setup: { script: script + " again" }, cache: { make: true } }), { ok: true });
@@ -247,25 +265,6 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
     assert.equal((await older.done("shop-hhh1")).result.status, "done");
     assert.equal(existsSync(join(older.data, older.S.COPY_NOTE)), false);
   } finally { await older.close(); }
-  // NO ANSWER FROM THE WORKER: the job goes on by itself after a while (nothing said); the note stays.
-  const late = await diskMachine({ holdMs: 200 });
-  try {
-    assert.deepEqual(await late.turn("shop-ccc1", { setup: { script }, cache: { make: true } }), { ok: true, held: true });
-    const s = await late.done("shop-ccc1");
-    assert.equal(s.result.status, "done");
-    assert.ok(!s.events.some((e) => e.type === "note"));
-    assert.equal(existsSync(join(late.data, late.S.COPY_NOTE)), true);
-  } finally { await late.close(); }
-  // STOPPED WHILE IT WAITS: it ends at once.
-  const stop = await diskMachine({ holdMs: 60_000 });
-  try {
-    assert.deepEqual(await stop.turn("shop-ddd1", { setup: { script }, cache: { make: true } }), { ok: true, held: true });
-    await stop.post("/stop", { project: "shop-ddd1" });
-    const s = await stop.done("shop-ddd1");
-    assert.ok(s.result, "ended");
-    assert.equal(stop.seen.length, 0, "Coder never started");
-  } finally { await stop.close(); }
-
   // A DISK MADE FROM THE COPY (a new chat, B): what was A's own goes; the setup does not run again.
   const b = await diskMachine({ holdMs: 60_000 });
   try {
@@ -305,9 +304,9 @@ test("CD153 the machine: after a setup that ran on a fresh disk and worked, the 
       const { normNetwork } = await import("../container/coder-secrets.mjs");
       await writeFile(join(c.data, c.S.COPY_NOTE), JSON.stringify({ from: "shop-aaa1", sha: c.S.setupSha(script, normNetwork(undefined)), image: "registry.fly.io/app:coder-1", at: Date.now() - 3600e3, ...odd }));
       for (const p of [join(c.dirs.home, ".cache"), join(c.data, ".coder-admin", "v1")]) await mkdir(p, { recursive: true });
-      assert.deepEqual(await c.turn("shop-fff1", { setup: { script }, cache: { make: true } }), { ok: true, held: true }, JSON.stringify(odd) + ": a fresh disk, whose setup is saved as the new copy");
-      assert.deepEqual(await c.post("/go", { project: "shop-fff1" }), { ok: true, went: true });
+      assert.deepEqual(await c.turn("shop-fff1", { setup: { script }, cache: { make: true } }), { ok: true }, JSON.stringify(odd) + ": a fresh disk, whose setup is saved as the new copy");
       const s = await c.done("shop-fff1");
+      assert.equal(s.result.copy, true, "saved as the new copy at the turn's end");
       assert.ok(s.events.some((e) => e.tool === "setup"), "the setup ran");
       assert.ok(s.events.some((e) => e.type === "note" && /^Setup: the environment's saved copy could not be used here \((it was made for another setup script or network setting|it was made by an older version of Coder|it is over seven days old)\), so the setup script runs here\.$/.test(e.text)), "and the chat says why");
       // (Only this job's snapshot of the shell's startup file is there: tool 4, docs pass 2.)
@@ -382,5 +381,15 @@ test("CD192 why a new chat did not start from the environment's saved copy is sa
   // The Worker's word only: the AI's commands cannot reach the machine's control panel (it needs the machine's key).
   const { readFileSync } = await import("node:fs");
   const src = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
-  assert.ok(src.indexOf('if (want && req.headers["x-coder-key"] !== want) return send(403') < src.indexOf('startTurn(body, { copy: String(req.headers["x-coder-copy"] || "") })'), "the key is checked first");
+  assert.ok(src.indexOf('if (want && req.headers["x-coder-key"] !== want) return send(403') < src.indexOf('const told = String(req.headers["x-coder-copy"] || "") || warmCopy.get(p0)'), "the key is checked first");
+  assert.ok(src.indexOf('if (want && req.headers["x-coder-key"] !== want) return send(403') < src.indexOf('if (url.pathname === "/warm" && req.method === "POST")'), "for an early start's word too");
+  // A MACHINE STARTED EARLY (/warm, 2026-11-15): what became of the copy is told then, and its first turn says it.
+  const w = await diskMachine({ holdMs: 60_000 });
+  try {
+    assert.deepEqual(await w.post("/warm", { project: "shop-www1" }, { "x-coder-copy": "missed: Fly.io would not make a disk from it" }), { ok: true, warm: true });
+    assert.deepEqual(await w.post("/warm", { project: "../x" }), { error: "bad project" });
+    await w.turn("shop-www1", { setup: { script } });
+    const s = await w.done("shop-www1");
+    assert.deepEqual(s.events.filter((e) => e.type === "note").map((e) => e.text), ["Setup: this chat could not start from the environment's saved copy (Fly.io would not make a disk from it), so the setup script runs here."]);
+  } finally { await w.close(); }
 });

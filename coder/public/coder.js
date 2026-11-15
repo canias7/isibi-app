@@ -20,6 +20,8 @@
   const GLOOPY = KIND === 'gloopy';
   const API = '/api/coder';
   const POLL_MS = 1500;
+  // While a message is still being sent, how often the chat is looked at for an ending already saved (watchSend).
+  const SEND_WATCH_MS = 4000;
   // How often an open chat waiting for the owner asks about its background commands (tool 4, part 2).
   const BG_POLL_MS = 20000;
   // How often a background command's output, opened from its row, is looked at again.
@@ -246,6 +248,9 @@
     const r = await call('/projects', { method: 'POST', body: JSON.stringify({ repo }) });
     if (r.status !== 200) { S.error = (r.data && r.data.error) || 'That repository could not be added.'; return draw(); }
     S.projects = [entryOf(r.data.project), ...S.projects];
+    // ITS MACHINE STARTED NOW (owner, 2026-11-15: "start the machine when a repo is picked"), so it is up when the first
+    // message comes; not waited for. Unused, it stops after the usual quiet time.
+    call('/projects/' + encodeURIComponent(r.data.project.id) + '/warm', { method: 'POST' }).catch(() => {});
     openProject(r.data.project.id);
   }
 
@@ -1593,7 +1598,16 @@
     const shellText = /^!/.test(text) && !pics.length && !comments.length && text.replace(/^!\s*/, '') ? '! ' + text.replace(/^!\s*/, '') : '';
     S.events.push({ type: 'user', text: shellText || text || (att.length ? '(see the attached file' + (att.length > 1 ? 's' : '') + ')' : pics.length ? '(see the picture)' : '(comments on the changes)'), ...(shellText ? { shell: true } : {}), at: Date.now(), local: true, ...(pics.length ? { images: pics.length, thumbs: pics.map((x) => x.url) } : {}), ...(att.length ? { files: att.map((f) => ({ id: f.id, name: f.name, size: f.size })) } : {}) });
     draw(true);
+    // A START THAT ENDS WHILE THE MESSAGE IS STILL BEING SENT (live test, 2026-11-15: a new chat's first message took the
+    // machine's setup; the job was lost and freed with an error, but the page showed "…" until the chat was opened again):
+    // the chat is looked at meanwhile, and such an ending is shown at once (watchSend).
+    const sent = { id: S.project.id, turn: Number(S.project.turn) || 0, gone: false };
+    S.sendWatch = sent;
+    setTimeout(() => watchSend(sent), SEND_WATCH_MS);
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
+    if (S.sendWatch === sent) S.sendWatch = null;
+    // (Already shown as ended by watchSend: this late answer changes nothing.)
+    if (sent.gone) return;
     S.sending = false; S.unsent = '';
     // (A card the message closed, Coder's paused job's permission or plan card: drawn closed at once, before the message.)
     const closed = r.data && Array.isArray(r.data.closed) ? r.data.closed : [];
@@ -1618,6 +1632,25 @@
   }
 
   function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); webWake(); }
+  // WHILE A MESSAGE IS STILL BEING SENT: an ending already saved for it (its job lost and freed with an error, `lost`, or its
+  // turn over) is shown at once, without a reload; anything else waits for the message's own answer.
+  async function watchSend(sent) {
+    if (S.sendWatch !== sent || !S.sending || !S.project || S.project.id !== sent.id) return;
+    const r = await call('/projects/' + encodeURIComponent(sent.id) + '/state?since=' + (S.next || 0));
+    if (S.sendWatch !== sent || !S.sending || !S.project || S.project.id !== sent.id) return;
+    const d = r && r.status === 200 ? r.data : null;
+    const evs = d && Array.isArray(d.events) ? d.events : [];
+    const p = d && d.project;
+    const over = d && !d.running && p && p.status !== 'running' && (evs.some((e) => e && e.lost) || (Number(p.turn) > sent.turn && Number(p.saved) >= Number(p.turn)));
+    if (!over) { setTimeout(() => watchSend(sent), SEND_WATCH_MS); return; }
+    sent.gone = true; S.sendWatch = null;
+    S.sending = false; S.unsent = ''; S.running = false; S.project = p; syncEntry();
+    if (d.reload) { draw(); return reloadChat(sent.id); }
+    const fresh = evs.filter((e) => { if (e.type !== 'user') return true; const mine = S.events.find((x) => x.local && x.text === e.text); if (mine) { mine.local = false; return false; } return true; });
+    S.events = S.events.concat(fresh);
+    draw(true);
+    startBgWatch();
+  }
   // A CARD LEFT OPEN WHILE CODER'S JOB PAUSED (container/coder-park.mjs; Claude Code: "Questions stay open until you answer
   // them"): the chat's paused turn waits on it (`project.parked`), so it stays live, and its answer takes the turn up again in a
   // job of its own, which the page then follows as after a message.
@@ -1638,7 +1671,8 @@
     const id = S.project.id;
     // Looking at this chat (visible and focused): no notification about it (owner item 8, like Claude Code).
     const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen);
+    // (`early`: the job's answer is shown as soon as its machine has it, before the turn is saved: 2026-11-15.)
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + '&early=1');
     if (!S.project || S.project.id !== id) return;
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
@@ -1680,7 +1714,8 @@
       syncEntry();
       draw(fresh.length > 0);
     }
-    if (S.running) S.poll = setTimeout(tick, POLL_MS);
+    // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
+    if (S.running) S.poll = setTimeout(tick, r.data && r.data.ending ? 300 : POLL_MS);
     else { S.background = undefined; startBgWatch(); }
   }
 

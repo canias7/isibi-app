@@ -221,6 +221,12 @@ async function readRec(bucket, key) {
   if (!o) return null;
   try { const r = JSON.parse(await o.text()); return r && typeof r.id === "string" ? r : null; } catch { return null; }
 }
+/** A chat's "machine being made" mark (`{ at }`), or null. */
+async function readMaking(bucket, key) {
+  const o = await bucket.get(key);
+  if (!o) return null;
+  try { const r = JSON.parse(await o.text()); return r && Number(r.at) > 0 ? r : null; } catch { return null; }
+}
 const writeRec = (bucket, key, rec) => bucket.put(key, JSON.stringify(rec), { httpMetadata: { contentType: "application/json" } });
 const json = (obj, status) => new Response(JSON.stringify(obj), { status, headers: { "content-type": "application/json" } });
 
@@ -473,14 +479,32 @@ export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
         // Anything else (the every-minute check asking about a job whose machine
         // is still being made, a Stop) never makes a second one.
         const u = new URL(req.url);
-        if (!(req.method === "POST" && (u.pathname === "/turn" || u.pathname === "/undo"))) return json({ error: "This chat has no machine on Fly.io yet." }, 503);
-        // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
-        const from = u.pathname === "/turn" && SNAP_ID.test(String(req.headers.get(FROM_COPY) || "")) ? { snapshot: req.headers.get(FROM_COPY), size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
-        const made = await makeMachine(env, bucket, names, deps, from, gloopy);
-        if (!made.rec) return json({ error: made.why }, 503);
-        rec = made.rec;
-        // The machine says in the chat what became of the copy (used, or why not).
-        if (from) copy = rec.from ? "used" : "missed: " + (made.copyMiss || "no reason given");
+        // (And /warm, 2026-11-15: a new chat's machine started when the owner picks its repository, before the first message.)
+        if (!(req.method === "POST" && (u.pathname === "/turn" || u.pathname === "/undo" || u.pathname === "/warm"))) return json({ error: "This chat has no machine on Fly.io yet." }, 503);
+        // ONE MAKER AT A TIME (2026-11-15): the early start (/warm) and the first message can come together; the second waits
+        // for the first's machine instead of making another.
+        const makingKey = names.key + ".making";
+        const other = await readMaking(bucket, makingKey);
+        if (other && deps.now() - Number(other.at) < FLY_PULL_MS) {
+          for (const until = deps.now() + FLY_PULL_MS; !rec && deps.now() < until; ) {
+            await deps.sleep(2000);
+            const r0 = await readRec(bucket, names.key);
+            if (r0 && !r0.stopped) rec = r0;
+            else if (!(await readMaking(bucket, makingKey))) break;
+          }
+          if (!rec) return json({ error: "Coder's machine for this chat is still being made. Try again in a minute." }, 503);
+        } else {
+          await writeRec(bucket, makingKey, { at: deps.now() });
+          try {
+            // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
+            const from = (u.pathname === "/turn" || u.pathname === "/warm") && SNAP_ID.test(String(req.headers.get(FROM_COPY) || "")) ? { snapshot: req.headers.get(FROM_COPY), size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
+            const made = await makeMachine(env, bucket, names, deps, from, gloopy);
+            if (!made.rec) return json({ error: made.why }, 503);
+            rec = made.rec;
+            // The machine says in the chat what became of the copy (used, or why not).
+            if (from) copy = rec.from ? "used" : "missed: " + (made.copyMiss || "no reason given");
+          } finally { if (typeof bucket.delete === "function") await bucket.delete(makingKey).catch(() => {}); }
+        }
       }
       const fwd = await locked(env, names.machine, rec, req);
       if (copy) fwd.headers.set(COPY_INFO, copy.replace(/[^\x20-\x7e]/g, " ").slice(0, 220));

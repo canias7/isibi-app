@@ -90,7 +90,7 @@ test("CD138 the machine has no Grok key: its AI calls go to the Worker with the 
   // Wiring: the real service uses the Worker; Coder's server routes the address; no machine is given the key.
   const server = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
   // (1,600: round 5 gave the connectors' caller the chat's working folders, a comment and a longer line between the two.)
-  assert.match(server, /const via = modelVia && !send \? modelTarget\(body\.model\) : null;\n[\s\S]{0,1600}?\n\s+const turnDeps = \{\n\s+send: via \? coderSend\(env, \{ via \}\) : sendFn,/);
+  assert.match(server, /const via = modelVia && !send \? modelTarget\(body\.model\) : null;\n[\s\S]{0,2600}?\n\s+const turnDeps = \{\n\s+send: timedSend\(t\.timing, via \? coderSend\(env, \{ via \}\) : sendFn\),/);
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /\} else if \(url\.pathname === MODEL_PATH\) \{[\s\S]{0,200}res = await handleModel\(request, env\);/);
   assert.doesNotMatch(worker, /XAI_API_KEY: env\.XAI_API_KEY/, "Cloudflare's backup machines are not given the key either");
