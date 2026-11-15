@@ -29,3 +29,11 @@ test("LK3 connectors show their apps' own logos (Simple Icons, CC0), served from
   assert.match(ui, /if \(lg\) return '<span class="cx-badge cx-logo"><img src="\/logos\/' \+ lg \+ '\.svg" alt="" width="18" height="18"><\/span>';/);
   assert.match(read("logos/LICENSE.txt"), /Simple Icons/);
 });
+
+test("LK4 /rewind (Claude Code's): no Rewind link above each message; /rewind opens a Rewind window listing your messages, newest first; picking one goes on to the usual rewind choices", () => {
+  const ui = read("coder.js");
+  assert.match(ui, /if \(!GLOOPY && \/\^\\\/rewind\$\/i\.test\(text\)\) \{[^\n]*rewindPicker\(\); return; \}/);
+  assert.match(ui, /'<div class="cd-user">' \+ \(mark && !GLOOPY && S\.rewindPick \? /);
+  assert.doesNotMatch(ui, /S\.rewindPick = (true|!S\.rewindPick)/, "the links never come back");
+  assert.match(ui, /await askPick\('Rewind', 'Restore the session to an earlier message\.', list\.reverse\(\)\);\n    if \(pick\) rewind\(Number\(pick\)\);/);
+});
