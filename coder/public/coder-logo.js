@@ -98,9 +98,39 @@
   }
   function stop() {
     finish = 0;
-    for (const s of logos()) if (!s.classList.contains('cl-once')) { s.classList.remove('cl-run'); s.style.removeProperty('--cl-d'); }
+    for (const s of logos()) if (!s.classList.contains('cl-once') && !(s.closest && s.closest('.cd-cl-play'))) { s.classList.remove('cl-run'); s.style.removeProperty('--cl-d'); }
   }
   window.coderLogo = { busy: setBusy };
+  // THE TYPEWRITER PLAYING (owner, 2026-11-15: "instead of fix bug put funny words"): on the new-chat page its paper
+  // types funny words, a new one each line. Same lines and motion as the logo's; only the words change, at each return.
+  const FUNNY = ['hi mom!', 'eat pie', 'lol wut', 'brb nap', 'oh no!!', 'yay tea', 'cat bug', 'wow ok!', 'big oof', 'ship it'];
+  const CH_X = [40.2, 43.4, 46.6, 49.8, 53, 56.2, 59.4];
+  // Each letter its own <text> (a tspan's opacity can't be animated in every browser), so each shows as it is struck.
+  const charSVG = (c, i, y, cls) => '<text x="' + CH_X[i] + '" y="' + y + '"' + (cls ? ' class="' + cls + '"' : '') + '>' + (c === ' ' ? '' : c.replace(/[<&]/g, '')) + '</text>';
+  const lineSVG = (w, y, clsAt, g) => '<g' + (g ? ' ' + g : '') + '>' + w.split('').slice(0, 7).map((c, i) => charSVG(c, i, y, clsAt ? clsAt(i) : '')).join('') + '</g>';
+  function feedSVG(k) {
+    const w = (n) => FUNNY[(k + n) % FUNNY.length];
+    return '<g class="clg-feed" fill="#0d1b2a" font-family="ui-monospace,Menlo,Consolas,monospace" font-size="4.6" font-weight="700">' +
+      lineSVG(w(0), 26, null, 'class="clg-l3" opacity=".3"') + lineSVG(w(1), 32, null, 'class="clg-l2"') +
+      lineSVG(w(2), 38, (i) => (i >= 4 ? 'clg-m clg-m' + (i + 1) : '')) +
+      lineSVG(w(3), 44, (i) => (i < 3 ? 'clg-m clg-n' + (i + 1) : 'clg-m')) + '</g>';
+  }
+  window.coderLogoPlayHTML = function (h) {
+    const svg = window.coderLogoHTML(h).replace('class="cl-logo"', 'class="cl-logo cl-run cl-play" style="--cl-d:0ms"').replace(/class="cl-logo cl-run" style="[^"]*"/, 'class="cl-logo cl-run cl-play" style="--cl-d:0ms"');
+    const a = svg.indexOf('<g class="clg-feed"'), b = svg.indexOf('<rect x="14" y="39"');
+    if (a < 0 || b < 0) return svg;
+    const end = svg.lastIndexOf('</g>', b);
+    return svg.slice(0, a) + feedSVG(0) + svg.slice(end + 4);
+  };
+  document.addEventListener('animationiteration', (e) => {
+    if (e.animationName !== 'clg-feed') return;
+    const s = e.target.closest && e.target.closest('svg.cl-play');
+    if (!s) return;
+    s._clK = (s._clK || 0) + 1;
+    const g = s.querySelector('.clg-feed');
+    if (g) g.outerHTML = feedSVG(s._clK);
+  });
+
   // ONE LINE ON A HOVER OR A CLICK (on a logo, or on a button that has one, such as Coder's tab), then still again.
   function once(s) {
     if (!s || reduced() || s.classList.contains('cl-run')) return;

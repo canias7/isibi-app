@@ -3844,6 +3844,10 @@
     '</div>';
   }
 
+  // THE TYPEWRITER PLAYING on the new-chat page (owner, 2026-11-15: "just a bit more animated, put the writer there too,
+  // doing funny stuff"): it types all the time, says "ding!" at each line, and now and then hops, wiggles and tosses a
+  // crumpled page (coder-logo.css). Still with reduced motion.
+  const playFig = () => '<div class="cd-cl-play" aria-hidden="true"><div class="cd-cl-hop">' + (typeof window.coderLogoPlayHTML === 'function' ? window.coderLogoPlayHTML(116) : '') + '</div><span class="cd-cl-ding">ding!</span><span class="cd-cl-ball"></span><span class="cd-cl-shadow"></span></div>';
   function centerHTML(inner) { return '<div class="cd-center">' + inner + '</div>'; }
 
   function bodyHTML() {
@@ -3875,7 +3879,7 @@
       const open = '<form class="cd-open" id="cdOpenForm"><label for="cdOpenRepo">Or open any public repository</label>' +
         '<div class="cd-open-row"><input id="cdOpenRepo" placeholder="owner/name or its GitHub address" autocomplete="off" autocapitalize="off" spellcheck="false" maxlength="200"><button type="submit" class="cd-btn-2">Open</button></div>' +
         '<p class="cd-open-note">One you can’t push to is read-only: Coder keeps its work on its machine, and you download it as a patch.</p></form>';
-      return centerHTML('<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
+      return centerHTML((S.pickMode === 'repos' ? '' : playFig()) + '<b class="cd-title">' + (S.pickMode === 'repos' ? 'Your repositories' : 'New chat: pick a repository') + '</b>' +
         '<p class="cd-sub">Signed in as <b>' + esc(S.github && S.github.login) + '</b>. Coder will work on its own branch and never touch your main branch.</p>' +
         (S.pickMode === 'repos' ? '<p class="cd-sub cd-review-note">Turn on <b>Code review</b> for a repository and Coder reviews its pull requests, posting what it finds on them. It never approves or blocks one. Anyone with write access can also comment <code>@coder review</code>.</p>' : '') +
         list + open +

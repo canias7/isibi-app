@@ -385,3 +385,21 @@ test("TW10 (2026-11-15, the owner: \"fix\") the empty chat names its repository 
     await browser.close();
   }
 });
+
+test("TW11 (2026-11-15, the owner: \"a bit more animated, put the writer there too, doing funny stuff\" and \"instead of fix bug put funny words\") the new-chat page has the typewriter playing: always typing, a \"ding!\" at each line, a hop, a wiggle and a tossed page on a loop, a jump on a hover; its paper types funny words (a new one each line, as letters of their own), still with reduced motion; Coder finishing doesn't stop it", () => {
+  const { window } = logoScript();
+  const svg = window.coderLogoPlayHTML(116);
+  assert.match(svg, /^<svg class="cl-logo cl-run cl-play" style="--cl-d:0ms"/);
+  assert.doesNotMatch(svg, /clg-feed" fill="#0d1b2a">\s*<g class="clg-l3" opacity="\.3"><path/, "the stroke-drawn \"fix bug\" lines are replaced");
+  const letters = [...svg.matchAll(/<text[^>]*>([^<]*)<\/text>/g)].map((m) => m[1]).join("");
+  assert.equal(letters, "himom!eatpielolwutbrbnap", "four lines of funny words, one letter per <text>");
+  for (const c of ["clg-l3", "clg-l2", "clg-m5", "clg-m6", "clg-m7", "clg-n1", "clg-n2", "clg-n3"]) assert.ok(svg.includes(c), c + " still animates");
+  const ui = read("public/coder.js"), css = read("public/coder.css"), js = read("public/coder-logo.js");
+  assert.match(ui, /\(S\.pickMode === 'repos' \? '' : playFig\(\)\) \+ '<b class="cd-title">'/, "on the new-chat (pick a repository) page only");
+  assert.match(ui, /<span class="cd-cl-ding">ding!<\/span><span class="cd-cl-ball"><\/span>/);
+  for (const k of ["cl-play", "cl-ding", "cl-ball", "cl-jump", "cl-shadow"]) assert.match(css, new RegExp("@keyframes " + k + " "));
+  assert.match(css, /\.cd-cl-play:hover \.cd-cl-hop \{ animation: cl-jump/);
+  assert.match(css, /@media \(prefers-reduced-motion: reduce\) \{ \.cd-cl-play \* \{ animation: none !important; \} \}/);
+  assert.match(js, /!\(s\.closest && s\.closest\('\.cd-cl-play'\)\)/, "Coder stopping work leaves the playing one typing");
+  assert.match(js, /animationiteration[\s\S]*clg-feed[\s\S]*feedSVG\(s\._clK\)/, "a new word at each return");
+});

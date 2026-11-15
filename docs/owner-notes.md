@@ -19,6 +19,14 @@ log (81,000 lines) is in git history.
 
 - **To go over later (your word, 2026-11-15: "this is something we are gonna go over later on, note it"): permission rules.** In Coder they're kept on our server, one list per repository, opened from the gear menu (or /permissions for the mode). In Claude Code they live in settings files (yours, and the project's .claude/settings.json). We'll decide together how ours should work.
 
+## 2026-11-15: The typewriter plays on the new-chat page (your words: "put the writer there too, doing funny stuff", "instead of fix bug put funny words")
+
+- On the "New chat: pick a repository" page, Coder's typewriter now sits above the title and types all the time.
+- It types funny words, a new one each line: hi mom!, eat pie, lol wut, brb nap, oh no!!, yay tea, cat bug, wow ok!, big oof, ship it.
+- A red "ding!" pops at each new line. Every 10 seconds it hops, wiggles and tosses a crumpled page. Hover over it and it jumps.
+- The small logo in the sidebar and chat bar is unchanged (still "fix bug"). People who turn off motion see it still.
+- Checked: screenshot of the real page with these files, a recorded clip, the logo tests (11) and the full suite (1234 passing).
+
 ## 2026-11-15: Coder talks like a general assistant (your words: "more like an assistant in general … don't eliminate any of the things that we have added")
 
 On the branch, not live yet.

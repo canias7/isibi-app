@@ -1293,3 +1293,27 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 .cd-slash .cd-mention-i b { font-weight: 500; min-width: 110px; }
 .cd-slash .cd-mention-i span { color: #8a8884; font-size: 13px; }
 .cd-slash .cd-mention-i span { font-family: Inter, system-ui, sans-serif; }
+
+/* THE TYPEWRITER PLAYING on the new-chat page (owner, 2026-11-15: "a bit more animated … doing funny stuff"): it types
+   all the time (a line every 2.5 s), says "ding!" at each return, and on a 10-second loop hops with a squash, wiggles,
+   and tosses a crumpled page over its shoulder. A hover makes it jump. Nothing moves with reduced motion. */
+.cd-cl-play { position: relative; width: 140px; height: 132px; margin: 0 auto 6px; }
+.cd-cl-hop { position: absolute; left: 12px; bottom: 6px; transform-origin: 50% 100%; animation: cl-play 10s ease-in-out infinite; }
+.cd-cl-play:hover .cd-cl-hop { animation: cl-jump .7s ease-out 1; }
+.cd-cl-shadow { position: absolute; left: 30px; bottom: 2px; width: 80px; height: 8px; border-radius: 50%; background: #0d1b2a; opacity: .08; animation: cl-shadow 10s ease-in-out infinite; }
+.cd-cl-ding { position: absolute; right: -14px; top: 10px; font: 700 13px/1 ui-monospace, monospace; color: #c0392b; opacity: 0; animation: cl-ding 2500ms linear infinite; }
+.cd-cl-ball { position: absolute; left: 62px; top: 30px; width: 12px; height: 12px; border-radius: 45% 55% 40% 60%; background: #fff; border: 1.5px solid #d5cec3; opacity: 0; animation: cl-ball 10s ease-in infinite; }
+@keyframes cl-ding { 0%, 47% { opacity: 0; transform: translateY(4px) scale(.6) rotate(-8deg); } 50% { opacity: 1; transform: translateY(0) scale(1.15) rotate(6deg); } 62% { opacity: 1; transform: translateY(-6px) scale(1) rotate(0); } 70%, 100% { opacity: 0; transform: translateY(-12px); } }
+@keyframes cl-play {
+  0%, 20% { transform: none; }
+  23% { transform: scale(1.08, .88); }
+  28% { transform: translateY(-26px) scale(.95, 1.06) rotate(-6deg); }
+  33% { transform: translateY(0) scale(1.1, .86); }
+  36%, 50% { transform: none; }
+  53% { transform: rotate(-7deg); } 56% { transform: rotate(7deg); } 59% { transform: rotate(-6deg); } 62% { transform: rotate(5deg); } 65%, 76% { transform: none; }
+  79% { transform: rotate(-10deg) translateX(-4px); } 84% { transform: rotate(4deg); } 88%, 100% { transform: none; }
+}
+@keyframes cl-shadow { 0%, 23% { transform: none; opacity: .08; } 28% { transform: scale(.6); opacity: .04; } 33%, 100% { transform: none; opacity: .08; } }
+@keyframes cl-ball { 0%, 79% { opacity: 0; transform: none; } 80% { opacity: 1; transform: none; } 86% { opacity: 1; transform: translate(-40px, -46px) rotate(-200deg); } 93% { opacity: 1; transform: translate(-72px, 70px) rotate(-420deg); } 96%, 100% { opacity: 0; transform: translate(-76px, 70px); } }
+@keyframes cl-jump { 0% { transform: none; } 20% { transform: scale(1.1, .85); } 50% { transform: translateY(-30px) rotate(8deg); } 80% { transform: scale(1.08, .9); } 100% { transform: none; } }
+@media (prefers-reduced-motion: reduce) { .cd-cl-play * { animation: none !important; } }
