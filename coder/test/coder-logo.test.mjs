@@ -35,7 +35,7 @@ function logoScript({ reduced = false } = {}) {
 }
 
 /** The page (public/) in a real Chromium, signed in, with a fake Coder: one empty chat, which runs once a message is sent. */
-async function openPage(browser, { reduced = false } = {}) {
+async function openPage(browser, { reduced = false, chatHeld = null } = {}) {
   const ORIGIN = "https://gofarther.test";
   const at = Date.now();
   const st = { running: false, sent: 0 };
@@ -58,6 +58,8 @@ async function openPage(browser, { reduced = false } = {}) {
   await page.route(ORIGIN + "/**", async (route) => {
     const u = new URL(route.request().url());
     if (u.pathname === "/auth.js") return route.fulfill({ contentType: "text/javascript", body: AUTH });
+    // (`chatHeld`: the chat's own answer waits for it, as a slow load would.)
+    if (chatHeld && route.request().method() === "GET" && u.pathname === "/api/coder/projects/c1") await chatHeld;
     if (u.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify(api(route.request().method(), u.pathname)) });
     const file = path.join(PUB, u.pathname === "/" ? "index.html" : u.pathname);
     if (!file.startsWith(PUB) || !existsSync(file) || statSync(file).isDirectory()) return route.fulfill({ status: 404, body: "" });
@@ -95,7 +97,7 @@ test("TW2 the typewriter is drawn once, in coder-logo.js (window.coderLogoHTML, 
   for (const f of ["index.html", "app.js", "coder.js", "gloopy.js", "auth.js", "app.css", "coder.css", "gloopy.css"]) assert.doesNotMatch(read("public/" + f), /clg-/, f + " draws none of it itself");
   assert.match(ui, /const coderFig = \(h\) => \(typeof window\.coderLogoHTML === 'function' \? window\.coderLogoHTML\(h\) : ''\);/);
   assert.match(ui, /'<button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰<\/button>' \+\n\s+'<span class="cd-cl-av" aria-hidden="true">' \+ coderFig\(26\) \+ '<\/span>' \+\n\s+\(p \? '<b class="cd-title-bar"/);
-  assert.match(ui, /\(empty && !GLOOPY \? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' \+ coderFig\(120\) \+ '<\/div><b>What should we work on in '/);
+  assert.match(ui, /\(empty && !GLOOPY \? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' \+ coderFig\(120\) \+ '<\/div><b>What should we work on' \+ \(S\.project && S\.project\.repo \? ' in ' \+ esc\(S\.project\.repo\) : ''\) \+ '\?<\/b>/);
   assert.equal(ui.match(/coderFig\(/g).length, 2, "in Coder's chat: its bar and its empty chat");
   const { window } = logoScript();
   const svg = window.coderLogoHTML(34);
@@ -362,4 +364,24 @@ test("TW9 (2026-11-14, the owner: \"lets make it a bit more real, like more pres
   }
   assert.equal(strikes.length, 6);
   for (const s of strikes) assert.ok(lifts.some(([p]) => Math.abs(p - s) < 0.5), "the ribbon is up as the bar strikes at " + s + "%");
+});
+
+test("TW10 (2026-11-15, the owner: \"fix\") the empty chat names its repository once it is known (\"What should we work on in ana/shop?\"), and before that asks \"What should we work on?\": it said \"What should we work on in ?\" while no repository was known", async (t) => {
+  const { hasBrowser } = await import("../container/gloopy-browser.mjs");
+  if (!hasBrowser()) return t.skip("no Playwright Chromium on this machine");
+  const { chromium } = createRequire(import.meta.url)("playwright");
+  const browser = await chromium.launch();
+  try {
+    let letGo;
+    const chatHeld = new Promise((r) => { letGo = r; });
+    const { page, errors } = await openPage(browser, { chatHeld });
+    const ask = () => page.evaluate(() => { const b = document.querySelector("#gfApp .cd-empty b"); return b ? b.textContent : null; });
+    assert.equal(await ask(), "What should we work on?", "while the chat (and so its repository) is not known yet");
+    letGo();
+    await page.waitForFunction(() => { const b = document.querySelector("#gfApp .cd-empty b"); return b && / in /.test(b.textContent); }, null, { timeout: 8000 });
+    assert.equal(await ask(), "What should we work on in ana/shop?");
+    assert.deepEqual(errors, []);
+  } finally {
+    await browser.close();
+  }
 });

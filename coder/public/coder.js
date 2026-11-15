@@ -3841,11 +3841,13 @@
         (S.error ? '<p class="cd-errline">' + esc(S.error) + '</p>' : ''));
     }
     // chat
+    // THE EMPTY CHAT names its repository once it is known; before (no repository picked, or the chat still loading)
+    // it asks "What should we work on?" (the owner, 2026-11-15: "fix"; it said "What should we work on in ?").
     const empty = !S.events.length && !S.running;
     return headHTML() +
       '<div class="cd-log" id="cdLog">' +
         (empty && GLOOPY ? gloopyEmptyHTML() : '') +
-        (empty && !GLOOPY ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on in ' + esc(S.project ? S.project.repo : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
+        (empty && !GLOOPY ? '<div class="cd-empty"><div class="cd-cl-fig" aria-hidden="true">' + coderFig(120) + '</div><b>What should we work on' + (S.project && S.project.repo ? ' in ' + esc(S.project.repo) : '') + '?</b><p>Coder reads the code, runs commands in its own Linux machine, and saves its work to its own branch. Ask it for a pull request when you’re ready.</p>' +
           '<div class="cd-starts">' + ['Explain how this project is laid out', 'Run the tests and fix what fails', 'Add a README with setup steps'].map((s) => '<button type="button" class="cd-start" data-answer="' + esc(s) + '">' + esc(s) + '</button>').join('') + '</div></div>' : '') +
         '<div class="cd-thread">' + stepsHTML() + '</div>' +
       '</div>' +
