@@ -1179,7 +1179,7 @@
     const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
     if (pick) rewind(Number(pick));
   }
-  async function rewind(turn) {
+  async function rewind(turn, given) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
     // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
@@ -1194,7 +1194,7 @@
       ['sumfrom', 'Summarize from here'], ...(first ? [] : [['sumupto', 'Summarize up to here']])];
     // (A read-only repository's undo stays on Coder's machine: nothing goes to GitHub there. Live test, 2026-11-13.)
     const kept = S.project.readOnly ? 'kept on Coder\'s machine (you can\'t push to this repository, so nothing goes to GitHub)' : 'on the branch, never deleted from GitHub';
-    const pick = await askPick('Rewind to this message?', (changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit ' + kept + '. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
+    const pick = given || await askPick('Rewind to this message?', (changed ? (exact ? 'Restoring the code puts back the files Coder\'s file tools changed, as they were before you sent it; files only commands changed stay as they are. It is undone with a new commit ' + kept + '. ' : 'Restoring goes back to how things were before you sent it. Code changes are undone with new commits ' + kept + '. ') : exact && commits.some((c) => Number(c.turn) >= turn) ? 'Only commands changed files after this message, and those stay as they are, so only the chat can go back. ' : 'No job changed files after this message, so only the chat can go back. ') + 'Summarizing turns that part of the conversation into a summary for Coder, to free room; files stay as they are and the chat still shows everything.', choices);
     if (!pick || !S.project) return;
     let body;
     if (pick === 'sumfrom' || pick === 'sumupto') {
@@ -2759,9 +2759,58 @@
       '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' +
       (mark ? '<button type="button" class="cd-meta-b" data-rewind-to="' + Number(mark.turn) + '" aria-label="Rewind to here" title="Rewind to before this message">' + META_ICON.rewind + '</button>' : '') + '</div>';
   }
+  /**
+   * THE CHANGED-FILES BOX UNDER CODER'S ANSWER, LIKE CLAUDE CODE ON THE WEB (2026-11-16): "Created 2 files" / "Edited 1 file" /
+   * "Changed N files" with Undo on the right, then a row per file (icon, name, +N −M); over FILES_BOX_ROWS + 1 files, the first
+   * FILES_BOX_ROWS and "See all", which opens See changes. Worked out from the turn's write and edit steps (their `change`)
+   * and the files its commands changed (`files`). Undo restores the code only, to before the turn's message (rewind's "Restore
+   * code only"), and shows only on the latest turn when there is code to restore.
+   */
+  const FILES_BOX_ROWS = 2;
+  function turnFiles(events, doneIdx) {
+    let from = doneIdx;
+    while (from > 0 && events[from - 1].type !== 'user') from--;
+    const results = {};
+    for (const e of events) if (e && e.type === 'result' && e.id) results[e.id] = e;
+    const map = new Map(), n = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
+    const add = (path, kind, a, d) => {
+      if (typeof path !== 'string' || !path.trim()) return;
+      const f = map.get(path) || { path, kind, add: 0, del: 0 };
+      if (!map.has(path)) map.set(path, f); else if (kind === 'delete') f.kind = 'delete'; else if (f.kind === 'delete') f.kind = 'update';
+      f.add += n(a); f.del += n(d);
+    };
+    for (let i = from; i < doneIdx; i++) {
+      const e = events[i], r = e && e.type === 'bash' ? results[e.id] : null;
+      if (!r) continue;
+      const c = r.change;
+      if ((e.tool === 'write' || e.tool === 'edit') && c && (c.kind === 'create' || c.kind === 'update')) add(String(e.path || e.command || '').replace(/ \(.*\)$/, ''), c.kind, c.add, c.del);
+      const fl = r.files && Array.isArray(r.files.files) ? r.files.files : [];
+      for (const f of fl) if (f && typeof f.path === 'string') add(f.path, f.kind === 'create' ? 'create' : f.kind === 'delete' ? 'delete' : 'update', f.add, f.del);
+    }
+    return [...map.values()];
+  }
+  function filesBoxWords(files) {
+    const k = files.length, s = k === 1 ? ' file' : ' files';
+    return (files.every((f) => f.kind === 'create') ? 'Created ' : files.every((f) => f.kind === 'update') ? 'Edited ' : 'Changed ') + k + s;
+  }
+  function filesBoxHTML(i) {
+    const files = turnFiles(S.events, i);
+    if (!files.length) return '';
+    let u = i; while (u >= 0 && S.events[u].type !== 'user') u--;
+    const mark = u >= 0 && S.project && Array.isArray(S.project.marks) ? S.project.marks.find((m) => m.ev === u) : null;
+    const latest = !S.events.slice(i + 1).some((x) => x.type === 'user' || x.type === 'done');
+    const undo = mark && latest && !S.running && !S.rewinding && codeToRestore(S.project.commits || [], Number(mark.turn));
+    const shown = files.length > FILES_BOX_ROWS + 1 ? files.slice(0, FILES_BOX_ROWS) : files;
+    const base = (p) => p.replace(/\/+$/, '').split('/').pop() || p;
+    return '<div class="cd-fbox"><div class="cd-fbox-head"><span>' + esc(filesBoxWords(files)) + '</span>' +
+      (undo ? '<button type="button" class="cd-fbox-undo" data-files-undo="' + Number(mark.turn) + '" title="Put the files back as they were before this message">Undo</button>' : '') + '</div>' +
+      shown.map((f) => '<div class="cd-fbox-row">' + ICON.doc + '<span class="cd-fbox-n" title="' + esc(f.path) + '">' + esc(base(f.path)) + '</span><span class="cd-wcount">' +
+        (f.kind !== 'delete' ? '<span class="cd-add">+' + f.add + '</span>' : '') + (f.kind !== 'create' ? '<span class="cd-del">−' + f.del + '</span>' : '') + '</span></div>').join('') +
+      (shown.length < files.length ? '<button type="button" class="cd-fbox-all" data-files-all>See all</button>' : '') + '</div>';
+  }
   function aiMetaHTML(e, i) {
     const k = String(e.at || i), t = (S.rated || {})[k] || '';
-    return '<div class="cd-meta cd-meta-a">' +
+    return filesBoxHTML(i) + '<div class="cd-meta cd-meta-a">' +
       '<button type="button" class="cd-meta-b" data-copy-ev="' + i + '" aria-label="Copy" title="Copy">' + META_ICON.copy + '</button>' +
       '<button type="button" class="cd-meta-b" data-rate="up" data-rate-k="' + esc(k) + '" aria-label="Good answer" aria-pressed="' + (t === 'up') + '" title="Good answer">' + META_ICON.up + '</button>' +
       '<button type="button" class="cd-meta-b" data-rate="down" data-rate-k="' + esc(k) + '" aria-label="Bad answer" aria-pressed="' + (t === 'down') + '" title="Bad answer">' + META_ICON.down + '</button>' +
@@ -4918,6 +4967,8 @@
     on('#cdRpConn', 'click', () => { showChatConnectors(); });
     on('[data-copy-ev]', 'click', (e) => { const ev = S.events[Number(e.currentTarget.dataset.copyEv)]; const b = e.currentTarget; if (!ev) return; try { navigator.clipboard.writeText(String(ev.text || '')).then(() => { b.classList.add('is-done'); setTimeout(() => b.classList.remove('is-done'), 1200); }, () => {}); } catch (er) { /* not allowed */ } });
     on('[data-rate]', 'click', (e) => { const k = e.currentTarget.dataset.rateK, v = e.currentTarget.dataset.rate; S.rated = S.rated || {}; S.rated[k] = S.rated[k] === v ? '' : v; draw(); });
+    on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code'); });
+    on('[data-files-all]', 'click', () => { S.showChanges = true; loadChanges(); draw(); });
     on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo)); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
     on('#cdMode', 'click', (e) => { e.stopPropagation(); S.modeMenu = !S.modeMenu; draw(); });

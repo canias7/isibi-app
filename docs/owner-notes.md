@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: A "changed files" box under Coder's answer
+
+Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).
 ## 2026-11-16: Coder can read a pull request's comments; long task lists end with a table
 
 From the side-by-side with Claude Code: (1) Coder has a new tool, pr_read, that reads a pull request's reviews, its comments on lines (file:line, who, what) and its conversation, like Claude Code's GitHub tool. It is read on Coder's server with your GitHub login, which never goes to Coder's machine; not offered in jobs started from GitHub. Before, Coder fell back to gh commands. (2) Coder is told: when your message is a list of several separate tasks, end with a short "Check | Result" table (the chat already draws tables). (3) Checked notify: it sends a real Web Push to every browser or installed web app where you turned notifications on (Settings), skipped if you are looking at that chat. It does not send email, and the phone app from the app stores (Capacitor) has no push yet; on iPhone, push works from gofarther.dev added to the Home Screen. Tests added.

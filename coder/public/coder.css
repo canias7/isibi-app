@@ -1380,6 +1380,17 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-init-list li { display: flex; gap: 10px; padding: 2px 0; }
 #gfApp .cd-init-list b { font-weight: 500; font-variant-numeric: tabular-nums; color: #a3a7ae; }
 @media (prefers-reduced-motion: reduce) { #gfApp .cd-boot-w, #gfApp .cd-wait-dots i { animation: none; } }
+
+/* THE CHANGED-FILES BOX UNDER CODER'S ANSWER, LIKE CLAUDE CODE ON THE WEB (2026-11-16). */
+#gfApp .cd-fbox { margin: 8px 0 4px; border: 1px solid rgba(0,0,0,.12); border-radius: 10px; overflow: hidden; max-width: 520px; font-size: 13.5px; }
+#gfApp .cd-fbox-head { display: flex; align-items: center; justify-content: space-between; padding: 8px 12px; font-weight: 600; }
+#gfApp .cd-fbox-undo { border: 1px solid rgba(0,0,0,.15); background: transparent; border-radius: 7px; padding: 3px 10px; font: inherit; font-weight: 500; font-size: 12.5px; cursor: pointer; color: inherit; }
+#gfApp .cd-fbox-undo:hover { background: rgba(0,0,0,.05); }
+#gfApp .cd-fbox-row { display: flex; align-items: center; gap: 8px; padding: 7px 12px; border-top: 1px solid rgba(0,0,0,.08); }
+#gfApp .cd-fbox-row svg { flex: none; opacity: .65; width: 15px; height: 15px; }
+#gfApp .cd-fbox-n { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#gfApp .cd-fbox-all { display: block; width: 100%; text-align: left; padding: 7px 12px; border: 0; border-top: 1px solid rgba(0,0,0,.08); background: transparent; font: inherit; color: inherit; opacity: .75; cursor: pointer; }
+#gfApp .cd-fbox-all:hover { opacity: 1; background: rgba(0,0,0,.03); }
 /* Claude Code's "Suggested connectors" card (2026-11-16) */
 #gfApp .cd-sg { border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; margin: 8px 0; padding: 6px 0; max-width: 560px; }
 #gfApp .cd-sg-head { display: flex; align-items: center; gap: 8px; padding: 8px 16px 6px; font-size: 14px; }
