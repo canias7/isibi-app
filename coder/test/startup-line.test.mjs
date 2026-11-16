@@ -181,7 +181,7 @@ test("SL-LOOK (live, 2026-11-16) in a job's first minute a look at a machine tha
   const src = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   const routes = await import("../src/coder-routes.mjs");
   assert.equal(routes.START_LOOK_MS, 1200);
-  assert.match(src, /const young = meta\.status === "running" && Date\.now\(\) - Number\(meta\.at \|\| 0\) < 60_000;/);
+  assert.match(src, /const young = meta\.status === "running" && since === 0 && Number\(meta\.turn\) <= 1 && Date\.now\(\) - Number\(meta\.at \|\| 0\) < 60_000;/, "only a new chat's first message before any step came back");
   assert.match(src, /s = young \? await Promise\.race\(\[look, new Promise\(\(res\) => setTimeout\(\(\) => res\(null\), START_LOOK_MS\)\)\]\) : await look;/);
   assert.match(src, /if \(Date\.now\(\) - \(meta\.at \|\| 0\) < START_GRACE_MS\) return json\(\{ ok: true, events: \[\], next: since, running: true, project: meta, phase: "container"/);
 });

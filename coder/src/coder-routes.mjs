@@ -1867,7 +1867,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // A MACHINE STILL STARTING (live, 2026-11-16): a look at it waited ~5 s while Fly started it, so the page's
     // "Setting up a cloud container" step was over before it was told. In a job's first minute, a machine that has not
     // answered within START_LOOK_MS is still starting: the look ends there (the grace path below says "container").
-    const young = meta.status === "running" && Date.now() - Number(meta.at || 0) < 60_000;
+    const young = meta.status === "running" && since === 0 && Number(meta.turn) <= 1 && Date.now() - Number(meta.at || 0) < 60_000;
     try {
       const look = call("/state?project=" + id + "&since=" + since, { method: "GET" }).then((r) => (r.ok ? r.json() : null));
       s = young ? await Promise.race([look, new Promise((res) => setTimeout(() => res(null), START_LOOK_MS))]) : await look;
