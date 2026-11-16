@@ -4047,6 +4047,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const nn = normNetwork(body.setup && body.setup.network);
     // (Full with blocked sites goes through the gate too, which lets anything else through: netWalled.)
     const net = { ...nn, limited: netWalled(nn) };
+    // (What the job starts with: a mid-job /network with the same settings says nothing. 2026-11-16.)
+    t.netSig = JSON.stringify({ n: nn, k: secretList.map((s) => [s.host || "", s.hosts || [], s.header || "", s.name || ""]) });
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
     t.room = false;
     // A TEST SWITCH FOR THE GATE (the owner, 2026-11-13: "test what u are missing to test"): CODER_TEST_NETWORK_GATE_FAIL=1 in

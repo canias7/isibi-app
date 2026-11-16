@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: No "environment changed" line at all when nothing changed
+
+The last live run still showed it once, the first time in a job. Coder now remembers the network a job started with, so a card that changes nothing never adds the line.
+
 ## 2026-11-16: Fixed: a push mid-turn killed Coder's sandbox, and the pull request never opened
 
 Live, push_branch then pull_request broke the rest of the turn. Three causes: (1) the mid-turn push used the end-of-turn pause, which shuts down Coder's admin sandbox and ends its processes, so every later command failed ("nsenter: cannot open /proc/…"). Now a mid-turn push only pauses everything for a moment and resumes it; nothing is ended. (2) The pull request's answer from Coder's server (its number and link) was thrown away on the machine, so Coder was told the server "did not answer". Now it gets through and the PR opens right away. (3) Because of that error the PR was not queued either, and at the turn's end a mid-turn push that found "nothing new" did not count as pushed. Now a server with no answer queues the PR, and any successful mid-turn push lets the queued PR open at the end. Tests: push-now-fix.test.mjs.

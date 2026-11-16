@@ -22,3 +22,8 @@ test("LE2 the machine says the environment changed only when its network or keys
   apply({ mode: "trusted" }, []); apply({ mode: "trusted" }, []); apply({ mode: "full" }, []);
   assert.deepEqual(notes, ["trusted", "full"]);
 });
+
+test("LE3 the job's starting network is remembered, so the first /network with the same settings says nothing", () => {
+  assert.match(server, /t\.netSig = JSON\.stringify\(\{ n: nn, k: secretList\.map\(\(s\) => \[s\.host \|\| "", s\.hosts \|\| \[\], s\.header \|\| "", s\.name \|\| ""\]\) \}\);/);
+  assert.match(server, /const sig = JSON\.stringify\(\{ n: nn, k: list\.map\(\(s\) => \[s\.host \|\| "", s\.hosts \|\| \[\], s\.header \|\| "", s\.name \|\| ""\]\) \}\);/);
+});
