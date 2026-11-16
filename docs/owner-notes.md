@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder's start-up line, like Claude Code on the web
+
+On the branch, not live yet. Not tried in the browser on gofarther.dev yet: it needs a deploy and your test.
+
+- While a new chat starts, one grey line where Coder's answer will go says the step that is really happening, with its
+  seconds and a ›: "Setting up a cloud container", "Cloning repository" (only when the machine really clones),
+  "Running setup script" (only when a script really runs). The machine and the Worker report the step; the page never
+  guesses one. Until a step is reported, only dots and the seconds.
+- Once ready, it folds into one quiet "Initialized session ›" line; click › to see each step and how long it took.
+- A step before Coder's first words shows live with its seconds ("Reading owner preferences 8s ›"); a finished single
+  command folds into "Ran a command ›".
+- Later messages on an awake machine: just the dots and the seconds. The old "Starting Coder's machine… / Working…" line
+  is gone. Gloopy's chat is unchanged.
+
 ## 2026-11-16: Coder starts faster (your word: approved, the two speed fixes)
 
 On the branch, not live yet. Not tried in the browser yet: it needs your test.

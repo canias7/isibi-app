@@ -1645,6 +1645,7 @@
     const d = r && r.status === 200 ? r.data : null;
     const evs = d && Array.isArray(d.events) ? d.events : [];
     const p = d && d.project;
+    if (d && d.running) { bootSeen(d); draw(); }
     const over = d && !d.running && p && p.status !== 'running' && (evs.some((e) => e && e.lost) || (Number(p.turn) > sent.turn && Number(p.saved) >= Number(p.turn)));
     if (!over) { setTimeout(() => watchSend(sent), SEND_WATCH_MS); return; }
     sent.gone = true; S.sendWatch = null;
@@ -1722,6 +1723,7 @@
       if (Array.isArray(r.data.background)) S.background = r.data.background;
       if (Array.isArray(r.data.queue)) S.queue = r.data.queue;
       S.progress = r.data.progress || null;
+      bootSeen(r.data);
       // A JOB THAT JUST ENDED (live test, 2026-11-10): the schedules card asks again, so a run that was Running says how
       // it went (Succeeded, Failed, Waiting for you) without typing /schedules.
       if (GLOOPY && S.running && !r.data.running) S.sched = null;
@@ -2349,7 +2351,14 @@
     const todoHTML = (e) => '<div class="cd-todo">' + (GLOOPY ? '<b>Plan</b>' : '<b>Tasks<span class="cd-todo-n"> · ' + (e.items || []).filter((x) => x && x.status === 'done').length + '/' + (e.items || []).length + ' done</span></b>') + (e.items || []).map((x) => '<div class="cd-todo-i is-' + esc(x.status) + '"><span class="cd-todo-box">' + (x.status === 'done' ? '✓' : x.status === 'in_progress' ? '•' : '') + '</span>' + esc(x.text) + '</div>').join('') + '</div>';
     const flush = () => {
       if (!group.length) { if (plan) { out.push(plan); plan = ''; } return; }
-      if (group.length === 1) { const [e, i] = group[0]; out.push(cmdHTML(e, results[e.id], stateOf(e, i), String(e.id || i))); }
+      if (group.length === 1) {
+        const [e, i] = group[0], st = stateOf(e, i), key = String(e.id || i);
+        // ONE FINISHED COMMAND, FOLDED (2026-11-16, Claude Code on the web's "Ran a command ›"): opened with a click.
+        if (!GLOOPY && !e.tool && e.monitor !== true && (st === 'ok' || st === 'bad') && !neverRan(results[e.id])) {
+          const fk = 'f' + key, open = !!S.open[fk];
+          out.push('<div class="cd-group cd-fold1' + (open ? ' is-open' : ' is-shut') + '"><button type="button" class="cd-group-head" data-group="' + esc(fk) + '" aria-expanded="' + open + '">Ran a command <span class="cd-chev">›</span>' + (st === 'bad' ? '<span class="cd-bad">' + esc(groupWords([{ tool: '', failed: true }]).failed) + '</span>' : '') + '</button>' + (open ? '<div class="cd-group-box">' + cmdHTML(e, results[e.id], st, key) + '</div>' : '') + '</div>');
+        } else out.push(cmdHTML(e, results[e.id], st, key));
+      }
       else {
         const gk = 'g' + String(group[0][0].id || group[0][1]);
         const shut = !!S.open[gk];
@@ -2699,6 +2708,8 @@
       // (A hook's line: its warning when it ended the turn, `warn`; its statusMessage while it ran, `hookStatus`.)
       else if (e.type === 'note') out.push(e.monitor && typeof e.monitor === 'object' ? monitorHTML(e.monitor) : '<div class="cd-localnote' + (e.warn === true || e.denied === true ? ' cd-note-warn' : e.hookStatus === true ? ' cd-note-status' : '') + '">' + esc(noColor(e.text)) + '</div>');
       else if (e.type === 'expired') return;
+      // CODER'S START-UP, DONE (2026-11-16): one quiet "Initialized session ›" line; › shows its steps and their times.
+      else if (e.type === 'startup') { if (!GLOOPY) out.push(startupHTML(e, i)); }
       // WHAT THE LANGUAGE SERVERS REPORTED, as Claude Code's row (diagnosticsHTML).
       else if (e.type === 'diagnostics') out.push(diagnosticsHTML(e, i));
       else if (e.type === 'notify') out.push('<div class="cd-localnote">Notified you: ' + esc(e.text) + '</div>');
@@ -2710,7 +2721,10 @@
     flush();
     if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));
     else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type !== 'user')) out.push(workingHTML(lastUser));
-    else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
+    // (While the message is still being sent: the same line, from what the chat's looks say meanwhile, watchSend.)
+    else if (S.sending && !S.running && !GLOOPY) out.push(workingHTML(lastUser));
+    else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push(waitHTML(lastUser));
+    else if (S.running && !S.ending) out.push(stepLineHTML(lastUser, results));
     out.push(queueHTML());
     return out.join('');
   }
@@ -2745,12 +2759,64 @@
       '<button type="button" class="cd-meta-b" data-rate="down" data-rate-k="' + esc(k) + '" aria-label="Bad answer" aria-pressed="' + (t === 'down') + '" title="Bad answer">' + META_ICON.down + '</button>' +
       '<span class="cd-meta-t" data-rel-at="' + Number(e.at || 0) + '">' + esc(relTime(e.at)) + '</span></div>';
   }
-  function workingHTML(lastUser) {
+  // THE START-UP LINE, LIKE CLAUDE CODE ON THE WEB (the owner's recording, 2026-11-16): one grey line where Coder's answer
+  // will go names the start-up's step now, with its seconds and a ›: "Setting up a cloud container ›", "Cloning repository
+  // 2s ›", "Running setup script ›"; then "Initialized session ›" (the `startup` step) with dots and the seconds under it
+  // while Coder thinks. A message on a machine already awake: only the dots and the seconds. A step running before Coder's
+  // first words: that step, live, with its seconds. (Gloopy's chat keeps its own status line.)
+  const BOOT_WORDS = { container: 'Setting up a cloud container', clone: 'Cloning repository', setup: 'Running setup script' };
+  const BOOT_DONE = { container: 'Set up a cloud container', clone: 'Cloned repository', setup: 'Ran setup script' };
+  // The start-up's step, as a look at the chat (/state) said it: kept per message, with when this page first saw it.
+  function bootSeen(d) {
+    if (GLOOPY || !d) return;
+    const key = S.events.filter((e) => e.type === 'user').length;
+    if (!S.boot || S.boot.k !== key) S.boot = { k: key, phase: '', at: 0, cold: false };
+    const ph = typeof d.phase === 'string' && BOOT_WORDS[d.phase] ? d.phase : '';
+    if (d.cold === true || (ph && ph !== 'container')) S.boot.cold = true;
+    // (Counted from when the server says the step began, phaseAt; this page's own clock only when that is not usable.)
+    const pa = Number(d.phaseAt);
+    if (ph !== S.boot.phase) { S.boot.phase = ph; S.boot.at = pa > 0 && pa <= Date.now() + 2000 && Date.now() - pa < 3600000 ? Math.min(pa, Date.now()) : Date.now(); }
+  }
+  const secsHTML = (from) => '<span class="cd-boot-s" data-work-from="' + from + '">' + Math.max(0, Math.floor((Date.now() - from) / 1000)) + 's</span>';
+  function waitHTML(lastUser) {
     const u = lastUser >= 0 ? S.events[lastUser] : null;
     if (!S.workFrom || S.workFrom.k !== lastUser) S.workFrom = { k: lastUser, at: Date.now() };
     const from = u && Number(u.at) > 0 && Number(u.at) <= Date.now() ? Number(u.at) : S.workFrom.at;
-    const starting = !!(S.project && S.project.starting);
-    return '<div class="cd-working" role="status"><span class="cd-working-w">' + (starting ? 'Starting Coder’s machine…' : 'Working…') + '</span> <span class="cd-working-s" data-work-from="' + from + '">' + Math.max(0, Math.floor((Date.now() - from) / 1000)) + 's</span></div>';
+    if (GLOOPY) return '<div class="cd-thinking"><span></span><span></span><span></span></div>';
+    return '<div class="cd-wait" role="status" aria-label="Coder is working"><span class="cd-wait-dots" aria-hidden="true"><i></i><i></i><i></i></span>' + secsHTML(from) + '</div>';
+  }
+  function workingHTML(lastUser) {
+    const key = S.events.filter((e) => e.type === 'user').length;
+    const b = S.boot && S.boot.k === key ? S.boot : null;
+    // (The Worker says "container" for every message it starts; shown for a chat's first message, or a machine that says it is cold.)
+    const first = !S.events.slice(0, Math.max(0, lastUser)).some((e) => e.type === 'done' || e.type === 'text');
+    // ONLY WHAT THE SERVER SAYS IS HAPPENING (owner, 2026-11-16): no step is guessed or timed here; until a look at the chat
+    // names one, only the dots and the seconds.
+    const ph = b && b.phase ? b.phase : '';
+    if (!ph || (ph === 'container' && !first && !b.cold)) return waitHTML(lastUser);
+    const from = b.at || Date.now();
+    return '<div class="cd-boot" role="status"><span class="cd-boot-w">' + BOOT_WORDS[ph] + '</span> ' + secsHTML(from) + ' <span class="cd-chev" aria-hidden="true">›</span></div>';
+  }
+  // A STEP RUNNING BEFORE CODER'S FIRST WORDS: its short description (or what it runs), live, with its seconds.
+  function stepLineHTML(lastUser, results) {
+    const turn = S.events.slice(lastUser + 1);
+    if (GLOOPY || turn.some((e) => e.type === 'text' || e.type === 'done')) return '';
+    const run = turn.filter((e) => e.type === 'bash' && !results[e.id]).pop();
+    if (!run) return '';
+    const label = run.tool === 'setup' ? 'Running setup script' : typeof run.desc === 'string' && run.desc.trim() ? run.desc.trim() : String(run.verb || 'Running') + (run.command ? ' ' + String(run.command).split('\n')[0] : '');
+    const from = Number(run.at) > 0 && Number(run.at) <= Date.now() ? Number(run.at) : Date.now();
+    return '<div class="cd-boot cd-boot-step" role="status"><span class="cd-boot-w">' + esc(label.slice(0, 120)) + '</span> ' + secsHTML(from) + ' <span class="cd-chev" aria-hidden="true">›</span></div>';
+  }
+  // "Initialized session ›", folded; open, each start-up step and how long it took. (The Worker's own part, getting the machine
+  // from the message's sending, is counted in "Set up a cloud container" when this page saw the message sent.)
+  function startupHTML(e, i) {
+    const k = 'init' + i, open = !!S.open[k];
+    let u = null;
+    for (let j = i - 1; j >= 0; j--) if (S.events[j].type === 'user') { u = S.events[j]; break; }
+    const extra = u && Number(u.at) > 0 && Number(e.got) > Number(u.at) && Number(e.got) - Number(u.at) < 600000 ? Number(e.got) - Number(u.at) : 0;
+    const steps = (Array.isArray(e.steps) ? e.steps : []).filter((x) => x && BOOT_DONE[x.k]).map((x) => ({ k: x.k, ms: Number(x.ms) + (x.k === 'container' ? extra : 0) }));
+    return '<div class="cd-init' + (open ? ' is-open' : '') + '"><button type="button" class="cd-init-head" data-init="' + k + '" aria-expanded="' + open + '">Initialized session <span class="cd-chev" aria-hidden="true">›</span></button>' +
+      (open ? '<ul class="cd-init-list">' + steps.map((x) => '<li><span>' + BOOT_DONE[x.k] + '</span><b>' + secsWords(x.ms / 1000) + '</b></li>').join('') + '</ul>' : '') + '</div>';
   }
   // (The counter and the times tick on their own, between redraws.)
   function metaTick() {
@@ -4659,6 +4725,7 @@
     on('.cd-elicit input, .cd-elicit select', 'input', (e) => { const f = e.currentTarget.closest('.cd-el-f'); if (f) elFieldSay(f, ''); });
     on('.cd-elicit input.cd-el-in', 'keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const b = elCard(e.currentTarget) && elCard(e.currentTarget).querySelector('[data-el-accept]'); if (b && !b.disabled) b.click(); } });
     on('.cd-group-head', 'click', (e) => { const k = e.currentTarget.dataset.group; S.open[k] = !S.open[k]; draw(); });
+    on('.cd-init-head', 'click', (e) => { const k = e.currentTarget.dataset.init; S.open[k] = !S.open[k]; draw(); });
     on('.cd-start', 'click', (e) => send(e.currentTarget.dataset.answer));
     on('#cdStop', 'click', stop);
     on('.cd-file', 'toggle', (e) => { S.openFiles[e.currentTarget.dataset.path] = e.currentTarget.open; });

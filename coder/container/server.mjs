@@ -3085,6 +3085,22 @@ export const HOLD_MS = 2 * 60 * 1000;
  * file on the kept disk, then all of it written out (sync, at most 20 seconds, never blocking this machine). True when written.
  */
 /** The model's sender, noting when its first request went and its first answer came (the turn's step times). */
+/** The start-up's step now (container, clone, setup, ready), and since when. */
+export function setPhase(t, phase) { if (t.phase !== phase) { t.phase = phase; t.phaseAt = Date.now(); } }
+/** What /state says of the start-up: its step while a cold job starts (until ready), else nothing. */
+export function phaseOf(t) { return t && t.running && t.cold && t.phase && t.phase !== "ready" ? { phase: t.phase, phaseAt: Number(t.phaseAt) || 0 } : {}; }
+/**
+ * THE START-UP, ONCE READY (2026-11-16): one `startup` step with how long each part took on this machine (ms): getting the
+ * job ready (container), the clone, the setup script. The page shows it as "Initialized session ›".
+ */
+export function startupEvent(m) {
+  const at = Date.now(), got = Number(m.got) || at, ready = Number(m.ready) || at;
+  const cs = Number(m.cloneStart) || 0, ce = Number(m.cloneEnd) || 0, ss = Number(m.setupStart) || 0, se = Number(m.setupEnd) || 0;
+  const steps = [{ k: "container", ms: Math.max(0, (cs || ss || ready) - got) }];
+  if (cs && ce >= cs) steps.push({ k: "clone", ms: ce - cs });
+  if (ss && se >= ss) steps.push({ k: "setup", ms: se - ss });
+  return { at, type: "startup", got, ms: Math.max(0, ready - got), steps };
+}
 export function timedSend(timing, send) {
   if (typeof send !== "function") return send;
   return async (...args) => {
@@ -3732,6 +3748,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const t = { running: true, stop: false, events: [], result: null, fg: new Set(), started: Date.now(), resume: null, queue: [], mode: normMode(body.mode), answers: new Map(), asking: "", writes: { check: null }, start };
     // THE TURN'S STEP TIMES (2026-11-15: where a message's seconds go), handed to the Worker with the result: `timing`.
     t.timing = { got: t.started };
+    // THE START-UP'S STEP NOW (2026-11-16, like Claude Code on the web's "Setting up a cloud container › Cloning repository ›
+    // Initialized session"): `phase` (container, clone, setup, ready) and since when, in /state while the job starts.
+    t.phase = "container"; t.phaseAt = t.started;
     // (A paused turn taken up again starts with the messages that waited for its card: queuedFrom. coder-park.mjs.)
     t.queue = queuedFrom(body.queued);
 
@@ -3744,6 +3763,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     noteWake(project, body.egress);
     // THE FIRST MESSAGE SINCE THIS MACHINE STARTED, of a chat that has some (a resumed session, Bash docs pass 8): its
     // SessionStart hooks run as `resume` (runCoder).
+    const firstSeen = !SEEN_CHATS.has(project);
     const resumed = !SEEN_CHATS.has(project) && Array.isArray(body.messages) && body.messages.length > 0;
     SEEN_CHATS.add(project);
     // Nothing left from before may race root while it prepares the files (the audit); if it cannot be stopped, the job
@@ -3767,6 +3787,9 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.events.push({ at: Date.now(), type: "note", text: body.cache.note.trim().slice(0, 300) });
     }
     const dir = join(root, project);
+    // A COLD START (this machine's first job for the chat, or no project on its disk yet): its start-up steps are shown,
+    // live (`phase`) and once ready as one "Initialized session" line (a `startup` step). A warm one shows none.
+    t.cold = !gloopy && (firstSeen || !existsSync(join(dir, ".git")));
     // THE NETWORK GATE STARTED WHILE THE REPOSITORY IS CLONED (2026-11-16: a new chat's machine took ~2 s between its clone and
     // being ready, starting the gate among other things): for a job that will need it (a GitHub repository with a pass, saved
     // keys, a limited network), as below; it is only used there, after the same checks.
@@ -3775,6 +3798,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
         t.timing.cloneStart = Date.now();
+        // (Only a real clone: a machine that has the project already only fetches, and says no "Cloning repository".)
+        if (!existsSync(join(dir, ".git"))) setPhase(t, "clone");
         const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true, refresh: body.fetch !== false });
         t.timing.cloneEnd = Date.now();
         if (!prep.ok) return fail(502, prep.why);
@@ -4137,6 +4162,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const id = "setup-" + Date.now();
         setupRan = true;
         t.timing.setupStart = Date.now();
+        t.cold = !gloopy; setPhase(t, "setup");
         t.events.push({ at: Date.now(), type: "bash", id, tool: "setup", verb: "Ran setup", command: script.split("\n")[0].slice(0, 200) });
         // THE SETUP SCRIPT CANNOT READ THE OWNER'S VARIABLES OR KEYS (owner,
         // 2026-11-06, "1", like Claude Code): no variables, and no keys added
@@ -4436,6 +4462,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const copyWanted = !!(data && body.cache && body.cache.make === true && fresh && setupRan && !setupFailed && (t.box || !copyNeedsBox));
     if (copyWanted) t.copyWanted = { sha: setupSha(script, net) };
     t.timing.ready = Date.now();
+    setPhase(t, "ready");
+    if (t.cold) t.events.push(startupEvent(t.timing));
     const begin = () => {
       t.timing.began = Date.now();
       // A job has worked on this disk: no copy is made of it from now on.
@@ -5024,7 +5052,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
         // (`answered`: the answer's last steps are all sent; the turn is only being tidied up. 2026-11-16.)
-        return send(200, { running: t.running, ...(t.answerDone ? { answered: true } : {}), events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
+        return send(200, { running: t.running, ...phaseOf(t), ...(t.answerDone ? { answered: true } : {}), events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").

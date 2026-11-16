@@ -64,7 +64,7 @@ const shot = async (page, name) => { if (!SHOTS) return; mkdirSync(SHOTS, { recu
 
 test("the code: the working line, the rows under messages, the queue's words and the panel are Coder's only", () => {
   const js = read("public/coder.js"), css = read("public/coder.css");
-  assert.match(js, /'Starting Coder’s machine…' : 'Working…'/);
+  assert.match(js, /function workingHTML\(lastUser\)/);
   assert.match(js, /'Enter to send, Ctrl\+Enter to queue for later'/);
   assert.match(js, /\(GLOOPY \? '' : userMetaHTML\(e, i, mark\)\)/);
   assert.match(js, /\(GLOOPY \? '' : aiMetaHTML\(e, i\)\)/);
@@ -125,11 +125,11 @@ test("in Chromium: rows under messages, copy, thumbs, rewind, Working… counter
     // 1 and 3. A message: "Working… Ns" counting, the box's words, Stop stays.
     await page.fill("#cdIn", "Run the tests");
     await page.press("#cdIn", "Enter");
-    await page.waitForSelector("#gfApp .cd-working");
-    assert.equal(await page.textContent("#gfApp .cd-working-w"), "Working…");
-    const a = await page.textContent("#gfApp .cd-working-s");
+    // (2026-11-16: no step named by the server: the dots and the seconds.)
+    await page.waitForSelector("#gfApp .cd-wait");
+    const a = await page.textContent("#gfApp .cd-wait .cd-boot-s");
     await page.waitForTimeout(2600);
-    const b = await page.textContent("#gfApp .cd-working-s");
+    const b = await page.textContent("#gfApp .cd-wait .cd-boot-s");
     assert.match(a, /^\d+s$/); assert.ok(parseInt(b) >= parseInt(a) + 2 || (parseInt(b) >= 2 && parseInt(b) > parseInt(a)), a + " → " + b);
     assert.equal(await page.getAttribute("#cdIn", "placeholder"), "Enter to send, Ctrl+Enter to queue for later");
     assert.equal(await page.locator("#gfApp #cdStop").count(), 1);
@@ -148,14 +148,14 @@ test("in Chromium: rows under messages, copy, thumbs, rewind, Working… counter
   } finally { await browser.close(); }
 });
 
-test("in Chromium: Starting Coder's machine… while the chat's start is marked; no panel on a narrow screen", { skip: !chromium && "Playwright is not installed" }, async () => {
+test("in Chromium: the dots while the chat's start is marked and no step is named; no panel on a narrow screen", { skip: !chromium && "Playwright is not installed" }, async () => {
   const browser = await chromium.launch();
   try {
     const { page } = await openPage(browser, { starting: true });
     await page.fill("#cdIn", "Go");
     await page.press("#cdIn", "Enter");
-    await page.waitForSelector("#gfApp .cd-working");
-    assert.equal(await page.textContent("#gfApp .cd-working-w"), "Starting Coder’s machine…");
+    await page.waitForSelector("#gfApp .cd-wait");
+    assert.equal(await page.locator("#gfApp .cd-boot-w").count(), 0);
     await shot(page, "p-starting.png");
     await page.context().close();
     const narrow = await openPage(browser, { width: 900 });

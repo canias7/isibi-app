@@ -1361,3 +1361,22 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
   #gfApp .cd-rp-bar { height: 4px; border-radius: 4px; background: #ebe7e0; overflow: hidden; }
   #gfApp .cd-rp-bar i { display: block; height: 100%; background: #0f766e; }
 }
+/* THE START-UP LINE, LIKE CLAUDE CODE ON THE WEB (2026-11-16): "Setting up a cloud container ›", "Cloning repository 2s ›",
+   "Initialized session ›" folded, dots and seconds while Coder thinks, "Ran a command ›". Coder's chat only (#gfApp). */
+#gfApp .cd-boot { color: #8a8f98; font-size: 13px; padding: 4px 2px; display: flex; gap: 6px; align-items: baseline; }
+#gfApp .cd-boot-w { animation: cd-pulse 1.8s infinite ease-in-out; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 80%; }
+#gfApp .cd-boot-s, #gfApp .cd-wait .cd-boot-s { font-variant-numeric: tabular-nums; }
+#gfApp .cd-chev { color: #a3a7ae; font-size: 14px; line-height: 1; }
+#gfApp .cd-wait { color: #8a8f98; font-size: 13px; padding: 4px 2px; display: flex; gap: 8px; align-items: center; }
+#gfApp .cd-wait-dots { display: inline-flex; gap: 3px; }
+#gfApp .cd-wait-dots i { width: 5px; height: 5px; border-radius: 50%; background: #b5b1aa; animation: cd-blink 1.2s infinite ease-in-out; }
+#gfApp .cd-wait-dots i:nth-child(2) { animation-delay: .15s; }
+#gfApp .cd-wait-dots i:nth-child(3) { animation-delay: .3s; }
+#gfApp .cd-init { margin: 2px 0; }
+#gfApp .cd-init-head, #gfApp .cd-fold1 > .cd-group-head { background: none; border: 0; padding: 4px 2px; color: #8a8f98; font: inherit; font-size: 13px; cursor: pointer; display: inline-flex; gap: 6px; align-items: baseline; }
+#gfApp .cd-init-head:hover, #gfApp .cd-fold1 > .cd-group-head:hover { color: #5f646b; }
+#gfApp .cd-init.is-open .cd-chev, #gfApp .cd-fold1.is-open .cd-chev { display: inline-block; transform: rotate(90deg); }
+#gfApp .cd-init-list { list-style: none; margin: 2px 0 6px; padding: 0 0 0 12px; border-left: 2px solid #e6e3de; color: #8a8f98; font-size: 12.5px; }
+#gfApp .cd-init-list li { display: flex; gap: 10px; padding: 2px 0; }
+#gfApp .cd-init-list b { font-weight: 500; font-variant-numeric: tabular-nums; color: #a3a7ae; }
+@media (prefers-reduced-motion: reduce) { #gfApp .cd-boot-w, #gfApp .cd-wait-dots i { animation: none; } }

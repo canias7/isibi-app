@@ -1849,7 +1849,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // STARTING_MAX_MS, and the owner is told to send the message again.
     const starting = startingOf(meta);
     if (starting) {
-      if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+      // (THE START-UP'S STEP, 2026-11-16: the Worker is getting the machine, "Setting up a cloud container" on the page.)
+      if (Date.now() - Number(starting.at || meta.at || 0) < STARTING_MAX_MS) return json({ ok: true, events: [], next: since, running: true, project: meta, phase: "container", phaseAt: Number(starting.at) || 0 });
       const back = { ...meta, status: typeof starting.was === "string" && starting.was !== "running" ? starting.was : "idle", starting: null, at: Date.now() };
       const said = typeof starting.said === "string" && starting.said ? " (“" + starting.said + "”)" : "";
       const ev = { at: Date.now(), type: "error", lost: true, text: "Your last message" + said + " didn't reach Coder: sending it stopped half-way. Send it again." };
@@ -1880,7 +1881,7 @@ export async function handleCoder(request, env, ctx, deps) {
     }
     if (meta.status === "running" && !s.running && !s.result) {
       // STILL STARTING: the chat says "running" before the machine is handed the job (it may be waking up); not lost yet.
-      if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta });
+      if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta, phase: "container", phaseAt: Number(meta.at) || 0 });
       return free("Coder's machine restarted, so this job ended here. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
     }
     // THE TURN ENDED: the chat is kept, and the work is committed on Coder's branch on its machine, once per turn. It is
@@ -1909,8 +1910,10 @@ export async function handleCoder(request, env, ctx, deps) {
     // was open): the page loads the saved chat, which has the save's own lines.
     const elsewhere = !!s.result && !s.running && meta.status !== "running";
     // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
+    // THE START-UP'S STEP NOW (2026-11-16): the machine's, while a cold job starts (cloning, the setup script), for the page only.
+    const phase = s.running && typeof s.phase === "string" && /^(container|clone|setup)$/.test(s.phase) ? { phase: s.phase, phaseAt: Number(s.phaseAt) || 0, cold: true } : null;
     const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(phase || {}), ...(elsewhere ? { reload: true } : {}) });
 
     // THE TURN'S SAVE (`bg`: started in the background by the page's early look; its answer then goes nowhere, so what the
     // page needs is kept with the chat, `endNote`).
