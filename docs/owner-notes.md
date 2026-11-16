@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: The "Suggested connectors" card now shows whenever you ask about connectors
+
+In a live test, "Search connector tools" showed no card: Coder's tool search found the secret tool, which isn't about connectors. Claude Code shows its Suggested connectors card whenever connectors are relevant (its docs: "in-chat recommendations shown when relevant to the user's task"). Coder now has its own small tool for it, suggest_connectors, and is told to use it when you ask about connectors, integrations or MCP ("search connector tools", "what connectors do I have", "connect Linear") or want a service it has no tools for. The card is the same as before. Coder's chat only (not Gloopy, not jobs started from GitHub). Tests added (conn-suggest.test.mjs).
 ## 2026-11-16: Enter always sends in a new chat; card buttons work while Coder redraws
 
 Two fixes from the live test. (1) In a brand-new chat, just after picking a repository, the page was still loading the chat when you pressed Enter, and the message was silently dropped (it stayed in the box). Now a message sent while the chat loads goes out as soon as it has loaded. (2) While Coder works the page redraws the chat several times a second; if that happened between pressing and releasing a card's button (Yes/No on a permission card, a plan, a question, a key or environment card), the browser lost the click. Now, when the button you pressed was redrawn and you release on its new copy, the page clicks it for you. Tests added (cc-page-races.test.mjs).
