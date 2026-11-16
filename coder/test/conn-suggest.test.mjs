@@ -91,3 +91,22 @@ test("page in Chromium: the card's rows, buttons and presses", { skip: !chromium
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
+
+// CLAUDE CODE'S SUGGESTED CONNECTORS AS ITS OWN TOOL (2026-11-16): in a live test "Search connector tools" ran a tool search
+// that found request_secret, so no card showed; Claude Code showed it. Now Coder has suggest_connectors.
+test("suggest_connectors: offered in Coder's chats (not from GitHub), named for connector questions, always shows the card", async () => {
+  const { runCoder, CODER_TOOLS, GITHUB_TOOLS, CODER_SYSTEM, SUGGEST_CONNECTORS_WORDS } = await import("../container/coder-agent.mjs");
+  assert.ok(CODER_TOOLS.some((t) => t.function.name === "suggest_connectors"));
+  assert.ok(!GITHUB_TOOLS.some((t) => t.function.name === "suggest_connectors"));
+  for (const ask of ["search connector tools", "what connectors do I have", "connect Linear"]) assert.ok(SUGGEST_CONNECTORS_WORDS.toLowerCase().includes(ask.toLowerCase()), ask);
+  assert.match(SUGGEST_CONNECTORS_WORDS, /instead of tool_search or request_secret/);
+  assert.match(CODER_SYSTEM, /suggest_connectors \(the Suggested connectors card/);
+  const call = (name, args) => ({ id: "s1", type: "function", function: { name, arguments: JSON.stringify(args) } });
+  const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
+  const events = [], seen = []; let n = 0;
+  const turns = [say("", [call("suggest_connectors", { query: "connector tools" })]), say("Here are your connectors.")];
+  await runCoder({ send: async (q) => { seen.push(q); return turns[n++]; }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e) }, { text: "Search connector tools" });
+  assert.ok(events.some((e) => e.type === "connectors_suggest" && e.id === "s1" && e.query === "connector tools"));
+  const last = seen[1].messages.filter((m) => m.role === "tool").pop();
+  assert.match(String(last.content), /Suggested connectors card/);
+});

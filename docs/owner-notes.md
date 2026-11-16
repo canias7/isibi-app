@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: The "Suggested connectors" card now shows whenever you ask about connectors
+
+In a live test, "Search connector tools" showed no card: Coder's tool search found the secret tool, which isn't about connectors. Claude Code shows its Suggested connectors card whenever connectors are relevant (its docs: "in-chat recommendations shown when relevant to the user's task"). Coder now has its own small tool for it, suggest_connectors, and is told to use it when you ask about connectors, integrations or MCP ("search connector tools", "what connectors do I have", "connect Linear") or want a service it has no tools for. The card is the same as before. Coder's chat only (not Gloopy, not jobs started from GitHub). Tests added (conn-suggest.test.mjs).
 ## 2026-11-16: A "changed files" box under Coder's answer
 
 Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).

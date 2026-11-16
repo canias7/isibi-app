@@ -1234,6 +1234,8 @@ export function secretAsk(args) {
   return { host, reason: scrub(a.reason).trim().slice(0, 300), name: given("display_name") ? scrub(a.display_name).trim().slice(0, 60) : "", header, prefix, kind: basic ? "basic" : "bearer" };
 }
 
+/** suggest_connectors' description: when the model should show the owner the Suggested connectors card. */
+export const SUGGEST_CONNECTORS_WORDS = "Show the owner the Suggested connectors card: each of their connectors (MCP integrations such as Linear, Notion, Zapier, Neon) with a button to Connect, Use (turn on in this chat) or Reconnect it, and a link to browse more. Call it whenever the owner asks about connectors, integrations or MCP (\"search connector tools\", \"what connectors do I have\", \"connect Linear\"), or asks for something in a service you have no tools for. Call it instead of tool_search or request_secret for these. Then tell the owner in a sentence what the card offers.";
 export const CODER_TOOLS = Object.freeze([
   // PICTURES, PDFs AND NOTEBOOKS too (owner item 1, 2026-11-07), like Claude Code's Read.
   fn("read", "Read a file in the project (or in " + SCRATCH + ", a scratch folder for crops and conversions that is never saved to the branch), like Claude Code's Read. Text: with line numbers, up to about 100,000 characters a call: a longer file gives its first part (PARTIAL view) and how to read more with offset and limit; a whole file over 256 KB is refused (read a part, or grep); allow_large reads all of it, or a long range, in one call when you truly need it at once. An empty file, or an offset past the end, says so. Use this instead of cat. A picture (PNG, JPG, GIF, WebP; a screenshot you took, say): shown to you as a picture. A PDF: each page's text, and each page shown to you as a picture too (like Claude Code's); pages \"1-5\" picks pages, at most " + PDF_PAGES_MAX + " at a time, and is needed for a PDF of over " + PDF_PAGES_FREE + " pages. A Jupyter notebook (.ipynb): its cells with their outputs, pictures in them shown.", { path: FILE_PATH, offset: { type: "integer" }, limit: { type: "integer" }, pages: { type: "string", description: "PDF pages, e.g. \"3\" or \"1-5\"" }, allow_large: { type: "boolean", description: "read the whole file, or a long range, in one call (sized to the room left in this job); only when you truly need it all at once" } }, ["path"]),
@@ -1274,6 +1276,10 @@ export const CODER_TOOLS = Object.freeze([
   // READING A PULL REQUEST'S COMMENTS (2026-11-16; Claude Code reads them with its GitHub tool, pull_request_read): read on
   // Coder's server with the owner's GitHub login, which never comes to this machine.
   fn("pr_read", "Read a pull request's reviews (state, text), review comments on lines (file:line, author, text) and conversation comments. Use it when the owner asks what the comments or reviews on a pull request say, instead of gh or curl. pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories (left out: the chat's own). Read-only.", { pr: { type: "string", description: "the pull request's number or address" }, repo: { type: "string" } }, []),
+  // CLAUDE CODE'S SUGGESTED CONNECTORS (2026-11-16; claude.com/docs/connectors/directory: "Suggested Connectors, which are
+  // in-chat recommendations shown when relevant to the user's task"): its own tool, so the card shows whenever the owner
+  // asks about connectors, not only when a tool search happens to name them.
+  fn("suggest_connectors", SUGGEST_CONNECTORS_WORDS, { query: { type: "string", description: "what the owner wants to connect or do (e.g. \"linear\", \"connector tools\")" } }, []),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert. Like Claude Code: if it is not clear what they mean (your last job changed no files, or they might mean something else, such as an environment change or a saved key), ask first with ask_user; when they choose that job, call it with confirmed: true. Do not make other changes in the same turn. Your turn ends here.", { confirmed: { type: "boolean", description: "true only after the owner chose undoing that job on your question card" } }, []),
   // CLAUDE CODE'S AskUserQuestion (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; before,
   // up to 4 questions in one card, owner pick 4, 2026-11-08): its description and inputs word for word (coder-askuser.mjs).
@@ -1517,6 +1523,7 @@ export const CONNECTOR_DATA = "(This came from the connector, an outside service
 export const PLAN_ASKS = Object.freeze({
   pull_request: (a) => "Open a pull request: " + String((a && a.title) || "").slice(0, 200),
   pr_read: (a) => "Read the comments on pull request " + String((a && a.pr) || "of this chat").slice(0, 200),
+  suggest_connectors: () => "Show suggested connectors",
   pr_comments: (a) => "Post " + (Array.isArray(a && a.comments) ? a.comments.length : 0) + " review comment(s) on the pull request",
   auto_fix: (a) => "Turn auto-fix " + (a && a.on === false ? "off" : "on") + " for " + String((a && a.pr) || "a pull request").slice(0, 200),
   undo_last_job: () => "Undo the last job that changed files",
@@ -1556,7 +1563,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "suggest_connectors", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1639,7 +1646,7 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 ${CODER_URLS_LINE}
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), rename_chat (renames this chat, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), suggest_connectors (the Suggested connectors card: call it when the owner asks about connectors, integrations or MCP, or wants a service you have no tools for), rename_chat (renames this chat, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
@@ -6856,6 +6863,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         c.tsAnswer = (v) => toolSearchAnswer(v, { pool, deferred });
         c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";
         reply(r.text + c.keepTail, { toolsLoaded: r.loaded, ...(r.defs.length ? { toolDefs: r.defs } : {}) });
+      } else if (c.name === "suggest_connectors" && !github && !offered) {
+        // (Claude Code's Suggested connectors, as its own tool: the card, then a short list for the model. 2026-11-16.)
+        const q = scrub(String((c.args && c.args.query) || "")).slice(0, 100);
+        emit({ type: "connectors_suggest", id: c.id, query: q });
+        const on = [...new Set(mcpTools.map((t) => t.label).filter(Boolean))], bad = mcpFailed.map((f) => f.name);
+        reply("ok: the owner now sees the Suggested connectors card (Connect, Use or Reconnect for each connector, and Browse more connectors). " + (on.length ? "Connectors on in this chat: " + on.join(", ") + ". " : "No connector is on in this chat. ") + (bad.length ? "Can't be reached: " + bad.join(", ") + ". " : "") + "Tell the owner in a sentence; do not ask for keys.");
       } else if (c.name === "connector_search" && mcpDeferred) {
         const found = findConnectorTools(mcpTools, c.args.query);
         for (const t of found) if (!mcpLoaded.has(t.name)) { mcpLoaded.add(t.name); chatTools.push(asFn(t, true)); }
@@ -6974,7 +6987,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop
