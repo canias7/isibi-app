@@ -1537,10 +1537,15 @@
   async function openProject(id) {
     stopPoll();
     keepDraft(S, S.project && S.project.id, id);
+    S.opening = id;
     stopBgWatch(); stopBgOut(); S.bgOut = null; S.bgUntold = 0;
     S.phase = 'chat'; S.project = null; S.events = []; S.next = 0; S.error = ''; S.showChanges = false; S.changes = null; S.compareAgainst = ''; S.compareBranches = null; window.dispatchEvent(new CustomEvent('gf:side', { detail: false })); draw();
     const r = await call('/projects/' + encodeURIComponent(id));
-    if (r.status !== 200) { S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
+    if (S.opening === id) S.opening = '';
+    // (A message sent while the chat was still loading goes out once it has loaded: sendAfterOpen.)
+    const after = S.sendAfterOpen && S.sendAfterOpen.id === id ? S.sendAfterOpen : null;
+    if (S.sendAfterOpen && S.sendAfterOpen.id !== id) S.sendAfterOpen = null;
+    if (r.status !== 200) { S.sendAfterOpen = null; S.error = (r.data && r.data.error) || 'The project could not be opened.'; return draw(); }
     S.project = r.data.project; S.events = r.data.events || []; S.queue = r.data.queue || []; S.shellHist = Array.isArray(r.data.shellHistory) ? r.data.shellHistory : [];
     S.running = S.project.status === 'running';
     S.background = undefined; startBgWatch();
@@ -1550,6 +1555,7 @@
     draw(true);
     // A turn still running: its own steps come from the machine, after the saved ones.
     if (S.running) { S.next = 0; startPoll(); }
+    if (after && S.sendAfterOpen === after && S.project && S.project.id === id) { S.sendAfterOpen = null; send(after.text, after.opts); }
   }
 
   // ── A MESSAGE, THEN FOLLOWING THE WORK ────────────────────────────────────
@@ -1569,6 +1575,9 @@
     const pics = (S.pics || []).slice();
     const att = (S.attach || []).filter((f) => f.id);
     if ((S.attach || []).some((f) => f.up)) return note('Wait for the file to finish attaching.');
+    // ENTER IN A CHAT STILL LOADING (live test, 2026-11-16: a new chat's first message, typed while the chat was being opened
+    // just after its repository was picked, was dropped and stayed in the box): it goes out once the chat has loaded.
+    if (!S.project && S.opening && text && !GLOOPY) { S.sendAfterOpen = { id: S.opening, text, opts }; S.draft = text; return; }
     if ((!text && !comments.length && !pics.length && !att.length) || !S.project || S.sending) return;
     // WHILE CODER WORKS, A MESSAGE WAITS FOR IT (Claude Code's queue): shown in grey at the end of the chat, with ✕ to take it
     // back, until Coder reads it, which it does once its running tool calls finish; what is left goes out when it is done.
@@ -4235,6 +4244,26 @@
       composerHTML();
   }
 
+  // A PRESS THAT A REDRAW CUT IN TWO (live test, 2026-11-16: while Coder works the page redraws every 300 ms to 1 s, and a
+  // permission card's button was drawn afresh between the owner's press and release, so the browser gave no click and the
+  // answer was lost): when the button pressed is gone and the release lands on its new copy (the same markup), that copy is
+  // clicked. For every button in the chat: permission and plan cards, questions, key and environment cards.
+  function pressRepair() {
+    if (S.pressRepair) return;
+    S.pressRepair = true;
+    let down = null;
+    const btnOf = (t) => (t && t.closest ? t.closest('button') : null);
+    document.addEventListener('pointerdown', (e) => {
+      const b = e.button === 0 ? btnOf(e.target) : null;
+      down = b && S.root && S.root.contains(b) ? { el: b, html: b.outerHTML } : null;
+    }, true);
+    document.addEventListener('pointerup', (e) => {
+      const d = down; down = null;
+      if (!d || e.button !== 0 || d.el.isConnected) return;
+      const b = btnOf(e.target);
+      if (b && b !== d.el && !b.disabled && S.root && S.root.contains(b) && b.outerHTML === d.html) b.click();
+    }, true);
+  }
   function draw(scroll) {
     const root = S.root;
     if (!root || !root.isConnected) return;
@@ -5041,6 +5070,7 @@
       const first = !S.root;
       S.root = el;
       if (side) S.side = side;
+      pressRepair();
       if (!S.pick) S.pick = { model: MODELS[0].id, effort: MODELS[0].effort };
       if (!S.menuCloser) { S.menuCloser = true; document.addEventListener('click', () => { if (S.reviewMenu || S.modeMenu) { S.reviewMenu = false; S.modeMenu = false; draw(); } }); }
       // Escape closes a file's preview (the audit, 2026-11-10).

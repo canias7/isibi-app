@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Enter always sends in a new chat; card buttons work while Coder redraws
+
+Two fixes from the live test. (1) In a brand-new chat, just after picking a repository, the page was still loading the chat when you pressed Enter, and the message was silently dropped (it stayed in the box). Now a message sent while the chat loads goes out as soon as it has loaded. (2) While Coder works the page redraws the chat several times a second; if that happened between pressing and releasing a card's button (Yes/No on a permission card, a plan, a question, a key or environment card), the browser lost the click. Now, when the button you pressed was redrawn and you release on its new copy, the page clicks it for you. Tests added (cc-page-races.test.mjs).
+
 ## 2026-11-16: A "changed files" box under Coder's answer
 
 Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).
