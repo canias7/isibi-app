@@ -1575,13 +1575,17 @@
     const parkedWait = !S.running && !GLOOPY && S.project && S.project.parked && !['question', 'permission'].includes(S.project.parked.kind);
     if (S.running || parkedWait) {
       if (GLOOPY) return; // (Gloopy's chat sends once Gloopy is done, as on its branch.)
-      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
+      if (pics.length || comments.length || att.length || !text) { S.error = parkedWait ? 'Coder is waiting for your answer on its card: send pictures or line comments once it is done.' : S.ending ? 'Coder is saving to the branch: send pictures or line comments in a second, once it is saved.' : 'Coder is still working: send pictures or line comments once it is done.'; return draw(); }
       S.sending = true; S.error = '';
       const id = S.project.id;
-      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text }) });
+      // (Its own id, so the same message is never started twice: 2026-11-15.)
+      const qmid = 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 10);
+      const q = await call('/projects/' + encodeURIComponent(id) + '/message', { method: 'POST', body: JSON.stringify({ text, mid: qmid }) });
       S.sending = false;
       if (!S.project || S.project.id !== id) return;
       if (q.status === 200 && q.data && q.data.queued) { S.queue = q.data.queue || []; S.draft = ''; return draw(true); }
+      // (The save had just ended, so it went out at once as the next message: the chat is loaded to follow it.)
+      if (q.status === 200 && q.data && q.data.reload && q.data.project) { S.draft = ''; stopPoll(); S.project = q.data.project; S.running = false; syncEntry(); return reloadChat(id); }
       S.error = (q.data && q.data.error) || 'The message was not sent.';
       return draw();
     }
@@ -1631,7 +1635,7 @@
     startPoll(); draw(true);
   }
 
-  function startPoll() { stopPoll(); S.poll = setTimeout(tick, 300); webWake(); }
+  function startPoll() { stopPoll(); S.ending = false; S.poll = setTimeout(tick, 300); webWake(); }
   // WHILE A MESSAGE IS STILL BEING SENT: an ending already saved for it (its job lost and freed with an error, `lost`, or its
   // turn over) is shown at once, without a reload; anything else waits for the message's own answer.
   async function watchSend(sent) {
@@ -1713,6 +1717,10 @@
       // it went (Succeeded, Failed, Waiting for you) without typing /schedules.
       if (GLOOPY && S.running && !r.data.running) S.sched = null;
       S.running = !!r.data.running;
+      // THE ANSWER IS SHOWN, THE TURN IS BEING SAVED (2026-11-15: the box was freed only ~4 s after the answer, once the commit,
+      // push and checks were done): the box is free now (S.ending); a message sent meanwhile waits in line and goes out
+      // right after the save, by itself (the Worker's queue). "Saved to the branch" still comes when the save is done.
+      S.ending = S.running && (!!r.data.ending || !!S.ending);
       syncEntry();
       draw(fresh.length > 0);
     }
@@ -2678,8 +2686,8 @@
     });
     flush();
     if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));
-    else if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type !== 'user')) out.push(workingHTML(lastUser));
-    else if (S.running && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
+    else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type !== 'user')) out.push(workingHTML(lastUser));
+    else if (S.running && !S.ending && !S.events.slice(lastUser + 1).some((e) => e.type === 'bash' && !results[e.id])) out.push('<div class="cd-thinking"><span></span><span></span><span></span></div>');
     out.push(queueHTML());
     return out.join('');
   }
@@ -3926,14 +3934,14 @@
   }
 
   function composerHTML() {
-    const busy = S.running || S.sending;
+    const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1" placeholder="' + (S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
-        (S.running || (!GLOOPY && S.project && S.project.parked)
+        ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
           ? '<button type="submit" class="cd-send cd-queue-send" aria-label="Send (it waits for Coder)" title="Send: Coder reads it once its running steps finish"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button><button type="button" class="cd-send cd-stop" id="cdStop" aria-label="Stop">' + ICON.stop + '</button>'
           : '<button type="submit" class="cd-send" aria-label="Send"' + (S.sending ? ' disabled' : '') + '>' + ICON.send + '</button>') +
       '</form>' +

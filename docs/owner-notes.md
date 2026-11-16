@@ -4,6 +4,24 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-15: The machine is ready in seconds, and the box is free as soon as the answer shows (your word: approved)
+
+On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io yet: it needs your test in the browser.
+
+- **Why picking the repository early didn't help.** A new chat's machine was made on a new disk, and the server Fly.io
+  put it on first had to download Coder's 6.9 GB image (about a minute). Starting 15 seconds early only took those 15
+  seconds off.
+- **Spare machines.** Coder now keeps one spare machine ready (already downloaded, then stopped, so it costs only its
+  disk). A new chat takes it, gets its own lock key, and starts in a few seconds. A new spare is made right away in the
+  background. Spares from an older Coder version, or older than 7 days, are removed and made again. The number of spares
+  is a setting (`CODER_FLY_SPARES`, 0 to 5; 1 by default). Each chat still has its own machine and disk.
+- **Coder asks the machine sooner.** The 3.6 seconds before the machine was asked were mostly about twenty storage
+  reads done one after another. They are now done together.
+- **The box is free as soon as the answer shows.** The save to the branch (commit, push, checks) finishes in the
+  background, and "Saved to the branch" still appears when it's done. A message you send meanwhile waits in line and goes
+  out right after the save, once.
+- Tests: SP1 to SP5, QS1 to QS4.
+
 ## 2026-11-15: Coder's chat looks more like Claude Code on the web
 
 - While Coder starts on a message, a grey line says "Working… 3s" (or "Starting Coder's machine… 12s") and counts the seconds, instead of three dots.

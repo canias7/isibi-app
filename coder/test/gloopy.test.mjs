@@ -4821,7 +4821,7 @@ test("GL96 (2026-11-10) found in the live test: a form's labels keep one colon o
   assert.equal(C.formWords([{ label: "Customer name:", value: "Test Owner" }, { label: "Telephone :", value: "555-0100" }, { label: "Medium", value: "chosen" }, { label: "名前：", value: "x" }]), "Customer name: Test Owner\nTelephone: 555-0100\nMedium: chosen\n名前: x");
   assert.equal(C.formWords([{ label: ":", value: "v" }]), "Field: v");
   const ui = await readFile(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(ui, /function startPoll\(\) \{ stopPoll\(\); S\.poll = setTimeout\(tick, 300\); webWake\(\); \}/, "every turn that starts (a message, an answered card, a chat opened mid-turn) goes through startPoll");
+  assert.match(ui, /function startPoll\(\) \{ stopPoll\(\); S\.ending = false; S\.poll = setTimeout\(tick, 300\); webWake\(\); \}/, "every turn that starts (a message, an answered card, a chat opened mid-turn) goes through startPoll");
   const src = /function webWake\(\) \{[^\n]+\}/.exec(ui)[0];
   const run = (web) => { let ticks = 0; new Function("S", "webTick", src + "\nwebWake();")({ web }, () => { ticks++; }); return ticks; };
   const paused = { paused: true, touched: 0 };
@@ -6227,7 +6227,7 @@ test("GL120 (2026-11-12) Grok Bot's progress and results (owner: \"yes build all
   const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
   assert.ok(ui.includes("out.push('<div class=\"cd-ai\">' + prose(e.text) + '</div>' + (e.type === 'done' ? resultPics(e) + (GLOOPY ? '' : aiMetaHTML(e, i)) : ''));"));
   assert.match(ui, /e\.shots\.filter\(\(u\) => typeof u === 'string' && u\.length <= 60000 && \/\^data:image\\\/jpeg;base64,\[A-Za-z0-9\+\/\]\+=\*\$\/\.test\(u\)\)\.slice\(0, 2\)/, "only the machine's own small JPEGs, two at most");
-  assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.events"));
+  assert.ok(ui.includes("if (S.running && GLOOPY) out.push(statusLine(S.events.slice(lastUser + 1), results));\n    else if (S.running && !S.ending && !S.events"));
   assert.ok(ui.includes("      if (e.type === 'text' && e.quiet === true) return;\n      flush();"), "a quiet line is left out of the chat");
   assert.match(GLOOPY_SYSTEM, /Its card shows your browser live, so a QR code can be scanned right from it: hand it off rather than telling the\n  owner to look at your browser\./);
   assert.match(css, /\.cd-result-pics img \{[^}]*width: min\(320px, 100%\)/);

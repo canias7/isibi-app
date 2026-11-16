@@ -16,7 +16,8 @@ function fakeBucket() {
   return { m, async get(k) { return m.has(k) ? { text: async () => m.get(k) } : null; }, async put(k, v) { m.set(k, typeof v === "string" ? v : String(v)); }, async delete(k) { m.delete(k); },
     async list({ prefix = "" } = {}) { return { objects: [...m.keys()].filter((k) => k.startsWith(prefix)).map((key) => ({ key })), truncated: false }; } };
 }
-const envWith = (bucket, o = {}) => ({ CODER_MACHINES: "fly", FLY_API_TOKEN: TOKEN, CODER_FLY_APP: APP, CODER_FLY_IMAGE: IMG1, CODER_BUCKET: bucket, ...o });
+// (No spare machines unless a test asks for them: CODER_FLY_SPARES, test/spares.test.mjs.)
+const envWith = (bucket, o = {}) => ({ CODER_MACHINES: "fly", FLY_API_TOKEN: TOKEN, CODER_FLY_APP: APP, CODER_FLY_IMAGE: IMG1, CODER_BUCKET: bucket, CODER_FLY_SPARES: "0", ...o });
 
 /** Fly.io as far as Coder uses it: the Machines API, and the front door to each machine. */
 function fakeFly() {
@@ -351,7 +352,7 @@ test("CD128 the machine on Fly.io: its answers say they are its own; asked for i
 
 test("CD129 wiring: the switch between Fly.io and Cloudflare, the every-minute Fly step, a removed chat's machine, and the deploy button's Fly.io steps (the token only from GitHub's secrets, never shown)", async () => {
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
-  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name, o\) => \{ const box = flyBox\(env, name, \{\}, o \|\| \{\}\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\), routeLink: \(name\) => flyRouteLink\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's; the desktop app's link to Gloopy's machine (2026-11-11) too");
+  assert.match(worker, /if \(flyOn\(env\)\) return \{ kind: "fly", sign, container: \(name, o\) => \{ const box = flyBox\(env, name, \{ waitUntil \}, o \|\| \{\}\); return \{ fetch: \(req\) => box\.fetch\(req\) \}; \}, drop: \(name\) => dropFlyMachine\(env, name\), snapshot: \(name\) => snapshotChat\(env, name\), cacheUsable: \(c, key\) => cacheUsable\(env, c, key\), copyState: \(c\) => copyState\(env, c\), routeLink: \(name\) => flyRouteLink\(env, name\) \};/, "on Fly.io, flyBox adds each machine's own key; the environment's saved copy is Fly's; the desktop app's link to Gloopy's machine (2026-11-11) too");
   assert.match(worker, /return \{ kind: "cloudflare", sign, container: \(name\) => \{ const box = getContainer\(env\.CODER_CONTAINER, name\); return \{ fetch: \(req\) => box\.fetch\(sign\(req\)\) \}; \}, drop: async \(\) => \{\} \};/);
   assert.match(worker, /if \(m\.kind === "fly"\) job\(runFlyMachines\(env\)/);
   assert.match(worker, /res = await handleCoder\(request, env, ctx, \{ authUser: \(r\) => authUser\(r, env\), container: m\.container, dropMachine: m\.drop, snapshot: m\.snapshot, cacheUsable: m\.cacheUsable, copyState: m\.copyState, routeLink: m\.routeLink \}\);/);
@@ -656,7 +657,7 @@ test("CD248 (2026-11-12) Gloopy's computer starts in seconds (owner: \"yes build
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.ok(routes.includes('const box = () => deps.container(uid + "-" + id, isGloopy(meta) ? { gloopy: true } : undefined);'));
-  assert.ok(worker.includes("container: (name, o) => { const box = flyBox(env, name, {}, o || {}); return { fetch: (req) => box.fetch(req) }; }"));
+  assert.ok(worker.includes("container: (name, o) => { const box = flyBox(env, name, { waitUntil }, o || {}); return { fetch: (req) => box.fetch(req) }; }"));
 });
 
 test("FS5 a new chat's machine started early (/warm, owner 2026-11-15: \"start the machine when a repo is picked\"): /warm may make it, the first message then finds it (no second machine); while one request makes it, another waits for that one instead of making a second", async () => {

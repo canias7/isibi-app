@@ -129,7 +129,7 @@ test("CD114 wiring: every minute the Worker runs the watch list beside @coder's 
   assert.match(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"), /"crons": \["\* \* \* \* \*"\]/, "every minute");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   // Marked running and watched BEFORE the machine is asked (it sets up first, and the tab may close meanwhile).
-  assert.match(routes, /await saveMeta\(bucket, uid, next\);[\s\S]{0,600}await watchJob\(bucket, \{ uid, email: user\.email, id, turn: next\.turn \}\)\.catch\(\(\) => \{\}\);[\s\S]{0,600}let r;\n(?:\s*\/\/[^\n]*\n|\s*next\.timing\.asked = Date\.now\(\);\n){0,3}\s+try \{\n\s+r = await post\("\/turn", \{/);
+  assert.match(routes, /saveMeta\(bucket, uid, next\),[\s\S]{0,600}watchJob\(bucket, \{ uid, email: user\.email, id, turn: next\.turn \}\)\.catch\(\(\) => \{\}\),\n\s+\]\);[\s\S]{0,600}let r;\n(?:\s*\/\/[^\n]*\n|\s*next\.timing\.asked = Date\.now\(\);\n){0,3}\s+try \{\n\s+r = await post\("\/turn", \{/);
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.match(page, /'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl\+Enter to queue for later'/);
   assert.match(page, /if \(r\.data\.reload\) \{ if \(r\.data\.project\) S\.project = r\.data\.project; S\.running = false; syncEntry\(\); draw\(\); return reloadChat\(id\); \}/, "shown as done at once, then the saved chat");

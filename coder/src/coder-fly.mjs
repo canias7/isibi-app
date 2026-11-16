@@ -461,7 +461,7 @@ async function wakeMachine(env, bucket, names, rec, deps, gloopy = false) {
  * asked again.
  */
 export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
-  const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
+  const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now, ...(typeof deps0.waitUntil === "function" ? { waitUntil: deps0.waitUntil } : {}) };
   const bucket = env.CODER_BUCKET;
   return {
     fetch: async (req) => {
@@ -498,7 +498,11 @@ export function flyBox(env, name, deps0 = {}, { gloopy = false } = {}) {
           try {
             // A new chat in an environment with a saved copy: its disk from the copy (the message route's hint).
             const from = (u.pathname === "/turn" || u.pathname === "/warm") && SNAP_ID.test(String(req.headers.get(FROM_COPY) || "")) ? { snapshot: req.headers.get(FROM_COPY), size: Number(req.headers.get(FROM_COPY_GB)) || 0 } : null;
-            const made = await makeMachine(env, bucket, names, deps, from, gloopy);
+            // A SPARE FIRST (2026-11-15): a machine already made from this image, stopped on a server that has the image, is
+            // given this chat's own lock key and started in seconds; the pool is filled again in the background. Not for
+            // Gloopy (its own size) nor a disk from the environment's saved copy (that disk must be made from the copy).
+            const spare = !from && !gloopy ? await claimSpare(env, bucket, names, deps).catch(() => null) : null;
+            const made = spare ? { rec: spare } : await makeMachine(env, bucket, names, deps, from, gloopy);
             if (!made.rec) return json({ error: made.why }, 503);
             rec = made.rec;
             // The machine says in the chat what became of the copy (used, or why not).
@@ -533,10 +537,173 @@ export async function flyRouteLink(env, name, deps0 = {}) {
   return up && up.webSocket ? up : null;
 }
 
+
+// ── SPARE MACHINES (owner, 2026-11-15: "the machine must be ready in seconds, not ~50 s") ──────────────────────────────────
+// Why the early start (/warm) did not help (live, after deploy 201: the first message reached its machine 53.7 s after the
+// Worker got it, though /warm had started 15 s before): a new chat's machine is made on a NEW disk, which Fly.io puts on
+// whatever server has room, and that server first fetches Coder's 6.9 GB image (about 60 to 80 s). /warm and the message
+// shared that one making (the `.making` mark), so /warm only took 15 s off it. A machine whose image is already on its server
+// starts in a few seconds. So a small pool of spare machines is kept, each made from the current image with its own disk
+// and then STOPPED (a stopped machine costs only its disk): a new chat claims one, which is given that chat's own lock key
+// (never another chat's: a spare is made with a key of its own, derived from its spare name, that no chat has) and started;
+// from then on it is that chat's machine and disk, like any other. The pool is filled again in the background.
+export const SPARES = "coder/fly-spares/";
+/** A spare's machine name (its disk is cspare_ and the same 16 letters). */
+export const SPARE_NAME = /^cspare-([0-9a-f]{16})$/;
+/** A spare older than this is recycled (removed and made again), so none is kept for ever. */
+export const SPARE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+/** A spare not ready (its image fetched, its service answering) this long after it was made is removed. */
+export const SPARE_READY_MS = 15 * 60 * 1000;
+/** How many spares are kept (CODER_FLY_SPARES, 0 to 5; 0: none; default 1). */
+export function spareCount(env) {
+  const n = Number(env && env.CODER_FLY_SPARES);
+  return Number.isInteger(n) && n >= 0 && n <= 5 ? n : 1;
+}
+async function readJson(bucket, key) {
+  const o = await bucket.get(key);
+  if (!o) return null;
+  try { return JSON.parse(await o.text()); } catch { return null; }
+}
+/** The spares' records (not the claimed index), with their keys. */
+async function spareRecs(bucket) {
+  const out = [];
+  let cursor;
+  do {
+    const page = await bucket.list({ prefix: SPARES, cursor });
+    for (const o of page.objects || []) {
+      if (!/^[0-9a-f]{16}\.json$/.test(o.key.slice(SPARES.length))) continue;
+      const r = await readJson(bucket, o.key);
+      if (r && typeof r.id === "string") out.push({ key: o.key, rec: r });
+    }
+    cursor = page.truncated ? page.cursor : undefined;
+  } while (cursor);
+  return out;
+}
+/** Can a chat start on this spare now? Ready (stopped, image fetched), from the current image and size, in this region, not old. */
+export function spareUsable(env, rec, now = Date.now()) {
+  const s = flySettings(env);
+  return !!rec && rec.ready === true && !rec.claimed && rec.image === s.image && rec.shape === flyShape(s) && rec.region === s.region && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS;
+}
+
+/** MAKE ONE SPARE: its disk, then its machine (Fly starts it and fetches the image); it is stopped once it answers (tendSpares). */
+export async function makeSpare(env, deps0 = {}) {
+  if (!flyOn(env)) return null;
+  const deps = { fetchFn: deps0.fetchFn || fetch, sleep: deps0.sleep || wait, now: deps0.now || Date.now };
+  const s = flySettings(env), bucket = env.CODER_BUCKET;
+  const h = [...crypto.getRandomValues(new Uint8Array(8))].map((b) => b.toString(16).padStart(2, "0")).join("");
+  let v;
+  for (const compute of [{ cpu_kind: s.kind, cpus: s.cpus, memory_mb: s.memory }, FLY_SMALL, null]) {
+    v = await flyApi(env, "/apps/" + s.app + "/volumes", { method: "POST", body: { name: "cspare_" + h, region: s.region, size_gb: s.disk, ...(compute ? { compute } : {}) }, ...deps });
+    if (v.ok || v.status === 401 || v.status === 403) break;
+  }
+  if (!v.ok || !v.data || typeof v.data.id !== "string") return null;
+  // ITS OWN KEY, from its spare name: no chat's (a chat's is made from that chat's name); replaced when a chat claims it.
+  const lock = env.CODER_TOKEN_KEY ? await controlKeyFor(env.CODER_TOKEN_KEY, "cspare-" + h) : "";
+  const m = await withConfig((o) => flyApi(env, "/apps/" + s.app + "/machines", { method: "POST", body: { name: "cspare-" + h, region: s.region, config: { ...machineConfig(env, v.data.id, { ...o, lock }), metadata: { coder: "spare-machine" } } }, ...deps }));
+  if (!m.ok || !m.data || typeof m.data.id !== "string") { await flyApi(env, "/apps/" + s.app + "/volumes/" + v.data.id, { method: "DELETE", ...deps }); return null; }
+  const rec = { id: m.data.id, volume: v.data.id, region: s.region, image: s.image, shape: flyShape(s), small: m.small, at: deps.now(), ready: false, h };
+  await writeRec(bucket, SPARES + h + ".json", rec);
+  return rec;
+}
+
+/**
+ * A NEW CHAT TAKES A SPARE: the first ready one is marked taken (only if nobody took it first: R2's if-match), given this
+ * chat's own lock key (Fly's update, which starts it; its image is already on its server), and becomes the chat's machine
+ * and disk (the chat's record; an index says which chat a spare's machine now belongs to). Null when there is none (a
+ * machine is made as before). The pool is filled again in the background.
+ */
+export async function claimSpare(env, bucket, names, deps) {
+  if (spareCount(env) < 1) return null;
+  const s = flySettings(env), now = deps.now();
+  for (const { key } of await spareRecs(bucket)) {
+    const o = await bucket.get(key);
+    if (!o) continue;
+    let sr; try { sr = JSON.parse(await o.text()); } catch { continue; }
+    if (!spareUsable(env, sr, now)) continue;
+    const cond = o.etag ? { onlyIf: new Headers({ "if-match": o.httpEtag || '"' + o.etag + '"' }) } : {};
+    let took;
+    try { took = await bucket.put(key, JSON.stringify({ ...sr, claimed: names.key, claimedAt: now }), { httpMetadata: { contentType: "application/json" }, ...cond }); } catch { took = null; }
+    if (took === null) continue; // another chat took it first
+    await writeRec(bucket, SPARES + "claimed/" + sr.h + ".json", { key: names.key, machine: names.machine, at: now });
+    const lock = await controlKeyFor(env.CODER_TOKEN_KEY, names.machine);
+    const u = await withConfig((o2) => flyApi(env, "/apps/" + s.app + "/machines/" + sr.id, { method: "POST", body: { config: machineConfig(env, sr.volume, { ...o2, lock }) }, ...deps }));
+    if (!u.ok) {
+      // Gone or refused: removed, and the next spare (or a new machine) is used.
+      await removeMachine(env, sr.id, sr.volume, deps);
+      await bucket.delete(key); await bucket.delete(SPARES + "claimed/" + sr.h + ".json");
+      continue;
+    }
+    // (Fly starts a machine it updates; if it says otherwise, it is started.)
+    const st = u.data && u.data.state;
+    if (st && st !== "started" && st !== "starting" && st !== "replacing" && st !== "updating") await flyApi(env, "/apps/" + s.app + "/machines/" + sr.id + "/start", { method: "POST", ...deps });
+    const rec = { id: sr.id, volume: sr.volume, region: sr.region, image: sr.image, shape: sr.shape, small: u.small, lock: 2, at: now, used: now, stopped: false, spare: sr.h };
+    await writeRec(bucket, names.key, rec);
+    await bucket.delete(key);
+    const refill = refillSpares(env, deps).catch(() => null);
+    if (typeof deps.waitUntil === "function") deps.waitUntil(refill);
+    await untilAnswers(env, rec.id, deps, FLY_WAKE_MS);
+    return rec;
+  }
+  return null;
+}
+
+/** Spares are made until the pool has `spareCount` (ready or being made, from the current image). */
+export async function refillSpares(env, deps0 = {}) {
+  if (!flyOn(env)) return 0;
+  const now = (deps0.now || Date.now)();
+  const s = flySettings(env);
+  const have = (await spareRecs(env.CODER_BUCKET)).filter(({ rec }) => !rec.claimed && rec.image === s.image && rec.shape === flyShape(s) && rec.region === s.region && now - Number(rec.at || 0) < SPARE_MAX_AGE_MS).length;
+  let made = 0;
+  for (let i = have; i < spareCount(env); i++) if (await makeSpare(env, deps0)) made++;
+  return made;
+}
+
+/**
+ * EVERY MINUTE (runFlyMachines): each spare being made is stopped once it answers (its image is then on its server) and
+ * marked ready; one from an older image or size, older than SPARE_MAX_AGE_MS, never ready in SPARE_READY_MS, or gone from
+ * Fly is removed with its disk; a spare left marked taken (its claim cut off) is removed too; then the pool is filled.
+ */
+export async function tendSpares(env, bucket, deps, now, machines) {
+  const out = { removed: 0, made: 0, volumes: [] };
+  const s = flySettings(env);
+  const byId = new Map((Array.isArray(machines) ? machines : []).map((m) => [m && m.id, m]));
+  for (const { key, rec } of await spareRecs(bucket)) {
+    const m = byId.get(rec.id);
+    const old = rec.image !== s.image || rec.shape !== flyShape(s) || rec.region !== s.region || now - Number(rec.at || 0) >= SPARE_MAX_AGE_MS;
+    const stuck = !rec.ready && now - Number(rec.at || 0) >= SPARE_READY_MS;
+    const dropped = rec.claimed && now - Number(rec.claimedAt || 0) >= FLY_ORPHAN_MS;
+    if (rec.claimed && !dropped) { out.volumes.push(rec.volume); continue; }
+    if (dropped) {
+      // Its claim was cut off after the chat got it: the chat keeps it (only the spare's record goes).
+      const owner = await readRec(bucket, String(rec.claimed));
+      if (owner && owner.id === rec.id) { await bucket.delete(key); out.volumes.push(rec.volume); continue; }
+      await bucket.delete(SPARES + "claimed/" + rec.h + ".json");
+    }
+    if (!m || old || stuck || dropped || spareCount(env) < 1) {
+      await removeMachine(env, m ? rec.id : null, rec.volume, deps);
+      await bucket.delete(key);
+      out.removed++;
+      continue;
+    }
+    out.volumes.push(rec.volume);
+    if (!rec.ready && m.state === "started") {
+      const h = await viaFly(env, rec.id, new Request("http://coder/health"), undefined, deps.fetchFn);
+      if (h && h.ok) {
+        const st = await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/stop", { method: "POST", ...deps });
+        if (st.ok) await writeRec(bucket, key, { ...rec, ready: true, readyAt: now });
+      }
+    } else if (rec.ready && m.state === "started") {
+      await flyApi(env, "/apps/" + s.app + "/machines/" + rec.id + "/stop", { method: "POST", ...deps });
+    }
+  }
+  out.made = await refillSpares(env, { ...deps, now: () => now });
+  return out;
+}
+
 /** Remove a machine and its kept disk (the disk once the machine is gone). */
 async function removeMachine(env, id, volume, deps) {
   const s = flySettings(env);
-  await flyApi(env, "/apps/" + s.app + "/machines/" + id + "?force=true", { method: "DELETE", ...deps });
+  if (id) await flyApi(env, "/apps/" + s.app + "/machines/" + id + "?force=true", { method: "DELETE", ...deps });
   if (volume) await flyApi(env, "/apps/" + s.app + "/volumes/" + volume, { method: "DELETE", ...deps });
 }
 
@@ -559,6 +726,7 @@ export async function dropFlyMachine(env, name, deps0 = {}) {
   if (!rec) return;
   await removeMachine(env, rec.id, rec.volume, deps);
   await env.CODER_BUCKET.delete(names.key);
+  if (rec.spare) await env.CODER_BUCKET.delete(SPARES + "claimed/" + rec.spare + ".json");
 }
 
 /**
@@ -590,12 +758,24 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
   const known = new Set();
   for (const m of list.data) {
     const hit = /^coder-([0-9a-f]{20})$/.exec(String((m && m.name) || ""));
-    if (!hit || typeof m.id !== "string") continue;
-    const key = RECORDS + hit[1] + ".json";
+    const sp = SPARE_NAME.exec(String((m && m.name) || ""));
+    if ((!hit && !sp) || typeof m.id !== "string") continue;
+    // A SPARE (2026-11-15): not claimed yet, it is tended below (tendSpares); claimed, it is that chat's machine, under the
+    // chat's own record and lock key (the index says which chat).
+    const idx = sp ? await readJson(bucket, SPARES + "claimed/" + sp[1] + ".json") : null;
+    if (sp && !(idx && typeof idx.key === "string")) {
+      const vol0 = m.config && Array.isArray(m.config.mounts) && m.config.mounts[0] ? m.config.mounts[0].volume : null;
+      if (vol0) known.add(vol0);
+      continue;
+    }
+    const key = sp ? idx.key : RECORDS + hit[1] + ".json";
+    const lockName = sp ? String(idx.machine || m.name) : m.name;
     const rec = await readRec(bucket, key);
     const made = Date.parse(String(m.created_at || "")) || 0;
     const vol = m.config && Array.isArray(m.config.mounts) && m.config.mounts[0] ? m.config.mounts[0].volume : null;
     if (!rec || rec.id !== m.id) {
+      // (A spare being claimed this moment: its chat's record comes in a second; tendSpares sees to one left half-claimed.)
+      if (sp) { if (vol) known.add(vol); continue; }
       if (now - made > FLY_ORPHAN_MS) { await removeMachine(env, m.id, vol, deps); out.removed++; }
       else if (vol) known.add(vol);
       continue;
@@ -603,7 +783,7 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
     known.add(rec.volume);
     if (m.state === "started") {
       out.checked++;
-      const r = await viaFly(env, m.id, await locked(env, m.name, rec, new Request("http://coder/busy")), undefined, deps.fetchFn);
+      const r = await viaFly(env, m.id, await locked(env, lockName, rec, new Request("http://coder/busy")), undefined, deps.fetchFn);
       const busy = r && r.ok ? await r.json().catch(() => null) : null;
       if (shouldStop(busy, rec, now)) {
         // GLOOPY'S IS SUSPENDED (2026-11-12): woken, it is as it was in under a second; if Fly won't, it is stopped.
@@ -614,15 +794,21 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
     } else if ((m.state === "stopped" || m.state === "suspended") && now - Number(rec.used || rec.at || 0) > FLY_RECLAIM_MS) {
       await removeMachine(env, m.id, rec.volume, deps);
       await bucket.delete(key);
+      if (sp) await bucket.delete(SPARES + "claimed/" + sp[1] + ".json");
       known.delete(rec.volume);
       out.removed++;
     }
   }
+  // THE SPARES: made ready, recycled when old or from an older image, and the pool filled up again.
+  const spr = await tendSpares(env, bucket, deps, now, list.data);
+  for (const v of spr.volumes) known.add(v);
+  out.removed += spr.removed;
+  if (spr.made) out.spares = spr.made;
   // ONCE AN HOUR: kept disks no machine uses (a machine removed before its disk could go).
   if (new Date(now).getUTCMinutes() === 17) {
     const vols = await flyApi(env, "/apps/" + s.app + "/volumes", deps);
     for (const v of vols.ok && Array.isArray(vols.data) ? vols.data : []) {
-      if (!/^coder_[0-9a-f]{20}$/.test(String((v && v.name) || "")) || known.has(v.id) || v.attached_machine_id) continue;
+      if (!/^(?:coder_[0-9a-f]{20}|cspare_[0-9a-f]{16})$/.test(String((v && v.name) || "")) || known.has(v.id) || v.attached_machine_id) continue;
       if (now - (Date.parse(String(v.created_at || "")) || now) > FLY_ORPHAN_MS) { await flyApi(env, "/apps/" + s.app + "/volumes/" + v.id, { method: "DELETE", ...deps }); out.removed++; }
     }
   }

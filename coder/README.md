@@ -2119,6 +2119,39 @@ the usual quiet time. Only before the chat's first message. One maker at a time
 the machine is still being made, waits for that machine instead of making a
 second. The clone and setup still happen at the first message.
 
+**Spare machines** (owner, 2026-11-15: "the machine must be ready in seconds,
+not ~50 s"). A new chat's machine used to be made on a new disk, which Fly.io
+puts on any server with room; that server first fetched Coder's 6.9 GB image
+(about a minute), so `/warm` only took its own head start off that wait. Now
+`runFlyMachines` keeps a pool of spare machines (`CODER_FLY_SPARES`, 0 to 5,
+default 1), each made from the current image on its own disk (`cspare-…`,
+`cspare_…`), started once so its server has the image, then stopped (a stopped
+machine costs only its disk) and marked ready (`coder/fly-spares/`). A new chat
+(its first message, or `/warm`) claims a ready one (`claimSpare`; R2's if-match,
+so two chats never get the same one), gives it the chat's own lock key
+(`controlKeyFor` the chat's machine name; a spare is made with a key of its own
+that no chat has) with Fly's update, which starts it in seconds, and from then
+on it is that chat's machine and disk (`rec.spare`, and an index under
+`coder/fly-spares/claimed/` so the every-minute run finds the chat). The pool is
+filled again at once in the background and every minute. A spare from an older
+image or size, older than 7 days, not ready in 15 minutes or gone from Fly is
+removed with its disk. Not for Gloopy (its own size) nor a chat whose disk comes
+from the environment's saved copy (that disk must be made from the copy).
+
+**A message's start reads together** (2026-11-15): the message route asks
+Coder's storage for everything a start needs at once (the GitHub sign-in, the
+running chats, the chat, settings, environment, memory, steps so far,
+connectors) instead of one read after another; it saved most of the 3.6 s
+before the machine was asked.
+
+**The box is free once the answer is shown** (2026-11-15): when the state route
+answers `ending` (the answer is there, the turn is being saved), the page frees
+the message box; a message sent then waits in line (with its own id) and the
+save sends it as the next message, by itself. If the save ended just as it was
+put in line, the message route sends it at once (never twice: the save sends a
+lone waiting message with its id). "Saved to the branch" still comes with the
+save.
+
 **A turn's step times** (2026-11-15): kept with the chat (`meta.timing`, as
 milliseconds since the Worker got the message: `asked` the machine, `machine`
 had the job with its clone and setup done, and the machine's own `m.got`,

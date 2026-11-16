@@ -62,13 +62,15 @@ export class CoderContainer extends Container {
  * Cloudflare's containers, as before. Every call to a machine carries the
  * control key (the audit, 2026-11-05).
  */
-export function machinesFor(env) {
+export function machinesFor(env, ctx = null) {
+  // (A spare machine taken by a chat is replaced in the background: Cloudflare's waitUntil, 2026-11-15.)
+  const waitUntil = (p) => { if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(p); };
   const key = env.CODER_TOKEN_KEY ? controlKeySync(env.CODER_TOKEN_KEY) : "";
   const sign = (req) => { const r = new Request(req); if (key) r.headers.set("x-coder-key", key); return r; };
   // On Fly.io each machine has its own lock key (step 2, 2026-11-07): flyBox adds it, per machine.
   // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (2026-11-07, like Claude Code's cache): Fly.io only.
   // The desktop app's link to Gloopy's machine (2026-11-11): Fly.io only, like Gloopy's browser.
-  if (flyOn(env)) return { kind: "fly", sign, container: (name, o) => { const box = flyBox(env, name, {}, o || {}); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key), copyState: (c) => copyState(env, c), routeLink: (name) => flyRouteLink(env, name) };
+  if (flyOn(env)) return { kind: "fly", sign, container: (name, o) => { const box = flyBox(env, name, { waitUntil }, o || {}); return { fetch: (req) => box.fetch(req) }; }, drop: (name) => dropFlyMachine(env, name), snapshot: (name) => snapshotChat(env, name), cacheUsable: (c, key) => cacheUsable(env, c, key), copyState: (c) => copyState(env, c), routeLink: (name) => flyRouteLink(env, name) };
   return { kind: "cloudflare", sign, container: (name) => { const box = getContainer(env.CODER_CONTAINER, name); return { fetch: (req) => box.fetch(sign(req)) }; }, drop: async () => {} };
 }
 
@@ -79,7 +81,7 @@ export default {
   // Claude Code (coder-watch.mjs).
   async scheduled(event, env, ctx) {
     if (env.CODER_ON !== "on") return;
-    const m = machinesFor(env);
+    const m = machinesFor(env, ctx);
     const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState });
     const work = [];
     const job = (p) => { work.push(p); ctx.waitUntil(p); };
@@ -106,7 +108,7 @@ export default {
       res = await handleSignin(request, env);
     } else if (url.pathname === WAKE_PATH && env.CODER_ON === "on") {
       // A CHAT WOKEN AT ONCE (Bash docs pass 8): its machine says a background command ended or a monitor printed.
-      const m = machinesFor(env);
+      const m = machinesFor(env, ctx);
       const coder = (req, who) => handleCoder(req, env, ctx, { authUser: async () => who, container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState });
       res = await handleWake(request, env, { coder });
     } else if (url.pathname === MCP_PATH) {
@@ -132,7 +134,7 @@ export default {
       // A CODER CHAT'S PICTURES, KEPT APART FROM ITS SAVED CHAT (2026-11-14, the Worker's memory): the job's own pass too.
       res = await handleLivePic(request, env);
     } else if (url.pathname.startsWith("/api/coder/")) {
-      const m = machinesFor(env);
+      const m = machinesFor(env, ctx);
       res = await handleCoder(request, env, ctx, { authUser: (r) => authUser(r, env), container: m.container, dropMachine: m.drop, snapshot: m.snapshot, cacheUsable: m.cacheUsable, copyState: m.copyState, routeLink: m.routeLink });
       // A WEBSOCKET'S ANSWER (the desktop app's link, 2026-11-11) goes back as it is: a copy would lose its socket.
       if (res && res.status === 101) return res;

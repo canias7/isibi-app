@@ -1408,6 +1408,22 @@ export async function handleCoder(request, env, ctx, deps) {
         const waiting = [...queue, entry];
         await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
         if (!entry.shell) await post("/queue", { project: id, qid: entry.qid, text: entry.text }).catch(() => null);
+        // SENT WHILE THE TURN WAS BEING SAVED (2026-11-15: the page frees the box as soon as the answer is shown): if the save
+        // ended meanwhile and its look at what waits came before this message was put in line, it would wait for ever. So:
+        // the turn saved and the message still in line, it goes out now, as the save would have sent it (its own id, `mid`,
+        // so it is never started twice: the save sends a lone waiting message with its id too).
+        const after = await getJson(bucket, metaKey, null);
+        if (after && after.status !== "running") {
+          const still = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+          if (Array.isArray(still) && still.some((q) => q && q.qid === entry.qid)) {
+            const left = still.filter((q) => q && q.qid !== entry.qid);
+            await putJson(bucket, keyOf(uid, id, "queue.json"), left);
+            const r2 = await self("/message", { text: said, fromQueue: true, ...(mid ? { mid } : {}) }).catch(() => null);
+            if (r2 && r2.status === 200) { const got = await r2.json().catch(() => ({})); return json({ ...got, queue: left, reload: true }); }
+            // (Not started: back in line, as it was.)
+            await putJson(bucket, keyOf(uid, id, "queue.json"), [...left, entry]);
+          }
+        }
         return json({ ok: true, queued: true, qid: entry.qid, queue: waiting, project: meta });
       }
       // A MESSAGE WHILE A PAUSED TURN'S CARD WAITS (coder-park.mjs): to a question card, the owner's reply to it (Claude Code's
@@ -1480,11 +1496,26 @@ export async function handleCoder(request, env, ctx, deps) {
         const same = await sameMessage(bucket, metaKey, await getJson(bucket, metaKey, null), mid);
         return same.done || json({ error: "This message didn't start: Coder was stopped, or another message started first. Send it again if you still want it." }, 409);
       };
-      const t = await userToken(env, bucket, uid, { fetchFn });
+      // EVERYTHING THE START READS, AT ONCE (2026-11-15: live, 3.6 s passed between the Worker getting a message and asking
+      // the machine, most of it some twenty reads of Coder's storage made one after another: the GitHub sign-in, every chat's
+      // record to count those running, the chat, the settings, the environment, the memory, the steps so far). All of them
+      // are asked together here and used below as before; none waits for another.
+      const soon = (f) => { const q = Promise.resolve().then(f); q.catch(() => {}); return q; };
+      const tokenP = soon(() => userToken(env, bucket, uid, { fetchFn }));
+      const runningP = soon(async () => (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length);
+      const read0P = soon(() => getJsonSized(bucket, keyOf(uid, id, "messages.json"), []));
+      const savedP = soon(() => getJson(bucket, settingsKey(uid), {}));
+      const envP = soon(async () => { const envId = await envIdOf(bucket, uid, meta); const [list, setup] = await Promise.all([listEnvs(bucket, uid), readEnvData(env, bucket, uid, envId)]); return { envId, list, setup }; });
+      const memoryP = soon(async () => { const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
+      const evCountP = soon(async () => (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length);
+      const queuedP = takeUp ? soon(() => getJson(bucket, keyOf(uid, id, "queue.json"), [])) : null;
+      const passP = soon(() => Promise.all([egressPass(env, uid + "/" + id, meta.turn + 1), env.CODER_PUBLIC_URL ? livePass(env, uid + "/" + id, meta.turn + 1) : "", modelAccess(env, uid, id, meta.turn + 1), emailMark(user && user.email)]));
+      const connP = soon(() => jobConnectors(bucket, uid, id, meta.turn + 1, meta, body.fromGithub === true));
+      const t = await tokenP;
       if (!t) return unclaimed(json({ error: "connect GitHub again: the connection has ended", connect: true }, 409));
-      const running = (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length;
+      const running = await runningP;
       if (running >= maxRunning(env)) return unclaimed(json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429));
-      const read0 = await getJsonSized(bucket, keyOf(uid, id, "messages.json"), []);
+      const read0 = await read0P;
       let messages = read0.value;
       // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
       // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
@@ -1507,14 +1538,14 @@ export async function handleCoder(request, env, ctx, deps) {
         await putJson(bucket, keyOf(uid, id, "events.json"), [...evs, { at: Date.now(), type: "note", text: "Compacted: the earlier part of this chat is now a summary for Coder, to make room (like Claude Code's auto-compact). The chat still shows it all." }].slice(-MAX_EVENTS));
         baseMarks = marksAfter(baseMarks, { from: squeezed.from, to: squeezed.to });
       }
-      const saved = await getJson(bucket, settingsKey(uid), {});
+      const saved = await savedP;
       const pick = pickModel(body.model || saved.model, body.effort || savedEffort(saved));
       // THE CHAT'S ENVIRONMENT (like Claude Code's: picked before the first message). A chat the owner moved to another one
       // (switch_environment, or create_environment's "network_only": coder-envapi.mjs) tells its next job once (`envMoved`), so
       // its machine skips that environment's setup script, as Claude Code's: "it runs only if the machine is replaced".
-      const envId = await envIdOf(bucket, uid, meta);
-      const envEntry = (await listEnvs(bucket, uid)).find((e) => e.id === envId) || { id: envId, name: "Default" };
-      const setup = await readEnvData(env, bucket, uid, envId);
+      const { envId, list: envList, setup } = await envP;
+      const envEntry = envList.find((e) => e.id === envId) || { id: envId, name: "Default" };
+      const [egressPassNow, livePassNow, modelNow, emailNow] = await passP;
       const environment = { name: envEntry.name, isDefault: envId === DEFAULT_ENV };
       // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like Claude Code's
       // cache; on Fly.io only): a new chat's disk is made from it (its machine then skips the setup),
@@ -1548,16 +1579,15 @@ export async function handleCoder(request, env, ctx, deps) {
       const secrets = machineKeyRules(setup.secrets);
       // This job's key values, kept sealed on our side to hide them in its chat (never sent to the machine).
       const jobValues = (setup.secrets || []).flatMap((s) => [...s.headers.flatMap((h) => { try { return [h.value, headerValue(h)]; } catch { return [h.value]; } }), ...configSecrets(s.kind, s.config)]).filter(Boolean);
-      const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: await egressPass(env, uid + "/" + id, meta.turn + 1) };
+      const egress = { url: String(env.CODER_PUBLIC_URL || "https://gofarther.dev").replace(/\/+$/, "") + EGRESS_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: egressPassNow };
       delete setup.secrets;
       // THE CHAT SAVED AS IT GOES (like Claude Code, 2026-11-06): where the machine sends this job's steps, with its own pass.
-      const livePassNow = env.CODER_PUBLIC_URL ? await livePass(env, uid + "/" + id, meta.turn + 1) : "";
       const live = livePassNow ? { url: String(env.CODER_PUBLIC_URL).replace(/\/+$/, "") + LIVE_PATH, chat: uid + "/" + id, turn: meta.turn + 1, pass: livePassNow } : null;
-      const mo = await bucket.get(memoryKey(uid, meta.repo));
-      const memory = mo ? (await mo.text()).slice(0, MEMORY_MAX) : "";
+      const memory = await memoryP;
       // WHERE THIS MESSAGE STARTS in the saved chat and in Coder's history, so
       // Rewind can go back to just before it (like Claude Code's /rewind, 2026-11-06).
-      const evCount = (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length;
+      // (After a summary just made here, its note is one more step: counted again.)
+      const evCount = squeezed.to ? (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length : await evCountP;
       // (Not for the owner's /compact: no message of the owner's to go back to; its summary moves the marks when it ends.)
       // (Nor for a turn taken up again: no message of the owner's starts it. coder-park.mjs.)
       const marks = compactJob || takeUp ? baseMarks : [...baseMarks, { turn: meta.turn + 1, ev: evCount, msg: Array.isArray(messages) ? messages.length : 0 }].slice(-100);
@@ -1568,13 +1598,13 @@ export async function handleCoder(request, env, ctx, deps) {
       const next = { ...meta, envId, title: meta.title || chatTitle(text), turn: meta.turn + 1, status: "running", at: Date.now(), starting: null, start: claim.id, ...(mid ? { mid } : {}), waiting: null, parked: null, autofixTries: body.autofix === true ? (meta.autofixTries || 0) + 1 : 0, marks, jobFromGithub: body.fromGithub === true, jobReplyTo: replyTo && replyTo.ids.length ? replyTo : null, envMoved: undefined, timing: { got: gotAt }, copyWant: copyOn && !copyWait ? { envId, key: setupKey } : null, asked: takeUp || wake || compactJob || !String(said || "").trim() ? null : { turn: meta.turn + 1, at: gotAt, text: String(shell ? "! " + shell : said).slice(0, 4000) } };
       const wakeOn = wake ? { wake: true } : {}, shellOn = shell ? { shell } : {}, compactOn = compactJob ? { compact: compactJob } : {};
       // (A turn taken up again: the paused job's record and the owner's answer, and the messages that waited for its card.)
-      const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !q.shell && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
+      const takeUpOn = takeUp ? { resume: { ...takeUp.rec, answer: takeUp.ans }, queued: (await queuedP).filter((q) => q && !q.shell && typeof q.text === "string").map((q) => ({ qid: q.qid, text: q.text, at: q.at })) } : {};
       // ITS BACKGROUND COMMANDS AS THE CHAT LAST SAW THEM: one its machine no longer knows (it was restarted, or slept) is said lost.
       const bgOn = bgListOf(meta.background).length ? { background: bgListOf(meta.background) } : {};
       // WHEN THE CHAT LAST HAD AN ANSWER (its last activity), for a resumed chat's SessionStart hooks (Bash docs pass 8).
       const lastAtOn = messages.length && Number(meta.at) > 0 ? { lastAt: Number(meta.at) } : {};
       // THE OWNER'S CONNECTORS' TOOLS (coder-mcp.mjs, jobConnectors): names and descriptions only, never in a job from GitHub.
-      const connOn = await jobConnectors(bucket, uid, id, next.turn, meta, body.fromGithub === true);
+      const connOn = await connP;
       const connectors = connOn.connectors || [];
       // Lists older than an hour are read again in the background, for the next job (coder-mcp.mjs, refreshTools).
       if (connectors.length && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(refreshTools(env, bucket, uid, { fetchFn }).catch(() => {}));
@@ -1584,13 +1614,16 @@ export async function handleCoder(request, env, ctx, deps) {
       // list then carries the job on. (Keys added by the Worker work during the
       // setup too: the job is "running" by then.) Not if it was stopped meanwhile, or another start took the chat (lostStart).
       if (!(await claim.held())) return lostStart();
-      await saveMeta(bucket, uid, next);
-      // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
-      // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
-      if (jobValues.length) await bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box: await seal(env, jobValues) }));
-      // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
-      // is saved when it ends, even after the tab is closed (coder-watch.mjs).
-      await watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {});
+      // (These three together, all before the machine is asked: 2026-11-15.)
+      await Promise.all([
+        saveMeta(bucket, uid, next),
+        // THIS JOB'S KEY VALUES, kept sealed until it ends, so they stay hidden in
+        // its chat even if the owner removes the key meanwhile (the audit, 2026-11-06).
+        jobValues.length ? seal(env, jobValues).then((box) => bucket.put(keyOf(uid, id, "hide.json"), JSON.stringify({ box }))) : null,
+        // ON THE WATCH LIST (like Claude Code, 2026-11-06): the job keeps going and
+        // is saved when it ends, even after the tab is closed (coder-watch.mjs).
+        watchJob(bucket, { uid, email: user.email, id, turn: next.turn }).catch(() => {}),
+      ]);
       // Not started after all: the chat is as it was (only while it is still this start's, never over a newer one).
       const notStarted = async () => {
         await claim.release();
@@ -1602,7 +1635,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // (The step times so far: kept with the chat now, so a job lost on the way still says how far it came.)
       next.timing.asked = Date.now();
       try {
-      r = await post("/turn", { start: claim.id, secrets, egress, live, model: await modelAccess(env, uid, id, meta.turn + 1), extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: await emailMark(user && user.email), cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
+      r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {
         await notStarted();
         return json({ error: "Coder's machine could not be started (" + String((e && e.message) || e).replace(/\s+/g, " ").slice(0, 200) + "). Try again in a minute." }, 502);
@@ -1967,7 +2000,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const first = parkRec ? [] : nextQueued(waiting);
       if (first.length) {
         const headers = new Headers(request.headers); headers.set("content-type", "application/json");
-        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true }) }), env, ctx, deps).catch(() => null);
+        const r2 = await handleCoder(new Request(new URL(request.url).origin + "/api/coder/projects/" + encodeURIComponent(id) + "/message", { method: "POST", headers, body: JSON.stringify({ text: first.map((q) => q.text).join("\n\n"), fromQueue: true, ...(first.length === 1 && typeof first[0].mid === "string" ? { mid: first[0].mid } : {}) }) }), env, ctx, deps).catch(() => null);
         if (r2 && r2.status === 200) {
           const sent = new Set(first.map((q) => q.qid));
           waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !sent.has(q.qid));
