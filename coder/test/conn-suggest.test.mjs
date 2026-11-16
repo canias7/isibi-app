@@ -72,7 +72,7 @@ test("page in Chromium: the card's rows, buttons and presses", { skip: !chromium
     await page.goto(ORIGIN + "/", { waitUntil: "domcontentloaded" });
     await page.waitForSelector("#gfApp .cd-sg .cd-sg-row", { timeout: 15000 });
     const card = page.locator("#gfApp .cd-sg");
-    assert.match(await card.locator(".cd-sg-head").innerText(), /Suggested connectors\s*Beta/);
+    assert.match(await card.locator(".cd-sg-head").innerText(), /^Suggested connectors$/);
     const rows = await card.locator(".cd-sg-row").evaluateAll((els) => els.map((e) => [e.querySelector("b").textContent, e.dataset.sgState, (e.querySelector("button,.cd-sg-on") || {}).textContent]));
     assert.deepEqual(rows, [["Zapier", "use", "Use"], ["Linear", "on", "On"], ["Neon", "reconnect", "Reconnect"], ["Sentry", "connect", "Connect"]]);
     assert.equal(await card.locator(".cd-sg-err").innerText(), "Can’t reach Neon right now. It may need to be reconnected.");

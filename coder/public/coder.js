@@ -3895,7 +3895,7 @@
         (st === 'reconnect' ? '<span class="cd-sg-err">Can’t reach ' + esc(c.name) + ' right now. It may need to be reconnected.</span>' : '') + '</div>' +
         (st === 'on' ? '<span class="cd-sg-on">On</span>' : '<button type="button" class="cd-sg-btn" data-sg-act="' + st + '" data-sg-id="' + esc(c.id) + '">' + btn[st] + '</button>') + '</div>';
     }).join('');
-    return '<div class="cd-sg"><div class="cd-sg-head"><b>Suggested connectors</b><span class="cd-sg-beta">Beta</span></div>' + rows +
+    return '<div class="cd-sg"><div class="cd-sg-head"><b>Suggested connectors</b></div>' + rows +
       (S.sgConn && S.sgConn.note ? '<div class="cd-sg-note" role="status">' + esc(S.sgConn.note) + '</div>' : '') +
       '<button type="button" class="cd-sg-more" data-sg-act="browse">Browse more connectors <span aria-hidden="true">↗</span></button></div>';
   }
