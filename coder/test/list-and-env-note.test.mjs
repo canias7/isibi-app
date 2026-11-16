@@ -23,7 +23,12 @@ test("LE2 the machine says the environment changed only when its network or keys
   assert.deepEqual(notes, ["trusted", "full"]);
 });
 
-test("LE3 the job's starting network is remembered, so the first /network with the same settings says nothing", () => {
-  assert.match(server, /t\.netSig = JSON\.stringify\(\{ n: nn, k: secretList\.map\(\(s\) => \[s\.host \|\| "", s\.hosts \|\| \[\], s\.header \|\| "", s\.name \|\| ""\]\) \}\);/);
-  assert.match(server, /const sig = JSON\.stringify\(\{ n: nn, k: list\.map\(\(s\) => \[s\.host \|\| "", s\.hosts \|\| \[\], s\.header \|\| "", s\.name \|\| ""\]\) \}\);/);
+test("LE3 the network as said in the chat is the same whatever shape it came in", async () => {
+  const { netSigOf } = await import("../container/server.mjs");
+  assert.match(server, /t\.netSig = netSigOf\(nn, secretList\);/);
+  assert.match(server, /const sig = netSigOf\(nn, list\);/);
+  const a = netSigOf({ mode: "custom", hosts: ["b.com", "a.com"], defaults: true }, [{ host: "api.x.com", header: "Authorization", name: "k" }]);
+  const b = netSigOf({ mode: "custom", hosts: ["a.com", "b.com"], defaults: true, extra: 1 }, [{ hosts: ["api.x.com"] }]);
+  assert.equal(a, b);
+  assert.notEqual(a, netSigOf({ mode: "custom", hosts: ["a.com"], defaults: true }, [{ host: "api.x.com" }]));
 });

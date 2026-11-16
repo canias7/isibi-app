@@ -3366,6 +3366,14 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
 
 // ── THE TURNS ────────────────────────────────────────────────────────────────
 /** How long a turn's end stays handed to the save that claimed it (see /claim). */
+/** A job's network as said in the chat: its mode, its sites (sorted) and the hosts its keys go to (sorted), whatever shape the
+ * settings came in (the job's start and a later /network give the same network in different shapes: live test, 2026-11-16). */
+export function netSigOf(nn, keys) {
+  const n = nn && typeof nn === "object" ? nn : {};
+  const sites = (v) => (Array.isArray(v) ? [...new Set(v.map(String))].sort() : []);
+  const hosts = [...new Set((Array.isArray(keys) ? keys : []).flatMap((s) => [s && s.host, ...(s && Array.isArray(s.hosts) ? s.hosts : [])]).filter(Boolean).map(String))].sort();
+  return JSON.stringify([String(n.mode || ""), sites(n.hosts || n.allow || n.add), sites(n.denied), !!n.defaults, hosts]);
+}
 export const CLAIM_LEASE_MS = Number(process.env.CODER_CLAIM_LEASE_MS) || 45_000;
 const turns = new Map(); // project → { running, stop, events, result, started, ended, claimed }
 
@@ -4048,7 +4056,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // (Full with blocked sites goes through the gate too, which lets anything else through: netWalled.)
     const net = { ...nn, limited: netWalled(nn) };
     // (What the job starts with: a mid-job /network with the same settings says nothing. 2026-11-16.)
-    t.netSig = JSON.stringify({ n: nn, k: secretList.map((s) => [s.host || "", s.hosts || [], s.header || "", s.name || ""]) });
+    t.netSig = netSigOf(nn, secretList);
     let secretHosts = [], proxyEnv = {}, px = null, netNote = "", walled = false;
     t.room = false;
     // A TEST SWITCH FOR THE GATE (the owner, 2026-11-13: "test what u are missing to test"): CODER_TEST_NETWORK_GATE_FAIL=1 in
@@ -5090,7 +5098,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
         // SAID ONLY WHEN SOMETHING CHANGED (owner, 2026-11-16, the one-message live test: "network Limited" was said twice
         // after cards that changed nothing, as Claude Code never does): the network and the keys as last applied to this job.
-        const sig = JSON.stringify({ n: nn, k: list.map((s) => [s.host || "", s.hosts || [], s.header || "", s.name || ""]) });
+        const sig = netSigOf(nn, list);
         const was = t.netSig; t.netSig = sig;
         if (was === sig) return send(200, { ok: true, applied: true, same: true });
         t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
