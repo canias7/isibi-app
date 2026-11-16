@@ -691,6 +691,20 @@ code in **each user's own GitHub**.
    unpushed commits. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
+   **Pushed and opened at once, mid-turn** (2026-11-16, like Claude Code's
+   cloud session, whose `git push` goes through its GitHub proxy whenever it
+   runs): `push_branch` commits what is on the disk and pushes it right away
+   (`pushMidTurn` on the machine, with the job's own git pass, never the
+   login); `pull_request` pushes, then Coder's server opens it (draft if asked)
+   with the owner's token (`prOpenNow`, action `pull_request` on
+   `/api/coder/environment`) and saves it on the chat, and Coder gets its
+   number, so `pr_read` can read it in the same turn. The result carries
+   `midPushes` and `midNotes`: the turn's end keeps each mid-turn commit as one
+   of the job's commits (Undo takes them back one at a time, the last first),
+   writes "Pushed to the branch …" and "Draft pull request #N opened …" once,
+   and commits only what changed after (not pushed again). Jobs from GitHub,
+   read-only chats, an older machine or a failed push keep the old queued
+   path.
    Coder never pushes to the main branch.
    **No look at GitHub on every message** (2026-11-16): once the chat's copy is
    on its branch and was brought up to date for it (`coder-fetched` in its git

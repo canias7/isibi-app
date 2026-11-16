@@ -1305,15 +1305,15 @@ export const CODER_TOOLS = Object.freeze([
   // server pushes and opens it after the turn (Coder never holds the GitHub key).
   { type: "function", function: {
     name: "pull_request",
-    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. It opens after your turn ends, once your changes are pushed; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
+    description: "Ask for a pull request of this chat's branch. Use it ONLY when the owner asks for a pull request (\"make a PR\", \"open a pull request\"). Write a clear title and a description: what changed, why, how to test it. Your changes are pushed and it opens now: the answer gives its number and address, so pr_read can read it right away; if one is already open, it is updated with your new work. draft true makes it a draft pull request (when the owner asks for a draft, or presses Create draft PR). repo: one of the chat's other repositories (owner/name), for a pull request there; leave it out for this chat's own repository.",
     parameters: { type: "object", properties: { title: { type: "string" }, body: { type: "string" }, draft: { type: "boolean" }, repo: { type: "string" } }, required: ["title", "body"] },
   } },
   // PUSH AT A STOPPING POINT (owner, 2026-11-16; Claude Code's cloud session: "when Claude reaches a stopping point, it pushes
   // its branch to GitHub"): each turn's work is committed on Coder's machine only; Coder says when it is time to send it.
   { type: "function", function: {
     name: "push_branch",
-    description: "Push this chat's branch to GitHub when your turn ends. Each turn's changes are committed on your machine only; call this when the work is at a stopping point (a feature or fix finished and checked), or when the owner asks to push. Not needed before pull_request (that pushes first).",
-    parameters: { type: "object", properties: {}, required: [] },
+    description: "Commit and push this chat's branch to GitHub now (it is on GitHub when this returns). Each turn's changes are otherwise committed on your machine only; call this when the work is at a stopping point (a feature or fix finished and checked), or when the owner asks to push. Not needed before pull_request (that pushes first). message: the commit's title (optional).",
+    parameters: { type: "object", properties: { message: { type: "string" } }, required: [] },
   } },
   // A NOTIFICATION ON THE OWNER'S PHONE OR COMPUTER (owner item 8, like Claude Code's pushes: "You can also
   // request a push in your prompt, such as notify me when the tests finish").
@@ -1654,7 +1654,7 @@ HOW YOU WORK
 - Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of \`/tmp\` or other system temp directories; it is chat-specific, isolated from the project, and can generally be used without permission prompts. A reboot or routine cleanup can clear it, so anything the owner will want to keep belongs somewhere durable instead. Only use \`/tmp\` if the owner explicitly asks. Whenever you name a file in it to the owner, write the file's complete absolute path in one piece, not a bare filename, a path that starts at the scratchpad folder, or the directory followed by filenames: a shortened path is read against the working directory and leads nowhere.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
-- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push.
+- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push (it pushes at once). pull_request pushes and opens the pull request at once too.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
 - Code comments: add them only where the code is not obvious (a tricky line, a workaround, a "why"), or when the owner asks. Never comment what the code plainly says.
 
@@ -3618,6 +3618,22 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       if (note) convo.push({ role: "user", appNote: true, content: note });
     }
   }
+  let midPushes = [], midNotes = [];
+
+  // THE PUSH MADE NOW (push_branch, pull_request): the machine commits what is on the disk and pushes it (deps.pushNow); the
+  // commit is kept with the result (`midPushes`) for Undo and the chat's line. → { ok, text } or { ok: false, why } or null.
+  const pushNowStep = async (id, message) => {
+    if (typeof deps.pushNow !== "function") return null;
+    emit({ type: "bash", id, tool: "push_branch", verb: "Push", command: "git push (the chat's branch)" });
+    let p;
+    try { p = (await deps.pushNow(scrub(message))) || {}; } catch (e) { p = { ok: false, why: String((e && e.message) || e) }; }
+    if (!p.ok) { const why = String(p.why || "the push failed").slice(0, 300); emit({ type: "result", id, code: 1, output: why }); return { ok: false, why }; }
+    midPushes.push({ sha: String(p.sha || ""), changed: p.changed === true, pushed: p.pushed === true, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}), ...(Array.isArray(p.extra) ? { extra: p.extra.map((x) => ({ repo: x.repo, ok: !!x.ok, pushed: !!x.pushed, why: x.why ? String(x.why).slice(0, 160) : undefined })) } : {}) });
+    const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "failed").slice(0, 120));
+    const text = (p.pushed ? "ok: pushed to GitHub now" + (p.sha ? " (commit " + String(p.sha).slice(0, 7) + ")" : "") : "ok: nothing new to push; GitHub already has the branch") + (bad.length ? "; not pushed in " + bad.join("; ") : "") + ".";
+    emit({ type: "result", id, code: 0, output: text.slice(3) });
+    return { ok: true, text };
+  };
   let pushRequest = false, prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -3724,7 +3740,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   let jobOver = false;
   // (After Claude Code's auto-compact, the Worker drops the Rewind marks of what was summarized: every one before this job's
   // end, as the whole conversation was.)
-  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
+  const end = (status, extra = {}) => ((jobOver = true), { status, messages: convo.map(saved), rounds, usage, summary: "", ...(autoCompacted ? { compact: { done: true, auto: true, from: 0, to: (Array.isArray(messages) ? messages.length : 0) + 1 } } : {}), ...(approvalRequest ? { approvalRequest } : {}), ...(signinRequest ? { signinRequest } : {}), ...(cardRequest ? { cardRequest } : {}), ...(handoffRequest ? { handoffRequest } : {}), ...(keyRequest ? { keyRequest } : {}), ...(scheduleRemovals.length ? { scheduleRemovals } : {}), ...(scheduleAdds.length ? { scheduleAdds } : {}), ...(scheduleEdits.length ? { scheduleEdits } : {}), ...(schedulePauses.length ? { schedulePauses } : {}), ...(signedIn.length ? { signedIn } : {}), ...(webhookAdds.length ? { webhookAdds } : {}), ...(webhookRemovals.length ? { webhookRemovals } : {}), ...(pageRequests.length ? { pageRequests } : {}), edited: [...edited], ...(editedCut ? { editedCut: true } : {}), ...(prRequest ? { prRequest } : {}), ...(pushRequest ? { push: true } : {}), ...(midPushes.length ? { midPushes } : {}), ...(midNotes.length ? { midNotes } : {}), ...(undoRequest ? { undoRequest } : {}), ...(reviewPost ? { reviewPost } : {}), ...(prExtra.length ? { prExtra } : {}), ...(autofixRequest ? { autofixRequest } : {}), ...(reviewReplies.length ? { reviewReplies } : {}), ...(github ? {} : { mode: modeNow() }), ...(rulesAdded.length ? { rulesAdded } : {}), ...(hadSession || Object.values(hookSession).some((l) => l.length) ? { sessionRules: hookSession } : {}), ...(Object.values(hookSaved).some((l) => l.length) ? { rulesSaved: hookSaved } : {}), ...(sessionTitle ? { sessionTitle } : {}), ...extra });
   // A ROUND THAT ENDS EARLY (round 5; the owner, 2026-11-14: "Yes pls"; coder-parallel.mjs). Claude Code 2.1.325, in its cloud
   // sessions: the owner's No without words is its deny with "interrupt", which aborts the turn; their Stop aborts it as
   // "remote-cancel". Its executor keeps what each call of the reply had returned by then, gives a call still running its
@@ -6826,9 +6842,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reply("ok: posted in that comment's thread on GitHub when your turn ends.");
       } else if (c.name === "push_branch") {
         if (readOnly && readOnly.main === true) { reply("error: the owner can read this repository but not push to it; your changes stay on this machine (the owner sees them with See changes)."); continue; }
+        // PUSHED NOW (2026-11-16, like Claude Code's cloud session, whose git push goes through its GitHub proxy at once):
+        // committed and pushed by the machine with the job's git pass; queued for the turn's end only when that cannot be
+        // done here (a job started from GitHub, as before, or an older machine).
+        const now = github ? null : await pushNowStep(c.id, String((c.args && c.args.message) || ""));
+        if (now && now.ok) { reply(now.text); continue; }
         pushRequest = true;
         emit({ type: "pr", text: "Push the branch to GitHub" });
-        reply("ok: the branch is pushed to GitHub when your turn ends.");
+        reply(now ? "error: the push failed now (" + now.why + "); it is tried again when your turn ends." : "ok: the branch is pushed to GitHub when your turn ends.");
       } else if (c.name === "pull_request") {
         const title = String(c.args.title || "").trim().slice(0, 200);
         const body = String(c.args.body || "").trim().slice(0, 8000);
@@ -6838,6 +6859,23 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const repo = typeof c.args.repo === "string" && /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/.test(c.args.repo.trim()) ? c.args.repo.trim() : "";
         // A REPOSITORY THE OWNER CAN ONLY READ (owner item 5): no pull request can be opened there.
         if (readOnly && (repo ? Array.isArray(readOnly.extra) && readOnly.extra.includes(repo.toLowerCase()) : readOnly.main === true)) { reply("error: the owner can read " + (repo || "this repository") + " but not push to it, so no pull request can be opened; your changes stay on this machine (the owner sees them with See changes). Tell the owner."); continue; }
+        // OPENED NOW (2026-11-16, like Claude Code's cloud session: its pull request exists mid-turn, and its comments can be
+        // read in the same turn): pushed by the machine, then opened by Coder's server with the owner's token (never here).
+        if (!github && typeof deps.pushNow === "function" && typeof deps.envApi === "function") {
+          const p = await pushNowStep(c.id, one.title);
+          if (p.ok) {
+            let r;
+            try { r = (await deps.envApi({ action: "pull_request", ...one, ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
+            if (Number.isInteger(r.number) && r.number > 0) {
+              const said = (r.existed ? "Pull request #" + r.number + " updated" : (r.draft ? "Draft pull request #" : "Pull request #") + r.number + " opened") + (repo ? " in " + repo : "") + ": " + String(r.url || "").slice(0, 300);
+              midNotes.push(said);
+              emit({ type: "pr", text: said });
+              reply("ok: " + said + ". It exists on GitHub now: pr_read with pr " + r.number + (repo ? " and repo " + repo : "") + " reads its reviews and comments.");
+              continue;
+            }
+            if (typeof r.error === "string" && !/could not be reached/.test(r.error)) { reply(r.error); continue; }
+          }
+        }
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;
         emit({ type: "pr", text: (repo ? repo + ": " : "") + one.title });
         reply("ok: the pull request opens when your turn ends, after your changes are pushed. Finish by telling the owner.");

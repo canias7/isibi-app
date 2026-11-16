@@ -12,7 +12,8 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
-import { userToken, readPullRequestComments } from "./coder-github.mjs";
+import { userToken, readPullRequestComments, openPullRequest } from "./coder-github.mjs";
+import { chatLinkFor, madeWith, prStillOpen, noPrNote } from "./coder-routes.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText, envResultText } from "../container/coder-envtools.mjs";
@@ -66,6 +67,9 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   if (!body || typeof body !== "object") return answer({ error: "error: Coder's server could not read that" }, 400);
   // CODER'S pr_read (2026-11-16): a pull request's comments, read here with the owner's GitHub token (never sent to the machine).
   if (body.action === "pr_read") return answer(await prRead(env, bucket, uid, meta, body));
+  // CODER'S pull_request, NOW (2026-11-16, like Claude Code's cloud session): the machine pushed first; the pull request opens
+  // here with the owner's token, and its number goes back to Coder (pr_read can then read it in the same turn).
+  if (body.action === "pull_request") return answer(await prOpenNow(env, bucket, uid, id, meta, body));
   // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
   if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   const also = [body.action === "get" ? body.environment_id : body.args && typeof body.args === "object" ? body.args.environment_id : null];
@@ -183,4 +187,35 @@ export async function prRead(env, bucket, uid, meta, body, { fetchFn = fetch } =
   const t = await userToken(env, bucket, uid, { fetchFn });
   if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
   try { return await readPullRequestComments(t.token, known, n, { fetchFn }); } catch { return { error: "error: GitHub could not be reached" }; }
+}
+
+/**
+ * pull_request's answer, mid-turn (2026-11-16): the chat's pull request in `body.repo` (one of its other repositories) or its
+ * own, opened now from the chat's branch (draft when asked), or the open one updated by the push the machine just made. Saved
+ * on the chat at once (meta.pr, or meta.prs for another repository), so the turn's end neither opens it again nor forgets it.
+ * Never in a job started from GitHub, nor for a read-only repository. → { number, url, draft, existed } or { error }.
+ */
+export async function prOpenNow(env, bucket, uid, id, meta, body, { fetchFn = fetch, token = "" } = {}) {
+  if (meta.jobFromGithub === true || meta.kind === "gloopy") return { error: "error: pull requests are opened from a chat on gofarther.dev, not in a job started from GitHub" };
+  const title = String(body.title || "").trim().slice(0, 200);
+  if (!title) return { error: "error: the pull request needs a title" };
+  const want = String(body.repo || "").trim();
+  const x = want ? (Array.isArray(meta.repos) ? meta.repos : []).find((r) => r && String(r.repo).toLowerCase() === want.toLowerCase()) : null;
+  if (want && !x && want.toLowerCase() !== String(meta.repo).toLowerCase()) return { error: "error: " + want.slice(0, 100) + " is not one of this chat's repositories" };
+  const repo = x ? x.repo : meta.repo, base = x ? x.base : meta.base;
+  if (x ? x.readOnly : meta.readOnly) return { error: "error: " + noPrNote(repo) };
+  const t = token ? { token } : await userToken(env, bucket, uid, { fetchFn });
+  if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
+  const had = x ? meta.prs && meta.prs[repo] : meta.pr;
+  const open = had ? await prStillOpen(t.token, repo, had, fetchFn) : null;
+  let pr = open, existed = !!open;
+  if (!pr) {
+    const link = await chatLinkFor(env, bucket, uid, meta, id).catch(() => "");
+    pr = await openPullRequest(t.token, repo, { head: meta.branch, base, title, body: String(body.body || "").slice(0, 8000) + madeWith(link), draft: body.draft === true }, fetchFn).catch(() => null);
+  }
+  if (!pr) return { error: "error: GitHub did not open the pull request (is there a commit on " + meta.branch + " that " + base + " lacks?)" };
+  const cur = (await getJson(bucket, metaKey(uid, id), null)) || meta;
+  const next = x ? { ...cur, prs: { ...(cur.prs || {}), [repo]: pr } } : { ...cur, pr, pushed: true };
+  await bucket.put(metaKey(uid, id), JSON.stringify(next), { httpMetadata: { contentType: "application/json" } });
+  return { number: pr.number, url: pr.url, repo, draft: !existed && body.draft === true, existed };
 }

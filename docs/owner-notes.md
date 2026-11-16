@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder pushes and opens pull requests right away, mid-turn
+
+In the live test, when your list said "commit and push, open a draft pull request, read its comments", Coder said the push and the PR were "queued for the end of this turn", so it could not read the PR's comments. Claude Code on the web pushes and opens the PR right away (its git push goes through its GitHub proxy at any time). Now Coder does the same: "push" commits and pushes at once (your GitHub login still never goes to Coder's machine), and "pull request" pushes, opens it (draft if asked) and gives Coder its number, so it can read its comments in the same turn. The chat still says "Pushed to the branch …" and "Draft pull request #N opened …" once. A mid-turn push is its own commit, so Undo takes a job's commits back one at a time. Jobs started from GitHub and read-only chats work as before. Tests added (push-now.test.mjs).
 ## 2026-11-16: A "changed files" box under Coder's answer
 
 Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).
