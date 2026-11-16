@@ -2173,8 +2173,25 @@ had the job with its clone and setup done, and the machine's own `m.got`,
 `m.cloneStart`/`m.cloneEnd`, `m.setupStart`, `m.ready`, `m.began`,
 `m.firstAsk`/`m.firstAnswer` (the first model request), `m.answered`,
 `m.ended`, then `saved`), and logged as `coder: turn timing`. The page asks with
-`early=1`, so a job's answer is shown as soon as the machine has it, before the
-save (the push to GitHub); its next look saves the turn.
+`early=1` until the answer is shown, so a job's answer is shown as soon as the
+machine has it, before the save.
+
+**A faster end of turn** (2026-11-16; live: answer at 6.3 s, box free at ~14 s).
+The machine marks `answered` in `/state` as soon as the answer's last steps are
+sent (before it tidies up), and from then on leaves a queued message to the
+Worker's line. The first `early=1` look that sees `answered` or the end says
+`ending` (the box is free) and, once the end is there, starts the save in the
+background (`ctx.waitUntil`; the machine's `/claim` keeps it to one save). The
+page then asks with `turn=<n>`: a save finished in the background answers with
+its own lines (`meta.endNote`), and a queued message it started makes the page
+load the chat. The page looks again after 300 ms while Coder's text comes in or
+the turn is being saved (1.5 s otherwise). The save itself: `/claim` brings the
+job's steps and end (no second look); the machine says `dirty: false` when one
+`git status` finds nothing to commit, and then, unless a push, undo, pull
+request, review or auto-fix is asked, no commit step, GitHub token or chat link
+is fetched; its reads and its writes each go together; the memory is written
+only when it changed, the waiting line only when one left it; and the watch
+list, live sendings and pictures are tidied after the reply.
 
 **The owner's message is never lost**: the chat records it when its turn starts
 (`meta.asked`), and a job ended as lost (`endLostJob`) or a start that stopped

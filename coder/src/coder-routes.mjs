@@ -1860,17 +1860,54 @@ export async function handleCoder(request, env, ctx, deps) {
     // THE ANSWER SHOWN AT ONCE (2026-11-15: a one-line answer took ~14 s end to end): the page that asks with `early=1` gets
     // the job's last steps (its answer) as soon as the machine has them, before the save below (a push to GitHub, when one is due, takes
     // seconds); its next look, a moment later, with nothing new to show, saves the turn.
-    if (s.result && meta.status === "running" && meta.saved < meta.turn && url.searchParams.get("early") === "1" && Array.isArray(s.events) && s.events.length) {
-      return json({ ok: true, events: s.events, next: s.next || since, running: true, ending: true, project: meta });
+    // (2026-11-16: the answer's steps were often all sent on an earlier look, so "nothing new yet" never came and the page waited
+    // for the whole save. Now: the first `early` look once the machine has the answer, `answered`, or its end, says `ending`,
+    // with whatever is new; and when the end is there, the save starts in the background at once, overlapping the page's wait.
+    // The machine's /claim keeps it to one save.)
+    const pageTurn = Number(url.searchParams.get("turn")) || 0;
+    // THE SAVE DONE IN THE BACKGROUND, for the page that asked while it ran (2026-11-16): a queued message it started is
+    // followed (a newer turn: the chat is loaded), and the save's own lines ("Pushed to the branch") come with "done".
+    if (pageTurn && meta.turn > pageTurn) return json({ ok: true, events: [], next: since, running: meta.status === "running", project: meta, reload: true });
+    if (pageTurn && pageTurn === meta.turn && meta.status !== "running" && meta.saved >= meta.turn && meta.endNote && meta.endNote.turn === meta.turn) {
+      return json({ ok: true, events: [...(s.events || []), ...(Array.isArray(meta.endNote.events) ? meta.endNote.events : [])], next: s.next || since, running: false, project: meta, queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []) });
     }
-    if (s.result && meta.status === "running" && meta.saved < meta.turn) {
+    if ((s.result || s.answered) && meta.status === "running" && meta.saved < meta.turn && url.searchParams.get("early") === "1") {
+      if (s.result && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(saveTurn(true).catch((e) => { console.log("coder: background save " + id + ": " + String((e && e.message) || e).slice(0, 200)); }));
+      return json({ ok: true, events: s.events || [], next: s.next || since, running: true, ending: true, project: meta });
+    }
+    if (s.result && meta.status === "running" && meta.saved < meta.turn) return saveTurn(false);
+    // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
+    // was open): the page loads the saved chat, which has the save's own lines.
+    const elsewhere = !!s.result && !s.running && meta.status !== "running";
+    // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
+    const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
+    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
+
+    // THE TURN'S SAVE (`bg`: started in the background by the page's early look; its answer then goes nowhere, so what the
+    // page needs is kept with the chat, `endNote`).
+    async function saveTurn(bg) {
       // THE TURN'S END IS DONE ONCE (the audit): the machine hands it to the
       // first asker only, so two tabs never push or save it twice.
       const claim = await post("/claim", { project: id }).then((r) => r.json()).catch(() => ({ ok: false }));
       if (!claim.ok) return json({ ok: true, events: s.events || [], next: s.next || since, running: true, project: meta });
-      const all = await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
-      const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
+      // (The claim brings the job's steps and end; a machine from before 2026-11-16 is asked again.)
+      const all = Array.isArray(claim.events) ? claim : await call("/state?project=" + id + "&since=0", { method: "GET" }).then((r) => r.json()).catch(() => ({ events: [] }));
+      if (claim.result && typeof claim.result === "object") s.result = claim.result;
+      // NOTHING TO COMMIT, NOTHING ASKED OF GITHUB (2026-11-16): no commit step, no token, no chat link.
+      const res = s.result;
+      const pushNow = !meta.readOnly && pushWanted(res, meta);
+      const gitWork = !(res.dirty === false && !pushNow && !res.undoRequest && !res.prRequest && !(Array.isArray(res.prExtra) && res.prExtra.length) && !res.reviewPost && !(Array.isArray(res.reviewReplies) && res.reviewReplies.length) && !res.autofixRequest);
+      // THE SAVE'S READS, TOGETHER (2026-11-16).
+      const [old, t, chatLink, hidden, envNow, oldMemory] = await Promise.all([
+        getJson(bucket, keyOf(uid, id, "events.json"), []),
+        gitWork ? userToken(env, bucket, uid, { fetchFn }) : null,
+        gitWork ? chatLinkFor(env, bucket, uid, meta, id) : "",
+        hiddenValues(env, bucket, uid, meta),
+        getJson(bucket, metaKey, null),
+        typeof res.memory === "string" ? bucket.get(memoryKey(uid, meta.repo)).then((o) => (o ? o.text() : null)).catch(() => null) : null,
+      ]);
       const fresh = Array.isArray(all.events) ? all.events.slice() : [];
+      const own0 = fresh.length;
       // OWNER, 2026-11-05 (option A), and 2026-11-16: the work is committed after each job and PUSHED to Coder's branch at a
       // stopping point (pushWanted, the Push button, the safety net), and a pull request opens only when the user presses
       // "Create pull request". A merged or closed one is forgotten, so the
@@ -1878,7 +1915,6 @@ export async function handleCoder(request, env, ctx, deps) {
       let pr = meta.pr || null, pushNote = "", pushed = !!meta.pushed, prs = meta.prs || {};
       // PUSHED ONLY AT A STOPPING POINT (owner, 2026-11-16, like Claude Code's cloud sessions): Coder's push_branch, a pull
       // request asked for, a review to post, or a job from GitHub (auto-fix, @coder, a review); else committed on the machine.
-      const pushNow = !meta.readOnly && pushWanted(s.result, meta);
       let unpushed = Number(meta.unpushed) || 0, unpushedSince = Number(meta.unpushedSince) || 0;
       const extraNotes = [];
       // What an auto-fix asked for in the chat changes on the chat (autofixFor).
@@ -1887,10 +1923,10 @@ export async function handleCoder(request, env, ctx, deps) {
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
       // A READ-ONLY CHAT (owner item 5): its work is committed on Coder's machine, never sent to GitHub.
       let keptHere = !!meta.kept;
-      const t = await userToken(env, bucket, uid, { fetchFn });
-      if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
+      if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
+      else if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
           const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.local ? "" : x.pushed ? "Pushed to the branch " + meta.branch + " in " + x.repo : "";
@@ -1901,7 +1937,7 @@ export async function handleCoder(request, env, ctx, deps) {
           if (!x) { extraNotes.push("No pull request in " + String(want.repo).slice(0, 100) + ": it is not one of this chat's repositories."); continue; }
           if (x.readOnly) { extraNotes.push(noPrNote(x.repo)); continue; }
           if (!t) { extraNotes.push("No pull request in " + x.repo + ": connect GitHub again first."); continue; }
-          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)), draft: want.draft === true }, fetchFn).catch(() => null);
+          const made = await openPullRequest(t.token, x.repo, { head: meta.branch, base: x.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
           if (made) { prs = { ...prs, [x.repo]: made }; extraNotes.push((want.draft === true ? "Draft pull request #" : "Pull request #") + made.number + " opened in " + x.repo + ": " + made.url); }
           else extraNotes.push("The pull request in " + x.repo + " could not be opened on GitHub (is its branch saved?).");
         }
@@ -1940,7 +1976,7 @@ export async function handleCoder(request, env, ctx, deps) {
         else if (!commits.length) pushNote = (pushNote ? pushNote + " · " : "") + "Nothing to undo: no job in this chat changed files yet.";
         else {
           const last = commits[commits.length - 1];
-          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: await chatLinkFor(env, bucket, uid, meta, id), sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
+          const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: chatLink, sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok && !meta.readOnly) { unpushed = 0; unpushedSince = 0; pushed = true; commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c)); }
           if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")) + "."; }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
@@ -1955,7 +1991,7 @@ export async function handleCoder(request, env, ctx, deps) {
         const open = pr ? await prStillOpen(t.token, meta.repo, pr, fetchFn) : null;
         if (open) { pr = open; pushNote = (pushNote ? pushNote + " · " : "") + "Pull request #" + pr.number + " updated: " + pr.url; }
         else {
-          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(await chatLinkFor(env, bucket, uid, meta, id)), draft: want.draft === true }, fetchFn).catch(() => null);
+          pr = await openPullRequest(t.token, meta.repo, { head: meta.branch, base: meta.base, title: String(want.title || "Changes by Coder").slice(0, 200), body: String(want.body || "").slice(0, 8000) + madeWith(chatLink), draft: want.draft === true }, fetchFn).catch(() => null);
           pushNote = (pushNote ? pushNote + " · " : "") + (pr ? (want.draft === true ? "Draft pull request #" : "Pull request #") + pr.number + " opened: " + pr.url : "The pull request could not be opened on GitHub.");
         }
       } else if (want) pushNote = (pushNote ? pushNote + " · " : "") + (t ? "No pull request: there are no changes on this chat's branch yet." : "");
@@ -1999,15 +2035,19 @@ export async function handleCoder(request, env, ctx, deps) {
         fresh.push({ at: Date.now(), type: "note", text: "Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup." });
       }
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
-      hideIn(fresh, await hiddenValues(env, bucket, uid, meta));
+      hideIn(fresh, hidden);
       // THE OWNER'S /compact, MADE: Rewind's marks inside what was summarized go, as before (marksAfter).
       const cj = s.result.compact && typeof s.result.compact === "object" ? s.result.compact : null;
       if (cj && cj.done === true && Number.isInteger(cj.to) && cj.to > 0) meta.marks = marksAfter(meta.marks, { from: 0, to: cj.to });
       const capped = capHistoryInfo(s.result.messages, historyMaxFor(meta)), kept = capped.messages;
-      await bucket.put(keyOf(uid, id, "messages.json"), capped.text, { httpMetadata: { contentType: "application/json" } });
-      if (typeof s.result.memory === "string") await bucket.put(memoryKey(uid, meta.repo), s.result.memory.slice(0, MEMORY_MAX), { httpMetadata: { contentType: "text/markdown" } });
       const allEvents = [...old, ...fresh], keptEvents = allEvents.slice(-MAX_EVENTS);
-      await putJson(bucket, keyOf(uid, id, "events.json"), keptEvents);
+      // THE SAVE'S WRITES, TOGETHER; the memory only when it changed (2026-11-16).
+      const memNew = typeof s.result.memory === "string" ? s.result.memory.slice(0, MEMORY_MAX) : null;
+      await Promise.all([
+        bucket.put(keyOf(uid, id, "messages.json"), capped.text, { httpMetadata: { contentType: "application/json" } }),
+        memNew !== null && memNew !== oldMemory ? bucket.put(memoryKey(uid, meta.repo), memNew, { httpMetadata: { contentType: "text/markdown" } }) : null,
+        putJson(bucket, keyOf(uid, id, "events.json"), keptEvents),
+      ]);
       // The oldest history may have been trimmed: Rewind's marks move with it.
       const dropM = capped.dropped, dropE = allEvents.length - keptEvents.length;
       meta.marks = (Array.isArray(meta.marks) ? meta.marks : []).map((m) => ({ ...m, msg: m.msg - dropM, ev: m.ev - dropE })).filter((m) => m.msg >= 0 && m.ev >= 0);
@@ -2044,28 +2084,36 @@ export async function handleCoder(request, env, ctx, deps) {
       if (parkRec) await putJson(bucket, keyOf(uid, id, "parked.json"), parkRec);
       Object.assign(ended, parkRec ? { status: "idle", parked: parkedMeta(parkRec), waiting: parkRec.kind } : { parked: null, ...(s.result.status === "parked" ? { status: "idle" } : {}) });
       // (The environment as the chat has it now: an environment card approved while this job ran may have moved it.)
-      const envNow = await getJson(bucket, metaKey, null);
       if (envNow && envNow.envId !== ended.envId) Object.assign(ended, { envId: envNow.envId, envMoved: envNow.envMoved });
       // THE TURN'S STEP TIMES (2026-11-15): the Worker's (got, asked, machine) and the machine's (got, clone, setup, began,
       // first model request and answer, answered, ended), and when it was saved; kept with the chat and logged.
       ended.timing = turnTiming(meta.timing, s.result.timing, Date.now());
       ended.copyWant = null;
+      // (Saved in the background: the save's own lines wait with the chat for the page's next look.)
+      ended.endNote = bg ? { turn: meta.turn, events: fresh.slice(own0) } : null;
       console.log("coder: turn timing " + id + " #" + meta.turn + " " + JSON.stringify(ended.timing));
       await saveMeta(bucket, uid, ended);
       if ((Number(meta.unpushed) || 0) !== ended.unpushed) await markUnpushed(ended.unpushed);
-      await unwatch();
+      // AFTER "SAVED", NOTHING THE PAGE WAITS FOR (2026-11-16): the watch list, the live sendings and the pictures are tidied in
+      // the background (in this order, after the save is written).
+      const tidy = (async () => {
+        await unwatch();
+        // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
+        await dropLive(bucket, uid, id).catch(() => {});
+        // (And the pictures kept apart that the saved chat no longer names: coder-live.mjs, 2026-11-14.)
+        await prunePics(bucket, uid, id, kept).catch(() => 0);
+      })();
+      if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(tidy); else await tidy;
       // (And while one of its asyncRewake hooks runs, which may wake it.)
       if (background.length || Number(s.result.hooksRunning) > 0) await watchBackground(bucket, { uid, email: user.email, id, maxMs: machinePrefs(await getJson(bucket, settingsKey(uid), {})).bgMaxMs }).catch(() => {});
-      // Saved: what it sent as it went is no longer needed (after the save, so a late sending is refused).
-      await dropLive(bucket, uid, id).catch(() => {});
-      // (And the pictures kept apart that the saved chat no longer names: coder-live.mjs, 2026-11-14.)
-      await prunePics(bucket, uid, id, kept).catch(() => 0);
       // WHAT THE OWNER SENT WHILE IT WORKED AND CODER DID NOT READ (Claude Code: "When the turn ends with messages still
       // queued, they go out without another key press, in the order you typed them"): the next message starts now, and the
       // page loads the chat to follow it.
       const read = new Set(Array.isArray(s.result.readQueued) ? s.result.readQueued : []);
-      let waiting = (await getJson(bucket, keyOf(uid, id, "queue.json"), [])).filter((q) => q && !read.has(q.qid));
-      await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
+      const queued = await getJson(bucket, keyOf(uid, id, "queue.json"), []);
+      let waiting = queued.filter((q) => q && !read.has(q.qid));
+      // (Written only when something left the line: 2026-11-16.)
+      if (waiting.length !== queued.length) await putJson(bucket, keyOf(uid, id, "queue.json"), waiting);
       // (Not while a card its job paused on waits: they go to Coder in the turn its answer takes up again.)
       const first = parkRec ? [] : nextQueued(waiting);
       if (first.length) {
@@ -2085,12 +2133,6 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!parkRec && safetyPushDue(ended) && ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(pushChat(env, bucket, uid, id, ended, post, { mark: markUnpushed }).catch(() => null));
       return json({ ok: true, events: [...(s.events || []), ...(pushNote ? [fresh.at(-1)] : [])], next: s.next || since, running: false, project: ended, queue: waiting });
     }
-    // SAVED ELSEWHERE (by another tab, or by the every-minute run while no tab
-    // was open): the page loads the saved chat, which has the save's own lines.
-    const elsewhere = !!s.result && !s.running && meta.status !== "running";
-    // THE RUNNING COMMAND'S LAST LINES (Claude Code 1.0.48), for the page only: never saved with the chat.
-    const progress = s.running && s.progress && Array.isArray(s.progress.lines) ? { at: Number(s.progress.at) || 0, lines: s.progress.lines.slice(-5).map((l) => String(l).slice(0, 300)) } : null;
-    return json({ ok: true, events: s.events || [], next: s.next || since, running: !!s.running, project: meta, background: bgListOf(s.background), queue: await getJson(bucket, keyOf(uid, id, "queue.json"), []), ...(progress ? { progress } : {}), ...(elsewhere ? { reload: true } : {}) });
   }
 
   // TAKE BACK A MESSAGE WAITING FOR CODER (Claude Code: "To take a queued message back, click the ✕ on it. The text returns to

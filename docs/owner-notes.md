@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder's answer frees the message box sooner (your word: approved)
+
+On the branch, not live yet. Not tried in the browser yet: it needs your test.
+
+- **The problem:** live, the answer came at 6.3 s, "saved" at 10.7 s, but the message box was only free at about 14 s.
+  The "show the answer early" step never fired, because the answer had already arrived on an earlier check.
+- **Now:** as soon as Coder's machine has sent the answer, the page frees the box and the save starts in the background
+  at once. The page checks again every 0.3 s while the answer is coming in or being saved (1.5 s otherwise).
+- **A quicker save:** a message that changed no files skips the commit step and GitHub entirely; the save reads and
+  writes its records together; memory and the waiting line are only rewritten when they changed; tidy-up happens after.
+- **Unchanged:** Undo, Rewind, the unpushed count, the Push button, and messages sent while it saves (still sent once).
+- Expected: box free about when the answer shows (~6.5 s instead of ~14 s); "saved" about 2 to 3 s sooner.
+- Tests: SV1 to SV4.
+
 ## 2026-11-16: Coder pushes at a stopping point, and stops asking GitHub on every message (your word: approved)
 
 On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io or GitHub yet: it needs your test in the browser.

@@ -93,7 +93,8 @@ test("FS3 the answer shown at once: a page asking with early=1 gets the job's la
   assert.deepEqual([r1.running, r1.ending, r1.events.map((e) => e.text)], [true, true, ["Hi."]]);
   assert.ok(!w.calls.some((c) => c.path === "/claim" || c.path === "/push"), "nothing saved yet");
   assert.equal(w.read("shop-d1", "meta.json").status, "running");
-  const r2 = await (await w.go("shop-d1", "/state?since=1&early=1")).json();
+  // (Once the answer is shown the page asks with its turn, not early: 2026-11-16.)
+  const r2 = await (await w.go("shop-d1", "/state?since=1&turn=1")).json();
   assert.equal(r2.running, false);
   assert.equal(w.read("shop-d1", "meta.json").saved, 1, "saved on the next look");
   // Without early=1 (the every-minute run, another tab): saved at once, as before.
@@ -127,6 +128,6 @@ test("FS6 the page: asks for its machine when the owner picks the repository; wh
   assert.ok(page.includes("const over = d && !d.running && p && p.status !== 'running' && (evs.some((e) => e && e.lost) || (Number(p.turn) > sent.turn && Number(p.saved) >= Number(p.turn)));"));
   assert.ok(page.includes("sent.gone = true; S.sendWatch = null;\n    S.sending = false; S.unsent = ''; S.running = false;"), "no longer shown as working");
   assert.ok(page.includes("if (sent.gone) return;"), "the message's late answer changes nothing");
-  assert.ok(page.includes("'&early=1'"));
-  assert.ok(page.includes("S.poll = setTimeout(tick, r.data && r.data.ending ? 300 : POLL_MS);"));
+  assert.ok(page.includes("'&early=1')"));
+  assert.ok(page.includes("S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);"));
 });

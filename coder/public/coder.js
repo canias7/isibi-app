@@ -1668,6 +1668,13 @@
   // A TURN THAT STARTS WAKES A PAUSED LIVE VIEW (live test, 2026-11-10: opened more than 2 minutes before the message, it
   // said "Gloopy is using it" over an old picture, without Gloopy's steps, until Refresh).
   function webWake() { const w = S.web; if (w && w.paused) { w.paused = false; w.touched = Date.now(); webTick(); } }
+  // LOOKED AT AGAIN SOON (2026-11-16): while the answer is being saved, or when the last look brought new text from Coder.
+  const QUICK_POLL_MS = 300;
+  function quickLook(r) {
+    const d = r && r.status === 200 ? r.data : null;
+    if (!d) return false;
+    return !!(d.ending || S.ending || (Array.isArray(d.events) && d.events.some((e) => e && (e.type === 'text' || e.type === 'done'))));
+  }
   function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; }
   async function tick() {
     S.poll = 0;
@@ -1676,7 +1683,9 @@
     // Looking at this chat (visible and focused): no notification about it (owner item 8, like Claude Code).
     const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
     // (`early`: the job's answer is shown as soon as its machine has it, before the turn is saved: 2026-11-15.)
-    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + '&early=1');
+    // (2026-11-16: `early` only until the answer is shown; then `turn`, so a save finished in the background is told: its lines,
+    // or the queued message it started.)
+    const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'));
     if (!S.project || S.project.id !== id) return;
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
@@ -1725,7 +1734,8 @@
       draw(fresh.length > 0);
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
-    if (S.running) S.poll = setTimeout(tick, r.data && r.data.ending ? 300 : POLL_MS);
+    // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
+    if (S.running) S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);
     else { S.background = undefined; startBgWatch(); }
   }
 

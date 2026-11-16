@@ -68,7 +68,7 @@ test("QS2 a message sent while the turn is being saved (the answer already shown
   const q = await (await w.msg("shop-q2", { text: "Now make it red", mid: "mQS2aaaaaaaa" })).json();
   assert.equal(q.queued, true, "in line while the save runs");
   assert.equal(turnN, 0);
-  const s = await (await w.go("shop-q2", "/state?since=1&early=1")).json();
+  const s = await (await w.go("shop-q2", "/state?since=1&turn=1")).json();
   assert.equal(s.reload, true, "the save sent it, and the page follows it: " + JSON.stringify(s).slice(0, 400) + JSON.stringify(w.calls.map((c) => c.path)));
   assert.equal(turnN, 1, "once");
   assert.deepEqual(w.read("shop-q2", "queue.json"), []);
@@ -101,5 +101,5 @@ test("QS4 the page frees the box as soon as the answer is shown (`ending`): a no
   assert.ok(page.includes("function startPoll() { stopPoll(); S.ending = false;"));
   assert.ok(page.includes("JSON.stringify({ text, mid: qmid })"));
   assert.ok(page.includes("if (q.status === 200 && q.data && q.data.reload && q.data.project)"));
-  assert.ok(page.includes("S.poll = setTimeout(tick, r.data && r.data.ending ? 300 : POLL_MS);"), "it keeps looking until the save is done");
+  assert.ok(page.includes("S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);"), "it keeps looking until the save is done");
 });

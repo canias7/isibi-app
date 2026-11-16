@@ -2272,6 +2272,26 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   // `changed`: this job changed files (a new commit), so there is new work to show.
   return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
 }
+/**
+ * ANY CHANGE LEFT TO COMMIT (2026-11-16): `git status --porcelain` in each folder, after installed packages and caches are put
+ * on the ignore list as a save puts them. False only when every folder is a repository git reads cleanly with no change;
+ * anything else (no repository, a folder that fails the check, git failing) is true, so the save runs as before.
+ */
+export async function treeDirty(dirs, gitRoot = GIT_ROOT, root = PROJECT_ROOT) {
+  for (const dir of dirs) {
+    if (await projectDirProblem(dir, root)) return true;
+    const o = { gitDir: gitDirFor(dir, gitRoot), remote: DEFAULT_REMOTE, root };
+    if (!(await stat(join(o.gitDir, "HEAD")).then(() => true, () => false))) { if (dir === dirs[0]) return true; continue; }
+    await excludeJunk(dir, gitRoot).catch(() => {});
+    // (As a save looks: never into a submodule or a repository inside the project; one there counts as a change.)
+    const k = await keepOut(dir, o);
+    if (!k.ok || k.nested.length || k.subs.length) return true;
+    const st = await gitIn(dir, ["status", "--porcelain", "--ignore-submodules=all", ...k.pathspec], o);
+    if (st.code !== 0 || String(st.stdout ?? st.output).trim()) return true;
+    if ((await gitIn(dir, ["diff", "--cached", "--quiet", "--ignore-submodules=none"], o)).code !== 0) return true;
+  }
+  return false;
+}
 /** How many of the copy's commits GitHub does not have yet (none of origin's branches holds them); 0 when git cannot say. */
 export async function unpushedCount(dir, o) {
   if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return 0;
@@ -4751,15 +4771,19 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         .finally(() => { t.over = true; })
         // The last steps are sent BEFORE the end is handed out, so the Worker never saves the job while some are on their way.
         // Gloopy's copy is brought up to date first too, while this job's pass still holds (at most 30 seconds).
-        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); const messages = gloopy || !Array.isArray(r && r.messages) ? r && r.messages : await picsOut(r.messages, picsTo).catch(() => r.messages); return { ...r, messages, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
+        .then(async (r) => { const memory = await readMemory(memFile); if (gloopy) await Promise.race([backupGloopy().catch(() => {}), new Promise((ok) => setTimeout(ok, 30_000))]); await lastSend(); t.answerDone = true; const messages = gloopy || !Array.isArray(r && r.messages) ? r && r.messages : await picsOut(r.messages, picsTo).catch(() => r.messages); return { ...r, messages, memory, cwd: t.cwd }; }, async (e) => { await lastSend(); t.answerDone = true; return { status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }; })
         .catch((e) => ({ status: "error", messages: [], summary: String((e && e.message) || e).slice(0, 200) }))
         .then(async (result) => {
+          let dirty = true;
           // THE TURN IS OVER: nothing it started keeps running but its background commands (tool 4: like Claude Code's,
           // they go on after the answer, until they end, are stopped, or reach their time limit), and only their logs stay.
           // The end is handed out only after (the Worker saves the job then, and root's /push needs nothing of the AI's running).
           try {
             try { const go = await quietly(); if (go) go(); } catch (e) { console.log("coder: the turn's end: " + String((e && e.message) || e).slice(0, 200)); killUser(); }
             await tidyBg(bgDir, project).catch(() => {});
+            // NOTHING TO COMMIT (2026-11-16): one look at the work tree once nothing of the AI's runs, so the Worker skips the
+            // commit step (and GitHub's token) for a turn that changed no file. Unsure is "dirty": the save runs as before.
+            if (!gloopy) dirty = await treeDirty([dir, ...extras.map((x) => x.dir)], gitRoot, root).catch(() => true);
           } finally {
             t.timing.answered = t.timing.answered || Date.now();
             // THE SETUP COPY, TAKEN NOW THE TURN IS OVER (2026-11-15): the machine is idle, so its disk is as the setup and the
@@ -4767,7 +4791,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             const copy = t.copyWanted ? await copyAtEnd({ data, project, sha: t.copyWanted.sha, image }).catch(() => false) : false;
             t.copyWanted = null;
             t.timing.ended = Date.now();
-            t.result = { ...result, background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid), timing: { ...t.timing }, ...(copy ? { copy: true } : {}) };
+            t.result = { ...result, ...(dirty === false ? { dirty: false } : {}), background: jobsOf(project), hooksRunning: rewakeHooksOf(project), readQueued: t.queue.filter((q) => q.read).map((q) => q.qid), timing: { ...t.timing }, ...(copy ? { copy: true } : {}) };
             // WHAT A GLOOPY TURN LEFT WAITING FOR THE OWNER (a browser step's OK, a sign-in, or a card), for /gloopy/approve,
             // /gloopy/signin or /gloopy/card; and no request of Gloopy's goes on unchecked once its turn is over.
             { const r = t.result; if (gloopy && r && (r.approvalRequest || r.signinRequest || r.cardRequest || r.keyRequest)) pending.set(project, r.approvalRequest ? { kind: "approval", ...r.approvalRequest } : r.signinRequest ? { kind: "signin", ...r.signinRequest } : r.keyRequest ? { kind: "key", ...r.keyRequest } : { kind: "card", ...r.cardRequest }); }
@@ -4958,7 +4982,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
         // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
-        return send(200, { running: t.running, events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
+        // (`answered`: the answer's last steps are all sent; the turn is only being tidied up. 2026-11-16.)
+        return send(200, { running: t.running, ...(t.answerDone ? { answered: true } : {}), events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });
       }
       // THE CHAT'S BACKGROUND COMMANDS (tool 4): those still running, and how many ended that Coder is not told of yet
       // (Coder's Worker then starts a turn to tell it, as Claude Code "re-invokes you when it exits").
@@ -4975,7 +5000,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (url.pathname === "/queue" && req.method === "POST") {
         const qid = String(body.qid || ""), text = typeof body.text === "string" ? body.text.slice(0, QUEUE_TEXT_MAX) : "";
         if (!/^q[0-9a-z]{6,20}$/.test(qid) || !text.trim()) return send(400, { ok: false, why: "bad message" });
-        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });
         if (!t.queue.some((q) => q.qid === qid)) { t.queue.push({ qid, text, at: Date.now(), read: false }); if (t.queue.length > 50) t.queue.shift(); }
         return send(200, { ok: true });
       }
@@ -4985,14 +5010,14 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (url.pathname === "/rules" && req.method === "POST") {
         const r = body.rules && typeof body.rules === "object" && !Array.isArray(body.rules) ? body.rules : null;
         if (!r) return send(400, { ok: false, why: "bad rules" });
-        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });
         t.ownerRules = { allow: r.allow, ask: r.ask, deny: r.deny };
         t.rulesNext = withRepoRules(t.ownerRules, t.repoSet) || { allow: [], ask: [], deny: [] };
         return send(200, { ok: true });
       }
       if (url.pathname === "/mode" && req.method === "POST") {
         if (!MODES.includes(body.mode)) return send(400, { ok: false, why: "bad mode" });
-        if (!t || !t.running || t.result) return send(200, { ok: false, notRunning: true });
+        if (!t || !t.running || t.result || t.answerDone) return send(200, { ok: false, notRunning: true });
         t.mode = body.mode;
         return send(200, { ok: true });
       }
@@ -5047,7 +5072,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (url.pathname === "/claim" && req.method === "POST") {
         if (!t || !t.result || t.claimed) return send(200, { ok: false });
         t.claimed = true;
-        return send(200, { ok: true });
+        // (With the whole job's steps and its end, so the Worker needs no second look: 2026-11-16.)
+        return send(200, { ok: true, events: t.events, result: t.result });
       }
       // GLOOPY'S CARDS, ANSWERED (2026-11-09): the browser step the owner allowed, done now by this service, or the owner's
       // sign-in from the private form, typed into the page here and never kept or said. Only what this chat's last turn

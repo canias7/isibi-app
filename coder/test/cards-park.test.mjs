@@ -311,7 +311,9 @@ test("CP8 Coder's machine: a card's job pauses after its time with the card open
     assert.equal(st.asking, undefined);
     assert.ok(!st.events.some((e) => e.type === "permanswer"));
     assert.deepEqual((await post("/answer", { project: "shop-cp8", pid: card.pid, choice: "yes" })).data, { ok: false, parked: true, why: "Coder paused while that card waited; your answer takes it up again." });
-    assert.deepEqual((await post("/claim", { project: "shop-cp8" })).data, { ok: true });
+    const cl = (await post("/claim", { project: "shop-cp8" })).data;
+    assert.equal(cl.ok, true);
+    assert.ok(Array.isArray(cl.events) && cl.result, "with the job's steps and end (2026-11-16)");
     // A bad resume is refused before anything starts.
     assert.equal((await post("/turn", { project: "shop-cp8", text: "", messages: st.result.messages, mode: "acceptEdits", resume: { ...st.result.parked, answer: { choice: "maybe" } } })).status, 400);
     // Taken up again: the call runs, the round goes on, the message that waited is read in the turn.
