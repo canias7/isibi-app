@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: "Setting up a cloud container" now really shows on a new chat
+
+- Live, the step was skipped: while Coder's computer was starting, the server waited about 5 seconds for it to answer before telling the page anything, so the step was already over. Now, in a job's first minute, the server stops waiting after 1.2 seconds and says the computer is still being set up.
+- The page also uses the server's own count of turns to know a message is a chat's first.
+- Checked: full test suite (1274 passing); live debug on gofarther.dev showed the step arriving at 0.9 s.
+
 ## 2026-11-16: "Setting up a cloud container" now shows from the first second
 
 On the branch, not live yet. Needs a deploy and your test in the browser.

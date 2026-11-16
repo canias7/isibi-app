@@ -721,6 +721,8 @@ export const STALE_MS = 15 * 60 * 1000;
  * A job is marked running before its machine is handed it; for this long, a machine without it is still waking up, not lost.
  * 8 minutes: a machine being made or updated first fetches Coder's image (up to FLY_PULL_MS, 5 minutes), then sets up.
  */
+/** How long a look at a machine in a job's first minute may wait before it counts as still starting (live, 2026-11-16). */
+export const START_LOOK_MS = 1200;
 export const START_GRACE_MS = 8 * 60 * 1000;
 /**
  * A MESSAGE STILL STARTING (live test, 2026-11-12: after a card's answer, Gloopy's next turn never began; the message came
@@ -1862,7 +1864,15 @@ export async function handleCoder(request, env, ctx, deps) {
       return json({ ok: true, events: [...userBack, ev], next: since, running: false, project: back });
     }
     let s = null;
-    try { const r = await call("/state?project=" + id + "&since=" + since, { method: "GET" }); s = r.ok ? await r.json() : null; } catch { s = null; }
+    // A MACHINE STILL STARTING (live, 2026-11-16): a look at it waited ~5 s while Fly started it, so the page's
+    // "Setting up a cloud container" step was over before it was told. In a job's first minute, a machine that has not
+    // answered within START_LOOK_MS is still starting: the look ends there (the grace path below says "container").
+    const young = meta.status === "running" && Date.now() - Number(meta.at || 0) < 60_000;
+    try {
+      const look = call("/state?project=" + id + "&since=" + since, { method: "GET" }).then((r) => (r.ok ? r.json() : null));
+      s = young ? await Promise.race([look, new Promise((res) => setTimeout(() => res(null), START_LOOK_MS))]) : await look;
+      look.catch(() => {});
+    } catch { s = null; }
     // An ended job leaves the watch list at once (coder-watch.mjs).
     const unwatch = () => (typeof bucket.delete === "function" ? bucket.delete(watchKey(uid, id, meta.turn)).catch(() => {}) : null);
     // A CHAT NEVER STAYS "WORKING" FOR GOOD (the audit): a machine that lost the

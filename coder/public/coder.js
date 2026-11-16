@@ -2776,6 +2776,8 @@
     if (!S.boot || S.boot.k !== key) S.boot = { k: key, phase: '', at: 0, cold: false };
     const ph = typeof d.phase === 'string' && BOOT_WORDS[d.phase] ? d.phase : '';
     if (d.cold === true || (ph && ph !== 'container')) S.boot.cold = true;
+    // (The chat's first message, by the server's own count of turns: the start-up of a new chat's machine.)
+    if (d.project && Number(d.project.turn) === 1) S.boot.firstTurn = true;
     // (Counted from when the server says the step began, phaseAt; this page's own clock only when that is not usable.)
     const pa = Number(d.phaseAt);
     if (ph !== S.boot.phase) { S.boot.phase = ph; S.boot.at = pa > 0 && pa <= Date.now() + 2000 && Date.now() - pa < 3600000 ? Math.min(pa, Date.now()) : Date.now(); }
@@ -2792,7 +2794,7 @@
     const key = S.events.filter((e) => e.type === 'user').length;
     const b = S.boot && S.boot.k === key ? S.boot : null;
     // (The Worker says "container" for every message it starts; shown for a chat's first message, or a machine that says it is cold.)
-    const first = !S.events.slice(0, Math.max(0, lastUser)).some((e) => e.type === 'done' || e.type === 'text');
+    const first = (b && b.firstTurn) || !S.events.slice(0, Math.max(0, lastUser)).some((e) => e.type === 'done' || e.type === 'text');
     // ONLY WHAT THE SERVER SAYS IS HAPPENING (owner, 2026-11-16): no step is guessed or timed here; until a look at the chat
     // names one, only the dots and the seconds.
     const ph = b && b.phase ? b.phase : '';

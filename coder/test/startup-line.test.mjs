@@ -175,3 +175,13 @@ test("in Chromium: a new chat's first message shows Setting up a cloud container
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });
+
+test("SL-LOOK (live, 2026-11-16) in a job's first minute a look at a machine that has not answered within START_LOOK_MS ends there and says the container step, so the page is told while it is real; later looks wait for the machine as before", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  const routes = await import("../src/coder-routes.mjs");
+  assert.equal(routes.START_LOOK_MS, 1200);
+  assert.match(src, /const young = meta\.status === "running" && Date\.now\(\) - Number\(meta\.at \|\| 0\) < 60_000;/);
+  assert.match(src, /s = young \? await Promise\.race\(\[look, new Promise\(\(res\) => setTimeout\(\(\) => res\(null\), START_LOOK_MS\)\)\]\) : await look;/);
+  assert.match(src, /if \(Date\.now\(\) - \(meta\.at \|\| 0\) < START_GRACE_MS\) return json\(\{ ok: true, events: \[\], next: since, running: true, project: meta, phase: "container"/);
+});
