@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder pushes and opens pull requests right away, mid-turn
+
+In the live test, when your list said "commit and push, open a draft pull request, read its comments", Coder said the push and the PR were "queued for the end of this turn", so it could not read the PR's comments. Claude Code on the web pushes and opens the PR right away (its git push goes through its GitHub proxy at any time). Now Coder does the same: "push" commits and pushes at once (your GitHub login still never goes to Coder's machine), and "pull request" pushes, opens it (draft if asked) and gives Coder its number, so it can read its comments in the same turn. The chat still says "Pushed to the branch …" and "Draft pull request #N opened …" once. A mid-turn push is its own commit, so Undo takes a job's commits back one at a time. Jobs started from GitHub and read-only chats work as before. Tests added (push-now.test.mjs).
 ## 2026-11-16: The "Suggested connectors" card now shows whenever you ask about connectors
 
 In a live test, "Search connector tools" showed no card: Coder's tool search found the secret tool, which isn't about connectors. Claude Code shows its Suggested connectors card whenever connectors are relevant (its docs: "in-chat recommendations shown when relevant to the user's task"). Coder now has its own small tool for it, suggest_connectors, and is told to use it when you ask about connectors, integrations or MCP ("search connector tools", "what connectors do I have", "connect Linear") or want a service it has no tools for. The card is the same as before. Coder's chat only (not Gloopy, not jobs started from GitHub). Tests added (conn-suggest.test.mjs).

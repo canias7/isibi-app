@@ -1967,6 +1967,20 @@ export async function handleCoder(request, env, ctx, deps) {
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
       // A READ-ONLY CHAT (owner item 5): its work is committed on Coder's machine, never sent to GitHub.
       let keptHere = !!meta.kept;
+      // PUSHED IN THE MIDDLE OF THE TURN (2026-11-16, Coder's push_branch and pull_request, like Claude Code's cloud session):
+      // each push's commit is the job's own (kept for Undo, which takes the job's commits back one at a time, the last first),
+      // and the chat says it was pushed; the turn's end then commits only what changed after it (pushWanted is not set by it).
+      for (const m of meta.readOnly ? [] : Array.isArray(res.midPushes) ? res.midPushes.slice(0, 20) : []) {
+        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
+        if (m && m.pushed === true) pushed = true;
+        for (const x of m && Array.isArray(m.extra) ? m.extra : []) if (x && !x.ok) extraNotes.push("Not sent to GitHub in " + String(x.repo).slice(0, 100) + ": " + String(x.why || "the push failed").slice(0, 160));
+      }
+      if (!meta.readOnly && Array.isArray(res.midPushes) && res.midPushes.some((m) => m && m.pushed === true)) {
+        commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c));
+        unpushed = 0; unpushedSince = 0;
+        extraNotes.push("Pushed to the branch " + meta.branch);
+      }
+      for (const n of meta.readOnly ? [] : Array.isArray(res.midNotes) ? res.midNotes.slice(0, 5) : []) if (typeof n === "string" && n) extraNotes.push(n.slice(0, 400));
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
       else if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {

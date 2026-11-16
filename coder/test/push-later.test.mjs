@@ -192,7 +192,7 @@ test("PL3 the Worker's routes: Push, Create PR and deleting a chat push its unpu
   // Coder's tool and its one line in the system prompt.
   const A = await import("../container/coder-agent.mjs");
   assert.ok(A.CODER_TOOLS.some((t) => t.function.name === "push_branch"));
-  assert.match(A.CODER_SYSTEM, /\n- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push\.\n/);
+  assert.match(A.CODER_SYSTEM, /\n- Pushing: your changes are committed on your machine when each turn ends; call push_branch when the work reaches a stopping point or the owner asks to push \(it pushes at once\)\. pull_request pushes and opens the pull request at once too\.\n/);
   const steps = [{ message: { role: "assistant", content: "", tool_calls: [{ id: "p1", type: "function", function: { name: "push_branch", arguments: "{}" } }] }, usage: { in: 1, out: 1 } }, { message: { role: "assistant", content: "Pushed." }, usage: { in: 1, out: 1 } }];
   let i = 0;
   const done = await A.runCoder({ send: async () => steps[Math.min(i++, 1)], exec: async () => ({ code: 0, output: "" }) }, { text: "push it" });

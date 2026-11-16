@@ -2298,6 +2298,31 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
 }
 /**
+ * PUSHED NOW, IN THE MIDDLE OF A TURN (2026-11-16, like Claude Code's cloud session, whose git pushes through its GitHub
+ * proxy whenever Claude runs it: a live test asked to push, open a draft pull request and read its comments in one turn).
+ * Coder's push_branch and pull_request call this from the job: what is on the disk is committed now (the job's first commit;
+ * what changes after it is committed again when the turn ends) and pushed through the Worker with the job's own git pass
+ * (`body.git`, never the login), the chat's other repositories too. Nothing of the AI's runs meanwhile (quietly, as /push).
+ * → { ok, pushed, changed, sha, files, unpushed, extra } or { ok: false, why }.
+ */
+export async function pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message = "" }) {
+  const go = await quietly();
+  if (!go) return { ok: false, pushed: false, why: NOT_STOPPED };
+  try {
+    const g = gitFrom(body, { via: gitVia, remote });
+    const msg = String(message || "Changes by Coder").replace(/\s+/g, " ").trim().slice(0, 120) || "Changes by Coder";
+    const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: msg, trailer: chatTrailer(body.chatUrl), ...g, gitRoot, root });
+    const extra = [];
+    for (const [i, x] of extraRepos(body).entries()) {
+      const xdir = join(root, project + "-x" + (i + 1));
+      if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
+      const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: msg, trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, ...g, gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+      extra.push({ repo: x.repo, ...r });
+    }
+    return extra.length ? { ...main, extra } : main;
+  } catch (e) { return { ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }; } finally { go(); }
+}
+/**
  * ANY CHANGE LEFT TO COMMIT (2026-11-16): `git status --porcelain` in each folder, after installed packages and caches are put
  * on the ignore list as a save puts them. False only when every folder is a repository git reads cleanly with no change;
  * anything else (no repository, a folder that fails the check, git failing) is true, so the save runs as before.
@@ -4479,6 +4504,8 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),
+        // PUSH NOW (push_branch, pull_request: pushMidTurn), never for a read-only chat (its work stays here).
+        ...(body.readOnly === true ? {} : { pushNow: (message) => pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message }) }),
         // (The admin sandbox could not start on a machine made for one: no command runs. Fix 7.)
         boxDown: t.boxDown || "",
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.
