@@ -39,7 +39,7 @@ test("CD175 a first clone that fails leaves no git folder behind; a half-made on
   assert.equal(existsSync(gd), false, "no half-made git folder is left");
   assert.equal((await prep()).ok, true, "the next job clones");
   assert.equal(await readFile(join(dir, "README.md"), "utf8"), "# shop\n");
-  await rm(dir, { recursive: true, force: true }); await rm(gd, { recursive: true, force: true });
+  await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await rm(gd, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
 
   // THE LIVE TEST'S STATE (left by the version before this fix): git's folder made (git init) but nothing fetched,
   // and the project folder holding only what the setup script made.
