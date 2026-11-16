@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder does every item in a list; no false "environment changed" line
+
+From the one-message live test: (1) Grok skipped "Undo the last job" and "Rename the chat" as "you did not ask". Coder's instructions now say each line of a list is a request: do every item, and if one can't be done (nothing to undo), say why in its row. This depends on Grok following it. (2) The chat said "The environment changed: network Limited" after cards that changed nothing. Now that line only appears when the network or keys really changed. Tests: list-and-env-note.test.mjs.
+
 ## 2026-11-16: Coder pushes and opens pull requests right away, mid-turn
 
 In the live test, when your list said "commit and push, open a draft pull request, read its comments", Coder said the push and the PR were "queued for the end of this turn", so it could not read the PR's comments. Claude Code on the web pushes and opens the PR right away (its git push goes through its GitHub proxy at any time). Now Coder does the same: "push" commits and pushes at once (your GitHub login still never goes to Coder's machine), and "pull request" pushes, opens it (draft if asked) and gives Coder its number, so it can read its comments in the same turn. The chat still says "Pushed to the branch …" and "Draft pull request #N opened …" once. A mid-turn push is its own commit, so Undo takes a job's commits back one at a time. Jobs started from GitHub and read-only chats work as before. Tests added (push-now.test.mjs).

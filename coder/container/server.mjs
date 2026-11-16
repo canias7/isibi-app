@@ -5072,6 +5072,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
             gateForApt(net.limited && gate ? "http://127.0.0.1:" + gate.port : "");
           }
         } catch (e) { return send(500, { ok: false, why: String((e && e.message) || e).slice(0, 200) }); }
+        // SAID ONLY WHEN SOMETHING CHANGED (owner, 2026-11-16, the one-message live test: "network Limited" was said twice
+        // after cards that changed nothing, as Claude Code never does): the network and the keys as last applied to this job.
+        const sig = JSON.stringify({ n: nn, k: list.map((s) => [s.host || "", s.hosts || [], s.header || "", s.name || ""]) });
+        const was = t.netSig; t.netSig = sig;
+        if (was === sig) return send(200, { ok: true, applied: true, same: true });
         t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
         return send(200, { ok: true, applied: true });
       }
