@@ -1877,6 +1877,8 @@ export async function handleCoder(request, env, ctx, deps) {
       if (meta.status === "running" && Date.now() - (meta.at || 0) > STALE_MS) return free("Coder's machine stopped answering, so this job was ended. What it did so far is above; its unsaved changes are gone. Send your message again to carry on.");
       // The chat was already freed (by Stop, or another tab): nothing to wait for; the page loads the saved chat.
       if (meta.status !== "running") return json({ ok: true, events: [], next: since, running: false, project: meta, reload: true });
+      // (A MACHINE NOT ANSWERING YET just after its start, 2026-11-16: it is still being set up, so the step is said, not an error.)
+      if (Date.now() - (meta.at || 0) < START_GRACE_MS) return json({ ok: true, events: [], next: since, running: true, project: meta, phase: "container", phaseAt: Number(meta.at) || 0 });
       return json({ ok: false, error: "Coder's machine could not be reached", project: meta }, 502);
     }
     if (meta.status === "running" && !s.running && !s.result) {

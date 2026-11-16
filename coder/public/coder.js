@@ -20,8 +20,11 @@
   const GLOOPY = KIND === 'gloopy';
   const API = '/api/coder';
   const POLL_MS = 1500;
-  // While a message is still being sent, how often the chat is looked at for an ending already saved (watchSend).
-  const SEND_WATCH_MS = 4000;
+  // While a message is still being sent, how often the chat is looked at for an ending already saved and for the start-up's
+  // step (watchSend). FAST (live, 2026-11-16: polled every 4 s, the first look came after "Setting up a cloud container" was
+  // already over, so a new chat showed only dots for its first seconds): the first look at once, then every second.
+  const SEND_WATCH_FIRST_MS = 500;
+  const SEND_WATCH_MS = 1000;
   // How often an open chat waiting for the owner asks about its background commands (tool 4, part 2).
   const BG_POLL_MS = 20000;
   // How often a background command's output, opened from its row, is looked at again.
@@ -1607,7 +1610,7 @@
     // the chat is looked at meanwhile, and such an ending is shown at once (watchSend).
     const sent = { id: S.project.id, turn: Number(S.project.turn) || 0, gone: false };
     S.sendWatch = sent;
-    setTimeout(() => watchSend(sent), SEND_WATCH_MS);
+    setTimeout(() => watchSend(sent), SEND_WATCH_FIRST_MS);
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/message', { method: 'POST', body: JSON.stringify({ mid, text, comments, images: pics.map((x) => ({ type: x.type, data: x.data })), ...(att.length ? { files: att.map((f) => f.id) } : {}), model: S.pick.model, effort: S.pick.effort, ...(opts && opts.card ? { card: true } : {}), ...(opts && opts.marked ? { marked: opts.marked } : {}), ...(opts && opts.taught ? { taught: opts.taught } : {}), ...(GLOOPY ? { tz: deviceZone() } : {}) }) });
     if (S.sendWatch === sent) S.sendWatch = null;
     // (Already shown as ended by watchSend: this late answer changes nothing.)

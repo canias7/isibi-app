@@ -124,7 +124,7 @@ test("FS6 the page: asks for its machine when the owner picks the repository; wh
   const page = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
   assert.ok(page.includes("call('/projects/' + encodeURIComponent(r.data.project.id) + '/warm', { method: 'POST' }).catch(() => {});"));
   assert.ok(page.indexOf("/warm'") < page.indexOf("openProject(r.data.project.id);", page.indexOf("/warm'")), "before the chat opens");
-  assert.ok(page.includes("setTimeout(() => watchSend(sent), SEND_WATCH_MS);"));
+  assert.ok(page.includes("setTimeout(() => watchSend(sent), SEND_WATCH_FIRST_MS);"));
   assert.ok(page.includes("const over = d && !d.running && p && p.status !== 'running' && (evs.some((e) => e && e.lost) || (Number(p.turn) > sent.turn && Number(p.saved) >= Number(p.turn)));"));
   assert.ok(page.includes("sent.gone = true; S.sendWatch = null;\n    S.sending = false; S.unsent = ''; S.running = false;"), "no longer shown as working");
   assert.ok(page.includes("if (sent.gone) return;"), "the message's late answer changes nothing");

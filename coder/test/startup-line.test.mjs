@@ -72,6 +72,7 @@ async function openPage(browser) {
   await page.route(ORIGIN + "/**", async (route) => {
     const u = new URL(route.request().url());
     if (u.pathname === "/auth.js") return route.fulfill({ contentType: "text/javascript", body: AUTH });
+    if (u.pathname.startsWith("/api/") && route.request().method() === "POST" && u.pathname.endsWith("/message") && st.hold) await st.hold;
     if (u.pathname.startsWith("/api/")) return route.fulfill({ contentType: "application/json", body: JSON.stringify(api(route.request().method(), u.pathname)) });
     const file = path.join(PUB, u.pathname === "/" ? "index.html" : u.pathname);
     if (!file.startsWith(PUB) || !existsSync(file) || statSync(file).isDirectory()) return route.fulfill({ status: 404, body: "" });
@@ -142,6 +143,35 @@ test("in Chromium: each step only when the server names it; then Initialized ses
     await page.waitForTimeout(1200);
     assert.equal(await page.locator("#gfApp .cd-boot-w").count(), 0);
     await shot(page, "st-8-awake.png");
+    assert.deepEqual(errors, []);
+  } finally { await browser.close(); }
+});
+
+test("code: while the send is open the page looks at once, then every second; the Worker says the container step while starting or not answering yet", () => {
+  const w = read("src/coder-routes.mjs"), js = read("public/coder.js");
+  assert.match(js, /const SEND_WATCH_FIRST_MS = 500;/);
+  assert.match(js, /const SEND_WATCH_MS = 1000;/);
+  assert.match(js, /setTimeout\(\(\) => watchSend\(sent\), SEND_WATCH_FIRST_MS\);/);
+  assert.match(w, /if \(Date\.now\(\) - \(meta\.at \|\| 0\) < START_GRACE_MS\) return json\(\{ ok: true, events: \[\], next: since, running: true, project: meta, phase: "container"/);
+});
+
+test("in Chromium: a new chat's first message shows Setting up a cloud container within a second, while the send is still open", { skip: !chromium && "Playwright is not installed" }, async () => {
+  const browser = await chromium.launch();
+  try {
+    const { page, st, errors } = await openPage(browser);
+    st.events.length = 0;
+    let free; st.hold = new Promise((ok) => { free = ok; });
+    // The Worker began setting up the machine 2 s ago (its starting mark: the chat says running), and the send has not answered.
+    st.running = true;
+    st.state = { phase: "container", phaseAt: Date.now() - 2000 };
+    const t0 = Date.now();
+    await page.fill("#cdIn", "Read the owner's preferences");
+    await page.press("#cdIn", "Enter");
+    await page.waitForSelector("#gfApp .cd-boot-w:has-text('Setting up a cloud container')", { timeout: 2500 });
+    assert.ok(Date.now() - t0 < 2500, "shown within the first look, not after 4 s");
+    assert.match(await page.textContent("#gfApp .cd-boot .cd-boot-s"), /^[2-9]s$/, "counted from when the Worker began");
+    await shot(page, "st-9-container-while-sending.png");
+    st.hold = null; free();
     assert.deepEqual(errors, []);
   } finally { await browser.close(); }
 });

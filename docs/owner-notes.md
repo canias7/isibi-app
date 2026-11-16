@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: "Setting up a cloud container" now shows from the first second
+
+On the branch, not live yet. Needs a deploy and your test in the browser.
+
+- The bug: a new chat's first message showed only dots and seconds for about 4 seconds, then jumped to "Cloning
+  repository". The page only looked at the chat every 4 seconds while the message was being sent, so by its first look the
+  container step was already over.
+- The fix: while the message is being sent, the page looks after half a second and then every second. The Worker also says
+  "Setting up a cloud container" while the machine has the job but isn't answering yet (instead of an error). The seconds
+  count from when the Worker really began. Still only real server steps, no timers; a message on an awake machine still
+  shows just the dots.
+
 ## 2026-11-16: Coder's start-up line, like Claude Code on the web
 
 On the branch, not live yet. Not tried in the browser on gofarther.dev yet: it needs a deploy and your test.
