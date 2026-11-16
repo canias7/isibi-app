@@ -12,6 +12,7 @@
  * Values of variables and network secrets never leave here for the machine.
  */
 import { modelPass } from "./coder-model-gate.mjs";
+import { userToken, readPullRequestComments } from "./coder-github.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envIdOf, markUsed, envListOut } from "./coder-environments.mjs";
 import { egressPass, machineKeyRules, EGRESS_PATH } from "./coder-egress.mjs";
 import { envAnswer, envCard, sameCard, ENV_INPUT_CHECKS, ENV_CARD_TOOLS, planUpdate, planCreate, planSwitch, approvedText, envResultText } from "../container/coder-envtools.mjs";
@@ -60,11 +61,13 @@ export async function handleEnvApi(request, env, { now = Date.now() } = {}) {
   const [, uid, id] = m;
   const meta = await getJson(bucket, metaKey(uid, id), null);
   if (!meta || String(meta.turn) !== turn) return answer({ error: "that chat has moved on" }, 403);
-  // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
-  if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   let body = null;
   try { body = JSON.parse((await request.text()).slice(0, 300_000)); } catch { body = null; }
   if (!body || typeof body !== "object") return answer({ error: "error: Coder's server could not read that" }, 400);
+  // CODER'S pr_read (2026-11-16): a pull request's comments, read here with the owner's GitHub token (never sent to the machine).
+  if (body.action === "pr_read") return answer(await prRead(env, bucket, uid, meta, body));
+  // (Never in a job started from GitHub, whose text strangers can write: the tools are not offered there either.)
+  if (meta.jobFromGithub === true || meta.kind === "gloopy") return answer({ error: "error: the environment cannot be looked up or changed in a job started from GitHub" }, 403);
   const also = [body.action === "get" ? body.environment_id : body.args && typeof body.args === "object" ? body.args.environment_id : null];
   return answer(envAnswer(await envState(env, bucket, uid, meta, also), body));
 }
@@ -160,3 +163,24 @@ export async function approveEnvChange({ env, bucket, uid, id, meta, deps, body,
   return { ok: true, said: approvedText({ kind: "switch", name: p.target.name }), result: envResultText(now.card, { name: p.target.name, from: p.from, push }), envId: p.target.id, name: p.target.name, environments: envListOut(await listEnvs(bucket, uid)) };
 }
 
+
+/**
+ * pr_read's answer: `body.pr` (a number, or a pull request's address) or this chat's own pull request, in `body.repo` (one of
+ * this chat's repositories) or the chat's own. Not in a job started from GitHub. → { text } or { error }.
+ */
+export async function prRead(env, bucket, uid, meta, body, { fetchFn = fetch } = {}) {
+  if (meta.jobFromGithub === true || meta.kind === "gloopy") return { error: "error: pull requests are read from a chat on gofarther.dev, not in a job started from GitHub" };
+  const repos = chatRepos(meta);
+  let repo = typeof body.repo === "string" ? body.repo.trim() : "";
+  let n = Number(body.pr);
+  const url = /^https:\/\/github\.com\/([A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100})\/pull\/(\d{1,9})/.exec(String(body.pr || ""));
+  if (url) { repo = url[1]; n = Number(url[2]); }
+  if (!repo) repo = meta.repo || "";
+  const known = repos.find((r) => r.toLowerCase() === repo.toLowerCase());
+  if (!known) return { error: "error: " + (repo || "that repository") + " is not one of this chat's repositories (" + (repos.join(", ") || "none") + ")" };
+  if (!(Number.isInteger(n) && n > 0)) n = meta.pr && known === meta.repo ? Number(meta.pr.number) : 0;
+  if (!(Number.isInteger(n) && n > 0)) return { error: "error: this chat has no pull request yet; give its number" };
+  const t = await userToken(env, bucket, uid, { fetchFn });
+  if (!t) return { error: "error: the owner's GitHub connection has ended; they sign in to GitHub again on gofarther.dev" };
+  try { return await readPullRequestComments(t.token, known, n, { fetchFn }); } catch { return { error: "error: GitHub could not be reached" }; }
+}

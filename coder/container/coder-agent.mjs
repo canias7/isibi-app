@@ -1271,6 +1271,9 @@ export const CODER_TOOLS = Object.freeze([
   // REVIEW ON THE PULL REQUEST, like Claude Code's /code-review --comment (its docs,
   // read 2026-11-06; owner: "Finish all this"): the findings as line comments.
   fn("pr_comments", "Post review findings as comments on the lines of this chat's pull request, like a reviewer on GitHub. Use it ONLY when the owner asks for the review (or comments) on the pull request. Give every finding at once: path (from the repo's root), line (in the new version of the file, a line the pull request changed), body (the problem and a one-line fix). They are posted when your turn ends.", { summary: { type: "string" }, comments: { type: "array", items: { type: "object", properties: { path: { type: "string" }, line: { type: "integer" }, body: { type: "string" } }, required: ["path", "line", "body"] } } }, ["summary", "comments"]),
+  // READING A PULL REQUEST'S COMMENTS (2026-11-16; Claude Code reads them with its GitHub tool, pull_request_read): read on
+  // Coder's server with the owner's GitHub login, which never comes to this machine.
+  fn("pr_read", "Read a pull request's reviews (state, text), review comments on lines (file:line, author, text) and conversation comments. Use it when the owner asks what the comments or reviews on a pull request say, instead of gh or curl. pr: its number or address (left out: this chat's pull request); repo: one of this chat's repositories (left out: the chat's own). Read-only.", { pr: { type: "string", description: "the pull request's number or address" }, repo: { type: "string" } }, []),
   fn("undo_last_job", "Undo the last job that changed files in this chat: its commit is reverted on the branch and pushed when your turn ends. Use it only when the owner asks to undo or revert. Like Claude Code: if it is not clear what they mean (your last job changed no files, or they might mean something else, such as an environment change or a saved key), ask first with ask_user; when they choose that job, call it with confirmed: true. Do not make other changes in the same turn. Your turn ends here.", { confirmed: { type: "boolean", description: "true only after the owner chose undoing that job on your question card" } }, []),
   // CLAUDE CODE'S AskUserQuestion (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one"; before,
   // up to 4 questions in one card, owner pick 4, 2026-11-08): its description and inputs word for word (coder-askuser.mjs).
@@ -1513,6 +1516,7 @@ export const CONNECTOR_DATA = "(This came from the connector, an outside service
 
 export const PLAN_ASKS = Object.freeze({
   pull_request: (a) => "Open a pull request: " + String((a && a.title) || "").slice(0, 200),
+  pr_read: (a) => "Read the comments on pull request " + String((a && a.pr) || "of this chat").slice(0, 200),
   pr_comments: (a) => "Post " + (Array.isArray(a && a.comments) ? a.comments.length : 0) + " review comment(s) on the pull request",
   auto_fix: (a) => "Turn auto-fix " + (a && a.on === false ? "off" : "on") + " for " + String((a && a.pr) || "a pull request").slice(0, 200),
   undo_last_job: () => "Undo the last job that changed files",
@@ -1552,7 +1556,7 @@ export function modeChangeNote(from, to, { planExited = PLAN_EXITED, autoExit = 
 // mode, which offers only the tools it allows. Each of these still refuses in such a job if called anyway.
 // (Nor enter_plan_mode: Claude Code offers EnterPlanMode only where someone can be asked, never in a non-interactive run, and
 // a job from GitHub is always Auto. 2026-11-14.)
-export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
+export const NOT_FROM_GITHUB = Object.freeze(["request_secret", ...ENV_TOOL_NAMES, "pr_comments", "pr_read", "undo_last_job", "auto_fix", "enter_plan_mode", "rename_chat"]);
 export const GITHUB_TOOLS = Object.freeze(CODER_TOOLS.filter((t) => !NOT_FROM_GITHUB.includes(t.function.name)));
 /**
  * THIS CHAT'S TOOL LIST, bash as its environment sets it: with background commands off (CODER_DISABLE_BACKGROUND_TASKS,
@@ -1635,7 +1639,7 @@ The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN,
 ${CODER_URLS_LINE}
 
 HOW YOU WORK
-- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), rename_chat (renames this chat, only when asked).
+- Your tools: read, edit, write (files), grep, glob (finding things), bash (running anything: installs, tests, servers, git status), web_search (search the web whenever you need current facts or docs) and web_fetch (a separate reader answers your question from one page), task_create, task_get, task_list and task_update (your task list, which the owner sees), pull_request (only when asked), pr_comments (your review as comments on the pull request's lines, only when asked), pr_read (a pull request's reviews and comments), rename_chat (renames this chat, only when asked).
 - Use read, edit, write, grep and glob for files (write takes up to about 90,000 characters a call, as its description says), not cat, sed, heredocs or find: they are safer and clearer to the owner. Use bash for running things.
 - Use task_create to plan and track work. Mark each task completed as soon as it's done; don't batch.
 - read also shows you pictures (to check a page you built, take a screenshot with Playwright or Chrome and read it), PDFs by their pages, and Jupyter notebooks with their outputs.
@@ -1665,6 +1669,7 @@ HOW YOU TALK (owner, 2026-11-05)
 - Lead with the answer or the result in the first sentence. No preamble, no "Sure!", no recap of what the owner just said.
 - Default (owner, 2026-11-05: explanatory): after the result, explain in plain words what you changed and WHY you did it that way, and point out anything worth knowing (an "Insight: …" line for a non-obvious choice, a trade-off, or how the pieces fit). Say what you checked and anything that did not work. Name files and commands exactly. Explain, but don't pad: no repeating yourself, no filler.
 - Show evidence, not just claims: "npm test: 12 passing", "curl / answered 200", the error line. Never say "all tests pass" without the command and its result. Never claim something you did not run. If something failed, say so first.
+- When the message was a list of several separate tasks or checks, end with a compact table, one row per item: | Check | Result |.
 - Match the owner's style requests, in their own words:
   • "explain more…" → go deeper, step by step, in plain language.
   • "teach me…" → walk them through it; leave small parts for them to try and say exactly what to do.
@@ -6779,6 +6784,16 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         reviewPost = { summary: scrub(String(c.args.summary || "").trim()).slice(0, 4000), comments: list };
         emit({ type: "pr", text: "Review for the pull request: " + list.length + " comment" + (list.length > 1 ? "s" : "") });
         reply("ok: the " + list.length + " comment" + (list.length > 1 ? "s are" : " is") + " posted on the pull request when your turn ends (if the chat has one). Finish by telling the owner what you found.");
+      } else if (c.name === "pr_read") {
+        if (github) { reply("error: pull requests are read from a chat on gofarther.dev, not in a job started from GitHub"); continue; }
+        if (typeof deps.envApi !== "function") { reply("error: Coder's server could not be reached"); continue; }
+        const pr = String((c.args && c.args.pr) ?? "").trim().slice(0, 300), repo = String((c.args && c.args.repo) || "").trim().slice(0, 200);
+        emit({ type: "bash", id: c.id, tool: "pr_read", verb: "Read", command: "pull request " + (pr || "comments") });
+        let r;
+        try { r = (await deps.envApi({ action: "pr_read", ...(pr ? { pr } : {}), ...(repo ? { repo } : {}) })) || {}; } catch { r = { error: "error: Coder's server could not be reached" }; }
+        const text = typeof r.text === "string" ? scrub(r.text) : typeof r.error === "string" ? r.error : "error: Coder's server did not answer";
+        emit({ type: "result", id: c.id, code: typeof r.text === "string" ? 0 : 1, output: text.slice(0, 2000) });
+        reply(text);
       } else if (c.name === "rename_chat") {
         if (github) { reply("error: the chat is renamed from gofarther.dev, not from GitHub"); continue; }
         const title = chatTitleOf(scrub(String(c.args.title || "")));
@@ -6959,7 +6974,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // as Claude Code's get an MCP tool's: c.keepHead.)
         c.keepHead = CONNECTOR_DATA;
         reply(CONNECTOR_DATA + told);
-      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
+      } else reply("error: no such tool: " + c.name.slice(0, 40) + " (the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words)");
       } catch (e) {
         // (ROUND 5: a round that ends early in Coder's own runs. The call whose turn ended it has its answer (one its turn could
         // not give, a card it may no longer show, gets Claude Code's rejection), no PostToolUse hook of its own, and the loop

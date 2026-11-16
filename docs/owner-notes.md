@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder can read a pull request's comments; long task lists end with a table
+
+From the side-by-side with Claude Code: (1) Coder has a new tool, pr_read, that reads a pull request's reviews, its comments on lines (file:line, who, what) and its conversation, like Claude Code's GitHub tool. It is read on Coder's server with your GitHub login, which never goes to Coder's machine; not offered in jobs started from GitHub. Before, Coder fell back to gh commands. (2) Coder is told: when your message is a list of several separate tasks, end with a short "Check | Result" table (the chat already draws tables). (3) Checked notify: it sends a real Web Push to every browser or installed web app where you turned notifications on (Settings), skipped if you are looking at that chat. It does not send email, and the phone app from the app stores (Capacitor) has no push yet; on iPhone, push works from gofarther.dev added to the Home Screen. Tests added.
 ## 2026-11-16: "Suggested connectors" card, like Claude Code's
 
 When Coder searches for connector tools (for example you ask "search your connector tools for anything about issues"), or its search finds nothing, the chat now shows a "Suggested connectors" card (with a small Beta tag): each of your connectors with its logo, its name and one button. Connect for one not signed in yet, Use for one that works but is off in this chat (pressing it turns it on for this chat: "Zapier is on for this session."), Reconnect for one that can't be reached, with a red line "Can't reach Neon right now. It may need to be reconnected." One already on just says On. "Browse more connectors" opens the Connectors page. Coder's tab only. Tests added.
