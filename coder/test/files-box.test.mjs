@@ -40,7 +40,7 @@ test("the code: Coder's only, its CSS under #gfApp, See all opens See changes, U
   assert.match(js, /function aiMetaHTML\(e, i\) \{\n.*\n    return filesBoxHTML\(i\) \+/);
   assert.match(js, /rewind\(Number\(e\.currentTarget\.dataset\.filesUndo\), 'code'\)/);
   assert.match(js, /\[data-files-all\]', 'click', \(\) => \{ S\.showChanges = true; loadChanges\(\)/);
-  for (const l of css.slice(css.indexOf("THE CHANGED-FILES BOX")).split("\n").filter((l) => /\{/.test(l))) assert.match(l, /#gfApp/, l);
+  for (const l of css.slice(css.indexOf("THE CHANGED-FILES BOX")).split("\n").filter((l) => /\{/.test(l) && !/^\s*@/.test(l))) assert.match(l, /#gfApp/, l);
 });
 
 let chromium = null;
