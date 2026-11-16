@@ -2076,7 +2076,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (s.result.copy === true && cw && typeof deps.snapshot === "function") {
         const saving = deps.snapshot(uid + "-" + id).then(async (snap) => { if (snap) await writeEnvCache(bucket, uid, cw.envId, { ...snap, key: cw.key, at: Date.now(), from: id }); }).catch(() => {});
         if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(saving); else await saving;
-        fresh.push({ at: Date.now(), type: "note", text: "Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup." });
+        // (No note in the chat about it: owner, 2026-11-16, Claude Code shows none.)
       }
       // THE OWNER'S VARIABLE VALUES are never kept in the chat (nor posted to GitHub from it).
       hideIn(fresh, hidden);

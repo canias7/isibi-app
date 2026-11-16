@@ -557,7 +557,7 @@ test("MC16 (2026-11-11, Claude.ai's connector pages) per-chat connectors and too
   // (In tool search's note, in Claude Code's words, since 2026-11-14; nothing in the system prompt.)
   assert.ok(!seen[0].messages[0].content.includes("CONNECTORS NOT SIGNED IN YET"));
   assert.ok(seen[0].messages.some((x) => x.role === "user" && String(x.content).includes("The following MCP servers require authentication before their tools can be used:\nNotion\n")));
-  assert.ok(events.some((e) => e.type === "note" && e.text === "Not signed in yet: Notion. Sign in from Connectors to use it here."));
+  assert.ok(!events.some((e) => e.type === "note" && /Not signed in yet/.test(e.text)), "no note in the chat (owner, 2026-11-16)");
   // The routes and the page.
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.match(routes, /if \(action === "connectors" && \(request\.method === "GET" \|\| request\.method === "POST"\)\)/);

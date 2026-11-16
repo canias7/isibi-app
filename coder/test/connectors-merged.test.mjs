@@ -175,9 +175,8 @@ test("MC21 (2026-11-13, merged; 2026-11-14, Claude Code's groups, coder-parallel
 test("MC22 (2026-11-13, merged) the note on connectors waiting for their sign-in follows the owner's message, and not one a UserPromptSubmit hook blocked; Settings and Connectors both in the gear's menu", async () => {
   const note = (t) => t.events.filter((e) => e.type === "note" && /^Not signed in yet: Notion\./.test(e.text)).length;
   let t = await go({ steps: [say("ok")], waiting: ["Notion"] });
-  assert.equal(note(t), 1);
-  const users = t.events.map((e, i) => [e.type, i]);
-  assert.ok(users.findIndex(([k]) => k === "user") < t.events.findIndex((e) => e.type === "note" && /Not signed in yet/.test(e.text)), "after the message");
+  // (2026-11-16, owner: no such note in the chat on every message; Coder says it only when a request needs the connector.)
+  assert.equal(note(t), 0);
   t = await go({ steps: [say("ok")], waiting: ["Notion"], hooks: { UserPromptSubmit: [{ hooks: [{ type: "command", command: "gate.sh" }] }] }, hookOut: (x) => (x.hook_event_name === "UserPromptSubmit" ? JSON.stringify({ decision: "block", reason: "not now" }) : "") });
   assert.equal(note(t), 0);
   assert.ok(t.events.some((e) => e.type === "note" && /UserPromptSubmit operation blocked by hook/.test(e.text)));

@@ -3369,7 +3369,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       emit({ type: opening === "note" ? "note" : "user", text: typed, ...(pics.length ? { images: pics.length } : {}), ...(Array.isArray(attached) && attached.length ? { files: attached.slice(0, 10).map((f) => ({ id: String(f.id || ""), name: plain(String(f.name || "")).slice(0, 120), size: Number(f.size) || 0 })) } : {}) });
       if (up && up.context.length) convo.push({ role: "user", appNote: true, content: hookNote("UserPromptSubmit", up.context) });
     }
-    if (mcpWaiting.length && promptBlocked === null) emit({ type: "note", text: "Not signed in yet: " + mcpWaiting.join(", ") + ". Sign in from Connectors to use " + (mcpWaiting.length === 1 ? "it" : "them") + " here." });
+    // (No "Not signed in yet" note on every message: owner, 2026-11-16. Like Claude Code, Coder knows which connectors
+    // wait for a sign-in and says so only when a request needs one.)
   }
   // (The saved chat keeps the pictures of earlier messages too, in Coder's chats since 2026-11-14: the room for them is
   // keepPics', this message's own staying.)

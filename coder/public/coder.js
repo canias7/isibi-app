@@ -2384,6 +2384,9 @@
     S.events.forEach((e, i) => {
       if (e.type === 'bash') {
         if (e.id && lastStep[e.id] !== i) return;
+        // THE SETUP SCRIPT IS NOT A STEP IN THE CHAT (owner, 2026-11-16, like Claude Code): the start-up line says it ran; it
+        // shows here only if it failed.
+        if (e.tool === 'setup' && !GLOOPY && !(results[e.id] && Number(results[e.id].code) !== 0)) return;
         // A STEP THAT NEVER RAN (refused by a rule, auto mode's checker, a hook, Coder's own checks or your answer) stands
         // on its own row, out of the group and out of its count, so "Ran 2 commands" counts only commands that ran: Claude
         // Code takes a step that needs its own row out of its group the same way (Bash docs pass 9, part F).

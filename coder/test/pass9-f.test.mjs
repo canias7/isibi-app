@@ -73,7 +73,7 @@ test("CD499 the page takes a step that never ran out of its group and out of the
   assert.equal(neverRan({ code: -1, output: "Not run: you said: later", denied: true }), true);
   assert.equal(neverRan({ code: -1, output: "Blocked by auto mode · [Irreversible Local Destruction] deletes files" }), true);
   // In the list of steps: flushed alone, between the groups before and after it.
-  assert.match(ui, /if \(e\.id && lastStep\[e\.id\] !== i\) return;\n[\s\S]{0,500}if \(neverRan\(results\[e\.id\]\)\) \{ flush\(\); group\.push\(\[e, i\]\); flush\(\); return; \}\n\s+group\.push\(\[e, i\]\);/);
+  assert.match(ui, /if \(e\.id && lastStep\[e\.id\] !== i\) return;\n[\s\S]{0,900}if \(neverRan\(results\[e\.id\]\)\) \{ flush\(\); group\.push\(\[e, i\]\); flush\(\); return; \}\n\s+group\.push\(\[e, i\]\);/);
   // Its own row says why in a word: "not run" where it said "exit -1".
   assert.match(ui, /r\.denied === true \? 'refused' : r\.ran === false \? 'not run' : e\.tool \? 'error' : 'exit ' \+ esc\(r\.code\)/);
 });

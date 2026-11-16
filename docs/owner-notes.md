@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Three grey notes gone from the chat
+
+From your screenshot: (1) "Not signed in yet: Neon…" no longer shows on every message; Coder still knows and tells you only when your request needs that connector. (2) "Setup: Fly.io is saving a copy…" no longer shows; the saving still happens quietly. (3) "Ran setup …" is no longer a step in the chat; the start-up line already says "Ran setup script". If the setup fails, the step still shows so you can see why. Tests updated and added.
+
 ## 2026-11-16: The panel on the right is gone
 
 You said "dont put this pls, i dont like it". The panel on the right (Environment, Connectors, branch) and its button no longer show. Environment and Connectors stay where they were, in the bar above the message box. Tests check that the panel and its button are not on the page.

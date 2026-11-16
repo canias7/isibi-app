@@ -185,3 +185,9 @@ test("SL-LOOK (live, 2026-11-16) in a job's first minute a look at a machine tha
   assert.match(src, /s = young \? await Promise\.race\(\[look, new Promise\(\(res\) => setTimeout\(\(\) => res\(null\), START_LOOK_MS\)\)\]\) : await look;/);
   assert.match(src, /if \(Date\.now\(\) - \(meta\.at \|\| 0\) < START_GRACE_MS\) return json\(\{ ok: true, events: \[\], next: since, running: true, project: meta, phase: "container"/);
 });
+
+test("SL-SETUP (owner, 2026-11-16) the setup script is not a step in Coder's chat unless it failed; the start-up line says it ran", () => {
+  const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(js, /if \(e\.tool === 'setup' && !GLOOPY && !\(results\[e\.id\] && Number\(results\[e\.id\]\.code\) !== 0\)\) return;/);
+  assert.match(js, /setup: 'Ran setup script'/);
+});

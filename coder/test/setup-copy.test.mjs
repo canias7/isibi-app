@@ -79,7 +79,7 @@ test("CD152 the Worker: a setup run on a fresh disk is saved as the environment'
   assert.deepEqual(machine.calls.map((c) => c.path), ["/turn"], "never held, never told to go");
   assert.deepEqual(JSON.parse(bucket.m.get("coder/" + UID + "/" + a + "/meta.json")).copyWant, { envId: "default", key: await E.setupKeyOf({ script, network: null }) });
   machine.copy = true;
-  assert.deepEqual(await end(a, fly), ["Setup: Fly.io is saving a copy of the setup's result for this environment's next new chats (like Claude Code's environment cache). They start from it once it is finished, in a few minutes, and skip the setup."]);
+  assert.deepEqual(await end(a, fly), [], "no note in the chat (owner, 2026-11-16)");
   machine.copy = false;
   assert.deepEqual(snaps, [UID + "-" + a], "this chat's disk is saved at the turn's end");
   assert.equal(JSON.parse(bucket.m.get("coder/" + UID + "/" + a + "/meta.json")).copyWant, null);
