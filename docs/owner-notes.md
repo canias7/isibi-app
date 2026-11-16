@@ -4,6 +4,25 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder pushes at a stopping point, and stops asking GitHub on every message (your word: approved)
+
+On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io or GitHub yet: it needs your test in the browser.
+
+- **No push after every message.** Like Claude Code's cloud sessions, each message's work is now saved (committed) on
+  Coder's machine only, and the answer is done right away. That saves the 4 to 5 seconds the push took at every turn's end.
+- **When it is pushed:** when Coder decides the work is at a stopping point (its new `push_branch` tool), when you say
+  "push" or press the new **Push** button (next to See changes, it says "Push · 2 unpushed"), before Create PR, at the end
+  of any job from GitHub (auto-fix, @coder, a review), before you delete a chat, and as a safety net in the background
+  once 5 commits or 30 minutes are waiting. The chat then says "Pushed to the branch …" (it used to say "Saved to the
+  branch" every time).
+- **Nothing is lost:** See changes shows the unpushed work from Coder's machine. Undo and Rewind still work (they push
+  too). Fly.io's monthly clean-up never removes a machine's disk that still has unpushed work. If a delete can't push
+  first, the chat is kept and you're told.
+- **No check with GitHub on every message.** Once the chat's copy of the repository is on its branch, Coder uses it as
+  it is. It looks at GitHub again only on the chat's first message, for jobs started from GitHub, or when auto-fix moves
+  the chat to another branch. That saves a second or two at the start of each message.
+- Tests: PL1 to PL3 (and CD10 now checks the Push button).
+
 ## 2026-11-15: The machine is ready in seconds, and the box is free as soon as the answer shows (your word: approved)
 
 On the branch, not live yet. Live after "merge and deploy". Not tried on Fly.io yet: it needs your test in the browser.

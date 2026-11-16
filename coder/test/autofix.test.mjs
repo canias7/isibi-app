@@ -25,7 +25,7 @@ test("CD169 auto-fix asked for in the chat: any open pull request of the chat's 
   const meta = { id: ID, repo: "ana/shop", base: "main", branch: "coder/" + ID, commits: [{ sha: "a1", turn: 1 }] };
   // ANY PULL REQUEST OF THE REPOSITORY: the chat moves onto its branch, and GitHub's news about it reaches this chat.
   let r = await autofixFor({}, bucket, UID, meta, { pr: "https://github.com/ana/shop/pull/12", on: true }, "tok", fetchFn);
-  assert.deepEqual(r.meta, { autofix: true, autofixTries: 0, pr: { number: 12, url: "https://github.com/ana/shop/pull/12" }, branch: "feature/totals", base: "main", commits: [], pushed: true });
+  assert.deepEqual(r.meta, { autofix: true, autofixTries: 0, pr: { number: 12, url: "https://github.com/ana/shop/pull/12" }, branch: "feature/totals", base: "main", commits: [], pushed: true, unpushed: 0, unpushedSince: 0, refetch: true });
   assert.match(r.note, /^Auto-fix is on for pull request #12: when a check fails or you review it, Coder fixes it in this chat, on its branch feature\/totals \(this chat now works on that branch\)\. Turn it off with the Auto-fix button, or ask Coder\.$/);
   assert.deepEqual(JSON.parse(bucket.m.get(branchKey("ana/shop", "feature/totals"))), { uid: UID, id: ID });
   // The chat's own pull request: auto-fix on, the branch stays.

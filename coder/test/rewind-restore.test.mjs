@@ -166,7 +166,7 @@ test("CD563 Rewind's Restore code in the Worker: the machine is asked to restore
   assert.deepEqual(x.asked.map((a) => [a[0], a[1].sha]), [["/undo", "c3"], ["/undo", "b2"]]);
   // The job's end keeps each commit's list (commitTracking), from the machine's `edited` and the push's `files`.
   const src = read("src/coder-routes.mjs");
-  assert.equal((src.match(/\.\.\.commitTracking\(commits, s\.result, p\)/g) || []).length, 2);
+  assert.equal((src.match(/\.\.\.commitTracking\(commits, s\.result, p\)/g) || []).length, 3, "pushed, read-only, and committed on the machine only (2026-11-16)");
 });
 
 // ── THE MACHINE'S RESTORE, WITH REAL GIT ─────────────────────────────────────

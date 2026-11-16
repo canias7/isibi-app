@@ -717,6 +717,21 @@ export async function flyAwake(env, name) {
   return !!rec && !rec.stopped;
 }
 
+/**
+ * HOW MANY COMMITS THE CHAT'S DISK HOLDS THAT GITHUB DOES NOT HAVE (owner, 2026-11-16: work is pushed at a stopping point, not
+ * after every message): kept on the machine's record, so the monthly reclaim never removes a disk with unpushed work on it.
+ */
+export async function markFlyUnpushed(env, name, n) {
+  if (!flyOn(env)) return false;
+  const names = await flyNames(name);
+  const rec = await readRec(env.CODER_BUCKET, names.key);
+  if (!rec || (Number(rec.unpushed) || 0) === (Number(n) || 0)) return false;
+  await writeRec(env.CODER_BUCKET, names.key, { ...rec, unpushed: Number(n) || 0 });
+  return true;
+}
+/** May an idle machine's disk be reclaimed? Never while it holds commits not pushed to GitHub. */
+export const reclaimable = (rec, now) => !(Number(rec && rec.unpushed) > 0) && now - Number(rec.used || rec.at || 0) > FLY_RECLAIM_MS;
+
 /** A REMOVED CHAT's machine and disk go too. */
 export async function dropFlyMachine(env, name, deps0 = {}) {
   if (!flyOn(env)) return;
@@ -791,7 +806,7 @@ export async function runFlyMachines(env, deps0 = {}, now = Date.now()) {
         const st = sus && sus.ok ? sus : await flyApi(env, "/apps/" + s.app + "/machines/" + m.id + "/stop", { method: "POST", ...deps });
         if (st.ok) { out.stopped++; if (sus && sus.ok) out.suspended = (out.suspended || 0) + 1; await writeRec(bucket, key, { ...rec, stopped: true, stoppedAt: now, suspended: sus && sus.ok ? true : undefined }); }
       }
-    } else if ((m.state === "stopped" || m.state === "suspended") && now - Number(rec.used || rec.at || 0) > FLY_RECLAIM_MS) {
+    } else if ((m.state === "stopped" || m.state === "suspended") && reclaimable(rec, now)) {
       await removeMachine(env, m.id, rec.volume, deps);
       await bucket.delete(key);
       if (sp) await bucket.delete(SPARES + "claimed/" + sp[1] + ".json");

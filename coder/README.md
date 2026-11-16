@@ -678,17 +678,32 @@ code in **each user's own GitHub**.
    that can't ask ("Permission to use Bash has been denied. …", `noPromptDenied`; no checker ran), the chat
    "Not run: auto mode is off in your settings, …" (`AUTO_OFF_GITHUB`, CD568). Test CD370 and
    `test/rewind-restore.test.mjs`.
-4. When a job ends, Coder commits and pushes its branch. A **pull request**
+4. When a job ends, Coder commits its work on its machine (fast, no network),
+   and the turn is done. The branch is **pushed** at a stopping point, as Claude
+   Code's cloud sessions do (owner, 2026-11-16): when Coder calls `push_branch`,
+   when the owner presses **Push** (shown next to See changes as "Push · N
+   unpushed"), before a pull request opens, at the end of any job from GitHub
+   (auto-fix, `@coder`, a review), before a chat is deleted, and as a safety net
+   in the background after a turn once 5 commits (`PUSH_AFTER_COMMITS`) or 30
+   minutes (`PUSH_AFTER_MS`) are waiting. The chat then says "Pushed to the
+   branch …". See changes shows unpushed work from the machine. The machine's
+   record keeps the count, so Fly.io's monthly reclaim never removes a disk with
+   unpushed commits. A **pull request**
    opens only when the user presses Create PR or Create draft PR in the chat,
    or asks Coder for one, as on Claude Code. The user merges it on GitHub.
    Coder never pushes to the main branch.
+   **No look at GitHub on every message** (2026-11-16): once the chat's copy is
+   on its branch and was brought up to date for it (`coder-fetched` in its git
+   folder), a message uses it as it is. The Worker asks for a fresh look
+   (`fetch`) only on the chat's first message, a job from GitHub, or after
+   auto-fix moved the chat to another branch.
 
 **A job keeps going when the tab is closed** (like Claude Code, 2026-11-06).
 Each job goes on a watch list (`coder/running-jobs/` in Coder's storage) when
 it starts. Every minute the Worker asks Coder's machine about each one, as its
 owner, through the same route the page uses. That keeps the machine awake (it
-sleeps after 10 quiet minutes) and saves the job when it ends: pushed to its
-branch, the whole chat kept. A tab and the minute's run never save a job twice
+sleeps after 10 quiet minutes) and saves the job when it ends: committed on its
+branch (pushed when one is due), the whole chat kept. A tab and the minute's run never save a job twice
 (the machine hands its end out once). A job leaves the list when it ends, or
 after 2 hours (a job works for 45 minutes at most).
 
@@ -2149,8 +2164,8 @@ answers `ending` (the answer is there, the turn is being saved), the page frees
 the message box; a message sent then waits in line (with its own id) and the
 save sends it as the next message, by itself. If the save ended just as it was
 put in line, the message route sends it at once (never twice: the save sends a
-lone waiting message with its id). "Saved to the branch" still comes with the
-save.
+lone waiting message with its id). "Pushed to the branch" comes with a save
+that pushes.
 
 **A turn's step times** (2026-11-15): kept with the chat (`meta.timing`, as
 milliseconds since the Worker got the message: `asked` the machine, `machine`

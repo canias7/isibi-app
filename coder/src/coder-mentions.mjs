@@ -365,7 +365,7 @@ export function finalText(job, project, events) {
   if (err && !done) lines.push("", String(err.text).slice(0, 500));
   const branch = project && project.branch;
   if (project && project.pr && project.pr.url) lines.push("", "Pull request: " + project.pr.url);
-  else if (branch && gh.some((t) => /Saved to the branch/.test(t))) lines.push("", "Branch: https://github.com/" + job.repo + "/tree/" + branch + " · [open a pull request](https://github.com/" + job.repo + "/compare/" + encodeURIComponent(project.base || "main") + "..." + encodeURIComponent(branch) + "?expand=1) or ask `@coder make a pull request`");
+  else if (branch && gh.some((t) => /(Saved|Pushed) to the branch/.test(t))) lines.push("", "Branch: https://github.com/" + job.repo + "/tree/" + branch + " · [open a pull request](https://github.com/" + job.repo + "/compare/" + encodeURIComponent(project.base || "main") + "..." + encodeURIComponent(branch) + "?expand=1) or ask `@coder make a pull request`");
   lines.push("", "Continue this chat on https://gofarther.dev");
   return lines.join("\n");
 }

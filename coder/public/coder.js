@@ -1719,7 +1719,7 @@
       S.running = !!r.data.running;
       // THE ANSWER IS SHOWN, THE TURN IS BEING SAVED (2026-11-15: the box was freed only ~4 s after the answer, once the commit,
       // push and checks were done): the box is free now (S.ending); a message sent meanwhile waits in line and goes out
-      // right after the save, by itself (the Worker's queue). "Saved to the branch" still comes when the save is done.
+      // right after the save, by itself (the Worker's queue). "Pushed to the branch" comes when a push is done.
       S.ending = S.running && (!!r.data.ending || !!S.ending);
       syncEntry();
       draw(fresh.length > 0);
@@ -1752,6 +1752,19 @@
     if (!S.project || S.project.id !== id) return;
     S.changes = r.status === 200 && r.data && Array.isArray(r.data.files) ? r.data : { files: [], add: 0, del: 0, error: (r.data && r.data.error) || '' };
     draw();
+  }
+  // PUSH (owner, 2026-11-16): the chat's unpushed commits go to its branch on GitHub; the chat then shows "Pushed to the branch".
+  async function pushBranch() {
+    if (!S.project || S.pushing) return;
+    const id = S.project.id;
+    S.pushing = true; draw();
+    const r = await call('/projects/' + encodeURIComponent(id) + '/push', { method: 'POST' });
+    S.pushing = false;
+    if (!S.project || S.project.id !== id) return;
+    if (r.status !== 200 || !r.data || !r.data.ok) { note((r.data && r.data.error) || 'The branch could not be pushed.'); draw(); return; }
+    if (r.data.project) S.project = { ...S.project, ...r.data.project };
+    if (S.showChanges) loadChanges();
+    return reloadChat(id);
   }
   async function loadCompareBranches() {
     if (!S.project) return;
@@ -3217,6 +3230,9 @@
       (p && !p.readOnly && !(p.pr && p.pr.url) && Array.isArray(p.commits) && p.commits.length ? '<button type="button" class="cd-hbtn" id="cdMakePr"' + (S.running || S.sending ? ' disabled' : '') + '>Create PR</button><button type="button" class="cd-hbtn" id="cdMakeDraft"' + (S.running || S.sending ? ' disabled' : '') + '>Create draft PR</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdEnv"' + (S.showEnv ? ' aria-pressed="true"' : '') + '>Environment</button>' : '') +
       (p ? '<button type="button" class="cd-hbtn" id="cdChanges"' + (S.showChanges ? ' aria-pressed="true"' : '') + '>See changes</button>' : '') +
+      // PUSH (owner, 2026-11-16, like Claude Code's cloud sessions): each message's work is committed on Coder's machine; this
+      // sends what GitHub does not have yet to the chat's branch.
+      (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder committed this work on its machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
       (p ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
@@ -3263,7 +3279,9 @@
       list.map((b) => '<option value="' + esc(b) + '"' + (b === pick ? ' selected' : '') + '>' + esc(b) + (b === base ? ' (base)' : '') + '</option>').join('') + '</select></div>';
     if (!c) return '<div class="cd-changes">' + bar + '<span class="cd-spin"></span></div>';
     if (!c.files.length) return '<div class="cd-changes">' + bar + '<p class="cd-changes-none">' + (c.error ? esc(c.error) : pick === base ? 'No changes yet.' : 'No differences from ' + esc(pick) + '.') + '</p></div>';
-    return '<div class="cd-changes">' + bar +
+    // (Unpushed work comes from Coder's machine; when it could not answer, GitHub's copy is shown with a note.)
+    const unp = c.note ? '<p class="cd-changes-note">' + esc(c.note) + '</p>' : c.unpushed > 0 ? '<p class="cd-changes-note">Includes ' + c.unpushed + ' commit' + (c.unpushed === 1 ? '' : 's') + ' on Coder\'s machine not pushed to GitHub yet.</p>' : '';
+    return '<div class="cd-changes">' + bar + unp +
       '<div class="cd-changes-sum">' + c.files.length + ' file' + (c.files.length === 1 ? '' : 's') + ' changed <span class="cd-add">+' + c.add + '</span> <span class="cd-del">−' + c.del + '</span>' + (pick !== base ? ' <span class="cd-compare-vs">compared with ' + esc(pick) + '</span>' : '') +
         (p.readOnly ? ' <button type="button" class="cd-hbtn cd-patch" id="cdPatch" title="This chat\'s work, from Coder\'s machine, as one patch file (git am applies it)">Download patch</button>' : '') + '</div>' +
       c.files.map((f) => '<details class="cd-file" data-path="' + esc(f.path) + '"' + (S.openFiles[f.path] ? ' open' : '') + '><summary><code>' + esc(f.path) + '</code><span class="cd-add">+' + f.add + '</span><span class="cd-del">−' + f.del + '</span></summary>' +
@@ -4746,6 +4764,7 @@
     });
     on('[data-slash]', 'mousedown', (e) => { e.preventDefault(); pickSlash(e.currentTarget.dataset.slash); });
     on('.cd-mention-i', 'mousedown', (e) => { e.preventDefault(); if (e.currentTarget.dataset.slash) return; const f = e.currentTarget.dataset.file; return S.mention && S.mention.shell ? pickShellPath(f) : pickMention(f); });
+    on('#cdPush', 'click', () => pushBranch());
     on('#cdChanges', 'click', () => { S.showChanges = !S.showChanges; if (S.showChanges) loadChanges(); draw(); });
     on('#cdCompare', 'change', (e) => { const v = e.currentTarget.value; S.compareAgainst = v === ((S.project && S.project.base) || 'main') ? '' : v; loadChanges(); });
     on('#cdModel', 'change', (e) => { const m = MODELS.find((x) => x.id === e.target.value) || MODELS[0]; S.pick = { model: m.id, effort: m.efforts.includes(S.pick.effort) ? S.pick.effort : m.effort }; savePick(); draw(); });

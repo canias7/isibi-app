@@ -397,7 +397,7 @@ test("CD304 (the owner, 2026-11-09: \"yes i want that\"; Claude Code's Claude-Se
   assert.equal(R.madeWith(link), "\n\nMade with Coder: " + link);
   assert.equal(R.madeWith(""), "\n\nMade with Coder.");
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
-  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 5, "the save, the three undos and Rewind's restore (2026-11-13)");
+  assert.equal((routes.match(/chatUrl: await chatLinkFor\(env, bucket, uid, meta, id\)/g) || []).length, 6, "the save, the three undos, Rewind's restore (2026-11-13) and a push (pushChat, 2026-11-16)");
   assert.equal((routes.match(/madeWith\(await chatLinkFor\(env, bucket, uid, meta, id\)\)/g) || []).length, 3, "the three ways a pull request is opened");
   assert.doesNotMatch(routes, /"\\n\\nMade with Coder\."/);
 });

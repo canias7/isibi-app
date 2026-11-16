@@ -69,12 +69,12 @@ test("CD112 a job keeps going with no tab open, like Claude Code: it goes on the
   assert.deepEqual(meta.commits.map((c) => c.sha), ["abc1234"]);
   const events = JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/events.json"));
   assert.deepEqual(events.map((e) => e.type), ["user", "done", "github"], "the whole job is kept in the chat");
-  assert.equal(events[2].text, "Saved to the branch coder/" + id);
+  assert.equal(events[2].text, "Pushed to the branch coder/" + id);
   assert.equal(JSON.parse(bucket.m.get("coder/" + uid + "/" + id + "/messages.json")).length, 2, "Coder remembers it next time");
   // COMING BACK: the chat opens as saved. A tab still open from before loads the saved chat once.
   const back = await (await go("projects/" + id)).json();
   assert.equal(back.project.status, "idle");
-  assert.equal(back.events.at(-1).text, "Saved to the branch coder/" + id);
+  assert.equal(back.events.at(-1).text, "Pushed to the branch coder/" + id);
   const late = await (await go("projects/" + id + "/state?since=1")).json();
   assert.equal(late.running, false);
   assert.equal(late.reload, true, "saved elsewhere: the page loads the saved chat");

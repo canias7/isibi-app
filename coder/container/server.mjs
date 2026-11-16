@@ -1938,7 +1938,7 @@ async function gitNet(dir, args, o, waits = GIT_NET_WAITS) {
   }
   return r;
 }
-export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS }) {
+export async function prepareRepo({ dir, repo, base, branch, token, headers = [], remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, refresh = true }) {
   const url = remote + repo + ".git";
   const gitDir = gitDirFor(dir, gitRoot);
   const o = { gitDir, remote, root };
@@ -2019,8 +2019,15 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // history. A new plain file: never written through a link left with its name.
     await writeNew(join(dir, ".git"), "gitdir: " + gitDir + "\n");
   }
-  const remoteHas = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers }, netWaits);
   const cur = (await gitIn(dir, ["rev-parse", "--abbrev-ref", "HEAD"], o)).stdout.trim();
+  // NO LOOK AT GITHUB ON EVERY MESSAGE (owner, 2026-11-16; Claude Code's cloud session clones once and works from its copy):
+  // the chat's copy here, on its branch and already brought up to date once for that branch (FETCHED_MARK), is used as it is.
+  // Coder's Worker asks for a fresh look (`refresh`) only when the branch could have changed outside the chat: a job from
+  // GitHub (auto-fix, @coder, a review), the chat's first message, or a branch it moved to.
+  const mark = join(gitDir, FETCHED_MARK);
+  const marked = hadCopy ? (await readFile(mark, "utf8").catch(() => "")).trim() : "";
+  if (!refresh && hadCopy && cur === branch && marked === branch) return finishPrepare({ dir, repo, gitDir, o, root, note: "", asIs: true });
+  const remoteHas = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers }, netWaits);
   // GITHUB STILL BUSY OR AWAY, AND THE CHAT'S COPY HERE ON ITS BRANCH (round 5): the turn goes on with that copy, as the last
   // message left it, and the chat says so (`note`). Coder's work is pushed at the end as always. Claude Code's cloud session
   // never asks GitHub again after its first clone. A new chat (no copy yet) or a real refusal still ends the turn.
@@ -2043,6 +2050,12 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     const co = await checkout(["-q", "-B", branch]);
     if (co.refused) return { ok: false, why: co.output };
   }
+  // (Brought up to date for this branch: later messages use the copy as it is, until a fresh look is asked for.)
+  if (!note) await writeFile(mark, branch + "\n").catch(() => {});
+  return finishPrepare({ dir, repo, gitDir, o, root, note });
+}
+/** The end of prepareRepo: the work tree to the AI's user and the copy's `origin`, then its answer (`asIs`: no look at GitHub). */
+async function finishPrepare({ dir, repo, gitDir, o, root, note, asIs = false }) {
   if (DEV) {
     // The work tree to `dev`, never a file that has another name somewhere else;
     // the git folder stays root's, readable by all.
@@ -2062,8 +2075,10 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     await gitIn(dir, ["config", "remote.origin.url", origin], o);
     await gitIn(dir, ["config", "--replace-all", "remote.origin.fetch", "+refs/heads/*:refs/remotes/origin/*"], o);
   }
-  return { ok: true, ...(note ? { note } : {}) };
+  return { ok: true, ...(note ? { note } : {}), ...(asIs ? { asIs: true } : {}) };
 }
+/** The file in a chat's git folder naming the branch its copy was last brought up to date for (prepareRepo's `refresh`). */
+export const FETCHED_MARK = "coder-fetched";
 /**
  * WHAT THE CHAT IS TOLD OF ONE OF ITS OTHER REPOSITORIES once prepareRepo answered `p`: its note when it opened with one,
  * nothing when it simply opened, and why when it could not be opened. (Round 6 of the live test, 2026-11-12: round 5's note
@@ -2193,7 +2208,7 @@ async function saveSubmodules(dir, k, o) {
   return left;
 }
 
-export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS }) {
+export async function pushRepo({ dir, repo, branch, token, headers = [], message, trailer = "", remote = DEFAULT_REMOTE, gitRoot = GIT_ROOT, root = PROJECT_ROOT, noPush = false, netWaits = GIT_NET_WAITS, commitOnly = false }) {
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   // THE AUDIT (2026-11-06): a project folder that fails the check is refused
   // before anything is read, and nothing of the AI's user runs while root works.
@@ -2232,6 +2247,14 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
     const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
     return { ok: true, pushed: false, kept: true, changed: committed, ...(sha ? { sha } : {}), ...(committed ? await commitFiles(dir, o) : {}), ...told };
   }
+  // COMMITTED HERE, NOT PUSHED YET (owner, 2026-11-16; Claude Code's cloud session pushes "when Claude reaches a stopping
+  // point", not after every message): the turn's commit stays on this machine's disk, and `unpushed` says how many of the
+  // branch's commits GitHub does not have yet. Coder's Worker pushes them later (Coder's push_branch, the Push button, before a
+  // pull request, a job from GitHub, a deleted chat, or its safety net).
+  if (commitOnly) {
+    const sha = committed ? (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim() : "";
+    return { ok: true, pushed: false, local: true, changed: committed, ...(sha ? { sha } : {}), unpushed: await unpushedCount(dir, o), ...(committed ? await commitFiles(dir, o) : {}), ...told };
+  }
   // NOTHING OF CODER'S OWN TO SEND (a job like "hi" on a fresh branch): no push at all.
   if (!committed) {
     const own = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
@@ -2242,10 +2265,19 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   const url = remote + repo + ".git";
   // (GitHub busy for a moment: tried again, as at the start of a turn, round 5.)
   const p = await gitNet(dir, ["push", "--no-verify", url, "HEAD:refs/heads/" + branch], { ...o, token, headers }, netWaits);
-  if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), ...told };
+  if (p.code !== 0) return { ok: false, pushed: false, why: "could not push: " + p.output.slice(0, 300), unpushed: await unpushedCount(dir, o), ...told };
   const sha = (await gitIn(dir, ["rev-parse", "HEAD"], o)).stdout.trim();
+  // What GitHub now has is origin's (the push goes by Coder's own address, which moves no ref here): nothing left unpushed.
+  await gitIn(dir, ["update-ref", "refs/remotes/origin/" + branch, "HEAD"], o);
   // `changed`: this job changed files (a new commit), so there is new work to show.
-  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, ...(committed ? await commitFiles(dir, o) : {}), ...told };
+  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
+}
+/** How many of the copy's commits GitHub does not have yet (none of origin's branches holds them); 0 when git cannot say. */
+export async function unpushedCount(dir, o) {
+  if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return 0;
+  const r = await gitIn(dir, ["rev-list", "--count", "HEAD", "--not", "--remotes=origin"], o);
+  const n = Number(String(r.stdout ?? r.output).trim());
+  return r.code === 0 && Number.isInteger(n) && n >= 0 ? n : 0;
 }
 /** The most paths commitFiles names. */
 export const COMMIT_FILES_MAX = 1000;
@@ -3692,7 +3724,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
         t.timing.cloneStart = Date.now();
-        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true });
+        const prep = await prepareRepo({ dir, repo: String(body.repo), base: String(body.base || "main"), branch: String(body.branch || "coder/" + project), ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: body.readOnly === true, refresh: body.fetch !== false });
         t.timing.cloneEnd = Date.now();
         if (!prep.ok) return fail(502, prep.why);
         if (prep.note) t.events.push({ at: Date.now(), type: "note", text: prep.note });
@@ -3714,7 +3746,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     for (const [i, x] of extraRepos(body).entries()) {
       const xdir = join(root, project + "-x" + (i + 1));
       try {
-        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true });
+        const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true, refresh: body.fetch !== false });
         if (p.ok) extras.push({ ...x, dir: xdir });
         const said = extraRepoEvent(x.repo, p);
         if (said) t.events.push({ at: Date.now(), ...said });
@@ -5241,13 +5273,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const go = await quietly();
         if (!go) return send(200, { ok: false, pushed: false, why: NOT_STOPPED });
         try {
-        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: body.noPush === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
+        // (`commitOnly`: the turn's end commits here and pushes nothing; owner, 2026-11-16.)
+        const commitOnly = body.commitOnly === true;
+        const main = await pushRepo({ dir: join(root, project), repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: body.noPush === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root });
         // The chat's other repositories are saved the same way, each to the chat's branch in its own repository.
         const extra = [];
         for (const [i, x] of extraRepos(body).entries()) {
           const xdir = join(root, project + "-x" + (i + 1));
           if (!(await stat(join(gitDirFor(xdir, gitRoot), "HEAD")).then(() => true, () => false))) continue;
-          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
+          const r = await pushRepo({ dir: xdir, repo: x.repo, branch: x.branch, message: String(body.message || ""), trailer: chatTrailer(body.chatUrl), noPush: x.readOnly === true, commitOnly, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root }).catch((e) => ({ ok: false, pushed: false, why: String((e && e.message) || e).slice(0, 200) }));
           extra.push({ repo: x.repo, ...r });
         }
         return send(200, extra.length ? { ...main, extra } : main);

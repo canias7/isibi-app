@@ -181,8 +181,8 @@ test("CD131 for real, with git: the machine fetches and pushes through Coder's W
 test("CD132 wiring: every job, save, Undo and Rewind sends the machine the pass, never the login; the machine uses it only as the real service; a sleeping Fly.io machine keeps its whole disk (and the setup does not run again), and says so", async () => {
   const routes = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
   assert.doesNotMatch(routes, /token: t\.token/, "the login never goes to the machine");
-  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort/, "a job: its new turn's pass");
-  assert.equal((routes.match(/git: await gitAccess\(env, uid, id, meta\.turn\)/g) || []).length, 6, "the save, Coder's own Undo, the Undo button, Rewind, Rewind's restore (2026-11-13), a read-only chat's See changes");
+  assert.match(routes, /git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), fetch: fetchWanted\(meta, \{ fromGithub: body\.fromGithub === true, autofix: body\.autofix === true, review \}\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort/, "a job: its new turn's pass");
+  assert.equal((routes.match(/git: await gitAccess\(env, uid, id, meta\.turn\)/g) || []).length, 7, "the save, Coder's own Undo, the Undo button, Rewind, Rewind's restore (2026-11-13), See changes from the machine, a push (pushChat, 2026-11-16)");
   const worker = readFileSync(new URL("../worker.js", import.meta.url), "utf8");
   assert.match(worker, /\} else if \(url\.pathname\.startsWith\(GIT_PATH\)\) \{[\s\S]{0,200}res = await handleGit\(request, env\);/);
   // The machine: the Worker's git only as the real service, and only a plain https Worker address with plain headers.

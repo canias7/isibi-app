@@ -93,7 +93,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
   // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
   // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
-  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "notify", "auto_fix", "reply_review", "rename_chat"];
+  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "push_branch", "notify", "auto_fix", "reply_review", "rename_chat"];
   const { CODER_TOOLS } = await import("../container/coder-agent.mjs");
   assert.deepEqual(CODER_TOOLS.map((t) => t.function.name), all);
   // (Since 2026-11-14, Claude Code's tool search: the tools it defers are named in a note and sent once loaded, and tool_search
@@ -118,7 +118,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -302,12 +302,28 @@ test("CD10 the routes: connect GitHub, list repos, a project per repo, a turn, t
     let got;
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.status, "idle");
-    // PUSHED, BUT NO PULL REQUEST until the user presses the button (owner, 2026-11-05).
+    // COMMITTED ON CODER'S MACHINE, NOT PUSHED (owner, 2026-11-16): the turn ends without a push; the chat counts it.
     assert.equal(got.project.pr, null);
-    assert.equal(got.project.pushed, true);
+    assert.equal(got.project.pushed, false);
+    assert.equal(got.project.unpushed, 1);
+    assert.ok(got.project.unpushedSince > 0);
+    assert.equal(got.project.commits.length, 1);
+    assert.equal(got.project.commits[0].local, true);
+    assert.throws(() => git(bare, "show", "coder/" + id + ":index.html"), "nothing reached GitHub yet");
+    assert.ok(!got.events.some((e) => e.type === "github" && /to the branch coder\//.test(e.text)));
+    // THE PUSH BUTTON sends it, and the chat says "Pushed to the branch".
+    const pu = await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json();
+    assert.equal(pu.ok, true);
+    assert.equal(pu.project.unpushed, 0);
+    assert.equal(pu.project.pushed, true);
+    assert.equal(pu.project.commits[0].local, undefined);
     assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
     assert.equal(git(bare, "log", "-1", "--format=%s", "coder/" + id).trim(), "Made index.html.");
-    assert.ok(got.events.some((e) => e.type === "github" && /Saved to the branch coder\//.test(e.text)));
+    const saved = await (await go("projects/" + id)).json();
+    assert.equal(saved.events.at(-1).text, "Pushed to the branch coder/" + id);
+    // (Pushed again with nothing new: nothing changes.)
+    const again = await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json();
+    assert.deepEqual([again.ok, again.pushed, again.project.unpushed], [true, false, 0]);
     assert.ok(!ghFake.calls.some(([m, u]) => m === "POST" && u === "https://api.github.com/repos/ana/shop/pulls"), "a pull request opened on its own");
     // "Create pull request" opens it.
     const made = await (await go("projects/" + id + "/pr", { method: "POST", body: "{}" })).json();
@@ -467,7 +483,7 @@ test("CD16 the model picker: Grok 4.7 with its effort levels, sent to Grok as re
   // (2026-11-09: in Gloopy's chat, the files attached go with it too, by their ids.)
   assert.match(ui, /body: JSON\.stringify\(\{ mid, text, comments, images: pics\.map\(\(x\) => \(\{ type: x\.type, data: x\.data \}\)\), \.\.\.\(att\.length \? \{ files: att\.map\(\(f\) => f\.id\) \} : \{\}\), model: S\.pick\.model, effort: S\.pick\.effort, \.\.\.\(opts && opts\.card \? \{ card: true \} : \{\}\), \.\.\.\(opts && opts\.marked \? \{ marked: opts\.marked \} : \{\}\), \.\.\.\(opts && opts\.taught \? \{ taught: opts\.taught \} : \{\}\), \.\.\.\(GLOOPY \? \{ tz: deviceZone\(\) \} : \{\}\) \}\)/);
   // The pick's effort goes along; `model` carries the Grok pass, and with one model the machine takes Grok 4.7 (CD145).
-  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: modelNow, [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
+  assert.match(readFileSync(HERE("src/coder-routes.mjs"), "utf8"), /const pick = pickModel\(body\.model \|\| saved\.model, body\.effort \|\| savedEffort\(saved\)\);[\s\S]{0,10000}?r = await post\("\/turn", \{ start: claim\.id, secrets, egress, live, model: modelNow, [^}]*git: await gitAccess\(env, uid, id, meta\.turn \+ 1\), fetch: fetchWanted\(meta, \{ fromGithub: body\.fromGithub === true, autofix: body\.autofix === true, review \}\), \.\.\.\(meta\.readOnly \? \{ readOnly: true \} : \{\}\), effort: pick\.effort, prefs: machinePrefs\(saved\), hooks: machineHooks\(saved\), autoMode: machineAutoMode\(saved\), memory, setup, github: body\.fromGithub === true, away: [^}]*, lastJob: lastJobFor\(meta\), environment, envMoved: meta\.envMoved === true, cache: \{ make: copyOn && !copyWait, \.\.\.\(copyWait \? \{ note: copyWait \} : \{\}\) \}, \.\.\.\(next\.jobReplyTo \? \{ replyTo: next\.jobReplyTo \} : \{\}\) \}, useCopy \? /);
 });
 
 test("CD17 chats: each is its own session (two on one repo get their own id and branch), titled by the first message, listed with status and pull request; See changes reads GitHub; a chat can be removed", async () => {
@@ -1206,6 +1222,8 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
     for (let i = 0; i < 80; i++) { got = await (await go("projects/" + id + "/state?since=0")).json(); if (got.project.status !== "running") break; await new Promise((r) => setTimeout(r, 50)); }
     assert.equal(got.project.commits.length, 1);
     assert.equal(got.project.commits[0].title, "Made index.html.");
+    // (Committed on Coder's machine; the Push button sends it, owner 2026-11-16.)
+    assert.equal((await (await go("projects/" + id + "/push", { method: "POST", body: "{}" })).json()).ok, true);
     assert.equal(git(bare, "show", "coder/" + id + ":index.html"), "<h1>Hi</h1>\n");
     const before = git(bare, "rev-parse", "coder/" + id).trim();
     const u = await (await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).json();
