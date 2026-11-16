@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: A "changed files" box under Coder's answer
+
+Like Claude Code on the web: after a turn that changed files, a small box under Coder's answer says "Created 2 files" (or "Edited 1 file" / "Changed N files"), with a row per file (its name, and +added −removed lines). More than three files: the first two and "See all", which opens See changes. "Undo" on the latest turn puts the files back as they were before your message (the same as Rewind's "Restore code only"), without asking; it is hidden when there is nothing to undo or a newer turn exists. Only in Coder's chat, not Gloopy's. Tests added (files-box.test.mjs).
+
 ## 2026-11-16: Three grey notes gone from the chat
 
 From your screenshot: (1) "Not signed in yet: Neon…" no longer shows on every message; Coder still knows and tells you only when your request needs that connector. (2) "Setup: Fly.io is saving a copy…" no longer shows; the saving still happens quietly. (3) "Ran setup …" is no longer a step in the chat; the start-up line already says "Ran setup script". If the setup fails, the step still shows so you can see why. Tests updated and added.
