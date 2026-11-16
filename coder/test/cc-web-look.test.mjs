@@ -103,24 +103,15 @@ test("in Chromium: rows under messages, copy, thumbs, rewind, Working… counter
     await page.click('#gfApp [data-rate="down"]');
     assert.equal(await page.getAttribute('#gfApp [data-rate="up"]', "aria-pressed"), "false");
     assert.equal(await page.getAttribute('#gfApp [data-rate="down"]', "aria-pressed"), "true");
-    // 4. The panel: open by default at 1400px, with the environment, repository, branch and 2 connectors on.
-    await page.waitForSelector("#gfApp .cd-rpanel #cdRpConn:has-text('2 connected')");
-    const panel = await page.textContent("#gfApp .cd-rpanel");
-    for (const w of ["Environment", "Default", "ana/shop", "coder/c1", "Context", "Connectors"]) assert.ok(panel.includes(w), w);
-    assert.ok(!/%/.test(panel), "no percent when the page does not know it");
-    await shot(page, "p-panel.png");
+    // 4. No panel on the right (owner, 2026-11-16: "dont put this pls, i dont like it"), and no button for it.
+    await page.waitForTimeout(300);
+    assert.equal(await page.locator("#gfApp .cd-rpanel").count(), 0);
+    assert.equal(await page.locator("#gfApp #cdRpToggle").count(), 0);
     // Rewind opens the rewind window for that message.
     await page.click("#gfApp .cd-meta-u [data-rewind-to]");
     await page.waitForSelector(".cd-sure-box:has-text('Rewind to this message?')");
     await shot(page, "p-rewind.png");
     await page.keyboard.press("Escape");
-    await page.locator(".cd-sure").evaluateAll((w) => w.forEach((x) => x.remove()));
-    // Clicking Environment opens the Environment window; Connectors its window.
-    await page.click("#gfApp #cdRpEnv");
-    await page.waitForSelector("#gfApp #cdEnv[aria-pressed='true']");
-    await page.click("#gfApp #envClose").catch(() => {});
-    await page.click("#gfApp #cdRpConn");
-    await page.waitForSelector(".cx-chat");
     await page.locator(".cd-sure").evaluateAll((w) => w.forEach((x) => x.remove()));
     // 1 and 3. A message: "Working… Ns" counting, the box's words, Stop stays.
     await page.fill("#cdIn", "Run the tests");
@@ -135,16 +126,8 @@ test("in Chromium: rows under messages, copy, thumbs, rewind, Working… counter
     assert.equal(await page.locator("#gfApp #cdStop").count(), 1);
     assert.equal(await page.locator("#gfApp .cd-meta-u .cd-meta-t").last().textContent(), "✓ Just now");
     await shot(page, "p-working.png");
-    // The panel closes from the bar, and stays closed on the next visit.
-    await page.click("#gfApp #cdRpToggle");
-    assert.equal(await page.locator("#gfApp .cd-rpanel").count(), 0);
-    assert.equal(await page.evaluate(() => localStorage.getItem("cd.rpanel")), "0");
-    await shot(page, "p-panel-closed.png");
     assert.deepEqual(errors, []);
     await page.context().close();
-    const again = await openPage(browser, { store: "0" });
-    assert.equal(await again.page.locator("#gfApp .cd-rpanel").count(), 0);
-    await again.page.context().close();
   } finally { await browser.close(); }
 });
 

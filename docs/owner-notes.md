@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: The panel on the right is gone
+
+You said "dont put this pls, i dont like it". The panel on the right (Environment, Connectors, branch) and its button no longer show. Environment and Connectors stay where they were, in the bar above the message box. Tests check that the panel and its button are not on the page.
+
 ## 2026-11-16: "Setting up a cloud container" now really shows on a new chat
 
 - Live, the step was skipped: while Coder's computer was starting, the server waited about 5 seconds for it to answer before telling the page anything, so the step was already over. Now, in a job's first minute, the server stops waiting after 1.2 seconds and says the computer is still being set up.

@@ -2831,6 +2831,8 @@
   }
   // THE RIGHT-HAND PANEL (desktop, 1100px and wider, like Claude Code on the web): Environment, Context and Connectors; open
   // unless the owner closed it (remembered on this browser).
+  // THE RIGHT PANEL IS OFF (owner, 2026-11-16: "dont put this pls, i dont like it"): its code stays, switched off here.
+  const RPANEL = false;
   function rpOpen() { try { return localStorage.getItem('cd.rpanel') !== '0'; } catch (er) { return true; } }
   function rpSet(on) { try { localStorage.setItem('cd.rpanel', on ? '1' : '0'); } catch (er) { /* no storage */ } }
   function rpConnLoad() {
@@ -3314,7 +3316,7 @@
       // PUSH (owner, 2026-11-16, like Claude Code's cloud sessions): each message's work is committed on Coder's machine; this
       // sends what GitHub does not have yet to the chat's branch.
       (p && !p.readOnly && Number(p.unpushed) > 0 ? '<button type="button" class="cd-hbtn" id="cdPush" title="Coder committed this work on its machine. Push sends it to the branch ' + esc(p.branch) + ' on GitHub."' + (S.running || S.sending || S.pushing ? ' disabled' : '') + '>' + (S.pushing ? 'Pushing…' : 'Push · ' + Number(p.unpushed) + ' unpushed') + '</button>' : '') +
-      (p ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
+      (p && RPANEL ? '<button type="button" class="cd-rp-tog" id="cdRpToggle" aria-label="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" title="' + (rpOpen() ? 'Hide' : 'Show') + ' the side panel" aria-pressed="' + rpOpen() + '">' + META_ICON.panel + '</button>' : '') +
     '</div>' +
     (S.showChanges ? changesHTML() : '') + (S.showEnv ? envHTML() : '');
   }
@@ -4154,7 +4156,7 @@
     const askAt = askEl && askEl.closest('.cd-ask') && askEl.closest('.cd-ask-one') ? { at: askEl.closest('.cd-ask').dataset.ask, q: askEl.closest('.cd-ask-one').dataset.q, cls: askEl.classList.contains('cd-ask-note') ? 'cd-ask-note' : 'cd-ask-in', a: askEl.selectionStart, b: askEl.selectionEnd } : null;
     // (A plan being edited on its card keeps its cursor and scroll through the redraws too. 2026-11-14.)
     const planAt = document.activeElement && document.activeElement.dataset && document.activeElement.dataset.planText ? { pid: document.activeElement.dataset.planText, a: document.activeElement.selectionStart, b: document.activeElement.selectionEnd, d: document.activeElement.selectionDirection, top: document.activeElement.scrollTop } : null;
-    const rp = S.phase === 'chat' && !GLOOPY && S.project && rpOpen() ? rpanelHTML() : '';
+    const rp = RPANEL && S.phase === 'chat' && !GLOOPY && S.project && rpOpen() ? rpanelHTML() : '';
     root.innerHTML = '<div class="cd' + (rp ? ' rp-open' : '') + '">' + (S.phase === 'chat' ? '' : '<div class="cd-head cd-head-min"><button type="button" class="cd-menu" id="cdMenu" aria-label="Chats">☰</button></div>') + bodyHTML() + rp + '</div>';
     if (!GLOOPY && !S.metaTimer) S.metaTimer = setInterval(metaTick, 1000);
     drawSide();
