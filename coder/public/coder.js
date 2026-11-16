@@ -2707,6 +2707,8 @@
       else if (e.type === 'secret') out.push(keyCardHTML(e, i));
       // (A connector's question for you, MCP elicitation: elicitHTML.)
       else if (e.type === 'elicit') out.push(elicitHTML(e, i));
+      // (Claude Code's "Suggested connectors" card, after a connector search: suggestHTML.)
+      else if (e.type === 'connectors_suggest') { if (!GLOOPY) out.push(suggestHTML(e)); }
       else if (e.type === 'todo') { if (S.events.slice(i + 1).some((x) => x.type === 'todo')) return; out.push(todoHTML(e)); }
       // STOPPED, AND GOING ON FROM THERE (the docs, 2026-11-10; dots' Pause stops the current task, Resume continues it):
       // on Gloopy's last stop, while nothing came after it, a Resume button.
@@ -3867,6 +3869,59 @@
     if (c === 'gone') return '<span class="cd-perm-no">Closed</span> · the MCP server stopped waiting for an answer';
     return '<span class="cd-perm-no">' + (c === 'stop' ? 'Stopped' : 'No answer') + '</span>';
   };
+  // CLAUDE CODE'S "SUGGESTED CONNECTORS" CARD (owner, 2026-11-16): after Coder searches for connector tools, the owner's
+  // connectors, each with its logo, its name and one button: Connect (not signed in), Use (working but off in this chat),
+  // Reconnect (can't be reached, with a red line), On for one already in use; then "Browse more connectors". States come
+  // from this chat's connectors (S.sgConn), loaded once per chat and again after a press.
+  function sgLoad(force) {
+    const id = S.project && S.project.id;
+    if (!id || (!force && S.sgConn && S.sgConn.id === id)) return;
+    S.sgConn = { id, list: (S.sgConn && S.sgConn.id === id && S.sgConn.list) || null, note: (S.sgConn && S.sgConn.note) || '' };
+    call('/projects/' + encodeURIComponent(id) + '/connectors').then((r) => {
+      if (!S.sgConn || S.sgConn.id !== id) return;
+      S.sgConn.list = r && r.status === 200 && r.data && Array.isArray(r.data.connectors) ? r.data.connectors : [];
+      S.sgConn.allOff = !!(r && r.data && r.data.allOff === true);
+      draw();
+    });
+  }
+  const sgState = (c) => c.status === 'auth' ? 'connect' : c.status === 'error' ? 'reconnect' : (c.on === false || c.status === 'disabled') ? 'use' : 'on';
+  function suggestHTML(e) {
+    sgLoad(false);
+    const list = S.sgConn && S.sgConn.list;
+    const btn = { connect: 'Connect', use: 'Use', reconnect: 'Reconnect' };
+    const rows = list === null || list === undefined ? '<div class="cd-sg-wait">Loading your connectors…</div>' : list.map((c) => {
+      const st = sgState(c);
+      return '<div class="cd-sg-row" data-sg-state="' + st + '">' + cxBadge(c.name) + '<div class="cd-sg-name"><b>' + esc(c.name) + '</b>' +
+        (st === 'reconnect' ? '<span class="cd-sg-err">Can’t reach ' + esc(c.name) + ' right now. It may need to be reconnected.</span>' : '') + '</div>' +
+        (st === 'on' ? '<span class="cd-sg-on">On</span>' : '<button type="button" class="cd-sg-btn" data-sg-act="' + st + '" data-sg-id="' + esc(c.id) + '">' + btn[st] + '</button>') + '</div>';
+    }).join('');
+    return '<div class="cd-sg"><div class="cd-sg-head"><b>Suggested connectors</b></div>' + rows +
+      (S.sgConn && S.sgConn.note ? '<div class="cd-sg-note" role="status">' + esc(S.sgConn.note) + '</div>' : '') +
+      '<button type="button" class="cd-sg-more" data-sg-act="browse">Browse more connectors <span aria-hidden="true">↗</span></button></div>';
+  }
+  async function sgPress(act, id) {
+    if (act === 'browse') return showConnectors();
+    const pid = S.project && S.project.id, list = (S.sgConn && S.sgConn.list) || [], c = list.find((y) => y.id === id);
+    if (!pid || !c) return;
+    const say = (t) => { if (S.sgConn) S.sgConn.note = t; draw(); };
+    if (act === 'use') {
+      if (c.status === 'disabled') { const x = await call('/connectors/' + encodeURIComponent(id) + '/state', { method: 'POST', body: JSON.stringify({ disabled: false }) }); if (x.status !== 200) return say((x.data && x.data.error) || 'Not saved.'); }
+      const off = list.filter((y) => y.on === false && y.id !== id).map((y) => y.id);
+      const toolsOff = list.flatMap((y) => (y.tools || []).filter((t) => t.on === false).map((t) => y.id + ':' + t.name));
+      const x = await call('/projects/' + encodeURIComponent(pid) + '/connectors', { method: 'POST', body: JSON.stringify({ off, toolsOff }) });
+      if (x.status !== 200) return say((x.data && x.data.error) || 'Not saved.');
+      S.sgConn.list = (x.data && x.data.connectors) || list.map((y) => (y.id === id ? { ...y, on: true, status: y.status === 'disabled' ? 'ok' : y.status } : y));
+      return say(c.name + ' is on for this session.');
+    }
+    // Connect and Reconnect: the Connectors page's own sign-in (a sign-in page, or a check of the server).
+    say((act === 'connect' ? 'Connecting ' : 'Reconnecting ') + c.name + '…');
+    const x = await call('/connectors/' + encodeURIComponent(id), { method: 'POST', body: '{}' });
+    if (x.status !== 200) return say((x.data && x.data.error) || c.name + ' could not be connected.');
+    if (x.data && x.data.signIn) { say('Opening its sign-in…'); window.location.href = x.data.signIn; return; }
+    const k = x.data && x.data.connector;
+    S.sgConn.note = k && k.status === 'ok' ? c.name + ' is connected.' : c.name + ': ' + ((k && k.error) || 'still can’t be reached.');
+    sgLoad(true);
+  }
   function elicitHTML(e, i) {
     const ans = S.events.find((x) => x.type === 'permanswer' && x.pid === e.pid);
     // (Live while its step waits: the job runs, the card is unanswered and the job that showed it has not ended.)
@@ -4722,6 +4777,7 @@
       const a = await call('/projects/' + encodeURIComponent(S.project.id) + '/answer', { method: 'POST', body: JSON.stringify({ pid: card.dataset.elicitPid, choice, ...(content ? { content } : {}) }) });
       if (a.status !== 200) { btns.forEach((b) => { b.disabled = false; }); elSay(card, (a.data && a.data.error) || 'Your answer could not be sent. Try again.'); }
     };
+    on('.cd-sg [data-sg-act]', 'click', (e) => { const b = e.currentTarget; sgPress(b.dataset.sgAct, b.dataset.sgId || ''); });
     on('.cd-elicit [data-el-decline]', 'click', (e) => { const c = elCard(e.currentTarget); if (c) elSend(c, 'decline'); });
     on('.cd-elicit [data-el-accept]', 'click', (e) => {
       const c = elCard(e.currentTarget), ev = c && elEvent(c);

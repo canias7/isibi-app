@@ -1467,6 +1467,16 @@ export const CONNECTOR_DESC_KEPT = 100_000;
 export function deferConnectors(tools) {
   return JSON.stringify(tools.map((t) => [t.name, String(t.description).slice(0, CONNECTOR_DESC_UPFRONT), t.parameters])).length > CONNECTOR_UPFRONT_CHARS;
 }
+/**
+ * CLAUDE CODE'S "SUGGESTED CONNECTORS" CARD (owner, 2026-11-16): when Coder searches for connector tools (a tool_search that
+ * names connectors, MCP or an integration, or one that finds nothing), the chat shows the owner's connectors, each with
+ * Connect, Use or Reconnect. True when a search should show it.
+ */
+export function suggestConnectorsFor(query, foundCount) {
+  const q = String(query || "").trim();
+  if (!q || /^select:/i.test(q)) return false;
+  return /\b(connectors?|mcp|integrations?)\b/i.test(q) || !foundCount;
+}
 export function searchTool(tools) {
   return { type: "function", function: { name: "connector_search",
     description: "Find the owner's connector tools (MCP) you need, then call them. Their full descriptions are not loaded yet; these are their names:\n" + tools.map((t) => t.name + " (" + t.label + ")").join("\n").slice(0, 8000) + "\nquery: words to look for (e.g. \"linear issue\"), or \"select:<name>,<name>\" for exact names. The tools found can be called from then on.",
@@ -6827,6 +6837,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const pool = gTs ? tools : tsPool(modeNow() === "plan" ? !!(await planNow()) : !!planBox), deferred = gTs ? holding : tsDeferred(pool);
         const r = runToolSearch(c.args, { pool, deferred, hints: gTs ? null : mcpHints, descMax: descUp, failed: gTs ? [] : mcpFailed });
         toolFacts.set(c.id, r.facts);
+        if (!gTs && !github && suggestConnectorsFor(c.args && c.args.query, (r.loaded || []).length)) emit({ type: "connectors_suggest", id: c.id, query: scrub(String(c.args.query || "")).slice(0, 100) });
         c.tsAnswer = (v) => toolSearchAnswer(v, { pool, deferred });
         c.keepTail = r.note ? "\n\n(Note from Coder's app, not the owner: " + r.note + ")" : "";
         reply(r.text + c.keepTail, { toolsLoaded: r.loaded, ...(r.defs.length ? { toolDefs: r.defs } : {}) });

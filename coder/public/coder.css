@@ -1380,3 +1380,22 @@ button.cd-vault-tab:hover:not(.is-on){background:#f6f6f6}
 #gfApp .cd-init-list li { display: flex; gap: 10px; padding: 2px 0; }
 #gfApp .cd-init-list b { font-weight: 500; font-variant-numeric: tabular-nums; color: #a3a7ae; }
 @media (prefers-reduced-motion: reduce) { #gfApp .cd-boot-w, #gfApp .cd-wait-dots i { animation: none; } }
+/* Claude Code's "Suggested connectors" card (2026-11-16) */
+#gfApp .cd-sg { border: 1px solid #e5e3dd; border-radius: 14px; background: #fff; margin: 8px 0; padding: 6px 0; max-width: 560px; }
+#gfApp .cd-sg-head { display: flex; align-items: center; gap: 8px; padding: 8px 16px 6px; font-size: 14px; }
+#gfApp .cd-sg-beta { font-size: 11px; color: #6b6760; border: 1px solid #e0ddd6; border-radius: 6px; padding: 0 6px; line-height: 18px; }
+#gfApp .cd-sg-row { display: flex; align-items: center; gap: 12px; padding: 8px 16px; }
+#gfApp .cd-sg-name { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; font-size: 14px; }
+#gfApp .cd-sg-name b { font-weight: 500; }
+#gfApp .cd-sg-err { color: #c4362b; font-size: 12.5px; }
+#gfApp .cd-sg-btn { flex: none; border: 1px solid #dcd8d0; background: #fff; border-radius: 8px; padding: 5px 12px; font: inherit; font-size: 13px; cursor: pointer; color: #1f1e1c; }
+#gfApp .cd-sg-btn:hover { background: #f5f3ef; }
+#gfApp .cd-sg-on { flex: none; font-size: 13px; color: #6b6760; padding: 5px 4px; }
+#gfApp .cd-sg-wait, #gfApp .cd-sg-note { padding: 8px 16px; font-size: 13px; color: #6b6760; }
+#gfApp .cd-sg-more { display: block; width: 100%; text-align: left; border: 0; border-top: 1px solid #efece6; margin-top: 4px; background: none; padding: 10px 16px 6px; font: inherit; font-size: 13.5px; color: #6b6760; cursor: pointer; }
+#gfApp .cd-sg-more:hover { color: #1f1e1c; }
+@media (prefers-color-scheme: dark) {
+  #gfApp .cd-sg { background: #262624; border-color: #3a3936; }
+  #gfApp .cd-sg-btn { background: #2f2e2b; border-color: #45433f; color: #eeece6; }
+  #gfApp .cd-sg-more { border-top-color: #3a3936; }
+}

@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: "Suggested connectors" card, like Claude Code's
+
+When Coder searches for connector tools (for example you ask "search your connector tools for anything about issues"), or its search finds nothing, the chat now shows a "Suggested connectors" card (with a small Beta tag): each of your connectors with its logo, its name and one button. Connect for one not signed in yet, Use for one that works but is off in this chat (pressing it turns it on for this chat: "Zapier is on for this session."), Reconnect for one that can't be reached, with a red line "Can't reach Neon right now. It may need to be reconnected." One already on just says On. "Browse more connectors" opens the Connectors page. Coder's tab only. Tests added.
 ## 2026-11-16: A chat no longer stays busy for minutes after Coder answers
 
 In the all-tools test, the web search answered in about 15 seconds, but the chat stayed busy for 6 more minutes. The cause: after Coder answers, one save of the turn is allowed, and if that save got cut off, nothing else could save it until the once-a-minute cleanup. Now the save can be taken again after 45 seconds, so the next look of the page finishes it. Tested in claim-lease.test.mjs.
