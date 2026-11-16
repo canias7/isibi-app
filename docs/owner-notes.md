@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder starts faster (your word: approved, the two speed fixes)
+
+On the branch, not live yet. Not tried in the browser yet: it needs your test.
+
+- **Before Coder's machine is asked** (was 1.5-2 s): the GitHub sign-in, settings, environment and memory are now read
+  the moment the message arrives, and Coder no longer reads every chat to count the busy ones (there is no limit set).
+  The times of each little step are now kept too (`w.*` in the step times), so the next live test shows what is left.
+- **A new chat's first clone** (was 3.7 s, then 2.1 s more): it asks GitHub once instead of twice and takes only the
+  newest commit; the rest of the history (50 commits, as before) comes in the background a moment later, and "See
+  changes" waits for it. The network gate starts while the clone runs, and extra repositories clone at the same time.
+  New step times (`m.repos`, `m.gate`, `m.room`, `m.box`, `m.setupEnd`) show where the rest goes.
+- **Expected:** "asked" around 0.3-0.6 s; a new chat's clone around 1-2 s; clone-to-ready shorter by the gate's start.
+
 ## 2026-11-16: Coder's answer frees the message box sooner (your word: approved)
 
 On the branch, not live yet. Not tried in the browser yet: it needs your test.

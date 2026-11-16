@@ -1969,6 +1969,9 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   }
   // (The chat's copy was here before this turn: GitHub away for a moment, the turn goes on with it.)
   const hadCopy = has;
+  // (A new clone: what GitHub said of the two branches, whether the chat's branch came with the first fetch, and the
+  // branches cloned one commit deep, deepened in the background.)
+  let firstLook = null, fetchedFirst = false, shallowNew = null;
   if (!has) {
     // A NEW CLONE goes in a folder this service makes itself (the audit, 2026-11-06).
     const pd = await makeProjectDir(dir, { root });
@@ -1984,7 +1987,8 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     // branch named r42-live"). Only when it is not there does the whole list say whether the repository is empty.
     // AN EMPTY REPOSITORY (no branches yet, found in the live test 2026-11-05):
     // nothing to fetch; Coder starts from nothing on its own branch.
-    const one = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + base], { ...o, token, headers }, netWaits);
+    // (2026-11-16: the chat's own branch asked for in the same look, so a new chat asks GitHub once, not twice.)
+    const one = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + base, ...(branch && branch !== base ? ["refs/heads/" + branch] : [])], { ...o, token, headers }, netWaits);
     if (one.code !== 0) return failed("could not reach " + repo + " on GitHub: " + one.output.slice(0, 200));
     let empty = false;
     if (!headListed(one.stdout ?? one.output, base)) {
@@ -1993,9 +1997,16 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
       empty = !String(heads.stdout ?? heads.output).trim();
       if (!empty) return failed(repo + " has no branch named " + base + ". Set its main branch on GitHub (Settings → Default branch), or add a first file to " + base + ".");
     }
+    firstLook = String(one.stdout ?? one.output);
     if (!empty) {
-      const f = await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base], { ...o, token, headers }, netWaits);
+      // A FAST FIRST CLONE (owner, 2026-11-16: the first clone took 3.7 s): only the newest commit of the main branch (and of
+      // the chat's branch when GitHub has it, in the same fetch), no tags. The rest of the history (50 commits, as before)
+      // comes in the background once the turn has begun (deepenLater); what compares with the main branch waits for it.
+      const both = branch && branch !== base && headListed(firstLook, branch);
+      const f = await gitNet(dir, ["fetch", "--depth", "1", "--no-tags", url, "+refs/heads/" + base + ":refs/remotes/origin/" + base, ...(both ? ["+refs/heads/" + branch + ":refs/remotes/origin/" + branch] : [])], { ...o, token, headers }, netWaits);
       if (f.code !== 0) return failed("could not clone " + repo + ": " + f.output.slice(0, 300));
+      fetchedFirst = both;
+      shallowNew = [base, ...(both ? [branch] : [])];
       const co = await checkout(["-q", "-B", base, "refs/remotes/origin/" + base]);
       if (co.code !== 0) return failed("could not open " + base + ": " + co.output.slice(0, 200));
     }
@@ -2027,7 +2038,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   const mark = join(gitDir, FETCHED_MARK);
   const marked = hadCopy ? (await readFile(mark, "utf8").catch(() => "")).trim() : "";
   if (!refresh && hadCopy && cur === branch && marked === branch) return finishPrepare({ dir, repo, gitDir, o, root, note: "", asIs: true });
-  const remoteHas = await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers }, netWaits);
+  const remoteHas = firstLook !== null && branch !== base ? { code: 0, stdout: headListed(firstLook, branch) ? firstLook : "", output: "" } : await gitNet(dir, ["ls-remote", "--heads", url, "refs/heads/" + branch], { ...o, token, headers }, netWaits);
   // GITHUB STILL BUSY OR AWAY, AND THE CHAT'S COPY HERE ON ITS BRANCH (round 5): the turn goes on with that copy, as the last
   // message left it, and the chat says so (`note`). Coder's work is pushed at the end as always. Claude Code's cloud session
   // never asks GitHub again after its first clone. A new chat (no copy yet) or a real refusal still ends the turn.
@@ -2038,7 +2049,7 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
     if (!onCopy(remoteHas)) return { ok: false, why: "could not reach " + repo + " on GitHub: " + remoteHas.output.slice(0, 200) };
     note = away(remoteHas);
   } else if (remoteHas.stdout.trim()) {
-    const f = await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers }, netWaits);
+    const f = fetchedFirst ? { code: 0, output: "" } : await gitNet(dir, ["fetch", "--depth", "50", url, "+refs/heads/" + branch + ":refs/remotes/origin/" + branch], { ...o, token, headers }, netWaits);
     if (f.code !== 0 && !onCopy(f)) return { ok: false, why: "could not fetch the branch " + branch + ": " + f.output.slice(0, 200) };
     if (f.code !== 0) note = away(f);
     else if (cur !== branch) {
@@ -2052,8 +2063,22 @@ export async function prepareRepo({ dir, repo, base, branch, token, headers = []
   }
   // (Brought up to date for this branch: later messages use the copy as it is, until a fresh look is asked for.)
   if (!note) await writeFile(mark, branch + "\n").catch(() => {});
-  return finishPrepare({ dir, repo, gitDir, o, root, note });
+  const done = await finishPrepare({ dir, repo, gitDir, o, root, note });
+  // THE REST OF THE HISTORY, AFTER (2026-11-16): the branches cloned one commit deep get their 50 commits in the background,
+  // as the first clone had before; localChanges (See changes, the diff against the main branch) waits for it.
+  if (done.ok && shallowNew) deepenLater(dir, () => gitNet(dir, ["fetch", "--depth", "50", "--no-tags", url, ...shallowNew.map((b) => "+refs/heads/" + b + ":refs/remotes/origin/" + b)], { ...o, token, headers }, netWaits));
+  return done;
 }
+/** The history being fetched in the background for a new clone, by its folder (deepenLater). */
+const DEEPENING = new Map();
+/** Fetch the rest of a new clone's history in the background (`run`); a failure only leaves the clone shallower. */
+export function deepenLater(dir, run) {
+  const p = Promise.resolve().then(run).catch(() => null).finally(() => { if (DEEPENING.get(dir) === p) DEEPENING.delete(dir); });
+  DEEPENING.set(dir, p);
+  return p;
+}
+/** Waits for the background history of this folder's clone, if any is still coming. */
+export async function historyReady(dir) { const p = DEEPENING.get(dir); if (p) await p; }
 /** The end of prepareRepo: the work tree to the AI's user and the copy's `origin`, then its answer (`asIs`: no look at GitHub). */
 async function finishPrepare({ dir, repo, gitDir, o, root, note, asIs = false }) {
   if (DEV) {
@@ -2840,6 +2865,8 @@ export async function localChanges({ dir, repo, against, token = "", headers = [
   if (!okBranchName(against)) return { ok: false, why: "that is not a branch name" };
   const o = { gitDir: gitDirFor(dir, gitRoot), remote, root };
   if ((await gitIn(dir, ["rev-parse", "--verify", "-q", "HEAD"], o)).code !== 0) return { ok: true, files: [] };
+  // (A new clone's history still coming in the background: the comparison needs it. 2026-11-16.)
+  await historyReady(dir);
   const ref = "refs/remotes/origin/" + against;
   if ((await gitIn(dir, ["rev-parse", "--verify", "-q", ref], o)).code !== 0) {
     const f = await gitIn(dir, ["fetch", "--depth", "50", remote + repo + ".git", "+refs/heads/" + against + ":" + ref], { ...o, token, headers });
@@ -3740,6 +3767,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       if (fresh && body.cache && typeof body.cache.note === "string" && body.cache.note.trim()) t.events.push({ at: Date.now(), type: "note", text: body.cache.note.trim().slice(0, 300) });
     }
     const dir = join(root, project);
+    // THE NETWORK GATE STARTED WHILE THE REPOSITORY IS CLONED (2026-11-16: a new chat's machine took ~2 s between its clone and
+    // being ready, starting the gate among other things): for a job that will need it (a GitHub repository with a pass, saved
+    // keys, a limited network), as below; it is only used there, after the same checks.
+    if ((body.repo && body.egress && typeof body.egress.pass === "string" && body.egress.pass) || (Array.isArray(body.secrets) && body.secrets.length) || netWalled(normNetwork(body.setup && body.setup.network))) proxyFor().catch(() => {});
     try {
       // THE USER'S REPOSITORY (GitHub): cloned when this machine does not have it, on Coder's branch.
       if (body.repo) {
@@ -3762,16 +3793,22 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     // one, prepared exactly like the first (root's own git folder, the AI's user
     // owns only the work tree), each on the chat's branch. One that cannot be
     // opened is said in the chat; the job goes on with the others.
+    // (All at once, 2026-11-16; said in the chat in their order, as before.)
     const extras = [];
-    for (const [i, x] of extraRepos(body).entries()) {
+    const extraDone = await Promise.all(extraRepos(body).map(async (x, i) => {
       const xdir = join(root, project + "-x" + (i + 1));
       try {
         const p = await prepareRepo({ dir: xdir, repo: x.repo, base: x.base, branch: x.branch, ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush: x.readOnly === true, refresh: body.fetch !== false });
-        if (p.ok) extras.push({ ...x, dir: xdir });
-        const said = extraRepoEvent(x.repo, p);
-        if (said) t.events.push({ at: Date.now(), ...said });
-      } catch (e) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((e && e.message) || e).slice(0, 160) }); }
+        return { x, xdir, p };
+      } catch (e) { return { x, xdir, err: e }; }
+    }));
+    for (const { x, xdir, p, err } of extraDone) {
+      if (err) { t.events.push({ at: Date.now(), type: "error", text: "Could not open " + x.repo + ": " + String((err && err.message) || err).slice(0, 160) }); continue; }
+      if (p.ok) extras.push({ ...x, dir: xdir });
+      const said = extraRepoEvent(x.repo, p);
+      if (said) t.events.push({ at: Date.now(), ...said });
     }
+    t.timing.repos = Date.now();
     // THE REPO'S OWN RULES (CODER.md) and THE MEMORY FOR
     // THIS REPO (kept between chats by the Worker), told to the AI each turn.
     // The memory folder sits in a root-owned place, so it cannot be swapped.
@@ -3998,13 +4035,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     if (!net.limited && fwOn) fwOn = !firewall(false, RUN_UID);
     if (!secretList.length && !net.limited && !githubOn && proxyP) { try { const p0 = await proxyP; p0.setSecrets([]); p0.setNetwork(null); p0.setGithub(false); } catch { /* not started */ } }
     // Full access: the room with its own internet link (and the pipe to the gate when saved keys need it).
+    t.timing.gate = Date.now();
     if (!net.limited) t.room = await enterRoom(px, false);
     // The master key's package installs (step 4) go through the gate when the network is limited.
     if (room) gateForApt(net.limited && px ? "http://127.0.0.1:" + px.port : "");
     // THE JOB'S ADMIN SANDBOX (owner, 2026-11-07: "finish this"), in the room; without the room, none.
     // One kept from the last message (a background command still runs in it) is used again.
+    t.timing.room = Date.now();
     if (t.room && !BOX) BOX = await openBox();
     t.box = t.room ? BOX : null;
+    t.timing.box = Date.now();
     // NEVER OUTSIDE THE ADMIN SANDBOX WHEN IT SHOULD BE ON (fix 7 of the owner's "Yes all 7", 2026-11-13; Claude Code's strict
     // sandbox mode, "no command may run outside the sandbox", and 2.1.323's "Fixed a case where the Bash sandbox could switch
     // off during a session"). Live test, 2026-11-12: after `sudo rm -rf --no-preserve-root /` in the sandbox, it could not
@@ -4161,6 +4201,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
     }
     await writeFile(lastFile, JSON.stringify({ script, net: netNow })).catch(() => {});
+    t.timing.setupEnd = Date.now();
     const awayH = Number(body.away) > 0 ? Math.round(Number(body.away) / 3600000) : 0;
     // THE OWNER'S STYLE (like Claude Code's output style: its own instructions,
     // not mixed into the memory notes): the memory's "Style:" lines, given first.

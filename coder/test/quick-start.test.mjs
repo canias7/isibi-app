@@ -41,6 +41,8 @@ test("QS1 the message's start reads Coder's storage together, not one read after
   for (let i = 0; i < 6; i++) await w.put("other-" + i, { turn: 1, saved: 1, status: "idle", at: i });
   await w.put("shop-q1", { turn: 0, saved: 0, status: "idle", at: Date.now() });
   w.bucket.st.most = 0;
+  // (Every chat is read to count those working only with a limit set, 2026-11-16: test/faster-start.test.mjs, FT1.)
+  w.env.CODER_MAX_RUNNING = "50";
   const r = await w.msg("shop-q1", { text: "Make the logo blue", mid: "mQS1aaaaaaaa" });
   assert.equal(r.status, 200, await r.clone().text());
   assert.ok(w.bucket.st.most >= 6, "reads open together: " + w.bucket.st.most);

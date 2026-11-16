@@ -583,7 +583,9 @@ export function turnTiming(worker, machine, savedAt) {
   const t0 = Number(w.got) > 0 ? Number(w.got) : Number(m.got) || savedAt;
   const out = { at: t0 };
   for (const k of ["asked", "machine"]) if (Number(w[k]) > 0) out[k] = Number(w[k]) - t0;
-  for (const k of ["got", "cloneStart", "cloneEnd", "setupStart", "ready", "began", "firstAsk", "firstAnswer", "answered", "ended"]) if (Number(m[k]) > 0) out["m." + k] = Number(m[k]) - t0;
+  // (The Worker's own sub-steps before it asked the machine, 2026-11-16: already ms since `got`.)
+  if (w.w && typeof w.w === "object") for (const [k, v] of Object.entries(w.w)) if (/^[a-z]{1,12}$/.test(k) && Number.isFinite(Number(v)) && Number(v) >= 0) out["w." + k] = Number(v);
+  for (const k of ["got", "cloneStart", "cloneEnd", "repos", "gate", "room", "box", "setupStart", "setupEnd", "ready", "began", "firstAsk", "firstAnswer", "answered", "ended"]) if (Number(m[k]) > 0) out["m." + k] = Number(m[k]) - t0;
   out.saved = savedAt - t0;
   return out;
 }
@@ -1381,6 +1383,27 @@ export async function handleCoder(request, env, ctx, deps) {
     let closedShown = [];
     const startRun = (async () => {
       let body = {}; try { body = await request.json(); } catch { body = {}; }
+      // THE WORKER'S OWN STEP TIMES (2026-11-16: "asked" was still 1.5-2 s live): ms since `gotAt`, kept as timing.w.*.
+      const wt = {}, mark = (k) => { wt[k] = Date.now() - gotAt; };
+      const soon = (f) => { const q = Promise.resolve().then(f); q.catch(() => {}); return q; };
+      // WHAT DOES NOT DEPEND ON THE CHAT'S TURN, ASKED AT ONCE (2026-11-16): the GitHub sign-in (maybe refreshed), the
+      // account's settings (also read for the mode just below), the chat's environment and its setup's saved copy (and Fly's
+      // word on it for a first message), and the repository's memory. They run while the chat is read again and claimed.
+      const tokenP = soon(() => userToken(env, bucket, uid, { fetchFn }));
+      const savedP = soon(() => getJson(bucket, settingsKey(uid), {}));
+      const envP = soon(async () => { const envId = await envIdOf(bucket, uid, meta); const [list, setup] = await Promise.all([listEnvs(bucket, uid), readEnvData(env, bucket, uid, envId)]); return { envId, list, setup }; });
+      const turn0 = meta.turn === 0;
+      const copyP = soon(async () => {
+        const { envId, setup } = await envP;
+        const copyOn = typeof deps.snapshot === "function" && typeof deps.cacheUsable === "function" && !!String(setup.script || "").trim();
+        if (!copyOn) return { copyOn, setupKey: "", copyNow: null, st: null };
+        const [setupKey, copyNow] = await Promise.all([setupKeyOf({ script: setup.script, network: setup.network }), readEnvCache(bucket, uid, envId)]);
+        const ask = copyNow && deps.cacheUsable(copyNow, setupKey) && copyNow.ready !== true && turn0 && typeof deps.copyState === "function";
+        const st = ask ? await deps.copyState(copyNow).catch(() => null) : null;
+        return { copyOn, setupKey, copyNow, st };
+      });
+      const memoryP = soon(async () => { const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
+      mark("body");
       // THE SAME MESSAGE AGAIN (a browser sends it again when its connection drops; `mid`, the page's id for it): answered as
       // its first copy was, never started or queued twice.
       const mid = cleanMid(body.mid);
@@ -1390,7 +1413,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // message; /plan alone only changes the mode. Never from GitHub, where strangers write.
       if (body.fromGithub !== true) {
         const planned = typeof body.text === "string" ? /^\s*\/plan(?:\s+([\s\S]*))?$/i.exec(body.text) : null;
-        const want = planned ? "plan" : MODES.includes(body.mode) ? noAuto(body.mode, await getJson(bucket, settingsKey(uid), {})) : "";
+        const want = planned ? "plan" : MODES.includes(body.mode) ? noAuto(body.mode, await savedP) : "";
         if (planned) body.text = String(planned[1] || "").trim();
         if (want && want !== normMode(meta.mode)) {
           const saved = await saveMode(bucket, uid, id, want);
@@ -1541,7 +1564,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // MARKED AS STARTING FIRST (Gloopy's fix, 2026-11-12): what follows can take a while (the GitHub sign-in, a long chat's
       // summary, the environment), and another message meanwhile waits in the queue. Any way this start ends without Coder's
       // machine taking it, the chat is put back as it was (only while it is still this start's).
+      mark("checked");
       claim = await claimStart(bucket, uid, meta, metaKey, mid, said);
+      mark("claim");
       const unclaimed = async (res) => { await claim.release(); return res; };
       // NOT THIS START'S ANY MORE: Coder was stopped meanwhile (from another page), or another start took the chat at the same
       // moment. That one's answer when it is this same message (its other copy); otherwise this one didn't start.
@@ -1553,22 +1578,22 @@ export async function handleCoder(request, env, ctx, deps) {
       // the machine, most of it some twenty reads of Coder's storage made one after another: the GitHub sign-in, every chat's
       // record to count those running, the chat, the settings, the environment, the memory, the steps so far). All of them
       // are asked together here and used below as before; none waits for another.
-      const soon = (f) => { const q = Promise.resolve().then(f); q.catch(() => {}); return q; };
-      const tokenP = soon(() => userToken(env, bucket, uid, { fetchFn }));
-      const runningP = soon(async () => (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length);
+      // (2026-11-16: every chat's record is read to count those working only when CODER_MAX_RUNNING sets a limit; with none,
+      // the default, there is nothing to count against.)
+      const limit = maxRunning(env);
+      const runningP = Number.isFinite(limit) ? soon(async () => (await listChats(bucket, uid)).filter((x) => x.id !== id && x.status === "running").length) : Promise.resolve(0);
       const read0P = soon(() => getJsonSized(bucket, keyOf(uid, id, "messages.json"), []));
-      const savedP = soon(() => getJson(bucket, settingsKey(uid), {}));
-      const envP = soon(async () => { const envId = await envIdOf(bucket, uid, meta); const [list, setup] = await Promise.all([listEnvs(bucket, uid), readEnvData(env, bucket, uid, envId)]); return { envId, list, setup }; });
-      const memoryP = soon(async () => { const mo = await bucket.get(memoryKey(uid, meta.repo)); return mo ? (await mo.text()).slice(0, MEMORY_MAX) : ""; });
       const evCountP = soon(async () => (await getJson(bucket, keyOf(uid, id, "events.json"), [])).length);
       const queuedP = takeUp ? soon(() => getJson(bucket, keyOf(uid, id, "queue.json"), [])) : null;
       const passP = soon(() => Promise.all([egressPass(env, uid + "/" + id, meta.turn + 1), env.CODER_PUBLIC_URL ? livePass(env, uid + "/" + id, meta.turn + 1) : "", modelAccess(env, uid, id, meta.turn + 1), emailMark(user && user.email)]));
       const connP = soon(() => jobConnectors(bucket, uid, id, meta.turn + 1, meta, body.fromGithub === true));
       const t = await tokenP;
+      mark("token");
       if (!t) return unclaimed(json({ error: "connect GitHub again: the connection has ended", connect: true }, 409));
       const running = await runningP;
-      if (running >= maxRunning(env)) return unclaimed(json({ error: maxRunning(env) + " chats are already working. Wait for one to finish, or stop one." }, 429));
+      if (running >= limit) return unclaimed(json({ error: limit + " chats are already working. Wait for one to finish, or stop one." }, 429));
       const read0 = await read0P;
+      mark("reads");
       let messages = read0.value;
       // A LONG CHAT IS SUMMARIZED, NOT CUT (owner item 3, like Claude Code's auto-compact): past
       // COMPACT_HISTORY_AT, its older jobs become one summary for Coder; the chat still shows them all.
@@ -1603,9 +1628,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // THE ENVIRONMENT'S SAVED COPY OF ITS SETUP (owner, 2026-11-07: "ok start"; like Claude Code's
       // cache; on Fly.io only): a new chat's disk is made from it (its machine then skips the setup),
       // and a setup run on a fresh disk is saved as the copy (below, once the machine says it waits).
-      const copyOn = typeof deps.snapshot === "function" && typeof deps.cacheUsable === "function" && !!String(setup.script || "").trim();
-      const setupKey = copyOn ? await setupKeyOf(setup) : "";
-      const copyNow = copyOn ? await readEnvCache(bucket, uid, envId) : null;
+      // (Read, and Fly asked, since the message came: copyP above.)
+      const { copyOn, setupKey, copyNow, st: copySt } = await copyP;
+      mark("copy");
       // ONLY A COPY FLY.IO HAS FINISHED (live test #25, 2026-11-07: a chat started a minute after the copy
       // was asked for; Fly takes minutes to finish one, and refused it). A chat's first message asks Fly
       // about one not yet known to be finished; while it is being finished, this chat runs the setup
@@ -1614,7 +1639,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (copyNow && deps.cacheUsable(copyNow, setupKey)) {
         if (copyNow.ready === true) useCopy = copyNow;
         else if (meta.turn === 0 && typeof deps.copyState === "function") {
-          const st = await deps.copyState(copyNow).catch(() => null);
+          const st = copySt;
           if (st && st.status === "created") {
             useCopy = { ...copyNow, ready: true, ...(st.retention > 0 ? { retention: st.retention } : {}) };
             await writeEnvCache(bucket, uid, envId, useCopy).catch(() => {});
@@ -1666,7 +1691,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // minutes, and Cloudflare stops a request whose tab has closed; the watch
       // list then carries the job on. (Keys added by the Worker work during the
       // setup too: the job is "running" by then.) Not if it was stopped meanwhile, or another start took the chat (lostStart).
+      mark("job");
       if (!(await claim.held())) return lostStart();
+      mark("held");
       // (These three together, all before the machine is asked: 2026-11-15.)
       await Promise.all([
         saveMeta(bucket, uid, next),
@@ -1686,7 +1713,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // `model` is the Grok pass alone: a second `model` (the name) once replaced it (live test, CD145).
       let r;
       // (The step times so far: kept with the chat now, so a job lost on the way still says how far it came.)
+      mark("saved");
       next.timing.asked = Date.now();
+      next.timing.w = wt;
       try {
       r = await post("/turn", { start: claim.id, secrets, egress, live, model: modelNow, extra: extraFor(meta), ...connOn, project: id, chatUrl: chatLinkOf(env, id), emailMark: emailNow, cwd: typeof meta.cwd === "string" ? meta.cwd : "", mode: noAuto(normMode(meta.mode), saved), prePlanMode: noAuto(saved.mode === "acceptEdits" ? "acceptEdits" : "auto", saved), rules: await rulesOf(bucket, uid, meta.repo), ...sessionRulesOn(meta), ...wakeOn, ...shellOn, ...compactOn, ...takeUpOn, ...bgOn, ...lastAtOn, text: takeUp || wake || shell || compactJob ? "" : review ? review.text.split("BASE_BRANCH").join(meta.base) : (text || "(see the picture)") + fileMentions(text), shown: takeUp || wake || shell || compactJob ? "" : body.fromGithub === true && body.autofix !== true && typeof body.shown === "string" && body.shown.trim() ? body.shown.slice(0, 300) : body.autofix === true ? "Auto-fix: " + String((text.split("<<<GITHUB\n")[1] || text.split("\n").filter(Boolean)[1] || "").split("\n")[0]).slice(0, 160) : text || "(see the picture)", images: pics.images, messages, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn + 1), fetch: fetchWanted(meta, { fromGithub: body.fromGithub === true, autofix: body.autofix === true, review }), ...(meta.readOnly ? { readOnly: true } : {}), effort: pick.effort, prefs: machinePrefs(saved), hooks: machineHooks(saved), autoMode: machineAutoMode(saved), memory, setup, github: body.fromGithub === true, away: body.fromGithub !== true && messages.length && Date.now() - (meta.at || Date.now()) >= AWAY_MS ? Date.now() - meta.at : 0, lastJob: lastJobFor(meta), environment, envMoved: meta.envMoved === true, cache: { make: copyOn && !copyWait, ...(copyWait ? { note: copyWait } : {}) }, ...(next.jobReplyTo ? { replyTo: next.jobReplyTo } : {}) }, useCopy ? { [FROM_COPY]: useCopy.snapshot, [FROM_COPY_GB]: String(Number(useCopy.size) || 0) } : {});
       } catch (e) {

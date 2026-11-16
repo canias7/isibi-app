@@ -2170,11 +2170,26 @@ that pushes.
 **A turn's step times** (2026-11-15): kept with the chat (`meta.timing`, as
 milliseconds since the Worker got the message: `asked` the machine, `machine`
 had the job with its clone and setup done, and the machine's own `m.got`,
-`m.cloneStart`/`m.cloneEnd`, `m.setupStart`, `m.ready`, `m.began`,
+`m.cloneStart`/`m.cloneEnd`, `m.repos` (other repositories), `m.gate`
+(network gate), `m.room`, `m.box` (admin sandbox), `m.setupStart`/`m.setupEnd`,
+`m.ready`, `m.began`,
 `m.firstAsk`/`m.firstAnswer` (the first model request), `m.answered`,
 `m.ended`, then `saved`), and logged as `coder: turn timing`. The page asks with
 `early=1` until the answer is shown, so a job's answer is shown as soon as the
 machine has it, before the save.
+
+**A faster start** (2026-11-16; live: `asked` 1.5-2 s, a new chat's clone
+3.7 s, then 2.1 s to `ready`). The Worker's own sub-steps are kept as `w.*`
+(`body`, `checked`, `claim`, `token`, `reads`, `copy`, `job`, `held`, `saved`).
+The GitHub sign-in, settings, environment, its setup copy (and Fly's word on it)
+and the memory are asked for as soon as the message is read, while the chat is
+claimed; every chat's record is read to count those working only when
+`CODER_MAX_RUNNING` is set. A new chat's clone asks GitHub about both branches
+in one look and fetches one commit deep, without tags (the chat's branch in
+the same fetch when GitHub has it); the 50 commits of history follow in the
+background, and See changes (the diff against the main branch) waits for them.
+The network gate starts during the clone, and the chat's other repositories
+are cloned at the same time.
 
 **A faster end of turn** (2026-11-16; live: answer at 6.3 s, box free at ~14 s).
 The machine marks `answered` in `/state` as soon as the answer's last steps are
