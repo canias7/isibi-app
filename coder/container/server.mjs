@@ -2302,11 +2302,12 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
  * proxy whenever Claude runs it: a live test asked to push, open a draft pull request and read its comments in one turn).
  * Coder's push_branch and pull_request call this from the job: what is on the disk is committed now (the job's first commit;
  * what changes after it is committed again when the turn ends) and pushed through the Worker with the job's own git pass
- * (`body.git`, never the login), the chat's other repositories too. Nothing of the AI's runs meanwhile (quietly, as /push).
+ * (`body.git`, never the login), the chat's other repositories too. Nothing of the AI's runs meanwhile (paused, never ended: quietly's midTurn).
  * → { ok, pushed, changed, sha, files, unpushed, extra } or { ok: false, why }.
  */
-export async function pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message = "" }) {
-  const go = await quietly();
+export async function pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message = "", quiet = quietly }) {
+  // (Paused, never ended: the turn goes on after the push, with its sandbox and background commands.)
+  const go = await quiet({ midTurn: true });
   if (!go) return { ok: false, pushed: false, why: NOT_STOPPED };
   try {
     const g = gitFrom(body, { via: gitVia, remote });
@@ -3556,7 +3557,7 @@ const aiStill = () => (PAUSED ? true : killUser());
  * then does nothing. When they cannot all be paused, everything of the AI's is ended as before, its background commands
  * too (each ends "lost", and Coder is told).
  */
-export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}) {
+export async function quietly({ keep = true, midTurn = false, uid = RUN_UID, gid = RUN_GID, deps = {} } = {}) {
   while (PAUSED) await PAUSED.done;
   let release = () => {};
   const mine = { done: new Promise((ok) => { release = ok; }) };
@@ -3570,10 +3571,23 @@ export async function quietly({ keep = true, uid = RUN_UID, gid = RUN_GID } = {}
   const keepers = keep ? [...LSP_KEEPERS.keys()].filter((k) => keeperAlive(k)).map((k) => LSP_KEEPERS.get(k)) : [];
   const endAll = (why) => {
     for (const j of JOBS.values()) if (!j.end) { j.stopping ||= why; try { process.kill(-j.pid, "SIGKILL"); } catch { /* gone */ } }
-    const ok = killUser(uid, gid);
+    const ok = (deps.kill || killUser)(uid, gid);
     for (const j of JOBS.values()) if (!j.end) jobEnded(j.pid, null);
     return ok;
   };
+  // IN THE MIDDLE OF A TURN (push_branch, pull_request: pushMidTurn; the live bug of 2026-11-16, where the turn-end pause
+  // ended the admin sandbox and every later command failed "nsenter: cannot open /proc/…/ns/user"): the AI waits on the tool
+  // call anyway, so everything of its is only paused, the admin sandbox too, and nothing is ended; when the pause cannot be
+  // made, nothing is done (the push waits for the turn's end).
+  if (midTurn) {
+    const box = deps.box !== undefined ? deps.box : BOX;
+    const boxPid = box && Number.isInteger(box.pid) && box.pid > 0 ? box.pid : 0;
+    const p = await (deps.pause || pauseAI)({ uid, gid, boxPid, box: [SBX_BASE, SBX_BASE + SBX_RANGE] });
+    if (!p || !p.ok) { finish(); return null; }
+    const all = [...[...JOBS.values()].filter((j) => !j.end), ...[...LSP_KEEPERS.values()]];
+    let went = false;
+    return () => { if (went) return; went = true; (deps.resume || resumeAI)(p.procs, { boxPid }); if (!deps.pause) wakeStarters(all); finish(); };
+  }
   if (!live.length && !kept.length && !keepers.length) {
     if (!endAll(keep ? "lost" : "coder")) { finish(); return null; }
     return finish;

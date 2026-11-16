@@ -615,6 +615,9 @@ export function envCaller(via, fetchFn = fetch) {
     const j = await r.json().catch(() => null);
     if (!j || typeof j !== "object") return { error: "error: Coder's server did not answer (" + r.status + "); nothing was proposed" };
     if (typeof j.error === "string") return { error: j.error.startsWith("error: ") ? j.error : "error: " + j.error };
+    // (pull_request's answer, mid-turn: the pull request's number and link. Before 2026-11-16's fix it was dropped here, and
+    // Coder was told the server "did not answer", so no pull request opened, then or at the turn's end.)
+    if (body && body.action === "pull_request" && Number.isInteger(j.number) && j.number > 0) return { number: j.number, url: String(j.url || ""), repo: String(j.repo || ""), draft: j.draft === true, existed: j.existed === true };
     return typeof j.text === "string" ? { text: j.text } : isObj(j.card) ? { card: j.card } : { error: "error: Coder's server did not answer; nothing was proposed" };
   };
 }

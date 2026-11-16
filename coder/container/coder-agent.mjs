@@ -6881,7 +6881,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
               reply("ok: " + said + ". It exists on GitHub now: pr_read with pr " + r.number + (repo ? " and repo " + repo : "") + " reads its reviews and comments.");
               continue;
             }
-            if (typeof r.error === "string" && !/could not be reached/.test(r.error)) { reply(r.error); continue; }
+            // (Only GitHub's or the server's own refusal is said; when the server could not be reached or gave no answer, the
+            // pull request is queued for the turn's end, which opens it.)
+            if (typeof r.error === "string" && !/could not be reached|did not answer|could not read that/.test(r.error)) { reply(r.error); continue; }
           }
         }
         if (repo) prExtra = [...prExtra.filter((x) => x.repo !== repo), { ...one, repo }].slice(-3); else prRequest = one;

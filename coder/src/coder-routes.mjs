@@ -1972,7 +1972,9 @@ export async function handleCoder(request, env, ctx, deps) {
       // and the chat says it was pushed; the turn's end then commits only what changed after it (pushWanted is not set by it).
       for (const m of meta.readOnly ? [] : Array.isArray(res.midPushes) ? res.midPushes.slice(0, 20) : []) {
         if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
-        if (m && m.pushed === true) pushed = true;
+        // (A mid-turn push that found nothing new still means GitHub has the branch: a pull request queued for the turn's end
+        // opens on it.)
+        if (m && typeof m === "object") pushed = true;
         for (const x of m && Array.isArray(m.extra) ? m.extra : []) if (x && !x.ok) extraNotes.push("Not sent to GitHub in " + String(x.repo).slice(0, 100) + ": " + String(x.why || "the push failed").slice(0, 160));
       }
       if (!meta.readOnly && Array.isArray(res.midPushes) && res.midPushes.some((m) => m && m.pushed === true)) {
