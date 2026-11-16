@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: Coder can read a pull request's comments; long task lists end with a table
+
+From the side-by-side with Claude Code: (1) Coder has a new tool, pr_read, that reads a pull request's reviews, its comments on lines (file:line, who, what) and its conversation, like Claude Code's GitHub tool. It is read on Coder's server with your GitHub login, which never goes to Coder's machine; not offered in jobs started from GitHub. Before, Coder fell back to gh commands. (2) Coder is told: when your message is a list of several separate tasks, end with a short "Check | Result" table (the chat already draws tables). (3) Checked notify: it sends a real Web Push to every browser or installed web app where you turned notifications on (Settings), skipped if you are looking at that chat. It does not send email, and the phone app from the app stores (Capacitor) has no push yet; on iPhone, push works from gofarther.dev added to the Home Screen. Tests added.
+
 ## 2026-11-16: Three grey notes gone from the chat
 
 From your screenshot: (1) "Not signed in yet: Neon…" no longer shows on every message; Coder still knows and tells you only when your request needs that connector. (2) "Setup: Fly.io is saving a copy…" no longer shows; the saving still happens quietly. (3) "Ran setup …" is no longer a step in the chat; the start-up line already says "Ran setup script". If the setup fails, the step still shows so you can see why. Tests updated and added.
