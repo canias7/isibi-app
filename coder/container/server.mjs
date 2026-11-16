@@ -3339,6 +3339,8 @@ export function liveSender(t, live, fetchFn, { every = LIVE_EVERY_MS, convoEvery
 }
 
 // ── THE TURNS ────────────────────────────────────────────────────────────────
+/** How long a turn's end stays handed to the save that claimed it (see /claim). */
+export const CLAIM_LEASE_MS = Number(process.env.CODER_CLAIM_LEASE_MS) || 45_000;
 const turns = new Map(); // project → { running, stop, events, result, started, ended, claimed }
 
 /**
@@ -5139,8 +5141,11 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
       }
       // THE TURN'S END, HANDED OUT ONCE (one process per project: no race).
       if (url.pathname === "/claim" && req.method === "POST") {
-        if (!t || !t.result || t.claimed) return send(200, { ok: false });
-        t.claimed = true;
+        // A LEASE, NOT FOR GOOD (2026-11-16, the all-tools live test: a turn answered, then the chat stayed busy for 6
+        // minutes): a save started in the background that was cut off, or failed, left the turn claimed and nobody could save
+        // it. Claimed again after CLAIM_LEASE_MS (longer than any save), so the next look of the page saves it.
+        if (!t || !t.result || (t.claimed && Date.now() - Number(t.claimed) < CLAIM_LEASE_MS)) return send(200, { ok: false });
+        t.claimed = Date.now();
         // (With the whole job's steps and its end, so the Worker needs no second look: 2026-11-16.)
         return send(200, { ok: true, events: t.events, result: t.result });
       }

@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-16: A chat no longer stays busy for minutes after Coder answers
+
+In the all-tools test, the web search answered in about 15 seconds, but the chat stayed busy for 6 more minutes. The cause: after Coder answers, one save of the turn is allowed, and if that save got cut off, nothing else could save it until the once-a-minute cleanup. Now the save can be taken again after 45 seconds, so the next look of the page finishes it. Tested in claim-lease.test.mjs.
+
 ## 2026-11-16: Three grey notes gone from the chat
 
 From your screenshot: (1) "Not signed in yet: Neon…" no longer shows on every message; Coder still knows and tells you only when your request needs that connector. (2) "Setup: Fly.io is saving a copy…" no longer shows; the saving still happens quietly. (3) "Ran setup …" is no longer a step in the chat; the start-up line already says "Ran setup script". If the setup fails, the step still shows so you can see why. Tests updated and added.
