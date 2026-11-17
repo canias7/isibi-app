@@ -4,6 +4,9 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Suggested next message in Coder's box
+
+After Coder answers, a suggested next message now shows in grey in the empty message box (like Claude Code's prompt suggestions, e.g. "now run the tests"). Tab, or the right arrow, puts it in the box; Enter sends it; typing anything hides it. None while Coder works, while a card waits, in plan mode or in Gloopy's tab. Settings has a "Prompt suggestions" switch to turn it off. It costs no extra Grok call: Coder's last answer adds one hidden line with the suggestion, which the page never shows. Tests: prompt-suggest.test.mjs.
 ## 2026-11-17: Undo lines say what was undone; test results come in a code block
 
 From the side-by-side with Claude Code on the web:

@@ -69,6 +69,7 @@
 .cd-compose:focus-within { border-color: #0d1b2a; }
 .cd-compose textarea { border: 0; outline: none; resize: none; background: transparent; font: 14px/1.5 Inter, system-ui, sans-serif; color: #0d1b2a; padding: 2px 0; max-height: 200px; }
 .cd-compose textarea::placeholder { color: #a8a39b; }
+.cd-compose textarea.has-suggest::placeholder { color: #8f8a82; }
 /* The model and its effort, under the text, like a code editor's chat box. */
 .cd-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
 .cd-picks { display: flex; gap: 4px; margin-left: -6px; min-width: 0; }

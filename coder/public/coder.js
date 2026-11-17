@@ -41,6 +41,8 @@
       if (r.data.pick) S.pick = r.data.pick;
       // (Auto mode turned off in Settings, Claude Code's disableAutoMode: Auto is not offered.)
       S.autoOff = !!(r.data.prefs && r.data.prefs.autoOff === true);
+      // (Prompt suggestions turned off in Settings, Claude Code's promptSuggestionEnabled: false.)
+      S.suggestOff = !!(r.data.prefs && r.data.prefs.suggestOff === true);
     }
   }
   // (pickV 2: a pick made on this page counts as chosen; one saved before Low became the default does not. The owner,
@@ -332,7 +334,7 @@
     let autoDraft = typeof prefs.autoMode === 'string' ? prefs.autoMode : '', warns = [];
     const save = async (field, value) => {
       const x = await call('/settings', { method: 'POST', body: JSON.stringify({ prefs: { [field]: value } }) });
-      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
+      if (x.status === 200 && x.data && x.data.prefs) { Object.assign(prefs, x.data.prefs); note = 'Saved. New messages use it.'; err = ''; warns = Array.isArray(x.data.warnings) ? x.data.warnings : []; S.autoOff = prefs.autoOff === true; S.suggestOff = prefs.suggestOff === true; if (S.autoOff && S.pick && S.pick.mode === 'auto') S.pick.mode = 'acceptEdits'; }
       else { err = (x.data && x.data.error) || 'Not saved. Try again.'; note = ''; }
       paint();
     };
@@ -353,6 +355,7 @@
         // PERMISSIONS (the owner, 2026-11-10: "yea do all of them"): Claude Code's denyInsteadOfPrompting.
         '<div class="cd-set-head">Permissions</div>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetDeny"' + (prefs.denyInstead ? ' checked' : '') + '><span><b>Refuse instead of asking</b><br>Anything that would ask you is refused, and Coder carries on without it.</span></label>' +
+        '<label class="cd-notify-sw"><input type="checkbox" id="cdSetSuggest"' + (prefs.suggestOff ? '' : ' checked') + '><span><b>Prompt suggestions</b><br>After Coder answers, a suggested next message shows in grey in the message box. Tab or → takes it; typing hides it.</span></label>' +
         '<label class="cd-notify-sw"><input type="checkbox" id="cdSetAutoOff"' + (prefs.autoOff ? ' checked' : '') + '><span><b>Turn off Auto mode</b><br>Chats start in Accept edits, and Auto isn’t offered.</span></label>' +
         // ADVANCED, FOLDED (the owner, 2026-11-15, Settings "ewwwww"): hooks and Auto mode rules are written as code, so they
         // sit closed under Advanced; the rest is plain.
@@ -382,6 +385,7 @@
       $('cdSetHooksSave').onclick = () => save('hooks', hooksDraft);
       $('cdSetDeny').onchange = (e) => save('denyInstead', e.currentTarget.checked);
       $('cdSetAutoOff').onchange = (e) => save('autoOff', e.currentTarget.checked);
+      $('cdSetSuggest').onchange = (e) => save('suggestOff', !e.currentTarget.checked);
       $('cdSetAuto').oninput = (e) => { autoDraft = e.currentTarget.value; };
       $('cdSetAutoSave').onclick = () => save('autoMode', autoDraft);
     };
@@ -1906,6 +1910,7 @@
     return out.map((x) => (typeof x === 'object' ? '<ol' + (x.start === 1 ? '' : ' start="' + x.start + '"') + '>' + x.items.map((i) => '<li>' + i + '</li>').join('') + '</ol>' : x)).join('');
   }
   function prose(t) {
+    t = String(t == null ? '' : t).replace(/\n?<next-prompt>[\s\S]*?(?:<\/next-prompt>|$)/gi, ''); // (a suggestion never shows in an answer)
     const parts = noColor(t).split(/```[a-zA-Z0-9_-]*\n?/);
     return parts.map((p, i) => i % 2 ? '<pre class="cd-pre">' + esc(p.replace(/\n$/, '')) + '</pre>' : (p.trim() ? blocks(p) : '')).join('');
   }
@@ -4150,12 +4155,23 @@
     const first = box.querySelector('.cd-rules-add input'); if (first) first.focus();
   }
 
+  /**
+   * PROMPT SUGGESTIONS (Claude Code's: "After Claude responds, Claude Code can suggest your next prompt"; "Press Tab or Right
+   * arrow to place the suggestion in the prompt input"; "Start typing to dismiss it"): the `suggest` of Coder's last answer,
+   * grey in the empty message box. None while Coder works, while a card waits, in Gloopy's tab, or when turned off.
+   */
+  function suggestNow() {
+    if (GLOOPY || S.suggestOff || S.running || S.sending || S.ending || (S.draft || '') || !S.project || S.project.waiting || S.project.pending) return '';
+    const last = (S.events || []).filter((e) => e && e.type !== 'mark' && e.type !== 'usage').at(-1);
+    const t = last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
+    return t && S.suggestGone !== (S.project.id + '|' + t) ? t : '';
+  }
   function composerHTML() {
     const busy = (S.running && !S.ending) || S.sending;
     const m = MODELS.find((x) => x.id === S.pick.model) || MODELS[0];
     return '<div class="cd-composewrap">' + bgHTML() + slashHTML() + bangHTML() + mentionHTML() + commentsHTML() + picsHTML() + attachHTML() +
       '<form class="cd-compose' + (/^!/.test(S.draft || '') ? ' is-shell' : '') + '" id="cdForm">' +
-        '<textarea id="cdIn" rows="1" placeholder="' + (S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
+        '<textarea id="cdIn" rows="1"' + (suggestNow() ? ' class="has-suggest" data-suggest="' + esc(suggestNow()) + '"' : '') + ' placeholder="' + (suggestNow() ? esc(suggestNow()) : S.ending && !S.sending && !GLOOPY ? 'Saving to the branch… a message now goes out right after' : busy ? (GLOOPY ? 'Gloopy is working… you can close this tab' : 'Enter to send, Ctrl+Enter to queue for later') : GLOOPY ? 'Ask Gloopy anything' : 'Ask Coder to build, fix or explain something · @ for a file') + '">' + esc(S.draft) + '</textarea>' +
         '<button type="button" class="cd-attach" id="cdAttach" aria-label="' + (GLOOPY ? 'Attach a file' : 'Attach a picture') + '" title="' + (GLOOPY ? 'Attach a file or a picture' : 'Attach a picture (or paste one)') + '">' + ICON.clip + '</button><input type="file" id="cdFile" accept="' + (GLOOPY ? 'image/png,image/jpeg,image/webp,image/gif,.pdf,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.odt,.ods,.odp,.rtf,.txt,.md,.csv,.tsv,.json,.xml,.yaml,.yml,.html,.htm,.ics,.vcf,.eml,.ipynb,.log,.zip,.mp3,.m4a,.wav,.mp4,.mov,.webm,.heic,.svg' : 'image/png,image/jpeg,image/webp,image/gif') + '" multiple hidden>' +
         // (And while a card Coder's paused job left open waits, as while its job ran: Stop closes the card. coder-park.mjs.)
         ((S.running && !S.ending) || (!GLOOPY && S.project && S.project.parked)
@@ -5036,6 +5052,7 @@
       grow(input);
       input.addEventListener('input', async () => {
         S.draft = input.value; grow(input);
+        if (input.dataset.suggest && input.value) { S.suggestGone = S.project.id + '|' + input.dataset.suggest; delete input.dataset.suggest; input.classList.remove('has-suggest'); input.placeholder = 'Ask Coder to build, fix or explain something · @ for a file'; }
         if (form) form.classList.toggle('is-shell', /^!/.test(input.value));
         const before = input.value.slice(0, input.selectionStart);
         const m = GLOOPY ? null : /(^|\s)@([\w./-]*)$/.exec(before);
@@ -5049,6 +5066,10 @@
       });
       input.addEventListener('paste', (e) => { const files = [...(e.clipboardData && e.clipboardData.files || [])]; if (files.some((f) => /^image\//.test(f.type)) || (GLOOPY && files.length)) { e.preventDefault(); addPics(files); } });
       input.addEventListener('keydown', (e) => {
+        // (A suggestion is taken with Tab, or → in the empty box; Enter then sends it, as in Claude Code.)
+        if (input.dataset.suggest && !input.value && !e.isComposing && !e.shiftKey && !e.ctrlKey && !e.metaKey && !e.altKey && (e.key === 'Tab' || e.key === 'ArrowRight')) {
+          e.preventDefault(); const t = input.dataset.suggest; S.suggestGone = S.project.id + '|' + t; input.value = t; S.draft = t; delete input.dataset.suggest; input.classList.remove('has-suggest'); grow(input); input.setSelectionRange(t.length, t.length); return;
+        }
         const sl = slashMatches();
         if (sl.length && (e.key === 'ArrowDown' || e.key === 'ArrowUp')) { e.preventDefault(); S.slashSel = ((S.slashSel || 0) + (e.key === 'ArrowDown' ? 1 : sl.length - 1)) % sl.length; return draw(); }
         if (sl.length && (e.key === 'Enter' || e.key === 'Tab') && !e.shiftKey && !e.isComposing) { e.preventDefault(); return pickSlash(sl[Math.min(S.slashSel || 0, sl.length - 1)][0]); }
