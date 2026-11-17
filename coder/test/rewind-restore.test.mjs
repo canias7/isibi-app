@@ -134,6 +134,17 @@ test("CD563 Rewind's Restore code in the Worker: the machine is asked to restore
   assert.deepEqual(r.project.commits.map((c) => c.sha), ["a1"], "the later jobs are no longer on record");
   assert.equal(x.read("events.json").at(-1).text, "Rewound to before an earlier message: the code is back as it was (2 files restored, saved to the branch coder/shop-r2; files only commands changed stay as they are).");
   assert.equal(x.read("messages.json").at(-1).content, "(Note from Coder's app: the owner restored the code to before an earlier message, as Claude Code's checkpoints do. The files your file tools (write, edit) had changed since then are back as they were: src/app.js, src/new.js. Files that only commands changed were left as they are. Nothing to do now.)");
+  // THE CHANGED-FILES BOX'S UNDO BUTTON (2026-11-17): the same restore, said like an undo; Rewind keeps its own words.
+  x = await setup(tracked);
+  await rw(x.go, { turn: 2, code: true, undo: true });
+  assert.deepEqual(x.asked.map((a) => a[0]), ["/restore"]);
+  assert.equal(x.read("events.json").at(-1).text, "Undid this turn's changes: src/app.js, src/new.js are back as they were (2 files). Saved to the branch coder/shop-r2.");
+  x = await setup(tracked, { ok: true, sha: "", restored: [], skipped: [] });
+  await rw(x.go, { turn: 3, code: true, undo: true });
+  assert.equal(x.read("events.json").at(-1).text, "Nothing to undo: this turn's changes were already gone.");
+  x = await setup(tracked);
+  await rw(x.go, { turn: 3, code: true, chat: true, undo: true });
+  assert.match(x.read("events.json").at(-1).text, /^Rewound to before an earlier message: .*; the chat after it is gone\.$/, "undo is only for code alone");
   // Skipped files: Claude Code's warning, with their names; Coder is told too.
   x = await setup(tracked, { ok: true, sha: "f9", restored: ["src/new.js"], skipped: ["src/app.js"] });
   await rw(x.go, { turn: 2, code: true });
@@ -253,4 +264,20 @@ test("CD565 the README and the docs say both changes", () => {
   const readme = read("README.md");
   assert.match(readme, /read-only commands wait for the checker too/);
   assert.match(readme, /Restore code puts back only the files Coder's file tools changed/);
+});
+
+test("undoLine: a short line naming what was undone (up to 5 files, else counted)", async () => {
+  const { undoLine } = await import("../src/coder-routes.mjs");
+  assert.equal(undoLine("Undid the last job", ["undo-test/a.txt"], "saved to the branch coder/x"), "Undid the last job: undo-test/a.txt is back as it was. Saved to the branch coder/x.");
+  assert.equal(undoLine("Undid the last job", ["a", "b", "c", "d", "e", "f"], "kept on Coder's machine"), "Undid the last job: 6 files are back as they were. Kept on Coder's machine.");
+  assert.equal(undoLine("Undid the last job", [], "saved to the branch b"), "Undid the last job: the files are back as they were. Saved to the branch b.");
+  assert.equal(undoLine("Undid the last job", undefined, ""), "Undid the last job: the files are back as they were.");
+});
+
+test("Coder's instructions: test and build output goes in a code block, and the page draws fenced blocks", async () => {
+  const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
+  assert.match(CODER_SYSTEM, /When you report a test or build run, include its short relevant output \(the summary lines, or the failing ones\) in a fenced code block\./);
+  const js = (await import("node:fs")).readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  assert.match(js, /function prose\(t\) \{\n    const parts = noColor\(t\)\.split\(\/```/);
+  assert.match(js, /'<pre class="cd-pre">' \+ esc\(p\.replace/);
 });

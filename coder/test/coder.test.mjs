@@ -1232,7 +1232,7 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
     assert.equal(git(bare, "rev-parse", "coder/" + id + "~1").trim(), before, "a new commit on top (no force push)");
     assert.match(git(bare, "log", "-1", "--format=%s", "coder/" + id), /^Revert "Made index\.html\."/);
     assert.deepEqual(u.project.commits, []);
-    assert.match(u.events[0].text, /^Undid the last job \(Made index\.html\.\)/);
+    assert.match(u.events[0].text, /^Undid the last job: index\.html is back as it was\. Saved to the branch coder\/[\w-]+\.$/, "a short line naming the file, not the job's answer quoted back");
     const msgs = JSON.parse(bucket.m.get("coder/user-undo/" + id + "/messages.json"));
     assert.match(msgs.at(-2).content, /the owner pressed Undo/);
     assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing more to undo");

@@ -38,7 +38,7 @@ test("the code: Coder's only, its CSS under #gfApp, See all opens See changes, U
   const js = read("public/coder.js"), css = read("public/coder.css");
   assert.match(js, /\(GLOOPY \? '' : aiMetaHTML\(e, i\)\)/);
   assert.match(js, /function aiMetaHTML\(e, i\) \{\n.*\n    return filesBoxHTML\(i\) \+/);
-  assert.match(js, /rewind\(Number\(e\.currentTarget\.dataset\.filesUndo\), 'code'\)/);
+  assert.match(js, /rewind\(Number\(e\.currentTarget\.dataset\.filesUndo\), 'code', \{ undo: true \}\)/);
   assert.match(js, /\[data-files-all\]', 'click', \(\) => \{ S\.showChanges = true; loadChanges\(\)/);
   for (const l of css.slice(css.indexOf("THE CHANGED-FILES BOX")).split("\n").filter((l) => /\{/.test(l) && !/^\s*@/.test(l))) assert.match(l, /#gfApp/, l);
 });
@@ -114,7 +114,7 @@ test("in the page: the box, its rows, Undo and See all", { skip: !chromium && "P
     await page.click("#gfApp .cd-fbox-undo");
     await page.waitForFunction(() => !document.querySelector("#gfApp .cd-sure"));
     await page.waitForTimeout(300);
-    assert.deepEqual(st.rewound, { turn: 1, code: true, chat: false });
+    assert.deepEqual(st.rewound, { turn: 1, code: true, chat: false, undo: true }, "the Undo button asks for an undo's wording");
     assert.deepEqual(errors, []);
     await page.context().close();
 
