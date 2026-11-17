@@ -79,3 +79,9 @@ test("PT6 the answer is written after the push, Claude Code's way: the draft is 
   assert.ok(!second.messages.some((m) => m.role === "assistant" && /not pushed/.test(String(m.content))), "the draft is not kept in the chat");
   assert.equal(r.commitTitle, "Add hello file");
 });
+
+test("PT7 a new commit the push took is reported pushed, even when a retry's own output says Everything up-to-date (live, group 2: reported as nothing new to push)", async () => {
+  const { readFile } = await import("node:fs/promises");
+  const src = await readFile(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(src, /pushed: committed \|\| !\/Everything up-to-date\/\.test\(p\.output\)/);
+});

@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Groups 1-3 retested with the new push; one fix
+
+Groups 1 and 3 passed with the push inside the job. In group 2, the first push of a new chat took 37 seconds (GitHub was busy, so it was retried) and was then reported as "nothing new to push", although it had gone through. Coder believed the push had failed, tried git by hand and went off track for 9 minutes. A push of a new commit is now reported as pushed even when it only got through on a retry. Running the undo steps again on their own worked: undo ✓ and the file was back as before.
+
+Tests: PT7 in `coder/test/push-in-turn.test.mjs`.
+
 ## 2026-11-17: Coder writes its answer after the push
 
 Live test: the Push ✓ step showed, but Coder's answer said "not pushed". It had written its answer before the push ran. Claude Code pushes first and then writes its answer, knowing how the push went. Coder now does the same: its first answer is set aside without being shown, the push runs, and Coder is asked once more for its answer with the push's result in front of it. That is one more Grok call on jobs that changed files.

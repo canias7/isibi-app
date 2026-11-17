@@ -2298,7 +2298,10 @@ export async function pushRepo({ dir, repo, branch, token, headers = [], message
   // What GitHub now has is origin's (the push goes by Coder's own address, which moves no ref here): nothing left unpushed.
   await gitIn(dir, ["update-ref", "refs/remotes/origin/" + branch, "HEAD"], o);
   // `changed`: this job changed files (a new commit), so there is new work to show.
-  return { ok: true, pushed: !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
+  // (A new commit that the push took is pushed, even when the push only got through on a retry, whose own output says
+  // "Everything up-to-date": live, group 2, a first push retried for 37 s was reported as "nothing new to push", so Coder
+  // went on to try git by hand.)
+  return { ok: true, pushed: committed || !/Everything up-to-date/.test(p.output), changed: committed, sha, unpushed: 0, ...(committed ? await commitFiles(dir, o) : {}), ...told };
 }
 /**
  * PUSHED NOW, IN THE MIDDLE OF A TURN (2026-11-16, like Claude Code's cloud session, whose git pushes through its GitHub
