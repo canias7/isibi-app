@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: A Grok answer cut off mid-way is retried
+
+Group 5's first run: "The AI could not be reached: terminated". The connection to Grok dropped after its answer had started arriving, and Coder only retried connections that failed before any answer. Now a cut-off answer is asked for again too, like Claude Code's retried connection errors (the owner's Stop and the call's own time limit still end it). Test: `coder/test/model-cutoff.test.mjs`. Also: the account had reached Coder's 50-chat limit, so 44 old test chats on canias7/testingforclaude were deleted with the owner's OK.
+
 ## 2026-11-17: Pushes retried like Claude Code (the 429 error)
 
 In the suggestions test, one push said "Not sent to GitHub: ... error: 429". The 429 ("too many requests") came from GitHub itself; Coder's gateway passes it on. Coder tried 3 times in 8 seconds and gave up. Now, like Claude Code's cloud ("retrying network errors up to 4 times with exponential backoff (2s, 4s, 8s, 16s)"), every git step that reaches GitHub (clone, fetch, push) is tried up to 5 times over about 30 seconds. Test in `coder/test/round5.test.mjs`.

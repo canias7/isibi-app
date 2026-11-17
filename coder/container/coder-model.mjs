@@ -177,7 +177,16 @@ export function coderSend(env, { fetchFn = fetch, wait = (ms) => new Promise((r)
         throw Object.assign(new Error("AI call failed: 400 " + t.replace(/\s+/g, " ").slice(0, 160)), { status: 400 });
       }
       if (!r.ok) { const t = await r.text().catch(() => ""); throw Object.assign(new Error("AI call failed: " + r.status + (t ? " " + t.replace(/\s+/g, " ").slice(0, 160) : "")), { status: r.status }); }
-      const j = await r.json();
+      // AN ANSWER CUT OFF WHILE IT CAME (the owner's group 5 test, 2026-11-17: "The AI could not be reached: terminated"): the
+      // connection dropped after Grok had begun to answer. Tried again like a connection that failed (Claude Code retries its
+      // connection errors); the owner's Stop or the call's own time limit still end it.
+      let j;
+      try { j = await r.json(); }
+      catch (e) {
+        const stopped = e && (e.name === "TimeoutError" || e.name === "AbortError");
+        if (!stopped && attempt < maxRetries) { await again(retryWaitMs(attempt + 1, null, rand), "Connection error: the answer was cut off (" + String((e && e.message) || e).slice(0, 120) + ")"); continue; }
+        throw e;
+      }
       const { message: answered, searches } = fromResponsesOutput(j);
       if (!answered && req.emptyOk !== true) throw new Error("the AI answered with no message");
       const message = answered || { role: "assistant", content: "" };
