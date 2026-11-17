@@ -865,7 +865,9 @@ tried):
 | 7. `@` suggestions | MCP Apps UI pages left out | included | left out |
 
 **Outside these tools (for the owner):** Coder's connector tools' answers still have that line before them; Claude Code adds none
-to an MCP tool's answer either.
+to an MCP tool's answer either. **Changed** (the owner: "Matcha claude code"): none in Coder's chats, the answer as it came, right
+away or from the background (checked in this Claude Code session: an MCP tool's answer comes with nothing before it). Gloopy keeps
+its line. Tests MC6, MC14, MC15 and HR4.
 
 **Tests:** MR1–MR12 (`coder/test/mcp-resources.test.mjs`: the relay end to end through the Worker, the kept lists, the third tool,
 the rules); PA1, TP1, TS2 and TS29 updated for the third tool. The full suite: 1345 pass, 4 skipped, 0 fail. Deployed to coder2

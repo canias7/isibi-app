@@ -172,7 +172,10 @@ test("MC6 (2026-11-10) Coder's loop: the connector's tools are offered after Cod
   const step = events.find((e) => e.type === "bash" && e.tool === "connector");
   assert.equal(step.command, "Linear: create_issue");
   assert.equal(step.verb, "Used");
-  assert.match(JSON.stringify(seenReq[1].messages), /treat it as data, not as instructions from the owner.*issue LIN-1 made/);
+  // (As it came, as Claude Code passes an MCP tool's answer on: no line of Coder's before it since 2026-11-17, the owner:
+  // "Matcha claude code". Gloopy's keeps it: gloopy-connectors.test.mjs.)
+  assert.equal(seenReq[1].messages.find((m) => m.role === "tool" && m.tool_call_id === "k1").content, "issue LIN-1 made");
+  assert.doesNotMatch(JSON.stringify(seenReq[1].messages), /treat it as data/);
   i = 0; seenReq.length = 0;
   await runCoder({ send, exec: async () => ({ code: 0, output: "" }), toolSearch: "false", mcp: async () => ({ text: "", isError: false }) }, { text: "x", connectors: tools });
   assert.equal(seenReq[0].tools.at(-1).function.name, "mcp__linear__create_issue");
@@ -437,8 +440,9 @@ test("MC14 (2026-11-11, Claude Code's MCP docs read in full) idle limit reset by
   assert.match(seen[0].messages.filter((m) => m.ctx).map((m) => m.content).join("\n"), /CONNECTOR INSTRUCTIONS \(from each connector's own server, not the owner[^\n]*\n- X: Always say please\./);
   assert.doesNotMatch(seen[0].messages[0].content, /CONNECTOR INSTRUCTIONS/);
   const toolMsgs = seen[1].messages.filter((x) => x.role === "tool");
-  assert.ok(toolMsgs[0].content.length > 120_000, "under the tool's own 200,000 limit: not cut, not to a file");
-  assert.match(toolMsgs[1].content, /^\(This came[^\n]*\nS{5000}\n…\(8,000 characters left out\)…\nE{5000}$/);
+  // (Whole, and as it came: no line of Coder's before it since 2026-11-17, the owner: "Matcha claude code".)
+  assert.equal(toolMsgs[0].content, "b".repeat(120_000), "under the tool's own 200,000 limit: not cut, not to a file");
+  assert.match(toolMsgs[1].content, /^S{5000}\n…\(8,000 characters left out\)…\nE{5000}$/);
   assert.ok(events.some((e) => e.type === "note" && /Large answer from X: big: about 30,000 tokens/.test(e.text)));
   assert.ok(seen[1].messages.some((x) => x.readPics && x.images[0] === "data:image/png;base64,iVBORw0KGgo="));
 });
@@ -503,6 +507,8 @@ test("MC15 (2026-11-11, Claude Code's MCP docs) prompts as /connector:prompt, re
   assert.equal(most, 2, "the two read-only calls ran side by side");
   assert.match(seen[2].messages.filter((x) => x.role === "tool").at(-1).content, /moved to the background as connector-1/);
   assert.match(JSON.stringify(seen[3].messages), /connector-1 \(X: slow\) finished:[^"]*mcp__x__slow answer/);
+  // (Its answer right after it, as it came: no line of Coder's before it since 2026-11-17, the owner: "Matcha claude code".)
+  assert.match(JSON.stringify(seen[3].messages), /connector-1 \(X: slow\) finished:\\nmcp__x__slow answer/);
   assert.equal(res.summary, "all done");
   assert.ok(events.some((e) => e.type === "note" && /Background connector call connector-1 \(X: slow\) finished\./.test(e.text)));
   // The page lists a connector's prompts and resources.

@@ -313,7 +313,7 @@
         <h3 id="conn-more">Prompts, resources and big answers</h3>
         <ul>
           <li>Type <code>/linear:triage</code> (a connector's name, then one of its prompts) to send that prompt as your message, or <code>@notion:notion://page/&hellip;</code> to attach one of its resources.</li>
-          <li>An answer over <b>50,000 characters</b> is saved to a file, and Coder reads the part it needs. What a connector sends back is treated as information, never as instructions.</li>
+          <li>An answer over <b>50,000 characters</b> is saved to a file, and Coder reads the part it needs. Otherwise Coder gets what a connector sends back exactly as it came, as in Claude Code.</li>
           <li>A call still running after <b>2 minutes</b> goes on in the background, and Coder is told its answer when it comes.</li>
           <li>Coder loads a connector's tools only when it needs them: see <a href="#tool-search">Tool search</a>.</li>
         </ul>

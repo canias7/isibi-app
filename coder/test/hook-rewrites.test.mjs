@@ -208,15 +208,15 @@ test("HR4 in Coder's loop: a hook's new output becomes the tool's answer through
   const sp = st.hookCalls.find((h) => h.hook_event_name === "PostToolUse" && h.tool_use_id === "s1");
   assert.deepEqual(sp.tool_response, { message: "Successfully stopped task: job1 (npm run dev)", task_id: "job1", task_type: "local_bash", command: "npm run dev" });
   assert.equal(st.answer("s1"), JSON.stringify({ message: "stopped (said by a hook)", task_id: "job1", task_type: "local_bash", command: "npm run dev" }));
-  // A connector's answer as text (an MCP tool's, as Claude Code passes it on), without Coder's line before it; a hook's string
-  // in its place, Coder's line kept before it.
+  // A connector's answer as text (an MCP tool's, as Claude Code passes it on); a hook's string in its place, as it is (no line
+  // of Coder's before either since 2026-11-17, the owner: "Matcha claude code").
   const m = await loop([say("", [call("mcp__notes__find", { q: "x" }, "c1")]), say("done")], hooks, {
     connectors: [{ name: "mcp__notes__find", label: "Notes: find", description: "From the Notes connector (MCP). Find notes", parameters: { type: "object", properties: { q: { type: "string" } } }, readOnly: true, perm: "allow" }],
     mcp: async () => ({ text: "note 1", isError: false }),
     hookRun: (input) => (input.hook_event_name === "PostToolUse" ? hookOut({ hookSpecificOutput: { hookEventName: "PostToolUse", updatedToolOutput: "[filtered]" } }) : {}),
   });
   assert.equal(m.hookCalls.find((h) => h.hook_event_name === "PostToolUse").tool_response, "note 1");
-  assert.equal(m.answer("c1"), A.CONNECTOR_DATA + "[filtered]");
+  assert.equal(m.answer("c1"), "[filtered]");
 });
 
 test("HR5 a hook's new input checked as Claude Code checks it (its GJe): the schema, in its words (zod's own list when only a value is wrong); the keys the tool does not know dropped; the tool's own check (\"refused\"); a check that throws; Claude Code's names in the words (file_path); numbers and booleans written as text taken; a connector's tool takes any input", async () => {
