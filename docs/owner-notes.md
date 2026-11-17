@@ -10,7 +10,7 @@ When Coder reads part of a file (say lines 2 to 3) and doesn't reach the end, it
 
 All 14 cases I tried on Claude Code's real Read now give exactly the same text in Coder. A whole read of a long file still ends with its "PARTIAL view" note, as Claude Code's does.
 
-Tests: CD204 and CD205 updated. The full test run is noted once it ends. On this chat's branch, deployed to coder2.
+Tests: CD204 and CD205 updated. All 1,333 pass. On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: Read's line numbers and line counting now match Claude Code (your words: "Like claude code yes")
 
