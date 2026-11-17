@@ -285,6 +285,29 @@ export function readAutofix(event, p) {
   return null;
 }
 
+/**
+ * A CHECK ALREADY FAILING WHEN AUTO-FIX IS TURNED ON (the owner's live test, 2026-11-17: the check failed seconds before
+ * auto-fix was on, and nothing happened until it failed again; "do it how claude code does it", which looks at the pull
+ * request's current state when it starts watching). Read with the owner's token (`token`): the pull request's newest commit,
+ * its failed check runs, and the app's installation for the repository (`appJwtFn`). → the same object readAutofix makes, or null.
+ */
+export async function failedCheckNow(env, token, repo, number, { fetchFn = fetch, appJwtFn = appJwt } = {}) {
+  const pr = await ghApi(token, "/repos/" + repo + "/pulls/" + Number(number), { fetchFn });
+  const sha = pr.ok && pr.data && pr.data.head ? String(pr.data.head.sha || "") : "";
+  const branch = pr.ok && pr.data && pr.data.head ? String(pr.data.head.ref || "") : "";
+  if (!sha || !branch) return null;
+  const runs = await ghApi(token, "/repos/" + repo + "/commits/" + sha + "/check-runs?per_page=50", { fetchFn });
+  const bad = ((runs.ok && runs.data && runs.data.check_runs) || []).find((c) => c && c.status === "completed" && ["failure", "timed_out"].includes(c.conclusion));
+  if (!bad) return null;
+  const jwt = await appJwtFn(env).catch(() => null);
+  const inst = jwt ? await ghApi(jwt, "/repos/" + repo + "/installation", { fetchFn }) : null;
+  const installation = inst && inst.ok && inst.data ? inst.data.id : null;
+  if (!installation) return null;
+  const o = bad.output || {};
+  return { kind: "check", repo, branch, number: Number(number), sha, installation, checkId: bad.id, appSlug: bad.app && bad.app.slug,
+    text: "The check \"" + String(bad.name || "").slice(0, 120) + "\" failed (" + bad.conclusion + ")" + (o.title ? ": " + String(o.title).slice(0, 200) : "") + (o.summary ? "\n" + String(o.summary).slice(0, 2000) : "") };
+}
+
 export async function startAutofix(env, deps, f) {
   const bucket = env.CODER_BUCKET;
   const fetchFn = deps.fetchFn || fetch;

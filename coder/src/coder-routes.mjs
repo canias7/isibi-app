@@ -129,7 +129,7 @@ import { PROJECT_ID, SETUP_SCRIPT_MAX, scrub, secretVar } from "../container/cod
 export { secretVar };
 import { okHost, okPattern, HEADER_RE, KEY_RE, PREFIXES, PATH_RE, headerValue, normSecret, normNetwork, parseEnv, toEnv, normConfig, configSecrets, SECRET_KINDS, notSentWhy, varsDropped } from "../container/coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, hostMatches } from "../container/coder-secrets.mjs";
-import { handleWebhook, loginKey, profileKey, branchKey } from "./coder-mentions.mjs";
+import { handleWebhook, loginKey, profileKey, branchKey, failedCheckNow, startAutofix } from "./coder-mentions.mjs";
 import { repoReviewKey, reviewSettingsOf, REVIEW_RUNS, REVIEW_LEVELS } from "./coder-review.mjs";
 import { readPush, writePush, cleanSub, vapidKeys, notifyOwner, seenKey, MAX_DEVICES } from "./coder-push.mjs";
 import { listEnvs, saveEnvList, readEnvData, writeEnvData, envIdFor, envForRepo, envIdOf, markUsed, envListOut, ENV_NAME, MAX_ENVS, DEFAULT_ENV, setupKeyOf, readEnvCache, writeEnvCache, GLOOPY_ENV, nameHolder, nameTakenText, envRepos, reposFrom } from "./coder-environments.mjs";
@@ -717,7 +717,10 @@ export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = 
   if (owner && !(owner.uid === uid && owner.id === meta.id)) return { note: "Auto-fix was not turned on: pull request #" + number + "'s branch belongs to another chat; turn it on there." };
   if (!owner) await bucket.put(branchKey(meta.repo, branch), JSON.stringify({ uid, id: meta.id }), { httpMetadata: { contentType: "application/json" } });
   const moved = branch !== meta.branch;
+  // (A check failing already: fixed as soon as the chat is saved, like Claude Code, which looks at the pull request now.)
+  const pending = await failedCheckNow(env, token, meta.repo, number, { fetchFn }).catch(() => null);
   return {
+    ...(pending ? { pending } : {}),
     meta: { autofix: true, autofixTries: 0, pr: { number, url: String(d.html_url || "") }, ...(moved ? { branch, base, commits: [], pushed: true, unpushed: 0, unpushedSince: 0, refetch: true } : {}) },
     note: "Auto-fix is on for pull request #" + number + ": when a check fails or you review it, Coder fixes it in this chat" + (moved ? ", on its branch " + branch + " (this chat now works on that branch)" : "") + ". Turn it off with the Auto-fix button, or ask Coder.",
   };
@@ -2024,6 +2027,7 @@ export async function handleCoder(request, env, ctx, deps) {
       const extraNotes = [];
       // What an auto-fix asked for in the chat changes on the chat (autofixFor).
       const afMeta = {};
+      let afPending = null;
       // Each job that changed files is one commit: kept so it can be undone.
       let commits = Array.isArray(meta.commits) ? meta.commits : [];
       // A READ-ONLY CHAT (owner item 5): its work is committed on Coder's machine, never sent to GitHub.
@@ -2032,7 +2036,7 @@ export async function handleCoder(request, env, ctx, deps) {
       // each push's commit is the job's own (kept for Undo, which takes the job's commits back one at a time, the last first),
       // and the chat says it was pushed; the turn's end then commits only what changed after it (pushWanted is not set by it).
       for (const m of meta.readOnly ? [] : Array.isArray(res.midPushes) ? res.midPushes.slice(0, 20) : []) {
-        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
+        if (m && m.changed === true && typeof m.sha === "string" && /^[0-9a-f]{7,64}$/.test(m.sha)) commits = [...commits, { sha: m.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, { edited: m.edited }, m) }].slice(-50);
         // (A mid-turn push that found nothing new still means GitHub has the branch: a pull request queued for the turn's end
         // opens on it.)
         if (m && typeof m === "object") pushed = true;
@@ -2047,7 +2051,7 @@ export async function handleCoder(request, env, ctx, deps) {
       if (!gitWork) { /* nothing changed and nothing asked: no commit step (meta.unpushed stays as it is) */ }
       else if (!t && !meta.readOnly) pushNote = "Not sent to GitHub: the connection has ended. Connect GitHub again and send a message to push it.";
       else {
-        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.summary), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
+        const p = await post("/push", { project: id, repo: meta.repo, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), message: commitTitle(s.result.commitTitle || s.result.summary), chatUrl: chatLink, extra: extraFor(meta), ...(meta.readOnly ? { noPush: true } : pushNow ? {} : { commitOnly: true }) }).then((r) => r.json()).catch(() => ({ ok: false, why: "the machine could not be reached" }));
         // THE CHAT'S OTHER REPOSITORIES (2026-11-06): each saved to the chat's branch in its own repository, and its pull request when Coder was asked for one.
         for (const x of Array.isArray(p.extra) ? p.extra : []) {
           const line = !x.ok ? "Not sent to GitHub in " + x.repo + ": " + String(x.why || "the push failed").slice(0, 160) : x.kept ? (x.changed ? keptNote(x.repo) : "") : x.local ? "" : x.pushed ? "Pushed to the branch " + meta.branch + " in " + x.repo : "";
@@ -2066,17 +2070,17 @@ export async function handleCoder(request, env, ctx, deps) {
         else if (meta.readOnly) {
           if (p.changed) {
             keptHere = true;
-            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
+            if (p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
             pushNote = keptNote(meta.repo);
           }
         } else if (p.local) {
           // Committed on Coder's machine only: kept for Undo, Rewind and See changes; pushed later.
-          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
+          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), local: true, ...commitTracking(commits, s.result, p) }].slice(-50);
           unpushed = Number(p.unpushed) || 0;
           if (unpushed && !unpushedSince) unpushedSince = Date.now();
           if (!unpushed) unpushedSince = 0;
         } else {
-          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
+          if (p.changed && p.sha) commits = [...commits, { sha: p.sha, turn: meta.turn, title: commitTitle(s.result.commitTitle || s.result.summary), at: Date.now(), ...commitTracking(commits, s.result, p) }].slice(-50);
           commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c));
           unpushed = 0; unpushedSince = 0;
           if (p.pushed) {
@@ -2142,7 +2146,8 @@ export async function handleCoder(request, env, ctx, deps) {
       if (afWant) {
         const r = t ? await autofixFor(env, bucket, uid, meta, afWant, t.token, fetchFn) : { note: "Auto-fix was not changed: connect GitHub again first." };
         if (r.meta) Object.assign(afMeta, r.meta);
-        extraNotes.push(r.note);
+        extraNotes.push(r.note + (r.pending ? " A check is failing on it now, so Coder starts fixing it." : ""));
+        if (r.pending) afPending = r.pending;
       }
       if (pushNote) fresh.push({ at: Date.now(), type: "github", text: pushNote });
       for (const line of extraNotes) fresh.push({ at: Date.now(), type: "github", text: line });
@@ -2215,6 +2220,11 @@ export async function handleCoder(request, env, ctx, deps) {
       console.log("coder: turn timing " + id + " #" + meta.turn + " " + JSON.stringify(ended.timing));
       await saveMeta(bucket, uid, ended);
       if ((Number(meta.unpushed) || 0) !== ended.unpushed) await markUnpushed(ended.unpushed);
+      // (The check already failing when auto-fix was turned on: its fix starts now the chat is saved, the way a new failure's does.)
+      if (afPending && ended.autofix === true) {
+        const go = startAutofix(env, { fetchFn, coder: (req, who) => handleCoder(req, env, ctx, { ...deps, authUser: async () => who }) }, afPending).catch((e) => console.log("coder: auto-fix at start " + id + ": " + String((e && e.message) || e).slice(0, 200)));
+        if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(go); else await go;
+      }
       // AFTER "SAVED", NOTHING THE PAGE WAITS FOR (2026-11-16): the watch list, the live sendings and the pictures are tidied in
       // the background (in this order, after the save is written).
       const tidy = (async () => {

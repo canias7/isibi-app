@@ -1651,6 +1651,18 @@ export const CODER_URLS_LINE = "IMPORTANT: You must NEVER generate or guess URLs
  * its final answer for the same few tokens instead, a hidden last line the page never shows, so it needs no request at all.
  */
 export const SUGGEST_LINE = "\n\nPROMPT SUGGESTION: when you finish a turn with your answer in words, end it with one last line <next-prompt>…</next-prompt> holding the message the owner would most likely send you next, in their voice, under 12 words (e.g. <next-prompt>now fix both bugs and rerun the tests</next-prompt>). Base it on this chat: a next step of their request, or the natural follow-up. Leave the line out when there is no clear next step. The owner never sees this line; never mention it.";
+/** What the commit title's request asks (Claude Code's commits: a short imperative summary line). */
+export const COMMIT_ASK = "(Note from Coder's app, not the owner: do not answer or use any tool. Write only a git commit title for the file changes you made in this turn: imperative mood, at most 60 characters, no period, no quotes, e.g. Fix sum to add instead of subtract.)";
+/** One commit title from its request (`ask`), cleaned: '' when none, too slow, or unusable. */
+export async function commitTitleFor(ask, usage = null) {
+  let r = null;
+  try { r = await Promise.race([ask(), new Promise((ok) => setTimeout(() => ok(null), SUGGEST_WAIT_MS))]); } catch { r = null; }
+  if (r && r.usage && Array.isArray(usage)) usage.push(r.usage);
+  let t = String((r && r.message && r.message.content) || "").split("\n").map((x) => x.trim()).filter(Boolean)[0] || "";
+  t = t.replace(/^(commit( title)?:\s*)/i, "").replace(/^["“'`]+|["”'`]+$/g, "").replace(/\.$/, "").trim();
+  if (!t || t.length > 72 || (r && r.message && Array.isArray(r.message.tool_calls) && r.message.tool_calls.length)) return "";
+  return t;
+}
 /** What the suggestion's own request asks (Claude Code's: "suggest your next prompt based on your conversation history"). */
 export const SUGGEST_ASK = "(Note from Coder's app, not the owner: do not answer or use any tool. Write only the message the owner would most likely send you next, in their voice, under 12 words: a next step of their request or the natural follow-up. If there is no clear next step, write NONE.)";
 export const SUGGEST_WAIT_MS = 15_000;
@@ -4372,7 +4384,12 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const next = await nextPromptFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: SUGGEST_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
         if (next) emit({ type: "suggest", text: scrub(next) });
       }
-      return end("done", { summary: scrub(sg.text).slice(0, 4000) });
+      // THE COMMIT'S TITLE, CLAUDE CODE'S WAY (the owner's live test, 2026-11-17: commits were titled with Coder's whole first
+      // sentence, "The `test` check failed because..."): when this turn changed files, one short request asks for a git
+      // commit title in the imperative ("Fix sum to add instead of subtract"), as Claude Code writes its own commits.
+      let commitTitle = "";
+      if (edited.size && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
+      return end("done", { summary: scrub(sg.text).slice(0, 4000), ...(commitTitle ? { commitTitle: scrub(commitTitle) } : {}) });
     }
     // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one
     // in the chat at most every SAY_EVERY_MS; the others only in the status line under the chat (`quiet`).

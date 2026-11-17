@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Auto-fix and @coder tested live; two fixes the Claude Code way
+
+Tested live on gofarther.dev with Grok: auto-fix on a failing check (PR #31 in testingforclaude: Coder fixed the bug by itself about 2 minutes after the check failed, and the check went green) and an @coder comment on GitHub (Coder replied within seconds, pushed the change and answered "Done"). The GitHub App already had the permissions and events it needs (Checks, Issues, check run and comment events). Two fixes, Claude Code's way (the owner: "do it how claude code does it"):
+- When auto-fix is turned on, Coder now looks at the pull request's checks right away; one already failing is fixed at once (before, only a new failure started a fix).
+- Commit titles: when a turn changed files, one short extra request to Grok writes a git commit title in the imperative ("Fix sum to add instead of subtract"), instead of Coder's whole first sentence.
+Tests: `coder/test/autofix-start.test.mjs`.
+
 ## 2026-11-17: Suggested next message, Claude Code's way
 
 The owner: "build it claude code way". The retest showed only 1 answer in 11 came with a suggestion: Coder was asked to add a hidden line at the end of its answer, and Grok mostly left it out. Now, like Claude Code, after the answer is on screen Coder makes one short extra request to Grok (same chat, instructions and tools, so the cache is reused) asking only for the next message. It comes in a moment later as its own step and shows grey in the box. Not in plan mode, from GitHub, or in Gloopy. A small extra Grok cost per turn. Like Claude Code's `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION`, `CODER_ENABLE_PROMPT_SUGGESTION=false` turns it off on the machine (the machine tests set it, as they count Grok's requests). Tests: `coder/test/prompt-suggest.test.mjs`.
