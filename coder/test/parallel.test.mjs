@@ -85,7 +85,8 @@ async function job(steps, { mode = "acceptEdits", rules = null, hooks = null, ch
 }
 
 test("PA1 Claude Code 2.1.325's concurrency-safe tools by Coder's names, a call's safety on its input, the groups (consecutive safe calls together, an unsafe one alone), and the early runs' bookkeeping: taken once, only for the same input, a model call's use counted once, nothing left unhandled", async () => {
-  assert.deepEqual([...P.SAFE_TOOLS].sort(), ["ask_user", "enter_plan_mode", "exit_plan_mode", "glob", "grep", "lsp", "monitor", "read", "stop_job", "task_get", "task_list", "task_update", "tool_search", "web_fetch", "web_search"]);
+  // (And list_mcp_resources and read_mcp_resource, its ListMcpResourcesTool and ReadMcpResourceTool: 2.1.326, 2026-11-17.)
+  assert.deepEqual([...P.SAFE_TOOLS].sort(), ["ask_user", "enter_plan_mode", "exit_plan_mode", "glob", "grep", "list_mcp_resources", "lsp", "monitor", "read", "read_mcp_resource", "stop_job", "task_get", "task_list", "task_update", "tool_search", "web_fetch", "web_search"]);
   const ro = { readOnly: (cmd) => /^(ls|cat|grep)\b/.test(cmd), connector: (n) => (n === "mcp__x__list" ? true : n === "mcp__x__make" ? false : undefined) };
   const safe = (name, args) => P.safeCall({ name, args }, ro);
   for (const n of ["read", "grep", "glob", "lsp", "web_fetch", "web_search", "tool_search", "task_get", "task_list", "task_update"]) assert.equal(safe(n, {}), true, n);

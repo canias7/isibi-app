@@ -1503,7 +1503,8 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   assert.match(page, /<a class="dc-open" href="\/">Open Coder<\/a>/);
   const ids = new Set([...page.matchAll(/ id="([a-z-]+)"/g)].map((m) => m[1]));
   const links = [...page.matchAll(/href="#([a-z-]+)"/g)].map((m) => m[1]);
-  assert.equal(links.length, 42);
+  // (43 since 2026-11-17: Connectors' Resource tools.)
+  assert.equal(links.length, 43);
   for (const id of links) assert.ok(ids.has(id), "#" + id + " goes to a part that is there");
   assert.match(css, /@media \(max-width: 760px\)/, "a phone layout");
   // The numbers, from the code itself.

@@ -13,6 +13,7 @@
 // Its sign-in is OAuth 2.1 with PKCE, the server found from the MCP server's protected-resource metadata (RFC 9728), and
 // Coder registered as a client on the fly (RFC 7591).
 import { seal, unseal } from "./coder-github.mjs";
+import { serversNamed, serverNotFound, serverNotConnected, serverHasNoResources, readsNotImplemented, resourceNotFound, METHOD_NOT_FOUND, RESOURCE_NOT_FOUND_CODES, isUiResource, LIST_PAGES_MAX as RESOURCE_PAGES_MAX } from "../container/coder-mcpres.mjs";
 import { modelPass } from "./coder-model-gate.mjs";
 // (A connector's questions for the owner, MCP elicitation: what Coder declares, and the server's side of a request.)
 import { CLIENT_CAPS, rootsResult, rootPaths, checkElicitRequest } from "../container/coder-elicit.mjs";
@@ -834,6 +835,8 @@ export async function listTools(url, token, opts = {}) {
   list.prompts = [];
   list.resources = [];
   const caps = (firstInit && firstInit.capabilities) || {};
+  // (Whether it declares resources at all, its `resources` capability: Claude Code offers its resource tools by that. 2026-11-17.)
+  list.resourcesCap = !!caps.resources;
   if (caps.prompts || caps.resources) {
     try {
       const steps = [...(caps.prompts ? [["prompts/list", {}]] : []), ...(caps.resources ? [["resources/list", {}]] : [])];
@@ -980,7 +983,7 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.auth = "oauth";
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
-  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
+  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
   await writeConnectors(bucket, p.uid, list);
   return { uid: p.uid, id: c.id };
 }
@@ -1089,7 +1092,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); }
+    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -1099,7 +1102,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
       const again = await readConnectors(bucket, uid);
       const mine = again.find((x) => x.id === c.id);
       if (mine) c.box = mine.box;
-      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era);
+      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era);
     }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
@@ -1140,13 +1143,13 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
     // again in its next session: its tools are back for the next job once it answers. 2026-11-14.)
     const failed = c.status === "error" && !c.disabled;
     if (!failed && (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS))) continue;
-    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; newConnection(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
+    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) newConnection(c, mine.era); } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; c.resourcesCap = !!mine.resourcesCap; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) newConnection(c, mine.era); } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -1281,6 +1284,91 @@ export async function hookCall(env, bucket, uid, id, turn, meta, h, { fetchFn = 
   }
 }
 
+// ── CLAUDE CODE'S MCP RESOURCE TOOLS, FOR A JOB (the owner, 2026-11-17: "yes build it like claude code") ───────────────
+
+/** A connector whose server declares resources (its `resources` capability; one read before that was kept: by its list). */
+export const declaresResources = (c) => (c && typeof c.resourcesCap === "boolean" ? c.resourcesCap : !!(c && Array.isArray(c.resources) && c.resources.length));
+/** Its waits before trying a page of a server's resources again (Claude Code's fetchResourcesForClient: three more tries). */
+export const RESOURCE_LIST_WAITS = Object.freeze([250, 500, 1000]);
+const working = (c) => !!c && !c.disabled && (c.status || "ok") === "ok";
+
+/**
+ * LIST_MCP_RESOURCES' AND READ_MCP_RESOURCE'S CALLS FOR A JOB (container/coder-mcpres.mjs, Claude Code 2.1.326's
+ * ListMcpResourcesTool and ReadMcpResourceTool): `r` is { op: "list", server? } or { op: "read", server, uri }.
+ * THE CHAT'S SERVERS: the connectors on for it when its turn started (kept with its tools: jobConnectors), as Claude Code's
+ * session has its MCP servers, connected or not. A server named is found by that name, else by its name as Claude Code writes
+ * it (serversNamed). One that works (signed in, its last check fine) and declares resources is asked with its sign-in (a
+ * refused one refreshed once, as for any call); a list's server that does not, or that fails, has none, as in Claude Code.
+ * → { resources } (each with its server's name), { contents, error? } (a read's contents as the server gave them; its two
+ * errors Claude Code answers with, words not failures), or { error } (a failure: Claude Code's words where it throws).
+ */
+export async function resourceCall(env, bucket, uid, id, turn, r, { fetchFn = fetch, now = Date.now(), wait = (ms) => new Promise((res) => setTimeout(res, ms)) } = {}) {
+  const kept = await getJson(bucket, jobToolsKey(uid, id), null);
+  if (!kept || String(kept.turn) !== String(turn) || !Array.isArray(kept.servers)) return { refused: true };
+  const list = await readConnectors(bucket, uid);
+  const servers = kept.servers.map((sid) => list.find((c) => c.id === sid)).filter(Boolean);
+  const names = servers.map((c) => c.name);
+  const server = typeof (r && r.server) === "string" ? r.server : "";
+  const ask = async (c, steps) => {
+    const once = async (force) => keptSession(bucket, uid, c, await tokenOf(env, bucket, uid, c, { fetchFn, now, force }), steps, { fetchFn }, { fresh: force });
+    try {
+      try { return await once(false); }
+      catch (e) { if (e instanceof NeedsSignIn && c.auth === "oauth") return await once(true); throw e; }
+    } catch (e) {
+      if (e instanceof NeedsSignIn) { c.status = "auth"; await writeConnectors(bucket, uid, list).catch(() => {}); }
+      throw e;
+    }
+  };
+  if (r && r.op === "list") {
+    // (No server, or an empty name: every server of the chat. A name no server has: Claude Code's error, naming them all.)
+    const named = server ? serversNamed(servers, server) : servers;
+    if (server && !named.length) return { error: serverNotFound(server, names) };
+    const each = await Promise.all(named.map(async (c) => {
+      if (!working(c) || !declaresResources(c)) return [];
+      try {
+        const out = [], cursors = new Set();
+        let cursor;
+        for (let page = 0; page < RESOURCE_PAGES_MAX; page++) {
+          let got;
+          for (let k = 0; ; k++) {
+            try { [got] = await ask(c, [["resources/list", cursor ? { cursor } : {}]]); break; }
+            catch (e) { if (!(e && e.transient) || k >= RESOURCE_LIST_WAITS.length) throw e; await wait(RESOURCE_LIST_WAITS[k]); }
+          }
+          for (const x of (got && Array.isArray(got.resources) ? got.resources : [])) if (x && typeof x === "object" && typeof x.uri === "string") out.push({ ...x, server: c.name });
+          cursor = got && got.nextCursor;
+          if (!cursor || cursors.has(String(cursor))) break;
+          cursors.add(String(cursor));
+        }
+        // (MCP Apps UI resources, pages for an app to show, are left out of the list; read by their URI they still are.)
+        return out.filter((x) => !isUiResource(x));
+      } catch { return []; }
+    }));
+    return { resources: each.flat() };
+  }
+  if (r && r.op === "read") {
+    const uri = typeof r.uri === "string" ? r.uri : "";
+    const [c] = serversNamed(servers, server);
+    if (!c) return { error: serverNotFound(server, names) };
+    if (!working(c)) return { error: serverNotConnected(c.name) };
+    if (!declaresResources(c)) return { error: serverHasNoResources(c.name) };
+    let got;
+    try { [got] = await ask(c, [["resources/read", { uri }]]); }
+    catch (e) {
+      if (e && e.rpcCode === METHOD_NOT_FOUND) return { contents: [], error: readsNotImplemented(c.name) };
+      if (e && RESOURCE_NOT_FOUND_CODES.includes(e.rpcCode)) return { contents: [], error: resourceNotFound(uri) };
+      if (e instanceof NeedsSignIn) return { error: "the " + c.name + " connector needs the owner to sign in again (Settings, Connectors)" };
+      return { error: String((e && e.message) || e).slice(0, 2000) };
+    }
+    // (Each part as the server gave it: its text, or its binary content, base64, for Coder's machine to save as a file.)
+    const contents = (got && Array.isArray(got.contents) ? got.contents : []).filter((x) => x && typeof x === "object").map((x) => ({
+      uri: typeof x.uri === "string" ? x.uri : uri,
+      ...(typeof x.mimeType === "string" ? { mimeType: x.mimeType.slice(0, 200) } : {}),
+      ...("text" in x ? { text: typeof x.text === "string" ? x.text : String(x.text ?? "") } : typeof x.blob === "string" ? { blob: x.blob } : {}) }));
+    return { contents, server: c.name };
+  }
+  return { error: "that resource call could not be read" };
+}
+
 /** SERVER INSTRUCTIONS (Claude Code: given to the model at the start, up to 4,096 characters): each working connector's. */
 export function connectorNotes(list, off = []) {
   return list.filter((c) => c.status === "ok" && !c.disabled && !off.includes(c.id) && typeof c.instructions === "string" && c.instructions.trim()).slice(0, 10).map((c) => ({ name: c.name, instructions: c.instructions.slice(0, INSTRUCTIONS_MAX) }));
@@ -1290,8 +1378,9 @@ export function connectorNotes(list, off = []) {
  * A JOB'S CONNECTORS: their tools' names and descriptions, and their servers' instructions; each call goes through the
  * Worker with the job's pass, and only these names (kept for the turn). Never in a job started from GitHub (strangers write
  * there). Gives { connectors, connectorNotes } for the machine, with the connectors waiting for their sign-in
- * (`connectorsWaiting`), those failed (`connectorsFailed`) and why each tool not offered is not (`connectorsGone`, toolsFor's
- * `gone`), or {} when there are none.
+ * (`connectorsWaiting`), those failed (`connectorsFailed`), why each tool not offered is not (`connectorsGone`, toolsFor's
+ * `gone`) and the working ones that declare resources (`connectorResources`: Claude Code's resource tools are offered then),
+ * or {} when there are none.
  */
 export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
   if (fromGithub) return {};
@@ -1307,10 +1396,14 @@ export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
     const failed = mine.filter((c) => c.status === "error" && on(c)).slice(0, 20).map((c) => ({ name: c.name, ...(c.error ? { error: String(c.error).slice(0, 300) } : {}) }));
     const ct = toolsFor(mine, off, toolsOff, { allOff });
     const told = { ...(waiting.length ? { connectorsWaiting: waiting } : {}), ...(failed.length ? { connectorsFailed: failed } : {}), ...(Object.keys(ct.gone).length ? { connectorsGone: ct.gone } : {}) };
-    if (!ct.tools.length) return told;
-    await keepJobTools(bucket, uid, id, turn, ct.map);
+    // CLAUDE CODE'S MCP RESOURCE TOOLS (2026-11-17): offered when one of the chat's working servers declares resources
+    // (`connectorResources`, their names), with the chat's servers, all those on for it, kept for their calls (resourceCall).
+    const chatServers = mine.filter(on);
+    const withResources = chatServers.filter((c) => working(c) && declaresResources(c)).map((c) => c.name);
+    if (!ct.tools.length && !withResources.length) return told;
+    await keepJobTools(bucket, uid, id, turn, ct.map, withResources.length ? { servers: chatServers.map((c) => c.id) } : {});
     const notes = connectorNotes(mine, off);
-    return { connectors: ct.tools, ...(notes.length ? { connectorNotes: notes } : {}), ...told };
+    return { ...(ct.tools.length ? { connectors: ct.tools } : {}), ...(notes.length ? { connectorNotes: notes } : {}), ...(withResources.length ? { connectorResources: withResources } : {}), ...told };
   } catch { return {}; }
 }
 
@@ -1361,7 +1454,7 @@ export async function expandConnectorRefs(env, bucket, uid, text, { fetchFn = fe
 
 /** What a job may call, kept for its turn (`coder/<uid>/<chat>/mcp.json`): the tool names and what each one is. */
 export const jobToolsKey = (uid, id) => "coder/" + uid + "/" + id + "/mcp.json";
-export async function keepJobTools(bucket, uid, id, turn, map) { await putJson(bucket, jobToolsKey(uid, id), { turn, map }); }
+export async function keepJobTools(bucket, uid, id, turn, map, extra = {}) { await putJson(bucket, jobToolsKey(uid, id), { turn, map, ...extra }); }
 export async function jobTool(bucket, uid, id, turn, name) {
   const o = await getJson(bucket, jobToolsKey(uid, id), null);
   return o && String(o.turn) === String(turn) && o.map && Object.prototype.hasOwnProperty.call(o.map, name) ? o.map[name] : null;
@@ -1397,6 +1490,12 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   // AN MCP_TOOL HOOK'S CALL (fix round 4, CL4): { hook: { server, tool, args, timeoutMs } }, only to a connector this chat
   // has: hookCall.
   if (body && body.hook && typeof body.hook === "object" && !Array.isArray(body.hook)) return answer(await hookCall(env, bucket, uid, id, turn, meta, body.hook, { fetchFn, now }));
+  // LIST_MCP_RESOURCES' AND READ_MCP_RESOURCE'S CALLS (2026-11-17): { resources: { op, server?, uri? } }, only for a job whose
+  // chat has a server that declares resources: resourceCall.
+  if (body && body.resources && typeof body.resources === "object" && !Array.isArray(body.resources)) {
+    const got = await resourceCall(env, bucket, uid, id, turn, body.resources, { fetchFn, now });
+    return got.refused ? answer({ error: "not one of this job's connector tools" }, 403) : answer(got);
+  }
   if (!body || typeof body.tool !== "string") return answer({ error: "that tool call could not be read" }, 400);
   const which = await jobTool(bucket, uid, id, turn, body.tool);
   if (!which) return answer({ error: "not one of this job's connector tools" }, 403);

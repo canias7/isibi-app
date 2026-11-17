@@ -26,7 +26,7 @@ import { constants } from "node:fs";
 import { createWriteStream, realpathSync, openSync, closeSync, readSync, fstatSync, fchownSync, lstatSync, lchownSync, existsSync, readdirSync, mkdirSync, chownSync, chmodSync, writeFileSync, readFileSync, statfsSync, truncateSync, rmdirSync, unlinkSync } from "node:fs";
 import { join, dirname, relative, resolve, basename, isAbsolute } from "node:path";
 import { fileURLToPath } from "node:url";
-import { runCoder, connectorTools, connectorCaller, connectorHookCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
+import { runCoder, connectorTools, connectorCaller, connectorHookCaller, connectorResourceCaller, MACHINE_TOOLS, MACHINE_ADMIN, CWD_MARK, CWD_WORDS, monitorMs, TOOLS_SCRIPT, hookModeName, boxDownTold, boxDownShown } from "./coder-agent.mjs";
 // (Each chat's plan file, kept here beside its memory: Claude Code's plan mode with a disk; the owner, 2026-11-14.)
 import { planStore, plansDirectoryFor, plansDirWarning } from "./coder-plan-file.mjs";
 import { envCaller } from "./coder-envtools.mjs";
@@ -4527,6 +4527,10 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
     const connectors = via ? connectorTools(body.connectors) : [];
     // (With the chat's working folders, a server's roots: Claude Code's roots/list. Round 5. Gloopy's calls as before.)
     const mcpCall = connectors.length ? connectorCaller(via, fetch, gloopy ? {} : { roots: workRoots }) : null;
+    // CLAUDE CODE'S MCP RESOURCE TOOLS (2026-11-17, the owner: "yes build it like claude code"): offered when one of the chat's
+    // working connectors declares resources (`connectorResources`, their names); their calls go to the Worker with this job's
+    // pass, as the tools' (src/coder-mcp.mjs resourceCall). Coder's own chats: Gloopy's are as they were.
+    const resourceServers = via && !gloopy && Array.isArray(body.connectorResources) ? body.connectorResources.filter((x) => typeof x === "string" && x).slice(0, 50) : [];
     // THE COPY IS SAVED NOW (above: takeCopy): a setup that ran on this fresh disk and worked, with all it
     // made on the disk (the admin sandbox), when the Worker asks for one.
     // (2026-11-15: the job no longer waits for it. A new chat's first message took 97 s, and one that took the old wait got
@@ -4547,6 +4551,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         send: timedSend(t.timing, via ? coderSend(env, { via }) : sendFn),
         // (And the chat's mcp_tool hooks call its connectors' tools the same way: connectorHookCaller. Fix round 4, CL4.)
         ...(mcpCall ? { mcp: mcpCall, mcpHook: connectorHookCaller(via) } : {}),
+        ...(resourceServers.length ? { mcpResources: connectorResourceCaller(via), resourceServers } : {}),
         // CLAUDE CODE'S ENVIRONMENT TOOLS (2026-11-14, the owner: "Do all the talk to you tools execpt for the notify one"):
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),
@@ -4563,6 +4568,16 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
           const file = join(outDir, randomUUID().replace(/-/g, "").slice(0, 9) + ".txt");
           const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
           try { writeFileSync(fd, String(text)); } finally { closeSync(fd); }
+          return file;
+        },
+        // A RESOURCE'S BINARY CONTENT (read_mcp_resource, Claude Code's ReadMcpResourceTool: "saved to" a file in the session's
+        // folder, named mcp-resource-…): in the chat's output folder, a new plain file, never through a link. Its path.
+        saveBytes: (buf, name) => {
+          if (!/^[\w.-]{1,120}$/.test(String(name)) || /^\.+$/.test(String(name))) throw new Error("not a file name");
+          mkdirSync(outDir, { recursive: true, mode: 0o755 });
+          const file = join(outDir, String(name));
+          const fd = openSync(file, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o644);
+          try { writeFileSync(fd, buf); } finally { closeSync(fd); }
           return file;
         },
         hookWatch: { get: () => HOOK_WATCH.get(project) || null, set: (v) => { HOOK_WATCH.set(project, v); } },

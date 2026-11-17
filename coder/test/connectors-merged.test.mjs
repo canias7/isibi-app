@@ -186,5 +186,5 @@ test("MC22 (2026-11-13, merged) the note on connectors waiting for their sign-in
   for (const f of ["async function showSettings()", "async function showConnectors(note)", "async function showChatConnectors()", "async function showNotifications()"]) assert.equal(page.split(f).length, 2, f);
   for (const ev of ["gf:settings", "gf:connectors", "gf:notify"]) { assert.ok(page.includes("window.addEventListener('" + ev + "'"), ev); assert.ok(app.includes("new CustomEvent('" + ev + "')"), ev); }
   // The permission card's title for a connector, beside main's newer ones.
-  assert.match(page, /const PERM_TITLE = \{ bash: 'Bash command', powershell: 'PowerShell command', [^\n]*undo_last_job: 'Undo', connector: 'Connector' \};/);
+  assert.match(page, /const PERM_TITLE = \{ bash: 'Bash command', powershell: 'PowerShell command', [^\n]*undo_last_job: 'Undo', connector: 'Connector'(?:, [a-z_]+: '[^']*')* \};/);
 });

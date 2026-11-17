@@ -84,7 +84,8 @@ export const SKIPPED_BY_CHECK = "[Tool call skipped: the turn was stopped before
  * that the check is not given, so it answers no for every command (2.1.325: `cn(e)`, `FLt(e.command)` with no parse). A
  * PowerShell call runs alone, as in Claude Code. Round 5 checked this, 2026-11-14.)
  */
-export const SAFE_TOOLS = new Set(["read", "grep", "glob", "lsp", "web_fetch", "web_search", "tool_search", "task_get", "task_list", "task_update", "stop_job", "monitor", "ask_user", "enter_plan_mode", "exit_plan_mode"]);
+// (And list_mcp_resources and read_mcp_resource, its ListMcpResourcesTool and ReadMcpResourceTool: 2.1.326, 2026-11-17.)
+export const SAFE_TOOLS = new Set(["read", "grep", "glob", "lsp", "web_fetch", "web_search", "tool_search", "task_get", "task_list", "task_update", "stop_job", "monitor", "ask_user", "enter_plan_mode", "exit_plan_mode", "list_mcp_resources", "read_mcp_resource"]);
 
 /**
  * WHETHER A CALL MAY RUN BESIDE OTHERS (Claude Code's isConcurrencySafe on its parsed input). `readOnly(command)`: whether a

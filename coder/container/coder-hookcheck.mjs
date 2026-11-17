@@ -17,6 +17,7 @@ import { createdText, getText, listText, updateText, TODO_WRITE_RESULT } from ".
 import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs";
 import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE, shorterNote, numberedLine } from "./coder-tools.mjs";
 import { readParts } from "./coder-notebook.mjs";
+import { listText as resourceListText, readText as resourceReadText } from "./coder-mcpres.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
@@ -93,6 +94,10 @@ export function outputTextOf(ctx = {}) {
       // (ToolSearch's: what its call would answer for that result object, coder-toolsearch.mjs's toolSearchAnswer, given by
       // Coder's loop, which knows the chat's tools. 2026-11-14.)
       case "ToolSearch": return typeof ctx.toolSearchText === "function" ? ctx.toolSearchText(v) : undefined;
+      // (list_mcp_resources' and read_mcp_resource's, Claude Code's: the list as JSON or its words for none; a read's error, or
+      // its contents as JSON. 2026-11-17, coder-mcpres.mjs.)
+      case "ListMcpResourcesTool": return resourceListText(v);
+      case "ReadMcpResourceTool": return resourceReadText(v);
       default: return plainOutputText(tool, v);
     }
   };

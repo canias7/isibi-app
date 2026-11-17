@@ -264,6 +264,10 @@ export const OUTPUT_SHAPES = Object.freeze({
   TaskUpdate: o({ success: B, taskId: S, updatedFields: z.array(S), error: opt(S), statusChange: opt(o({ from: S, to: S })) }),
   // (Coder's tool_search, its ToolSearch, as 2.1.325's yWr: a rewrite that matches decides which tools load. 2026-11-14.)
   ToolSearch: o({ matches: z.array(S), query: S, total_deferred_tools: N, pending_mcp_servers: opt(z.array(S)), failed_mcp_servers: opt(z.array(o({ name: S, errorCode: opt(S), error: opt(S) }))) }),
+  // (Coder's list_mcp_resources and read_mcp_resource, its ListMcpResourcesTool and ReadMcpResourceTool, as 2.1.326 has them:
+  // 2026-11-17, coder-mcpres.mjs.)
+  ListMcpResourcesTool: z.array(o({ uri: S, name: S, mimeType: opt(S), description: opt(S), server: S })),
+  ReadMcpResourceTool: o({ contents: z.array(o({ uri: S, mimeType: opt(S), text: opt(S), blobSavedTo: opt(S) })), error: opt(S) }),
 });
 
 // ── A POSTTOOLUSE HOOK'S updatedToolOutput ───────────────────────────────────
