@@ -871,11 +871,16 @@ const editedOf = (r) => (r && Array.isArray(r.edited) ? r.edited.filter((x) => t
  * not the job's whole answer quoted back. `lead` "Undid the last job" or "Undid this turn's changes"; `files` the paths put
  * back (up to 5 named, else counted); `where` "saved to the branch …" or "kept on Coder's machine".
  */
-export function undoLine(lead, files, where) {
-  const f = (Array.isArray(files) ? files : []).filter((x) => typeof x === "string" && x);
-  const what = !f.length ? "the files are back as they were" : f.length <= 5 ? f.join(", ") + (f.length === 1 ? " is back as it was" : " are back as they were") : f.length + " files are back as they were";
+export function undoLine(lead, files, where, removed = []) {
+  const all = (Array.isArray(files) ? files : []).filter((x) => typeof x === "string" && x);
+  const gone = new Set((Array.isArray(removed) ? removed : []).filter((x) => typeof x === "string" && all.includes(x)));
+  const f = all.filter((x) => !gone.has(x)), g = all.filter((x) => gone.has(x));
+  const back = !f.length ? "" : f.length <= 5 ? f.join(", ") + (f.length === 1 ? " is back as it was" : " are back as they were") : f.length + " files are back as they were";
+  // (A file the job had made is removed by the undo: "new.txt removed", the owner's group 2 test, 2026-11-17.)
+  const rem = !g.length ? "" : g.length <= 5 ? g.join(", ") + " removed" : g.length + " files removed";
+  const what = back && rem ? back + "; " + rem : back || rem || "the files are back as they were";
   const w = String(where || "");
-  return lead + ": " + what + (f.length > 1 && f.length <= 5 ? " (" + f.length + " files)" : "") + "." + (w ? " " + w.charAt(0).toUpperCase() + w.slice(1) + "." : "");
+  return lead + ": " + what + (all.length > 1 && all.length <= 5 ? " (" + all.length + " files)" : "") + "." + (w ? " " + w.charAt(0).toUpperCase() + w.slice(1) + "." : "");
 }
 export function commitTracking(commits, result, pushed) {
   const edited = editedOf(result);
@@ -2057,7 +2062,7 @@ export async function handleCoder(request, env, ctx, deps) {
           const last = commits[commits.length - 1];
           const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: chatLink, sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok && !meta.readOnly) { unpushed = 0; unpushedSince = 0; pushed = true; commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c)); }
-          if (u.ok) { commits = commits.slice(0, -1); pushNote = undoLine("Undid the last job", Array.isArray(u.files) && u.files.length ? u.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")); }
+          if (u.ok) { commits = commits.slice(0, -1); pushNote = undoLine("Undid the last job", Array.isArray(u.files) && u.files.length ? u.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : ""), u.removed); }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
           const lo = leftOutNote(u.left);
           if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
@@ -2322,7 +2327,7 @@ export async function handleCoder(request, env, ctx, deps) {
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
     const lo = leftOutNote(r.left);
-    const note = undoLine("Undid the last job", Array.isArray(r.files) && r.files.length ? r.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch) + (lo ? " · " + lo : "");
+    const note = undoLine("Undid the last job", Array.isArray(r.files) && r.files.length ? r.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch, r.removed) + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));

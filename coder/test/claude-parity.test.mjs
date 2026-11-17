@@ -162,11 +162,17 @@ test("CD104 review findings as comments on the pull request's lines, like Claude
   const call = (name, args) => ({ id: name + "1", type: "function", function: { name, arguments: JSON.stringify(args) } });
   const say = (content, calls = []) => ({ message: { role: "assistant", content, ...(calls.length ? { tool_calls: calls } : {}) }, usage: { in: 1, out: 1 } });
   const ask = { summary: "Two problems.", comments: [{ path: "src/a.js", line: 12, body: "Off by one: use <=." }, { path: "../etc/x", line: 1, body: "no" }, { path: "b.js", line: 0, body: "no" }] };
-  const run = async (github) => { const steps = [say("", [call("pr_comments", ask)]), say("Posted two findings.")]; let i = 0; const seen = []; const r = await runCoder({ send: async (q) => { seen.push(q); return steps[Math.min(i++, 1)]; }, exec: async () => ({ code: 0, output: "" }) }, { text: "review it on the PR", github }); return { r, seen }; };
-  const { r } = await run(false);
-  assert.deepEqual(r.reviewPost, { summary: "Two problems.", comments: [{ path: "src/a.js", line: 12, body: "Off by one: use <=." }] }, "bad paths and lines are dropped");
+  // (Posted at once through Coder's server since 2026-11-17, like Claude Code's: the server gets them mid-turn.)
+  const asked = [];
+  const run = async (github) => { const steps = [say("", [call("pr_comments", ask)]), say("Posted two findings.")]; let i = 0; const seen = []; const r = await runCoder({ send: async (q) => { seen.push(q); return steps[Math.min(i++, 1)]; }, exec: async () => ({ code: 0, output: "" }), envApi: async (b) => { asked.push(b); return { ok: true, text: "Review posted on pull request #2: https://github.com/a/b/pull/2#r1" }; } }, { text: "review it on the PR", github }); return { r, seen }; };
+  const { r, seen } = await run(false);
+  assert.equal(asked.length, 1);
+  assert.deepEqual({ summary: asked[0].summary, comments: asked[0].comments }, { summary: "Two problems.", comments: [{ path: "src/a.js", line: 12, body: "Off by one: use <=." }] }, "bad paths and lines are dropped");
+  assert.equal(asked[0].action, "pr_review");
+  assert.match(JSON.stringify(seen[1].messages), /ok: Review posted on pull request #2/);
+  r.reviewPost = { summary: asked[0].summary, comments: asked[0].comments };
   const gh = await run(true);
-  assert.equal(gh.r.reviewPost, undefined, "a GitHub-started job posts nothing as the owner");
+  assert.equal(asked.length, 1, "a GitHub-started job posts nothing as the owner");
   assert.match(JSON.stringify(gh.seen[1].messages), /comments cannot be posted on the owner's behalf in a job started from GitHub/);
   // GitHub: one review with line comments; if GitHub refuses them, the findings go in the review's text.
   const sent = []; let refuse = false;

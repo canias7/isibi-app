@@ -5387,13 +5387,15 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const tr = chatTrailer(body.chatUrl);
         if (tr) await gitIn(dir, ["commit", "--amend", "-q", "--no-edit", "--no-verify", "--trailer", tr], o);
         // (The files the undo put back, for the chat's line: "Undid the last job: a.txt is back as it was.")
-        const nm = await gitIn(dir, ["show", "--name-only", "--format=", "HEAD"], o);
-        const undoneFiles = nm.code === 0 ? String(nm.output).split("\n").map((x) => x.trim()).filter(Boolean).slice(0, 50) : [];
+        // (With --name-status: a file the job had made is removed by the undo, and the line says so: the owner, 2026-11-17.)
+        const nm = await gitIn(dir, ["show", "--name-status", "--no-renames", "--format=", "HEAD"], o);
+        const rows = nm.code === 0 ? String(nm.output).split("\n").map((x) => /^([A-Z])\t(.+)$/.exec(x.trim())).filter(Boolean).slice(0, 50) : [];
+        const undoneFiles = rows.map((m) => m[2]), removedFiles = rows.filter((m) => m[1] === "D").map((m) => m[2]);
         const p = await pushRepo({ dir, repo: String(body.repo || ""), branch: String(body.branch || "coder/" + project), message: "", ...gitFrom(body, { via: gitVia, remote }), gitRoot, root, noPush });
         // What the save left out is said here too (the audit, 2026-11-06).
         const told = p.left ? { left: p.left } : {};
         if (!p.ok) return send(502, { ok: false, why: p.why, ...told });
-        return send(200, { ok: true, sha: p.sha, files: undoneFiles, ...told });
+        return send(200, { ok: true, sha: p.sha, files: undoneFiles, ...(removedFiles.length ? { removed: removedFiles } : {}), ...told });
         } finally { go(); }
       }
       // REWIND'S "RESTORE CODE" (the owner, 2026-11-13: "yea do those 2 things"; Claude Code's checkpoints): the files Coder's

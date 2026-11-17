@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Pull requests like Claude Code (groups 3 and 4 fixes)
+
+Found in the side-by-side test. Not the GitHub app's permissions: Coder's own gateway blocks GitHub's GraphQL (as Claude Code's cloud does), and GitHub can only mark a pull request ready or resolve a thread through GraphQL. Claude Code uses its own GitHub tools for that, so Coder now has one too:
+- New `pr_update` tool: mark ready, back to draft, resolve a thread, reply to a comment, comment. Coder's server does it with your GitHub login, one fixed request each.
+- Review comments (`pr_comments`) are posted on GitHub at once, not when the answer ends.
+- After opening a pull request, Coder offers to watch it (auto-fix).
+- Coder is told it already gets each command's exit code, so it stops adding `echo "exit:$?"` (which needed your OK, as it does in Claude Code).
+- Undo says "removed" for a file the job had made.
+- Tests: `coder/test/pr-update.test.mjs`.
+
 ## 2026-11-17: Suggested next message in Coder's box
 
 After Coder answers, a suggested next message now shows in grey in the empty message box (like Claude Code's prompt suggestions, e.g. "now run the tests"). Tab, or the right arrow, puts it in the box; Enter sends it; typing anything hides it. None while Coder works, while a card waits, in plan mode or in Gloopy's tab. Settings has a "Prompt suggestions" switch to turn it off. It costs no extra Grok call: Coder's last answer adds one hidden line with the suggestion, which the page never shows. Tests: prompt-suggest.test.mjs.

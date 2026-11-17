@@ -93,7 +93,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
   // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
   // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
-  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "pr_read", "suggest_connectors", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "push_branch", "notify", "auto_fix", "reply_review", "rename_chat"];
+  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "push_branch", "notify", "auto_fix", "reply_review", "rename_chat"];
   const { CODER_TOOLS } = await import("../container/coder-agent.mjs");
   assert.deepEqual(CODER_TOOLS.map((t) => t.function.name), all);
   // (Since 2026-11-14, Claude Code's tool search: the tools it defers are named in a note and sent once loaded, and tool_search
@@ -118,7 +118,7 @@ test("CD6 there is no ask or done tool (the owner removed them): a call to eithe
   const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }) }, { text: "make a page" });
   assert.equal(r.status, "done");
   assert.equal("ask" in r, false);
-  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words\)/.test(m.content)));
+  assert.ok(s.seen[1].messages.some((m) => m.role === "tool" && /no such tool: ask \(the tools are bash, read, edit, write, grep, glob, lsp, web_fetch, web_search, monitor, stop_job, ask_user, enter_plan_mode, request_secret, get_environment, update_environment, create_environment, switch_environment, list_environments, review, pr_comments, pr_read, pr_update, suggest_connectors, undo_last_job, task_create, task_get, task_list, task_update, notify, rename_chat, push_branch and pull_request; to finish, answer in words\)/.test(m.content)));
   const s2 = scripted([say("", [call("done", { summary: "x" })]), say("All set.", [])]);
   const r2 = await runCoder({ send: s2.send, exec: async () => ({ code: 0, output: "" }) }, { text: "go" });
   assert.equal(r2.status, "done");
@@ -1223,7 +1223,7 @@ test("CD43 undo the last job: its commit is reverted and saved to the branch (no
     assert.equal(git(bare, "rev-parse", "coder/" + id + "~1").trim(), before, "a new commit on top (no force push)");
     assert.match(git(bare, "log", "-1", "--format=%s", "coder/" + id), /^Revert "Made index\.html\."/);
     assert.deepEqual(u.project.commits, []);
-    assert.match(u.events[0].text, /^Undid the last job: index\.html is back as it was\. Saved to the branch coder\/[\w-]+\.$/, "a short line naming the file, not the job's answer quoted back");
+    assert.match(u.events[0].text, /^Undid the last job: index\.html removed\. Saved to the branch coder\/[\w-]+\.$/, "a short line naming the file, not the job's answer quoted back");
     const msgs = JSON.parse(bucket.m.get("coder/user-undo/" + id + "/messages.json"));
     assert.match(msgs.at(-2).content, /the owner pressed Undo/);
     assert.equal((await go("projects/" + id + "/undo", { method: "POST", body: "{}" })).status, 400, "nothing more to undo");
