@@ -593,3 +593,54 @@ Seen once, outside edit: the setup's saved copy could not be made ("Fly.io did n
 | `!` completion | Tab: earlier `!` commands of the project; a word with `/` lists paths | the same (kept on the account per repository, so any device has them) | same |
 | Already the same (checked in this pass) | control characters refused; the snapshot leaves out `_` functions (2.1.319 does too) | | same |
 | Not copied | memory cgroup, PowerShell/Windows, local sandbox, permission rules and modes (the owner: "later"), the per-command file diff (off by default), background limits over 2 h, the "stuck on a prompt" notice (Coder's commands have no keyboard: a prompt ends at once) | | |
+
+---
+
+## 5. notebook_edit (Claude Code: NotebookEdit)
+
+The owner (2026-11-17): "Lets finish the tools", then "Investigate how claude code does it before doing it", then "Yes build it".
+On 2026-11-09, while edit was copied, the owner had put notebooks off ("Notebook for later").
+
+**Claude Code's docs** (tools-reference, "NotebookEdit tool behavior"):
+- "modifies a Jupyter notebook one cell at a time, targeting cells by their `cell_id`. It doesn't perform string replacement across the notebook the way Edit does";
+- `replace` ("overwrite the cell's source. This is the default"), `insert` ("add a new cell after the target. With no `cell_id`, the new cell goes at the start of the notebook. Requires `cell_type`"), `delete`;
+- "refuses a notebook file that doesn't decode as UTF-8, under the same rule as Edit, and writes nothing";
+- "Permission rules use the `Edit(...)` path format";
+- "When NotebookEdit replaces a code cell, its execution count and saved outputs are cleared".
+
+**Claude Code's real tool**, tried in a Claude Code cloud session (2.1.326) on test notebooks (`coder/test/fixtures/notebook`), and its
+program on that machine read for what the tries can't show:
+
+| Case | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| Replace a code cell | its text; run number and output cleared; tags kept | no tool (edit refused notebooks: "rewrite it whole with write, or use a python3 script") | the same, byte for byte |
+| Change the type while replacing | code→markdown keeps the cleared fields; markdown→code adds none | – | the same |
+| Insert after a cell / at the top | needs `cell_type`; new id: a random UUID's first 8 characters (format 4.5+), none in older notebooks | – | the same |
+| Delete | the cell taken out | – | the same |
+| Naming cells | by id; `cell-N` (from 0) when no cell has that id; a real id first | read showed ids only when a cell had one, cut at 40 characters, "Cell 1" counting from 1 | read shows every cell's id, `cell-N` for one without |
+| Saving | the whole notebook, 1 space per level, no newline at the end, é kept; its encoding and line endings | – | the same |
+| Answers | "Updated cell X with …", "Inserted cell X with …", "Inserted a new cell with …", "Deleted cell X" | – | the same |
+| Not read first | "File has not been read yet. Read it first before writing to it." (a missing notebook too) | – | the same |
+| Changed since read | "File has been modified since read, either by the user or by a linter. Read it again before attempting to write it." (between turns: shown first, then allowed) | – | the same (Coder's note after the round) |
+| Not a notebook | "File must be a Jupyter notebook (.ipynb file). For editing other file types, use the FileEdit tool." | – | the same, "use the edit tool" |
+| Wrong input | `InputValidationError` (a missing `new_source`; `cell_type` or `edit_mode` not in its list) | – | the same words |
+| Other refusals | no cell named; id not found; index past the end; not JSON; not a notebook; gone; over 100 MB; not UTF-8 | – | the same words |
+| Edit on a notebook | "File is a Jupyter Notebook. Use the NotebookEdit to edit this file." | Coder's own words | Claude Code's, "Use the notebook_edit" |
+| Loaded | held back until tool search loads it ("edit Jupyter notebook cells (.ipynb)") | – | the same |
+| Rules, hooks | `Edit(...)` rules; hooks see `NotebookEdit`, `notebook_path` in full; its result object | – | the same |
+| Its row | "notebook.ipynb@cell" | – | the same ("Edited a.ipynb@e5f6"), with the cell's change under it |
+| Plan mode, protected files, Rewind, security reminders | asked first; tracked; reminders after Edit, Write and NotebookEdit | – | the same as edit |
+
+Byte-for-byte check: the 7 edits Claude Code made on `before.ipynb`, and the 2 on an older notebook, give Claude Code's own saved files
+(`after-claude-code.ipynb`, `old-after-claude-code.ipynb`).
+
+**Tests:** NB1–NB9 (`coder/test/notebook-edit.test.mjs`); CD4, CD78, CD248, CD263, TP1, TS2, TS8, TS12 and TS24 updated. The full suite:
+1328 pass, 4 skipped, 0 fail.
+
+**Outside the tool (for the owner to decide):**
+1. read's notebook layout: Claude Code shows `<cell id="…">…</cell id="…">` with each cell's output after it; Coder shows
+   "--- Cell N (code, run 3, id …) ---". Only the ids were changed, as notebook_edit needs them.
+2. A notebook that isn't valid JSON (or has a UTF-8 byte-order mark): Claude Code's Read refuses it ("Notebook file is not valid
+   JSON (it may be truncated, corrupted, or still being written): …"); Coder's read shows it as plain text, which counts as read.
+
+**Live test:** not yet (needs the coder2 copy deployed and your sign-in code).

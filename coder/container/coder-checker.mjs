@@ -188,6 +188,15 @@ const appNote = (t) => /^\s*(\(Note from Coder's app|<local-command-caveat>|\(Th
 // the owner: "Do all the talk to you tools execpt for the notify one".)
 const LOOKUPS = new Set(["read", "grep", "glob", "lsp", "todo", "review"]);
 const clip = (s, n) => { const t = String(s ?? ""); return t.length > n ? t.slice(0, n) + "…[" + (t.length - n) + " more characters]" : t; };
+/**
+ * A NOTEBOOK EDIT AS CLAUDE CODE'S CLASSIFIER IS SHOWN ONE (its NotebookEdit's toAutoClassifierInput, 2.1.326's program; the
+ * owner, 2026-11-17: "Yes build it"): the notebook, the kind of edit, the cell and its type when given (not for a delete), and
+ * the new text it adds (a delete's, which nothing uses, as `ignored_source`).
+ */
+export function notebookForChecker(a) {
+  const mode = a.edit_mode ?? "replace";
+  return JSON.stringify({ notebook_path: a.notebook_path, mode, ...(a.cell_id !== undefined ? { cell_id: a.cell_id } : {}), ...(mode !== "delete" && a.cell_type !== undefined ? { cell_type: a.cell_type } : {}), ...(mode === "delete" ? { ignored_source: clip(a.new_source, 300) } : { adds: clip(a.new_source, 300) }) });
+}
 
 /**
  * WHAT THE CHECKER IS SHOWN: the owner's messages and Coder's earlier actions in order (tool results and Coder's own words
@@ -213,7 +222,7 @@ export function checkerTranscript(convo, { maxChars = 14000, skipId = "", notes 
         try { args = typeof args === "string" ? JSON.parse(args) : args; } catch { /* as sent */ }
         // (A web search as Claude Code's classifier is shown one: its query, WebSearch's toAutoClassifierInput. 2026-11-14.)
         // (A question as Claude Code's classifier is shown one: its toAutoClassifierInput, coder-askuser.mjs.)
-        const shown = name === "ask_user" ? askUserForChecker(args) : name === "bash" && args && typeof args.command === "string" ? args.command : name === "web_search" && args && typeof args.query === "string" ? args.query : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : typeof args === "string" ? args : JSON.stringify(args || {});
+        const shown = name === "ask_user" ? askUserForChecker(args) : name === "bash" && args && typeof args.command === "string" ? args.command : name === "web_search" && args && typeof args.query === "string" ? args.query : name === "write" && args ? JSON.stringify({ path: args.path, content: clip(args.content, 300) }) : name === "edit" && args ? JSON.stringify({ path: args.path, old_string: clip(args.old_string, 150), new_string: clip(args.new_string, 300) }) : name === "notebook_edit" && args ? notebookForChecker(args) : typeof args === "string" ? args : JSON.stringify(args || {});
         lines.push("[Coder's action] " + name + ": " + clip(shown, 700));
         // (A hook's note about this action's result, Claude Code's classifierContext: the application's word, not the owner's.)
         const note = notes && typeof notes.get === "function" ? notes.get(c.id) : "";

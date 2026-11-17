@@ -56,7 +56,7 @@ test("TP1 a tool's result object travels behind FACTS_MARK: printed first as one
   for (const f of ["coder-inputs.mjs", "coder-search.mjs", "coder-webfetch.mjs", "coder-websearch.mjs"]) assert.ok(copy.includes(" " + f + " "), f);
   // (Not Claude Code's environment tools since 2026-11-14: theirs are checked after the PreToolUse hooks, test/env-tools.test.mjs.)
   // (And tool_search, Claude Code's ToolSearch, since 2026-11-14: coder-toolsearch.mjs, tool-search.test.mjs.)
-  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["ask_user", "glob", "grep", "lsp", "tool_search", "web_fetch", "web_search"]);
+  assert.deepEqual(Object.keys(I.INPUT_CHECKS).sort(), ["ask_user", "glob", "grep", "lsp", "notebook_edit", "tool_search", "web_fetch", "web_search"]);
   assert.equal(I.inputCheckFor("read"), null);
   assert.equal(I.inputCheckFor("toString"), null);
 });

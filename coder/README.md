@@ -32,8 +32,8 @@ code in **each user's own GitHub**.
    sign-in, and they choose which repositories Coder may use.
 2. They pick a repository. That is a Coder project.
 3. Each message: Coder's machine clones the repository (once), works on its
-   own branch `coder/<project>` with its tools (read, edit, write, grep, glob,
-   bash, web_search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
+   own branch `coder/<project>` with its tools (read, edit, write, notebook_edit,
+   grep, glob, bash, web_search and the rest: `CODER_TOOLS` in `container/coder-agent.mjs`)
    and finishes by answering in words.
 
    **read opens pictures, PDFs and notebooks too** (owner item 1, 2026-11-08), like

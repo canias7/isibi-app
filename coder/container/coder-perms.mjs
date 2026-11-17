@@ -1929,7 +1929,7 @@ export function fileToolDecision(tool, path, { rules = {}, root = "/", cwd = "",
   // (`roots`: the chat's other working folders, where a deny or ask rule's relative path applies too: Claude Code 2.1.325.)
   // (`cwd`: the folder Coder's commands are in, where a relative rule's path counts from first, as Claude Code's: round 4.)
   const ctx = { root, ...(cwd ? { cwd } : {}), home, isDir, roots, sources: rules && rules.sources ? rules.sources : null, real: typeof real === "function" ? (p) => { try { return real(p) || ""; } catch { return ""; } } : null };
-  const edits = tool === "write" || tool === "edit";
+  const edits = tool === "write" || tool === "edit" || tool === "notebook_edit";
   const whole = (kind) => wholeRule(rules, kind, name);
   // (Grep, Glob and LSP go by Read rules on a path only, as Claude Code's do (2.1.325: their read check takes path rules
   // alone): a rule on the whole Read tool, `Read`, `Read(*)` or a wildcard naming Read, is Read's own. The owner, 2026-11-14.)

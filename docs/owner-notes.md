@@ -4,6 +4,35 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder can change a notebook one cell at a time, like Claude Code's NotebookEdit (your words: "Yes build it")
+
+This is on this chat's branch only (`claude/sweet-bohr-9xdj4f`), for the coder2.gofarther.dev copy. Nothing went to `main`.
+
+- **What a notebook is:** a `.ipynb` file of code and notes in "cells", with each code cell's results saved under it. Data and AI projects use them a lot.
+- **New tool, `notebook_edit`:**
+  - It replaces, adds or deletes one cell, the way Claude Code's NotebookEdit does.
+  - Before, Coder had to rewrite the whole notebook or use a script.
+- **How I checked it:**
+  - I tried Claude Code's real NotebookEdit here on test notebooks, about 30 cases.
+  - I read its own program (version 2.1.326) for what the tries can't show.
+  - Coder's tool makes the same files byte for byte, gives the same answers and refuses in the same words.
+- **Safety, the same as for edit:**
+  - Coder must read the notebook first.
+  - A notebook changed since Coder read it is refused until Coder reads it again.
+  - In Plan mode it asks you on a card first, showing the cell's new lines.
+  - Your Edit rules apply to it.
+  - Hooks see it as "NotebookEdit".
+  - Rewind can undo it.
+  - The security reminders check what it writes.
+- **In the chat:** its step reads like "Edited analysis.ipynb@e5f6", with the cell's change under it.
+- **Coder's edit tool now refuses notebooks in Claude Code's words** and points to `notebook_edit`.
+- **One change outside the tool, needed for it:** read now shows every cell's id. A cell with no id of its own shows as `cell-0`, `cell-1`… (counted from 0), which is how Claude Code names them.
+- **Two things outside the tool, for you to decide** (in `docs/tool-by-tool.md`, tool 5):
+  1. Claude Code's read shows notebooks in a different layout.
+  2. Claude Code's read refuses a broken notebook; Coder's shows it as plain text.
+- **Tests:** NB1 to NB9, plus 9 older tests updated. The full suite: 1328 pass, 4 skipped, 0 fail.
+- **Not tried live yet.** Next: deploy to coder2.gofarther.dev and try it there with Grok on Low.
+
 ## 2026-11-17: A third test copy at coder2.gofarther.dev, for the Claude Code docs work (your words: "make a copy of it, and we're gonna add stuff ... so it doesn't mix with main. Don't merge to main")
 
 This chat's branch (`claude/sweet-bohr-9xdj4f`) is for adding what Claude Code's docs have and Coder doesn't. It is not merged to `main` until you say so.

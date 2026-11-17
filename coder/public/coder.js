@@ -2328,6 +2328,8 @@
   // THE FILE A READ, WRITE OR EDIT STEP IS ABOUT, for the group line's count: its line without what a read adds after the
   // name (" from line 1112", " pages 1-5", " (@-mentioned)", " (again, after the summary)").
   function stepFile(e) {
+    // (A notebook edit's step names its notebook, then "@" and the cell, as Claude Code's row: the notebook is the file.)
+    if (e.tool === 'notebook_edit') return String(e.command || '').replace(/@[^/@]*$/, '');
     if (!/^(read|write|edit)$/.test(e.tool || '')) return '';
     return String(e.command || '').replace(/ \((?:@-mentioned|again, after the summary)\)$/, '').replace(/ (?:pages \S+|from line \d+)$/, '');
   }
@@ -2341,7 +2343,7 @@
    * (its `readFilePaths`, a set), not the steps; a step with no `file` counts as one.
    */
   function groupWords(steps) {
-    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
+    const W = { bash: ['ran', 'command', 'commands', 'command'], read: ['read', 'file', 'files', 'read'], write: ['wrote', 'file', 'files', 'write'], edit: ['edited', 'file', 'files', 'edit'], notebook_edit: ['edited', 'file', 'files', 'edit'], grep: ['searched for', 'pattern', 'patterns', 'search'], glob: ['searched for', 'pattern', 'patterns', 'search'], lsp: ['made', 'code lookup', 'code lookups', 'lookup'], web_fetch: ['fetched', 'page', 'pages', 'fetch'], browser: ['took', 'browser step', 'browser steps', 'browser step'], sign_in: ['asked you to sign in', '', '', 'sign-in'], sign_in_saved: ['signed in with a saved login', '', '', 'sign-in'], pay: ['asked you for a card', '', '', 'card request'], pay_saved: ['filled in your saved card', '', '', 'card fill'], pay_result: ['said how the order went', '', '', 'order note'], vault: ['updated your Vault', '', '', 'Vault change'], webhook: ['worked with', 'webhook', 'webhooks', 'webhook step'], files: ['worked with', 'file', 'files', 'file step'], handoff: ['asked you to take over', '', '', 'handoff'], schedule: ['worked with', 'schedule', 'schedules', 'schedule step'], helpers: ['started', 'helper team', 'helper teams', 'helper team'], page: ['published', 'page', 'pages', 'page'], web_search: ['searched the web', '', '', 'web search'], monitor: ['checked', 'background job', 'background jobs', 'check'], monitor_start: ['started', 'monitor', 'monitors', 'monitor'], stop_job: ['stopped', 'background job', 'background jobs', 'stop'], review: ['reviewed the changes', '', '', 'review'], undo: ['undid the last job', '', '', 'undo'], setup: ['ran the setup script', '', '', 'setup'] };
     const said = new Map(), bad = new Map();
     for (const s of steps) {
       const w = Object.prototype.hasOwnProperty.call(W, s.tool || 'bash') ? W[s.tool || 'bash'] : ['did', 'step', 'steps', 'step'];
@@ -2868,6 +2870,7 @@
       if (!r) continue;
       const c = r.change;
       if ((e.tool === 'write' || e.tool === 'edit') && c && (c.kind === 'create' || c.kind === 'update')) add(String(e.path || e.command || '').replace(/ \(.*\)$/, ''), c.kind, c.add, c.del);
+      if (e.tool === 'notebook_edit' && c && c.kind === 'update') add(stepFile(e), 'update', c.add, c.del);
       const fl = r.files && Array.isArray(r.files.files) ? r.files.files : [];
       for (const f of fl) if (f && typeof f.path === 'string') add(f.path, f.kind === 'create' ? 'create' : f.kind === 'delete' ? 'delete' : 'update', f.add, f.del);
     }
@@ -3824,7 +3827,7 @@
   const ruleShown = (r) => String(r).replace(/^Bash\(([\s\S]*)\)$/, '$1').replace(/^WebFetch\(domain:(.*)\)$/, '$1').replace(/^Read\(\/(\/[\s\S]*)\/\*\*\)$/, (m, d) => 'reading ' + d.replace(/\\(.)/g, '$1') + '/');
   // (web_search's card since it became Coder's own tool, 2026-11-14: its title here; its text is the card's `what`, Claude Code's
   // "Coder wants to search the web for: …", shown as any other tool's.)
-  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
+  const PERM_TITLE = { bash: 'Bash command', powershell: 'PowerShell command', monitor: 'WebSocket watch', write: 'Write file', edit: 'Edit file', notebook_edit: 'Edit notebook', read: 'Read file', grep: 'Search files', glob: 'Find files', lsp: 'Code lookup', web_fetch: 'Fetch', web_search: 'Web search', pull_request: 'Pull request', pr_comments: 'Review comments', auto_fix: 'Auto-fix', undo_last_job: 'Undo', connector: 'Connector' };
   function permOptions(e) {
     // (A plan too long to show withholds approval: only "No, keep planning", as Claude Code's prompt. The owner, 2026-11-14.)
     if (e.tool === 'plan' && e.withheld) return [['no', 'No, keep planning']];
@@ -3920,8 +3923,8 @@
       body = (e.desc ? '<p class="cd-perm-desc">' + esc(e.desc) + '</p>' : '') + '<pre class="cd-perm-pre">' + esc(lines.join('\n')) + (Number(e.more) > 0 ? '\n… ' + Number(e.more) + ' more line' + (Number(e.more) === 1 ? '' : 's') : '') + '</pre>' +
         // (Its own hosts, Claude Code's allowed_domains: approving covers them too.)
         (Array.isArray(e.hosts) && e.hosts.length ? '<p class="cd-perm-desc">Also opens, for this command only: ' + e.hosts.map((h) => '<code>' + esc(h) + '</code>').join(', ') + '</p>' : '');
-    } else if (e.tool === 'write' || e.tool === 'edit') {
-      // What the write or edit would do, as under each write's and edit's step.
+    } else if (e.tool === 'write' || e.tool === 'edit' || e.tool === 'notebook_edit') {
+      // What the write or edit would do, as under each write's and edit's step (a notebook edit: the cell's new lines).
       const lines = e.change && Array.isArray(e.change.lines) ? e.change.lines.filter((l) => typeof l === 'string').slice(0, 40) : [];
       const more = e.change && Number(e.change.more) > 0 ? Number(e.change.more) : 0;
       const upd = !!(e.change && e.change.kind === 'update');

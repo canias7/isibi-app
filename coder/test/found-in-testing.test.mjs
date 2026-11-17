@@ -1486,8 +1486,9 @@ test("CD248 Coder's docs page (the owner, 2026-11-08: \"start making a section f
   for (const f of [".envrc", ".npmrc", ".pre-commit-config.yaml", ".mcp.json"]) assert.ok(A.PROTECTED_FILES.includes(f) && page.includes("<code>" + f + "</code>"), f);
   // Edit's, from the code too: its size limit, the notebook's way round, the card's cut mark, a folder's instructions.
   assert.ok(page.includes("A file over <b>" + T.EDIT_MAX_BYTES / 1048576 + " MB</b>"));
-  assert.match(T.EDIT_NOTEBOOK, /replace it whole with write, or change a cell with a short python3 script/);
-  assert.ok(page.includes("Coder replaces it whole with write, or changes a cell with a short script"));
+  // (Claude Code's words since Coder has notebook_edit, its NotebookEdit: the owner, 2026-11-17, "Yes build it".)
+  assert.equal(T.EDIT_NOTEBOOK, "File is a Jupyter Notebook. Use the notebook_edit to edit this file.");
+  assert.ok(page.includes("Coder changes it one cell at a time with notebook_edit instead"));
   assert.match(agentSrc, /x\.length > 300 \? x\.slice\(0, 300\) \+ "…"/);
   assert.ok(page.includes("A very long line is cut short, with <code>&hellip;</code> at its end"));
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
@@ -2176,7 +2177,8 @@ test("CD263 edit as Claude Code's Edit, tried side by side (tool 3; the owner, 2
   await put("nb.ipynb", nb);
   assert.equal(await tool("edit", { path: "nb.ipynb", old_string: "print(1)", new_string: "print(2)" }), "error: " + EDIT_NOTEBOOK);
   assert.equal(await has("nb.ipynb"), nb);
-  assert.match(EDIT_NOTEBOOK, /^File is a Jupyter Notebook\. .*replace it whole with write/);
+  // (Claude Code's Edit's words, with its NotebookEdit as Coder's notebook_edit: 2026-11-17.)
+  assert.equal(EDIT_NOTEBOOK, "File is a Jupyter Notebook. Use the notebook_edit to edit this file.");
   await mkdir(join(dir, "adir"));
   assert.equal(await tool("edit", { path: "adir", old_string: "a", new_string: "b" }), "error: " + join(dir, "adir") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
   // Claude Code's other names; a null byte; a file past the old 5 MB.

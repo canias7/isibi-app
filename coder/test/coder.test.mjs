@@ -93,7 +93,7 @@ test("CD4 the loop: Coder writes a file with a heredoc, reads it, runs it, and f
   // (web_search after web_fetch since it became a tool like Claude Code's WebSearch, 2026-11-14: coder-websearch.mjs.)
   // (and Claude Code's four environment tools in place of propose_env, 2026-11-14: coder-envtools.mjs; and its list_environments.)
   // (and enter_plan_mode, Claude Code's EnterPlanMode, after ask_user, 2026-11-14: coder-plan.mjs.)
-  const all = ["read", "edit", "write", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "push_branch", "notify", "auto_fix", "reply_review", "rename_chat"];
+  const all = ["read", "edit", "write", "notebook_edit", "grep", "glob", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments", "review", "pr_comments", "pr_read", "pr_update", "suggest_connectors", "undo_last_job", "ask_user", "enter_plan_mode", "task_create", "task_get", "task_list", "task_update", "bash", "pull_request", "push_branch", "notify", "auto_fix", "reply_review", "rename_chat"];
   const { CODER_TOOLS } = await import("../container/coder-agent.mjs");
   assert.deepEqual(CODER_TOOLS.map((t) => t.function.name), all);
   // (Since 2026-11-14, Claude Code's tool search: the tools it defers are named in a note and sent once loaded, and tool_search

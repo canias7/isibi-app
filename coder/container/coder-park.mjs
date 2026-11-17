@@ -56,7 +56,7 @@ export const PARK_KINDS = Object.freeze(["permission", "question", "secret", "en
  */
 export const PARK_SITES = Object.freeze(["bash", "monitor", "web_search", "file", "tool", "connector", "plan", "question", "secret", "env"]);
 export const STEP_SITES = Object.freeze(["bash", "monitor", "web_search", "file"]);
-const FILE_TOOLS = new Set(["write", "edit", "read", "grep", "glob", "lsp", "web_fetch"]);
+const FILE_TOOLS = new Set(["write", "edit", "notebook_edit", "read", "grep", "glob", "lsp", "web_fetch"]);
 /** A permission card's place, from the card itself (askOwner's). */
 export function siteOfCard(card) {
   const t = card && typeof card.tool === "string" ? card.tool : "";

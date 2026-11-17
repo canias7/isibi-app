@@ -17,6 +17,8 @@ import { checkInput as checkLspInput } from "./coder-lsp.mjs";
 import { checkInput as checkWebFetchInput } from "./coder-webfetch.mjs";
 import { checkInput as checkWebSearchInput } from "./coder-websearch.mjs";
 import { checkAskUserInput } from "./coder-askuser.mjs";
+// (And notebook_edit, Claude Code's NotebookEdit: its schema's refusals. 2026-11-17; coder-notebook.mjs.)
+import { checkInput as checkNotebookInput } from "./coder-notebook.mjs";
 // (And tool_search, Claude Code's ToolSearch: its query and max_results, refused quietly. 2026-11-14; coder-toolsearch.mjs.)
 import { checkToolSearchInput } from "./coder-toolsearch.mjs";
 // (Not Claude Code's environment tools: they are its MCP server's, whose input Claude Code takes as any object and its server
@@ -34,7 +36,7 @@ export function checkLsp(args, ctx = {}) {
   return Promise.resolve().then(() => ctx.lspFile(v.args)).then((e) => (typeof e === "string" && e ? { error: e } : v), () => v);
 }
 
-export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput };
+export const INPUT_CHECKS = { grep: checkGrepInput, glob: checkGlobInput, lsp: checkLsp, web_fetch: checkWebFetchInput, web_search: checkWebSearchInput, ask_user: checkAskUserInput, tool_search: checkToolSearchInput, notebook_edit: checkNotebookInput };
 
 /** A tool's input check, when it has one (these seven tools). */
 export const inputCheckFor = (name) => (Object.prototype.hasOwnProperty.call(INPUT_CHECKS, name) && typeof INPUT_CHECKS[name] === "function" ? INPUT_CHECKS[name] : null);

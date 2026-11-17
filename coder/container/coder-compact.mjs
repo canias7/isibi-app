@@ -410,6 +410,7 @@ export function filesTouched(messages, max = REREAD_LIST_MAX) {
       try { a = typeof f.arguments === "string" ? JSON.parse(f.arguments || "{}") : f.arguments; } catch { a = null; }
       if (!a || typeof a !== "object") continue;
       if (["read", "edit", "write"].includes(f.name)) add(a.path);
+      else if (f.name === "notebook_edit") add(a.notebook_path);
       else if (f.name === "bash" && typeof a.command === "string") add(viewedFile(a.command));
     }
   }

@@ -141,7 +141,7 @@ export function permissionLine(e) {
   const cut = (s) => String(s || "").replace(/\s+/g, " ").trim().slice(0, 160);
   if (e.tool === "plan") return "Approve it, or say what to change.";
   if (e.tool === "bash") return "Run: " + cut(e.desc || (Array.isArray(e.lines) ? e.lines[0] : ""));
-  if (e.tool === "write" || e.tool === "edit") return (e.tool === "edit" ? "Edit " : "Write ") + cut(e.path);
+  if (e.tool === "write" || e.tool === "edit" || e.tool === "notebook_edit") return (e.tool === "write" ? "Write " : "Edit ") + cut(e.path);
   if (e.tool === "web_fetch") { let host = ""; try { host = new URL(String(e.url)).hostname; } catch { host = cut(e.url); } return "Fetch a page from " + host; }
   return cut(e.what) || "Allow it?";
 }

@@ -34,6 +34,8 @@ export function editedText(tool, args) {
   const a = args || {};
   if (tool === "write") return typeof a.content === "string" ? a.content : "";
   if (tool === "edit") return typeof a.new_string === "string" ? a.new_string : "";
+  // (A notebook cell's new text: Claude Code's security guidance runs on "PostToolUse on Edit, Write, and NotebookEdit". 2026-11-17.)
+  if (tool === "notebook_edit") return typeof a.new_source === "string" && a.edit_mode !== "delete" ? a.new_source : "";
   return null;
 }
 
