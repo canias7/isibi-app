@@ -773,7 +773,10 @@ program, 2.1.326: its pDt and ulr):
 
 13 of the 14 tries give the same text as Claude Code's. The one left: a part asked for with offset and limit that stops before
 the end. Claude Code gives only the lines ("2\t"); Coder adds "[lines 2-2 of 3; read more with offset 3 and limit 1]", its own
-note (for the owner to decide).
+note (for the owner to decide). **Changed** (the owner: "yes take it out like claude code"): the lines only, so all 14 tries now
+give Claude Code's text (and a 15th, "nl.txt" from line 2 for 2 lines: `2\tmango`, `3\tcherry`). A whole read's PARTIAL view
+note stays: Claude Code has one too. Tests CD204 (its parts read on with the PARTIAL view's limit, smaller if a part does not
+fit) and CD205.
 
 The counts that follow from the lines change with them: a PARTIAL view's "of N", the offset words, an @-mention's "(N lines)", and
 the hooks' `numLines` and `totalLines` (an empty file: 1 and 1, as Claude Code's).

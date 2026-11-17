@@ -898,11 +898,13 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const gave = (t) => told(t, lines.slice(from - 1, last).join("\n"), rows.length, from, total);
   if (asked && (from > 1 || last < total)) await markPart(abs);
   if (last >= total) { if (!asked) await clearStart(abs); return gave(body + oldText); }
+  // A PART ASKED FOR (offset, limit) that stops before the end: its lines only, as Claude Code's Read gives them (tried,
+  // 2026-11-17: nothing after them; the owner: "yes take it out like claude code"). Coder had added its own note after
+  // them, "[lines 2-2 of 3; read more with offset 3 and limit 1]".
+  if (asked) return gave(body + oldText);
   const next = "offset " + (last + 1) + " and limit " + fitting(last);
-  if (!asked) await markPartial(abs); // write will not replace it until the rest is read
-  return gave(body + (asked
-    ? "\n[lines " + from + "-" + last + " of " + total + "; read more with " + next + "]"
-    : "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]") + oldText);
+  await markPartial(abs); // write will not replace it until the rest is read
+  return gave(body + "\n[PARTIAL view: lines " + from + "-" + last + " of " + total + " (about " + kb(Buffer.byteLength(lines.slice(from - 1, last).join("\n")) + 1) + " of " + kb(size) + "). Read more with " + next + ". " + PARTIAL_HINT + "]" + oldText);
 }
 /**
  * WHAT A PARTIAL VIEW ADDS (the owner, 2026-11-08: "ok yes"; Claude Code's own note, tried in this session: "Do NOT

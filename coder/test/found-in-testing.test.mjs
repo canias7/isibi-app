@@ -110,13 +110,15 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
     seen += rows.length; parts++;
     if (seen >= 2000) break;
     offset = seen + 1;
-    const out = read({ path: "mid.txt", offset, limit }); // what the last notice said: it fits, exactly
-    const m = /\n\[lines \d+-\d+ of 2000; read more with offset (\d+) and limit (\d+)\]$/.exec(out);
-    body = m ? out.slice(0, m.index) : out;
-    if (m) { assert.equal(Number(m[1]), offset + body.split("\n").length); limit = Number(m[2]); }
+    // (A part asked for: its lines only, as Claude Code's Read gives them, since 2026-11-17: the owner, "yes take it out like
+    // claude code". The PARTIAL view's limit fits the next part exactly; a later one, a smaller limit if its lines are longer.)
+    let out;
+    for (;;) { try { out = read({ path: "mid.txt", offset, limit }); break; } catch { limit = Math.floor(limit * 0.9); } }
+    assert.doesNotMatch(out, /\[lines |read more/, "nothing after the lines");
+    body = out;
   }
   assert.equal(seen, 2000); assert.ok(parts >= 2 && parts <= 3, parts + " parts");
-  assert.match(read({ path: "mid.txt", offset: 5, limit: 10 }), /^5\trow 5 [\s\S]*\n14\trow 14 y+\n\[lines 5-14 of 2000; read more with offset 15 and limit \d+\]$/, "limit asks for fewer lines");
+  assert.match(read({ path: "mid.txt", offset: 5, limit: 10 }), /^5\trow 5 [\s\S]*\n14\trow 14 y+$/, "limit asks for fewer lines: those lines, nothing after them");
   // In the agent: a read of about 60,000 characters reaches Grok whole; a command's output is still cut.
   const { runCoder, CODER_TOOLS } = await import("../container/coder-agent.mjs");
   const big = Array.from({ length: 600 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(90)).join("\n");
@@ -157,7 +159,7 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   assert.match(read({ path: "big.txt" }), /^FAILED [\s\S]*big\.txt is 29\d KB, over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large/);
   assert.match(read({ path: "big.txt", offset: 1, limit: 3000 }), /^FAILED [\s\S]*lines 1-3000 of big\.txt come to more than about 100,000 characters: ask for fewer lines \(limit\), search with grep, or set allow_large/, "a part asked for that does not fit");
-  assert.match(read({ path: "big.txt", offset: 2990, limit: 5 }), /^2990\trow 2990 [\s\S]*\n\[lines 2990-2994 of 3000; read more with offset 2995 and limit 6\]$/, "a part that fits");
+  assert.match(read({ path: "big.txt", offset: 2990, limit: 5 }), /^2990\trow 2990 [\s\S]*\n2994\trow 2994 y+$/, "a part that fits: its lines, nothing after them (Claude Code's)");
   // allow_large: the whole file in one call when Coder gives the room; without room, the usual size, as a PARTIAL view.
   const all = read({ path: "big.txt", allow_large: true, max_chars: 400000 });
   assert.ok(all.endsWith("\n3000\trow 3000 " + "y".repeat(92)) && !/PARTIAL/.test(all), "all 3000 lines in one call");
