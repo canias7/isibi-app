@@ -711,12 +711,16 @@ Read, tried on the test notebooks and on new ones made for each case.
 | Cells past 256 KB | "Notebook content (293KB) exceeds maximum allowed size (256KB). Use Bash with jq to read specific portions: …" (4 jq lines) | refused in Coder's words | the same ("Use bash with jq") |
 | Past 25,000 tokens | "File content (N tokens) exceeds maximum allowed tokens (25000). …" | | the same words; N is about 4 characters a token, as Coder has no token counter for Grok (one try: Claude Code 75,045, Coder 37,520; both refused) |
 | An output with only HTML | nothing shown | its HTML, up to 2,000 characters | nothing, as Claude Code |
+| No cells | no text; the model is told "(Read completed with no output)" | "(nothing)" | the same as Claude Code |
 | Hooks | PostToolUse's `tool_response`: `{ type: "notebook", file: { filePath, cells } }` | the text Grok was given | the same as Claude Code |
 
 Tests: CD195 and CD205 rewritten for Claude Code's format and limits; NB5 checks Claude Code's exact text and the hooks' object;
 NB6 and NB10 view a notebook behind a byte-order mark with a command, as Claude Code's `cat` counts, since read now refuses it; NB12
-new: Claude Code's real Read output, kept with two notebooks (`coder/test/fixtures/notebook/read`), against Coder's. The full suite:
-1331 pass, 4 skipped, 0 fail.
+new: Claude Code's real Read output, kept with four notebooks (`coder/test/fixtures/notebook/read`: a table, a chart and an error; R; no cells; a warning on stderr), against Coder's. The full
+suite: 1331 pass, 4 skipped, 0 fail (the run before the no-cells fix; the notebook and read tests again after it, all pass).
 
-**Outside (for the owner):** Claude Code's row for a notebook read adds "Read **4** cells" under its tool line; Coder's step says
-"Read sales.ipynb" only.
+**Outside (for the owner):**
+1. Claude Code's row for a notebook read adds "Read **4** cells" under its tool line ("No cells found in notebook" in red for
+   none); Coder's step says "Read sales.ipynb" only.
+2. An empty text file: Claude Code's Read says `<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>`
+   (tried); Coder's says "blank.txt exists, but it is empty."

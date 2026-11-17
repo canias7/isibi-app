@@ -15,12 +15,13 @@ When Coder reads a Jupyter notebook (.ipynb), it now gets the same text Claude C
 - **A notebook that isn't valid JSON** is now refused in Claude Code's words. Before, Coder read it as plain text. That includes one with a hidden byte-order mark at the start, or one saved as UTF-16.
 - **Big notebooks** are refused in Claude Code's words, with its `jq` hints: over 100 MB, cells over 256 KB, or over 25,000 tokens.
 - **Hooks** get Claude Code's result object for a notebook read.
+- **A notebook with no cells:** Coder is told "(Read completed with no output)", as Claude Code says. Before, it was told "(nothing)".
 
 One small difference is left. Claude Code counts tokens exactly; Coder estimates about 4 characters a token, as it has no token counter for Grok. In one try the counts were 75,045 and 37,520; both refused.
 
 Before, Coder used its own layout: a heading line, "--- Cell 2 (code, run 3, id …) ---", and outputs labelled [stdout] and [output].
 
-Tests: CD195 and CD205 rewritten; NB5 now checks Claude Code's exact text and the hooks' object; NB6 and NB10 updated. A new test, NB12, checks Coder's read against Claude Code's real output on two notebooks kept with the tests (one with a table, a chart and an error; one in R). All 1,331 pass. On this chat's branch, deployed to coder2.
+Tests: CD195 and CD205 rewritten; NB5 now checks Claude Code's exact text and the hooks' object; NB6 and NB10 updated. A new test, NB12, checks Coder's read against Claude Code's real output on four notebooks kept with the tests (one with a table, a chart and an error; one in R; one with no cells; one that printed a warning). All 1,331 pass (the full run before the no-cells fix; the notebook tests again after it, all pass). On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: Coder's write: the other two "not read" refusals in Claude Code's exact words too (your words: "YES PLS")
 

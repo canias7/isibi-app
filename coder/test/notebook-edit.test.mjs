@@ -432,7 +432,7 @@ test("NB11 the third check against Claude Code (2026-11-17, the owner: \"CHECK A
   assert.equal(JSON.parse(await readFile(join(dir, ".vscode", "nb.ipynb"), "utf8")).cells[2].source, "x + 1", "not changed: the owner said no");
 });
 
-test("NB12 read gives what Claude Code's real Read gave for each notebook in fixtures/notebook/read (tried 2026-11-17, the owner: \"make the read match too pls , and show me how claude code shows the notebook thing\"): a markdown cell, printed text, a result, a chart (a picture where Claude Code's picture is), an error with its traceback; an R notebook's language", async () => {
+test("NB12 read gives what Claude Code's real Read gave for each notebook in fixtures/notebook/read (tried 2026-11-17, the owner: \"make the read match too pls , and show me how claude code shows the notebook thing\"): a markdown cell, printed text, a result, a chart (a picture where Claude Code's picture is), an error with its traceback; an R notebook's language; a notebook with no cells (\"(Read completed with no output)\")", async () => {
   const want = JSON.parse(readFileSync(new URL("./fixtures/notebook/read/claude-code-read.json", import.meta.url), "utf8"));
   const { dir } = await mk();
   for (const [name, parts] of Object.entries(want)) {
@@ -446,4 +446,9 @@ test("NB12 read gives what Claude Code's real Read gave for each notebook in fix
     assert.equal(text, parts.map((p) => (typeof p === "string" ? p : "[picture output: shown to you as picture " + ++n + " after these results]")).join("\n"), name);
     assert.deepEqual(pictures.map((p) => p.type), parts.filter((p) => typeof p !== "string").map((p) => p.picture), name + "'s pictures");
   }
+  // In a chat: a notebook with no cells gives no text, and Grok is told Claude Code's words for that (Coder said "(nothing)").
+  const { dir: d2, seen: s2 } = await mk();
+  await writeFile(join(d2, "empty.ipynb"), readFileSync(new URL("./fixtures/notebook/read/empty.ipynb", import.meta.url)));
+  const t = await loop(d2, s2, [say("", [call("read", { path: "empty.ipynb" }, "r1")]), say("Done.")]);
+  assert.equal(t.told("r1"), "(Read completed with no output)");
 });

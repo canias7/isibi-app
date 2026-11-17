@@ -6711,7 +6711,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         // worked, as Claude Code adds its note only to a result that is not an error.)
         // (What follows the tool's own text is kept apart, for a PostToolUse hook's rewrite of it: c.keepTail.)
         c.keepTail = (more ? "\n\n" + more : "") + yesNote(approval, c.id);
-        reply((out || "(nothing)") + (code === 0 && c.inputNote ? "\n\n" + c.inputNote : "") + c.keepTail);
+        // (An answer with no text, Claude Code's words for it: "(Read completed with no output)" for a notebook with no cells,
+        // its real Read, tried 2026-11-17. Coder had said "(nothing)", which a failed call with no text still says.)
+        reply((out || (code === 0 ? "(" + ccTool(c.name) + " completed with no output)" : "(nothing)")) + (code === 0 && c.inputNote ? "\n\n" + c.inputNote : "") + c.keepTail);
       } else if (c.name === "enter_plan_mode") {
         // CLAUDE CODE'S EnterPlanMode (the owner, 2026-11-14: "Fix base on Claude Code docs, please"): with a disk, as Coder's
         // chats have, it asks nothing (its checkPermissions asks only a session without one); the chat goes into Plan mode as
