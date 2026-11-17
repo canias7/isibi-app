@@ -746,7 +746,7 @@ Found while doing these (for the owner; **all 3 changed**, the owner: "yes match
 | A hook's new output for a notebook read | shown as cells, as its Read shows them (its cno) | the original output kept, with a notice ("mapper returned undefined") | shown as cells; its pictures after the results, their places marked; none: "(Read completed with no output)" |
 
 Tests: CD205 and HR3 (the words, the hook's notebook), CD209 (the rows, made by Coder's code on real files), CD209b (the row
-on the page and the group line).
+on the page and the group line). The full suite: 1333 pass, 4 skipped, 0 fail.
 
 **Found while doing these (for the owner):**
 1. Claude Code counts the empty part after a file's last newline as a line: "apple\nmango\ncherry\n" has 4 lines there (its

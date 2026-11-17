@@ -19,7 +19,7 @@ Found while doing these, for you to decide:
 1. **Line counting:** Claude Code counts the empty bit after a file's last newline as a line. A 3-line file that ends with a newline has 4 lines there; Coder says 3. So line counts in Coder's words are one lower for such files.
 2. **Line numbers:** Claude Code now writes them with no padding: "1", a tab, then the line. Coder pads them to six places ("     1", a tab, the line), as Claude Code's own docs describe ("cat -n format").
 
-Tests: CD205, HR3, CD209 and a new CD209b. The full test run is noted once it ends. On this chat's branch, deployed to coder2.
+Tests: CD205, HR3, CD209 and a new CD209b. All 1,333 pass. On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: "Read 4 cells" under a notebook read, and Claude Code's warning for an empty file (your words: "yes match both pls")
 
