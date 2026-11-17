@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Suggested next message in Coder's box
+
+After Coder answers, a suggested next message now shows in grey in the empty message box (like Claude Code's prompt suggestions, e.g. "now run the tests"). Tab, or the right arrow, puts it in the box; Enter sends it; typing anything hides it. None while Coder works, while a card waits, in plan mode or in Gloopy's tab. Settings has a "Prompt suggestions" switch to turn it off. It costs no extra Grok call: Coder's last answer adds one hidden line with the suggestion, which the page never shows. Tests: prompt-suggest.test.mjs.
+
 ## 2026-11-17: The "environment changed" line says what changed
 
 A hidden check on the live site showed the line was true: the network really changed (a host Coder proposed was approved on its card). It just did not say what. Now it names it, for example "The environment changed: now also allows ipv4.icanhazip.com". The hidden check is removed again. Tests: list-and-env-note.test.mjs (LE4).

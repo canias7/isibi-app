@@ -1640,6 +1640,22 @@ export const MACHINE_ADMIN = MACHINE_TOOLS
 // (Its line on URLs is Claude Code's own too, word for word but for "the owner" (its "the user"), where Claude Code's
 // system prompt has it: the last line of its opening, before its other parts. 2.1.325; 2026-11-14.)
 export const CODER_URLS_LINE = "IMPORTANT: You must NEVER generate or guess URLs for the owner unless you are confident that the URLs are for helping the owner with programming. You may use URLs provided by the owner in their messages or local files.";
+/**
+ * PROMPT SUGGESTIONS (Claude Code's: "After Claude responds, Claude Code can suggest your next prompt based on your
+ * conversation history"; Tab or Right arrow takes it, typing dismisses it; promptSuggestionEnabled turns it off). Claude Code
+ * makes each with "a short background request to the same model", "mostly cache reads plus a few output tokens"; Coder asks
+ * its final answer for the same few tokens instead, a hidden last line the page never shows, so it needs no request at all.
+ */
+export const SUGGEST_LINE = "\n\nPROMPT SUGGESTION: when you finish a turn with your answer in words, end it with one last line <next-prompt>…</next-prompt> holding the message the owner would most likely send you next, in their voice, under 12 words (e.g. <next-prompt>now fix both bugs and rerun the tests</next-prompt>). Base it on this chat: a next step of their request, or the natural follow-up. Leave the line out when there is no clear next step. The owner never sees this line; never mention it.";
+/** A final answer with its hidden suggestion taken off: `{ text, next }`. */
+export function splitSuggest(said) {
+  const s = String(said || "");
+  const re = /<next-prompt>([\s\S]*?)(?:<\/next-prompt>|$)/gi;
+  let next = "", m;
+  while ((m = re.exec(s))) next = m[1];
+  next = next.replace(/\s+/g, " ").trim().replace(/^["“]|["”]$/g, "").slice(0, 200);
+  return { text: s.replace(re, "").replace(/\s+$/, ""), next };
+}
 export const CODER_SYSTEM = `You are Coder, the owner's assistant. You help with whatever they ask: questions, ideas, writing, research, planning and hands-on work. You also have your own Linux machine with the owner's project, so you can read and change files, run commands, browse the web and build things.
 The project lives in the folder your commands start in (WHERE YOUR COMMANDS RUN, when given below, names it and where your commands are now). When the work is code, work like a developer at a terminal: look first (ls, cat, grep), then change files, then run and test what you changed.
 
@@ -1893,7 +1909,7 @@ export const savedFor = (list, site) => {
   return (Array.isArray(list) ? list : []).map((x) => (typeof x === "string" ? { id: "", site: x, username: "" } : x)).filter((x) => x && typeof x.site === "string" && k(x.site) === k(site));
 };
 
-export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null } = {}) {
+export async function runCoder(deps, { notices = [], lost = [], stalls = [], promptNotify = true, timeouts = null, outLimits = null, noBg = false, respondToBash = true, shell = "", cmdShell = "", compactVars = null, messages = [], text = "", shown, images = [], model = "", effort = "", context = "", github = false, readOnly = null, base = "", setupScript = "", setupFailed = null, lastJob = null, replyTo = null, mode = "auto", rules = null, editDiff = false, readBlock = false, writeBlock = false, checker = false, checkerInPlan = true, checkWhere = null, emailMark = "", diskWarnGib = 0, memWarnGib = 0, hooks = null, autoMode = null, denyInstead = false, autoOff = false, planExit = "auto", hostLists = null, powershell = null, connectors = [], connectorNotes = [], connectorsWaiting = [], connectorsFailed = [], connectorsGone = null, maxRounds = CODER_MAX_ROUNDS, maxMs = CODER_MAX_MS , rmChecksOff = null, fileEdits = true, startMode = "", resumed = false, lastAt = 0, sessionRules = null, compact = null, system = CODER_SYSTEM, tools = null, nudges = true, who = "Coder", browserRules: rulesIn = [], granted: grantedIn = [], schedules = [], opening = "user", permissions: permsIn = null, sites: sitesIn = [], monitor = false, ownerSaid: ownerSaidList = null, asHelper = false, helper = null, pages = [], savedLogins = [], savedCards = [], contacts = [], webhooks = [], hookBase = "/api/coder/gloopy-hook/", attached = [], workNote = "", marked = null, taught = null, files: keptFiles = [], background = false, checkWrites = false, denied: deniedIn = [], zone = "", searchLimits = null, takeUp = null, tasksOff = false, holdBack = null, suggest = false } = {}) {
   // ANOTHER AGENT ON THE SAME ENGINE (owner, 2026-11-09: Gloopy, container/gloopy-agent.mjs): its own instructions
   // (`system`), the tools it is offered (`tools`; a call to any other is refused), no reminders about Coder's setup script
   // (`nudges`), and its name in the chat's own lines (`who`). Coder's defaults are unchanged.
@@ -1914,6 +1930,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // system prompt line names it: "Use TodoWrite to plan and track work". Coder's own run only. 2026-11-14.)
   const todosOn = tasksOff === true && !offered;
   if (todosOn) system = todoSystem(system);
+  // (Prompt suggestions: the line asking for one rides on Coder's own system prompt, so no extra model call.)
+  if (suggest && who === "Coder") system += SUGGEST_LINE;
   // The owner's own rules for Gloopy's browser checks ("ask first" / "allow"), as the Worker keeps them.
   const browserRules = cleanRules(rulesIn);
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
@@ -4320,7 +4338,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         continue;
       }
     }
-    if (!calls.length) { emit({ type: "done", text: scrub(said), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(said).slice(0, 4000) }); }
+    if (!calls.length) { const sg = suggest ? splitSuggest(said) : { text: said, next: "" }; emit({ type: "done", text: scrub(sg.text), ...(sg.next && mode !== "plan" ? { suggest: scrub(sg.next) } : {}), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(sg.text).slice(0, 4000) }); }
     // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one
     // in the chat at most every SAY_EVERY_MS; the others only in the status line under the chat (`quiet`).
     if (said) { const quiet = who === "Gloopy" && lastShown > 0 && now() - lastShown < SAY_EVERY_MS; emit({ type: "text", text: scrub(said), ...(quiet ? { quiet: true } : {}) }); if (!quiet) lastShown = now(); lastSaid = scrub(said).slice(0, 4000); }
