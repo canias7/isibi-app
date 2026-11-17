@@ -161,7 +161,7 @@ test("CD528 GitHub busy or away for a moment (round 5: a 429 ended the whole tur
   assert.equal(S.gitAway("fatal: unable to access 'x': The requested URL returned error: 429"), "429, too many requests");
   assert.equal(S.gitAway("The requested URL returned error: 503"), "503, a problem on GitHub's side");
   assert.equal(S.gitAway("fatal: unable to access 'x': Could not resolve host: github.com\n"), "unable to access 'x': Could not resolve host: github.com");
-  assert.deepEqual(S.GIT_NET_WAITS, [2000, 6000]);
+  assert.deepEqual(S.GIT_NET_WAITS, [2000, 4000, 8000, 16000], "Claude Code's backoff: up to 4 retries, 2s, 4s, 8s, 16s");
   // "GitHub": git's own web server over a bare ana/shop, which can be made to answer 429, 503 or 403.
   const git = (cwd, ...a) => execFileSync("git", a, { cwd, env: { ...process.env, GIT_CONFIG_COUNT: "1", GIT_CONFIG_KEY_0: "safe.directory", GIT_CONFIG_VALUE_0: "*" } }).toString();
   const top = await mkdtemp(join(tmpdir(), "coder-gh429-")), seed = await mkdtemp(join(tmpdir(), "coder-seed-"));

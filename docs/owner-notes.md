@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Pushes retried like Claude Code (the 429 error)
+
+In the suggestions test, one push said "Not sent to GitHub: ... error: 429". The 429 ("too many requests") came from GitHub itself; Coder's gateway passes it on. Coder tried 3 times in 8 seconds and gave up. Now, like Claude Code's cloud ("retrying network errors up to 4 times with exponential backoff (2s, 4s, 8s, 16s)"), every git step that reaches GitHub (clone, fetch, push) is tried up to 5 times over about 30 seconds. Test in `coder/test/round5.test.mjs`.
+
 ## 2026-11-17: Auto-fix and @coder tested live; two fixes the Claude Code way
 
 Tested live on gofarther.dev with Grok: auto-fix on a failing check (PR #31 in testingforclaude: Coder fixed the bug by itself about 2 minutes after the check failed, and the check went green) and an @coder comment on GitHub (Coder replied within seconds, pushed the change and answered "Done"). The GitHub App already had the permissions and events it needs (Checks, Issues, check run and comment events). Two fixes, Claude Code's way (the owner: "do it how claude code does it"):

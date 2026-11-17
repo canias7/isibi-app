@@ -1922,7 +1922,9 @@ export async function keepOut(dir, { gitDir = gitDirFor(dir), remote = DEFAULT_R
  * answer (a 429, a 5xx, no connection) is tried again after each of GIT_NET_WAITS; `gitBusy` tells it apart from a real
  * refusal (a 403, a missing repository), which is not. `gitAway` says it in a few words.
  */
-export const GIT_NET_WAITS = [2000, 6000];
+// (Claude Code's way since 2026-11-17, the owner's live test where one push got "429" three times in 8 seconds: "retrying
+// network errors up to 4 times with exponential backoff (2s, 4s, 8s, 16s)".)
+export const GIT_NET_WAITS = [2000, 4000, 8000, 16000];
 export const gitBusy = (out) => /returned error: (?:429|5\d\d)\b|Could not resolve host|Failed to connect|Couldn't connect|Connection (?:timed out|reset|refused)|Operation timed out|timed out after|early EOF|unexpected disconnect|RPC failed|SSL_ERROR|gnutls_handshake|Empty reply from server|Recv failure|Send failure/i.test(String(out || ""));
 export function gitAway(out) {
   const m = /returned error: (\d{3})\b/.exec(String(out || ""));
