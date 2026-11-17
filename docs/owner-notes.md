@@ -4,6 +4,12 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder writes its answer after the push
+
+Live test: the Push ✓ step showed, but Coder's answer said "not pushed". It had written its answer before the push ran. Claude Code pushes first and then writes its answer, knowing how the push went. Coder now does the same: its first answer is set aside without being shown, the push runs, and Coder is asked once more for its answer with the push's result in front of it. That is one more Grok call on jobs that changed files.
+
+Tests: PT6 in `coder/test/push-in-turn.test.mjs`.
+
 ## 2026-11-17: Coder pushes inside the job, the Claude Code way
 
 In the two-repo test the page sat on "Saving to the branch…" for 8 minutes after Coder had answered. The push to GitHub happened in a hidden step after the job, and that step is where the page waited. You asked to do it the way Claude Code does.

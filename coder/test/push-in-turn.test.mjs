@@ -62,3 +62,20 @@ test("PT5 only the real machine turns it on (its Dockerfile); without the switch
   await runCoder({ send: script([say("Done.")]).send, exec: async () => ({ code: 0, output: "" }), dirtyNow: async () => true, pushNow: async () => { n++; return { ok: true }; } }, { text: "hi" });
   assert.equal(n, 0);
 });
+
+test("PT6 the answer is written after the push, Claude Code's way: the draft is never shown, Coder is asked again with the push's result, and its new answer is the one shown", async () => {
+  let n = 0;
+  const s = { seen: [], send: async (q) => { s.seen.push(q); const last = q.messages[q.messages.length - 1]; if (q.tool_choice === "none") return say("Add hello file"); n++; return n === 1 ? say("Done, not pushed.") : say("Done, and pushed (commit abcdef1)."); } };
+  const events = [];
+  let dirty = true, pushes = 0;
+  const r = await runCoder({ send: s.send, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), pushAtEnd: true, dirtyNow: async () => dirty, pushNow: async () => { pushes++; dirty = false; return { ok: true, pushed: true, changed: true, sha: "abcdef1234567" }; } }, { text: "add a file" });
+  assert.equal(pushes, 1, "pushed once");
+  const done = events.filter((e) => e.type === "done");
+  assert.equal(done.length, 1);
+  assert.equal(done[0].text, "Done, and pushed (commit abcdef1).");
+  assert.ok(!events.some((e) => /not pushed/.test(String(e.text || ""))), "the draft written before the push is never shown");
+  const second = s.seen.filter((q) => q.tool_choice !== "none")[1];
+  assert.match(String(second.messages[second.messages.length - 1].content), /pushed to GitHub now \(commit abcdef1\).*final answer/);
+  assert.ok(!second.messages.some((m) => m.role === "assistant" && /not pushed/.test(String(m.content))), "the draft is not kept in the chat");
+  assert.equal(r.commitTitle, "Add hello file");
+});

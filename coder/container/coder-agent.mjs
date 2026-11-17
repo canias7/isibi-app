@@ -3696,6 +3696,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   };
   // (The tools the last request sent, so the suggestion's request is the same and its cache holds.)
   let lastTools = null;
+  // (The turn's own push before its answer is made once.)
+  let endPushed = false, endTitle = "";
   let pushRequest = false, prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -4380,14 +4382,26 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
       // THE COMMIT'S TITLE, CLAUDE CODE'S WAY (the owner's live test, 2026-11-17: commits were titled with Coder's whole first
       // sentence, "The `test` check failed because..."): when this turn changed files, one short request asks for a git
       // commit title in the imperative ("Fix sum to add instead of subtract"), as Claude Code writes its own commits.
-      let commitTitle = "";
+      let commitTitle = endTitle;
       const changedNow = who === "Coder" && !github && !(readOnly && readOnly.main === true) && deps.pushAtEnd === true && typeof deps.pushNow === "function" && (typeof deps.dirtyNow === "function" ? await deps.dirtyNow().catch(() => edited.size > 0) : edited.size > 0);
-      if ((edited.size || changedNow) && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
+      if (!endPushed && (edited.size || changedNow) && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
       // COMMIT AND PUSH INSIDE THE TURN, CLAUDE CODE'S WAY (the owner, 2026-11-17: "do it the claude code way"; the page sat
       // on "Saving to the branch…" for 8 minutes while the Worker pushed after the turn): Claude Code commits and pushes
       // itself before it finishes, as a step the owner sees with its own result. So the turn's end has nothing left to
       // send to GitHub. A failed push is shown, and tried again when the turn is saved.
-      if (changedNow) { const r = await pushNowStep("endpush-" + rounds, commitTitle || "Changes by Coder"); if (!r || !r.ok) pushRequest = true; }
+      // THE ANSWER WRITTEN AFTER THE PUSH (the owner, 2026-11-17: "do it the claude code way, fix it"; live, Coder's answer said
+      // "not pushed" because it was written before the push): Claude Code pushes first, then writes its answer knowing how
+      // the push went. So the draft answer is set aside unshown, the push is made, and Coder is asked once more for its
+      // answer with the push's result in front of it. Once per turn.
+      if (changedNow && !endPushed) {
+        endPushed = true; endTitle = commitTitle;
+        const r = await pushNowStep("endpush-" + rounds, commitTitle || "Changes by Coder");
+        if (!r || !r.ok) pushRequest = true;
+        const last = convo[convo.length - 1];
+        if (last && last.role === "assistant" && !last.tool_calls) convo.pop();
+        convo.push({ role: "user", appNote: true, content: "(Note from Coder's app, not the owner: before you finish, your changes were committed and pushed to the chat's branch. The push's result: " + (r && r.ok ? r.text.replace(/^ok: /, "") : "it failed (" + (r ? r.why : "no answer") + "); it is tried again when your turn is saved") + ". Now give the owner your final answer, saying truthfully what was pushed.)" });
+        continue;
+      }
       emit({ type: "done", text: scrub(sg.text), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) });
       // THE NEXT-MESSAGE SUGGESTION, CLAUDE CODE'S WAY (the owner, 2026-11-17: "build it claude code way"; its docs: "generates
       // each of these next-prompt suggestions with a short background request to the same model your session is using ... it

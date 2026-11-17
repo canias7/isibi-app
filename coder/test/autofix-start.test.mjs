@@ -41,5 +41,5 @@ test("commit title: Claude Code's kind (short, imperative), cleaned; the Worker 
   assert.ok(!/commitTitle\(s\.result\.summary\)/.test(w));
   assert.match(w, /commitTitle\(s\.result\.commitTitle \|\| s\.result\.summary\)/);
   const a = readFileSync(new URL("../container/coder-agent.mjs", import.meta.url), "utf8");
-  assert.match(a, /if \(\(edited\.size \|\| changedNow\) && typeof deps\.send === "function" && who === "Coder"\) commitTitle = await commitTitleFor/);
+  assert.match(a, /if \(!endPushed && \(edited\.size \|\| changedNow\) && typeof deps\.send === "function" && who === "Coder"\) commitTitle = await commitTitleFor/);
 });
