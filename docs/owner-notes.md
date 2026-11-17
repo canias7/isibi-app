@@ -10,7 +10,7 @@ Coder used to put this line in front of every answer a connector sent back, befo
 
 Claude Code adds nothing to a connector's answer, so Coder's chats no longer add it either. That covers answers that come back right away and ones that finish in the background. You never saw the line in the chat, so nothing changes on your screen.
 
-Gloopy still adds its own version of the line. You asked for Coder to match Claude Code, and Gloopy isn't a copy of Claude Code. Tell me if Gloopy should drop it too.
+Gloopy still adds its own version of the line. You asked for Coder to match Claude Code, and Gloopy isn't a copy of Claude Code. You said to leave it: "Dont touch gloopy for now" (now in the owner preferences).
 
 The docs page's Connectors section now says Coder gets a connector's answer exactly as it came.
 

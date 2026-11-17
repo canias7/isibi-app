@@ -46,6 +46,9 @@ deleted (the old file is in git history).
   where the docs say nothing. Don't add behavior Claude Code doesn't have. Where
   Coder does more or less than Claude Code, say so plainly and ask before
   keeping it.
+- **Leave Gloopy alone for now (2026-11-17, "Dont touch gloopy for now"):** while
+  matching Coder to Claude Code, change nothing of Gloopy's, even where the two
+  share code. Gloopy keeps its own ways until the owner says otherwise.
 
 ## Coder (2026-11-05)
 - Same style as the old sites agent's chat, its own folder, Worker and container.
