@@ -2137,6 +2137,8 @@
       // A STEP NOT RUN BECAUSE AUTO MODE'S CHECK HAD NO USABLE ANSWER: Claude Code's dim row ("Not run · auto mode's check had
       // no usable answer"), the full message when the step is opened.
       (r && typeof r.notRun === 'string' && r.notRun ? '<div class="cd-notrun">Not run · ' + esc(r.notRun) + '</div>' : '') +
+      // A NOTEBOOK READ'S CELLS, under its step: Claude Code's "Read 4 cells" (the owner, 2026-11-17: "yes match both pls").
+      stepCells(e, r) +
       // THE PICTURE A READ OPENED, small, under its step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's).
       stepPics(r) +
       // WHAT A WRITE CHANGED, under its step (the owner, 2026-11-09: "Go ahead and do those"; like Claude Code's).
@@ -2318,6 +2320,14 @@
   function resultPics(e) {
     const list = e && Array.isArray(e.shots) ? e.shots.filter((u) => typeof u === 'string' && u.length <= 60000 && /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/.test(u)).slice(0, 2) : [];
     return list.length ? '<div class="cd-result-pics">' + list.map((u) => '<img src="' + u + '" alt="The page Gloopy’s browser ended on" loading="lazy">').join('') + '</div>' : '';
+  }
+  /**
+   * A NOTEBOOK READ'S CELLS, under its step, as Claude Code shows them (its program, 2.1.326: "Read 4 cells", the count in bold,
+   * "cells" whatever the count; "No cells found in notebook" in red for none). The owner, 2026-11-17: "yes match both pls".
+   */
+  function stepCells(e, r) {
+    if (e.tool !== 'read' || !r || !Number.isInteger(r.cells) || r.cells < 0) return '';
+    return r.cells === 0 ? '<div class="cd-cells is-none">No cells found in notebook</div>' : '<div class="cd-cells">Read <b>' + r.cells + '</b> cells</div>';
   }
   /** The small copies of the pictures a step opened: only JPEG data URLs, as Coder's machine makes them. */
   function stepPics(r) {

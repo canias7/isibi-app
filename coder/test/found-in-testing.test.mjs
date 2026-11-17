@@ -141,7 +141,8 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   const script = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
   const read = (args) => { try { return execFileSync("node", ["--no-warnings", script, Buffer.from(JSON.stringify({ tool: "read", args })).toString("base64")], { cwd: dir, maxBuffer: 8 << 20 }).toString(); } catch (e) { return "FAILED " + String(e.stdout || e.stderr || e.message); } };
   await writeFile(join(dir, "empty.txt"), "");
-  assert.equal(read({ path: "empty.txt" }), "empty.txt exists, but it is empty.");
+  // (Claude Code's words since 2026-11-17, its real Read tried: the owner, "yes match both pls".)
+  assert.equal(read({ path: "empty.txt" }), "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>");
   await writeFile(join(dir, "two.txt"), "a\nb\n");
   assert.equal(read({ path: "two.txt" }), "     1\ta\n     2\tb", "the last newline makes no extra line");
   assert.equal(read({ path: "two.txt", offset: 9 }), "two.txt has 2 lines: offset 9 is past its end.");

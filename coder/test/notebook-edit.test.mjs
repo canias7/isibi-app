@@ -446,9 +446,29 @@ test("NB12 read gives what Claude Code's real Read gave for each notebook in fix
     assert.equal(text, parts.map((p) => (typeof p === "string" ? p : "[picture output: shown to you as picture " + ++n + " after these results]")).join("\n"), name);
     assert.deepEqual(pictures.map((p) => p.type), parts.filter((p) => typeof p !== "string").map((p) => p.picture), name + "'s pictures");
   }
-  // In a chat: a notebook with no cells gives no text, and Grok is told Claude Code's words for that (Coder said "(nothing)").
+  // In a chat: a notebook with no cells gives no text, and Grok is told Claude Code's words for that (Coder said "(nothing)");
+  // each notebook read's step carries its cells' count for the line under it (Claude Code's "Read 4 cells"; NB13), a file's not.
   const { dir: d2, seen: s2 } = await mk();
-  await writeFile(join(d2, "empty.ipynb"), readFileSync(new URL("./fixtures/notebook/read/empty.ipynb", import.meta.url)));
-  const t = await loop(d2, s2, [say("", [call("read", { path: "empty.ipynb" }, "r1")]), say("Done.")]);
+  for (const f of ["empty.ipynb", "sales.ipynb"]) await writeFile(join(d2, f), readFileSync(new URL("./fixtures/notebook/read/" + f, import.meta.url)));
+  await writeFile(join(d2, "notes.txt"), "one\n");
+  const t = await loop(d2, s2, [say("", [call("read", { path: "empty.ipynb" }, "r1"), call("read", { path: "sales.ipynb" }, "r2"), call("read", { path: "notes.txt" }, "r3")]), say("Done.")]);
   assert.equal(t.told("r1"), "(Read completed with no output)");
+  const res = (id) => t.events.find((e) => e.type === "result" && e.id === id);
+  assert.deepEqual([res("r1").cells, res("r2").cells, "cells" in res("r3")], [0, 4, false]);
+});
+
+test("NB13 the line under a notebook read's step, as Claude Code shows it (its program, 2.1.326; the owner, 2026-11-17: \"yes match both pls\"): \"Read 4 cells\" with the count in bold (\"cells\" for one too, as there), \"No cells found in notebook\" in red for none; nothing for another step or a step from before", () => {
+  const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const src = js.slice(js.indexOf("function stepCells"), js.indexOf("/** The small copies of the pictures a step opened"));
+  const stepCells = new Function(src + "; return stepCells;")();
+  assert.equal(stepCells({ tool: "read" }, { cells: 4 }), '<div class="cd-cells">Read <b>4</b> cells</div>');
+  assert.equal(stepCells({ tool: "read" }, { cells: 1 }), '<div class="cd-cells">Read <b>1</b> cells</div>');
+  assert.equal(stepCells({ tool: "read" }, { cells: 0 }), '<div class="cd-cells is-none">No cells found in notebook</div>');
+  assert.equal(stepCells({ tool: "read" }, { output: "x" }), "", "a read from before, or of another file");
+  assert.equal(stepCells({ tool: "notebook_edit" }, { cells: 4 }), "");
+  assert.equal(stepCells({ tool: "read" }, null), "", "still running");
+  // Right under the step, before its pictures; red as the page's other errors.
+  assert.match(js, /\n\s+stepCells\(e, r\) \+\n\s+\/\/ THE PICTURE A READ OPENED[^\n]*\n\s+stepPics\(r\) \+/);
+  const css = readFileSync(new URL("../public/coder.css", import.meta.url), "utf8");
+  assert.match(css, /\.cd-cells\.is-none \{ color: #b3261e; \}/);
 });

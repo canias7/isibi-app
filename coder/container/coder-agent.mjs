@@ -6703,7 +6703,11 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         if (pics.length) roundPics.push({ path: scrub(String(args.path || "")).slice(0, 200), urls: pics.map((x) => "data:" + x.type + ";base64," + x.data), id: c.id });
         // The chat keeps a step's output to MAX_OUTPUT_CHARS (the review, 2026-11-08: whole reads made its record heavy).
         // A picture read opened is shown in the chat, small, under the step (like Claude Code's).
-        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}) });
+        // A NOTEBOOK'S CELLS, COUNTED, for the line under its step: Claude Code's "Read 4 cells" (its "No cells found in notebook"
+        // for none), from its Read output's cells (the owner, 2026-11-17: "yes match both pls").
+        const readFacts = c.name === "read" && code === 0 ? toolFacts.get(c.id) : null;
+        const cells = readFacts && readFacts.type === "notebook" && readFacts.file && Array.isArray(readFacts.file.cells) ? readFacts.file.cells.length : -1;
+        emit({ type: "result", id: c.id, code, output: out.length > MAX_OUTPUT_CHARS ? capOutput(out) : out, ...(thumbs.length ? { thumbs } : {}), ...(change ? { change } : {}), ...(problems.length ? { problems, problemsAll } : {}), ...(cells >= 0 ? { cells } : {}) });
         // A FILE READ OR CHANGED: what the service adds for it (the repo's instructions for that file), for Coder only.
         let more = "";
         if (code === 0 && FILE_HOOK_TOOLS.has(c.name) && typeof deps.afterFile === "function") { try { more = String((await deps.afterFile({ tool: c.name, args: typeof deps.where === "function" && typeof pathArg === "string" ? { ...args, path: toolFullPath(deps, pathArg) } : notebook ? { ...args, path: pathArg } : args })) || ""); } catch { more = ""; } await markShownStart(deps, more); }

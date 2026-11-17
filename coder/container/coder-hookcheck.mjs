@@ -15,7 +15,7 @@ import { grepText, globText } from "./coder-search.mjs";
 import { searchText } from "./coder-websearch.mjs";
 import { createdText, getText, listText, updateText, TODO_WRITE_RESULT } from "./coder-tasks.mjs";
 import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs";
-import { WRITE_FRESH, EDIT_OTHER_CHANGES } from "./coder-tools.mjs";
+import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE } from "./coder-tools.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
@@ -36,11 +36,11 @@ export function outputTextOf(ctx = {}) {
         if (v.type === "image") return { text: "", pics: /^image\/(png|jpeg)$/.test(v.file.type) ? [{ type: v.file.type, data: v.file.base64 }] : [] };
         if (v.type !== "text") return undefined;
         const f = v.file;
-        // (Claude Code's: the numbered lines; a single empty line; an empty file; an offset past the end. Coder's words for
-        // the last two, as its read says them.)
+        // (Claude Code's: the numbered lines; a single empty line; an empty file, in its words; an offset past the end, in
+        // Coder's words, as its read says it.)
         if (f.content) return numbered(f.content, f.startLine);
         if (f.numLines >= 1 && f.totalLines > 1) return numbered("", f.startLine);
-        if (f.numLines >= 1 || f.totalLines === 0) return shown(f.filePath) + " exists, but it is empty.";
+        if (f.numLines >= 1 || f.totalLines === 0) return EMPTY_FILE_NOTE;
         return shown(f.filePath) + " has " + f.totalLines + " line" + (f.totalLines === 1 ? "" : "s") + ": offset " + f.startLine + " is past its end.";
       }
       case "Write": {

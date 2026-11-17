@@ -35,6 +35,11 @@ export const READ_LINES_MAX = 100_000;
 // "sized against the room left" (Coder's agent says how much: max_chars, at most READ_LARGE_CHARS); pictures up to
 // 128 MB (they are made smaller anyway); notebooks up to 100 MB, and an error when their cells come to over 256 KB.
 export const READ_WHOLE_MAX = 256 * 1024;
+/**
+ * AN EMPTY FILE, IN CLAUDE CODE'S WORDS (its Read, tried, and its program, 2.1.326; the owner, 2026-11-17: "yes match both pls").
+ * Coder had said "x.txt exists, but it is empty."
+ */
+export const EMPTY_FILE_NOTE = "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>";
 export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = NOTEBOOK_EDIT_MAX; // 100 MB, Claude Code's (coder-notebook.mjs holds it)
@@ -838,7 +843,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
   // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
   const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
-  if (!text.length) { await clearStart(abs); return told(rel + " exists, but it is empty.", "", 0, 1, 0); }
+  if (!text.length) { await clearStart(abs); return told(EMPTY_FILE_NOTE, "", 0, 1, 0); }
   const lines = text.split("\n");
   if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
   const total = lines.length;

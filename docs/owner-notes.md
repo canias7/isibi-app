@@ -4,6 +4,18 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: "Read 4 cells" under a notebook read, and Claude Code's warning for an empty file (your words: "yes match both pls")
+
+- **Under a notebook read's step**, Coder's page now says "Read **4** cells", as Claude Code does. For a notebook with no cells, it says "No cells found in notebook" in red. Like Claude Code, it says "cells" even for one.
+- **An empty text file:** Coder is now told exactly what Claude Code's Read says: `<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>`. Before, it was told "empty.txt exists, but it is empty."
+
+Found while doing these, for you to decide:
+1. Reading from a line past the end of a file: Claude Code says "Warning: the file exists but is shorter than the provided offset (5000). The file has 2001 lines." Coder says "mid.txt has 2000 lines: offset 5000 is past its end."
+2. A file you @-mention: Claude Code's line says "Read notes.txt (12 lines)", or "(4 cells)" for a notebook. Coder's says "Read notes.txt (@-mentioned)".
+3. A hook that changes a notebook read's result: Claude Code shows the new cells; Coder keeps the original with a notice.
+
+Tests: NB12 checks the count the step gets, NB13 the line itself; CD205 and HR3 check the new words. The full run is noted below once it ends. On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: Coder's read shows notebooks exactly as Claude Code's Read does (your words: "make the read match too pls")
 
 When Coder reads a Jupyter notebook (.ipynb), it now gets the same text Claude Code's Read gives. I tried Claude Code's real Read on the same notebooks, and the text matches character for character.

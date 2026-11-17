@@ -721,6 +721,18 @@ suite, with the no-cells fix: 1331 pass, 4 skipped, 0 fail.
 
 **Outside (for the owner):**
 1. Claude Code's row for a notebook read adds "Read **4** cells" under its tool line ("No cells found in notebook" in red for
-   none); Coder's step says "Read sales.ipynb" only.
+   none); Coder's step says "Read sales.ipynb" only. **Changed** (the owner: "yes match both pls"): the line is under the step,
+   the count in bold, "cells" whatever the count, as Claude Code's (its program); the red line for none. The machine sends the
+   count with the step (from Claude Code's Read output, which read always makes). Test NB12 (the count), NB13 (the line).
 2. An empty text file: Claude Code's Read says `<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>`
-   (tried); Coder's says "blank.txt exists, but it is empty."
+   (tried); Coder's says "blank.txt exists, but it is empty." **Changed** (the same word): Claude Code's words exactly, in read
+   and in a hook's rewrite of a read. Tests CD205, HR3.
+
+Found while doing these (for the owner):
+1. An offset past the end of a file: Claude Code's Read says `<system-reminder>Warning: the file exists but is shorter than the
+   provided offset (5000). The file has 2001 lines.</system-reminder>`; Coder's says "mid.txt has 2000 lines: offset 5000 is past
+   its end." (Seen side by side on 2026-11-08 and kept then.)
+2. An @-mentioned file: Claude Code's row says "Read **notes.txt** (12 lines)", "(4 cells)" for a notebook, its size for a
+   picture or a PDF; Coder's step says "Read notes.txt (@-mentioned)".
+3. A PostToolUse hook's new output for a notebook read: Claude Code shows it as cells, as its Read does; Coder keeps the original
+   output with a notice ("mapper returned undefined").
