@@ -6,7 +6,7 @@ import { readFileSync } from "node:fs";
 const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
 
 test("the page's look at a running chat always sets the next one, even after a throw", () => {
-  const m = /async function tick\(\) \{\n    try \{ await tickOnce\(\); \}\n[\s\S]*?finally \{ if \(S\.running && S\.project && !S\.poll\) S\.poll = setTimeout\(tick, POLL_MS\); \}/.exec(js);
+  const m = /async function tick\(\) \{\n    try \{ [^\n]*await streamOnce\(\); else await tickOnce\(\); \}\n[\s\S]*?finally \{ if \(S\.running && S\.project && !S\.poll\) S\.poll = setTimeout\(tick, POLL_MS\); \}/.exec(js);
   assert.ok(m, "tick wraps tickOnce and always sets the next look");
   assert.match(js, /async function tickOnce\(\) \{\n    S\.poll = 0;/);
 });
@@ -35,4 +35,26 @@ test("the loop logic: a throwing look still schedules the next, a finished chat 
   mode = "end"; S.poll = 0;
   await tick();
   assert.equal(timers.length, 1, "a chat no longer running is not looked at again");
+});
+
+test("the live stream: the Worker sends each state as it comes, the machine waits for news, the page reads and reconnects", () => {
+  const w = readFileSync(new URL("../src/coder-routes.mjs", import.meta.url), "utf8");
+  assert.match(w, /if \(action === "stream" && request\.method === "GET"\)/);
+  assert.match(w, /"content-type": "text\/event-stream; charset=utf-8"/);
+  assert.match(w, /"&wait=" \+ STREAM_WAIT_MS/);
+  assert.match(w, /if \(!d\.running \|\| d\.reload\) break;/, "the stream ends when the job is over");
+  const m = readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(m, /const waitMs = Math\.min\(25_000/);
+  assert.match(js, /async function streamOnce\(\)/);
+  assert.match(js, /'\/stream\?since='/);
+  assert.match(js, /S\.poll = setTimeout\(tick, 150\)/, "a stream that ended while the chat runs is opened again at once");
+  assert.match(js, /\(S\.streamFails \|\| 0\) < 3/, "after 3 failed streams, the page goes back to its looks");
+  assert.match(js, /function applyState\(r, id\)/, "a look and the stream draw a state the same way");
+});
+
+test("the page's stream reader splits server-sent events as the Worker writes them", () => {
+  const parse = (text) => { const out = []; let buf = text, k; while ((k = buf.indexOf("\n\n")) >= 0) { const block = buf.slice(0, k); buf = buf.slice(k + 2); const line = /^data: (.*)$/m.exec(block); if (line) out.push(JSON.parse(line[1])); } return { out, rest: buf }; };
+  const r = parse(": open\n\ndata: {\"running\":true,\"events\":[1]}\n\ndata: {\"running\":false}\n\ndata: {\"half");
+  assert.deepEqual(r.out, [{ running: true, events: [1] }, { running: false }]);
+  assert.equal(r.rest, "data: {\"half", "a part not yet whole waits for the rest");
 });

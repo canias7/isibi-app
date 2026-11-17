@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Live stream for the chat, like Claude Code's page
+
+The owner: "can we do it this way". The page no longer asks "anything new?" every second. It opens one live connection (`/api/coder/projects/:id/stream`), and the Worker sends each new step down it as soon as the machine has it. The machine's `/state` can now wait up to 25 seconds for news (`wait`), so steps show up straight away. A stream ends when the job is over, or after 5 minutes; the page opens the next one at once, drops one that has been silent for 70 seconds, and goes back to the old checks after 3 failed streams (or when the server has no stream). Same page in the desktop and phone apps, so they get it too. Gloopy still uses the checks. Tests: `coder/test/poll-never-stops.test.mjs`.
+
 ## 2026-11-17: The "stuck" chat was the page, not the server
 
 In group 1, message 2's job finished in about 25 seconds, but the page kept showing it working until the test script gave up at 900 seconds and sent the next message, which the server started at once. The page's check loop could stop for good if one request never answered or drawing the chat threw an error. Now each check has a 90-second limit and the next check is always set while the chat runs. Tests: `coder/test/poll-never-stops.test.mjs`.

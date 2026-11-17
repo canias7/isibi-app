@@ -140,6 +140,8 @@
       const lim = init && init.limit && typeof AbortSignal !== 'undefined' && AbortSignal.timeout ? { signal: AbortSignal.timeout(init.limit) } : {};
       r = await fetch(API + path, { ...(init || {}), ...lim, ...(raw ? { body: raw } : {}), headers: { Authorization: 'Bearer ' + token, 'x-coder-proof': window.Auth.proof(), ...(raw ? { 'content-type': raw.type || 'application/octet-stream', 'x-file-name': encodeURIComponent(raw.name || 'file') } : init && init.body ? { 'content-type': 'application/json' } : {}) } });
     } catch (e) { return { status: 0, data: { error: (GLOOPY ? 'Gloopy' : 'Coder') + ' could not be reached. Check your connection.' } }; }
+    // THE LIVE STREAM (2026-11-17): the open response itself, read by streamOnce.
+    if (init && init.stream && r.ok) return { status: r.status, data: {}, res: r };
     // A FILE TO SAVE (a read-only chat's patch, owner item 5): handed back whole when it came.
     if (r.ok && typeof (init || {}).file === 'string') return { status: r.status, data: {}, blob: await r.blob(), name: (/filename="([^"]+)"/.exec(r.headers.get('content-disposition') || '') || [])[1] || init.file };
     // A STREAM (Gloopy's live view, 2026-11-10): handed back as it is, to be read as it comes.
@@ -1696,14 +1698,64 @@
   }
   // How long one look at a running chat may wait for its answer (a save in the Worker takes seconds; GitHub at most ~1 minute).
   const POLL_LIMIT_MS = 90000;
-  function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; }
+  function stopPoll() { if (S.poll) clearTimeout(S.poll); S.poll = 0; if (S.streamAbort) { try { S.streamAbort.abort(); } catch (e) {} S.streamAbort = null; } }
+  // A live stream with nothing on it for this long is dropped and opened again (its server sends a state at least every ~40 s).
+  const STREAM_SILENT_MS = 70000;
   // THE LOOK THAT NEVER STOPS FOR GOOD (2026-11-17, group 1's "stuck" chat: the job was over in 25 s, but the page showed it
   // working for 15 minutes, until the next message started a new look): a look that hung (no answer) or threw while drawing
   // ended the loop. Now each look has a time limit (POLL_LIMIT_MS), and the next one is always set while the chat runs.
   async function tick() {
-    try { await tickOnce(); }
+    try { if (!GLOOPY && (S.streamFails || 0) < 3 && typeof ReadableStream !== 'undefined' && typeof AbortController !== 'undefined') await streamOnce(); else await tickOnce(); }
     catch (e) { try { console.log('coder: look failed: ' + String((e && e.message) || e).slice(0, 200)); } catch (x) {} }
     finally { if (S.running && S.project && !S.poll) S.poll = setTimeout(tick, POLL_MS); }
+  }
+  // THE LIVE STREAM (2026-11-17, the owner: "can we do it this way", like Claude Code's page): one open connection, and each new
+  // state of the chat comes down it as it happens. When it ends (the job is over, or after a few minutes) the next look opens a
+  // new one at once; a stream silent for STREAM_SILENT_MS is dropped and opened again; after 3 failures in a row, the page
+  // goes back to its looks (tickOnce).
+  async function streamOnce() {
+    S.poll = 0;
+    if (!S.project || !S.running) return;
+    const id = S.project.id;
+    const seen = document.visibilityState === 'visible' && document.hasFocus() ? '&seen=1' : '';
+    const ac = new AbortController();
+    S.streamAbort = ac;
+    let silent = 0, got = 0;
+    const dog = setInterval(() => { if (Date.now() - silent > STREAM_SILENT_MS) ac.abort(); }, 5000);
+    try {
+      silent = Date.now();
+      const c = await call('/projects/' + encodeURIComponent(id) + '/stream?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : ''), { stream: true, signal: ac.signal });
+      // (No stream here at all, an older server: the looks at once.)
+      if (!c.res || !c.res.body || !/event-stream/.test(c.res.headers.get('content-type') || '')) { S.streamFails = c.status === 404 || c.res ? 3 : (S.streamFails || 0) + 1; return; }
+      const reader = c.res.body.getReader(), dec = new TextDecoder();
+      let buf = '';
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        silent = Date.now();
+        buf += dec.decode(value, { stream: true });
+        let k;
+        while ((k = buf.indexOf('\n\n')) >= 0) {
+          const block = buf.slice(0, k); buf = buf.slice(k + 2);
+          if (/^event: fail/m.test(block)) { S.streamFails = (S.streamFails || 0) + 1; ac.abort(); break; }
+          const line = /^data: (.*)$/m.exec(block);
+          if (!line) continue;
+          let d = null;
+          try { d = JSON.parse(line[1]); } catch (e) { d = null; }
+          if (!d || !S.project || S.project.id !== id || S.streamAbort !== ac) { ac.abort(); break; }
+          got++;
+          if (!applyState({ status: 200, data: d }, id) || !S.running) { ac.abort(); break; }
+        }
+      }
+      S.streamFails = got ? 0 : (S.streamFails || 0) + 1;
+    } catch (e) {
+      if (!got && S.streamAbort === ac) S.streamFails = (S.streamFails || 0) + 1;
+    } finally {
+      clearInterval(dog);
+      if (S.streamAbort === ac) S.streamAbort = null;
+    }
+    if (S.running && S.project && S.project.id === id && !S.poll) S.poll = setTimeout(tick, 150);
+    else if (!S.running) { S.background = undefined; startBgWatch(); }
   }
   async function tickOnce() {
     S.poll = 0;
@@ -1716,16 +1768,23 @@
     // or the queued message it started.)
     const r = await call('/projects/' + encodeURIComponent(id) + '/state?since=' + S.next + seen + (S.ending ? '&turn=' + (Number(S.project.turn) || 0) : '&early=1'), { limit: POLL_LIMIT_MS });
     if (!S.project || S.project.id !== id) return;
+    if (!applyState(r, id)) return;
+    if (S.running) S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);
+    else { S.background = undefined; startBgWatch(); }
+  }
+
+  // ONE STATE OF THE CHAT, from a look or from the live stream, drawn. false: nothing more to do now (an error, a reload).
+  function applyState(r, id) {
     // AFTER ERRORS THE PAGE ASKS LESS OFTEN (the audit), and says so after a few.
     if (r.status !== 200) {
       S.fails = (S.fails || 0) + 1;
       if (S.fails === 5) { S.events = S.events.concat([{ at: Date.now(), type: 'error', text: GLOOPY ? "Gloopy's computer is not answering. Still trying…" : "Coder's machine is not answering. Still trying…" }]); draw(true); }
       if (S.running) S.poll = setTimeout(tick, Math.min(POLL_MS * Math.pow(2, S.fails), 30000));
-      return;
+      return false;
     }
     S.fails = 0;
     if (r.status === 200 && r.data) {
-      if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); return reloadChat(id); }
+      if (r.data.reload) { if (r.data.project) S.project = r.data.project; S.running = false; syncEntry(); draw(); reloadChat(id); return false; }
       // The message shown when it was sent is not drawn twice.
       const fresh = (r.data.events || []).filter((e) => {
         if (e.type !== 'user') return true;
@@ -1765,8 +1824,7 @@
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
     // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
-    if (S.running) S.poll = setTimeout(tick, quickLook(r) ? QUICK_POLL_MS : POLL_MS);
-    else { S.background = undefined; startBgWatch(); }
+    return true;
   }
 
   // SAVED ELSEWHERE (another tab, or Coder's every-minute run while no tab was

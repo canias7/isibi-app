@@ -5130,6 +5130,13 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const background = jobsOf(project);
         if (!t) return send(200, { status: "idle", events: [], running: false, background });
         const since = Math.max(0, Number(url.searchParams.get("since")) || 0);
+        // A LOOK THAT WAITS FOR NEWS (2026-11-17, the live stream like Claude Code's): with `wait` (ms, at most 25 s), a running
+        // job with nothing new is answered as soon as it has a new step, its end or its answer, not at once.
+        const waitMs = Math.min(25_000, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+        if (waitMs && t.running && !t.result && !t.answerDone && t.events.length <= since) {
+          const until = Date.now() + waitMs, prog = t.progress && t.progress.at;
+          while (Date.now() < until && t.running && !t.result && !t.answerDone && t.events.length <= since && (t.progress && t.progress.at) === prog && !(t.asking)) await new Promise((ok) => setTimeout(ok, 100));
+        }
         // (`asking`: the card a step waits on now, for Coder's Worker before it makes an environment card's change: A5.)
         // (`answered`: the answer's last steps are all sent; the turn is only being tidied up. 2026-11-16.)
         return send(200, { running: t.running, ...phaseOf(t), ...(t.answerDone ? { answered: true } : {}), events: t.events.slice(since), next: t.events.length, ...(t.result ? { result: t.result } : {}), background, ...(t.running && t.progress ? { progress: t.progress } : {}), ...(t.running && t.asking ? { asking: t.asking } : {}), ...(t.running && t.askingAll && t.askingAll.size > 1 ? { askingAll: [...t.askingAll] } : {}) });

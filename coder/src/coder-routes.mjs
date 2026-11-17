@@ -723,6 +723,9 @@ export async function autofixFor(env, bucket, uid, meta, want, token, fetchFn = 
   };
 }
 
+/** One live stream's longest life (the page opens the next one), and how long each of its looks waits on the machine for news. */
+export const STREAM_MS = 5 * 60 * 1000;
+export const STREAM_WAIT_MS = 20_000;
 /** How long a chat may say "working" with no machine answering before it is freed. */
 export const STALE_MS = 15 * 60 * 1000;
 /**
@@ -1863,6 +1866,39 @@ export async function handleCoder(request, env, ctx, deps) {
     return json({ ok: true });
   }
 
+  // THE LIVE STREAM (2026-11-17, the owner: "can we do it this way", like Claude Code's page): one open connection that sends
+  // each new state of the chat as it happens (server-sent events), from this Worker's own /state looks that wait on the
+  // machine for news (`wait`). It ends when the job is over (the last state says running: false) or after STREAM_MS; the page
+  // then opens a new one while the chat runs, and falls back to its looks if streams fail.
+  if (action === "stream" && request.method === "GET") {
+    const enc = new TextEncoder();
+    let since = Math.max(0, Number(url.searchParams.get("since")) || 0), turn = Number(url.searchParams.get("turn")) || 0;
+    const seenQ = url.searchParams.get("seen") === "1" ? "&seen=1" : "";
+    const { readable, writable } = new TransformStream();
+    const w = writable.getWriter();
+    const run = async () => {
+      const end = Date.now() + STREAM_MS;
+      let quiet = 0;
+      try {
+        await w.write(enc.encode(": open\n\n"));
+        while (Date.now() < end) {
+          const r = await self("/state?since=" + since + seenQ + (turn ? "&turn=" + turn : "&early=1") + "&wait=" + STREAM_WAIT_MS).catch(() => null);
+          const d = r ? await r.json().catch(() => null) : null;
+          if (!r || r.status !== 200 || !d) { await w.write(enc.encode("event: fail\ndata: " + JSON.stringify({ status: r ? r.status : 0 }) + "\n\n")); break; }
+          const news = (Array.isArray(d.events) && d.events.length) || d.ending || !d.running || d.reload || d.progress || d.phase;
+          if (news || ++quiet >= 2) { quiet = 0; await w.write(enc.encode("data: " + JSON.stringify(d) + "\n\n")); }
+          since = d.next || since;
+          if (d.ending && !turn) turn = Number(d.project && d.project.turn) || 0;
+          if (!d.running || d.reload) break;
+          if (!(Array.isArray(d.events) && d.events.length) && !d.ending) continue;
+        }
+      } catch { /* the page went away */ }
+      try { await w.close(); } catch { /* closed */ }
+    };
+    if (ctx && typeof ctx.waitUntil === "function") ctx.waitUntil(run()); else run();
+    return new Response(readable, { headers: { "content-type": "text/event-stream; charset=utf-8", "cache-control": "no-store", "x-accel-buffering": "no" } });
+  }
+
   if (action === "state" && request.method === "GET") {
     // THE OWNER IS LOOKING AT THIS CHAT (its page visible and focused): no push about it for a while (item 8).
     if (url.searchParams.get("seen") === "1") {
@@ -1893,7 +1929,8 @@ export async function handleCoder(request, env, ctx, deps) {
     // answered within START_LOOK_MS is still starting: the look ends there (the grace path below says "container").
     const young = meta.status === "running" && since === 0 && Number(meta.turn) <= 1 && Date.now() - Number(meta.at || 0) < 60_000;
     try {
-      const look = call("/state?project=" + id + "&since=" + since, { method: "GET" }).then((r) => (r.ok ? r.json() : null));
+      const waitQ = Math.min(25_000, Math.max(0, Number(url.searchParams.get("wait")) || 0));
+      const look = call("/state?project=" + id + "&since=" + since + (waitQ && !young ? "&wait=" + waitQ : ""), { method: "GET" }).then((r) => (r.ok ? r.json() : null));
       s = young ? await Promise.race([look, new Promise((res) => setTimeout(() => res(null), START_LOOK_MS))]) : await look;
       look.catch(() => {});
     } catch { s = null; }
