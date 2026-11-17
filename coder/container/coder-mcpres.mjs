@@ -9,15 +9,16 @@
  * Their calls go through Coder's server, which holds the connectors' sign-ins (src/coder-mcp.mjs resourceCall); this file
  * has what both sides need, so no Node module here (Coder's Worker loads it too).
  *
- * Not copied: its third one, ReadMcpResourceDirTool (`resources/directory/read`). 2.1.326 offers it with the other two, but
- * every call it takes answers "Directory listing is not enabled in this build." (its E5t is `return !1`; tried the same day).
+ * And its third one, ReadMcpResourceDirTool (`resources/directory/read`), as read_mcp_resource_dir (the owner, 2026-11-17: "yes
+ * match all pls"): 2.1.326 offers it with the other two, and every call it takes, past its checks of the server, answers
+ * "Directory listing is not enabled in this build." (its E5t is `return !1`; tried the same day).
  */
 import { typeIssue, unknownKeysIssue, inputErrorText } from "./coder-zodtext.mjs";
 
-export const LIST_TOOL = "list_mcp_resources", READ_TOOL = "read_mcp_resource";
+export const LIST_TOOL = "list_mcp_resources", READ_TOOL = "read_mcp_resource", DIR_TOOL = "read_mcp_resource_dir";
 /** Claude Code's names for them, for hooks and rules. */
-export const CC_LIST = "ListMcpResourcesTool", CC_READ = "ReadMcpResourceTool";
-export const RESOURCE_TOOLS = Object.freeze([LIST_TOOL, READ_TOOL]);
+export const CC_LIST = "ListMcpResourcesTool", CC_READ = "ReadMcpResourceTool", CC_DIR = "ReadMcpResourceDirTool";
+export const RESOURCE_TOOLS = Object.freeze([LIST_TOOL, READ_TOOL, DIR_TOOL]);
 
 /** Their descriptions, word for word (2.1.326's ALa and PLa: the ones a Claude Code cloud session gives its model). */
 export const LIST_DESCRIPTION = "\nList available resources from configured MCP servers.\nEach returned resource will include all standard MCP resource fields plus a 'server' field \nindicating which server the resource belongs to.\n\nParameters:\n- server (optional): The name of a specific MCP server to get resources from. If not provided,\n  resources from all servers will be returned.\n";
@@ -28,8 +29,13 @@ export const READ_PROPERTIES = Object.freeze({ server: { type: "string", descrip
 export const READ_REQUIRED = Object.freeze(["server", "uri"]);
 export const LIST_TOOL_DEF = Object.freeze({ type: "function", function: { name: LIST_TOOL, description: LIST_DESCRIPTION, parameters: { type: "object", properties: LIST_PROPERTIES, additionalProperties: false } } });
 export const READ_TOOL_DEF = Object.freeze({ type: "function", function: { name: READ_TOOL, description: READ_DESCRIPTION, parameters: { type: "object", properties: READ_PROPERTIES, required: [...READ_REQUIRED], additionalProperties: false } } });
+/** The third one's (2.1.326's RLa, ${fkn} its "inode/directory"), its input and its search hint. */
+export const DIRECTORY_MIME = "inode/directory";
+export const DIR_DESCRIPTION = "\nList the direct children of a directory resource on an MCP server (`resources/directory/read`).\n\nParameters:\n- server (required): The name of the MCP server to read from\n- uri (required): The URI of the directory resource\n\nThe listing is not recursive. Each entry carries its own `uri`; subdirectories appear with mimeType \"" + DIRECTORY_MIME + "\" \u2014 call this tool again on a subdirectory's `uri` to descend.\n\nOnly usable against a server that has declared support for directory listing; other servers return an error.\n";
+export const DIR_PROPERTIES = Object.freeze({ server: { type: "string", description: "The MCP server name" }, uri: { type: "string", description: "The directory resource URI to list" } });
+export const DIR_TOOL_DEF = Object.freeze({ type: "function", function: { name: DIR_TOOL, description: DIR_DESCRIPTION, parameters: { type: "object", properties: DIR_PROPERTIES, required: [...READ_REQUIRED], additionalProperties: false } } });
 /** Their search hints, Claude Code's own (its `searchHint`), for tool_search. */
-export const LIST_HINT = "list resources from connected MCP servers", READ_HINT = "read a specific MCP resource by URI";
+export const LIST_HINT = "list resources from connected MCP servers", READ_HINT = "read a specific MCP resource by URI", DIR_HINT = "list the children of an MCP directory resource";
 
 // ── THEIR INPUT ──────────────────────────────────────────────────────────────
 const obj = (a) => (a && typeof a === "object" && !Array.isArray(a) ? a : {});
@@ -41,15 +47,17 @@ export function checkListInput(args) {
   if (unknown.length) issues.push(unknownKeysIssue(unknown));
   return issues.length ? { error: inputErrorText(LIST_TOOL, issues) } : { args: a };
 }
-/** read_mcp_resource's input: `server` and `uri` strings, nothing else. Refused in its words. */
-export function checkReadInput(args) {
+/** read_mcp_resource's input (and read_mcp_resource_dir's): `server` and `uri` strings, nothing else. Refused in its words. */
+function checkServerUri(args, tool) {
   const a = obj(args), issues = [];
   if (typeof a.server !== "string") issues.push(typeIssue("string", a.server, ["server"]));
   if (typeof a.uri !== "string") issues.push(typeIssue("string", a.uri, ["uri"]));
   const unknown = Object.keys(a).filter((k) => k !== "server" && k !== "uri");
   if (unknown.length) issues.push(unknownKeysIssue(unknown));
-  return issues.length ? { error: inputErrorText(READ_TOOL, issues) } : { args: a };
+  return issues.length ? { error: inputErrorText(tool, issues) } : { args: a };
 }
+export const checkReadInput = (args) => checkServerUri(args, READ_TOOL);
+export const checkDirInput = (args) => checkServerUri(args, DIR_TOOL);
 
 // ── THEIR WORDS ──────────────────────────────────────────────────────────────
 /** An empty list (its $8r, tried: the whole answer). */
@@ -61,7 +69,15 @@ export const serverHasNoResources = (name) => 'Server "' + name + '" does not su
 /** A server that declares resources but answers a read with "method not found" (-32601; tried: GitHub's). An answer, not an error. */
 export const readsNotImplemented = (name) => 'Server "' + name + '" advertises resource support but does not implement resource reads.';
 /** A resource the server does not have (-32002, or -32602), with Coder's name for the list tool. An answer, not an error. */
-export const resourceNotFound = (uri) => "Resource not found: " + uri + " — it may have been deleted or the URI is stale. Re-run " + LIST_TOOL + " to refresh.";
+export const resourceNotFound = (uri, dirRead = false) => "Resource not found: " + uri + " \u2014 it may have been deleted or the URI is stale. Re-run " + LIST_TOOL + " to refresh." + (dirRead ? " If the URI is a directory resource, use " + DIR_TOOL + " instead." : "");
+/** Whether a server declares directory listing (its serverDeclaresDirectoryRead: the skills extension's `directoryRead`). */
+export const SKILLS_EXTENSION = "io.modelcontextprotocol/skills";
+export function declaresDirectoryRead(caps) {
+  const e = caps && typeof caps === "object" && caps.extensions && typeof caps.extensions === "object" ? caps.extensions[SKILLS_EXTENSION] : null;
+  return e != null && typeof e === "object" && "directoryRead" in e && e.directoryRead === true;
+}
+/** The third tool's answer past its checks of the server (its `re`, an answer, not an error). */
+export const DIR_OFF = "Directory listing is not enabled in this build.";
 /** The JSON-RPC errors it reads as those two (its isMcpMethodNotFoundError and isMcpResourceNotFoundError). */
 export const METHOD_NOT_FOUND = -32601, RESOURCE_NOT_FOUND_CODES = Object.freeze([-32002, -32602]);
 /** A resource's binary content saved to a file (its Dqt, with its "[Resource from … at …] " lead); `size` already in its words. */
@@ -93,6 +109,84 @@ export function serversNamed(servers, name) {
 export const listText = (resources) => (Array.isArray(resources) && resources.length ? JSON.stringify(resources) : NO_RESOURCES);
 /** A read: its error's words, or the contents as JSON. */
 export const readText = (data) => (data && typeof data.error === "string" && data.error ? data.error : JSON.stringify(data));
+/** A directory's listing (its mapToolResultToToolResultBlockParam): its error's words, or the entries by name and the JSON. */
+export function dirText(data) {
+  if (data && typeof data.error === "string" && data.error) return data.error;
+  const list = data && Array.isArray(data.resources) ? data.resources : [];
+  const head = list.length ? "Directory listing (" + list.length + " " + (list.length === 1 ? "entry" : "entries") + "):\n" + list.map((x) => String(x && x.name) + (x && x.mimeType === DIRECTORY_MIME ? "/" : "")).join("\n") : "Directory is empty.";
+  return head + "\n\n" + JSON.stringify(data);
+}
+
+/**
+ * A READ'S ANSWER AS THE SERVER GAVE IT, READ ON CODER'S MACHINE (the owner, 2026-11-17: "yes match all pls"; Claude Code saves up
+ * to 100 MB, more than Coder's server can hold, so a read's answer comes through it as it came: src/coder-mcp.mjs resourceCall's
+ * relay): the JSON-RPC answer with `head.id`, plain JSON or an event stream's `data:` lines, as src/coder-mcp.mjs readAnswer
+ * reads one; on a 2026-07-28 session its result settled as decodeResult settles it (src/coder-mcp-era.mjs), in its words. →
+ * { result } | { rpc: { code, message } } | { input: true } (a question for the owner: the read is made again without the
+ * relay) | { error }.
+ */
+export function relayedAnswer(text, head) {
+  const h = head && typeof head === "object" ? head : {}, t = String(text || ""), msgs = [];
+  if (/text\/event-stream/i.test(String(h.type || ""))) {
+    for (const block of t.split(/\r?\n\r?\n/)) {
+      const data = block.split(/\r?\n/).filter((l) => l.startsWith("data:")).map((l) => l.slice(5).replace(/^ /, "")).join("\n");
+      if (data) { try { msgs.push(JSON.parse(data)); } catch { /* not JSON */ } }
+    }
+  } else if (t.trim()) {
+    try { const j = JSON.parse(t); if (Array.isArray(j)) msgs.push(...j); else msgs.push(j); } catch { return { error: "the MCP server's answer could not be read" }; }
+  }
+  const m = msgs.find((x) => x && typeof x === "object" && x.id === h.id && typeof x.method !== "string");
+  if (!m) return { error: "the MCP server gave no answer" };
+  if (m.error) return { rpc: { code: m.error.code, message: String(m.error.message || "error") } };
+  if (!h.modern) return { result: m.result };
+  const r = m.result, why = (w) => ({ error: malformedResult(h.server, "Invalid result for resources/read: " + w) });
+  if (!r || typeof r !== "object" || Array.isArray(r)) return why("not an object");
+  const kind = r.resultType === undefined ? "complete" : r.resultType;
+  if (typeof kind !== "string") return why("non-string resultType");
+  if (kind === "input_required") return { input: true };
+  if (kind !== "complete") return { error: "Unsupported result type '" + kind + "' for resources/read" };
+  const { resultType: _t, ...rest } = r;
+  return { result: rest };
+}
+/** The type of a read's answer from Coder's server (src/coder-mcp.mjs handleMcp): its first line, then the relayed answer. */
+export const RELAY_TYPE = "application/x-coder-relay";
+/** The most of a relayed answer Coder's machine takes (Claude Code's 100 MB, in base64 and JSON, and a margin): past it, too large. */
+export const RELAY_MAX = 200_000_000;
+/** Claude Code's words for a result it couldn't read (src/coder-mcp-era.mjs malformedResult, the same words). */
+export const malformedResult = (server, why) => "MCP server \"" + server + "\" returned a malformed result that failed schema validation: " + why;
+/**
+ * A READ'S ERROR AS CLAUDE CODE ANSWERS IT: "method not found" and "resource not found" its words, as an answer (the second with
+ * its pointer to the directory tool for a server that declares directory listing); any other, the server's, a failure.
+ */
+export function readErrorAnswer(code, message, server, uri, dirRead = false) {
+  if (code === METHOD_NOT_FOUND) return { contents: [], error: readsNotImplemented(server) };
+  if (RESOURCE_NOT_FOUND_CODES.includes(code)) return { contents: [], error: resourceNotFound(uri, dirRead) };
+  return { error: "the MCP server said: " + String(message || "error").slice(0, 300) };
+}
+/** A read's contents as the server gave them: each part's address and type, and its text or its binary content (base64). */
+export function contentsOf(contents, uri) {
+  return (Array.isArray(contents) ? contents : []).filter((x) => x && typeof x === "object" && !Array.isArray(x)).map((x) => ({
+    uri: typeof x.uri === "string" ? x.uri : String(uri ?? ""),
+    ...(typeof x.mimeType === "string" ? { mimeType: x.mimeType } : {}),
+    ...("text" in x ? { text: typeof x.text === "string" ? x.text : String(x.text ?? "") } : typeof x.blob === "string" ? { blob: x.blob } : {}) }));
+}
+
+// ── A RULE ON ONE OF THEIR INPUTS ─────────────────────────────────────────────
+/** Their inputs a deny or ask rule may name (Claude Code: "any scalar parameter the tool accepts"; none is their primary field). */
+export const RULE_PARAMS = Object.freeze({ ListMcpResourcesTool: ["server"], ReadMcpResourceTool: ["server", "uri"], ReadMcpResourceDirTool: ["server", "uri"] });
+const glob = (pattern, text) => new RegExp("^" + String(pattern).split("*").map((x) => x.replace(/[.+?^${}()|[\]\\]/g, "\\$&")).join("[\\s\\S]*") + "$").test(text);
+/**
+ * WHETHER A RULE'S `server:` VALUE NAMES A CALL'S SERVER (Claude Code 2.1.326's Gc for its MCP resource tools): as given, or as
+ * Claude Code writes server names (serverKey), with and without the `_` around them; `*` any text; a "claude.ai " name by its
+ * written form.
+ */
+export function serverRuleMatches(expected, actual) {
+  const P = String(expected), A = String(actual);
+  if (glob(P, A.trim())) return true;
+  const v = P.replace(/[^a-zA-Z0-9_*-]/g, "_"), L = v.replace(/_+/g, "_").replace(/_$/, "").replace(/_?\*/g, "*");
+  const forms = [A.trim(), A].map(serverKey).flatMap((N) => [N, N.replace(/_+$/, "").replace(/^_+/, "")]);
+  return forms.some((N) => (P.startsWith("claude.ai ") ? glob(L, N) : glob(v, N) || (P.includes("*") && !v.startsWith("_") && (N + "_").startsWith("claude_ai_") && glob(L, N))));
+}
 
 /** The file extension it saves a resource's binary content with, by its type (its V9e, word for word). */
 export function extOf(mimeType) {

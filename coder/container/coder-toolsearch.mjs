@@ -71,7 +71,7 @@ export const TOOL_SEARCH = "tool_search";
 // and request_secret, about 8,400 tokens a call, used only when the network or a key is the problem, are held back too and
 // loaded by tool_search when needed. Claude Code's cloud sends its remote tools on every call; Coder holds them back to save
 // that cost. A chat whose requests already carried them keeps them, as upfrontTools keeps tools that leave.)
-export const DEFERRED_TOOLS = Object.freeze(["notebook_edit", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "list_mcp_resources", "read_mcp_resource", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment"]);
+export const DEFERRED_TOOLS = Object.freeze(["notebook_edit", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment"]);
 
 /** Their search hints, Claude Code's own (its `searchHint`, matched by a keyword search), with Coder's swaps. */
 export const SEARCH_HINTS = Object.freeze({
@@ -92,6 +92,7 @@ export const SEARCH_HINTS = Object.freeze({
   // (Claude Code's MCP resource tools, offered when a connector declares resources: 2026-11-17.)
   list_mcp_resources: "list resources from connected MCP servers",
   read_mcp_resource: "read a specific MCP resource by URI",
+  read_mcp_resource_dir: "list the children of an MCP directory resource",
   // (Coder's own words for the six held back since 2026-11-15: Claude Code has no hint for its remote tools.)
   request_secret: "ask the owner for an API key or token a host needs",
   get_environment: "look up this chat's cloud environment (network access, variables, setup script)",

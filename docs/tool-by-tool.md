@@ -850,3 +850,22 @@ lists of Coder's tools), CD248 (the docs page's links) and the machine's file li
 
 **Outside the tool (for the owner):** the resources the Connectors page lists for `@` mentions still include MCP Apps UI ones;
 Claude Code's docs say they "don't appear in the `@` suggestions".
+
+**Matched, all seven** (the owner: "yes match all pls"; Claude Code's program, 2.1.326, read again for each, and its third tool
+tried):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| 1. ReadMcpResourceDirTool | offered with the other two (held back, "list the children of an MCP directory resource"); `server` and `uri`; its checks of the server (not found, not connected, no resources) thrown; past them every call answers "Directory listing is not enabled in this build." (its E5t is off; tried); its row `List directory resource "U" from server "S"` | none | `read_mcp_resource_dir`, the same, word for word; "resource not found" points to it for a server that declares directory listing (its skills extension's `directoryRead`), as Claude Code's does |
+| 2. Size | saves a resource's file up to 100 MB | about 15 MB (the Worker read the whole answer, at most 20 million characters) | a read's answer is passed through the Worker as it came and read on Coder's machine (up to 200 MB of answer), so 100 MB files are saved; Claude Code's "over the 104857600 byte persist limit" past that. A 21 MB file tested end to end. On the older SSE transport the Worker still reads it (20 MB) |
+| 3. Coder's line | none before a resource's answer | "(This came from the connector…)" before what the server sent | none |
+| 4. The list | kept from when the server connected (its memoized fetchResourcesForClient), dropped on "resource not found" and when the server says it changed | asked each time | each connector's whole list (every page) kept from its check (when it's added or signed in, and its hourly re-read after a job starts: Coder hears no "changed" notice), served from there; read and kept when none is; dropped on "resource not found" |
+| 5. "Available servers" | every server it has (tried: failed and signed-out ones included) | the connectors on for the chat | every connector; one switched off, signed out or failed is "not connected" |
+| 6. Rules on one input | `Tool(param:value)` deny and ask rules for any built-in tool, `*` any text, the value as given; a `server:` value of these tools also matched as server names are written (its Gc); "Permission to use T with param:value has been denied." | the whole tool only | the same, for all three tools (and their old names, `ListMcpResources`, `ReadMcpResource`, `ReadMcpResourceDir`) |
+| 7. `@` suggestions | MCP Apps UI pages left out | included | left out |
+
+**Outside these tools (for the owner):** Coder's connector tools' answers still have that line before them; Claude Code adds none
+to an MCP tool's answer either.
+
+**Tests:** MR1–MR12 (`coder/test/mcp-resources.test.mjs`: the relay end to end through the Worker, the kept lists, the third tool,
+the rules); PA1, TP1, TS2 and TS29 updated for the third tool.

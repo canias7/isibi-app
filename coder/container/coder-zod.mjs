@@ -268,6 +268,7 @@ export const OUTPUT_SHAPES = Object.freeze({
   // 2026-11-17, coder-mcpres.mjs.)
   ListMcpResourcesTool: z.array(o({ uri: S, name: S, mimeType: opt(S), description: opt(S), server: S })),
   ReadMcpResourceTool: o({ contents: z.array(o({ uri: S, mimeType: opt(S), text: opt(S), blobSavedTo: opt(S) })), error: opt(S) }),
+  ReadMcpResourceDirTool: o({ resources: z.array(o({ uri: S, name: S, mimeType: opt(S) })), error: opt(S) }),
 });
 
 // ── A POSTTOOLUSE HOOK'S updatedToolOutput ───────────────────────────────────

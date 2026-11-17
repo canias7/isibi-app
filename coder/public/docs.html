@@ -320,11 +320,12 @@
 
         <h3 id="conn-resources">Resource tools</h3>
         <ul>
-          <li>When one of the chat's connectors has resources (files or pages it shares), Coder gets two more tools, as in Claude Code: <code>list_mcp_resources</code> lists them, from every connector or from one, and <code>read_mcp_resource</code> reads one by its connector's name and its address.</li>
-          <li>They only read, so they never ask first. A rule can still turn them off or make them ask: <code>ListMcpResourcesTool</code> and <code>ReadMcpResourceTool</code>.</li>
+          <li>When one of the chat's connectors has resources (files or pages it shares), Coder gets three more tools, as in Claude Code: <code>list_mcp_resources</code> lists them, from every connector or from one; <code>read_mcp_resource</code> reads one by its connector's name and its address; <code>read_mcp_resource_dir</code> is Claude Code's folder listing, which is switched off there, so it always answers "Directory listing is not enabled in this build."</li>
+          <li>They only read, so they never ask first. A rule can still turn one off or make it ask, for the whole tool (<code>ReadMcpResourceTool</code>) or one input (<code>ReadMcpResourceTool(server:github)</code>, <code>ReadMcpResourceTool(uri:file:///private/*)</code>).</li>
           <li>A step shows as <code>List all MCP resources</code> or <code>Read resource "file:///notes.md" from server "Docs"</code>.</li>
-          <li>Pages a connector makes for apps to show (MCP Apps) are left out of the list, but can still be read by their address.</li>
-          <li>A file that isn't text, such as a picture or a PDF, is saved in the chat's output folder, and Coder is told where and how big it is. Files up to about <b>15 MB</b> come through; Claude Code allows 100 MB.</li>
+          <li>Each connector's list is kept from when it was last checked, as Claude Code keeps it from when the server connected. A resource that turns out to be gone clears the kept list, so the next list is fresh.</li>
+          <li>Pages a connector makes for apps to show (MCP Apps) are left out of the list and of the <code>@</code> suggestions, but can still be read by their address.</li>
+          <li>A file that isn't text, such as a picture or a PDF, is saved in the chat's output folder, and Coder is told where and how big it is. Files up to <b>100 MB</b> are saved, as in Claude Code.</li>
           <li>An answer over <b>100,000 characters</b> is saved to a file, and Coder reads the part it needs.</li>
         </ul>
       </section>
@@ -335,7 +336,7 @@
 
         <h3 id="ts-which">Which tools wait</h3>
         <ul>
-          <li>Coder's own <code>lsp</code>, <code>web_fetch</code>, <code>web_search</code>, <code>monitor</code> and <code>stop_job</code>, the task tools (<code>task_create</code>, <code>task_get</code>, <code>task_list</code> and <code>task_update</code>, or <code>todo_write</code>), the plan mode tools (<code>enter_plan_mode</code> and <code>exit_plan_mode</code>) and the resource tools (<code>list_mcp_resources</code> and <code>read_mcp_resource</code>).</li>
+          <li>Coder's own <code>lsp</code>, <code>web_fetch</code>, <code>web_search</code>, <code>monitor</code> and <code>stop_job</code>, the task tools (<code>task_create</code>, <code>task_get</code>, <code>task_list</code> and <code>task_update</code>, or <code>todo_write</code>), the plan mode tools (<code>enter_plan_mode</code> and <code>exit_plan_mode</code>) and the resource tools (<code>list_mcp_resources</code>, <code>read_mcp_resource</code> and <code>read_mcp_resource_dir</code>).</li>
           <li>Every connector tool, with no limit on how many. A connector can mark a tool to load at the start.</li>
           <li>The rest, such as <code>bash</code>, <code>read</code>, <code>edit</code>, <code>write</code>, <code>grep</code>, <code>glob</code>, <code>ask_user</code> and the environment tools, load at the start.</li>
         </ul>

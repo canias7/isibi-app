@@ -13,7 +13,7 @@
 // Its sign-in is OAuth 2.1 with PKCE, the server found from the MCP server's protected-resource metadata (RFC 9728), and
 // Coder registered as a client on the fly (RFC 7591).
 import { seal, unseal } from "./coder-github.mjs";
-import { serversNamed, serverNotFound, serverNotConnected, serverHasNoResources, readsNotImplemented, resourceNotFound, METHOD_NOT_FOUND, RESOURCE_NOT_FOUND_CODES, isUiResource, LIST_PAGES_MAX as RESOURCE_PAGES_MAX } from "../container/coder-mcpres.mjs";
+import { serversNamed, serverNotFound, serverNotConnected, serverHasNoResources, RESOURCE_NOT_FOUND_CODES, METHOD_NOT_FOUND, isUiResource, declaresDirectoryRead, DIR_OFF, readErrorAnswer, contentsOf, relayedAnswer, RELAY_TYPE, LIST_PAGES_MAX as RESOURCE_PAGES_MAX } from "../container/coder-mcpres.mjs";
 import { modelPass } from "./coder-model-gate.mjs";
 // (A connector's questions for the owner, MCP elicitation: what Coder declares, and the server's side of a request.)
 import { CLIENT_CAPS, rootsResult, rootPaths, checkElicitRequest } from "../container/coder-elicit.mjs";
@@ -176,7 +176,7 @@ export async function setConnectorState(bucket, uid, id, { disabled, seen }) {
 
 /** What the page is shown of a connector: never its sign-in. */
 export function connectorOut(c) {
-  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.disabled ? "disabled" : c.status || "ok", disabled: !!c.disabled, ...(c.ownClient ? { ownClient: true } : {}), ...(c.changes && (c.changes.added.length || c.changes.removed.length || c.changes.changed.length) ? { changes: c.changes } : {}), error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
+  return { id: c.id, name: c.name, url: c.url, about: c.about || aboutOf(c.url), custom: !aboutOf(c.url), auth: c.auth || "none", status: c.disabled ? "disabled" : c.status || "ok", disabled: !!c.disabled, ...(c.ownClient ? { ownClient: true } : {}), ...(c.changes && (c.changes.added.length || c.changes.removed.length || c.changes.changed.length) ? { changes: c.changes } : {}), error: c.error || "", tools: (c.tools || []).map((t) => ({ name: t.name, title: t.title || "", description: String(t.description || "").slice(0, 300), readOnly: !!t.readOnly, perm: permOf(c, t), ...(t.always ? { always: true } : {}) })), prompts: (c.prompts || []).map((x) => ({ name: x.name, description: x.description, command: "/" + slug(c.name) + ":" + x.name })), resources: (c.resources || []).filter((x) => x && !isUiResource(x)).slice(0, 50).map((x) => ({ uri: x.uri, name: x.name, mention: "@" + slug(c.name) + ":" + x.uri })), at: c.at || 0 };
 }
 
 /** A connector's address: https only (http only for localhost tests), no user name or password in it. */
@@ -403,7 +403,7 @@ async function readEvents(res, id, { onChunk, signal, onMessage, resume = null, 
  * again is marked `dropEra` (dropsVerdict), and an earlier-revision dial whose handshake failed (not for a sign-in, not out of
  * time) `redial`: Claude Code's "retrying this dial with a wire probe" (mcpSession).
  */
-async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, talk: talk0 = null, wait = null, probeMs = PROBE_TIMEOUT_MS, era: prior = "" } = {}) {
+async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, requestMs = 0, totalMs = 0, talk: talk0 = null, wait = null, probeMs = PROBE_TIMEOUT_MS, era: prior = "", relay = null } = {}) {
   // (`version`: the protocol version the server answered `initialize` with, sent in every later request's header; on a
   // 2026-07-28 session, that revision, in each request's envelope too.)
   let session = "", id = 0, version = "", modern = false;
@@ -496,6 +496,13 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
     const s = res.headers.get("mcp-session-id");
     if (s && !modern) session = s;
     if (notify) { done(); try { if (res.body) await res.body.cancel(); } catch { /* read */ } return res.status; }
+    // A READ'S ANSWER PASSED ON AS IT CAME (`relay`, resourceCall's: read_mcp_resource's file may be larger than Coder's server
+    // can hold), each piece resetting the idle timer; nothing here reads it. Once it has started it is never made again.
+    if (relay && method === "resources/read") {
+      try { arm(); await relay(res, msg.id, modern, arm); return RELAYED; }
+      catch (e) { throw Object.assign(why ? lost() : e && typeof e === "object" ? e : new Error(String(e)), { relayStarted: true }); }
+      finally { done(); talk.end(ctx); }
+    }
     // (A request's stream that ends before its answer, after giving event ids, is taken up again with a GET: readEvents.)
     const resume = (lastId) => fetchFn(url, { method: "GET", headers: getHeaders(lastId), signal: ctl.signal });
     // (On a 2026-07-28 session a request of the server's on a stream is dropped, as Claude Code's client drops one: its
@@ -614,7 +621,7 @@ async function httpSession(url, token, steps, { fetchFn = fetch, idleMs = 0, req
         deadline = method === "tools/call" ? Date.now() + (totalMs || CALL_TOTAL_MS) : 0;
         const send = (p) => post(method, method === "tools/call" ? { ...p, _meta: { progressToken: "gf-" + id } } : p, false, modern && method === "tools/call" ? extra || null : null);
         let r = await send(params);
-        if (modern) r = await settle(method, params, r, send);
+        if (modern && r !== RELAYED) r = await settle(method, params, r, send);
         out.push(r);
       }
     } catch (e) { if (e && typeof e === "object" && !(e instanceof NeedsSignIn) && e.era === undefined) e.era = modern ? "modern" : "legacy"; throw e; }
@@ -653,7 +660,7 @@ export async function mcpSession(url, token, steps, opts = {}) {
       if (prior && e && e.redial) { if (e.dropEra) dropped = true; prior = ""; attempt--; continue; }
       if (dropped && e && typeof e === "object") e.dropEra = true;
       if (e && e.first && [400, 404, 405].includes(e.status)) return sseSession(url, token, steps, opts);
-      const started = steps.some(([m]) => m === "tools/call") && !(e && e.first);
+      const started = (steps.some(([m]) => m === "tools/call") && !(e && e.first)) || !!(e && e.relayStarted);
       if (!(e && e.transient) || started || attempt >= CONNECT_TRIES) throw e;
       await wait(1000 * attempt);
     }
@@ -835,18 +842,55 @@ export async function listTools(url, token, opts = {}) {
   list.prompts = [];
   list.resources = [];
   const caps = (firstInit && firstInit.capabilities) || {};
-  // (Whether it declares resources at all, its `resources` capability: Claude Code offers its resource tools by that. 2026-11-17.)
+  // (Whether it declares resources at all, its `resources` capability: Claude Code offers its resource tools by that; and
+  // directory listing, its skills extension's `directoryRead`. 2026-11-17.)
   list.resourcesCap = !!caps.resources;
-  if (caps.prompts || caps.resources) {
+  list.dirRead = declaresDirectoryRead(caps);
+  // (Its whole list, every page, kept with the connector as Claude Code keeps it from when the server connected: its
+  // fetchResourcesForClient. Null when it could not be had: nothing is kept then, as Claude Code keeps nothing.)
+  list.resourcesAll = null;
+  if (caps.prompts) {
     try {
-      const steps = [...(caps.prompts ? [["prompts/list", {}]] : []), ...(caps.resources ? [["resources/list", {}]] : [])];
-      const got = await mcpSession(url, token, steps, { ...opts, era });
-      let k = 0;
-      if (caps.prompts) list.prompts = ((got[k++] || {}).prompts || []).filter((x) => x && typeof x.name === "string").slice(0, 50).map((x) => ({ name: x.name.slice(0, 100), description: String(x.description || "").slice(0, 500), arguments: (Array.isArray(x.arguments) ? x.arguments : []).filter((a) => a && typeof a.name === "string").slice(0, 10).map((a) => ({ name: a.name.slice(0, 64), required: a.required === true })) }));
-      if (caps.resources) list.resources = ((got[k++] || {}).resources || []).filter((x) => x && typeof x.uri === "string").slice(0, 100).map((x) => ({ uri: x.uri.slice(0, 500), name: String(x.name || "").slice(0, 100), mimeType: String(x.mimeType || "").slice(0, 60) }));
+      const [got] = await mcpSession(url, token, [["prompts/list", {}]], { ...opts, era });
+      list.prompts = ((got || {}).prompts || []).filter((x) => x && typeof x.name === "string").slice(0, 50).map((x) => ({ name: x.name.slice(0, 100), description: String(x.description || "").slice(0, 500), arguments: (Array.isArray(x.arguments) ? x.arguments : []).filter((a) => a && typeof a.name === "string").slice(0, 10).map((a) => ({ name: a.name.slice(0, 64), required: a.required === true })) }));
     } catch { /* tools still work without them */ }
   }
+  if (caps.resources) {
+    const all = await fetchResourceList((cursor) => mcpSession(url, token, [["resources/list", cursor ? { cursor } : {}]], { ...opts, era }).then((x) => x[0]), wait);
+    list.resourcesAll = all.resources;
+    // (The @ suggestions: the first 100, MCP Apps UI pages left out, as Claude Code's docs say: they "don't appear in the @
+    // suggestions".)
+    list.resources = mentionList(all.resources || []);
+  }
   return list;
+}
+/** The resources the @ suggestions offer: the first 100 that are not MCP Apps UI pages, their address, name and type. */
+export const mentionList = (all) => (Array.isArray(all) ? all : []).filter((x) => x && typeof x.uri === "string" && !isUiResource(x)).slice(0, 100).map((x) => ({ uri: x.uri.slice(0, 500), name: String(x.name || "").slice(0, 100), mimeType: String(x.mimeType || "").slice(0, 60) }));
+/**
+ * A SERVER'S WHOLE LIST OF RESOURCES, as Claude Code 2.1.326 reads it (its fetchResourcesForClient and _r): every page, by its
+ * cursor, at most RESOURCE_PAGES_MAX, stopping at a cursor already sent; the whole walk tried again after a passing failure,
+ * RESOURCE_LIST_WAITS apart; a server that answers "method not found" has none; any other failure, none kept. `page(cursor)`:
+ * one page's result. → { resources } (null: none to keep).
+ */
+export async function fetchResourceList(page, wait = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  for (let k = 0; ; k++) {
+    try {
+      const out = [], sent = new Set();
+      let cursor;
+      for (let n = 0; n < RESOURCE_PAGES_MAX; n++) {
+        const got = await page(cursor);
+        for (const x of (got && Array.isArray(got.resources) ? got.resources : [])) if (x && typeof x === "object" && !Array.isArray(x) && typeof x.uri === "string") out.push(x);
+        if (cursor) sent.add(String(cursor));
+        cursor = got && got.nextCursor;
+        if (!cursor || sent.has(String(cursor))) break;
+      }
+      return { resources: out };
+    } catch (e) {
+      if (e && e.rpcCode === METHOD_NOT_FOUND) return { resources: [] };
+      if (!(e && e.transient) || k >= RESOURCE_LIST_WAITS.length) return { resources: null };
+      await wait(RESOURCE_LIST_WAITS[k]);
+    }
+  }
 }
 
 /** A tool's answer as text for Grok: its text parts, what else it gave named, at most RESULT_MAX. */
@@ -983,7 +1027,7 @@ export async function finishSignIn(env, bucket, { state, code, nonce, fetchFn = 
   c.auth = "oauth";
   c.box = await seal(env, { oauth: { ...tokenRecord(j, now), client: p.client, endpoint: p.where.token, resource: p.where.resource } });
   c.status = "ok"; c.error = "";
-  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
+  try { c.tools = await listTools(c.url, String(j.access_token), { fetchFn }); c.toolsAt = now; takeList(c); await keepResourceList(bucket, p.uid, c, c.tools, now); newConnection(c, c.tools && c.tools.era); } catch (e) { c.status = "error"; c.error = String(e.message || e).slice(0, 200); }
   await writeConnectors(bucket, p.uid, list);
   return { uid: p.uid, id: c.id };
 }
@@ -1092,7 +1136,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
   let token = "";
   try { token = await tokenOf(env, bucket, uid, c, { fetchFn, now }); } catch { token = ""; }
   try {
-    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); }
+    try { const before = id ? c.tools : null; c.tools = await listTools(c.url, token, { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; takeList(c); await keepResourceList(bucket, uid, c, c.tools, now); newConnection(c, c.tools && c.tools.era); }
     catch (e) {
       // (Claude Code: on a 401 with a refresh token it refreshes and tries once more.)
       if (!(e instanceof NeedsSignIn) || c.auth !== "oauth") throw e;
@@ -1102,7 +1146,7 @@ export async function addConnector(env, bucket, uid, { name, url, key = "", id =
       const again = await readConnectors(bucket, uid);
       const mine = again.find((x) => x.id === c.id);
       if (mine) c.box = mine.box;
-      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era);
+      c.tools = await listTools(c.url, fresh, { fetchFn }); c.toolsAt = now; takeList(c); await keepResourceList(bucket, uid, c, c.tools, now); newConnection(c, c.tools && c.tools.era);
     }
     c.status = "ok"; c.error = "";
     await writeConnectors(bucket, uid, list);
@@ -1143,13 +1187,13 @@ export async function refreshTools(env, bucket, uid, { fetchFn = fetch, now = Da
     // again in its next session: its tools are back for the next job once it answers. 2026-11-14.)
     const failed = c.status === "error" && !c.disabled;
     if (!failed && (c.status !== "ok" || (!force && now - (Number(c.toolsAt) || 0) < TOOLS_FRESH_MS))) continue;
-    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; c.instructions = (c.tools && c.tools.instructions) || ""; c.prompts = (c.tools && c.tools.prompts) || []; c.resources = (c.tools && c.tools.resources) || []; c.resourcesCap = !!(c.tools && c.tools.resourcesCap); newConnection(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
+    try { const before = c.tools; c.tools = await listTools(c.url, await tokenOf(env, bucket, uid, c, { fetchFn, now }), { fetchFn }); if (Array.isArray(before) && before.length) c.changes = toolChanges(before, c.tools, c.changes); c.toolsAt = now; takeList(c); await keepResourceList(bucket, uid, c, c.tools, now); newConnection(c, c.tools && c.tools.era); reread.add(c.id); if (failed) { c.status = "ok"; c.error = ""; } changed = true; }
     catch (e) { if (e instanceof NeedsSignIn) { c.status = "auth"; changed = true; } }
   }
   if (changed) {
     // The latest of each (a refreshed login saved meanwhile is kept).
     const fresh = await readConnectors(bucket, uid);
-    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; c.resourcesCap = !!mine.resourcesCap; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) newConnection(c, mine.era); } }
+    for (const c of fresh) { const mine = list.find((x) => x.id === c.id); if (mine) { c.tools = mine.tools; c.toolsAt = mine.toolsAt; c.status = mine.status; c.error = mine.error || ""; c.instructions = mine.instructions || ""; c.prompts = mine.prompts || []; c.resources = mine.resources || []; c.resourcesCap = !!mine.resourcesCap; c.dirRead = !!mine.dirRead; if (mine.changes) c.changes = mine.changes; if (reread.has(c.id)) newConnection(c, mine.era); } }
     await writeConnectors(bucket, uid, fresh);
   }
   return changed;
@@ -1160,6 +1204,8 @@ export async function removeConnector(bucket, uid, id) {
   const next = list.filter((x) => x.id !== id);
   if (next.length === list.length) return false;
   await writeConnectors(bucket, uid, next);
+  // (Its resources' list goes with it.)
+  try { if (typeof bucket.delete === "function") await bucket.delete(resListKey(uid, id)); } catch { /* nothing to keep it for */ }
   return true;
 }
 
@@ -1284,33 +1330,71 @@ export async function hookCall(env, bucket, uid, id, turn, meta, h, { fetchFn = 
   }
 }
 
-// ── CLAUDE CODE'S MCP RESOURCE TOOLS, FOR A JOB (the owner, 2026-11-17: "yes build it like claude code") ───────────────
+// ── CLAUDE CODE'S MCP RESOURCE TOOLS, FOR A JOB (the owner, 2026-11-17: "yes build it like claude code", then "yes match all
+// pls") ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-/** A connector whose server declares resources (its `resources` capability; one read before that was kept: by its list). */
+/** A connector's check's findings kept with it: its server's instructions, prompts, resources (the @ list) and capabilities. */
+export function takeList(c) {
+  const t = c.tools;
+  c.instructions = (t && t.instructions) || "";
+  c.prompts = (t && t.prompts) || [];
+  c.resources = (t && t.resources) || [];
+  c.resourcesCap = !!(t && t.resourcesCap);
+  c.dirRead = !!(t && t.dirRead);
+}
+/** Where a connector's whole list of resources is kept (Claude Code keeps it from when the server connected). */
+export const resListKey = (uid, id) => "coder/" + uid + "/mcp-resources/" + id + ".json";
+/** The whole list a connector's check just read, kept; when it declares none, or the list could not be had, none is kept. */
+export async function keepResourceList(bucket, uid, c, tools, now = Date.now()) {
+  try {
+    if (tools && Array.isArray(tools.resourcesAll)) await putJson(bucket, resListKey(uid, c.id), { at: now, resources: tools.resourcesAll });
+    else if (typeof bucket.delete === "function") await bucket.delete(resListKey(uid, c.id));
+  } catch { /* its next list call reads it again */ }
+}
+/** A connector that declares resources (its `resources` capability; one read before that was kept: by its list). */
 export const declaresResources = (c) => (c && typeof c.resourcesCap === "boolean" ? c.resourcesCap : !!(c && Array.isArray(c.resources) && c.resources.length));
-/** Its waits before trying a page of a server's resources again (Claude Code's fetchResourcesForClient: three more tries). */
+/** Its waits before trying a server's whole list again (Claude Code's _r: three more tries, its Xc). */
 export const RESOURCE_LIST_WAITS = Object.freeze([250, 500, 1000]);
+/** What a session gives for a read whose answer was passed on as it came (httpSession's `relay`). */
+export const RELAYED = Object.freeze({ relayed: true });
+/** How much of a read's answer, passed on as it came, Coder's server reads too (a "resource not found" is far smaller). */
+export const PEEK_MAX = 65_536;
 const working = (c) => !!c && !c.disabled && (c.status || "ok") === "ok";
+/** The chat's servers kept for its job's turn (jobConnectors), or null: not this job's, or none of its connectors has resources. */
+async function jobServers(bucket, uid, id, turn) {
+  const kept = await getJson(bucket, jobToolsKey(uid, id), null);
+  return kept && String(kept.turn) === String(turn) && Array.isArray(kept.servers) ? kept : null;
+}
 
 /**
- * LIST_MCP_RESOURCES' AND READ_MCP_RESOURCE'S CALLS FOR A JOB (container/coder-mcpres.mjs, Claude Code 2.1.326's
- * ListMcpResourcesTool and ReadMcpResourceTool): `r` is { op: "list", server? } or { op: "read", server, uri }.
- * THE CHAT'S SERVERS: the connectors on for it when its turn started (kept with its tools: jobConnectors), as Claude Code's
- * session has its MCP servers, connected or not. A server named is found by that name, else by its name as Claude Code writes
- * it (serversNamed). One that works (signed in, its last check fine) and declares resources is asked with its sign-in (a
- * refused one refreshed once, as for any call); a list's server that does not, or that fails, has none, as in Claude Code.
- * → { resources } (each with its server's name), { contents, error? } (a read's contents as the server gave them; its two
- * errors Claude Code answers with, words not failures), or { error } (a failure: Claude Code's words where it throws).
+ * LIST_MCP_RESOURCES', READ_MCP_RESOURCE'S AND READ_MCP_RESOURCE_DIR'S CALLS FOR A JOB (container/coder-mcpres.mjs, Claude Code
+ * 2.1.326's ListMcpResourcesTool, ReadMcpResourceTool and ReadMcpResourceDirTool): `r` is { op: "list", server? }, { op:
+ * "read", server, uri, relay? } or { op: "dir", server, uri }.
+ * THE CHAT'S SERVERS, AS CLAUDE CODE'S SESSION HAS THEM: every connector of the owner's when the turn started, named in its
+ * errors whatever its state; one not on for the chat (switched off there or everywhere, waiting for its sign-in, failed) is not
+ * connected, as Claude Code's disabled, signed-out and failed servers are not. A server named is found by that name, else by
+ * its name as Claude Code writes it (serversNamed).
+ * A LIST: each connected server's that declares resources, as kept from when it connected (keepResourceList), or read now and
+ * kept (fetchResourceList), as Claude Code's memoized list; MCP Apps UI resources left out; each with its server's name.
+ * A READ: with its sign-in (a refused one refreshed once). Its answer goes to Coder's machine as it came (`relay`: { head,
+ * write }), so a file of any size Claude Code takes (100 MB) gets there whole; on the older SSE transport, or when the machine
+ * asks for it again without (`relay: false`, a question in its answer), it is read here. "Resource not found" drops the kept list
+ * (Claude Code's invalidateMcpResourceListCaches), so the next list is read again.
+ * A DIRECTORY: Claude Code's checks of the server, then its answer: "Directory listing is not enabled in this build.".
+ * → { resources } | { contents, error?, server } | { relayed: true } | { resources: [], error } (a directory) | { error }
+ * (a failure: Claude Code's words where it throws) | { refused: true }.
  */
-export async function resourceCall(env, bucket, uid, id, turn, r, { fetchFn = fetch, now = Date.now(), wait = (ms) => new Promise((res) => setTimeout(res, ms)) } = {}) {
-  const kept = await getJson(bucket, jobToolsKey(uid, id), null);
-  if (!kept || String(kept.turn) !== String(turn) || !Array.isArray(kept.servers)) return { refused: true };
+export async function resourceCall(env, bucket, uid, id, turn, r, { fetchFn = fetch, now = Date.now(), wait = (ms) => new Promise((res) => setTimeout(res, ms)), relay = null } = {}) {
+  const kept = await jobServers(bucket, uid, id, turn);
+  if (!kept) return { refused: true };
   const list = await readConnectors(bucket, uid);
   const servers = kept.servers.map((sid) => list.find((c) => c.id === sid)).filter(Boolean);
+  const on = new Set(Array.isArray(kept.on) ? kept.on : []);
+  const connected = (c) => on.has(c.id) && working(c);
   const names = servers.map((c) => c.name);
   const server = typeof (r && r.server) === "string" ? r.server : "";
-  const ask = async (c, steps) => {
-    const once = async (force) => keptSession(bucket, uid, c, await tokenOf(env, bucket, uid, c, { fetchFn, now, force }), steps, { fetchFn }, { fresh: force });
+  const ask = async (c, steps, extra = {}) => {
+    const once = async (force) => keptSession(bucket, uid, c, await tokenOf(env, bucket, uid, c, { fetchFn, now, force }), steps, { fetchFn, ...extra }, { fresh: force });
     try {
       try { return await once(false); }
       catch (e) { if (e instanceof NeedsSignIn && c.auth === "oauth") return await once(true); throw e; }
@@ -1319,52 +1403,65 @@ export async function resourceCall(env, bucket, uid, id, turn, r, { fetchFn = fe
       throw e;
     }
   };
+  const forget = async (c) => { try { if (typeof bucket.delete === "function") await bucket.delete(resListKey(uid, c.id)); } catch { /* read again anyway */ } };
   if (r && r.op === "list") {
     // (No server, or an empty name: every server of the chat. A name no server has: Claude Code's error, naming them all.)
     const named = server ? serversNamed(servers, server) : servers;
     if (server && !named.length) return { error: serverNotFound(server, names) };
     const each = await Promise.all(named.map(async (c) => {
-      if (!working(c) || !declaresResources(c)) return [];
-      try {
-        const out = [], cursors = new Set();
-        let cursor;
-        for (let page = 0; page < RESOURCE_PAGES_MAX; page++) {
-          let got;
-          for (let k = 0; ; k++) {
-            try { [got] = await ask(c, [["resources/list", cursor ? { cursor } : {}]]); break; }
-            catch (e) { if (!(e && e.transient) || k >= RESOURCE_LIST_WAITS.length) throw e; await wait(RESOURCE_LIST_WAITS[k]); }
-          }
-          for (const x of (got && Array.isArray(got.resources) ? got.resources : [])) if (x && typeof x === "object" && typeof x.uri === "string") out.push({ ...x, server: c.name });
-          cursor = got && got.nextCursor;
-          if (!cursor || cursors.has(String(cursor))) break;
-          cursors.add(String(cursor));
-        }
-        // (MCP Apps UI resources, pages for an app to show, are left out of the list; read by their URI they still are.)
-        return out.filter((x) => !isUiResource(x));
-      } catch { return []; }
+      if (!connected(c) || !declaresResources(c)) return [];
+      const keptList = await getJson(bucket, resListKey(uid, c.id), null);
+      let all = keptList && Array.isArray(keptList.resources) ? keptList.resources : null;
+      if (!all) {
+        const got = await fetchResourceList((cursor) => ask(c, [["resources/list", cursor ? { cursor } : {}]]).then((x) => x[0]), wait);
+        all = got.resources || [];
+        if (got.resources) await putJson(bucket, resListKey(uid, c.id), { at: now, resources: got.resources }).catch(() => {});
+      }
+      // (MCP Apps UI resources, pages for an app to show, are left out of the list; read by their URI they still are.)
+      return all.map((x) => ({ ...x, server: c.name })).filter((x) => !isUiResource(x));
     }));
     return { resources: each.flat() };
   }
-  if (r && r.op === "read") {
+  if (r && (r.op === "read" || r.op === "dir")) {
     const uri = typeof r.uri === "string" ? r.uri : "";
     const [c] = serversNamed(servers, server);
     if (!c) return { error: serverNotFound(server, names) };
-    if (!working(c)) return { error: serverNotConnected(c.name) };
+    if (!connected(c)) return { error: serverNotConnected(c.name) };
     if (!declaresResources(c)) return { error: serverHasNoResources(c.name) };
+    if (r.op === "dir") return { resources: [], error: DIR_OFF };
+    let started = false, size = 0, peek = "", head = null;
+    const pass = relay && r.relay !== false ? async (res, rid, modern, arm) => {
+      started = true;
+      head = { id: rid, type: String(res.headers.get("content-type") || ""), modern: !!modern, server: c.name, uri, ...(c.dirRead ? { dirRead: true } : {}) };
+      await relay.head(head);
+      if (!res.body || typeof res.body.getReader !== "function") return;
+      const reader = res.body.getReader(), dec = new TextDecoder();
+      for (;;) {
+        const { value, done } = await reader.read();
+        if (done) break;
+        if (typeof arm === "function") arm();
+        size += value.byteLength;
+        if (size <= PEEK_MAX) peek += dec.decode(value, { stream: true });
+        await relay.write(value);
+      }
+    } : null;
     let got;
-    try { [got] = await ask(c, [["resources/read", { uri }]]); }
+    try { [got] = await ask(c, [["resources/read", { uri }]], pass ? { relay: pass } : {}); }
     catch (e) {
-      if (e && e.rpcCode === METHOD_NOT_FOUND) return { contents: [], error: readsNotImplemented(c.name) };
-      if (e && RESOURCE_NOT_FOUND_CODES.includes(e.rpcCode)) return { contents: [], error: resourceNotFound(uri) };
+      if (started) throw e;
       if (e instanceof NeedsSignIn) return { error: "the " + c.name + " connector needs the owner to sign in again (Settings, Connectors)" };
+      if (e && Number.isSafeInteger(e.rpcCode)) {
+        if (RESOURCE_NOT_FOUND_CODES.includes(e.rpcCode)) await forget(c);
+        return readErrorAnswer(e.rpcCode, String(e.message || "").replace(/^the MCP server said: /, ""), c.name, uri, !!c.dirRead);
+      }
       return { error: String((e && e.message) || e).slice(0, 2000) };
     }
-    // (Each part as the server gave it: its text, or its binary content, base64, for Coder's machine to save as a file.)
-    const contents = (got && Array.isArray(got.contents) ? got.contents : []).filter((x) => x && typeof x === "object").map((x) => ({
-      uri: typeof x.uri === "string" ? x.uri : uri,
-      ...(typeof x.mimeType === "string" ? { mimeType: x.mimeType.slice(0, 200) } : {}),
-      ...("text" in x ? { text: typeof x.text === "string" ? x.text : String(x.text ?? "") } : typeof x.blob === "string" ? { blob: x.blob } : {}) }));
-    return { contents, server: c.name };
+    if (got === RELAYED) {
+      // (An answer small enough to be an error is read here too: a resource the server does not have drops its kept list.)
+      if (size <= PEEK_MAX) { const a = relayedAnswer(peek, head); if (a.rpc && RESOURCE_NOT_FOUND_CODES.includes(a.rpc.code)) await forget(c); }
+      return { relayed: true };
+    }
+    return { contents: contentsOf(got && got.contents, uri), server: c.name, ...(c.dirRead ? { dirRead: true } : {}) };
   }
   return { error: "that resource call could not be read" };
 }
@@ -1397,11 +1494,12 @@ export async function jobConnectors(bucket, uid, id, turn, meta, fromGithub) {
     const ct = toolsFor(mine, off, toolsOff, { allOff });
     const told = { ...(waiting.length ? { connectorsWaiting: waiting } : {}), ...(failed.length ? { connectorsFailed: failed } : {}), ...(Object.keys(ct.gone).length ? { connectorsGone: ct.gone } : {}) };
     // CLAUDE CODE'S MCP RESOURCE TOOLS (2026-11-17): offered when one of the chat's working servers declares resources
-    // (`connectorResources`, their names), with the chat's servers, all those on for it, kept for their calls (resourceCall).
+    // (`connectorResources`, their names), with every connector of the owner's and those on for the chat kept for their calls
+    // (resourceCall: Claude Code names all its servers, and one that is off is not connected).
     const chatServers = mine.filter(on);
     const withResources = chatServers.filter((c) => working(c) && declaresResources(c)).map((c) => c.name);
     if (!ct.tools.length && !withResources.length) return told;
-    await keepJobTools(bucket, uid, id, turn, ct.map, withResources.length ? { servers: chatServers.map((c) => c.id) } : {});
+    await keepJobTools(bucket, uid, id, turn, ct.map, withResources.length ? { servers: mine.map((c) => c.id), on: chatServers.map((c) => c.id) } : {});
     const notes = connectorNotes(mine, off);
     return { ...(ct.tools.length ? { connectors: ct.tools } : {}), ...(notes.length ? { connectorNotes: notes } : {}), ...(withResources.length ? { connectorResources: withResources } : {}), ...told };
   } catch { return {}; }
@@ -1493,8 +1591,27 @@ export async function handleMcp(request, env, { fetchFn = fetch, now = Date.now(
   // LIST_MCP_RESOURCES' AND READ_MCP_RESOURCE'S CALLS (2026-11-17): { resources: { op, server?, uri? } }, only for a job whose
   // chat has a server that declares resources: resourceCall.
   if (body && body.resources && typeof body.resources === "object" && !Array.isArray(body.resources)) {
-    const got = await resourceCall(env, bucket, uid, id, turn, body.resources, { fetchFn, now });
-    return got.refused ? answer({ error: "not one of this job's connector tools" }, 403) : answer(got);
+    const rq = body.resources;
+    if (!(await jobServers(bucket, uid, id, turn))) return answer({ error: "not one of this job's connector tools" }, 403);
+    if (rq.op !== "read") { const got = await resourceCall(env, bucket, uid, id, turn, rq, { fetchFn, now }); return got.refused ? answer({ error: "not one of this job's connector tools" }, 403) : answer(got); }
+    // A READ COMES BACK AS IT CAME (RELAY_TYPE, container/coder-agent.mjs connectorResourceCaller): a first line, either its
+    // answer (JSON) or the relay's head; after a head, the server's answer byte for byte, read on Coder's machine. A failure after
+    // the head cuts the stream.
+    const { readable, writable } = new TransformStream();
+    const w = writable.getWriter(), enc = new TextEncoder();
+    const line = (o) => w.write(enc.encode(JSON.stringify(o) + "\n"));
+    let headSent = false;
+    (async () => {
+      try {
+        const got = await resourceCall(env, bucket, uid, id, turn, rq, { fetchFn, now, relay: { head: async (h) => { headSent = true; await line({ relay: h }); }, write: (b) => w.write(b) } });
+        if (!got.relayed) await line(got.refused ? { error: "not one of this job's connector tools" } : got);
+        await w.close();
+      } catch (e) {
+        if (headSent) { await w.abort(e).catch(() => {}); return; }
+        try { await line({ error: String((e && e.message) || e).slice(0, 2000) }); await w.close(); } catch { /* the machine went away */ }
+      }
+    })();
+    return new Response(readable, { headers: { "content-type": RELAY_TYPE, "cache-control": "no-store" } });
   }
   if (!body || typeof body.tool !== "string") return answer({ error: "that tool call could not be read" }, 400);
   const which = await jobTool(bucket, uid, id, turn, body.tool);

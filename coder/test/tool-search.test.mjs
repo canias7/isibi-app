@@ -69,10 +69,10 @@ test("TS1 Claude Code's ToolSearch is Coder's tool_search: its description word 
 const six = ["request_secret", "get_environment", "update_environment", "create_environment", "switch_environment", "list_environments"];
 test("TS2 the tools Claude Code 2.1.325 defers, in Coder's names (its shouldDefer: LSP, WebFetch, WebSearch, Monitor, TaskStop, TodoWrite, the four Task tools, EnterPlanMode, ExitPlanMode); the others load upfront, Claude Code's cloud tools (request_secret, the environment tools) and Coder's own included; every connector unless marked alwaysLoad", () => {
   // (And since 2026-11-15, the owner's cost rule: the environment tools and request_secret, about 8,400 tokens a call.)
-  assert.deepEqual([...T.DEFERRED_TOOLS], ["notebook_edit", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "list_mcp_resources", "read_mcp_resource", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment"]);
+  assert.deepEqual([...T.DEFERRED_TOOLS], ["notebook_edit", "lsp", "web_fetch", "web_search", "monitor", "stop_job", "todo_write", "task_create", "task_get", "task_list", "task_update", "enter_plan_mode", "exit_plan_mode", "list_mcp_resources", "read_mcp_resource", "read_mcp_resource_dir", "request_secret", "get_environment", "list_environments", "update_environment", "create_environment", "switch_environment"]);
   for (const n of T.DEFERRED_TOOLS) assert.ok(T.SEARCH_HINTS[n], n + " has a search hint");
   // (And the MCP resource tools, Coder's when a connector declares resources: 2026-11-17, coder-mcpres.mjs.)
-  const all = [...A.CODER_TOOLS, PL.EXIT_PLAN_TOOL, K.TODO_WRITE_TOOL, A.STOCK_TOOLS.get("list_mcp_resources"), A.STOCK_TOOLS.get("read_mcp_resource")].map((t) => t.function.name);
+  const all = [...A.CODER_TOOLS, PL.EXIT_PLAN_TOOL, K.TODO_WRITE_TOOL, A.STOCK_TOOLS.get("list_mcp_resources"), A.STOCK_TOOLS.get("read_mcp_resource"), A.STOCK_TOOLS.get("read_mcp_resource_dir")].map((t) => t.function.name);
   for (const n of T.DEFERRED_TOOLS) assert.ok(all.includes(n), n + " is one of Coder's tools");
   for (const n of six) assert.equal(T.isDeferred(n), true, n + " is held back (the owner's cost rule, 2026-11-15)");
   for (const n of ["bash", "read", "edit", "write", "grep", "glob", "ask_user", "review", "pr_comments", "undo_last_job", "auto_fix", "notify", "reply_review", "pull_request", "powershell", "tool_search"]) assert.equal(T.isDeferred(n), false, n + " loads upfront");
@@ -641,7 +641,7 @@ test("TS28 CLAUDE_CODE_MAX_MCP_DESCRIPTION_LENGTH (the chat's CODER_MAX_MCP_DESC
 
 test("TS29 one copy of a loaded tool's definition (the owner, 2026-11-14, \"fix it\"): Grok gets it in the request's tools only, tool_search's answer names the tools (67 characters for one); what that saves in every later request, per tool (2026-11-14: 206 for stop_job to 4,207 for enter_plan_mode, 20,800 for all 12)", async () => {
   // (Not the MCP resource tools: a chat has them only when one of its connectors declares resources, mcp-resources.test.mjs MR6.)
-  const own = T.DEFERRED_TOOLS.filter((x) => x !== "todo_write" && !x.endsWith("mcp_resources") && !x.endsWith("mcp_resource"));
+  const own = T.DEFERRED_TOOLS.filter((x) => x !== "todo_write" && !x.includes("mcp_resource"));
   const a = await job([say("", [call("tool_search", { query: "select:" + own.join(","), max_results: 5 }, "s1")]), say("done")]);
   const b = await job([say("", [call("tool_search", { query: "select:todo_write", max_results: 5 }, "s1")]), say("done")], { extra: { tasksOff: true } });
   const defs = [...a.r.messages.find((m) => m.tool_call_id === "s1").toolDefs, ...b.r.messages.find((m) => m.tool_call_id === "s1").toolDefs];

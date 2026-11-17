@@ -19,6 +19,8 @@ import { parseShell, unwrapped, unwrapSteps, progName, leadWords, basename, wrap
 import { FILE_RULE_TOOLS, TOOL_RULE_NAMES, fileRuleHit, folderReadAllowed, readRuleFor, starAllowTool, STAR_EDIT_TOOLS, fullPathFrom, ifPathMatches } from "./coder-filerules.mjs";
 import { docSite, pickDomainRule, webFetchRuleProblem } from "./coder-webfetch-sites.mjs";
 import { REMOTE_TOOL_NAMES, remoteAliases } from "./coder-envtools.mjs";
+// (The MCP resource tools' inputs a rule may name, and Claude Code's match of a server's name: 2026-11-17.)
+import { RULE_PARAMS, serverRuleMatches } from "./coder-mcpres.mjs";
 export { fileRuleHit, readRuleFor } from "./coder-filerules.mjs";
 // (No node: modules here: Coder's Worker loads this file too, for the modes and the rules.)
 
@@ -884,6 +886,24 @@ export function toolSearchParamRule(rules, kind, input) {
 }
 /** Claude Code's refusal under such a rule (its bGt): "Permission to use ToolSearch with query:… has been denied.". */
 export const toolSearchParamDenied = (rule) => "Permission to use ToolSearch with " + ((parseRule(rule) || {}).spec || "") + " has been denied.";
+/**
+ * A DENY OR ASK RULE ON ONE OF AN MCP RESOURCE TOOL'S INPUTS (Claude Code 2.1.326's Gc, as for any built-in tool: the value as
+ * the call gives it, trimmed, `*` any text, an input left out never matched; a `server:` value also matches the server's name as
+ * Claude Code writes server names, coder-mcpres.mjs serverRuleMatches), or "". `cc`: the tool's Claude Code name.
+ */
+export function resourceParamRule(rules, kind, cc, input) {
+  if (!RULE_PARAMS[cc] || !input || typeof input !== "object") return "";
+  return (Array.isArray(rules && rules[kind]) ? rules[kind] : []).find((r) => {
+    const x = parseRule(r);
+    if (!x || x.tool !== cc || !x.param || !Object.hasOwn(input, x.param.name)) return false;
+    const v = input[x.param.name];
+    if (v === undefined || v === null || typeof v === "object") return false;
+    const text = String(v);
+    return settingMatches(x.param.value, text.trim()) || (x.param.name === "server" && serverRuleMatches(x.param.value, text));
+  }) || "";
+}
+/** Claude Code's refusal under such a rule (its k5t): "Permission to use <tool> with <the rule's content> has been denied.". */
+export const paramDenied = (cc, rule) => "Permission to use " + cc + " with " + ((parseRule(rule) || {}).spec || "") + " has been denied.";
 /** A Grep or Glob rule on its own `path` (one that never matches: ruleKept, ruleWarning). */
 const searchPathSpec = (tool, spec) => (tool === "Grep" || tool === "Glob") && /^\s*path\s*:/.test(String(spec || ""));
 /**
@@ -906,12 +926,13 @@ export function parseRule(text) {
   // NotebookEdit, Coder's notebook_edit since 2026-11-17: the whole tool, as Write's; its path rules never match, as Write's.
   // And ListMcpResourcesTool and ReadMcpResourceTool, Coder's list_mcp_resources and read_mcp_resource since 2026-11-17: the
   // whole tool.)
-  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|ListMcpResourcesTool|ReadMcpResourceTool|ListMcpResources|ReadMcpResource)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
+  const m = /^(Bash|WebFetch|Read|Edit|Write|NotebookEdit|Grep|Glob|LSP|Monitor|WebSearch|TaskStop|KillShell|KillBash|AskUserQuestion|ExitPlanMode|EnterPlanMode|TodoWrite|TaskCreate|TaskGet|TaskList|TaskUpdate|PowerShell|ToolSearch|ListMcpResourcesTool|ReadMcpResourceTool|ReadMcpResourceDirTool|ListMcpResources|ReadMcpResource|ReadMcpResourceDir)(?:\(([\s\S]*)\))?$/.exec(String(text || "").trim());
   if (!m) return null;
   // (TaskStop's old names, KillShell and KillBash, name it still: Claude Code 2.1.322 keeps them as its aliases.)
   if (m[1] === "KillShell" || m[1] === "KillBash") m[1] = "TaskStop";
-  // (And ListMcpResources and ReadMcpResource, Claude Code 2.1.326's aliases for its MCP resource tools: 2026-11-17.)
-  if (m[1] === "ListMcpResources" || m[1] === "ReadMcpResource") m[1] += "Tool";
+  // (And ListMcpResources, ReadMcpResource and ReadMcpResourceDir, Claude Code 2.1.326's aliases for its MCP resource tools:
+  // 2026-11-17.)
+  if (m[1] === "ListMcpResources" || m[1] === "ReadMcpResource" || m[1] === "ReadMcpResourceDir") m[1] += "Tool";
   const spec = m[2] === undefined ? null : m[2].trim();
   // (WebFetch's: `domain:` and its host pattern, Claude Code's rule check; the owner, 2026-11-14. `WebFetch(*)` is the whole
   // tool, as Claude Code reads any `Tool(*)`: its permissions docs, "`Bash(*)` is equivalent to `Bash`"; its rule parser makes
@@ -944,7 +965,11 @@ export function parseRule(text) {
   if (m[1] === "WebSearch" && m[2] !== undefined && m[2] !== "*") { const pr = webSearchParamSpec(spec); return pr ? { tool: "WebSearch", spec, param: pr } : null; }
   // (Coder's other tools by Claude Code's names, WebSearch for Grok's own web search: rules on the whole tool only, but
   // WebSearch's on its query, above.)
-  if (m[1] === "Write" || m[1] === "NotebookEdit" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate" || m[1] === "ListMcpResourcesTool" || m[1] === "ReadMcpResourceTool") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
+  // THE MCP RESOURCE TOOLS (Coder's list_mcp_resources, read_mcp_resource and read_mcp_resource_dir since 2026-11-17): the whole
+  // tool, or one of their inputs, `ReadMcpResourceTool(server:github)`, for deny and ask lists (Claude Code's "Match by input
+  // parameter"; none of theirs is a primary content field): resourceParamRule.
+  if (RULE_PARAMS[m[1]]) { if (spec === null || spec === "*") return { tool: m[1], spec: null }; const k = spec.indexOf(":"), name = k > 0 ? spec.slice(0, k).trim() : "", value = k > 0 ? spec.slice(k + 1).trim() : ""; return name && value ? { tool: m[1], spec, param: { name, value } } : null; }
+  if (m[1] === "Write" || m[1] === "NotebookEdit" || m[1] === "Grep" || m[1] === "Glob" || m[1] === "LSP" || m[1] === "WebSearch" || m[1] === "TaskStop" || m[1] === "AskUserQuestion" || m[1] === "ExitPlanMode" || m[1] === "EnterPlanMode" || m[1] === "TodoWrite" || m[1] === "TaskCreate" || m[1] === "TaskGet" || m[1] === "TaskList" || m[1] === "TaskUpdate") return spec === null || spec === "*" ? { tool: m[1], spec: null } : null;
   return { tool: m[1], spec: spec === "*" && (m[1] === "Bash" || m[1] === "Monitor" || m[1] === "PowerShell") ? null : spec };
 }
 /**

@@ -48,7 +48,7 @@ import { sharedChat, sharedChatText, NOT_FETCHED, webFetchDescription, WEBFETCH_
 import { ENV_TOOLS, ENV_TOOL_NAMES, ENV_INPUT_CHECKS, envTable } from "./coder-envtools.mjs";
 // (Claude Code's MCP resource tools, ListMcpResourcesTool and ReadMcpResourceTool: the owner, 2026-11-17, "yes build it like
 // claude code".)
-import { LIST_TOOL as MCP_LIST_TOOL, READ_TOOL as MCP_READ_TOOL, LIST_TOOL_DEF as MCP_LIST_DEF, READ_TOOL_DEF as MCP_READ_DEF, listText as mcpListText, readText as mcpReadText, extOf as mcpExtOf, blobSavedText, blobNotSaved, blobTooBig, BLOB_SAVE_MAX, RESOURCE_INLINE_MAX } from "./coder-mcpres.mjs";
+import { LIST_TOOL as MCP_LIST_TOOL, READ_TOOL as MCP_READ_TOOL, DIR_TOOL as MCP_DIR_TOOL, LIST_TOOL_DEF as MCP_LIST_DEF, READ_TOOL_DEF as MCP_READ_DEF, DIR_TOOL_DEF as MCP_DIR_DEF, listText as mcpListText, readText as mcpReadText, dirText as mcpDirText, extOf as mcpExtOf, blobSavedText, blobNotSaved, blobTooBig, BLOB_SAVE_MAX, RESOURCE_INLINE_MAX, RELAY_TYPE, RELAY_MAX, relayedAnswer, readErrorAnswer, contentsOf } from "./coder-mcpres.mjs";
 import { withMcpServer } from "./coder-hooks.mjs";
 // (Claude Code's tool search in Coder's chats, its ToolSearch as tool_search: coder-toolsearch.mjs. 2026-11-14.)
 import { TOOL_SEARCH, TOOL_SEARCH_TOOL, isDeferred, decideToolSearch, toolSearchRecord, requestTools, upfrontTools, upfrontRecord, entryName, sameTools, announcement, runToolSearch, notLoadedHint, toolSearchAnswer, stillListed, retracts, isMcpName, mcpParts, mcpDescMaxOf, XAI_TOOLS_MAX, lockTools, heldBackRefusal } from "./coder-toolsearch.mjs";
@@ -63,7 +63,7 @@ import { psDescription, psCommand, psSleepWhat } from "./coder-ps.mjs";
 import { psParseResult, psParseFail, psExitOf, PS_PARSE_RETRYABLE, psCommands, psFileRedirections, psCmdlet, psWriteTargets } from "./coder-psparse.mjs";
 import { posix as pathPosix } from "node:path";
 import { checkAction, actionShown, autoDenied, checkUnavailable, blockedShown, limitWhy, checkerState, countBlock, countAllowed, resume, droppedInAuto, NO_VERDICT, NO_VERDICT_STOP, NOT_RUN_ROW, STOPPED_NO_VERDICT, noVerdictTold, noVerdictStopTold, NO_VERDICT_STOP_SHOWN, noVerdictWait, rmUnanswered, rmAnswered, noPromptDenied } from "./coder-checker.mjs";
-import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied } from "./coder-perms.mjs";
+import { psDecision, psPlanFile, toolGlob, MODES, MODE_NAMES, normMode, bashDecision, MONITOR_SETTINGS, namedForMonitor, fetchDecision, fileToolDecision, fileRuleHit, readCommand, fileCommandTargets, parseRule, allowRuleCovers, readBlockWhy, sensitiveWhy, linkOutWhy, ruleAskWhy, askedWhy, hookAskWhy, hookAskTold, planWriteWhy, planCallWhy, ccPath, RULE_MAX, REJECTED, REJECTED_SAID, NOT_NOW, PLAN_NOTE, PLAN_EXITED, AUTO_NOTE, AUTO_EXITED, planApproved, wholeReadOnly, movesWorkTree, monitorRules, partsAllowedByRules, discardsWork, wsDecision, wsProblem, wsAskText, wholeRule, MONITOR_BASH_DENIED, toolSearchParamRule, toolSearchParamDenied, resourceParamRule, paramDenied } from "./coder-perms.mjs";
 // (Claude Code's plan mode and ExitPlanMode, with its plan file: the owner, 2026-11-14, "Do all the talk to you tools execpt
 // for the notify one".)
 import { EXIT_PLAN_TOOL, EXIT_PLAN_TOOL_NO_FILE, planModeNote, planModeSparse, planKind, planReminderDue, planExitOwed, autoNoteOwed, autoExitOwed, planExitedNote, planReentryNote, planInput, checkPlanInput, NOT_IN_PLAN_MODE, PLAN_SHOW_MAX, PLAN_WITHHELD, ENTER_PLAN_TOOL, ENTERED_PLAN, ENTERED_PLAN_TEXT, ENTERED_PLAN_SHOWN, checkEnterPlanInput, planFileReference } from "./coder-plan.mjs";
@@ -1496,20 +1496,54 @@ export function connectorHookCaller(via, fetchFn = fetch) {
   };
 }
 /**
- * LIST_MCP_RESOURCES' AND READ_MCP_RESOURCE'S CALLS THROUGH THE WORKER (2026-11-17; coder-mcpres.mjs): `{ op, server?, uri? }`
- * with the job's AI pass; the Worker asks the chat's connector (src/coder-mcp.mjs resourceCall). → { resources } |
- * { contents, error?, server } | { error }.
+ * LIST_MCP_RESOURCES', READ_MCP_RESOURCE'S AND READ_MCP_RESOURCE_DIR'S CALLS THROUGH THE WORKER (2026-11-17; coder-mcpres.mjs):
+ * `{ op, server?, uri? }` with the job's AI pass; the Worker asks the chat's connector (src/coder-mcp.mjs resourceCall). A read's
+ * answer comes as the server gave it (RELAY_TYPE: Claude Code takes files up to 100 MB, more than the Worker can hold) and is
+ * read here, at most RELAY_MAX: its JSON-RPC answer found, its errors in Claude Code's words; one that asks the owner a question
+ * is asked for again without the relay, read by the Worker. → { resources } | { contents, error?, server } | { error }.
  */
 export function connectorResourceCaller(via, fetchFn = fetch) {
   const url = String(via.url).replace(/\/api\/coder\/model$/, "/api/coder/mcp");
-  return async (req) => {
+  const failed = (e) => ({ error: e && e.name === "TimeoutError" ? "the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : e && e.tooLarge ? "the MCP server's answer is too large" : "Coder's server could not be reached" });
+  const call = async (req) => {
     let r;
     try { r = await fetchFn(url, { method: "POST", headers: { ...via.headers, "content-type": "application/json" }, body: JSON.stringify({ resources: req }), signal: AbortSignal.timeout(CONNECTOR_WAIT_MS) }); }
-    catch (e) { return { error: e && e.name === "TimeoutError" ? "the connector did not finish within " + Math.round(CONNECTOR_WAIT_MS / 60000) + " minutes" : "Coder's server could not be reached" }; }
+    catch (e) { return failed(e); }
+    if (r.ok && String(r.headers.get("content-type") || "").startsWith(RELAY_TYPE)) {
+      let buf;
+      try { buf = await bodyBytes(r, RELAY_MAX); } catch (e) { return e && (e.tooLarge || e.name === "TimeoutError") ? failed(e) : { error: "the connector's answer was cut off" }; }
+      const nl = buf.indexOf(10);
+      let first = null;
+      try { first = JSON.parse(buf.subarray(0, nl < 0 ? buf.length : nl).toString("utf8")); } catch { first = null; }
+      if (!first || typeof first !== "object" || Array.isArray(first)) return { error: "Coder's server's answer could not be read" };
+      if (!first.relay || typeof first.relay !== "object") return first;
+      const head = first.relay;
+      const a = relayedAnswer(nl < 0 ? "" : buf.subarray(nl + 1).toString("utf8"), head);
+      buf = null;
+      if (a.input && req.relay !== false) return call({ ...req, relay: false });
+      if (a.error || a.input) return { error: a.error || "the MCP server's answer could not be read" };
+      if (a.rpc) return readErrorAnswer(a.rpc.code, a.rpc.message, String(head.server || ""), String(head.uri || ""), head.dirRead === true);
+      return { contents: contentsOf(a.result && a.result.contents, head.uri), server: String(head.server || "") };
+    }
     const j = await r.json().catch(() => null);
     if (!r.ok || !j || typeof j !== "object" || Array.isArray(j)) return { error: String((j && j.error) || "the connector call failed (" + r.status + ")").slice(0, 2000) };
     return j;
   };
+  return call;
+}
+/** A response's body, whole, at most `max` bytes (past it: an error marked `tooLarge`, the rest not read). */
+export async function bodyBytes(r, max) {
+  if (!r.body || typeof r.body.getReader !== "function") { const b = Buffer.from(await r.arrayBuffer()); if (b.length > max) throw Object.assign(new Error("too large"), { tooLarge: true }); return b; }
+  const reader = r.body.getReader(), parts = [];
+  let n = 0;
+  for (;;) {
+    const { value, done } = await reader.read();
+    if (done) break;
+    n += value.byteLength;
+    if (n > max) { reader.cancel().catch(() => {}); throw Object.assign(new Error("too large"), { tooLarge: true }); }
+    parts.push(value);
+  }
+  return Buffer.concat(parts.map((x) => Buffer.from(x.buffer, x.byteOffset, x.byteLength)), n);
 }
 /**
  * TOOL SEARCH, LIKE CLAUDE CODE'S (its MCP docs: only the tools' names load at the start, and Claude searches for the ones
@@ -1940,7 +1974,7 @@ async function exitFromLog(deps, log) {
  * lockTools): what a name in the chat's record of the tools sent (`toolLocks`) stands for, byte for byte. web_search as Coder's
  * chats send it (searchModeTools), and the tools only tool search or a setting brings in.
  */
-export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_SEARCH_TOOL, TODO_WRITE_TOOL, EXIT_PLAN_TOOL, MCP_LIST_DEF, MCP_READ_DEF].map((t) => [t.function.name, t]));
+export const STOCK_TOOLS = new Map([...CODER_TOOLS, WEB_SEARCH_MODE_TOOL, TOOL_SEARCH_TOOL, TODO_WRITE_TOOL, EXIT_PLAN_TOOL, MCP_LIST_DEF, MCP_READ_DEF, MCP_DIR_DEF].map((t) => [t.function.name, t]));
 /**
  * THE VERSION OF CODER'S TOOL CODE (Claude Code's tool schema cache lasts for its session, and an update starts a new one): a
  * hash of the stock definitions and of the code that makes the others from them (the settings' changes to bash, the
@@ -3231,7 +3265,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   // CLAUDE CODE'S MCP RESOURCE TOOLS (2026-11-17, coder-mcpres.mjs): after Coder's own tools, when one of the chat's working
   // connectors declares resources (deps.resourceServers), as Claude Code adds its two once a connected server declares them;
   // held back for tool_search as its are. Not in a job from GitHub (no connectors there), nor Gloopy's.
-  const resourceTools = !offered && !github && typeof deps.mcpResources === "function" && Array.isArray(deps.resourceServers) && deps.resourceServers.length ? [MCP_LIST_DEF, MCP_READ_DEF] : [];
+  const resourceTools = !offered && !github && typeof deps.mcpResources === "function" && Array.isArray(deps.resourceServers) && deps.resourceServers.length ? [MCP_LIST_DEF, MCP_READ_DEF, MCP_DIR_DEF] : [];
   const ownOffered = (t) => { if (t && t.function) tsCatalog.set(t.function.name, t); return !(t && t.function && (toolDenied(t.function.name) || (denyInstead === true && PROMPT_TOOLS.includes(t.function.name)))); };
   const chatTools = [...withPs(toolsFor(github ? GITHUB_TOOLS : CODER_TOOLS, { noBg: noBg === true, inlineMax: Math.min(lim.inlineMax, lim.readBack), bgMaxMs: timeouts && timeouts.bgMaxMs, defaultMs: timeouts && timeouts.defaultMs, maxMs: timeouts && timeouts.maxMs, bgDefaultMs: timeouts && timeouts.bgDefaultMs, shell: cmdShell })).map(withHosts).filter(ownOffered), ...resourceTools.filter(ownOffered), ...(mcpDeferred ? [searchTool(mcpTools)] : []), ...mcpUpfront.map((t) => asFn(t))];
   // (WebFetch turned off, or its cache's own time: webFetchTools. 2026-11-14.)
@@ -4957,8 +4991,9 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const cc = REMOTE_TOOLS[c.name] ? c.name : ccTool(c.name);
         if (toolDenied(c.name)) { const m = "Permission to use " + cc + " has been denied."; emit({ type: "note", text: m, warn: true }); reply(m); continue; }
         // (A rule on one of tool_search's inputs, ToolSearch(query:…): Claude Code's rule check for any built-in tool's. 2026-11-14.)
-        const tsRule = (kind) => (c.name === TOOL_SEARCH ? toolSearchParamRule(ownRules, kind, c.literal || c.args) : "");
-        if (tsRule("deny")) { const m = toolSearchParamDenied(tsRule("deny")); emit({ type: "note", text: m, warn: true }); reply(m); continue; }
+        // (And one on an MCP resource tool's input, ReadMcpResourceTool(server:github): the same check. 2026-11-17.)
+        const tsRule = (kind) => (c.name === TOOL_SEARCH ? toolSearchParamRule(ownRules, kind, c.literal || c.args) : c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL || c.name === MCP_DIR_TOOL ? resourceParamRule(ownRules, kind, cc, c.args) : "");
+        if (tsRule("deny")) { const m = c.name === TOOL_SEARCH ? toolSearchParamDenied(tsRule("deny")) : paramDenied(cc, tsRule("deny")); emit({ type: "note", text: m, warn: true }); reply(m); continue; }
         // (A connector call that holds the account's email as a client's identity: refused, as Claude Code's privacy check refuses
         // such an MCP call, after the deny rules and before any card; coder-privacy.mjs.)
         if (emailMark && mcpByName.has(c.name) && refusedNow(c.name, c.args, emailMark)) { const m = accountEmailRefused(c.name); emit({ type: "bash", id: c.id, tool: "connector", verb: "Used", command: scrub(mcpByName.get(c.name).label).slice(0, 200) }); emit({ type: "result", id: c.id, code: -1, ran: false, output: m }); reply(m); continue; }
@@ -5587,27 +5622,30 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         convo.push({ role: "assistant", content: "Undoing the last job." });
         emit({ type: "text", text: "Undoing the last job." });
         return end("done", { summary: "undo the last job" });
-      } else if (c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL) {
-        // CLAUDE CODE'S MCP RESOURCE TOOLS (the owner, 2026-11-17: "yes build it like claude code"; coder-mcpres.mjs): its
-        // ListMcpResourcesTool and ReadMcpResourceTool, offered when one of the chat's connectors declares resources, read-only
-        // and never asking (a rule or a hook may still: above). Their calls go through Coder's server, which holds the
-        // connectors' sign-ins (src/coder-mcp.mjs resourceCall).
-        const list = c.name === MCP_LIST_TOOL;
+      } else if (c.name === MCP_LIST_TOOL || c.name === MCP_READ_TOOL || c.name === MCP_DIR_TOOL) {
+        // CLAUDE CODE'S MCP RESOURCE TOOLS (the owner, 2026-11-17: "yes build it like claude code", then "yes match all pls";
+        // coder-mcpres.mjs): its ListMcpResourcesTool, ReadMcpResourceTool and ReadMcpResourceDirTool, offered when one of the
+        // chat's connectors declares resources, read-only and never asking (a rule or a hook may still: above). Their calls go
+        // through Coder's server, which holds the connectors' sign-ins (src/coder-mcp.mjs resourceCall).
+        const op = c.name === MCP_LIST_TOOL ? "list" : c.name === MCP_DIR_TOOL ? "dir" : "read";
         const a = c.args && typeof c.args === "object" && !Array.isArray(c.args) ? c.args : {};
         // (Its step's words, Claude Code's: `List MCP resources from server "X"`, "List all MCP resources", `Read resource "U"
-        // from server "S"`.)
-        emit({ type: "bash", id: c.id, tool: c.name, verb: list ? "List" : "Read", command: scrub(list ? (a.server ? 'MCP resources from server "' + a.server + '"' : "all MCP resources") : 'resource "' + a.uri + '" from server "' + a.server + '"').slice(0, 300) });
-        const got = typeof deps.mcpResources === "function" ? (await deps.mcpResources(list ? { op: "list", ...(typeof a.server === "string" ? { server: a.server } : {}) } : { op: "read", server: a.server, uri: a.uri })) || {} : { error: "Coder's server could not be reached" };
+        // from server "S"`, `List directory resource "U" from server "S"`.)
+        const line = op === "list" ? (a.server ? 'MCP resources from server "' + a.server + '"' : "all MCP resources") : (op === "dir" ? "directory " : "") + 'resource "' + a.uri + '" from server "' + a.server + '"';
+        emit({ type: "bash", id: c.id, tool: c.name, verb: op === "read" ? "Read" : "List", command: scrub(line).slice(0, 300) });
+        const got = typeof deps.mcpResources === "function" ? (await deps.mcpResources(op === "list" ? { op, ...(typeof a.server === "string" ? { server: a.server } : {}) } : { op, server: a.server, uri: a.uri })) || {} : { error: "Coder's server could not be reached" };
         // (Where Claude Code throws, its words, a failed call: a server it does not have, one not connected, one with no
         // resources, the server's own error.)
-        if (list ? !Array.isArray(got.resources) : !Array.isArray(got.contents)) {
+        if (op === "read" ? !Array.isArray(got.contents) : !Array.isArray(got.resources)) {
           const t = "error: " + (typeof got.error === "string" && got.error ? got.error : "Coder's server did not answer");
           emit({ type: "result", id: c.id, code: 1, output: scrub(t).slice(0, 4000) });
           reply(t);
           continue;
         }
         let facts;
-        if (list) facts = Array.isArray(got.resources) ? got.resources.filter((x) => x && typeof x === "object" && !Array.isArray(x)) : [];
+        if (op === "list") facts = got.resources.filter((x) => x && typeof x === "object" && !Array.isArray(x));
+        // (A directory: Claude Code's answer, "Directory listing is not enabled in this build.", as its result object.)
+        else if (op === "dir") facts = { resources: got.resources.filter((x) => x && typeof x === "object" && !Array.isArray(x)).map((x) => ({ uri: String(x.uri ?? ""), name: String(x.name ?? ""), ...(typeof x.mimeType === "string" ? { mimeType: x.mimeType } : {}) })), ...(typeof got.error === "string" && got.error ? { error: got.error } : {}) };
         else {
           // A READ'S CONTENTS, as Claude Code gives them: a text part as it came; binary content saved to a file in the chat's
           // output folder (mcp-resource-<time>-<part>-<6 letters>.<its type's extension>), named in its words with its size;
@@ -5628,17 +5666,14 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
           // (A read the server answered "method not found", or "resource not found": Claude Code's words, as its answer.)
           facts = { contents, ...(typeof got.error === "string" && got.error ? { error: got.error } : {}) };
         }
-        let text = scrub(list ? mcpListText(facts) : mcpReadText(facts));
+        let text = scrub(op === "list" ? mcpListText(facts) : op === "dir" ? mcpDirText(facts) : mcpReadText(facts));
         // (An answer past its maxResultSizeChars, 100,000 characters: saved to a file and its start shown, as Claude Code's.)
         if (text.length > RESOURCE_INLINE_MAX && typeof deps.saveText === "function") { try { text = persistedText(text, deps.saveText(text)); } catch { /* given whole */ } }
-        // (Its result object for its PostToolUse hooks: the list, or { contents, error? }.)
+        // (Its result object for its PostToolUse hooks: the list, { contents, error? }, or { resources, error? }.)
         toolFacts.set(c.id, facts);
         emit({ type: "result", id: c.id, code: 0, output: text.slice(0, 4000) });
-        // (What the server gave comes after Coder's line before every connector's answer, as its tools' answers do; its hooks
-        // get the answer without it: c.keepHead. Claude Code's own words, none or an error, without it.)
-        const fromServer = list ? facts.length > 0 : !facts.error && facts.contents.length > 0;
-        if (fromServer) c.keepHead = CONNECTOR_DATA;
-        reply((fromServer ? CONNECTOR_DATA : "") + text);
+        // (As Claude Code gives it: no line of Coder's before it, as its connector tools' answers have. The owner, 2026-11-17.)
+        reply(text);
       } else if (ENV_TOOL_NAMES.includes(c.name)) {
         // CLAUDE CODE'S ENVIRONMENT TOOLS (the owner, 2026-11-14: "Do all the talk to you tools execpt for the notify one";
         // coder-envtools.mjs). get_environment answers at once, from Coder's server (the environment as it is now, never a value);

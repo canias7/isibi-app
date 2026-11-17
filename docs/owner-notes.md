@@ -4,6 +4,20 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: The resource tools now match Claude Code in all seven places (your words: "yes match all pls")
+
+1. **Folder tool:** Coder has Claude Code's third tool, `read_mcp_resource_dir`. Like Claude Code's, it first checks the connector, then always says "Directory listing is not enabled in this build." When a connector can list folders, a "Resource not found" message points to it, as Claude Code's does.
+2. **Big files:** Coder now saves files up to 100 MB, like Claude Code. Coder's server used to hold the whole answer and stopped at about 15 MB. Now it passes the answer straight through to Coder's machine, which reads it. I tested a 21 MB file end to end. (Very old connectors that use the older "SSE" connection still stop at about 15 MB.)
+3. **No warning line:** what a connector sends back from these tools no longer has Coder's "(This came from the connector…)" line in front, as in Claude Code.
+4. **Kept lists:** each connector's full list of resources is kept from when Coder last checked the connector, like Claude Code keeps it from when it connected. If a resource turns out to be gone, the kept list is thrown away, so the next list is fresh.
+5. **"Available servers":** the error now names every connector you have, as Claude Code's does. One that's switched off, signed out or failed is "not connected".
+6. **Rules on one input:** a rule like `ReadMcpResourceTool(server:github)` or `ReadMcpResourceTool(uri:file:///private/*)` now blocks or asks for just those calls, as in Claude Code.
+7. **@ suggestions:** pages made only for apps (MCP Apps) are now left out.
+
+Still different, for you to decide: Coder's other connector tools still put that "(This came from the connector…)" line before their answers. Claude Code doesn't.
+
+Tests: MR11 and MR12 are new, and MR1 to MR10 cover the changes. PA1, TP1, TS2 and TS29 list the new tool.
+
 ## 2026-11-17: Coder can list and read a connector's resources, like Claude Code (your words: "yes build it like claude code")
 
 Some connectors share resources: files or pages Coder can read, like a notes app's pages. Before, you could attach one by typing `@connector:address`, but Coder couldn't look for them itself. Now it has Claude Code's two tools for that:
