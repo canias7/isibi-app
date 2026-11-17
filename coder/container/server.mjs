@@ -3374,6 +3374,27 @@ export function netSigOf(nn, keys) {
   const hosts = [...new Set((Array.isArray(keys) ? keys : []).flatMap((s) => [s && s.host, ...(s && Array.isArray(s.hosts) ? s.hosts : [])]).filter(Boolean).map(String))].sort();
   return JSON.stringify([String(n.mode || ""), sites(n.hosts || n.allow || n.add), sites(n.denied), !!n.defaults, hosts]);
 }
+/** The chat's line for a network change a running job takes (2026-11-17, the owner: say what changed): the sites and the keys
+ * added or removed, from the two netSigOf values; the network's name as before when only its mode changed. */
+export function envChangeText(was, now, nn, keys) {
+  const read = (v) => { try { const a = JSON.parse(v); return Array.isArray(a) ? a : null; } catch { return null; } };
+  const a = read(was), b = read(now);
+  const mode = { none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn && nn.mode] || (nn && nn.mode) || "";
+  const diff = (x, y) => (Array.isArray(x) && Array.isArray(y) ? y.filter((h) => !x.includes(h)) : []);
+  const bits = [];
+  if (a && b) {
+    if (a[0] !== b[0]) bits.push("network " + mode);
+    const on = diff(a[1], b[1]), off = diff(b[1], a[1]), keyOn = diff(a[4], b[4]), keyOff = diff(b[4], a[4]);
+    const list = (h) => h.slice(0, 5).join(", ") + (h.length > 5 ? " and " + (h.length - 5) + " more" : "");
+    if (on.length) bits.push("now also allows " + list(on));
+    if (off.length) bits.push("no longer allows " + list(off));
+    if (keyOn.length) bits.push("a saved key for " + list(keyOn));
+    if (keyOff.length) bits.push("no saved key for " + list(keyOff) + " any more");
+    const bl = diff(a[2], b[2]); if (bl.length) bits.push("now blocks " + list(bl));
+  }
+  if (!bits.length) bits.push("network " + mode + (keys ? ", " + keys + " saved key" + (keys > 1 ? "s" : "") : ""));
+  return "The environment changed: " + bits.join("; ") + ", from now on in this job.";
+}
 export const CLAIM_LEASE_MS = Number(process.env.CODER_CLAIM_LEASE_MS) || 45_000;
 const turns = new Map(); // project → { running, stop, events, result, started, ended, claimed }
 
@@ -5101,7 +5122,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const sig = netSigOf(nn, list);
         const was = t.netSig; t.netSig = sig;
         if (was === sig) return send(200, { ok: true, applied: true, same: true });
-        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." , why: { was: String(was || "").slice(0, 600), now: sig.slice(0, 600) } });
+        t.events.push({ at: Date.now(), type: "note", text: envChangeText(was, sig, nn, list.length) });
         return send(200, { ok: true, applied: true });
       }
       if (url.pathname === "/state") {

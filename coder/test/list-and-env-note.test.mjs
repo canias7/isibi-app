@@ -14,7 +14,7 @@ test("LE1 Coder's instructions: every line of a list is a request; one that can'
 test("LE2 the machine says the environment changed only when its network or keys really changed", () => {
   const i = server.indexOf('url.pathname === "/network"') > 0 ? server.indexOf('url.pathname === "/network"') : server.indexOf("const nn = normNetwork(body.setup && body.setup.network);");
   const body = server.slice(i, i + 6000);
-  const sig = body.indexOf("const was = t.netSig; t.netSig = sig;"), same = body.indexOf("if (was === sig) return send(200, { ok: true, applied: true, same: true });"), note = body.indexOf('text: "The environment changed: network "');
+  const sig = body.indexOf("const was = t.netSig; t.netSig = sig;"), same = body.indexOf("if (was === sig) return send(200, { ok: true, applied: true, same: true });"), note = body.indexOf('text: envChangeText(was, sig, nn, list.length)');
   assert.ok(sig > 0 && same > sig && note > same, "compared, and returned without a note, before the note is written");
   // The rule, applied twice to the same settings: one note, then none.
   const t = {}; const notes = [];
@@ -31,4 +31,14 @@ test("LE3 the network as said in the chat is the same whatever shape it came in"
   const b = netSigOf({ mode: "custom", hosts: ["a.com", "b.com"], defaults: true, extra: 1 }, [{ hosts: ["api.x.com"] }]);
   assert.equal(a, b);
   assert.notEqual(a, netSigOf({ mode: "custom", hosts: ["a.com"], defaults: true }, [{ host: "api.x.com" }]));
+});
+
+test("LE4 the line says what changed: sites and keys added or removed, else the network's name", async () => {
+  const { envChangeText, netSigOf } = await import("../container/server.mjs");
+  const n1 = { mode: "custom", hosts: ["example.com"], defaults: true }, n2 = { mode: "custom", hosts: ["example.com", "ipv4.icanhazip.com"], defaults: true };
+  assert.equal(envChangeText(netSigOf(n1, []), netSigOf(n2, []), n2, 0), "The environment changed: now also allows ipv4.icanhazip.com, from now on in this job.");
+  assert.equal(envChangeText(netSigOf(n2, []), netSigOf(n1, [{ host: "api.x.com" }]), n1, 1), "The environment changed: no longer allows ipv4.icanhazip.com; a saved key for api.x.com, from now on in this job.");
+  assert.equal(envChangeText(netSigOf({ mode: "trusted" }, []), netSigOf({ mode: "full" }, []), { mode: "full" }, 0), "The environment changed: network Full, from now on in this job.");
+  assert.equal(envChangeText(undefined, netSigOf(n1, []), n1, 0), "The environment changed: network Limited, from now on in this job.");
+  assert.doesNotMatch(server, /why: \{ was:/, "no hidden record kept on the line");
 });

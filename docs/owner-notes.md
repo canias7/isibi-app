@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: The "environment changed" line says what changed
+
+A hidden check on the live site showed the line was true: the network really changed (a host Coder proposed was approved on its card). It just did not say what. Now it names it, for example "The environment changed: now also allows ipv4.icanhazip.com". The hidden check is removed again. Tests: list-and-env-note.test.mjs (LE4).
+
 ## 2026-11-16: No "environment changed" line at all when nothing changed
 
 The last live run still showed it once, the first time in a job. Coder now remembers the network a job started with, so a card that changes nothing never adds the line.

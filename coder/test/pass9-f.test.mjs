@@ -167,7 +167,7 @@ test("CD503 Coder proposes a new environment's level by the new names (none, lim
   assert.deepEqual(await card("full"), ["full", "Unrestricted (any public host)"]);
   assert.deepEqual(await card("custom"), ["trusted", "Limited: package managers"], "anything else: the default");
   const server = readFileSync(HERE("container/server.mjs"), "utf8");
-  assert.match(server, /"The environment changed: network " \+ \(\{ none: "None", trusted: "Limited", full: "Full", custom: "Limited" \}\[nn\.mode\]/);
+  assert.match(server, /\{ none: "None", trusted: "Limited", full: "Full", custom: "Limited" \}\[nn && nn\.mode\]/);
   assert.match(ui, /esc\(NET\[netLevel\(e\.network\)\]\[0\]\)/, "an older chat's card shows the new name");
 });
 
