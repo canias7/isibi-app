@@ -14,7 +14,7 @@ Gloopy still adds its own version of the line. You asked for Coder to match Clau
 
 The docs page's Connectors section now says Coder gets a connector's answer exactly as it came.
 
-Tests: MC6, MC14, MC15 (an answer from the background) and one hook test (HR4) updated to answers with nothing in front.
+Tests: MC6, MC14, MC15 (an answer from the background) and one hook test (HR4) updated to answers with nothing in front. All 1,345 pass. On this chat's branch, deployed to coder2 (deploy 247).
 
 ## 2026-11-17: The resource tools now match Claude Code in all seven places (your words: "yes match all pls")
 
