@@ -863,6 +863,17 @@ const editedOf = (r) => (r && Array.isArray(r.edited) ? r.edited.filter((x) => t
  * edited, whatever made them", so the page offers "Restore code" for it). Nothing for a job the machine gave no list for
  * (Rewind then reverts the later jobs whole, as before).
  */
+/**
+ * THE CHAT'S LINE AFTER AN UNDO (live side-by-side with Claude Code, 2026-11-17): a short line naming what was undone,
+ * not the job's whole answer quoted back. `lead` "Undid the last job" or "Undid this turn's changes"; `files` the paths put
+ * back (up to 5 named, else counted); `where` "saved to the branch …" or "kept on Coder's machine".
+ */
+export function undoLine(lead, files, where) {
+  const f = (Array.isArray(files) ? files : []).filter((x) => typeof x === "string" && x);
+  const what = !f.length ? "the files are back as they were" : f.length <= 5 ? f.join(", ") + (f.length === 1 ? " is back as it was" : " are back as they were") : f.length + " files are back as they were";
+  const w = String(where || "");
+  return lead + ": " + what + (f.length > 1 && f.length <= 5 ? " (" + f.length + " files)" : "") + "." + (w ? " " + w.charAt(0).toUpperCase() + w.slice(1) + "." : "");
+}
 export function commitTracking(commits, result, pushed) {
   const edited = editedOf(result);
   if (!edited || (result && result.editedCut === true) || edited.length > EDITED_KEEP) return {};
@@ -2043,7 +2054,7 @@ export async function handleCoder(request, env, ctx, deps) {
           const last = commits[commits.length - 1];
           const u = await post("/undo", { project: id, repo: meta.repo, base: meta.base, branch: meta.branch, git: await gitAccess(env, uid, id, meta.turn), chatUrl: chatLink, sha: last.sha, ...(meta.readOnly ? { noPush: true } : {}) }).then((x) => x.json()).catch(() => ({ ok: false, why: "Coder's machine could not be reached" }));
           if (u.ok && !meta.readOnly) { unpushed = 0; unpushedSince = 0; pushed = true; commits = commits.map((c) => (c.local ? { ...c, local: undefined } : c)); }
-          if (u.ok) { commits = commits.slice(0, -1); pushNote = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")) + "."; }
+          if (u.ok) { commits = commits.slice(0, -1); pushNote = undoLine("Undid the last job", Array.isArray(u.files) && u.files.length ? u.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch + (pr ? " · pull request #" + pr.number + " updated" : "")); }
           else pushNote = (pushNote ? pushNote + " · " : "") + "Could not undo: " + String(u.why || u.error || "unknown").slice(0, 200);
           const lo = leftOutNote(u.left);
           if (lo && !pushNote.includes(lo)) pushNote += " · " + lo;
@@ -2308,7 +2319,7 @@ export async function handleCoder(request, env, ctx, deps) {
     catch { r = { ok: false, why: "Coder's machine could not be reached" }; }
     if (!r.ok) return json({ error: "Could not undo: " + String(r.why || r.error || "unknown").slice(0, 300) }, 409);
     const lo = leftOutNote(r.left);
-    const note = "Undid the last job (" + last.title + "). The files are back as they were; " + (meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch) + "." + (lo ? " · " + lo : "");
+    const note = undoLine("Undid the last job", Array.isArray(r.files) && r.files.length ? r.files : last.edited, meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch) + (lo ? " · " + lo : "");
     const old = await getJson(bucket, keyOf(uid, id, "events.json"), []);
     const ev = { at: Date.now(), type: "github", text: note };
     await putJson(bucket, keyOf(uid, id, "events.json"), [...old, ev].slice(-MAX_EVENTS));
@@ -2332,7 +2343,7 @@ export async function handleCoder(request, env, ctx, deps) {
     // (A card its paused job waits on is closed first, as a Stop closes it: coder-park.mjs.)
     if (parkedOf(meta)) meta = await closeParkedCard(bucket, uid, meta);
     let body = {}; try { body = await request.json(); } catch { body = {}; }
-    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true;
+    const turn = Number(body.turn), code = body.code === true, chat = body.chat === true, asUndo = body.undo === true && code && !chat;
     const mark = (Array.isArray(meta.marks) ? meta.marks : []).find((m) => m.turn === turn);
     if (!mark) return json({ error: "That message is too old to rewind to here." }, 400);
     // SUMMARIZE FROM HERE / UP TO HERE (owner item 9, like Claude Code's Rewind: "compress the conversation
@@ -2399,7 +2410,9 @@ export async function handleCoder(request, env, ctx, deps) {
     if (chat) { events = events.slice(0, mark.ev); msgs = msgs.slice(0, mark.msg); }
     const savedTo = meta.readOnly ? "kept on Coder's machine" : "saved to the branch " + meta.branch;
     const codeSaid = !code ? "" : restored ? (restored.length ? "the code is back as it was (" + restored.length + " file" + (restored.length === 1 ? "" : "s") + " restored, " + savedTo + "; files only commands changed stay as they are)" : "the code had no changes to restore") : later.length ? "the code is back as it was (" + undone + " job" + (undone === 1 ? "" : "s") + " undone, saved to the branch " + meta.branch + ")" : "the code had no later changes";
-    const note = "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
+    // (The changed-files box's Undo button reads like an undo, not a rewind: live side-by-side, 2026-11-17.)
+    const undoSaid = !asUndo ? "" : restored && restored.length ? undoLine("Undid this turn's changes", restored, savedTo) : restored ? "Nothing to undo: this turn's changes were already gone." : later.length ? undoLine("Undid this turn's changes", later.flatMap((c) => (Array.isArray(c.edited) ? c.edited : [])), "saved to the branch " + meta.branch) : "Nothing to undo: this turn changed no files.";
+    const note = undoSaid ? undoSaid + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "") : "Rewound to before an earlier message: " + [codeSaid, chat ? "the chat after it is gone" : ""].filter(Boolean).join("; ") + "." + (skippedFiles.length ? " " + restoreSkipped(skippedFiles) : "") + (restoreLeft ? " · " + restoreLeft : "");
     const ev = { at: Date.now(), type: "github", text: note };
     events = [...events, ev].slice(-MAX_EVENTS);
     // Code only: Coder is told, so it knows those changes are gone.

@@ -4,6 +4,13 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Undo lines say what was undone; test results come in a code block
+
+From the side-by-side with Claude Code on the web:
+- When Coder undoes its last job, the chat line no longer quotes the job's whole answer back. It names the files, like "Undid the last job: undo-test/a.txt is back as it was. Saved to the branch coder/…" (up to 5 names, else "6 files").
+- The Undo button in the changed-files box now reads like an undo: "Undid this turn's changes: b.txt is back as it was. Saved to the branch …". Rewind keeps its own "Rewound to before an earlier message" wording.
+- Coder's instructions now say: when reporting a test or build run, show the short relevant output (the summary lines) in a code block, as Claude Code does. The page already draws code blocks.
+Tests: rewind-restore.test.mjs, coder.test.mjs (CD43), files-box.test.mjs.
 ## 2026-11-17: Coder pushes after every answer that changed files
 
 Like Claude Code on the web: in your recording, after each answer that changed files Claude commits and pushes to its branch by itself, so a later "push the branch" finds nothing to push. Coder now does the same. When a turn changed files, its work is committed and pushed to the chat's branch, and the chat says "Pushed to the branch …". The push happens in the background after the answer is shown, so answers are not slower and the message box is free at once. A turn that changed nothing does not push. Read-only chats still keep their work on Coder's machine. The Push button now only shows if a push failed and work is waiting. Tests: push-later.test.mjs (PL2, PL3), save-speed.test.mjs (SV3), claude-parity.test.mjs.

@@ -1179,7 +1179,7 @@
     const pick = await askPick('Rewind', 'Restore the session to an earlier message.', list.reverse());
     if (pick) rewind(Number(pick));
   }
-  async function rewind(turn, given) {
+  async function rewind(turn, given, o = {}) {
     if (!S.project) return;
     // LIKE CLAUDE CODE'S REWIND (its docs, read 2026-11-07; owner item 9): the code choices only when a
     // later job changed files; Summarize from here / up to here; the message back in the box after the chat goes back.
@@ -1201,7 +1201,7 @@
       const focus = await askText('Summarize ' + (pick === 'sumfrom' ? 'from here' : 'up to here'), 'Anything the summary should keep? (Optional: leave it empty for a general summary.)', 'Summarize', '', { optional: true, max: 300 });
       if (focus === null || !S.project) return;
       body = { turn, summarize: pick === 'sumfrom' ? 'from' : 'upto', focus };
-    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code' };
+    } else body = { turn, code: pick !== 'chat', chat: pick !== 'code', ...(o.undo && pick === 'code' ? { undo: true } : {}) };
     S.error = ''; S.rewinding = true; draw();
     const r = await call('/projects/' + encodeURIComponent(S.project.id) + '/rewind', { method: 'POST', body: JSON.stringify(body) });
     S.rewinding = false;
@@ -4996,7 +4996,7 @@
     on('#cdRpConn', 'click', () => { showChatConnectors(); });
     on('[data-copy-ev]', 'click', (e) => { const ev = S.events[Number(e.currentTarget.dataset.copyEv)]; const b = e.currentTarget; if (!ev) return; try { navigator.clipboard.writeText(String(ev.text || '')).then(() => { b.classList.add('is-done'); setTimeout(() => b.classList.remove('is-done'), 1200); }, () => {}); } catch (er) { /* not allowed */ } });
     on('[data-rate]', 'click', (e) => { const k = e.currentTarget.dataset.rateK, v = e.currentTarget.dataset.rate; S.rated = S.rated || {}; S.rated[k] = S.rated[k] === v ? '' : v; draw(); });
-    on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code'); });
+    on('[data-files-undo]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.filesUndo), 'code', { undo: true }); });
     on('[data-files-all]', 'click', () => { S.showChanges = true; loadChanges(); draw(); });
     on('[data-rewind-to]', 'click', (e) => { rewind(Number(e.currentTarget.dataset.rewindTo)); });
     // THE MODE MENU, AND THE CARDS A STEP WAITS ON (the permission modes): a click, or the card's number keys.
