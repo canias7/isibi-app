@@ -278,6 +278,6 @@ test("Coder's instructions: test and build output goes in a code block, and the 
   const { CODER_SYSTEM } = await import("../container/coder-agent.mjs");
   assert.match(CODER_SYSTEM, /When you report a test or build run, include its short relevant output \(the summary lines, or the failing ones\) in a fenced code block\./);
   const js = (await import("node:fs")).readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
-  assert.match(js, /function prose\(t\) \{\n    const parts = noColor\(t\)\.split\(\/```/);
+  assert.match(js, /function prose\(t\) \{[\s\S]{0,300}?const parts = noColor\(t\)\.split\(\/```/);
   assert.match(js, /'<pre class="cd-pre">' \+ esc\(p\.replace/);
 });
