@@ -32,9 +32,9 @@ on:
   workflow_dispatch:
     inputs:
       target:
-        description: "live: gofarther.dev (from main only) · test: the copy at test.gofarther.dev · jessica: the copy at jessica.gofarther.dev"
+        description: "live: gofarther.dev (from main only) · test: the copy at test.gofarther.dev · jessica: the copy at jessica.gofarther.dev · coder2: the copy at coder2.gofarther.dev"
         type: choice
-        options: [live, test, jessica]
+        options: [live, test, jessica, coder2]
         default: live
       machines:
         description: "Where chats' machines run: fly (needs the FLY_API_TOKEN secret) or cloudflare"
@@ -43,7 +43,7 @@ on:
         default: fly
 
 concurrency:
-  group: ${{ github.event.inputs.target == 'test' && 'deploy-coder-test' || github.event.inputs.target == 'jessica' && 'deploy-coder-jessica' || 'deploy-coder' }}
+  group: ${{ github.event.inputs.target == 'test' && 'deploy-coder-test' || github.event.inputs.target == 'jessica' && 'deploy-coder-jessica' || github.event.inputs.target == 'coder2' && 'deploy-coder-coder2' || 'deploy-coder' }}
   cancel-in-progress: false
 
 jobs:
@@ -51,11 +51,11 @@ jobs:
     runs-on: ubuntu-latest
     env:
       # (TARGET is "test" for either copy; COPY says which one: test or jessica.)
-      TARGET: ${{ (github.event.inputs.target == 'test' || github.event.inputs.target == 'jessica') && 'test' || 'live' }}
-      COPY: ${{ github.event.inputs.target == 'jessica' && 'jessica' || 'test' }}
-      FLY_APP: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test-machines' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica-machines' || 'gofarther-coder-machines' }}
-      BUCKET: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica' || 'gofarther-coder' }}
-      SITE: ${{ github.event.inputs.target == 'test' && 'https://test.gofarther.dev' || github.event.inputs.target == 'jessica' && 'https://jessica.gofarther.dev' || 'https://coder.gofarther.dev' }}
+      TARGET: ${{ (github.event.inputs.target == 'test' || github.event.inputs.target == 'jessica' || github.event.inputs.target == 'coder2') && 'test' || 'live' }}
+      COPY: ${{ github.event.inputs.target == 'jessica' && 'jessica' || github.event.inputs.target == 'coder2' && 'coder2' || 'test' }}
+      FLY_APP: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test-machines' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica-machines' || github.event.inputs.target == 'coder2' && 'gofarther-coder-coder2-machines' || 'gofarther-coder-machines' }}
+      BUCKET: ${{ github.event.inputs.target == 'test' && 'gofarther-coder-test' || github.event.inputs.target == 'jessica' && 'gofarther-coder-jessica' || github.event.inputs.target == 'coder2' && 'gofarther-coder-coder2' || 'gofarther-coder' }}
+      SITE: ${{ github.event.inputs.target == 'test' && 'https://test.gofarther.dev' || github.event.inputs.target == 'jessica' && 'https://jessica.gofarther.dev' || github.event.inputs.target == 'coder2' && 'https://coder2.gofarther.dev' || 'https://coder.gofarther.dev' }}
       FLY_ORG: personal
     defaults:
       run:
@@ -66,7 +66,7 @@ jobs:
         env:
           BRANCH: ${{ github.ref_name }}
         run: |
-          echo "::error::gofarther.dev is deployed only from main. To try the branch $BRANCH, pick test (test.gofarther.dev) or jessica (jessica.gofarther.dev)."
+          echo "::error::gofarther.dev is deployed only from main. To try the branch $BRANCH, pick test (test.gofarther.dev), jessica (jessica.gofarther.dev) or coder2 (coder2.gofarther.dev)."
           exit 1
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4

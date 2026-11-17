@@ -20,6 +20,7 @@ test("TC2 (2026-11-10; two copies since 2026-11-13) each test copy's settings: i
   assert.deepEqual(COPIES, {
     test: { name: "gofarther-coder-test", host: "test.gofarther.dev", bucket: "gofarther-coder-test", flyApp: "gofarther-coder-test-machines" },
     jessica: { name: "gofarther-coder-jessica", host: "jessica.gofarther.dev", bucket: "gofarther-coder-jessica", flyApp: "gofarther-coder-jessica-machines" },
+    coder2: { name: "gofarther-coder-coder2", host: "coder2.gofarther.dev", bucket: "gofarther-coder-coder2", flyApp: "gofarther-coder-coder2-machines" },
   });
   assert.equal(TEST, COPIES.test);
   // Everything else is the live Worker's: the code, the page, the machines' image, the every-minute run, who may use it.
@@ -34,7 +35,7 @@ test("TC2 (2026-11-10; two copies since 2026-11-13) each test copy's settings: i
   }
   // With no copy named: test.gofarther.dev. The two copies share nothing of each other's.
   assert.equal(testConfig(LIVE).name, "gofarther-coder-test");
-  for (const f of ["name", "host", "bucket", "flyApp"]) assert.notEqual(COPIES.test[f], COPIES.jessica[f], f);
+  for (const f of ["name", "host", "bucket", "flyApp"]) assert.equal(new Set(Object.values(COPIES).map((k) => k[f])).size, 3, f);
   // Only the two copies: anything else is refused.
   assert.throws(() => testConfig(LIVE, { name: "gofarther-coder", host: "gofarther.dev", bucket: "gofarther-coder", flyApp: "gofarther-coder-machines" }), /not one of the test copies/);
   const c = testConfig(LIVE, COPIES.jessica);
@@ -52,13 +53,13 @@ test("TC2 (2026-11-10; two copies since 2026-11-13) each test copy's settings: i
 });
 
 test("TC3 (2026-11-10; two copies since 2026-11-13) the deploy button: test and jessica each go to their own copy in their own queue, every wrangler command of them names the copy's settings, their keys go only to it; gofarther.dev only from main, as before otherwise", () => {
-  assert.match(FLOW, /target:\n\s+description: "live: gofarther\.dev \(from main only\) · test: the copy at test\.gofarther\.dev · jessica: the copy at jessica\.gofarther\.dev"\n\s+type: choice\n\s+options: \[live, test, jessica\]\n\s+default: live/);
-  assert.match(FLOW, /group: \$\{\{ github\.event\.inputs\.target == 'test' && 'deploy-coder-test' \|\| github\.event\.inputs\.target == 'jessica' && 'deploy-coder-jessica' \|\| 'deploy-coder' \}\}/);
-  assert.match(FLOW, /TARGET: \$\{\{ \(github\.event\.inputs\.target == 'test' \|\| github\.event\.inputs\.target == 'jessica'\) && 'test' \|\| 'live' \}\}/);
-  assert.match(FLOW, /COPY: \$\{\{ github\.event\.inputs\.target == 'jessica' && 'jessica' \|\| 'test' \}\}/);
-  assert.match(FLOW, /FLY_APP: \$\{\{ github\.event\.inputs\.target == 'test' && 'gofarther-coder-test-machines' \|\| github\.event\.inputs\.target == 'jessica' && 'gofarther-coder-jessica-machines' \|\| 'gofarther-coder-machines' \}\}/);
-  assert.match(FLOW, /BUCKET: \$\{\{ github\.event\.inputs\.target == 'test' && 'gofarther-coder-test' \|\| github\.event\.inputs\.target == 'jessica' && 'gofarther-coder-jessica' \|\| 'gofarther-coder' \}\}/);
-  assert.match(FLOW, /SITE: \$\{\{ github\.event\.inputs\.target == 'test' && 'https:\/\/test\.gofarther\.dev' \|\| github\.event\.inputs\.target == 'jessica' && 'https:\/\/jessica\.gofarther\.dev' \|\| 'https:\/\/coder\.gofarther\.dev' \}\}/);
+  assert.match(FLOW, /target:\n\s+description: "live: gofarther\.dev \(from main only\) · test: the copy at test\.gofarther\.dev · jessica: the copy at jessica\.gofarther\.dev · coder2: the copy at coder2\.gofarther\.dev"\n\s+type: choice\n\s+options: \[live, test, jessica, coder2\]\n\s+default: live/);
+  assert.match(FLOW, /group: \$\{\{ github\.event\.inputs\.target == 'test' && 'deploy-coder-test' \|\| github\.event\.inputs\.target == 'jessica' && 'deploy-coder-jessica' \|\| github\.event\.inputs\.target == 'coder2' && 'deploy-coder-coder2' \|\| 'deploy-coder' \}\}/);
+  assert.match(FLOW, /TARGET: \$\{\{ \(github\.event\.inputs\.target == 'test' \|\| github\.event\.inputs\.target == 'jessica' \|\| github\.event\.inputs\.target == 'coder2'\) && 'test' \|\| 'live' \}\}/);
+  assert.match(FLOW, /COPY: \$\{\{ github\.event\.inputs\.target == 'jessica' && 'jessica' \|\| github\.event\.inputs\.target == 'coder2' && 'coder2' \|\| 'test' \}\}/);
+  assert.match(FLOW, /FLY_APP: \$\{\{ github\.event\.inputs\.target == 'test' && 'gofarther-coder-test-machines' \|\| github\.event\.inputs\.target == 'jessica' && 'gofarther-coder-jessica-machines' \|\| github\.event\.inputs\.target == 'coder2' && 'gofarther-coder-coder2-machines' \|\| 'gofarther-coder-machines' \}\}/);
+  assert.match(FLOW, /BUCKET: \$\{\{ github\.event\.inputs\.target == 'test' && 'gofarther-coder-test' \|\| github\.event\.inputs\.target == 'jessica' && 'gofarther-coder-jessica' \|\| github\.event\.inputs\.target == 'coder2' && 'gofarther-coder-coder2' \|\| 'gofarther-coder' \}\}/);
+  assert.match(FLOW, /SITE: \$\{\{ github\.event\.inputs\.target == 'test' && 'https:\/\/test\.gofarther\.dev' \|\| github\.event\.inputs\.target == 'jessica' && 'https:\/\/jessica\.gofarther\.dev' \|\| github\.event\.inputs\.target == 'coder2' && 'https:\/\/coder2\.gofarther\.dev' \|\| 'https:\/\/coder\.gofarther\.dev' \}\}/);
   // The copy's own settings are made for the copy picked.
   assert.match(FLOW, /- name: "Test copy: its own settings \(from wrangler\.jsonc\)"\n\s+if: env\.TARGET == 'test'\n\s+run: node test-copy\.mjs "\$COPY"/);
   assert.match(FLOW, /- name: "gofarther\.dev only from main"\n\s+if: env\.TARGET == 'live' && github\.ref_name != 'main'/);

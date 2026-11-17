@@ -14,6 +14,8 @@ import { dirname, join } from "node:path";
 export const COPIES = Object.freeze({
   test: Object.freeze({ name: "gofarther-coder-test", host: "test.gofarther.dev", bucket: "gofarther-coder-test", flyApp: "gofarther-coder-test-machines" }),
   jessica: Object.freeze({ name: "gofarther-coder-jessica", host: "jessica.gofarther.dev", bucket: "gofarther-coder-jessica", flyApp: "gofarther-coder-jessica-machines" }),
+  // coder2.gofarther.dev (owner, 2026-11-17): for adding what Claude Code's docs have and Coder doesn't, kept apart from main.
+  coder2: Object.freeze({ name: "gofarther-coder-coder2", host: "coder2.gofarther.dev", bucket: "gofarther-coder-coder2", flyApp: "gofarther-coder-coder2-machines" }),
 });
 /** The first copy, test.gofarther.dev. */
 export const TEST = COPIES.test;

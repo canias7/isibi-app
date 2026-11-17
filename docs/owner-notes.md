@@ -4,6 +4,17 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: A third test copy at coder2.gofarther.dev, for the Claude Code docs work (your words: "make a copy of it, and we're gonna add stuff ... so it doesn't mix with main. Don't merge to main")
+
+This chat's branch (`claude/sweet-bohr-9xdj4f`) is for adding what Claude Code's docs have and Coder doesn't. It is not merged to `main` until you say so.
+
+- **The deploy button has a fourth choice: coder2.** It sends the branch picked to its own Worker at **coder2.gofarther.dev**.
+- **What it has to itself:** its own storage (`gofarther-coder-coder2`), its own Fly.io machines (`gofarther-coder-coder2-machines`) and its own deploy queue.
+- **It never touches** gofarther.dev, test.gofarther.dev or jessica.gofarther.dev.
+- **What it shares:** your sign-in, the Grok key and the same bills.
+- **Not deployed yet.** GitHub isn't connected there yet either (as with jessica).
+- **Tests:** TC2 and TC3 updated for the third copy. The full suite: 1302 pass, 4 skipped, 0 fail.
+
 ## 2026-11-17: The "environment changed" line says what changed
 
 A hidden check on the live site showed the line was true: the network really changed (a host Coder proposed was approved on its card). It just did not say what. Now it names it, for example "The environment changed: now also allows ipv4.icanhazip.com". The hidden check is removed again. Tests: list-and-env-note.test.mjs (LE4).
