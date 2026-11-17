@@ -544,9 +544,9 @@ test("LS9 the tool on Coder's machine: Claude Code's answers and errors, its res
 
 test("LS10 what the servers report after a write or an edit is taken once per step, after whatever tool ran, as Claude Code gathers its diagnostics attachment, with no wait; one that comes after the turn's last step goes to Coder with the owner's next message; what was sent is remembered for the whole chat; the chat shows Claude Code's row for each note; an agent with no shell only sends the text", async () => {
   const p = await project({ "s.py": "ok = 1\n", "o.py": "BAD old\n" });
-  // (Each report comes 0.8 seconds after the text, so the step right after a write never has it yet; and at each change the
+  // (Each report comes 2.5 seconds (it was 0.8: a slow test machine took longer than that between two steps, 2026-11-17) after the text, so the step right after a write never has it yet; and at each change the
   // server reports every open file again, as a whole-project checker does.)
-  await p.script({ "textDocument/hover": { contents: "x" }, slowReport: 800, reportAll: true });
+  await p.script({ "textDocument/hover": { contents: "x" }, slowReport: 2500, reportAll: true });
   const k = await keeper(p);
   let starts = 0;
   const lsp = { start: async () => { starts++; return true; }, alive: () => k.alive() };
@@ -565,7 +565,7 @@ test("LS10 what the servers report after a write or an edit is taken once per st
   try {
     // An edit, then a step that takes a second: the step right after the edit has nothing yet; the next one takes the report,
     // the edited file's and the one a lookup opened, in Claude Code's note inside the round's note, and the chat's row.
-    let t = await run([say("", [call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]), say("", [call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]), say("", [call("bash", { command: "sleep 1.2", description: "Wait" }, "b1")]), say("done")]);
+    let t = await run([say("", [call("lsp", { operation: "hover", filePath: "o.py", line: 1, character: 1 }, "l1")]), say("", [call("edit", { path: "s.py", old_string: "ok = 1", new_string: "ok = 1\nBAD new\nHINT x" }, "e1")]), say("", [call("bash", { command: "sleep 4", description: "Wait" }, "b1")]), say("done")]);
     assert.equal(t.r.messages.find((m) => m.tool_call_id === "l1").content, "x");
     const at = t.r.messages.findIndex((m) => m.tool_call_id === "e1");
     assert.equal(t.r.messages[at].content, "The file s.py has been updated successfully.");
@@ -582,7 +582,7 @@ test("LS10 what the servers report after a write or an edit is taken once per st
     // (an edit forgets what was sent for its file), as in Claude Code.
     t = await run([say("", [call("edit", { path: "s.py", old_string: "HINT x", new_string: "z = 3\nWARN" }, "e2")]), say("done")]);
     assert.deepEqual(t.notes, [], "nothing in this turn: the report came after its last step");
-    await sleep(1200);
+    await sleep(3500);
     t = await run([say("done")]);
     assert.deepEqual(t.notes, ["(Note from Coder's app, not the owner:\n<new-diagnostics>The following new diagnostic issues were detected:\n\ns.py:\n  ✘ [Line 2:1] bad thing: BAD new [fake-bad] (Fake)\n  ⚠ [Line 4:1] a warning (Fake)</new-diagnostics>)"]);
     assert.equal(t.events.filter((e) => e.type === "diagnostics").length, 1);
