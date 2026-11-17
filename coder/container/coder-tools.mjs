@@ -913,7 +913,6 @@ export const NOT_UTF8_REFUSED = notTextRefused("not_utf8");
  *   written …"): Coder saved the U+FFFD read showed over the real letters; and a UTF-16LE file keeps its UTF-16LE.
  * A new file, or one not read (not a notebook), is written as before, as Claude Code's newer models do.
  */
-export const WRITE_NOT_READ = "has not been read yet. Read it first before writing to it";
 /**
  * WRITE, SECOND PASS (the owner, 2026-11-08: "first of all, we gotta go look on Claude Code's write tool and see what it
  * does and see what ours does. And then … after we copy or use what they do, then we can actually start testing it"; each
@@ -1078,14 +1077,15 @@ async function writeFirst(args, { guard = false } = {}) {
   if (!st.isFile()) fail(rel + " " + NOT_REGULAR + " Write only creates or overwrites regular files.");
   const seen = await seenEntry(abs);
   if (seen && seen.start) fail(rel + ": " + WRITE_START);
-  if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
-  // (A notebook not read: Claude Code's Write's own words, nothing added (tried, 2026-11-17: "File has not been read yet. Read it
-  // first before writing to it."; the owner: "Make it match pls"). Coder's had added "…: a notebook is read before it is replaced,
-  // so no cell or output is lost.")
+  // NOT READ, IN CLAUDE CODE'S WRITE'S OWN WORDS, NOTHING ADDED (its program, 2.1.326: one sentence, its _Lt, for each case
+  // below; tried, 2026-11-17; the owner: "Make it match pls", then "YES PLS"): a file read only in part (a PARTIAL view), a
+  // notebook not read, and a file not read where reading it would need a card or be refused (`guard`, Coder's loop knows: its
+  // read-first rule, waived for newer models only where the file could be read without asking). Coder's had named the file
+  // and added its own reasons ("…: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the
+  // rest of it first.", "…: a notebook is read before it is replaced, so no cell or output is lost.").
+  if (seen && seen.partial) fail(EDIT_NOT_READ);
   if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(EDIT_NOT_READ);
-  // (Not read in this chat, where reading it would need a card or be refused, `guard` (Coder's loop knows): Claude Code 2.1.325's
-  // read-first rule, which it waives for newer models only where the file could be read without asking. Round 6's follow-up.)
-  if (seen === null && guard) fail(rel + " " + WRITE_NOT_READ + ".");
+  if (seen === null && guard) fail(EDIT_NOT_READ);
   if (seen && seen.stale) fail(rel + " " + WRITE_CHANGED + ".");
   // Changed since Coder last read or wrote it, and not shown to it since: only its time changing is no change.
   if (seen && (st.mtimeMs !== seen.mtime || st.size !== seen.size) && (st.size !== seen.size || st.size > READ_WHOLE_MAX || fingerprint(await readFile(abs)) !== seen.hash)) fail(rel + " " + WRITE_CHANGED + ".");

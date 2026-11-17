@@ -685,7 +685,9 @@ twice and in the next full run).
 **Outside the tool, found on the way (for the owner):** Coder's write, on a notebook not read first, added its own words ("…: a notebook is
 read before it is replaced, so no cell or output is lost."); Claude Code's Write, tried, says only "File has not been read yet. Read it
 first before writing to it." **Changed** (the owner: "Make it match pls"): Coder's write now gives Claude Code's words exactly.
-The same two kinds of difference remain in write's other "not read" refusals, for the owner to decide: a file read only in part
-("part.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), …"), and a file not
-read where reading it would ask ("x.txt has not been read yet. …"); Claude Code's Write says "File has not been read yet. Read it first
-before writing to it." in both.
+The same two kinds of difference were in write's other "not read" refusals: a file read only in part ("part.txt has not been read
+yet. Read it first before writing to it: you read only part of it (a PARTIAL view), …"), and a file not read where reading it would ask
+("x.txt has not been read yet. …"). Claude Code's Write gives the one sentence in all three (its program, 2.1.326: Write's read check
+returns its constant "File has not been read yet. Read it first before writing to it." for a partial view and for an unread file whose
+read-first rule isn't waived). **Changed** (the owner: "YES PLS"): Coder's write now gives those exact words in all three. (This updates
+tool 2's write notes above, where Coder's longer words are quoted.)

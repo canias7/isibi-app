@@ -1344,11 +1344,12 @@ test("CD242 a missing file is named with the folder a short path counts from, as
 });
 
 test("CD243 write does not replace a file Coder read only part of (a PARTIAL view), nor a notebook it has not read, as Claude Code's Write (tried side by side, 2026-11-08: \"File has not been read yet. Read it first before writing to it.\"); once read, it may; a new file, or a plain one not read, is written as before; nothing is checked where no files are followed", async () => {
-  const { WRITE_NOT_READ } = await import("../container/coder-tools.mjs");
+  const { EDIT_NOT_READ } = await import("../container/coder-tools.mjs");
   const { mkdtemp, writeFile, readFile } = await import("node:fs/promises");
   const { tmpdir } = await import("node:os");
   const { join } = await import("node:path");
-  assert.equal(WRITE_NOT_READ, "has not been read yet. Read it first before writing to it");
+  // (Claude Code's Write's own words for each case since 2026-11-17, nothing added: the owner, "Make it match pls", "YES PLS".)
+  assert.equal(EDIT_NOT_READ, "File has not been read yet. Read it first before writing to it.");
   const dir = await mkdtemp(join(tmpdir(), "coder-wread-"));
   const follow = await mkdtemp(join(tmpdir(), "coder-wread-follow-"));
   const run = machine(dir, undefined, { ...process.env, CODER_SEEN_DIR: follow });
@@ -1356,7 +1357,7 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   const big = Array.from({ length: 1500 }, (_, i) => "line " + (i + 1) + " " + "w".repeat(80)).join("\n") + "\n";
   await writeFile(join(dir, "big.txt"), big);
   assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
-  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: big.txt has not been read yet. Read it first before writing to it: you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: " + EDIT_NOT_READ);
   assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
   await tool("read", { path: "big.txt", offset: 1000 });
   assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "The file big.txt has been updated successfully. (file state is current in your context — no need to Read it back)", "read again: allowed");
@@ -1577,12 +1578,13 @@ test("CD250 a file read only partly stays so after a command shows it (cat, head
   await writeFile(join(dir, "big.txt"), big);
   assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
   assert.equal(await tool("seen", { path: "big.txt" }), "followed", "`cat big.txt` was run");
-  assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^error: big\.txt has not been read yet\. Read it first before writing to it: you read only part of it \(a PARTIAL view\)/);
+  // (Claude Code's Write's own words since 2026-11-17, nothing added: the owner, "YES PLS".)
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: File has not been read yet. Read it first before writing to it.");
   assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
   // A command that changes it after: still part-read, and its change still noted.
   await writeFile(join(dir, "big.txt"), big + "one more\n");
   assert.equal(JSON.parse(await tool("changed", {})).changed.length, 1);
-  assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^error: big\.txt has not been read yet/);
+  assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: File has not been read yet. Read it first before writing to it.");
   // Reading the rest clears it.
   await tool("read", { path: "big.txt", offset: 1000 });
   assert.match(await tool("write", { path: "big.txt", content: "short\n" }), /^The file big\.txt has been updated successfully\./);

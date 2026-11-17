@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder's write: the other two "not read" refusals in Claude Code's exact words too (your words: "YES PLS")
+
+Two more cases now say exactly what Claude Code's Write says: "File has not been read yet. Read it first before writing to it."
+- **A file Coder read only part of.** Before, it named the file and added "you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first."
+- **A file Coder didn't read, where reading it would need your OK.** Before, it named the file.
+
+I checked Claude Code's own program first: its Write uses that one sentence for all of these cases.
+
+Tests updated (CD243, CD250, the file checks). All 1330 pass. On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: Coder's write refuses an unread notebook in Claude Code's exact words (your words: "Make it match pls")
 
 When Coder tries to replace a notebook it hasn't read, its write tool now says exactly what Claude Code's says: "File has not been read yet. Read it first before writing to it."

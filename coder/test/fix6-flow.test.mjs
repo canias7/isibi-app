@@ -579,7 +579,8 @@ test("FV5 the tools script, for real: a pipe in the project refused by write and
     assert.equal(chk("edit", { path: "long.txt", old_string: "one", new_string: "1" }, true), "error: " + T.EDIT_NOT_READ, "only part of it shown");
     assert.equal(chk("edit", { path: "long.txt", old_string: "one", new_string: "1" }), "ok");
     writeFileSync(join(dir, "c.txt"), "x\n");
-    assert.equal(chk("write", { path: "c.txt" }, true), "error: c.txt " + T.WRITE_NOT_READ + ".");
+    // (Claude Code's Write's words, nothing added, since 2026-11-17: the owner, "YES PLS".)
+    assert.equal(chk("write", { path: "c.txt" }, true), "error: " + T.EDIT_NOT_READ);
     assert.equal(chk("write", { path: "c.txt" }), "ok");
     assert.equal(chk("write", { path: "new.txt" }, true), "ok", "a new file needs no read");
     // A settings file left invalid (Claude Code: "Claude Code settings.json validation failed after edit: …").
