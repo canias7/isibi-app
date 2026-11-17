@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Suggested next message, Claude Code's way
+
+The owner: "build it claude code way". The retest showed only 1 answer in 11 came with a suggestion: Coder was asked to add a hidden line at the end of its answer, and Grok mostly left it out. Now, like Claude Code, after the answer is on screen Coder makes one short extra request to Grok (same chat, instructions and tools, so the cache is reused) asking only for the next message. It comes in a moment later as its own step and shows grey in the box. Not in plan mode, from GitHub, or in Gloopy. A small extra Grok cost per turn. Like Claude Code's `CLAUDE_CODE_ENABLE_PROMPT_SUGGESTION`, `CODER_ENABLE_PROMPT_SUGGESTION=false` turns it off on the machine (the machine tests set it, as they count Grok's requests). Tests: `coder/test/prompt-suggest.test.mjs`.
+
 ## 2026-11-17: Suggested next message shows again
 
 In the retest, no suggestion ever showed in the box. Coder made them, but the page only showed one when Coder's answer was the last line of the chat, and since auto-push a "Pushed to the branch" line follows every answer. The page now looks past those status lines. Test in `coder/test/pr-update.test.mjs`.

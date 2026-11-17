@@ -4235,7 +4235,8 @@
     // (The save's own lines after the answer, "Pushed to the branch" (github) and notes, don't hide it: the retest of
     // 2026-11-17, where auto-push put one after every answer, so no suggestion ever showed.)
     const last = (S.events || []).filter((e) => e && !['mark', 'usage', 'github', 'note', 'pr'].includes(e.type)).at(-1);
-    const t = last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
+    // (Its own step since 2026-11-17, `suggest`, after the answer; an older chat's answer may carry it.)
+    const t = last && last.type === 'suggest' && typeof last.text === 'string' ? last.text.trim() : last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
     return t && S.suggestGone !== (S.project.id + '|' + t) ? t : '';
   }
   function composerHTML() {

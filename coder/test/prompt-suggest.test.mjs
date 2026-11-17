@@ -68,21 +68,29 @@ test("splitSuggest takes the hidden line off the answer", () => {
 });
 
 const say = (content) => ({ message: { role: "assistant", content }, usage: { in: 1, out: 1 } });
-async function turn(opts) {
+async function turn(opts, second = "open a pull request") {
   const events = [], seen = [];
-  await A.runCoder({ send: async (q) => { seen.push(q); return say("All set.\n<next-prompt>open a pull request</next-prompt>"); }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), here: () => "/w", root: "/w", chatId: "s1", where: (p) => p }, { text: "hi", mode: "auto", messages: [], ...opts });
-  return { done: events.find((e) => e.type === "done"), system: seen[0].messages[0].content };
+  await A.runCoder({ send: async (q) => { seen.push(q); return say(seen.length === 1 ? "All set." : second); }, exec: async () => ({ code: 0, output: "" }), emit: (e) => events.push(e), here: () => "/w", root: "/w", chatId: "s1", where: (p) => p }, { text: "hi", mode: "auto", messages: [], ...opts });
+  return { done: events.find((e) => e.type === "done"), sug: events.find((e) => e.type === "suggest"), seen, order: events.map((e) => e.type) };
 }
-test("Coder's final answer carries the suggestion with no extra model call; off leaves the prompt alone", async () => {
+test("Claude Code's way: after the answer is shown, one short request with the same chat asks for the suggestion; off or plan makes none", async () => {
   const on = await turn({ suggest: true });
   assert.equal(on.done.text, "All set.");
-  assert.equal(on.done.suggest, "open a pull request");
-  assert.ok(on.system.includes("<next-prompt>"));
+  assert.equal(on.seen.length, 2, "one extra request, after the answer");
+  assert.ok(on.order.indexOf("done") < on.order.indexOf("suggest"), "the answer is shown first");
+  assert.equal(on.sug.text, "open a pull request");
+  const ask = on.seen[1];
+  assert.equal(ask.messages[0].content, on.seen[0].messages[0].content, "same instructions, so the cache holds");
+  assert.deepEqual(ask.tools, on.seen[0].tools, "same tools too");
+  assert.equal(ask.tool_choice, "none");
+  assert.match(ask.messages.at(-1).content, /Write only the message the owner would most likely send you next/);
+  assert.ok(!on.seen[0].messages[0].content.includes("<next-prompt>"), "no line in the instructions any more");
   const off = await turn({});
-  assert.equal(off.done.suggest, undefined);
-  assert.ok(!off.system.includes("<next-prompt>"));
+  assert.equal(off.seen.length, 1); assert.equal(off.sug, undefined);
   const plan = await turn({ suggest: true, mode: "plan" });
-  assert.equal(plan && plan.done ? plan.done.suggest : undefined, undefined);
+  assert.equal(plan.sug, undefined);
+  assert.equal((await turn({ suggest: true }, "NONE")).sug, undefined, "NONE: no suggestion");
+  assert.equal((await turn({ suggest: true }, "\"run the tests\"\nmore")).sug.text, "run the tests", "first line, quotes off");
 });
 
 test("the setting: on by default, saved and sent to the machine", () => {
@@ -120,3 +128,10 @@ test("the page: grey suggestion, Tab takes it, typing hides it, off in Settings 
     await page.context().close();
   } finally { await browser.close(); }
 });
+
+test("Claude Code's switch, as Coder's: CODER_ENABLE_PROMPT_SUGGESTION=false turns suggestions off on the machine (the machine tests set it, as they count Grok's requests)", () => {
+  const src = (await_import_fs()).readFileSync(new URL("../container/server.mjs", import.meta.url), "utf8");
+  assert.match(src, /suggest: !gloopy && PREFS\.suggestOff !== true && process\.env\.CODER_ENABLE_PROMPT_SUGGESTION !== "false"/);
+});
+function await_import_fs() { return globalThis.__fs || (globalThis.__fs = require_fs()); }
+function require_fs() { return process.getBuiltinModule("node:fs"); }

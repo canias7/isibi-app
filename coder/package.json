@@ -4,7 +4,7 @@
   "type": "module",
   "description": "Coder's own Worker: a developer agent with a terminal, apart from the website builder.",
   "scripts": {
-    "test": "node --test test/*.test.mjs",
+    "test": "CODER_ENABLE_PROMPT_SUGGESTION=false node --test test/*.test.mjs",
     "deploy": "wrangler deploy"
   },
   "dependencies": {

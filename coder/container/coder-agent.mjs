@@ -1651,6 +1651,19 @@ export const CODER_URLS_LINE = "IMPORTANT: You must NEVER generate or guess URLs
  * its final answer for the same few tokens instead, a hidden last line the page never shows, so it needs no request at all.
  */
 export const SUGGEST_LINE = "\n\nPROMPT SUGGESTION: when you finish a turn with your answer in words, end it with one last line <next-prompt>…</next-prompt> holding the message the owner would most likely send you next, in their voice, under 12 words (e.g. <next-prompt>now fix both bugs and rerun the tests</next-prompt>). Base it on this chat: a next step of their request, or the natural follow-up. Leave the line out when there is no clear next step. The owner never sees this line; never mention it.";
+/** What the suggestion's own request asks (Claude Code's: "suggest your next prompt based on your conversation history"). */
+export const SUGGEST_ASK = "(Note from Coder's app, not the owner: do not answer or use any tool. Write only the message the owner would most likely send you next, in their voice, under 12 words: a next step of their request or the natural follow-up. If there is no clear next step, write NONE.)";
+export const SUGGEST_WAIT_MS = 15_000;
+/** One suggestion from its request (`ask`), cleaned: '' when none, too slow, or unusable. */
+export async function nextPromptFor(ask, usage = null) {
+  let r = null;
+  try { r = await Promise.race([ask(), new Promise((ok) => setTimeout(() => ok(null), SUGGEST_WAIT_MS))]); } catch { r = null; }
+  if (r && r.usage && Array.isArray(usage)) usage.push(r.usage);
+  let t = String((r && r.message && r.message.content) || "").replace(/<\/?next-prompt>/gi, "").split("\n").map((x) => x.trim()).filter(Boolean)[0] || "";
+  t = t.replace(/^["“'`]+|["”'`]+$/g, "").trim();
+  if (!t || /^none\.?$/i.test(t) || t.length > 160 || (r && r.message && Array.isArray(r.message.tool_calls) && r.message.tool_calls.length)) return "";
+  return t;
+}
 /** A final answer with its hidden suggestion taken off: `{ text, next }`. */
 export function splitSuggest(said) {
   const s = String(said || "");
@@ -1937,7 +1950,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
   const todosOn = tasksOff === true && !offered;
   if (todosOn) system = todoSystem(system);
   // (Prompt suggestions: the line asking for one rides on Coder's own system prompt, so no extra model call.)
-  if (suggest && who === "Coder") system += SUGGEST_LINE;
+  // (Prompt suggestions: their own short request after the answer since 2026-11-17, nextPromptFor; no line in the instructions.)
   // The owner's own rules for Gloopy's browser checks ("ask first" / "allow"), as the Worker keeps them.
   const browserRules = cleanRules(rulesIn);
   // A step the owner allowed that could not be done then: it goes ahead once, without asking again.
@@ -3666,6 +3679,8 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     emit({ type: "result", id, code: 0, output: text.slice(3) });
     return { ok: true, text };
   };
+  // (The tools the last request sent, so the suggestion's request is the same and its cache holds.)
+  let lastTools = null;
   let pushRequest = false, prRequest = null, undoRequest = false, lastSaid = "", reviewPost = null, prExtra = [], autofixRequest = null, notified = 0;
   // GLOOPY'S CARDS (2026-11-09): a browser step waiting for the owner's OK, the owner's sign-in through the private form,
   // or a step the owner does themselves in Gloopy's browser.
@@ -4253,6 +4268,7 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!offered) overheadTokens = overheadOf(sending.tools);
     // (The system message: Coder's instructions, and a job from GitHub's own note; the same at every request of the chat. Its
     // context is in the conversation: ctxOn, above. Gloopy's stays after its instructions. systemText.)
+    lastTools = sending.tools;
     try { answer = await sendOrStop({ model, ...(effort ? { effort } : {}), onRetry: (x) => emit({ type: "note", text: retryLine(x), retry: true }), messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo)], tools: sending.tools, tool_choice: "auto" }); }
     catch (e) {
       // CLAUDE CODE'S REACTIVE COMPACTION: a request Grok refused as too long is summarized and sent again, once.
@@ -4344,7 +4360,20 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         continue;
       }
     }
-    if (!calls.length) { const sg = suggest ? splitSuggest(said) : { text: said, next: "" }; emit({ type: "done", text: scrub(sg.text), ...(sg.next && mode !== "plan" ? { suggest: scrub(sg.next) } : {}), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) }); return end("done", { summary: scrub(sg.text).slice(0, 4000) }); }
+    if (!calls.length) {
+      const sg = splitSuggest(said);
+      emit({ type: "done", text: scrub(sg.text), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) });
+      // THE NEXT-MESSAGE SUGGESTION, CLAUDE CODE'S WAY (the owner, 2026-11-17: "build it claude code way"; its docs: "generates
+      // each of these next-prompt suggestions with a short background request to the same model your session is using ... it
+      // reuses the conversation's prompt cache"): after the answer is shown, one short request with the chat as it is (same
+      // instructions, tools and messages, so the cache holds), asking only for the line. None in plan mode, from GitHub, or
+      // for Gloopy; a slow or failed one just leaves no suggestion.
+      if (suggest && who === "Coder" && !github && mode !== "plan" && typeof deps.send === "function") {
+        const next = await nextPromptFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: SUGGEST_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
+        if (next) emit({ type: "suggest", text: scrub(next) });
+      }
+      return end("done", { summary: scrub(sg.text).slice(0, 4000) });
+    }
     // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one
     // in the chat at most every SAY_EVERY_MS; the others only in the status line under the chat (`quiet`).
     if (said) { const quiet = who === "Gloopy" && lastShown > 0 && now() - lastShown < SAY_EVERY_MS; emit({ type: "text", text: scrub(said), ...(quiet ? { quiet: true } : {}) }); if (!quiet) lastShown = now(); lastSaid = scrub(said).slice(0, 4000); }
