@@ -15,12 +15,12 @@ import { grepText, globText } from "./coder-search.mjs";
 import { searchText } from "./coder-websearch.mjs";
 import { createdText, getText, listText, updateText, TODO_WRITE_RESULT } from "./coder-tasks.mjs";
 import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs";
-import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE, shorterNote } from "./coder-tools.mjs";
+import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE, shorterNote, numberedLine } from "./coder-tools.mjs";
 import { readParts } from "./coder-notebook.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
-const numbered = (content, start) => content.split("\n").map((l, i) => String(start + i).padStart(6) + "\t" + l).join("\n");
+const numbered = (content, start) => content.split("\n").map((l, i) => numberedLine(start + i, l)).join("\n");
 /**
  * EACH TOOL'S TEXT FOR ITS RESULT OBJECT (Claude Code's tool by tool, EnterPlanMode's and TodoWrite's too since 2026-11-14),
  * as Coder prints it: `(tool, value)` → text, or

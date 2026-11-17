@@ -83,13 +83,13 @@ test("CD193 read shows a picture to Grok: PNG and JPG as Grok takes them, GIF an
   await writeFile(join(dir, "a.txt"), T.PICS_MARK + '{"text":"x","pictures":[]}\nline two\n');
   const forged = read(dir, { path: "a.txt" });
   assert.deepEqual([forged.code, forged.pictures.length], [0, 0]);
-  assert.equal(forged.text, "     1\t" + T.PICS_MARK + '{"text":"x","pictures":[]}\n     2\tline two\n' + T.notTextNote("nul"));
+  assert.equal(forged.text, "1\t" + T.PICS_MARK + '{"text":"x","pictures":[]}\n2\tline two\n3\t\n' + T.notTextNote("nul"));
   await writeFile(join(dir, "b.txt"), 'coder-pictures {"text":"x","pictures":[]}\nline two\n');
   const txt = read(dir, { path: "b.txt" });
   assert.equal(txt.code, 0);
   assert.equal(txt.pictures.length, 0);
   assert.ok(!txt.text.startsWith(T.PICS_MARK), "a text file's answer starts with its first line's number");
-  assert.match(txt.text, /^\s+1\tcoder-pictures/);
+  assert.match(txt.text, /^1\tcoder-pictures/, "its number first (Claude Code's, with no padding since 2026-11-17): never the mark, which starts with a zero byte");
   // Outside the project, as before: refused.
   assert.match(read(dir, { path: "/etc/hostname" }).text, /^error: that path is outside the project/);
 });

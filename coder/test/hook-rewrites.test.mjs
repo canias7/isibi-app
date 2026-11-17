@@ -133,7 +133,7 @@ test("HR2 a PostToolUse hook's updatedToolOutput as Claude Code takes it: the la
 
 test("HR3 each tool's own text for a hook's result object, as Coder prints it (Claude Code's tool by tool): Read's lines, Write's and Edit's words, Grep, Glob, WebSearch, Monitor, AskUserQuestion, ExitPlanMode and the task tools; a Read picture shown to Grok; what Coder never makes, refused with Claude Code's mapper words; a part of the result Coder gave, given back unchanged, is not checked again", () => {
   const rw = (tool, v, given = null) => C.outputRewrite(tool, { shownPath: (p) => p.replace("/work/shop/", ""), monitorText: A.monitorStarted }, given)(v);
-  assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "one\ntwo", numLines: 2, startLine: 4, totalLines: 9 } }), { text: "     4\tone\n     5\ttwo" });
+  assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "one\ntwo", numLines: 2, startLine: 4, totalLines: 9 } }), { text: "4\tone\n5\ttwo" }); // (Claude Code's numbers, no padding, since 2026-11-17)
   assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "", numLines: 0, startLine: 1, totalLines: 0 } }), { text: "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>" });
   assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "", numLines: 0, startLine: 12, totalLines: 3 } }), { text: "<system-reminder>Warning: the file exists but is shorter than the provided offset (12). The file has 3 lines.</system-reminder>" });
   assert.deepEqual(rw("Read", { type: "image", file: { base64: "iVBORw0KGgo=", type: "image/png", originalSize: 8 } }), { text: "", pics: [{ type: "image/png", data: "iVBORw0KGgo=" }] });
@@ -360,8 +360,8 @@ test("HR7 read, write and edit build Claude Code's result objects when Coder's l
     writeFileSync(join(d, "a.txt"), "one\ntwo\nthree\n");
     const run = (tool, args) => execFileSync("node", ["--no-warnings", TOOLS, Buffer.from(JSON.stringify({ tool, args })).toString("base64")], { cwd: d, env: { ...process.env, CODER_ROOT: d, CODER_CWD: d }, encoding: "utf8" });
     const r = A.factsAnswer(run("read", { path: "a.txt", offset: 2, limit: 1, facts: true }));
-    assert.deepEqual(r.facts, { type: "text", file: { filePath: join(d, "a.txt"), content: "two", numLines: 1, startLine: 2, totalLines: 3 } });
-    assert.match(r.text, /^     2\ttwo/);
+    assert.deepEqual(r.facts, { type: "text", file: { filePath: join(d, "a.txt"), content: "two", numLines: 1, startLine: 2, totalLines: 4 } }, "Claude Code's count: the empty end after the last newline is a line");
+    assert.match(r.text, /^2\ttwo/);
     assert.equal(A.factsAnswer(run("read", { path: "a.txt" })).facts, null, "not asked: none");
     const w = A.factsAnswer(run("write", { path: "a.txt", content: "one\nTWO\nthree\n", facts: true }));
     assert.deepEqual(w.facts, { type: "update", filePath: join(d, "a.txt"), content: "one\nTWO\nthree\n", structuredPatch: [{ oldStart: 1, oldLines: 3, newStart: 1, newLines: 3, lines: [" one", "-two", "+TWO", " three"] }], originalFile: "one\ntwo\nthree\n" });

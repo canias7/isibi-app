@@ -146,11 +146,12 @@ test("BR4 write and edit refuse a UTF-16BE file and one with NUL bytes in its fi
       assert.equal(tool("edit", { path: f, old_string: "", new_string: "x" }), "error: " + T.EDIT_EXISTS);
       assert.deepEqual(readFileSync(join(dir, f)), bytes, f + ": nothing written");
     }
-    assert.equal(tool("read", { path: "nul.txt" }), "     1\ta\u0000b\n     2\tok\n" + T.notTextNote("nul"));
-    assert.equal(tool("read", { path: "be.txt" }), "     1\t��\u0000h\u0000i\u0000\n" + T.notTextNote("utf16be"), "read as UTF-8, as Claude Code's Read reads it");
+    // (Claude Code's lines since 2026-11-17: what follows the last newline is a line too, numbered without padding.)
+    assert.equal(tool("read", { path: "nul.txt" }), "1\ta\u0000b\n2\tok\n3\t\n" + T.notTextNote("nul"));
+    assert.equal(tool("read", { path: "be.txt" }), "1\t��\u0000h\u0000i\u0000\n2\t\n" + T.notTextNote("utf16be"), "read as UTF-8, as Claude Code's Read reads it");
     // UTF-16LE behind its mark: text, read, edited and written as UTF-16LE.
     writeFileSync(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hi\n", "utf16le")]));
-    assert.equal(tool("read", { path: "le.txt" }), "     1\thi");
+    assert.equal(tool("read", { path: "le.txt" }), "1\thi\n2\t");
     assert.match(tool("edit", { path: "le.txt", old_string: "hi", new_string: "hé" }), /^The file le\.txt has been updated successfully\./);
     assert.deepEqual(readFileSync(join(dir, "le.txt")), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("hé\n", "utf16le")]));
     // Deleted first, it may be written anew (Claude Code's own advice).
@@ -197,9 +198,9 @@ test("BR6 read refuses Claude Code 2.1.325's own list of binary kinds (121 exten
     }
     // Not on the list: read, with Claude Code's note when it holds NUL bytes.
     writeFileSync(join(dir, "blob.raw"), Buffer.from("a\0b\n"));
-    assert.equal(read("blob.raw"), "     1\ta\u0000b\n" + T.notTextNote("nul"));
+    assert.equal(read("blob.raw"), "1\ta\u0000b\n2\t\n" + T.notTextNote("nul"));
     writeFileSync(join(dir, "data.avro"), "Obj\n");
-    assert.equal(read("data.avro"), "     1\tObj");
+    assert.equal(read("data.avro"), "1\tObj\n2\t");
     // .bmp, .tif and .tiff refused as binary too, as Claude Code 2.1.325's Read refuses them (its pictures are png, jpg, jpeg,
     // gif and webp: round 6, the owner, "do what claude code does"); a picture read shows is still taken as a picture.
     for (const f of ["x.bmp", "y.tif", "z.TIFF"]) { writeFileSync(join(dir, f), "not really a picture"); assert.equal(read(f), "error: " + T.BINARY_REFUSED(f.slice(f.lastIndexOf(".")).toLowerCase()), f); }

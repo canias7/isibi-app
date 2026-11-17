@@ -90,8 +90,10 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
   const num = (n) => 100000 + ((n * 7919) % 900000);
   await writeFile(join(dir, "long.txt"), Array.from({ length: 500 }, (_, i) => "line " + (i + 1) + ": " + num(i + 1) + " " + "x".repeat(60)).join("\n") + "\n");
   const whole = read({ path: "long.txt" });
-  assert.ok(whole.includes("   250\tline 250: " + num(250) + " "), "line 250 is there");
-  assert.ok(whole.endsWith("   500\tline 500: " + num(500) + " " + "x".repeat(60)), "and the last line, with no blank line after the file's last newline");
+  // (Claude Code's lines and numbers since 2026-11-17, the owner: "Like claude code yes": no padding; what follows the last
+  // newline is a line too, empty here.)
+  assert.ok(whole.includes("\n250\tline 250: " + num(250) + " "), "line 250 is there");
+  assert.ok(whole.endsWith("\n500\tline 500: " + num(500) + " " + "x".repeat(60) + "\n501\t"), "and the last line, then the empty one after the file's last newline");
   assert.doesNotMatch(whole, /PARTIAL|read more|characters not shown/);
   // About 200 KB: a PARTIAL view, then parts asked for with offset and limit, which join up exactly.
   await writeFile(join(dir, "mid.txt"), Array.from({ length: 2000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
@@ -104,7 +106,7 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
     assert.ok(body.length <= READ_CHARS, "part " + parts + " is " + body.length + " characters");
     const rows = body.split("\n");
     assert.equal(Number(rows[0].split("\t")[0]), offset, "a part starts where the last one stopped");
-    rows.forEach((r, i) => assert.equal(r, String(offset + i).padStart(6) + "\trow " + (offset + i) + " " + "y".repeat(92), "whole lines only"));
+    rows.forEach((r, i) => assert.equal(r, (offset + i) + "\trow " + (offset + i) + " " + "y".repeat(92), "whole lines only"));
     seen += rows.length; parts++;
     if (seen >= 2000) break;
     offset = seen + 1;
@@ -114,7 +116,7 @@ test("CD204 read gives about 100,000 characters of whole lines a call, like Clau
     if (m) { assert.equal(Number(m[1]), offset + body.split("\n").length); limit = Number(m[2]); }
   }
   assert.equal(seen, 2000); assert.ok(parts >= 2 && parts <= 3, parts + " parts");
-  assert.match(read({ path: "mid.txt", offset: 5, limit: 10 }), /^\s+5\trow 5 [\s\S]*\n\s+14\trow 14 y+\n\[lines 5-14 of 2000; read more with offset 15 and limit \d+\]$/, "limit asks for fewer lines");
+  assert.match(read({ path: "mid.txt", offset: 5, limit: 10 }), /^5\trow 5 [\s\S]*\n14\trow 14 y+\n\[lines 5-14 of 2000; read more with offset 15 and limit \d+\]$/, "limit asks for fewer lines");
   // In the agent: a read of about 60,000 characters reaches Grok whole; a command's output is still cut.
   const { runCoder, CODER_TOOLS } = await import("../container/coder-agent.mjs");
   const big = Array.from({ length: 600 }, (_, i) => String(i + 1).padStart(6) + "\tline " + (i + 1) + " " + "z".repeat(90)).join("\n");
@@ -144,17 +146,21 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   // (Claude Code's words since 2026-11-17, its real Read tried: the owner, "yes match both pls".)
   assert.equal(read({ path: "empty.txt" }), "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>");
   await writeFile(join(dir, "two.txt"), "a\nb\n");
-  assert.equal(read({ path: "two.txt" }), "     1\ta\n     2\tb", "the last newline makes no extra line");
+  // (Claude Code's lines since 2026-11-17, its real Read tried: the last newline makes an empty last line; the owner, "Like
+  // claude code yes". Before, Coder showed two lines.)
+  assert.equal(read({ path: "two.txt" }), "1\ta\n2\tb\n3\t");
+  assert.equal(read({ path: "two.txt", offset: 3 }), "3\t", "that line can be read");
   // (Claude Code's words since 2026-11-17, its real Read tried: the owner, "yes match all 3 pls".)
-  assert.equal(read({ path: "two.txt", offset: 9 }), "<system-reminder>Warning: the file exists but is shorter than the provided offset (9). The file has 2 lines.</system-reminder>");
+  assert.equal(read({ path: "two.txt", offset: 9 }), "<system-reminder>Warning: the file exists but is shorter than the provided offset (9). The file has 3 lines.</system-reminder>");
+  assert.equal(read({ path: "empty.txt", offset: 5 }), "<system-reminder>Warning: the file exists but is shorter than the provided offset (5). The file has 1 lines.</system-reminder>", "an empty file is one empty line, as there");
   // Over 256 KB: a whole read is refused, with what to do instead.
   await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   assert.match(read({ path: "big.txt" }), /^FAILED [\s\S]*big\.txt is 29\d KB, over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large/);
   assert.match(read({ path: "big.txt", offset: 1, limit: 3000 }), /^FAILED [\s\S]*lines 1-3000 of big\.txt come to more than about 100,000 characters: ask for fewer lines \(limit\), search with grep, or set allow_large/, "a part asked for that does not fit");
-  assert.match(read({ path: "big.txt", offset: 2990, limit: 5 }), /^\s+2990\trow 2990 [\s\S]*\n\[lines 2990-2994 of 3000; read more with offset 2995 and limit 6\]$/, "a part that fits");
+  assert.match(read({ path: "big.txt", offset: 2990, limit: 5 }), /^2990\trow 2990 [\s\S]*\n\[lines 2990-2994 of 3000; read more with offset 2995 and limit 6\]$/, "a part that fits");
   // allow_large: the whole file in one call when Coder gives the room; without room, the usual size, as a PARTIAL view.
   const all = read({ path: "big.txt", allow_large: true, max_chars: 400000 });
-  assert.ok(all.endsWith("  3000\trow 3000 " + "y".repeat(92)) && !/PARTIAL/.test(all), "all 3000 lines in one call");
+  assert.ok(all.endsWith("\n3000\trow 3000 " + "y".repeat(92)) && !/PARTIAL/.test(all), "all 3000 lines in one call");
   assert.match(read({ path: "big.txt", allow_large: true }), /\n\[PARTIAL view: lines 1-\d+ of 3000/);
   await writeFile(join(dir, "huge.txt"), Array.from({ length: 5000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   const most = read({ path: "huge.txt", allow_large: true, max_chars: 99999999 });
@@ -332,7 +338,7 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   assert.equal(note.role, "user");
   assert.equal(note.appNote, true);
   assert.match(note.content, /^\(Note from Coder's app, not the owner: the files the owner @-mentioned, read into their message for you, as Claude Code does; the pictures of shot\.png are attached here, in order\./);
-  assert.ok(note.content.includes("--- src/app.js ---\n     1\tconst a = 1;\n     2\texport default a;\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md: use semicolons"), "the file whole, with its folder's instructions");
+  assert.ok(note.content.includes("--- src/app.js ---\n1\tconst a = 1;\n2\texport default a;\n3\t\n\nTHE REPO'S INSTRUCTIONS FOR THIS FILE: src/CODER.md: use semicolons"), "the file whole (Claude Code's lines), with its folder's instructions");
   assert.match(note.content, /--- shot\.png ---\n/);
   assert.equal(note.images.length, 1, "the picture is shown");
   assert.match(note.images[0], /^data:image\/png;base64,/);
@@ -348,7 +354,7 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   // it does not read.
   const rows = events.filter((e) => e.type === "bash").map((e) => [e.tool, e.verb, e.command, e.after || ""]);
   assert.deepEqual(rows.map((x) => x.slice(0, 3)), [["read", "Read", "src/app.js"], ["read", "Read", "shot.png"], ["list_dir", "Listed directory", "src/"], ["mention_ref", "Referenced", "big.log"], ["mention_ref", "Referenced", "mid.txt"]]);
-  assert.equal(rows[0][3], "(2 lines)");
+  assert.equal(rows[0][3], "(3 lines)", "Claude Code's count: the empty end after the last newline is a line");
   assert.match(rows[1][3], /^\((\d+ bytes|\d+(\.\d)?KB)\)$/, "the picture's size, in Claude Code's way");
   assert.equal(rows[2][3], "", "a folder: nothing after it");
   assert.equal(rows[3][3], "(not read: too large, 300KB)");
@@ -432,7 +438,7 @@ test("CD210 after a long job is summarized, the files it was working on are read
   const again = (last.find((m) => typeof m.content === "string" && m.content.startsWith("(Like Claude Code after a summary")) || {}).content || "";
   assert.match(again, /^\(Like Claude Code after a summary: the files you were working on, read again just now as they are now, the most recently changed first\.\)\n\n/);
   // d.js (written in the job: the newest), then a.js, big.js, b.js by their times, and one more: at most five.
-  const order = ["--- d.js ---\n     1\texport const d = 4;", "--- a.js ---\n     1\tconst a = 1;", "Referenced file big.js (over 20,000 characters, so not shown again here: read it again if you need it)", "--- b.js ---\n     1\tconst b = 2;"];
+  const order = ["--- d.js ---\n1\texport const d = 4;", "--- a.js ---\n1\tconst a = 1;", "Referenced file big.js (over 20,000 characters, so not shown again here: read it again if you need it)", "--- b.js ---\n1\tconst b = 2;"];
   let at = -1;
   for (const o of order) { const i = again.indexOf(o); assert.ok(i > at, "in order: " + o); at = i; }
   assert.ok([...again.matchAll(/^--- (\S+) ---$/gm)].length + (again.includes("Referenced file big.js") ? 1 : 0) <= 5, "at most five");
@@ -524,7 +530,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   assert.deepEqual(Object.keys(index[0]).sort(), ["abs", "hash", "mtime", "size"]);
   assert.ok(!JSON.stringify(index).includes("const a"), "no copy of the file is kept");
   await writeFile(join(dir, "a.js"), "const a = 2;\n");
-  assert.deepEqual(await changed(), { followed: 1, changed: [{ path: "a.js", lines: "     1\tconst a = 2;" }] }, "with the lines the change touched");
+  assert.deepEqual(await changed(), { followed: 1, changed: [{ path: "a.js", lines: "1\tconst a = 2;" }] }, "with the lines the change touched");
   assert.deepEqual((await changed()).changed, [], "told once");
   await utimes(join(dir, "a.js"), new Date(), new Date(Date.now() + 5000));
   assert.deepEqual((await changed()).changed, [], "only touched: the same bytes");
@@ -589,7 +595,7 @@ test("CD213 a command that changes a file Coder read says so in its result, as C
   // And, for Grok only, the lines the change touched, once, after that round, as Claude Code's second note does (the
   // owner, 2026-11-08: "Yea fix those 4"); none for the files changed in the background, and none before any step.
   // (Less tool search's note on the chat's deferred tools, tool-search.test.mjs, in this test file's note checks.)
-  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tconst a = 2;)"]);
+  assert.deepEqual(seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content), ["(Note from Coder's app, not the owner, about your last commands:\nNote: a.js changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n1\tconst a = 2;)"]);
   assert.ok(!seen[0].messages.some((m) => m.appNote && !m.toolsAnnounced && !m.modeNote), "and no note before any step");
   // Between messages (an undo, say): no note, and not put down to Coder's first command.
   await writeFile(join(dir, "a.js"), "const a = 7;\n");
@@ -633,7 +639,7 @@ test("CD215 right after a summary made between messages (/compact, a long chat s
   assert.equal(note.appNote, true);
   assert.equal(plain.at(-2).content, "next", "right after the owner's message");
   assert.ok(note.content.startsWith("(Note from Coder's app, not the owner: this chat was summarized before this message. Like Claude Code after a summary, the files you were working on, read again just now as they are now, the most recently changed first.)\n\n"));
-  const order = ["--- b.js ---\n     1\tconst b = 2;", "Referenced file big.js (over 20,000 characters", "--- a.js ---\n     1\tconst a = 1;"];
+  const order = ["--- b.js ---\n1\tconst b = 2;", "Referenced file big.js (over 20,000 characters", "--- a.js ---\n1\tconst a = 1;"];
   let at = -1;
   for (const o of order) { const i = note.content.indexOf(o); assert.ok(i > at, "in order: " + o); at = i; }
   assert.ok(!note.content.includes("kept.js") && !note.content.includes("gone.js"), "not what the kept messages show, nor a file that is gone");
@@ -673,7 +679,7 @@ test("CD216 read refuses a binary file by its kind, as Claude Code's Read does (
   // (round 4; Coder had refused it in its own words).
   const { notTextNote } = await import("../container/coder-tools.mjs");
   await writeFile(join(dir, "blob.raw"), Buffer.from([1, 2, 0, 3]));
-  assert.equal(await read("blob.raw"), "     1\t\u0001\u0002\u0000\u0003\n" + notTextNote("nul"));
+  assert.equal(await read("blob.raw"), "1\t\u0001\u0002\u0000\u0003\n" + notTextNote("nul"));
   // A folder.
   await mkdir(join(dir, "src"));
   assert.equal(await read("src"), "error: " + join(dir, "src") + " is a folder, not a file: list what is in it with glob, or a command such as ls");
@@ -907,7 +913,7 @@ test("CD223 an instruction file loads without its block-level HTML comments, as 
   assert.equal(ins.notes.find((n) => n.name === "CODER.md").text, w.text);
   // The read tool shows the file as it is, comments too.
   const read = (await machine(dir)({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path: "CODER.md" } })).toString("base64") })).output;
-  assert.match(read, /     2\t<!-- maintainer notes:/);
+  assert.match(read, /\n2\t<!-- maintainer notes:/);
   // A long subfolder file with a big comment at its top: its note names the file's own line to read on from.
   const dir2 = await mkdtemp(join(tmpdir(), "coder-comments-"));
   await mkdir(join(dir2, "src"));
@@ -935,15 +941,15 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   await writeFile(join(dir, "le.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from(words, "utf16le")]));
   const be = Buffer.from(words, "utf16le"); be.swap16();
   await writeFile(join(dir, "be.txt"), Buffer.concat([Buffer.from([0xfe, 0xff]), be]));
-  assert.equal(await tool("read", { path: "le.txt" }), "     1\théllo\n     2\twörld");
+  assert.equal(await tool("read", { path: "le.txt" }), "1\théllo\n2\twörld\n3\t", "Claude Code's lines: the empty end after the last newline too");
   // A big-endian file (FE FF) is read as UTF-8, with Claude Code 2.1.325's note, as its Read reads only UTF-16LE behind its mark
   // (round 4; Coder had read it as UTF-16).
   const { notTextNote, notTextRefused } = await import("../container/coder-tools.mjs");
-  const beLines = Buffer.concat([Buffer.from([0xfe, 0xff]), be]).toString("utf8").split("\n").slice(0, -1);
-  assert.equal(await tool("read", { path: "be.txt" }), beLines.map((l, i) => String(i + 1).padStart(6) + "\t" + l).join("\n") + "\n" + notTextNote("utf16be"));
+  const beLines = Buffer.concat([Buffer.from([0xfe, 0xff]), be]).toString("utf8").split("\n");
+  assert.equal(await tool("read", { path: "be.txt" }), beLines.map((l, i) => (i + 1) + "\t" + l).join("\n") + "\n" + notTextNote("utf16be"));
   assert.match(await tool("edit", { path: "be.txt", old_string: "w", new_string: "v" }), /^error: be\.txt is UTF-16 big-endian \(it starts FE FF\), which these tools cannot write\. These tools write UTF-8/);
   await writeFile(join(dir, "nul.txt"), Buffer.from([0x61, 0, 0x62]));
-  assert.equal(await tool("read", { path: "nul.txt" }), "     1\ta\u0000b\n" + notTextNote("nul"), "zero bytes without a byte-order mark: shown, with the note");
+  assert.equal(await tool("read", { path: "nul.txt" }), "1\ta\u0000b\n" + notTextNote("nul"), "zero bytes without a byte-order mark: shown, with the note");
   assert.equal(await tool("edit", { path: "nul.txt", old_string: "a", new_string: "c" }), "error: nul.txt " + notTextRefused("nul"));
   // Edit changes UTF-16 files as UTF-16 since its turn (tool 3, 2026-11-09), as Claude Code's Edit ("unless the file starts with a little-endian UTF-16 byte-order mark").
   assert.match(await tool("edit", { path: "le.txt", old_string: "h", new_string: "j" }), /^The file le\.txt has been updated successfully\./);
@@ -960,7 +966,7 @@ test("CD224 from Claude Code's changelog: read opens UTF-16 text with a byte-ord
   await writeFile(join(dir, "a.txt"), "alpha\n");
   let k = 0;
   const res = await runCoder({ send: async () => (++k === 1 ? say("", [call("read", { file_path: "a.txt" }, "r1")]) : say("Done.")), emit: () => {}, exec: run }, { text: "read a" });
-  assert.equal(res.messages.find((m) => m.tool_call_id === "r1").content, "     1\talpha");
+  assert.equal(res.messages.find((m) => m.tool_call_id === "r1").content, "1\talpha\n2\t");
 });
 
 test("CD225 the second review (2026-11-08), Coder's loop: a long chat's job no longer summarizes every round, and its requests stay bounded (what a summary leaves is sized with the chat before the job and the files read again); pictures never count when sizing the steps kept; after a summary, pictures, PDFs and notebooks are not read again, and the files read again keep to their room", async () => {
@@ -1255,7 +1261,7 @@ test("CD238 a command that shows one file (cat, head, sed -n …) counts as read
   assert.equal(reply("b1"), "apple\nbanana\ncherry");
   assert.equal(reply("b2"), "(Bash completed with no output)\n[This command changed 1 file you read before: notes.txt. Read it again before editing.]");
   const notes = seen.at(-1).messages.filter((m) => m.appNote && !m.toolsAnnounced && !m.modeNote).map((m) => m.content);
-  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n     1\tapple\n     2\tkiwi\n     3\tcherry)"]);
+  assert.deepEqual(notes, ["(Note from Coder's app, not the owner, about your last commands:\nNote: notes.txt changed on disk since you last read it. That's usually deliberate, so take it as the current state rather than reverting it; if the change looks wrong, say so rather than undoing it yourself — otherwise no need to call it out. Here are the relevant changes (shown with line numbers):\n1\tapple\n2\tkiwi\n3\tcherry)"]);
   // The note comes after the round's results (never between a call and its answer), and only once.
   const at = seen.at(-1).messages.findIndex((m) => m.appNote && !m.toolsAnnounced && !m.modeNote);
   assert.equal(seen.at(-1).messages[at - 1].tool_call_id, "b2");
@@ -1287,14 +1293,14 @@ test("CD239 read gives whole lines, never cut (Claude Code 2.1.319, tried side b
   const read = (args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const { toolRead } = await import(" + JSON.stringify(new URL("../container/coder-tools.mjs", import.meta.url).pathname) + "); process.stdout.write(await toolRead(" + JSON.stringify(args) + "));"], { cwd: dir, encoding: "utf8", maxBuffer: 16 << 20 }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || ""); } };
   assert.equal(typeof toolRead, "function");
   // A 20,000-character line, whole.
-  assert.equal(read({ path: "line20k.txt" }), "     1\tfirst\n     2\t" + long + "\n     3\tlast");
+  assert.equal(read({ path: "line20k.txt" }), "1\tfirst\n2\t" + long + "\n3\tlast\n4\t");
   // A 150,000-character line: a whole read stops before it, and says how to read on.
   const part = read({ path: "huge.txt" });
-  assert.match(part, /^     1\tfirst\n\[PARTIAL view: lines 1-1 of 3 \(about 1 KB of 146 KB\)\. Read more with offset 2 and limit 1\. Do not answer from this part alone if the answer may be further in the file\.\]$/);
+  assert.match(part, /^1\tfirst\n\[PARTIAL view: lines 1-1 of 4 \(about 1 KB of 146 KB\)\. Read more with offset 2 and limit 1\. Do not answer from this part alone if the answer may be further in the file\.\]$/);
   // That line alone: over one read, so said, with the ways to see it.
   assert.match(read({ path: "huge.txt", offset: 2, limit: 1 }), /line 2 of huge\.txt is 146 KB by itself, more than one read takes \(about 100,000 characters\): set allow_large to read it whole, or show a part of it with bash, e\.g\. sed -n 2p 'huge\.txt' \| cut -c1-50000/);
   // With allow_large (and the room for it), the whole line.
-  assert.equal(read({ path: "huge.txt", allow_large: true, max_chars: 400000 }), "     1\tfirst\n     2\t" + huge + "\n     3\tlast");
+  assert.equal(read({ path: "huge.txt", allow_large: true, max_chars: 400000 }), "1\tfirst\n2\t" + huge + "\n3\tlast\n4\t");
 });
 
 test("CD240 the lines a change touched, for the note after a command (Claude Code's: \"Here are the relevant changes (shown with line numbers)\"): 8 lines either side of the change, as read numbers them; a change too big to show says so; only touched (the same bytes) is no change", async () => {
@@ -1310,7 +1316,7 @@ test("CD240 the lines a change touched, for the note after a command (Claude Cod
   const run = machine(dir, undefined, env);
   const tool = async (name, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
   const changed = async () => JSON.parse(await tool("changed")).changed;
-  const rows = (from, to, f) => Array.from({ length: to - from + 1 }, (_, i) => String(from + i).padStart(6) + "\t" + f(from + i)).join("\n");
+  const rows = (from, to, f) => Array.from({ length: to - from + 1 }, (_, i) => (from + i) + "\t" + f(from + i)).join("\n");
   const lines = (n, f = (i) => "line " + i) => Array.from({ length: n }, (_, i) => f(i + 1)).join("\n") + "\n";
   await writeFile(join(dir, "a.txt"), lines(30));
   await tool("read", { path: "a.txt" });
@@ -1344,14 +1350,14 @@ test("CD241 read says when a file is not valid UTF-8 (an old encoding such as Wi
   const run = machine(dir);
   const read = async (path, args = {}) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: "read", args: { path, ...args } })).toString("base64") })).output;
   await writeFile(join(dir, "old.txt"), Buffer.from([0x63, 0x61, 0x66, 0xe9, 0x0a, 0x6f, 0x6b, 0x0a])); // "caf\xe9\nok\n", Windows-1252
-  assert.equal(await read("old.txt"), "     1\tcaf�\n     2\tok\n" + NOT_UTF8_NOTE);
+  assert.equal(await read("old.txt"), "1\tcaf�\n2\tok\n3\t\n" + NOT_UTF8_NOTE);
   await writeFile(join(dir, "new.txt"), "café\n");
-  assert.equal(await read("new.txt"), "     1\tcafé", "UTF-8: no note");
+  assert.equal(await read("new.txt"), "1\tcafé\n2\t", "UTF-8: no note");
   await writeFile(join(dir, "u16.txt"), Buffer.concat([Buffer.from([0xff, 0xfe]), Buffer.from("café\n", "utf16le")]));
-  assert.equal(await read("u16.txt"), "     1\tcafé", "UTF-16 with its byte-order mark: no note");
+  assert.equal(await read("u16.txt"), "1\tcafé\n2\t", "UTF-16 with its byte-order mark: no note");
   // A big one: the PARTIAL view's note, then this one.
   await writeFile(join(dir, "big-old.txt"), Buffer.concat(Array.from({ length: 2000 }, (_, i) => Buffer.concat([Buffer.from("line " + (i + 1) + " caf"), Buffer.from([0xe9]), Buffer.from(" " + "x".repeat(80) + "\n")]))));
-  assert.match(await read("big-old.txt"), /\n\[PARTIAL view: lines 1-\d+ of 2000 [^\]]+\]\n\[This file is not valid UTF-8: /);
+  assert.match(await read("big-old.txt"), /\n\[PARTIAL view: lines 1-\d+ of 2001 [^\]]+\]\n\[This file is not valid UTF-8: /); // (each line ends with a newline: Claude Code counts the empty end too)
 });
 
 test("CD242 a missing file is named with the folder a short path counts from, as Claude Code's Read says it (tried side by side, 2026-11-08: \"File does not exist. Note: your current working directory is /home/user/cc-test4.\"); an @-mention of a path that is not a file is still left alone", async () => {
@@ -1389,7 +1395,7 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
   const big = Array.from({ length: 1500 }, (_, i) => "line " + (i + 1) + " " + "w".repeat(80)).join("\n") + "\n";
   await writeFile(join(dir, "big.txt"), big);
-  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
+  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1501/); // (Claude Code's count: the empty end after the last newline is a line)
   assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: " + EDIT_NOT_READ);
   assert.equal(await readFile(join(dir, "big.txt"), "utf8"), big, "untouched");
   await tool("read", { path: "big.txt", offset: 1000 });
@@ -1609,7 +1615,7 @@ test("CD250 a file read only partly stays so after a command shows it (cat, head
   const tool = async (name, args) => (await run({ command: "node --no-warnings " + toolsScript + " " + Buffer.from(JSON.stringify({ tool: name, args })).toString("base64") })).output;
   const big = Array.from({ length: 1500 }, (_, i) => "line " + (i + 1) + " " + "w".repeat(80)).join("\n") + "\n";
   await writeFile(join(dir, "big.txt"), big);
-  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1500/);
+  assert.match(await tool("read", { path: "big.txt" }), /\[PARTIAL view: lines 1-\d+ of 1501/); // (Claude Code's count: the empty end after the last newline is a line)
   assert.equal(await tool("seen", { path: "big.txt" }), "followed", "`cat big.txt` was run");
   // (Claude Code's Write's own words since 2026-11-17, nothing added: the owner, "YES PLS".)
   assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "error: File has not been read yet. Read it first before writing to it.");

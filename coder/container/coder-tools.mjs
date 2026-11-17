@@ -40,6 +40,8 @@ export const READ_WHOLE_MAX = 256 * 1024;
  * Coder had said "x.txt exists, but it is empty."
  */
 export const EMPTY_FILE_NOTE = "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>";
+/** A LINE AS CLAUDE CODE'S READ SHOWS IT (its pDt and ulr, 2.1.326): its number, a tab, the line without a carriage return at its end. */
+export const numberedLine = (n, line) => n + "\t" + (String(line).endsWith("\r") ? String(line).slice(0, -1) : String(line));
 /**
  * AN OFFSET PAST A FILE'S END, IN CLAUDE CODE'S WORDS (its Read, tried, and its program, 2.1.326: "The file has N lines", "lines"
  * whatever N; the owner, 2026-11-17: "yes match all 3 pls"). Coder had said "x.txt has 3 lines: offset 9 is past its end."
@@ -848,12 +850,19 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // { type: "text", file: { filePath, content, numLines, startLine, totalLines } }, the lines given without their numbers.
   // (The owner, 2026-11-14: "Fix base on Claude Code docs, please".)
   const told = (t, content, numLines, startLine, totalLines) => (facts === true && content.length <= FACTS_TEXT_MAX ? { text: t, facts: { type: "text", file: { filePath: abs, content, numLines, startLine, totalLines } } } : t);
-  if (!text.length) { await clearStart(abs); return told(EMPTY_FILE_NOTE, "", 0, 1, 0); }
-  const lines = text.split("\n");
-  if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop(); // the last newline ends a line; it is not one
-  const total = lines.length;
   const asked = (offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0;
   const from = Math.max(1, Math.floor(Number(offset) || 1));
+  // CLAUDE CODE'S LINES (its Read, tried, and its program, 2.1.326; the owner, 2026-11-17: "Like claude code yes"): every
+  // newline ends a line, and what follows the last one is a line too, so a file that ends with a newline has an empty last
+  // line ("a\nb\n": 3 lines, the third empty), and an empty file has one empty line (its "The file has 1 lines" past it).
+  // Coder had taken the last newline as ending the last line, so it counted one fewer.
+  if (!text.length) {
+    if (from > 1) return told(shorterNote(from, 1), "", 0, from, 1);
+    await clearStart(abs);
+    return told(EMPTY_FILE_NOTE, "", 1, 1, 1);
+  }
+  const lines = text.split("\n");
+  const total = lines.length;
   if (from > total) return told(shorterNote(from, total), "", 0, from, total);
   const large = allow_large === true;
   const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
@@ -864,7 +873,9 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   // WHOLE LINES, NEVER CUT (the owner, 2026-11-08: "Yea fix those 4"; Claude Code 2.1.319, tried side by side: a
   // 20,000-character line came back whole). Coder cut every line at 2,000 characters before, so the rest of a long line
   // (minified code, a long paragraph) was never seen.
-  const rowOf = (i) => String(i + 1).padStart(6) + "\t" + lines[i];
+  // (Each line as Claude Code numbers it: its number, a tab, the line, a carriage return at its end left out; Coder had padded
+  // the number to six places, "     1\t…", the "cat -n format" its docs name.)
+  const rowOf = (i) => numberedLine(i + 1, lines[i]);
   // A LINE TOO BIG FOR ONE READ BY ITSELF (Claude Code leaves it for a read of its own, "showing lines 1-1 of 4 … Call
   // Read with offset=2 limit=1", and that read is over its limit too): a whole read stops before it, and a read that
   // starts at it says so, with the ways to see it.
@@ -1806,10 +1817,12 @@ function changedLines(was, buf) {
   while (a < old.length && a < now.length && old[a] === now[a]) a++;
   let b = 0;
   while (b < old.length - a && b < now.length - a && old[old.length - 1 - b] === now[now.length - 1 - b]) b++;
-  const shownLines = all.length > 1 && all[all.length - 1] === "" ? all.length - 1 : all.length; // the last newline ends a line
+  // (Numbered as Claude Code's read numbers lines; but, as its note is made from a diff, whose lines end at each newline, the
+  // empty end after a file's last newline is not one of them.)
+  const shownLines = all.length > 1 && all[all.length - 1] === "" ? all.length - 1 : all.length;
   const first = Math.max(0, a - CHANGE_AROUND), last = Math.min(shownLines - 1, Math.max(a, now.length - b - 1) + CHANGE_AROUND);
   const rows = [];
-  for (let i = first; i <= last; i++) rows.push(String(i + 1).padStart(6) + "\t" + all[i]);
+  for (let i = first; i <= last; i++) rows.push(numberedLine(i + 1, all[i]));
   const out = rows.join("\n");
   return out.length > CHANGE_SHOW_MAX ? { big: true } : { lines: out };
 }

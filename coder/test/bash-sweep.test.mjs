@@ -343,7 +343,7 @@ test("CD302 (the live test after deploy 75) read and grep open the chat's own co
   await symlink(join(other, "secret.txt"), join(bg, "bg-2.log"));
   const tools = new URL("../container/coder-tools.mjs", import.meta.url).pathname;
   const run = (fn, args) => { try { return execFileSync("node", ["--no-warnings", "--input-type=module", "-e", "const T = await import(" + JSON.stringify(tools) + "); const r = await T." + fn + "(" + JSON.stringify(args) + "); process.stdout.write(String(r && typeof r === \"object\" && \"text\" in r ? r.text : r));"], { cwd: proj, encoding: "utf8", env: { ...process.env, CODER_OUTPUT_DIRS: bg + ":" + out } }); } catch (e) { return "ERROR " + String(e.stderr || e.stdout || e.message); } };
-  assert.match(run("toolRead", { path: join(bg, "bg-1.log") }), /^ +1\ttick 1\n +2\ttick 2\n +3\tall done$/, "a background command's log");
+  assert.match(run("toolRead", { path: join(bg, "bg-1.log") }), /^1\ttick 1\n2\ttick 2\n3\tall done\n4\t$/, "a background command's log (Claude Code's lines since 2026-11-17: the empty end after the last newline too)");
   assert.match(run("toolRead", { path: join(out, "abc123.txt"), offset: 51, limit: 1 }), /51\tthe needle/, "a long output's saved file, a part of it");
   // grep searches with ripgrep, as Coder's machine has it (skipped on a machine without it, as the deploy expects).
   let hasRg = true; try { execFileSync("rg", ["--version"]); } catch { hasRg = false; }

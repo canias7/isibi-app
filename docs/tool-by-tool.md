@@ -748,10 +748,35 @@ Found while doing these (for the owner; **all 3 changed**, the owner: "yes match
 Tests: CD205 and HR3 (the words, the hook's notebook), CD209 (the rows, made by Coder's code on real files), CD209b (the row
 on the page and the group line). The full suite: 1333 pass, 4 skipped, 0 fail.
 
-**Found while doing these (for the owner):**
+**Found while doing these (for the owner; both changed, the owner: "Like claude code yes", below):**
 1. Claude Code counts the empty part after a file's last newline as a line: "apple\nmango\ncherry\n" has 4 lines there (its
    Read shows an empty line 4, says "The file has 4 lines", and reads from line 4); Coder counts 3. So the counts in the words
    above, an @-mention's "(N lines)" and a PARTIAL view's totals are one lower in Coder for such a file.
 2. Claude Code 2.1.326 numbers lines without padding ("1\tapple"; a ":" instead of the tab when its tab-aware setting is on
    and the file has lines starting with a tab); Coder pads them to six places ("     1\tapple"), as Claude Code's docs say
    ("cat -n format").
+
+**Read's lines and numbers, as Claude Code's** (the owner: "Like claude code yes"; its real Read tried on 14 cases, and its
+program, 2.1.326: its pDt and ulr):
+
+| File, read | Claude Code (tried) | Coder before | Coder now |
+|---|---|---|---|
+| "apple\nmango\ncherry\n" | `1\tapple`, `2\tmango`, `3\tcherry`, `4\t` | `     1\tapple` … `     3\tcherry` | the same as Claude Code |
+| the same, from line 4 / 5 | `4\t` / "shorter than the provided offset (5). The file has 4 lines." | "past its end" (3 lines) | the same as Claude Code |
+| no newline at the end | 3 lines | 3 lines | the same |
+| tab-indented lines | a tab after the number (its ":" is behind a setting that is off) | padded | a tab |
+| "\n" only | `1\t`, `2\t` | one empty line | the same as Claude Code |
+| Windows line endings | the "\r" left out of each line; an empty last line | the same, padded, no last line | the same as Claude Code |
+| an empty file | the empty-file warning; from line 5: "The file has 1 lines." | the warning whatever the offset | the same as Claude Code |
+| a hook's rewrite of a read | its lines numbered the same way | padded | the same |
+| the note when a file changed on disk | unpadded numbers; made from a diff, so no empty last line | padded | unpadded, no empty last line |
+
+13 of the 14 tries give the same text as Claude Code's. The one left: a part asked for with offset and limit that stops before
+the end. Claude Code gives only the lines ("2\t"); Coder adds "[lines 2-2 of 3; read more with offset 3 and limit 1]", its own
+note (for the owner to decide).
+
+The counts that follow from the lines change with them: a PARTIAL view's "of N", the offset words, an @-mention's "(N lines)", and
+the hooks' `numLines` and `totalLines` (an empty file: 1 and 1, as Claude Code's).
+
+Tests: BR4, BR6, CD204, CD205, CD209, CD210, CD213, CD215, CD216, CD223, CD224, CD238, CD239, CD240, CD241, CD243, CD250, HR3, HR7
+and CD193 changed to Claude Code's lines; CD205 also reads the empty last line and an empty file past its end. FULL_COUNT_6

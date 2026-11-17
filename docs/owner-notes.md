@@ -4,6 +4,19 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Read's line numbers and line counting now match Claude Code (your words: "Like claude code yes")
+
+- **Line numbers:** "1", a tab, then the line, with no padding, as Claude Code writes them. Before: "     1", a tab, the line.
+- **Line counting:** the empty bit after a file's last newline is a line too. A 3-line file that ends with a newline now reads as 4 lines, the last one empty, exactly as Claude Code shows it. An empty file counts as one empty line.
+- These follow from it: the totals in a long file's "PARTIAL view" note, "The file has N lines", and an @-mentioned file's "(N lines)".
+- The note Coder gets when a file changes on disk uses the same unpadded numbers. Like Claude Code's, it doesn't add the empty last line, because Claude Code builds that note from a diff.
+
+I tried 14 cases on Claude Code's real Read; 13 now give exactly the same text.
+
+The one left, for you to decide: when Coder reads part of a file with offset and limit and doesn't reach the end, it adds its own note, "[lines 2-2 of 3; read more with offset 3 and limit 1]". Claude Code adds nothing.
+
+Tests: 20 updated to Claude Code's lines. FULL_COUNT_6N On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: Three more read differences matched (your words: "yes match all 3 pls")
 
 - **Reading from a line past the end of a file:** Coder is now told Claude Code's words: `<system-reminder>Warning: the file exists but is shorter than the provided offset (10). The file has 3 lines.</system-reminder>`. Before: "nl.txt has 3 lines: offset 10 is past its end."
