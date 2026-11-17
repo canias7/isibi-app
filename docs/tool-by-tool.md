@@ -827,8 +827,11 @@ resource list. Reading a UI resource by its URI still works."
 Its third one, ReadMcpResourceDirTool, is in 2.1.326 too, but switched off: every call answers "Directory listing is not enabled in
 this build." (tried). Not added.
 
-**Tests:** MR1–MR10 (`coder/test/mcp-resources.test.mjs`); MC22 (a pattern on the page's card titles) and the machine's file list
-(CD78) updated.
+**Tests:** MR1–MR10 (`coder/test/mcp-resources.test.mjs`); MC22 (a pattern on the page's card titles), PA1, TP1, TS2 and TS29 (the
+lists of Coder's tools), CD248 (the docs page's links) and the machine's file list (CD78, CD163) updated. The full suite: 1343 pass,
+4 skipped, 0 fail. Deployed to coder2 (deploy 243).
+
+**Live test:** not done. A chat on coder2 needs GitHub, whose sign-in doesn't work there yet (as for notebook_edit).
 
 **For the owner to decide:**
 1. **Directory listing** (ReadMcpResourceDirTool): off in Claude Code. Add it as Claude Code has it (always that one answer), or

@@ -30,7 +30,7 @@ For you to decide:
 
 Outside this tool: the Connectors page's `@` suggestions still include MCP Apps pages. Claude Code's docs say those don't appear there.
 
-Tests: MR1 to MR10 are new. MC22 and the machine's file list (CD78) were updated.
+Tests: MR1 to MR10 are new. Seven older tests that list Coder's tools, the machine's files or the docs page's links were updated to include the new ones. All 1,343 pass. On this chat's branch, deployed to coder2 (deploy 243). Not tried in a live chat: coder2's GitHub sign-in still doesn't work.
 
 ## 2026-11-17: A part of a file read with offset and limit comes back with nothing after it (your words: "yes take it out like claude code")
 
