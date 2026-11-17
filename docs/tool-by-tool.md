@@ -728,7 +728,7 @@ suite, with the no-cells fix: 1331 pass, 4 skipped, 0 fail.
    (tried); Coder's says "blank.txt exists, but it is empty." **Changed** (the same word): Claude Code's words exactly, in read
    and in a hook's rewrite of a read. Tests CD205, HR3. The full suite with both: 1332 pass, 4 skipped, 0 fail.
 
-Found while doing these (for the owner):
+Found while doing these (for the owner; **all 3 changed**, the owner: "yes match all 3 pls", below):
 1. An offset past the end of a file: Claude Code's Read says `<system-reminder>Warning: the file exists but is shorter than the
    provided offset (5000). The file has 2001 lines.</system-reminder>`; Coder's says "mid.txt has 2000 lines: offset 5000 is past
    its end." (Seen side by side on 2026-11-08 and kept then.)
@@ -736,3 +736,22 @@ Found while doing these (for the owner):
    picture or a PDF; Coder's step says "Read notes.txt (@-mentioned)".
 3. A PostToolUse hook's new output for a notebook read: Claude Code shows it as cells, as its Read does; Coder keeps the original
    output with a notice ("mapper returned undefined").
+
+**The 3 found, matched** (the owner: "yes match all 3 pls"; Claude Code's real Read tried again, and its program, 2.1.326):
+
+| | Claude Code | Coder before | Coder now |
+|---|---|---|---|
+| An offset past the end | `<system-reminder>Warning: the file exists but is shorter than the provided offset (10). The file has 4 lines.</system-reminder>` ("lines" whatever the count) | "nl.txt has 3 lines: offset 10 is past its end." | Claude Code's words, in read and in a hook's rewrite of a read; the count is Coder's (below) |
+| An @-mentioned file's row | "Read **notes.txt** (12 lines)"; "(4 cells)" for a notebook; a picture's or a PDF's size; "Listed directory **src/**" for a folder; "Referenced **big.log** (not read: too large, 300KB)" for a file it does not include, "(not read)" for another reason | "Read notes.txt (@-mentioned)" for each | the same as Claude Code; the group line counts "listed 1 directory", "referenced 1 file" |
+| A hook's new output for a notebook read | shown as cells, as its Read shows them (its cno) | the original output kept, with a notice ("mapper returned undefined") | shown as cells; its pictures after the results, their places marked; none: "(Read completed with no output)" |
+
+Tests: CD205 and HR3 (the words, the hook's notebook), CD209 (the rows, made by Coder's code on real files), CD209b (the row
+on the page and the group line).
+
+**Found while doing these (for the owner):**
+1. Claude Code counts the empty part after a file's last newline as a line: "apple\nmango\ncherry\n" has 4 lines there (its
+   Read shows an empty line 4, says "The file has 4 lines", and reads from line 4); Coder counts 3. So the counts in the words
+   above, an @-mention's "(N lines)" and a PARTIAL view's totals are one lower in Coder for such a file.
+2. Claude Code 2.1.326 numbers lines without padding ("1\tapple"; a ":" instead of the tab when its tab-aware setting is on
+   and the file has lines starting with a tab); Coder pads them to six places ("     1\tapple"), as Claude Code's docs say
+   ("cat -n format").

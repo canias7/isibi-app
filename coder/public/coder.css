@@ -119,6 +119,8 @@
 /* A long one ends in "…" and leaves room for the step's ✓ (live test at phone size, 2026-11-13: a helper's "“Rome population” · Searched the web for" pushed it off the screen, and the chat scrolled sideways). */
 .cd-cmd-verb { flex: none; max-width: calc(100% - 80px); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .cd-cmd-text { font: 14px Inter, system-ui, sans-serif; color: inherit; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+/* AN @-MENTION'S ROW, AS CLAUDE CODE'S: what follows the name ("(12 lines)", "(4 cells)", "(not read: too large, 300KB)"). */
+.cd-cmd-after { flex: none; white-space: nowrap; color: #8a857d; }
 .cd-caret { flex: none; font-size: 10px; }
 /* The picture a Read step opened, small, under the step (the owner, 2026-11-08: "Fix those 3"; like Claude Code's). */
 .cd-cmd-pics { display: flex; flex-wrap: wrap; gap: 6px; padding: 2px 0 8px 21px; }

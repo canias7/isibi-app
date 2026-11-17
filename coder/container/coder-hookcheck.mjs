@@ -15,7 +15,8 @@ import { grepText, globText } from "./coder-search.mjs";
 import { searchText } from "./coder-websearch.mjs";
 import { createdText, getText, listText, updateText, TODO_WRITE_RESULT } from "./coder-tasks.mjs";
 import { planApproved, ENTERED_PLAN, ENTERED_PLAN_TEXT } from "./coder-plan.mjs";
-import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE } from "./coder-tools.mjs";
+import { WRITE_FRESH, EDIT_OTHER_CHANGES, EMPTY_FILE_NOTE, shorterNote } from "./coder-tools.mjs";
+import { readParts } from "./coder-notebook.mjs";
 
 // ── A REWRITE'S TEXT ─────────────────────────────────────────────────────────
 /** A Read result object's lines as Coder's read shows them: each line's number, a tab, the line. */
@@ -34,14 +35,28 @@ export function outputTextOf(ctx = {}) {
     switch (tool) {
       case "Read": {
         if (v.type === "image") return { text: "", pics: /^image\/(png|jpeg)$/.test(v.file.type) ? [{ type: v.file.type, data: v.file.base64 }] : [] };
+        // A NOTEBOOK, as Claude Code shows one (its cno: the cells and their outputs, as coder-notebook.mjs's readParts makes
+        // them; its pictures after the results, each place marked as read marks it). None: no text, so Claude Code's "(Read
+        // completed with no output)". The owner, 2026-11-17: "yes match all 3 pls"; Coder had kept the original output.
+        if (v.type === "notebook") {
+          let text = "";
+          const pics = [], add = (t) => { text = text === "" ? t : text + "\n" + t; };
+          for (const part of readParts(Array.isArray(v.file.cells) ? v.file.cells : [])) {
+            if (typeof part.text === "string") { add(part.text); continue; }
+            if (!/^image\/(png|jpeg)$/.test(part.picture.type)) continue;
+            pics.push({ type: part.picture.type, data: part.picture.data });
+            add("[picture output: shown to you as picture " + pics.length + " after these results]");
+          }
+          return { text, pics };
+        }
         if (v.type !== "text") return undefined;
         const f = v.file;
-        // (Claude Code's: the numbered lines; a single empty line; an empty file, in its words; an offset past the end, in
-        // Coder's words, as its read says it.)
+        // (Claude Code's: the numbered lines; a single empty line; an empty file; an offset past the end; the last two in its
+        // words.)
         if (f.content) return numbered(f.content, f.startLine);
         if (f.numLines >= 1 && f.totalLines > 1) return numbered("", f.startLine);
         if (f.numLines >= 1 || f.totalLines === 0) return EMPTY_FILE_NOTE;
-        return shown(f.filePath) + " has " + f.totalLines + " line" + (f.totalLines === 1 ? "" : "s") + ": offset " + f.startLine + " is past its end.";
+        return shorterNote(f.startLine, f.totalLines);
       }
       case "Write": {
         const mod = v.userModified ? " The owner modified your proposed content before accepting it." : "";

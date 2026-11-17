@@ -40,6 +40,11 @@ export const READ_WHOLE_MAX = 256 * 1024;
  * Coder had said "x.txt exists, but it is empty."
  */
 export const EMPTY_FILE_NOTE = "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>";
+/**
+ * AN OFFSET PAST A FILE'S END, IN CLAUDE CODE'S WORDS (its Read, tried, and its program, 2.1.326: "The file has N lines", "lines"
+ * whatever N; the owner, 2026-11-17: "yes match all 3 pls"). Coder had said "x.txt has 3 lines: offset 9 is past its end."
+ */
+export const shorterNote = (offset, total) => "<system-reminder>Warning: the file exists but is shorter than the provided offset (" + offset + "). The file has " + total + " lines.</system-reminder>";
 export const READ_LARGE_CHARS = 400_000;
 export const PIC_MAX_BYTES = 128 * 1024 * 1024;
 export const NOTEBOOK_MAX_BYTES = NOTEBOOK_EDIT_MAX; // 100 MB, Claude Code's (coder-notebook.mjs holds it)
@@ -434,7 +439,7 @@ async function readPicture(abs, rel, kind) {
   const thumb = await thumbOf(buf, kind);
   return withPics("Picture: " + rel + " (" + (smaller || bigger ? real.w + "×" + real.h : shown ? shown : "") + (smaller || bigger || shown ? ", " : "") + kind.toUpperCase() + ", " + kb(size) + "), shown to you as a picture after these results" +
     (smaller ? ", made smaller (" + shown + "; multiply coordinates by " + (Math.max(real.w, real.h) / Math.max(p.w, p.h)).toFixed(2) + " to map them to the real picture): for fine detail, crop the part you need with ImageMagick into the scratch folder (e.g. mkdir -p " + SCRATCH + " && convert " + shq(rel) + " -crop 800x600+0+0 " + SCRATCH + "/part.png) and read the crop."
-      : bigger ? ", enlarged to " + shown + " because Grok takes no picture under " + PIC_MIN_SIDE + " pixels a side or " + PIC_MIN_PIXELS + " in all: each pixel became a block, with a white margin where a side was still short." : "."), [p], thumb ? { thumb } : {});
+      : bigger ? ", enlarged to " + shown + " because Grok takes no picture under " + PIC_MIN_SIDE + " pixels a side or " + PIC_MIN_PIXELS + " in all: each pixel became a block, with a white margin where a side was still short." : "."), [p], { ...(thumb ? { thumb } : {}), size });
 }
 
 /** "3", "2-7" (or "2–7") within 1..total: [from, to], or null. */
@@ -508,7 +513,7 @@ async function readPdf(abs, rel, pages) {
     let text = parts.join("\n\n");
     if (text.length > READ_TEXT_MAX) text = text.slice(0, READ_TEXT_MAX) + "\n[cut: the rest of these pages did not fit; read fewer pages at a time]";
     const thumbs = await thumbsOf(pictures);
-    return withPics(text, pictures, thumbs.length ? { thumbs } : {});
+    return withPics(text, pictures, { ...(thumbs.length ? { thumbs } : {}), size: (await stat(abs)).size });
   } finally { await rm(dir, { recursive: true, force: true }).catch(() => {}); }
 }
 
@@ -849,7 +854,7 @@ export async function toolRead({ path, offset, limit, pages = "", allow_large = 
   const total = lines.length;
   const asked = (offset !== undefined && offset !== null && offset !== "") || Number(limit) > 0;
   const from = Math.max(1, Math.floor(Number(offset) || 1));
-  if (from > total) return told(rel + " has " + total + " line" + (total === 1 ? "" : "s") + ": offset " + from + " is past its end.", "", 0, from, total);
+  if (from > total) return told(shorterNote(from, total), "", 0, from, total);
   const large = allow_large === true;
   const cap = large ? Math.min(Math.max(Math.floor(Number(max_chars) || 0), READ_CHARS), READ_LARGE_CHARS) : READ_CHARS;
   const size = Buffer.byteLength(text);
@@ -1621,12 +1626,13 @@ export async function toolLspTake() {
 
 /**
  * WHEN THE FILES CODER WORKED ON LAST CHANGED, for Coder's app only (no tool Grok has; RUN_TOOLS in coder-agent.mjs
- * lists those): after a long job is summarized, the most recently changed ones are read again, like Claude Code.
+ * lists those): after a long job is summarized, the most recently changed ones are read again, like Claude Code. With each
+ * one's size: an @-mentioned file too big to read is named with it, as Claude Code's row names it.
  */
 export async function toolMtimes({ paths }) {
   const out = [];
   for (const p of (Array.isArray(paths) ? paths : []).slice(0, 50)) {
-    try { const { abs } = await inside(String(p), { mustExist: true }); const st = await stat(abs); if (st.isFile()) out.push({ path: showPath(abs), mtime: st.mtimeMs }); } catch { /* gone, or not the project's */ }
+    try { const { abs } = await inside(String(p), { mustExist: true }); const st = await stat(abs); if (st.isFile()) out.push({ path: showPath(abs), mtime: st.mtimeMs, size: st.size }); } catch { /* gone, or not the project's */ }
   }
   return JSON.stringify(out);
 }

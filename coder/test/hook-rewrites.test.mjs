@@ -135,9 +135,19 @@ test("HR3 each tool's own text for a hook's result object, as Coder prints it (C
   const rw = (tool, v, given = null) => C.outputRewrite(tool, { shownPath: (p) => p.replace("/work/shop/", ""), monitorText: A.monitorStarted }, given)(v);
   assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "one\ntwo", numLines: 2, startLine: 4, totalLines: 9 } }), { text: "     4\tone\n     5\ttwo" });
   assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "", numLines: 0, startLine: 1, totalLines: 0 } }), { text: "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>" });
-  assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "", numLines: 0, startLine: 12, totalLines: 3 } }), { text: "a.js has 3 lines: offset 12 is past its end." });
+  assert.deepEqual(rw("Read", { type: "text", file: { filePath: "/work/shop/a.js", content: "", numLines: 0, startLine: 12, totalLines: 3 } }), { text: "<system-reminder>Warning: the file exists but is shorter than the provided offset (12). The file has 3 lines.</system-reminder>" });
   assert.deepEqual(rw("Read", { type: "image", file: { base64: "iVBORw0KGgo=", type: "image/png", originalSize: 8 } }), { text: "", pics: [{ type: "image/png", data: "iVBORw0KGgo=" }] });
-  assert.equal(rw("Read", { type: "notebook", file: { filePath: "/work/shop/n.ipynb", cells: [] } }).notice, "PostToolUse hook returned updatedToolOutput that does not match Read's output shape; using original output. mapper returned undefined");
+  // A notebook, as Claude Code shows one (its cno; since 2026-11-17, the owner: "yes match all 3 pls"): its cells and outputs, a
+  // picture after the results with its place marked; none, Claude Code's "(Read completed with no output)"; a cell that is not
+  // one fails the mapping, so the original output stays.
+  assert.deepEqual(rw("Read", { type: "notebook", file: { filePath: "/work/shop/n.ipynb", cells: [] } }), { text: "(Read completed with no output)" });
+  const cells = [
+    { cellType: "markdown", source: "# Hi", cell_id: "m1" },
+    { cellType: "code", source: "plot()", execution_count: 2, cell_id: "c1", language: "python", outputs: [{ output_type: "display_data", text: "<Figure>", image: { image_data: "iVBORw0KGgo=", media_type: "image/png" } }] },
+    { cellType: "code", source: "1+1", cell_id: "r1", language: "R", outputs: [{ output_type: "stream", text: "[1] 2\n" }] },
+  ];
+  assert.deepEqual(rw("Read", { type: "notebook", file: { filePath: "/work/shop/n.ipynb", cells } }), { text: '<cell id="m1"><cell_type>markdown</cell_type># Hi</cell id="m1">\n<cell id="c1">plot()</cell id="c1">\n\n<Figure>\n[picture output: shown to you as picture 1 after these results]\n<cell id="r1"><language>R</language>1+1</cell id="r1">\n\n[1] 2\n', pics: [{ type: "image/png", data: "iVBORw0KGgo=" }] });
+  assert.match(rw("Read", { type: "notebook", file: { filePath: "/work/shop/n.ipynb", cells: [null] } }).notice, /^PostToolUse hook returned updatedToolOutput that does not match Read's output shape; using original output\. /);
   assert.deepEqual(rw("Write", { type: "create", filePath: "/work/shop/n.txt", content: "x", structuredPatch: [], originalFile: null }), { text: "File created successfully at: n.txt" + T.WRITE_FRESH });
   assert.deepEqual(rw("Write", { type: "update", filePath: "/work/shop/n.txt", content: "x", structuredPatch: [], originalFile: "y", userModified: true }), { text: "The file n.txt has been updated successfully. The owner modified your proposed content before accepting it." });
   const edit = { filePath: "/work/shop/a.js", oldString: "a", newString: "b", originalFile: "a", structuredPatch: [{ oldStart: 1, oldLines: 1, newStart: 1, newLines: 1, lines: ["-a", "+b"] }], userModified: false, replaceAll: false };

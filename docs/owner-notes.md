@@ -4,6 +4,23 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Three more read differences matched (your words: "yes match all 3 pls")
+
+- **Reading from a line past the end of a file:** Coder is now told Claude Code's words: `<system-reminder>Warning: the file exists but is shorter than the provided offset (10). The file has 3 lines.</system-reminder>`. Before: "nl.txt has 3 lines: offset 10 is past its end."
+- **Files you @-mention** now show as Claude Code shows them:
+  - "Read app.js (12 lines)", "(4 cells)" for a notebook, and the size for a picture or a PDF
+  - "Listed directory src/" for a folder
+  - "Referenced big.log (not read: too large, 300KB)" for a file too big to include
+
+  Before, each said "(@-mentioned)". The line over them counts them as Claude Code does: "Read 3 files, listed 1 directory, referenced 1 file".
+- **A hook that changes a notebook read's result:** Coder now shows the new cells, as Claude Code does. Before, it kept the original result and showed a notice.
+
+Found while doing these, for you to decide:
+1. **Line counting:** Claude Code counts the empty bit after a file's last newline as a line. A 3-line file that ends with a newline has 4 lines there; Coder says 3. So line counts in Coder's words are one lower for such files.
+2. **Line numbers:** Claude Code now writes them with no padding: "1", a tab, then the line. Coder pads them to six places ("     1", a tab, the line), as Claude Code's own docs describe ("cat -n format").
+
+Tests: CD205, HR3, CD209 and a new CD209b. The full test run is noted once it ends. On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: "Read 4 cells" under a notebook read, and Claude Code's warning for an empty file (your words: "yes match both pls")
 
 - **Under a notebook read's step**, Coder's page now says "Read **4** cells", as Claude Code does. For a notebook with no cells, it says "No cells found in notebook" in red. Like Claude Code, it says "cells" even for one.

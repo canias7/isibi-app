@@ -30,7 +30,7 @@ import { textReasons } from "./coder-shell.mjs";
 import { accountEmailRefused, emailRefused, refusedNow, REMOTE_TOOLS } from "./coder-privacy.mjs";
 import { createHash, randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
-import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS, fileInputProblem } from "./coder-tools.mjs";
+import { PICS_MARK, WRITE_MARK, FACTS_MARK, WRITE_SHOW_LINES, PDF_PAGES_MAX, PDF_PAGES_FREE, READ_CHARS, READ_LARGE_CHARS, notTextKind, SCRATCH, picSize, picMinFit, PIC_MIN_SIDE, PIC_MIN_PIXELS, fileInputProblem, ccSize } from "./coder-tools.mjs";
 import { okHost, HEADER_RE, PREFIXES, listProblem } from "./coder-secrets.mjs";
 import { credentialHost, credentialHeader, credentialPrefix, neverKeyWhy } from "./coder-secrets.mjs";
 import { inputCheckFor } from "./coder-inputs.mjs";
@@ -973,7 +973,7 @@ const FILES_PER_TURN = 10;
 export const visibleChars = (s) => String(s).replace(/[\u0000-\u001f\u007f]/g, (c) => ({ "\0": "\\0", "\n": "\\n", "\r": "\\r", "\t": "\\t" })[c] || "\\x" + c.charCodeAt(0).toString(16).padStart(2, "0"));
 /** The small copy of a picture the chat shows under a Read step (the owner, 2026-11-08: "Fix those 3"): a JPEG data URL. */
 export const THUMB_RE = /^data:image\/jpeg;base64,[A-Za-z0-9+/]+=*$/;
-/** A read's answer: its text, the pictures it opened (a picture, a PDF's pages, a notebook's plots; PNG and JPEG), and the chat's small copy. */
+/** A read's answer: its text, the pictures it opened (a picture, a PDF's pages, a notebook's plots; PNG and JPEG), the chat's small copy, and the file's size when the read sent it (a picture's, a PDF's). */
 export function readAnswer(raw) {
   raw = String(raw || "");
   if (!raw.startsWith(PICS_MARK)) return { text: raw, pics: [], thumb: "", thumbs: [] };
@@ -982,7 +982,7 @@ export function readAnswer(raw) {
     const ok = (u) => typeof u === "string" && u.length <= 60_000 && THUMB_RE.test(u);
     const thumbs = [...(Array.isArray(j && j.thumbs) ? j.thumbs : []), ...(j && j.thumb ? [j.thumb] : [])].filter(ok).slice(0, 4);
     const thumb = thumbs[0] || "";
-    return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb, thumbs };
+    return { text: String((j && j.text) || ""), pics: (Array.isArray(j && j.pictures) ? j.pictures : []).filter((x) => x && /^image\/(png|jpeg)$/.test(x.type) && typeof x.data === "string" && /^[A-Za-z0-9+/]+=*$/.test(x.data)).slice(0, PICS_PER_READ), thumb, thumbs, ...(Number.isSafeInteger(j && j.size) && j.size >= 0 ? { size: j.size } : {}) };
   } catch { return { text: "error: the picture could not be read", pics: [], thumb: "", thumbs: [] }; }
 }
 /**
@@ -1034,8 +1034,20 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
     // A FILE A READ DENY RULE COVERS is left out, with no word of it (Claude Code: "A refused file leaves nothing in the
     // conversation").
     if (denied(p)) continue;
-    const r = await appTool(deps, "read", { path: p });
+    // (Its result object too, Claude Code's Read output: how many lines or cells the row says.)
+    const r = await appTool(deps, "read", { path: p, facts: true });
     let shownOut = "", part = "", stepThumbs = [];
+    // ITS ROW IN THE CHAT, AS CLAUDE CODE'S ROW FOR AN @-MENTION (its program, 2.1.326; the owner, 2026-11-17: "yes match all 3
+    // pls"): "Read notes.txt (12 lines)", "(4 cells)" for a notebook, its size for a picture or a PDF; "Listed directory src/"
+    // for a folder; "Referenced big.log (not read: too large, 300KB)" for a file it does not read, "(not read)" when it is not
+    // read for another reason. Coder's row had been "Read notes.txt (@-mentioned)".
+    const name = scrub(visibleChars(p)).slice(0, 300);
+    let row = { tool: "read", verb: "Read", command: name, after: "" };
+    const notRead = async (tooLarge) => {
+      let size = 0;
+      if (tooLarge) { try { const m = JSON.parse(String((await appTool(deps, "mtimes", { paths: [p] })).output || "[]")); size = m[0] && Number.isSafeInteger(m[0].size) ? m[0].size : 0; } catch { size = 0; } }
+      return { tool: "mention_ref", verb: "Referenced", command: name, after: size ? "(not read: too large, " + ccSize(size) + ")" : "(not read)" };
+    };
     if (r.code !== 0) {
       if (NOT_A_FILE.test(r.output)) continue;
       if (/ is a folder, not a file/.test(r.output)) {
@@ -1045,17 +1057,22 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         // leaves out the file and directory names the rule matches".)
         shownOut = capOutput(String(l.output).split("\n").filter((x) => !x.trim() || /^[[(]/.test(x) || !denied(p.replace(/\/+$/, "") + "/" + x.replace(/\/$/, ""))).join("\n"));
         part = "--- " + sayPath(deps, p.replace(/\/+$/, "")) + "/ (a folder: what is in it) ---\n" + shownOut;
+        row = { tool: "list_dir", verb: "Listed directory", command: name.replace(/\/*$/, "/"), after: "" };
       } else {
         shownOut = r.output.replace(/^error: /, "");
         part = "--- " + sayPath(deps, p) + ": not included (" + shownOut + "). Read it yourself with the read tool if you need it ---";
+        // (Too big for a read: over 256 KB, a notebook's or a PDF's limits; Claude Code's "too large", with the file's size.)
+        row = await notRead(/over the 256 KB a whole read takes|exceeds maximum allowed size|exceeds the maximum size|exceeds maximum allowed tokens|too large|too big/i.test(shownOut));
       }
     } else {
-      if (!r.output.trim()) continue; // nothing came back (the read tool always says something about a file)
-      const got = readAnswer(r.output);
+      const fa = factsAnswer(r.output);
+      if (!fa.text.trim()) continue; // nothing came back (the read tool always says something about a file)
+      const got = readAnswer(fa.text);
       const text = capOutput(got.text, READ_LARGE_CHARS + 2000);
       if (/\n\[PARTIAL view: /.test(text) || text.length > left) {
         shownOut = /\n\[PARTIAL view: /.test(text) ? "longer than one read gives (about 100,000 characters)" : "the @-mentioned files already come to " + MENTIONS_CHARS.toLocaleString("en-US") + " characters";
         part = "--- " + sayPath(deps, p) + ": not included (" + shownOut + "). Read it yourself with the read tool (offset and limit) ---";
+        row = await notRead(/\n\[PARTIAL view: /.test(text));
       } else {
         left -= text.length;
         // Its pictures, while they fit (PICS_PER_READ of them, and as many bytes as one read may have).
@@ -1070,10 +1087,14 @@ export async function mentionNote(deps, paths, { emit = () => {}, touch = () => 
         part = "--- " + sayPath(deps, p) + " ---\n" + text + (lost > 0 ? "\n[" + lost + " of its pictures did not fit here: read it yourself to see them]" : "") + (more ? "\n\n" + more : "");
         touch(p);
         files.push(p);
+        const f = fa.facts && fa.facts.file && typeof fa.facts.file === "object" ? fa.facts.file : null;
+        row.after = fa.facts && fa.facts.type === "text" && f && Number.isSafeInteger(f.numLines) ? "(" + f.numLines + " lines)"
+          : fa.facts && fa.facts.type === "notebook" && f && Array.isArray(f.cells) ? "(" + f.cells.length + " cells)"
+          : Number.isSafeInteger(got.size) ? "(" + ccSize(got.size) + ")" : "";
       }
     }
     const id = stepId("at");
-    emit({ type: "bash", id, tool: "read", verb: "Read", command: scrub(visibleChars(p)).slice(0, 300) + " (@-mentioned)" });
+    emit({ type: "bash", id, tool: row.tool, verb: row.verb, command: row.command, ...(row.after ? { after: row.after } : {}) });
     emit({ type: "result", id, code: 0, output: capOutput(shownOut), ...(stepThumbs.length ? { thumbs: stepThumbs } : {}) });
     parts.push(part);
   }

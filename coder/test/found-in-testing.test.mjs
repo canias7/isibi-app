@@ -145,7 +145,8 @@ test("CD205 the rest of Claude Code's Read rules: an empty file and an offset pa
   assert.equal(read({ path: "empty.txt" }), "<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>");
   await writeFile(join(dir, "two.txt"), "a\nb\n");
   assert.equal(read({ path: "two.txt" }), "     1\ta\n     2\tb", "the last newline makes no extra line");
-  assert.equal(read({ path: "two.txt", offset: 9 }), "two.txt has 2 lines: offset 9 is past its end.");
+  // (Claude Code's words since 2026-11-17, its real Read tried: the owner, "yes match all 3 pls".)
+  assert.equal(read({ path: "two.txt", offset: 9 }), "<system-reminder>Warning: the file exists but is shorter than the provided offset (9). The file has 2 lines.</system-reminder>");
   // Over 256 KB: a whole read is refused, with what to do instead.
   await writeFile(join(dir, "big.txt"), Array.from({ length: 3000 }, (_, i) => "row " + (i + 1) + " " + "y".repeat(92)).join("\n"));
   assert.match(read({ path: "big.txt" }), /^FAILED [\s\S]*big\.txt is 29\d KB, over the 256 KB a whole read takes: read a part with offset and limit, search it with grep, or set allow_large/);
@@ -341,9 +342,17 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   assert.match(note.content, /--- mid\.txt: not included \(longer than one read gives \(about 100,000 characters\)\)\. Read it yourself with the read tool \(offset and limit\) ---/);
   assert.ok(!note.content.includes("types/node") && !note.content.includes("passwd"), "not files of the project: left alone");
   assert.deepEqual(asked, [{ tool: "read", args: { path: "src/app.js" } }, { tool: "read", args: { path: "shot.png" } }]);
-  // Each shows in the chat as a step, after the owner's message.
-  const steps = events.filter((e) => e.type === "bash").map((e) => e.command);
-  assert.deepEqual(steps, ["src/app.js (@-mentioned)", "shot.png (@-mentioned)", "src/ (@-mentioned)", "big.log (@-mentioned)", "mid.txt (@-mentioned)"]);
+  // Each shows in the chat as a step, after the owner's message, as Claude Code's row for an @-mention (its program, 2.1.326;
+  // since 2026-11-17, the owner: "yes match all 3 pls"; Coder's rows had said "src/app.js (@-mentioned)"): "Read src/app.js
+  // (2 lines)", a picture's size, "Listed directory src/", and "Referenced big.log (not read: too large, 300KB)" for a file
+  // it does not read.
+  const rows = events.filter((e) => e.type === "bash").map((e) => [e.tool, e.verb, e.command, e.after || ""]);
+  assert.deepEqual(rows.map((x) => x.slice(0, 3)), [["read", "Read", "src/app.js"], ["read", "Read", "shot.png"], ["list_dir", "Listed directory", "src/"], ["mention_ref", "Referenced", "big.log"], ["mention_ref", "Referenced", "mid.txt"]]);
+  assert.equal(rows[0][3], "(2 lines)");
+  assert.match(rows[1][3], /^\((\d+ bytes|\d+(\.\d)?KB)\)$/, "the picture's size, in Claude Code's way");
+  assert.equal(rows[2][3], "", "a folder: nothing after it");
+  assert.equal(rows[3][3], "(not read: too large, 300KB)");
+  assert.match(rows[4][3], /^\(not read: too large, 19\d(\.\d)?KB\)$/);
   assert.equal(events[0].type, "user");
   assert.equal(events[0].text, ask);
   // The saved history keeps the mark, and the note as Grok was sent it, its picture too (since 2026-11-14, the owner: "yes copy
@@ -363,6 +372,23 @@ test("CD209 @-mentioned files go into the message, like Claude Code's @ (\"inclu
   await runCoder({ send: async (q) => { seen2.push(q); return say("Done."); }, emit: () => {}, exec: async (x) => { ran.push(x.command); return { code: 0, output: "" }; } }, { text: "@coder look at @src/app.js", github: true });
   assert.equal(ran.length, 0);
   assert.equal(seen2[0].messages.filter((m) => !m.toolsAnnounced).length, 2);
+});
+
+test("CD209b an @-mention's row on the page, as Claude Code's (its program, 2.1.326; the owner, 2026-11-17: \"yes match all 3 pls\"): what follows the name comes after it, muted (\"(12 lines)\"); a folder's row and a file not read have their own kinds, counted as Claude Code counts them (\"Listed 2 directories\"), with a folder's and a file's icons", async () => {
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(HERE("public/coder.js"), "utf8");
+  const grab = (name) => src.slice(src.indexOf("  function " + name + "("), src.indexOf("\n  }\n", src.indexOf("  function " + name + "(")) + 4);
+  const stepFile = new Function("return " + grab("stepFile").trim())();
+  const groupWords = new Function("return " + grab("groupWords").trim())();
+  const step = (tool, command) => ({ tool, failed: false, file: stepFile({ tool, command }) });
+  assert.equal(groupWords([step("read", "a.js"), step("list_dir", "src/"), step("mention_ref", "big.log"), step("mention_ref", "mid.txt")]).line, "Read 1 file, listed 1 directory, referenced 2 files");
+  assert.equal(groupWords([step("list_dir", "src/"), step("list_dir", "lib/")]).line, "Listed 2 directories");
+  assert.equal(stepFile({ tool: "read", command: "a.pdf (@-mentioned)" }), "a.pdf", "a chat from before keeps its count");
+  assert.ok(src.includes(`(!said && typeof e.after === 'string' && e.after ? ' <span class="cd-cmd-after">' + esc(e.after) + '</span>' : '')`), "after the name, on the step's row");
+  assert.match(src, /mention_ref: 'M14 2H6a2 2 0 0 0-2 2v16/, "a file's icon");
+  assert.match(src, /list_dir: 'M3 7a2 2 0 0 1 2-2h4l2 2h8/, "a folder's icon");
+  const css = readFileSync(HERE("public/coder.css"), "utf8");
+  assert.match(css, /\.cd-cmd-after \{ flex: none; white-space: nowrap; color: #8a857d; \}/);
 });
 
 test("CD210 after a long job is summarized, the files it was working on are read again, like Claude Code (up to five, the most recently changed first; one over 5,000 tokens comes back as its name only, a \"Referenced file\"): not the ones its kept steps read already, nor pictures, nor files gone; they go with the summary, and show as steps", async () => {
