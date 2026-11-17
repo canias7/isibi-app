@@ -21,7 +21,7 @@ One small difference is left. Claude Code counts tokens exactly; Coder estimates
 
 Before, Coder used its own layout: a heading line, "--- Cell 2 (code, run 3, id …) ---", and outputs labelled [stdout] and [output].
 
-Tests: CD195 and CD205 rewritten; NB5 now checks Claude Code's exact text and the hooks' object; NB6 and NB10 updated. A new test, NB12, checks Coder's read against Claude Code's real output on four notebooks kept with the tests (one with a table, a chart and an error; one in R; one with no cells; one that printed a warning). All 1,331 pass (the full run before the no-cells fix; the notebook tests again after it, all pass). On this chat's branch, deployed to coder2.
+Tests: CD195 and CD205 rewritten; NB5 now checks Claude Code's exact text and the hooks' object; NB6 and NB10 updated. A new test, NB12, checks Coder's read against Claude Code's real output on four notebooks kept with the tests (one with a table, a chart and an error; one in R; one with no cells; one that printed a warning). All 1,331 pass. On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: Coder's write: the other two "not read" refusals in Claude Code's exact words too (your words: "YES PLS")
 

@@ -717,7 +717,7 @@ Read, tried on the test notebooks and on new ones made for each case.
 Tests: CD195 and CD205 rewritten for Claude Code's format and limits; NB5 checks Claude Code's exact text and the hooks' object;
 NB6 and NB10 view a notebook behind a byte-order mark with a command, as Claude Code's `cat` counts, since read now refuses it; NB12
 new: Claude Code's real Read output, kept with four notebooks (`coder/test/fixtures/notebook/read`: a table, a chart and an error; R; no cells; a warning on stderr), against Coder's. The full
-suite: 1331 pass, 4 skipped, 0 fail (the run before the no-cells fix; the notebook and read tests again after it, all pass).
+suite, with the no-cells fix: 1331 pass, 4 skipped, 0 fail.
 
 **Outside (for the owner):**
 1. Claude Code's row for a notebook read adds "Read **4** cells" under its tool line ("No cells found in notebook" in red for
