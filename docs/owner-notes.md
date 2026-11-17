@@ -4,6 +4,14 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder's write refuses an unread notebook in Claude Code's exact words (your words: "Make it match pls")
+
+When Coder tries to replace a notebook it hasn't read, its write tool now says exactly what Claude Code's says: "File has not been read yet. Read it first before writing to it."
+
+Before, Coder's message named the file and added its own explanation ("…: a notebook is read before it is replaced, so no cell or output is lost.").
+
+Test updated; all 1330 pass. On this chat's branch, deployed to coder2.
+
 ## 2026-11-17: notebook_edit checked a third time against Claude Code (your words: "CHECK AGAIN THE NOTEBOOK THING, AGAINST THE CLAUDE CODE DOCS PLS")
 
 This time I checked what the first two passes didn't:

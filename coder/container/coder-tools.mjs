@@ -1079,7 +1079,10 @@ async function writeFirst(args, { guard = false } = {}) {
   const seen = await seenEntry(abs);
   if (seen && seen.start) fail(rel + ": " + WRITE_START);
   if (seen && seen.partial) fail(rel + " " + WRITE_NOT_READ + ": you read only part of it (a PARTIAL view), and replacing it would lose the rest. Read the rest of it first.");
-  if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(rel + " " + WRITE_NOT_READ + ": a notebook is read before it is replaced, so no cell or output is lost.");
+  // (A notebook not read: Claude Code's Write's own words, nothing added (tried, 2026-11-17: "File has not been read yet. Read it
+  // first before writing to it."; the owner: "Make it match pls"). Coder's had added "…: a notebook is read before it is replaced,
+  // so no cell or output is lost.")
+  if (seen === null && extname(abs).toLowerCase() === ".ipynb") fail(EDIT_NOT_READ);
   // (Not read in this chat, where reading it would need a card or be refused, `guard` (Coder's loop knows): Claude Code 2.1.325's
   // read-first rule, which it waives for newer models only where the file could be read without asking. Round 6's follow-up.)
   if (seen === null && guard) fail(rel + " " + WRITE_NOT_READ + ".");

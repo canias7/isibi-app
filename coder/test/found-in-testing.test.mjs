@@ -1362,7 +1362,8 @@ test("CD243 write does not replace a file Coder read only part of (a PARTIAL vie
   assert.equal(await tool("write", { path: "big.txt", content: "short\n" }), "The file big.txt has been updated successfully. (file state is current in your context — no need to Read it back)", "read again: allowed");
   // A notebook: not before it is read; then yes.
   await writeFile(join(dir, "nb.ipynb"), JSON.stringify({ cells: [], metadata: {}, nbformat: 4, nbformat_minor: 5 }));
-  assert.equal(await tool("write", { path: "nb.ipynb", content: "{}" }), "error: nb.ipynb has not been read yet. Read it first before writing to it: a notebook is read before it is replaced, so no cell or output is lost.");
+  // (Claude Code's Write's own words since 2026-11-17, nothing added: the owner, "Make it match pls".)
+  assert.equal(await tool("write", { path: "nb.ipynb", content: "{}" }), "error: File has not been read yet. Read it first before writing to it.");
   await tool("read", { path: "nb.ipynb" });
   assert.match(await tool("write", { path: "nb.ipynb", content: "{\"cells\": []}" }), /^The file nb\.ipynb has been updated successfully\. \(file state is current in your context — no need to Read it back\)$/);
   // A new file, and a plain file not read: written.
