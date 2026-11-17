@@ -4232,7 +4232,9 @@
    */
   function suggestNow() {
     if (GLOOPY || S.suggestOff || S.running || S.sending || S.ending || (S.draft || '') || !S.project || S.project.waiting || S.project.pending) return '';
-    const last = (S.events || []).filter((e) => e && e.type !== 'mark' && e.type !== 'usage').at(-1);
+    // (The save's own lines after the answer, "Pushed to the branch" (github) and notes, don't hide it: the retest of
+    // 2026-11-17, where auto-push put one after every answer, so no suggestion ever showed.)
+    const last = (S.events || []).filter((e) => e && !['mark', 'usage', 'github', 'note', 'pr'].includes(e.type)).at(-1);
     const t = last && last.type === 'done' && typeof last.suggest === 'string' ? last.suggest.trim() : '';
     return t && S.suggestGone !== (S.project.id + '|' + t) ? t : '';
   }

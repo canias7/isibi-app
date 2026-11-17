@@ -4,6 +4,10 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Suggested next message shows again
+
+In the retest, no suggestion ever showed in the box. Coder made them, but the page only showed one when Coder's answer was the last line of the chat, and since auto-push a "Pushed to the branch" line follows every answer. The page now looks past those status lines. Test in `coder/test/pr-update.test.mjs`.
+
 ## 2026-11-17: Retest of groups 1-3: two small fixes
 
 Groups 1, 2 and 3 were re-run live with Grok on the new version and recorded. Two things were found and fixed:

@@ -99,3 +99,13 @@ test("the files box's Undo names a file it deleted as removed (live, 2026-11-17)
   assert.match(w, /undoLine\("Undid this turn's changes", restored, savedTo, removedFiles\)/);
   assert.equal(undoLine("Undid this turn's changes", ["undo-test/b.txt"], "saved to the branch b", ["undo-test/b.txt"]), "Undid this turn's changes: undo-test/b.txt removed. Saved to the branch b.");
 });
+
+test("the suggested next message still shows when 'Pushed to the branch' comes after the answer (retest, 2026-11-17)", () => {
+  const js = readFileSync(new URL("../public/coder.js", import.meta.url), "utf8");
+  const body = /function suggestNow\(\) \{([\s\S]*?)\n  \}/.exec(js)[1];
+  const suggestNow = new Function("S", "GLOOPY", body);
+  const S = { project: { id: "p" }, events: [{ type: "user", text: "fix it" }, { type: "done", text: "Fixed.", suggest: "now run the tests" }, { type: "github", text: "Pushed to the branch b" }] };
+  assert.equal(suggestNow(S, false), "now run the tests");
+  S.events.push({ type: "user", text: "next" });
+  assert.equal(suggestNow(S, false), "", "a newer message hides it");
+});
