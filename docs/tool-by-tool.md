@@ -726,7 +726,7 @@ suite, with the no-cells fix: 1331 pass, 4 skipped, 0 fail.
    count with the step (from Claude Code's Read output, which read always makes). Test NB12 (the count), NB13 (the line).
 2. An empty text file: Claude Code's Read says `<system-reminder>Warning: the file exists but the contents are empty.</system-reminder>`
    (tried); Coder's says "blank.txt exists, but it is empty." **Changed** (the same word): Claude Code's words exactly, in read
-   and in a hook's rewrite of a read. Tests CD205, HR3.
+   and in a hook's rewrite of a read. Tests CD205, HR3. The full suite with both: 1332 pass, 4 skipped, 0 fail.
 
 Found while doing these (for the owner):
 1. An offset past the end of a file: Claude Code's Read says `<system-reminder>Warning: the file exists but is shorter than the

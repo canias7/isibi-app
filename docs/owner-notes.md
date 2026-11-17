@@ -14,7 +14,7 @@ Found while doing these, for you to decide:
 2. A file you @-mention: Claude Code's line says "Read notes.txt (12 lines)", or "(4 cells)" for a notebook. Coder's says "Read notes.txt (@-mentioned)".
 3. A hook that changes a notebook read's result: Claude Code shows the new cells; Coder keeps the original with a notice.
 
-Tests: NB12 checks the count the step gets, NB13 the line itself; CD205 and HR3 check the new words. The full run is noted below once it ends. On this chat's branch, deployed to coder2.
+Tests: NB12 checks the count the step gets, NB13 the line itself; CD205 and HR3 check the new words. All 1,332 pass. On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: Coder's read shows notebooks exactly as Claude Code's Read does (your words: "make the read match too pls")
 
