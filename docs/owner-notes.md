@@ -15,7 +15,7 @@ I tried 14 cases on Claude Code's real Read; 13 now give exactly the same text.
 
 The one left, for you to decide: when Coder reads part of a file with offset and limit and doesn't reach the end, it adds its own note, "[lines 2-2 of 3; read more with offset 3 and limit 1]". Claude Code adds nothing.
 
-Tests: 20 updated to Claude Code's lines. FULL_COUNT_6N On this chat's branch, deployed to coder2.
+Tests: 22 updated to Claude Code's lines. All 1,333 pass. On this chat's branch, deployed to coder2.
 
 ## 2026-11-17: Three more read differences matched (your words: "yes match all 3 pls")
 

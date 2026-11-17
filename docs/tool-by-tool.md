@@ -779,4 +779,5 @@ The counts that follow from the lines change with them: a PARTIAL view's "of N",
 the hooks' `numLines` and `totalLines` (an empty file: 1 and 1, as Claude Code's).
 
 Tests: BR4, BR6, CD204, CD205, CD209, CD210, CD213, CD215, CD216, CD223, CD224, CD238, CD239, CD240, CD241, CD243, CD250, HR3, HR7
-and CD193 changed to Claude Code's lines; CD205 also reads the empty last line and an empty file past its end. FULL_COUNT_6
+and CD193 changed to Claude Code's lines; CD205 also reads the empty last line and an empty file past its end; CD302 and CD34 too. The full suite: 1333 pass, 4 skipped,
+0 fail.
