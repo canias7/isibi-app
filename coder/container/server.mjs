@@ -5101,7 +5101,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         const sig = netSigOf(nn, list);
         const was = t.netSig; t.netSig = sig;
         if (was === sig) return send(200, { ok: true, applied: true, same: true });
-        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." });
+        t.events.push({ at: Date.now(), type: "note", text: "The environment changed: network " + ({ none: "None", trusted: "Limited", full: "Full", custom: "Limited" }[nn.mode] || nn.mode) + (list.length ? ", " + list.length + " saved key" + (list.length > 1 ? "s" : "") : "") + ", from now on in this job." , why: { was: String(was || "").slice(0, 600), now: sig.slice(0, 600) } });
         return send(200, { ok: true, applied: true });
       }
       if (url.pathname === "/state") {
