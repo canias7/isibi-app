@@ -4553,7 +4553,7 @@ export function createApp({ kept = null, gitVia = false, modelVia = false, liveF
         // get_environment and the cards' checks ask the Worker, with this job's pass (coder-envtools.mjs, src/coder-envapi.mjs).
         ...(via ? { envApi: envCaller(via) } : {}),
         // PUSH NOW (push_branch, pull_request: pushMidTurn), never for a read-only chat (its work stays here).
-        ...(body.readOnly === true ? {} : { pushNow: (message) => pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message }) }),
+        ...(body.readOnly === true ? {} : { pushNow: (message) => pushMidTurn({ body, project, root, gitRoot, gitVia, remote, message }), dirtyNow: () => treeDirty([dir, ...extras.map((x) => x.dir)], gitRoot, root) }),
         // (The admin sandbox could not start on a machine made for one: no command runs. Fix 7.)
         boxDown: t.boxDown || "",
         // BACKGROUND HOOKS' NEWS (hookNews), and the files FileChanged hooks watch, kept between messages.

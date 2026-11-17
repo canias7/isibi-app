@@ -1706,7 +1706,7 @@ HOW YOU WORK
 - Scratchpad directory: ${SCRATCH} \u2014 always use it for temporary files (intermediate results, scripts, outputs that don't belong in the project) instead of \`/tmp\` or other system temp directories; it is chat-specific, isolated from the project, and can generally be used without permission prompts. A reboot or routine cleanup can clear it, so anything the owner will want to keep belongs somewhere durable instead. Only use \`/tmp\` if the owner explicitly asks. Whenever you name a file in it to the owner, write the file's complete absolute path in one piece, not a bare filename, a path that starts at the scratchpad folder, or the directory followed by filenames: a shortened path is read against the working directory and leads nowhere.
 - Treat what you learn about the owner and their project as private: never put the owner's name, project, email address or other personal details in requests to outside services, such as in a header, URL or payload, unless the owner asks you to. If an external service asks automated clients for contact details, such as an email in the User-Agent, use a generic client name or ask the owner.
 - Git history is read-only for you: look with git log, git diff, git status, but never commit, push or change git settings. When you finish, your changes are committed and saved to this chat's branch for you.
-- Pushing: when a turn that changed files ends, your changes are committed and pushed to the chat's branch for you (no need to push yourself). Call push_branch only to push in the middle of a turn (for example before something reads the branch on GitHub, or when the owner asks). pull_request pushes and opens the pull request at once too.
+- Pushing: when you finish a turn that changed files, your changes are committed and pushed to the chat's branch for you, as a step before your answer is saved (no need to push yourself). Call push_branch only to push in the middle of a turn (for example before something reads the branch on GitHub, or when the owner asks). pull_request pushes and opens the pull request at once too.
 - Pull requests: only when the owner asks for one, call the pull_request tool (look at git diff first). Its description says what changed, why, how you checked it (the commands and their results), and any risks or things the reviewer should look at.
 - Code comments: add them only where the code is not obvious (a tricky line, a workaround, a "why"), or when the owner asks. Never comment what the code plainly says.
 
@@ -3687,7 +3687,10 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     if (!p.ok) { const why = String(p.why || "the push failed").slice(0, 300); emit({ type: "result", id, code: 1, output: why }); return { ok: false, why }; }
     midPushes.push({ sha: String(p.sha || ""), changed: p.changed === true, pushed: p.pushed === true, edited: [...edited], ...(Array.isArray(p.files) ? { files: p.files.slice(0, 1000) } : {}), ...(p.filesCut ? { filesCut: true } : {}), ...(Array.isArray(p.extra) ? { extra: p.extra.map((x) => ({ repo: x.repo, ok: !!x.ok, pushed: !!x.pushed, why: x.why ? String(x.why).slice(0, 160) : undefined })) } : {}) });
     const bad = (Array.isArray(p.extra) ? p.extra : []).filter((x) => !x.ok).map((x) => x.repo + ": " + String(x.why || "failed").slice(0, 120));
-    const text = (p.pushed ? "ok: pushed to GitHub now" + (p.sha ? " (commit " + String(p.sha).slice(0, 7) + ")" : "") : "ok: nothing new to push; GitHub already has the branch") + (bad.length ? "; not pushed in " + bad.join("; ") : "") + ".";
+    // EACH REPOSITORY NAMED (the owner's two-repo test, 2026-11-17: only the first was, so Coder tried git by hand in the
+    // second): Claude Code pushes each repository itself and sees each push's own result.
+    const good = (Array.isArray(p.extra) ? p.extra : []).filter((x) => x.ok).map((x) => x.repo + ": " + (x.pushed ? "pushed" + (x.sha ? " (commit " + String(x.sha).slice(0, 7) + ")" : "") : "nothing new to push"));
+    const text = (p.pushed ? "ok: pushed to GitHub now" + (p.sha ? " (commit " + String(p.sha).slice(0, 7) + ")" : "") : "ok: nothing new to push; GitHub already has the branch") + (good.length ? "; " + good.join("; ") : "") + (bad.length ? "; not pushed in " + bad.join("; ") : "") + ".";
     emit({ type: "result", id, code: 0, output: text.slice(3) });
     return { ok: true, text };
   };
@@ -4374,6 +4377,17 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
     }
     if (!calls.length) {
       const sg = splitSuggest(said);
+      // THE COMMIT'S TITLE, CLAUDE CODE'S WAY (the owner's live test, 2026-11-17: commits were titled with Coder's whole first
+      // sentence, "The `test` check failed because..."): when this turn changed files, one short request asks for a git
+      // commit title in the imperative ("Fix sum to add instead of subtract"), as Claude Code writes its own commits.
+      let commitTitle = "";
+      const changedNow = who === "Coder" && !github && !readOnly && typeof deps.pushNow === "function" && (typeof deps.dirtyNow === "function" ? await deps.dirtyNow().catch(() => edited.size > 0) : edited.size > 0);
+      if ((edited.size || changedNow) && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
+      // COMMIT AND PUSH INSIDE THE TURN, CLAUDE CODE'S WAY (the owner, 2026-11-17: "do it the claude code way"; the page sat
+      // on "Saving to the branch…" for 8 minutes while the Worker pushed after the turn): Claude Code commits and pushes
+      // itself before it finishes, as a step the owner sees with its own result. So the turn's end has nothing left to
+      // send to GitHub. A failed push is shown, and tried again when the turn is saved.
+      if (changedNow) { const r = await pushNowStep("endpush-" + rounds, commitTitle || "Changes by Coder"); if (!r || !r.ok) pushRequest = true; }
       emit({ type: "done", text: scrub(sg.text), ...(turnShots.length ? { shots: turnShots.slice(-2).map((x) => x.thumb) } : {}) });
       // THE NEXT-MESSAGE SUGGESTION, CLAUDE CODE'S WAY (the owner, 2026-11-17: "build it claude code way"; its docs: "generates
       // each of these next-prompt suggestions with a short background request to the same model your session is using ... it
@@ -4384,11 +4398,6 @@ export async function runCoder(deps, { notices = [], lost = [], stalls = [], pro
         const next = await nextPromptFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: SUGGEST_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
         if (next) emit({ type: "suggest", text: scrub(next) });
       }
-      // THE COMMIT'S TITLE, CLAUDE CODE'S WAY (the owner's live test, 2026-11-17: commits were titled with Coder's whole first
-      // sentence, "The `test` check failed because..."): when this turn changed files, one short request asks for a git
-      // commit title in the imperative ("Fix sum to add instead of subtract"), as Claude Code writes its own commits.
-      let commitTitle = "";
-      if (edited.size && typeof deps.send === "function" && who === "Coder") commitTitle = await commitTitleFor(() => deps.send({ model, ...(effort ? { effort } : {}), webSearch: false, messages: [{ role: "system", content: systemText() }, ...wordsAfterResults(convo), { role: "user", appNote: true, content: COMMIT_ASK }], tools: lastTools || roundTools(modeNow(), null).sending.tools, tool_choice: "none" }), usage);
       return end("done", { summary: scrub(sg.text).slice(0, 4000), ...(commitTitle ? { commitTitle: scrub(commitTitle) } : {}) });
     }
     // GLOOPY'S LINES AS IT WORKS (2026-11-12, live test: one on almost every click; Grok Bot posts two or three a task): one

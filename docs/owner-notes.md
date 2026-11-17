@@ -4,6 +4,16 @@ The owner's running log, newest first, in plain English. Started fresh on
 2026-11-05: everything from the old website builder was deleted, and the old
 log (81,000 lines) is in git history.
 
+## 2026-11-17: Coder pushes inside the job, the Claude Code way
+
+In the two-repo test the page sat on "Saving to the branch…" for 8 minutes after Coder had answered. The push to GitHub happened in a hidden step after the job, and that step is where the page waited. You asked to do it the way Claude Code does.
+
+Claude Code commits and pushes itself before it finishes, as a step you watch with its own result. Coder now does the same. When a job changed files, a "Push" step appears in the chat with ✓ or ✕, and only then is the job done. So nothing is left to send to GitHub after the job. If the push fails, you see the ✕ and the push is tried again when the job is saved. Jobs started from GitHub (auto-fix, @coder) and read-only chats work as before.
+
+The push result now names every repository. Before, it named only the first, so in a two-repo chat Coder tried git by hand in the second one.
+
+Tests: `coder/test/push-in-turn.test.mjs`.
+
 ## 2026-11-17: A Grok answer cut off mid-way is retried
 
 Group 5's first run: "The AI could not be reached: terminated". The connection to Grok dropped after its answer had started arriving, and Coder only retried connections that failed before any answer. Now a cut-off answer is asked for again too, like Claude Code's retried connection errors (the owner's Stop and the call's own time limit still end it). Test: `coder/test/model-cutoff.test.mjs`. Also: the account had reached Coder's 50-chat limit, so 44 old test chats on canias7/testingforclaude were deleted with the owner's OK.
