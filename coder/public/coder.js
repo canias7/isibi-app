@@ -1173,6 +1173,12 @@
    * options appear only when the selected checkpoint has tracked file changes to revert"): a later job changed a file Coder's
    * file tools had changed (its `tracked`). A chat with jobs from before then: any later job. The Worker's codeToRestore.
    */
+  // (The saved chat's marks name its messages by place: one that no longer names a message on the page means the page's
+  // copy has drifted from the saved one.)
+  function marksOff() {
+    const marks = S.project && Array.isArray(S.project.marks) ? S.project.marks : [];
+    return marks.some((m) => !S.events[m.ev] || S.events[m.ev].type !== 'user');
+  }
   function codeToRestore(commits, turn) {
     const later = commits.filter((c) => Number(c.turn) >= turn);
     if (!later.length) return false;
@@ -1813,6 +1819,10 @@
       bootSeen(r.data);
       // A JOB THAT JUST ENDED (live test, 2026-11-10): the schedules card asks again, so a run that was Running says how
       // it went (Succeeded, Failed, Waiting for you) without typing /schedules.
+      // A JOB THAT JUST ENDED, LOADED AS SAVED (live, group 2, 2026-11-17: the Undo under an answer was missing after a few
+      // jobs in one open chat: the saved chat holds the save's own lines, so its places no longer matched the page's, and
+      // the button looks its message up by place). The page takes the saved chat, as a job saved elsewhere does.
+      const justEnded = !GLOOPY && S.running && !r.data.running;
       if (GLOOPY && S.running && !r.data.running) S.sched = null;
       S.running = !!r.data.running;
       // THE ANSWER IS SHOWN, THE TURN IS BEING SAVED (2026-11-15: the box was freed only ~4 s after the answer, once the commit,
@@ -1821,6 +1831,7 @@
       S.ending = S.running && (!!r.data.ending || !!S.ending);
       syncEntry();
       draw(fresh.length > 0);
+      if (justEnded && S.project && S.project.id === id && marksOff()) reloadChat(id);
     }
     // (The answer shown, the turn now being saved: looked at again at once. 2026-11-15.)
     // (And while the answer is still coming in: new text from Coder, looked at again 300 ms later. 2026-11-16.)
